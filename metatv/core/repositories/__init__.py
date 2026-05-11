@@ -1,0 +1,77 @@
+"""Repository pattern for data access layer - cleanly separates business logic from database queries"""
+
+from sqlalchemy.orm import Session
+
+from .provider import ProviderRepository
+from .channel import ChannelRepository
+from .episode import EpisodeRepository
+from .season import SeasonRepository
+from .filter import FilterRepository
+from .alert import AlertRepository
+
+
+class RepositoryFactory:
+    """Factory for creating repository instances with a shared session"""
+    
+    def __init__(self, session: Session):
+        self.session = session
+        self._providers = None
+        self._channels = None
+        self._episodes = None
+        self._seasons = None
+        self._filters = None
+        self._alerts = None
+    
+    @property
+    def providers(self) -> ProviderRepository:
+        """Get provider repository"""
+        if self._providers is None:
+            self._providers = ProviderRepository(self.session)
+        return self._providers
+    
+    @property
+    def channels(self) -> ChannelRepository:
+        """Get channel repository"""
+        if self._channels is None:
+            self._channels = ChannelRepository(self.session)
+        return self._channels
+    
+    @property
+    def episodes(self) -> EpisodeRepository:
+        """Get episode repository"""
+        if self._episodes is None:
+            self._episodes = EpisodeRepository(self.session)
+        return self._episodes
+    
+    @property
+    def seasons(self) -> SeasonRepository:
+        """Get season repository"""
+        if self._seasons is None:
+            self._seasons = SeasonRepository(self.session)
+        return self._seasons
+    
+    @property
+    def filters(self) -> FilterRepository:
+        """Get filter repository"""
+        if self._filters is None:
+            self._filters = FilterRepository(self.session)
+        return self._filters
+    
+    @property
+    def alerts(self) -> AlertRepository:
+        """Get alert repository"""
+        if self._alerts is None:
+            self._alerts = AlertRepository(self.session)
+        return self._alerts
+
+
+# Export all repositories and factory for convenience
+__all__ = [
+    'RepositoryFactory',
+    'ProviderRepository',
+    'ChannelRepository',
+    'EpisodeRepository',
+    'SeasonRepository',
+    'FilterRepository',
+    'AlertRepository',
+]

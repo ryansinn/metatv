@@ -1,0 +1,243 @@
+"""Notification widget for displaying progress toasts"""
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QProgressBar, QPushButton, QFrame
+)
+from PyQt6.QtCore import Qt, QPropertyAnimation, QRect
+from PyQt6.QtGui import QPalette, QColor
+
+from metatv.core.notifications import Notification, NotificationType
+from metatv.core.config import Config
+
+
+class NotificationCard(QFrame):
+    """Single notification card"""
+    
+    def __init__(self, notification: Notification, config: Config, parent=None):
+        super().__init__(parent)
+        self.notification = notification
+        self.config = config
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Set up notification UI"""
+        self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        self.setMinimumWidth(350)
+        self.setMaximumWidth(400)
+        
+        # Style based on type
+        if self.notification.type == NotificationType.ERROR:
+            bg_color = "#2c1515"
+            border_color = "#ff4444"
+            text_color = "#ffffff"
+        elif self.notification.type == NotificationType.SUCCESS:
+            bg_color = "#152c15"
+            border_color = "#44ff44"
+            text_color = "#ffffff"
+        elif self.notification.type == NotificationType.WARNING:
+            bg_color = "#2c2415"
+            border_color = "#ffaa44"
+            text_color = "#ffffff"
+        else:  # INFO and PROGRESS
+            bg_color = "#1a1a2e"
+            border_color = "#4488ff"
+            text_color = "#ffffff"
+        
+        self.setStyleSheet(f"""
+            NotificationCard {{
+                background-color: {bg_color};
+                border: 2px solid {border_color};
+                border-radius: 6px;
+                padding: 8px;
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+            QPushButton {{
+                color: {text_color};
+                background-color: transparent;
+                border: none;
+                font-size: 18px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.1);
+            }}
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        
+        # Header with title and close button
+        header_layout = QHBoxLayout()
+        
+        # Icon based on type
+        icon_map = {
+            NotificationType.PROGRESS: self.config.notification_progress_icon,
+            NotificationType.SUCCESS: self.config.notification_success_icon,
+            NotificationType.ERROR: self.config.notification_error_icon,
+            NotificationType.WARNING: self.config.notification_warning_icon,
+            NotificationType.INFO: self.config.notification_info_icon
+        }
+        icon = icon_map.get(self.notification.type, "")
+        
+        self.title_label = QLabel(f"{icon} {self.notification.title}")
+        self.title_label.setStyleSheet("font-weight: bold;")
+        header_layout.addWidget(self.title_label)
+        
+        header_layout.addStretch()
+        
+        if self.notification.dismissible:
+            close_btn = QPushButton(self.config.close_icon)
+            close_btn.setFixedSize(20, 20)
+            close_btn.clicked.connect(self.dismiss)
+            header_layout.addWidget(close_btn)
+        
+        layout.addLayout(header_layout)
+        
+        # Message
+        if self.notification.message:
+            self.message_label = QLabel(self.notification.message)
+            self.message_label.setWordWrap(True)
+            self.message_label.setMinimumHeight(20)
+            layout.addWidget(self.message_label)
+        
+        # Progress bar for progress notifications
+        if self.notification.type == NotificationType.PROGRESS:
+            progress_layout = QHBoxLayout()
+            
+            self.progress_bar = QProgressBar()
+            self.progress_bar.setMaximum(100)
+            if self.notification.progress is not None:
+                self.progress_bar.setValue(int(self.notification.progress * 100))
+            progress_layout.addWidget(self.progress_bar)
+            
+            layout.addLayout(progress_layout)
+            
+            # Progress text
+            if self.notification.progress_current is not None and self.notification.progress_total is not None:
+                progress_text = f"{self.notification.progress_current:,} / {self.notification.progress_total:,}"
+                percentage = int(self.notification.progress * 100) if self.notification.progress else 0
+                self.progress_label = QLabel(f"{progress_text} ({percentage}%)")
+                layout.addWidget(self.progress_label)
+        
+        # Force layout update and proper sizing
+        self.updateGeometry()
+        self.adjustSize()
+    
+    def update_notification(self, notification: Notification):
+        """Update notification display"""
+        self.notification = notification
+        
+        # Update title
+        icon_map = {
+            NotificationType.PROGRESS: self.config.notification_progress_icon,
+            NotificationType.SUCCESS: self.config.notification_success_icon,
+            NotificationType.ERROR: self.config.notification_error_icon,
+            NotificationType.WARNING: self.config.notification_warning_icon,
+            NotificationType.INFO: self.config.notification_info_icon
+        }
+        icon = icon_map.get(notification.type, "")
+        self.title_label.setText(f"{icon} {notification.title}")
+        
+        # Update message if exists
+        if hasattr(self, 'message_label') and notification.message:
+            self.message_label.setText(notification.message)
+        
+        # Update progress
+        if hasattr(self, 'progress_bar') and notification.progress is not None:
+            self.progress_bar.setValue(int(notification.progress * 100))
+        
+        if hasattr(self, 'progress_label'):
+            if notification.progress_current is not None and notification.progress_total is not None:
+                progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
+                percentage = int(notification.progress * 100) if notification.progress else 0
+                self.progress_label.setText(f"{progress_text} ({percentage}%)")
+    
+    def dismiss(self):
+        """Dismiss this notification"""
+        if self.parent():
+            self.parent().dismiss_notification(self.notification.id)
+
+
+class NotificationWidget(QWidget):
+    """Widget to display notifications in bottom-right corner"""
+    
+    def __init__(self, notification_manager, config, parent=None):
+        super().__init__(parent)
+        self.notification_manager = notification_manager
+        self.config = config
+        self.notification_cards = {}
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Set up notification widget"""
+        # Make widget a child widget (not a separate window)
+        self.setParent(self.parent())
+        
+        # Layout for stacking notifications
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.layout.setSpacing(8)
+        self.layout.addStretch()
+        
+        # Set fixed width
+        self.setFixedWidth(370)
+        
+        # Position in bottom-right
+        self.reposition()
+    
+    def reposition(self):
+        """Reposition widget in bottom-right corner"""
+        if self.parent():
+            parent_rect = self.parent().rect()
+            
+            # Calculate height based on content
+            self.adjustSize()
+            widget_height = min(self.sizeHint().height(), parent_rect.height() - 100)
+            
+            # Position in bottom-right with margins
+            x = parent_rect.width() - self.width() - 20
+            y = parent_rect.height() - widget_height - 20
+            
+            self.setGeometry(x, y, self.width(), widget_height)
+            self.raise_()
+    
+    def update_notifications(self, notifications):
+        """Update displayed notifications"""
+        # Remove notifications that are no longer visible
+        current_ids = {n.id for n in notifications}
+        for notif_id in list(self.notification_cards.keys()):
+            if notif_id not in current_ids:
+                card = self.notification_cards.pop(notif_id)
+                self.layout.removeWidget(card)
+                card.deleteLater()
+        
+        # Update or add notifications
+        for notification in notifications:
+            if notification.id in self.notification_cards:
+                # Update existing card
+                self.notification_cards[notification.id].update_notification(notification)
+            else:
+                # Add new card
+                card = NotificationCard(notification, self.config, self)
+                self.notification_cards[notification.id] = card
+                # Insert before stretch
+                self.layout.insertWidget(self.layout.count() - 1, card)
+                # Force card to update its size
+                card.adjustSize()
+                card.updateGeometry()
+        
+        # Show/hide widget
+        if notifications:
+            self.show()
+            # Force layout update before repositioning
+            self.layout.update()
+            self.updateGeometry()
+            self.reposition()
+        else:
+            self.hide()
+    
+    def dismiss_notification(self, notification_id: str):
+        """Dismiss a notification"""
+        self.notification_manager.dismiss(notification_id)
