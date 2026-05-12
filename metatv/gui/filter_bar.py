@@ -17,6 +17,7 @@ class ToggleChip(QPushButton):
         super().__init__()
         self.label = label
         self._enabled = enabled
+        self._count = None  # Optional count badge
         self.setCheckable(True)
         self.setChecked(enabled)
         self.update_appearance()
@@ -27,10 +28,20 @@ class ToggleChip(QPushButton):
         self._enabled = self.isChecked()
         self.update_appearance()
     
+    def set_count(self, count: int):
+        """Set badge count to display"""
+        self._count = count if count > 0 else None
+        self.update_appearance()
+    
     def update_appearance(self):
         """Update button appearance based on state"""
+        # Build label with optional count badge
+        label_text = self.label
+        if self._count is not None:
+            label_text = f"{self.label} ({self._count})"
+        
         if self._enabled:
-            self.setText(f"{self.label} ●")
+            self.setText(f"{label_text} ●")
             self.setStyleSheet("""
                 QPushButton {
                     background-color: #4488ff;
@@ -45,7 +56,7 @@ class ToggleChip(QPushButton):
                 }
             """)
         else:
-            self.setText(f"{self.label} ○")
+            self.setText(f"{label_text} ○")
             self.setStyleSheet("""
                 QPushButton {
                     background-color: #e0e0e0;

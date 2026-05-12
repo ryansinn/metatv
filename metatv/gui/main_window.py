@@ -30,6 +30,7 @@ from metatv.gui.sidebar_sections import (
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
+from metatv.gui.ppv_view import PPVView
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
@@ -342,6 +343,23 @@ class MainWindow(QMainWindow):
         self.series_chip.clicked.connect(self.on_filter_changed)
         
         media_layout.addStretch()
+        
+        # Special content view chips (PPV, Events, Sports)
+        media_layout.addWidget(QLabel(" | "))
+        media_layout.addWidget(QLabel("Special:"))
+        
+        self.ppv_chip = ToggleChip("💰 PPV", enabled=False)
+        self.ppv_chip.clicked.connect(self.on_special_view_toggle)
+        media_layout.addWidget(self.ppv_chip)
+        
+        self.events_chip = ToggleChip("🎪 Events", enabled=False)
+        self.events_chip.clicked.connect(self.on_special_view_toggle)
+        media_layout.addWidget(self.events_chip)
+        
+        self.sports_chip = ToggleChip("⚽ Sports", enabled=False)
+        self.sports_chip.clicked.connect(self.on_special_view_toggle)
+        media_layout.addWidget(self.sports_chip)
+        
         self.content_layout.addWidget(media_widget)
         
         # Search and filter controls
@@ -389,7 +407,30 @@ class MainWindow(QMainWindow):
         self.channels_list.currentItemChanged.connect(self.on_channel_selection_changed)
         self.content_layout.addWidget(self.channels_list)
         
-        # Stats label below channel list
+        # Series tree view (hidden by default)
+        self.series_tree = QTreeWidget()
+        self.series_tree.setHeaderLabels(["Title", "Episode", "Runtime", "Rating"])
+        self.series_tree.setColumnWidth(0, 400)
+        self.series_tree.setColumnWidth(1, 80)
+        self.series_tree.setColumnWidth(2, 80)
+        self.series_tree.setColumnWidth(3, 80)
+        # Disable Qt's default double-click expansion behavior (it defaults to True in Qt6)
+        # We handle expansion manually in play_series_item() to differentiate seasons vs episodes
+        self.series_tree.setExpandsOnDoubleClick(False)
+        self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
+        self.series_tree.itemDoubleClicked.connect(self.play_series_item)
+        self.series_tree.setVisible(False)
+        self.content_layout.addWidget(self.series_tree)
+        
+        # PPV view (hidden by default)
+        self.ppv_view = PPVView(self.config, self.db, self)
+        self.ppv_view.play_channel_requested.connect(self.play_ppv_event)
+        self.ppv_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.ppv_view.setVisible(False)
+        self.content_layout.addWidget(self.ppv_view)
+        
+        # Stats label below all views
         stats_container = QWidget()
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setContentsMargins(10, 5, 10, 5)
@@ -400,19 +441,6 @@ class MainWindow(QMainWindow):
         stats_layout.addStretch()
         
         self.content_layout.addWidget(stats_container)
-        
-        # Series tree view (hidden by default)
-        self.series_tree = QTreeWidget()
-        self.series_tree.setHeaderLabels(["Title", "Info"])
-        self.series_tree.setColumnWidth(0, 400)
-        # Disable Qt's default double-click expansion behavior (it defaults to True in Qt6)
-        # We handle expansion manually in play_series_item() to differentiate seasons vs episodes
-        self.series_tree.setExpandsOnDoubleClick(False)
-        self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
-        self.series_tree.itemDoubleClicked.connect(self.play_series_item)
-        self.series_tree.setVisible(False)
-        self.content_layout.addWidget(self.series_tree)
         
         return content
     
@@ -778,6 +806,11 @@ class MainWindow(QMainWindow):
             
             # Apply current search text filter
             self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
+            
+            # Update special content view badges
+            if hasattr(self, 'ppv_chip'):
+                ppv_count = session.query(ChannelDB).filter(ChannelDB.special_view == 'ppv').count()
+                self.ppv_chip.set_count(ppv_count)
             
             # Update status bar
             if provider_id:
@@ -1469,9 +1502,10 @@ class MainWindow(QMainWindow):
         """Switch content area to series tree view"""
         self.view_mode = "series"
         
-        # Hide list, show tree
+        # Hide list and special views, show tree
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(True)
+        self.ppv_view.setVisible(False)
         
         # Show back button and breadcrumb
         self.back_button.setVisible(True)
@@ -1490,9 +1524,10 @@ class MainWindow(QMainWindow):
         """Switch content area back to channel list view"""
         self.view_mode = "list"
         
-        # Show list, hide tree
+        # Show list, hide tree and special views
         self.channels_list.setVisible(True)
         self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(False)
         
         # Hide back button
         self.back_button.setVisible(False)
@@ -1502,11 +1537,111 @@ class MainWindow(QMainWindow):
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
         
+        # Restore channel stats (based on all_channels list)
+        if hasattr(self, 'all_channels') and self.all_channels:
+            total_channels = len(self.all_channels)
+            # Count what's actually in the list view currently
+            shown = self.channels_list.count()
+            # Subtract non-channel items (warnings, messages, etc.)
+            for i in range(self.channels_list.count()):
+                item = self.channels_list.item(i)
+                if not item.data(Qt.ItemDataRole.UserRole):  # No channel data = message item
+                    shown -= 1
+            
+            filtered = total_channels - shown
+            if filtered > 0:
+                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
+            else:
+                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
+        
         # Clear series data
         self.current_series = None
         self.series_data = None
         
         self.status_bar.showMessage("Returned to channel list")
+    
+    def switch_to_ppv_view(self):
+        """Switch content area to PPV view"""
+        self.view_mode = "ppv"
+        
+        # Hide list and tree, show PPV view
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(True)
+        
+        # Hide back button
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+        
+        # Disable search (PPV has its own filtering)
+        self.search_input.setEnabled(False)
+        self.search_input.setPlaceholderText("Search not available in PPV view")
+        
+        # Activate PPV view (loads events)
+        self.ppv_view.on_activate()
+        
+        # Update stats
+        ppv_count = self.ppv_view.get_ppv_event_count()
+        self.stats_label.setText(f"{ppv_count} PPV events")
+    
+    def on_special_view_toggle(self):
+        """Handle special content view chip toggles"""
+        sender = self.sender()
+        
+        # Determine which chip was clicked
+        if sender == self.ppv_chip:
+            if self.ppv_chip.is_enabled():
+                # Disable other special chips
+                self.events_chip.set_enabled(False)
+                self.sports_chip.set_enabled(False)
+                # Switch to PPV view
+                self.switch_to_ppv_view()
+            else:
+                # Return to list view
+                self.switch_to_list_view()
+        
+        elif sender == self.events_chip:
+            if self.events_chip.is_enabled():
+                # Disable other special chips
+                self.ppv_chip.set_enabled(False)
+                self.sports_chip.set_enabled(False)
+                # TODO: Switch to events view (not implemented yet)
+                self.status_bar.showMessage("Events view coming soon!")
+                self.events_chip.set_enabled(False)
+            else:
+                # Return to list view
+                self.switch_to_list_view()
+        
+        elif sender == self.sports_chip:
+            if self.sports_chip.is_enabled():
+                # Disable other special chips
+                self.ppv_chip.set_enabled(False)
+                self.events_chip.set_enabled(False)
+                # TODO: Switch to sports view (not implemented yet)
+                self.status_bar.showMessage("Sports view coming soon!")
+                self.sports_chip.set_enabled(False)
+            else:
+                # Return to list view
+                self.switch_to_list_view()
+    
+    def play_ppv_event(self, channel):
+        """Play PPV event from PPV view"""
+        logger.info(f"Playing PPV event: {channel.name}")
+        
+        # Validate stream URL
+        if not channel.stream_url:
+            self.status_bar.showMessage(f"No stream URL available for {channel.name}")
+            return
+        
+        # Play through player manager
+        self.player_manager.play(channel.stream_url, channel.name)
+        
+        # Update play count and last_played
+        with self.db.get_session() as session:
+            repos = RepositoryFactory(session)
+            repos.channels.mark_played(channel.id)
+        
+        self.status_bar.showMessage(f"Playing: {channel.name}")
     
     def navigate_back(self):
         """Navigate back from series view to channel list"""
@@ -1531,11 +1666,20 @@ class MainWindow(QMainWindow):
             
             logger.info(f"Found {len(seasons)} seasons in database for series {self.current_series.source_id}")
             
+            total_episodes = 0
+            
             for season in seasons:
                 # Create season item
                 season_item = QTreeWidgetItem(self.series_tree)
                 season_item.setText(0, f"{self.season_icon} {season.name}")
                 season_item.setText(1, f"{season.episode_count} episodes")
+                
+                # Extract rating from season raw_data if available
+                if season.raw_data and isinstance(season.raw_data, dict):
+                    rating = season.raw_data.get("rating", "")
+                    if rating:
+                        season_item.setText(3, f"★ {rating}")
+                
                 season_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "season", "data": season})
                 
                 logger.debug(f"Added season: {season.name} ({season.episode_count} episodes)")
@@ -1543,6 +1687,7 @@ class MainWindow(QMainWindow):
                 # Get episodes for this season
                 repos = RepositoryFactory(session)
                 episodes = repos.episodes.get_by_season(season_id=season.id)
+                total_episodes += len(episodes)
                 
                 logger.debug(f"Found {len(episodes)} episodes for {season.name}")
                 
@@ -1552,15 +1697,34 @@ class MainWindow(QMainWindow):
                     watched_indicator = "✓ " if episode.is_watched else ""
                     episode_item.setText(0, f"  {self.episode_icon} {watched_indicator}{episode.title}")
                     
-                    # Show duration and episode number
-                    info_text = f"E{episode.episode_num}"
+                    # Episode number
+                    episode_item.setText(1, f"E{episode.episode_num}")
+                    
+                    # Duration
                     if episode.duration:
-                        info_text += f" • {episode.duration}"
-                    episode_item.setText(1, info_text)
+                        episode_item.setText(2, episode.duration)
+                    
+                    # Rating from episode raw_data
+                    if episode.raw_data and isinstance(episode.raw_data, dict):
+                        info = episode.raw_data.get("info", {})
+                        if isinstance(info, dict):
+                            rating = info.get("rating", "")
+                            if rating:
+                                episode_item.setText(3, f"★ {rating}")
+                    
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
                 
                 # Initially collapse seasons
                 season_item.setExpanded(False)
+            
+            # Update stats label with season/episode counts
+            if len(seasons) == 0:
+                self.stats_label.setText("No items to display")
+            else:
+                # Use generic "items" term since it could be Seasons, Specials, etc.
+                season_word = "item" if len(seasons) == 1 else "items"
+                episode_word = "episode" if total_episodes == 1 else "episodes"
+                self.stats_label.setText(f"Showing {len(seasons)} {season_word} · {total_episodes} {episode_word}")
     
     def on_tree_item_expanded(self, item):
         """Handle tree item expanded (no-op, using native arrows)"""
@@ -1592,7 +1756,7 @@ class MainWindow(QMainWindow):
             self.play_episode(episode)
     
     def play_episode(self, episode):
-        """Play an episode"""
+        """Play an episode and optionally queue subsequent episodes"""
         logger.info(f"Playing episode: {episode.title}")
         
         if not episode.stream_url:
@@ -1624,25 +1788,75 @@ class MainWindow(QMainWindow):
                 logger.info(f"Updated parent series playback: {parent_channel.name} (play count: {parent_channel.play_count})")
             else:
                 logger.warning(f"Could not find parent channel for episode. series_id={episode.series_id}, provider_id={episode.provider_id}")
+            
+            # Get subsequent episodes to queue if auto-queue is enabled
+            episodes_to_queue = []
+            if self.config.autoplay_season_episodes and episode.season_id:
+                # Get all episodes in this season
+                all_episodes = repos.episodes.get_by_season(season_id=episode.season_id)
+                
+                # Filter for episodes that come after the current one
+                episodes_to_queue = [
+                    ep for ep in all_episodes 
+                    if ep.episode_num > episode.episode_num
+                ]
+                
+                # Sort by episode number
+                episodes_to_queue.sort(key=lambda ep: ep.episode_num)
+                
+                if episodes_to_queue:
+                    episode_range = f"E{episodes_to_queue[0].episode_num}-E{episodes_to_queue[-1].episode_num}"
+                    logger.info(f"Will queue {len(episodes_to_queue)} subsequent episodes: {episode_range}")
+                    logger.debug(f"Queue list: {[f'E{ep.episode_num}: {ep.title}' for ep in episodes_to_queue]}")
         
         # Update UI lists in real-time
         self.load_history()
         self.load_favorites()
         
-        # Launch player
-        self.launch_player_for_episode(episode.stream_url, episode.title)
+        # Launch player with first episode
+        self.launch_player_for_episode(episode.stream_url, episode.title, episodes_to_queue)
     
-    def launch_player_for_episode(self, stream_url, title):
-        """Launch media player for an episode"""
+    def launch_player_for_episode(self, stream_url, title, queue_episodes=None):
+        """Launch media player for an episode and queue subsequent episodes
+        
+        Args:
+            stream_url: URL of the episode to play
+            title: Title of the episode
+            queue_episodes: Optional list of EpisodeDB objects to queue after current episode
+        """
         if not self.player_manager.is_available():
             logger.error("No media player available")
             self.status_bar.showMessage("Error: No media player found. Please install mpv.")
             return
         
-        # Play using player manager
+        # Play first episode using player manager
+        logger.info(f"Playing first episode: {title}")
         if self.player_manager.play(stream_url, title):
-            logger.info(f"Playing episode: {title}")
-            QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {title}"))
+            
+            # Queue subsequent episodes if provided
+            if queue_episodes:
+                from metatv.core.players.base import QueueMode
+                queued_count = 0
+                
+                logger.info(f"Queueing {len(queue_episodes)} subsequent episodes...")
+                for ep in queue_episodes:
+                    if ep.stream_url:
+                        if self.player_manager.queue(ep.stream_url, ep.title, QueueMode.APPEND):
+                            queued_count += 1
+                            logger.debug(f"Queued E{ep.episode_num}: {ep.title}")
+                        else:
+                            logger.warning(f"Failed to queue E{ep.episode_num}: {ep.title}")
+                
+                if queued_count > 0:
+                    status_msg = f"Playing: {title} (+{queued_count} queued)"
+                    logger.info(f"Successfully queued {queued_count}/{len(queue_episodes)} episodes")
+                    logger.warning(f"Note: mpv limitation - queued episodes will show current title until they start playing")
+                else:
+                    status_msg = f"Playing: {title}"
+            else:
+                status_msg = f"Playing: {title}"
+            
+            QTimer.singleShot(2000, lambda: self.status_bar.showMessage(status_msg))
         else:
             logger.error(f"Failed to play episode: {title}")
             self.status_bar.showMessage(f"Error playing: {title}")

@@ -21,6 +21,14 @@ theme: "auto"
 # Default icons are included, but you can specify a custom theme
 icon_theme: "default"
 
+# Display Settings
+
+# Show full episode titles in series tree view
+# When true (default): Shows full episode titles as provided by API (e.g., "The Rookie - Pilot")
+# When false: Attempts to remove redundant series name prefix from episode titles
+# Note: Deduplication requires analyzing episode data structure first
+show_full_episode_titles: true
+
 # Custom icon overrides (optional)
 # Specify full paths to custom icon files
 icons:
@@ -48,6 +56,24 @@ preferred_player: "mpv"
 #   "single-instance" - Reuse existing player window (recommended)
 #   "multiple-instances" - Launch new player for each stream
 player_mode: "single-instance"
+
+# Close player automatically when stream finishes
+# When true: Player exits when playback completes (restarts quickly on next play)
+# When false: Player window stays open waiting for next stream (instant channel switching)
+# Note: With single-instance mode, the player process is reused either way for speed
+close_player_when_finished: true
+
+# Maximum number of simultaneous player instances
+# 0 = Use provider's max_connections limit (recommended)
+# 1 = Single player instance across all sources (default)
+# 2+ = Allow multiple simultaneous streams
+# -1 = Unlimited (not recommended, may violate provider terms)
+max_player_instances: 1
+
+# Auto-queue subsequent episodes when playing from season
+# When true: Clicking episode 5 of 10 will queue episodes 6-10 automatically
+# When false: Only play the selected episode
+autoplay_season_episodes: true
 
 # Extra command-line arguments for MPV player
 # See: https://mpv.io/manual/master/

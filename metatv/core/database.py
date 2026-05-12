@@ -41,6 +41,14 @@ class ChannelDB(Base):
     
     raw_data = Column(JSON)
     
+    # Special content categorization (PPV, Events, Sports)
+    special_view = Column(String, index=True)  # 'ppv', 'live_event', 'sports', or NULL
+    event_start_time = Column(DateTime, index=True)  # Parsed event date/time for PPV/events
+    sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
+    league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
+    team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
+    event_metadata = Column(JSON)  # Additional parsed data (event name, quality, etc.)
+    
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -110,6 +118,7 @@ class ProviderDB(Base):
     
     total_channels = Column(Integer, default=0)
     total_categories = Column(Integer, default=0)
+    max_connections = Column(Integer, default=1)  # Maximum simultaneous streams allowed by provider
     
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

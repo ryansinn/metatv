@@ -67,9 +67,19 @@ class MPVPlayer(PlayerPlugin):
             cmd = [
                 "mpv",
                 f"--input-ipc-server={self.socket_path}",
-                "--idle=yes",  # Keep running even when no file is loaded
-                "--force-window=yes"  # Show window immediately
-            ] + self.config.mpv_extra_args
+                "--force-window=yes",  # Show window immediately
+                "--keep-open=no"  # Don't pause at end of video
+            ]
+            
+            # Configure idle behavior (whether to quit when playlist is empty)
+            if self.config.close_player_when_finished:
+                # Quit after video finishes (will restart quickly on next play)
+                cmd.append("--idle=once")
+            else:
+                # Keep window open for next video (instant channel switching)
+                cmd.append("--idle=yes")
+            
+            cmd += self.config.mpv_extra_args
             
             logger.info(f"Starting single mpv instance: {' '.join(cmd)}")
             
@@ -183,6 +193,13 @@ class MPVPlayer(PlayerPlugin):
             
         Returns:
             True if successful, False otherwise
+            
+        Note:
+            mpv's IPC protocol doesn't support setting titles for queued playlist items.
+            All queued items will show the currently playing item's title until they
+            start playing. To fix this properly, we need to implement the IPC event
+            system (Phase 4) to listen for playlist-pos changes and set titles when
+            each file starts playing.
         """
         logger.info(f"MPVPlayer.queue: {title} (mode: {mode.value})")
         
@@ -205,6 +222,7 @@ class MPVPlayer(PlayerPlugin):
         mpv_mode = mode_map.get(mode, "append-play")
         
         # Send loadfile command with appropriate flag
+        # TODO: Set title when file starts playing (requires IPC event monitoring)
         command = {
             "command": ["loadfile", url, mpv_mode],
             "request_id": 1

@@ -234,6 +234,30 @@ class SeriesLoadThread(QThread):
             
             logger.info(f"Found {season_count} seasons and {total_episodes} episodes for {self.series_name}")
             
+            # Handle case where there are episodes but no seasons metadata
+            # Create a default season so episodes can be stored and displayed
+            if season_count == 0 and total_episodes > 0:
+                logger.info(f"No seasons metadata but {total_episodes} episodes found - creating default season")
+                # Find which season numbers have episodes
+                season_nums = [int(s) for s in episodes_by_season.keys() if s.isdigit()]
+                if not season_nums:
+                    season_nums = [1]  # Default to season 1
+                
+                # Create a season entry for each season number that has episodes
+                seasons = []
+                for season_num in sorted(season_nums):
+                    season_key = str(season_num)
+                    episode_count = len(episodes_by_season.get(season_key, []))
+                    seasons.append({
+                        "season_number": season_num,
+                        "name": f"Season {season_num}",
+                        "cover": "",
+                        "episodes": episode_count
+                    })
+                    logger.debug(f"Created default season {season_num} with {episode_count} episodes")
+                
+                season_count = len(seasons)
+            
             for season_data in seasons:
                 logger.debug(f"Processing season, type: {type(season_data)}, value: {season_data}")
                 

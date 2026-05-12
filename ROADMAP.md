@@ -24,6 +24,12 @@
 ### 🔄 In Progress
 - [ ] Test all new features (favorites, history, playback tracking)
 - [ ] Verify series data loads correctly from TREX
+- [x] **Sports/PPV/Events data investigation**: ✅ COMPLETE
+  - Analyzed 284,347 channels: 117 PPV, 20 Live Events, 11,920 Sports
+  - Database migration created and applied (003_add_special_content.py)
+  - Detection logic implemented (metatv/core/special_content.py)
+  - PPV view implemented with countdown timers
+  - Ready to test PPV view in GUI!
 
 ### 🐛 Known Issues / Fixes Needed
 - [x] **Notification auto-dismiss**: Fixed with parent chain walk-up, but needs refactoring (see below) ✅
@@ -32,6 +38,19 @@
 - [x] **Series tree icons**: Removed duplicate collapse/expand icons, using native Qt arrows ✅
 - [x] **Live stream validation**: HTTP HEAD checks before sending to player, automatic failover ✅
 - [ ] **Series search**: Search functionality disabled in series view (could add episode/season search later)
+- [ ] **Queued episode titles**: All queued episodes show first episode's title in mpv player
+  - **Limitation**: mpv IPC doesn't support setting titles for queued playlist items
+  - **Impact**: Episodes 2-10 in queue all display "Episode 1" title until they start playing
+  - **Cause**: `set_property force-media-title` only affects currently playing file, not queued items
+  - **Proper solution**: Implement MPV IPC event system (Phase 4) to listen for `playlist-pos` changes and set title when each file starts
+  - **Priority**: Medium (doesn't affect playback, just title display)
+  
+  - [ ] **Queued episode history**: History only updates for first episode in queue, not subsequent auto-played episodes
+  - **Limitation**: Currently only the manually-clicked episode is marked as played in history
+  - **Impact**: If user clicks episode 5 and episodes 6-10 auto-play, only episode 5 shows in history
+  - **Temporary workaround**: User can manually mark episodes as watched via context menu
+  - **Proper solution**: Implement MPV IPC event system (Phase 4) to monitor playlist position changes
+  - **Priority**: Medium (works for single episodes, enhancement needed for binge-watching)
 
 ### 🔧 Code Quality / Refactoring
 - [x] **Notification system architecture** ✅
@@ -58,6 +77,21 @@
   - **Solution**: Created PlayerPlugin base class, MPVPlayer implementation, PlayerManager facade
   - **Benefits**: Player-agnostic UI, easy to add VLC/ffplay, clean IPC handling, testable
   - **Completed**: MainWindow uses PlayerManager instead of direct mpv process management
+  - **Feature**: Configurable auto-close behavior (`close_player_when_finished` config option)
+    - When true (default): Player exits when stream finishes, restarts quickly on next play (~100ms)
+    - When false: Player window stays open waiting for next stream (instant switching)
+    - Implementation: Use `--idle=once` (quit when done) vs `--idle=yes` (stay open) in mpv
+    - Single-instance mode reuses the same mpv process for speed regardless of setting
+  - **Feature**: Multi-stream instance limiting (`max_player_instances` config option)
+    - Enforces provider's simultaneous connection limits
+    - 0 = Use provider's max_connections (respects terms of service)
+    - 1 = Single player (default, fastest)
+    - N = Allow N simultaneous streams
+  - **Feature**: Auto-queue episode playback (`autoplay_season_episodes` config option)
+    - Automatically queues all subsequent episodes in season
+    - Example: Click episode 5 of 10 → plays 5, queues 6-10
+    - Uses mpv IPC `loadfile append` for seamless playback
+    - Status bar shows: \"Playing: Episode 5 (+5 queued)\"
 
 - [x] **Channel filtering system** ✅
   - **Problem**: 200k+ unfiltered channels overwhelming to browse, need language/quality/platform filtering
@@ -268,6 +302,184 @@
   - Reduce 240k channels to ~20-30k unique titles
 
 ### UI Enhancements
+- [ ] **Special Content Categories UI** (PPV, Live Events, Sports)
+  - **Problem**: Sports, PPV, and event streams need different UX than regular channels
+    - Time-sensitive content (games, matches, events with specific start times)
+    - Need to show EPG/schedule information prominently
+    - Different browsing patterns (by league, by date, by event type)
+    - PPV content may have pricing/access information
+    - Real-time status indicators (Live Now, Starting Soon, Ended)
+  
+  - **Data investigation** ✅ COMPLETE:
+    - Analysis shows 9,313 sports channels, 8,548 PPV channels, 9,500 event channels
+    - **PPV Pattern**: Date/time in channel name - `"End | Rolling Loud | all | 11-05-2026 | 09:37 (GMT) | 8K EXCLUSIVE | US: SOCCER PPV 1"`
+    - **Live Events Pattern**: `[EVENT]` or `[LIVE-EVENT]` tags in channel name
+    - **Sports Pattern**: Broadcast networks (ESPN, Sky Sports), league channels, team channels
+    - **Category structure**: TREX uses hashtag organizational headers (## SOCCER PPV, etc.)
+    - **No structured fields**: Everything is in channel name/category, requires parsing
+  
+  - **Three-View Approach**:
+    
+    **1. PPV View** (🎯 Start Here - Easiest)
+    - **Detection**: Channel name contains date pattern + "PPV" keyword
+    - **UI**: 
+      - Time-based grid layout sorted by event date
+      - Parse event name, date/time, quality from channel name
+      - Countdown timers for upcoming events
+      - "Ended" badge for past events (may be replays)
+      - Event poster/thumbnail from stream_icon
+    - **Benefits**: Clear pattern in names, easy to parse, high user value
+    
+    **2. Live Events View** (🎪 Second Priority)
+    - **Detection**: `[EVENT]` or `[LIVE-EVENT]` in channel name
+    - **UI**:
+      - "Happening Now" banner at top for currently live events
+      - Grid layout with event posters
+      - Real-time status indicators (Live Now, Starting Soon)
+      - Filter by event type (concerts, sports events, special broadcasts)
+    - **Benefits**: Easy tag-based detection, real-time focus
+    
+    **3. Sports View** (⚽ General Discovery - Multi-level Filtering)
+    - **Detection**: All remaining sports channels (networks, leagues, teams)
+    - **UI**: Three-level cascade filtering (same pattern as Language/Quality/Platform):
+      ```
+      [Sport ▾]        [League ▾]              [Team ▾]
+      ☑ Soccer         ☑ Premier League        ☑ Man United
+      ☑ Basketball     ☑ La Liga               ☑ Liverpool  
+      ☐ Football       ☑ NBA                   ☐ Arsenal
+      ☐ Baseball       ☐ NFL                   ☐ Real Madrid
+      ```
+    - **Smart cascade filtering**:
+      - Select "Soccer" → League dropdown shows only soccer leagues
+      - Select "Premier League" → Team dropdown shows only PL teams
+      - Multiple selections at each level
+      - Works like existing filter system (familiar UX)
+    - **Channel list**: Shows filtered results with search
+    - **Benefits**: Flexible discovery, consistent with existing UI patterns
+  
+  - **Detection logic**:
+    ```python
+    def detect_special_view(channel: ChannelDB) -> Optional[str]:
+        name = channel.name.lower()
+        
+        # Priority 1: PPV (has date/time in name)
+        # Pattern: "End | Event Name | all | 11-05-2026 | 09:37 (GMT) | ..."
+        if 'ppv' in name and re.search(r'\d{2}-\d{2}-\d{4}', channel.name):
+            return 'ppv'
+        
+        # Priority 2: Live Events (has [EVENT] tag)
+        if '[event]' in name or '[live-event]' in name:
+            return 'live_event'
+        
+        # Priority 3: General Sports (everything else with sports keywords)
+        category_clean = channel.category.lstrip('#').strip().lower()
+        sports_keywords = ['sport', 'football', 'soccer', 'nba', 'nfl', 'nhl', 'mlb',
+                           'boxing', 'ufc', 'fight', 'racing', 'cricket', 'tennis',
+                           'rugby', 'hockey', 'basketball', 'baseball', 'f1', 'moto',
+                           'premier league', 'champions league', 'la liga', 'bundesliga',
+                           'espn', 'sky sports', 'bein', 'tsn', 'fox sports']
+        
+        if any(kw in name or kw in category_clean for kw in sports_keywords):
+            return 'sports'
+        
+        return None
+    
+    def parse_sport_metadata(channel: ChannelDB) -> dict:
+        """Extract sport, league, team from channel name/category"""
+        # Parse channel name for sport type, league, team
+        # E.g., "EN| NBA: Lakers vs Celtics" → sport=Basketball, league=NBA, teams=[Lakers, Celtics]
+        # E.g., "Premier League - Man United TV" → sport=Soccer, league=Premier League, team=Man United
+        # Return: {'sport': str, 'league': str, 'team': str, 'vs_match': bool}
+        pass
+    ```
+  
+  - **Database changes**:
+    - Add `special_view` column to ChannelDB: "ppv", "live_event", "sports", or NULL
+    - Add `sport_type` column: "soccer", "basketball", "football", etc.
+    - Add `league_name` column: "Premier League", "NBA", "NFL", etc.
+    - Add `team_name` column: "Manchester United", "Lakers", etc.
+    - Add `event_start_time` column (DateTime) - parsed from PPV channel names
+    - Add `event_metadata` JSON column for additional parsed data
+    - Migration to auto-detect and populate for existing channels
+  
+  - **Implementation Phases**:
+    
+    **Phase 1: PPV View** (2-3 hours) 🎯 ✅ COMPLETE
+    - ✅ Create `detect_ppv_channel()` function (date pattern + "PPV" keyword)
+    - ✅ Create `parse_ppv_event()` to extract event name, date/time, quality
+    - ✅ Add database columns: `special_view`, `event_start_time`, `event_metadata`
+    - ✅ Create migration (003_add_special_content.py) for PPV channels
+    - ✅ Create PPVView widget with time-based grid layout
+    - ✅ Add [💰 PPV (count)] toggle button with event count badge
+    - ✅ Parse dates, show countdown timers
+    - ✅ Sort by date (upcoming first)
+    - ✅ Created `metatv/scripts/populate_special_content.py` utility script
+    - ✅ Categorized existing channels: 117 PPV, 20 Events, 11,920 Sports
+    - **Result**: PPV view ready to test in GUI! Launch MetaTV to see PPV events with countdown timers
+    
+    **Phase 2: Live Events View** (2-3 hours)
+    - Create `detect_live_event_channel()` function ([EVENT] tag detection)
+    - Update migration to populate live_event channels
+    - Create LiveEventsView widget with "Happening Now" section
+    - Add [🎪 Events] toggle button
+    - Real-time status indicators
+    - Grid layout with event posters
+    
+    **Phase 3: Sports View - Detection & Parsing** (3-4 hours)
+    - Create `detect_sports_channel()` function (sports keywords)
+    - Create `parse_sport_metadata()` to extract sport/league/team:
+      - Build sport keyword mapping (basketball → NBA, soccer → Premier League, etc.)
+      - Parse league from channel name ("EN| NBA:" → NBA)
+      - Parse team from channel name ("Lakers vs Celtics" → Lakers, Celtics)
+      - Handle broadcast networks (ESPN, Sky Sports)
+    - Add database columns: `sport_type`, `league_name`, `team_name`
+    - Update migration to populate sports metadata
+    - Build unique lists: sports, leagues (per sport), teams (per league)
+    
+    **Phase 4: Sports View - UI & Filtering** (2-3 hours)
+    - Create SportsView widget with three-level cascade filters
+    - Add [⚽ Sports] toggle button
+    - Implement FilterDropdown widgets (reuse existing component):
+      - Sport dropdown (Soccer, Basketball, Football, etc.)
+      - League dropdown (filtered by selected sports)
+      - Team dropdown (filtered by selected sports + leagues)
+    - Wire filter changes to channel list updates
+    - Save filter state to config (persistent across restarts)
+    - Channel list shows filtered results with search
+    
+    **Phase 5: EPG Integration** (Future - requires Phase 5 EPG system)
+    - Parse EPG for sports schedule and metadata
+    - Display team names, scores, match times in PPV/Events
+    - Real-time "Live Now" status from EPG
+    - Update countdowns based on EPG data
+  
+  - **Top-level UI**:
+    ```
+    [All] [Live] [Movies] [Series] | [💰 PPV] [🎪 Events] [⚽ Sports]
+    
+    When [⚽ Sports] selected:
+    ┌─────────────────────────────────────────────────┐
+    │ [Sport ▾] [League ▾] [Team ▾]    [Search...]   │
+    ├─────────────────────────────────────────────────┤
+    │ Channel List (filtered by selections)           │
+    │ - Sky Sports Premier League                     │
+    │ - ESPN NBA                                      │
+    │ - Manchester United TV                          │
+    └─────────────────────────────────────────────────┘
+    ```
+  
+  - **Priority**: HIGH (Phase 2) - Sports/PPV users would greatly benefit
+  - **Estimated total time**: 10-13 hours (spread across 5 phases)
+  - **Start with**: PPV View (easiest, clearest pattern, high value)
+  
+  - **Future considerations**:
+    - **Category-specific refresh triggers**: PPV/Events/Sports need more frequent refreshes than Movies/Series
+    - **Auto-cleanup**: Remove ended PPV events after date passes (configurable retention)
+    - **Live status detection**: Real-time "Live Now" indicators (requires EPG or API polling)
+    - **Auto-categorization on refresh**: Run `populate_special_content.py` automatically during provider refresh
+    - **Incremental updates**: Only categorize new/changed channels (track last_categorized timestamp)
+    - **League/team parsing**: Extract sport type, league, team from channel names for Sports view filtering
+  
 - [ ] **Media type tabs/segmented control**
   - Dynamic tabs: All, Livestream, Series, Movies (discovered from DB)
   - Global search applies within active tab
@@ -275,9 +487,11 @@
   
 - [ ] **Browse mode**
   - Hierarchical category organization using ## headers
-  - Expandable/collapsible category groups
+  - **TREX providers**: Use hashtag-prefixed organizational headers to build category tree
+  - Expandable/collapsible category groups (e.g., "## SPORTS" → list of sports channels)
   - Channel counts per category
   - Complement to search mode
+  - Benefits: Natural browsing, discover content by category, understand provider structure
 
 - [ ] **Details/Preview pane** (right side panel)
   - **See**: docs/DETAILS_PANE_DESIGN.md for full specification
@@ -348,6 +562,84 @@
 - [ ] **Filter system modal/page**
   - Full-screen filter interface
   - Apply filter presets (4K, HD, Sports, Kids, etc.)
+
+- [ ] **Episode title deduplication in series tree**
+  - **Problem**: Episode titles often include redundant series name prefix
+    - Example: All episodes show "The Rookie - " prefix when already in "The Rookie" season
+    - Visual clutter when repeated 20+ times per season
+    - Makes it harder to scan episode names quickly
+  
+  - **Current behavior**: Show full titles as provided by API (controlled by `show_full_episode_titles: true`)
+  
+  - **Requirements**:
+    1. **Data analysis phase** (prerequisite)
+       - Log episode `raw_data` JSON from 2-3 different providers (TREX, others)
+       - Identify if providers separate `series_name` from `episode_title` fields
+       - Check naming patterns for: Regular episodes, Specials, Movies, Crossovers
+       - Document edge cases (multi-part episodes, anthology series, etc.)
+    
+    2. **Implementation approaches** (choose based on data analysis)
+       - **Option A: Use provider fields** (if available)
+         - Best: API provides separate `series_name` and `episode_title` fields
+         - Display only `episode_title` in tree (series name is redundant)
+         - Most reliable, no string manipulation needed
+       
+       - **Option B: Smart prefix detection** (if API only gives full titles)
+         - Analyze all episode titles within a season
+         - Find common prefix using longest common prefix algorithm
+         - Only strip if prefix length > 5 characters (avoid false positives)
+         - Show detected prefix at season level (e.g., season tooltip)
+         - Preserve prefix for edge cases (crossovers, specials with different series names)
+       
+       - **Option C: Configuration flag** (if patterns are inconsistent)
+         - Add `show_full_episode_titles` config option (✅ already added)
+         - Default: `true` (current behavior, shows full titles)
+         - When `false`: Apply smart deduplication (Option A or B)
+         - Let users choose based on their provider data quality
+    
+    3. **Edge case handling**:
+       - **Crossover episodes**: "Arrow vs Flash" - preserve different series name
+       - **Specials**: May have completely different naming conventions
+       - **Multi-part episodes**: "Title (Part 1)" - keep the part indicator
+       - **Anthology series**: Different titles intentionally (no deduplication)
+       - **Mixed seasons**: Some episodes with prefix, some without
+    
+    4. **UI considerations**:
+       - Display stripped titles in tree view for cleaner appearance
+       - Show full title in details pane for context
+       - Tooltip on episode shows full original title
+       - Season-level indicator if prefix was removed (subtle icon or tooltip)
+    
+    5. **Testing checklist**:
+       - Regular series episodes (most common case)
+       - Specials with different naming
+       - Crossover episodes from multiple series
+       - Anthology series (should not deduplicate)
+       - Multiple providers (TREX, others) for consistency
+       - Edge case: Episodes with no common prefix
+       - Edge case: Very short common prefix (< 5 chars)
+    
+    6. **Implementation steps**:
+       - Phase 1: Add debug logging to inspect `episode.raw_data` structure ⏳
+       - Phase 2: Document provider data formats and patterns ⏳
+       - Phase 3: Choose implementation approach based on findings ⏳
+       - Phase 4: Implement chosen approach with config flag ⏳
+       - Phase 5: Test with multiple providers and edge cases ⏳
+       - Phase 6: Update default config value if deduplication proves reliable ⏳
+  
+  - **Files to modify**:
+    - `metatv/core/provider_loader.py`: Check raw_data structure
+    - `metatv/gui/main_window.py`: Apply deduplication in populate_series_tree()
+    - `config.yaml.template`: Config option (✅ added)
+    - `docs/SERIES_TITLE_DEDUPLICATION.md`: Document findings and patterns (create)
+  
+  - **Configuration**:
+    - `show_full_episode_titles: true` (default) - Current behavior
+    - `show_full_episode_titles: false` - Enable smart deduplication when ready
+  
+  - **Priority**: Low (Phase 2) - UX polish after core functionality stable
+  - **Complexity**: Medium (depends on data structure consistency)
+  - **Estimated time**: 3-4 hours (after data analysis phase)
   - Combine multiple filters
   - Show active filter count
   - **Future**: Search within excluded results (for 50k+ filtered items)
@@ -424,18 +716,58 @@
   - **Configurable TTL**: Settings for cache lifetime (1 hour, 1 day, 1 week, manual only)
   - **Benefits**: Responsive UI, reduced API calls, better UX for browsing
   
-- [ ] **Playlist/Queue system**
-  - **Auto-queue subsequent episodes** (configurable, default: on)
+- [x] **Playlist/Queue system** ✅
+  - **Auto-queue subsequent episodes** ✅
     - When playing episode from season, queue all episodes after it in that season
     - Configuration: `autoplay_season_episodes` (bool, default: True)
     - Works with mpv single-instance IPC playlist commands
-    - Optional: Stop at season boundary or continue to next season
-  - Build custom episode queue
-  - Send playlist to mpv via IPC (loadfile append)
-  - Listen for mpv IPC events (end-file) to track completion
-  - Auto-advance to next episode in queue
-  - Queue UI indicator (show "Up Next" in status bar)
-  - Resume from last watched episode on series open
+    - Example: Click episode 5 of 10 → plays 5 and queues 6-10 automatically
+    - Status bar shows: "Playing: Episode 5 (+5 queued)"
+  - [ ] **MPV IPC Event System** (cross-cutting feature)
+    - **Purpose**: Monitor playback events for real-time history updates, progress tracking, completion detection
+    - **Architecture**:
+      - Background thread monitors mpv IPC socket for events
+      - Observe `playlist-pos` property changes (when playlist advances)
+      - Listen for `file-loaded` event (new episode starts)
+      - Listen for `end-file` event (episode completes)
+      - Emit Qt signals for thread-safe UI/database updates
+    - **Implementation approach**:
+      ```python
+      # In MPVPlayer class:
+      - _start_event_listener() - Background thread reading IPC socket
+      - _observe_property("playlist-pos") - Track position changes
+      - _observe_property("time-pos") - Track playback position for resume
+      - Emit: playlist_position_changed(index) signal
+      - Emit: file_loaded(filepath) signal
+      - Emit: file_ended(reason) signal
+      
+      # In MainWindow:
+      - Store episode_queue_map = {0: ep5_id, 1: ep6_id, ...} when queueing
+      - Connect to playlist_position_changed signal
+      - Update repos.episodes.mark_played(episode_queue_map[index])
+      - Update history sidebar in real-time as episodes play
+      - Auto-advance "Continue Watching" shelf
+      ```
+    - **Benefits**:
+      - **Real-time history**: History updates as queued episodes play automatically
+      - **Resume playback**: Track time-pos to resume from exact position
+      - **Completion detection**: Know if episode was watched fully vs partially
+      - **Queue visualization**: Show "Now Playing: E05" / "Up Next: E06"
+      - **Skip detection**: Detect if user manually skips episodes in playlist
+      - **Error handling**: Detect stream failures and trigger failover
+    - **Challenges**:
+      - Thread management (background thread + Qt signals for cross-thread communication)
+      - Socket lifecycle (reconnect on disconnect, handle stale sockets)
+      - Event filtering (ignore irrelevant events, debounce rapid changes)
+      - State synchronization (ensure queue_map stays in sync with mpv playlist)
+    - **Estimated complexity**: Medium (~150-200 lines)
+    - **Estimated time**: 3-4 hours
+    - **Dependencies**: Requires PyQt6 signals, threading.Thread, socket handling
+    - **Testing**: Mock IPC events, verify database updates, test reconnection logic
+  - [ ] Build custom episode queue (manual queue management UI)
+  - [ ] Queue UI indicator (show "Up Next" in status bar with real-time updates)
+  - [ ] Resume from last watched episode on series open (requires IPC event system)
+  - [ ] Optional: Stop at season boundary or continue to next season
 
 ### Playback Tracking
 - [x] Watch progress tracking basics (last_played, play_count)
@@ -447,9 +779,22 @@
   - Tooltip: "Play next episode"
   - Finds next unwatched episode after last played
   - If all watched, plays next in sequence (S03E02 after S03E01)
-- [ ] Resume playback from last position (watch_progress seconds)
-- [ ] Completion detection (watched vs partial)
-- [ ] Progress bars in UI
+- [ ] **Resume playback from last position** (requires IPC event system)
+  - Track `time-pos` property via mpv IPC events
+  - Store watch_progress (seconds) in EpisodeDB on file-ended event
+  - On play: Check if watch_progress > 30 seconds, prompt "Resume from X:XX?"
+  - UI indicator: Progress bar overlay on episode items
+- [ ] **Completion detection** (requires IPC event system)
+  - Listen for `end-file` event with reason (eof, quit, error)
+  - Compare time-pos to duration to determine completion percentage
+  - Mark watched if > 90% completed
+  - Mark partial if 10-90% completed (show resume option)
+  - Mark unwatched if < 10% completed
+- [ ] **Progress bars in UI**
+  - Show watch progress as colored bar under episode items
+  - Color coding: Green (completed), Yellow (in-progress), Gray (unwatched)
+  - Percentage display on hover
+  - Sync with database watch_progress field
 
 ## Phase 5: Advanced Features
 
