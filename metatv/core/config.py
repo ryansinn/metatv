@@ -140,6 +140,34 @@ class Config(BaseModel):
     show_excluded_count: bool = True
     search_includes_filtered: bool = True
     
+    # Metadata provider settings
+    metadata_enabled: bool = True  # Enable metadata fetching
+    metadata_cache_ttl_days: int = 30  # Fresh content cache lifetime
+    metadata_old_content_ttl_days: int = 90  # Old content (>2 years) cache lifetime
+    metadata_auto_fetch: bool = True  # Automatically fetch on channel selection
+    metadata_background_refresh: bool = False  # Background refresh of stale metadata (Phase 3)
+    
+    # Metadata provider configuration
+    metadata_provider_priority: list = Field(default_factory=lambda: ["provider", "tmdb", "omdb"])  # Provider priority order
+    metadata_enabled_providers: list = Field(default_factory=lambda: ["provider"])  # Which providers are enabled
+    
+    # Provider-specific API keys and settings
+    metadata_tmdb_api_key: str = ""  # TMDb API key
+    metadata_tmdb_language: str = "en-US"  # TMDb language
+    metadata_tmdb_include_adult: bool = False  # Include adult content
+    
+    metadata_omdb_api_key: str = ""  # OMDb API key
+    
+    # Image caching settings
+    image_cache_enabled: bool = True  # Enable image caching
+    image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
+    image_cache_max_size_mb: int = 500  # Maximum cache size in MB
+    
+    # Details pane UI settings
+    details_pane_visible: bool = False  # Show/hide details pane
+    details_pane_width: int = 400  # Width of details pane in pixels
+    details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
+    
     class Config:
         arbitrary_types_allowed = True
     

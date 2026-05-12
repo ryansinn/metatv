@@ -1,0 +1,263 @@
+# MetaTV Configuration Template
+# Copy to ~/.config/metatv/config.yaml and customize
+# All settings are optional - defaults will be used if not specified
+
+# =============================================================================
+# UI Settings
+# =============================================================================
+
+# Notification position in the window
+# Options: "top-left", "top-right", "bottom-left", "bottom-right"
+notification_position: "bottom-right"
+
+# Maximum number of notifications to stack vertically
+max_stacked_notifications: 3
+
+# UI theme
+# Options: "light", "dark", "auto" (follows system theme)
+theme: "auto"
+
+# Icon theme for the application
+# Default icons are included, but you can specify a custom theme
+icon_theme: "default"
+
+# Custom icon overrides (optional)
+# Specify full paths to custom icon files
+icons:
+  app: ""           # Application icon
+  provider: ""      # Provider icon
+  live: ""         # Live TV icon
+  movie: ""        # Movie icon
+  series: ""       # Series icon
+  favorite: ""     # Favorite icon
+  history: ""      # History icon
+  search: ""       # Search icon
+  filter: ""       # Filter icon
+  settings: ""     # Settings icon
+
+# =============================================================================
+# Player Settings
+# =============================================================================
+
+# Preferred media player
+# Options: "mpv", "vlc", "iina" (macOS)
+preferred_player: "mpv"
+
+# Player instance mode
+# Options:
+#   "single-instance" - Reuse existing player window (recommended)
+#   "multiple-instances" - Launch new player for each stream
+player_mode: "single-instance"
+
+# Extra command-line arguments for MPV player
+# See: https://mpv.io/manual/master/
+mpv_extra_args:
+  - "--cache=yes"
+  - "--demuxer-max-bytes=100M"
+  - "--demuxer-max-back-bytes=50M"
+
+# Extra command-line arguments for VLC player
+# See: https://wiki.videolan.org/VLC_command-line_help/
+vlc_extra_args:
+  - "--network-caching=3000"
+
+# =============================================================================
+# Performance Settings
+# =============================================================================
+
+# Number of concurrent threads for background operations
+max_background_threads: 4
+
+# Database connection pool size
+db_pool_size: 5
+
+# HTTP request timeout in seconds
+request_timeout_seconds: 10
+
+# =============================================================================
+# Metadata Settings
+# =============================================================================
+
+# Enable metadata fetching and display
+metadata_enabled: true
+
+# Metadata cache TTL (time-to-live) in days
+# After this period, metadata will be refreshed from providers
+metadata_cache_ttl_days: 30
+
+# Metadata provider priority (tried in order)
+# Available providers: "provider" (built-in), "tmdb", "omdb", "fanart", "tvdb"
+# Note: External providers require API keys (see below)
+metadata_provider_priority:
+  - "provider"    # Always try provider data first (zero latency)
+  # - "tmdb"      # Uncomment and add API key below
+  # - "omdb"      # Uncomment and add API key below
+
+# Enabled metadata providers
+# Only providers in this list will be used
+metadata_enabled_providers:
+  - "provider"
+  # - "tmdb"
+  # - "omdb"
+
+# TMDb (The Movie Database) API key
+# Get your free API key at: https://www.themoviedb.org/settings/api
+metadata_tmdb_api_key: ""
+
+# TMDb language preference (ISO 639-1 code)
+metadata_tmdb_language: "en"
+
+# Include adult content in TMDb results
+metadata_tmdb_include_adult: false
+
+# OMDb (Open Movie Database) API key
+# Get your free API key at: http://www.omdbapi.com/apikey.aspx
+metadata_omdb_api_key: ""
+
+# FanartTV API key (for high-quality artwork)
+# Get your free API key at: https://fanart.tv/get-an-api-key/
+metadata_fanart_api_key: ""
+
+# TVDB API key (for TV episode data)
+# Get your free API key at: https://thetvdb.com/api-information
+metadata_tvdb_api_key: ""
+
+# =============================================================================
+# Image Cache Settings
+# =============================================================================
+
+# Enable image caching (posters, backdrops, logos)
+image_cache_enabled: true
+
+# Image cache directory
+# Use ~ for home directory, or provide absolute path
+image_cache_dir: "~/.cache/metatv/images"
+
+# Maximum cache size in megabytes
+# When exceeded, least recently used images are deleted
+image_cache_max_size_mb: 500
+
+# Image quality for cached images (1-100)
+# Higher = better quality but larger files
+image_cache_quality: 85
+
+# =============================================================================
+# Filter Settings
+# =============================================================================
+
+# Enabled media types for filtering
+# Options: "live", "movie", "series"
+# Empty list means all types enabled
+filter_enabled_media_types:
+  - "live"
+  - "movie"
+  - "series"
+
+# Included languages (ISO 639-1 codes)
+# Empty list means all languages included
+# Example: ["en", "es", "fr"]
+filter_included_languages: []
+
+# Included quality levels
+# Empty list means all qualities included
+# Example: ["HD", "FHD", "4K"]
+filter_included_qualities: []
+
+# Included platforms/providers
+# Empty list means all platforms included
+# Example: ["Netflix", "Hulu", "Disney+"]
+filter_included_platforms: []
+
+# Custom filter groups (user-defined)
+# Format: {group_name: {enabled: bool, filters: [...]}}
+filter_groups: {}
+
+# =============================================================================
+# UI State Persistence (Auto-managed)
+# =============================================================================
+# These settings are automatically saved by the application
+# You generally don't need to edit these manually
+
+# Left sidebar visibility and width
+sidebar_visible: true
+sidebar_width: 300
+
+# Sidebar section heights (in pixels)
+sidebar_section_sizes:
+  - 300    # Sources section
+  - 200    # Favorites section
+  - 200    # History section
+
+# Sidebar section collapsed states
+sidebar_section_states:
+  sources: false
+  favorites: false
+  history: false
+
+# Filter section visibility
+filter_section_visible: true
+
+# Details/preview pane visibility and width
+details_pane_visible: false
+details_pane_width: 400
+
+# Details pane collapsed sections
+details_pane_collapsed_sections: []
+
+# Main window size and position
+window_width: 1280
+window_height: 720
+window_x: 100
+window_y: 100
+window_maximized: false
+
+# Channel list view mode
+# Options: "grid", "list"
+channel_view_mode: "grid"
+
+# Grid view thumbnail size
+grid_thumbnail_size: 150
+
+# =============================================================================
+# Advanced Settings
+# =============================================================================
+
+# Enable debug logging
+# Generates more verbose logs in ~/.config/metatv/logs/
+debug_mode: false
+
+# Log file rotation
+# Maximum size per log file in megabytes
+log_max_size_mb: 10
+
+# Number of log files to keep
+log_backup_count: 5
+
+# Database path (override default)
+# Default: ~/.local/share/metatv/metatv.db
+# database_path: ""
+
+# Disable crash reports
+disable_crash_reports: false
+
+# Check for updates on startup
+check_for_updates: true
+
+# Telemetry (anonymous usage statistics)
+# Helps improve MetaTV but can be disabled
+enable_telemetry: false
+
+# =============================================================================
+# Experimental Features
+# =============================================================================
+# Use at your own risk - may be unstable
+
+# Enable hardware video decoding (requires player support)
+enable_hardware_decode: false
+
+# Experimental UI features
+experimental_ui: false
+
+# Background metadata enrichment
+# Automatically fetch metadata for all channels in background
+background_metadata_enrichment: false

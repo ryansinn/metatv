@@ -58,20 +58,31 @@ class MetadataDB(Base):
     genres = Column(JSON)
     media_type = Column(String, default="unknown", index=True)
     
-    actors = Column(JSON)
+    # People (cast is the new name, actors kept for backwards compatibility)
+    actors = Column(JSON)  # Deprecated: use cast instead
+    cast = Column(JSON)  # [{name, character, photo_url}]
+    crew = Column(JSON)  # [{name, job, department}]
     director = Column(String)
     
     plot = Column(Text)
     tagline = Column(Text)
     
+    # Ratings
     rating = Column(Float)
     rating_count = Column(Integer)
     
+    # Images
     poster_url = Column(Text)
     backdrop_url = Column(Text)
     
+    # Links
     imdb_id = Column(String, index=True)
     tmdb_id = Column(String, index=True)
+    trailer_url = Column(Text)
+    
+    # Technical
+    content_rating = Column(String)  # PG-13, TV-MA, etc.
+    release_date = Column(String)  # ISO date format
     
     source = Column(String, default="unknown")
     fetched_at = Column(DateTime, default=datetime.now)

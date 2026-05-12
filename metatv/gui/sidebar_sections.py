@@ -407,7 +407,8 @@ class WatchAlertsSection(CollapsibleSection):
 class HistorySection(CollapsibleSection):
     """Playback history section"""
     
-    historyItemClicked = pyqtSignal(str)  # channel_id
+    historyItemClicked = pyqtSignal(str)  # channel_id (double-click)
+    itemSelected = pyqtSignal(str)  # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
     
     def __init__(self, config, db, parent=None):
@@ -426,6 +427,7 @@ class HistorySection(CollapsibleSection):
         self.history_list.setMaximumHeight(150)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
+        self.history_list.currentItemChanged.connect(self.on_history_item_selected)
         self.content_layout.addWidget(self.history_list)
         
         # Clear button
@@ -490,12 +492,21 @@ class HistorySection(CollapsibleSection):
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if channel_id:
             self.historyItemClicked.emit(channel_id)
+    
+    def on_history_item_selected(self, current, previous):
+        """Handle history item single-click selection"""
+        if not current:
+            return
+        channel_id = current.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            self.itemSelected.emit(channel_id)
 
 
 class FavoritesSection(CollapsibleSection):
     """Favorites section"""
     
-    favoriteClicked = pyqtSignal(str)  # channel_id
+    favoriteClicked = pyqtSignal(str)  # channel_id (double-click)
+    itemSelected = pyqtSignal(str)  # channel_id (single-click)
     
     def __init__(self, config, db, parent=None):
         self.db = db
@@ -514,6 +525,7 @@ class FavoritesSection(CollapsibleSection):
         self.favorites_list = QListWidget()
         self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.favorites_list.itemDoubleClicked.connect(self.on_favorite_clicked)
+        self.favorites_list.currentItemChanged.connect(self.on_favorite_selected)
         self.content_layout.addWidget(self.favorites_list)
     
     def refresh(self):
@@ -595,4 +607,12 @@ class FavoritesSection(CollapsibleSection):
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if channel_id:
             self.favoriteClicked.emit(channel_id)
+    
+    def on_favorite_selected(self, current, previous):
+        """Handle favorite item single-click selection"""
+        if not current:
+            return
+        channel_id = current.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            self.itemSelected.emit(channel_id)
 

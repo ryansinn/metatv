@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QListWidget, QMenuBar, QMenu,
     QCheckBox, QTreeWidgetItem, QLineEdit, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from loguru import logger
 import subprocess
 import shutil
@@ -28,10 +28,18 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection
 )
 from metatv.gui.filter_bar import FilterBar, ToggleChip
+from metatv.gui.collapsible_splitter import CollapsibleSplitter
+from metatv.gui.details_pane import DetailsPaneWidget
+from metatv.core.image_cache import ImageCache
+from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
+from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
 
 
 class MainWindow(QMainWindow):
     """Main application window"""
+    
+    # Signal for thread-safe metadata updates (channel_id, metadata)
+    metadata_loaded = pyqtSignal(object, object)
     
     def __init__(self, config: Config):
         super().__init__()
@@ -90,6 +98,22 @@ class MainWindow(QMainWindow):
         self.db = Database(config.database_url)
         self.db.create_tables()
         
+        # Initialize metadata system
+        self.image_cache = ImageCache(
+            cache_dir=config.image_cache_dir,
+            max_size_mb=config.image_cache_max_size_mb
+        )
+        
+        # Initialize metadata provider registry
+        self.metadata_registry = MetadataProviderRegistry()
+        
+        # Register provider metadata plugin (extracts from raw_data)
+        provider_metadata = ProviderMetadataProvider(self.db)
+        self.metadata_registry.register(provider_metadata)
+        
+        # Initialize metadata manager
+        self.metadata_manager = MetadataManager(self.metadata_registry, self.db)
+        
         self.setup_ui()
         self.setup_notifications()
         self.load_providers()
@@ -104,6 +128,9 @@ class MainWindow(QMainWindow):
         
         # Test provider connections in background
         self.test_all_providers()
+        
+        # Connect metadata loaded signal for thread-safe UI updates
+        self.metadata_loaded.connect(self._update_details_with_metadata)
         
         logger.info("Main window initialized")
     
@@ -122,8 +149,8 @@ class MainWindow(QMainWindow):
         # Main layout
         main_layout = QVBoxLayout(central_widget)
         
-        # Create splitter for sidebar and content
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Create collapsible splitter for sidebar, content, and details pane
+        self.main_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)
         
         # Left sidebar
         sidebar = self.create_sidebar()
@@ -133,13 +160,26 @@ class MainWindow(QMainWindow):
         content = self.create_content_area()
         self.main_splitter.addWidget(content)
         
-        # Restore sidebar width from config
-        sidebar_width = getattr(self.config, 'sidebar_width', 300)
-        total_width = self.width()
-        self.main_splitter.setSizes([sidebar_width, total_width - sidebar_width])
+        # Right details pane
+        self.details_pane = DetailsPaneWidget(self.config, self.image_cache)
+        self.details_pane.play_requested.connect(self.play_channel_by_id)
+        self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
+        self.main_splitter.addWidget(self.details_pane)
         
-        # Connect splitter moved signal to save width
-        self.main_splitter.splitterMoved.connect(self.save_sidebar_width)
+        # Set initial sizes: sidebar | content | details
+        sidebar_width = getattr(self.config, 'sidebar_width', 300)
+        details_width = getattr(self.config, 'details_pane_width', 400)
+        total_width = self.width()
+        content_width = total_width - sidebar_width - details_width
+        
+        self.main_splitter.setSizes([sidebar_width, content_width, details_width])
+        
+        # Initially collapse details pane if not visible in config
+        if not getattr(self.config, 'details_pane_visible', False):
+            self.main_splitter.collapse_panel(2)  # Collapse right panel
+        
+        # Connect splitter moved signal to save widths
+        self.main_splitter.splitterMoved.connect(self.save_splitter_sizes)
         
         main_layout.addWidget(self.main_splitter)
         
@@ -223,6 +263,7 @@ class MainWindow(QMainWindow):
         elif section_id == "history":
             section = HistorySection(self.config, self.db, self)
             section.historyItemClicked.connect(self.play_from_history_id)
+            section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
             # Connect context menu handler
             section.history_list.customContextMenuRequested.connect(
@@ -233,6 +274,7 @@ class MainWindow(QMainWindow):
         elif section_id == "favorites":
             section = FavoritesSection(self.config, self.db, self)
             section.favoriteClicked.connect(self.play_favorite_id)
+            section.itemSelected.connect(self.show_channel_details_by_id)
             # Connect context menu handler
             section.favorites_list.customContextMenuRequested.connect(
                 lambda pos: self.show_favorites_context_menu(pos, section.favorites_list)
@@ -275,22 +317,29 @@ class MainWindow(QMainWindow):
         media_layout.addWidget(QLabel("Media:"))
         
         self.live_chip = ToggleChip("Live", enabled=True)
-        self.live_chip.clicked.connect(self.on_filter_changed)
         media_layout.addWidget(self.live_chip)
         
         self.movies_chip = ToggleChip("Movies", enabled=True)
-        self.movies_chip.clicked.connect(self.on_filter_changed)
         media_layout.addWidget(self.movies_chip)
         
         self.series_chip = ToggleChip("Series", enabled=True)
-        self.series_chip.clicked.connect(self.on_filter_changed)
         media_layout.addWidget(self.series_chip)
         
-        # Restore media chip state from config
+        # Restore media chip state from config (before connecting signals)
         enabled_types = getattr(self.config, 'filter_enabled_media_types', ['live', 'movie', 'series'])
+        # If empty list, use default
+        if not enabled_types:
+            enabled_types = ['live', 'movie', 'series']
+        logger.debug(f"Restoring media chip state from config: {enabled_types}")
         self.live_chip.set_enabled('live' in enabled_types)
         self.movies_chip.set_enabled('movie' in enabled_types)
         self.series_chip.set_enabled('series' in enabled_types)
+        logger.debug(f"After restore - Live: {self.live_chip.is_enabled()}, Movies: {self.movies_chip.is_enabled()}, Series: {self.series_chip.is_enabled()}")
+        
+        # NOW connect signals after state is restored
+        self.live_chip.clicked.connect(self.on_filter_changed)
+        self.movies_chip.clicked.connect(self.on_filter_changed)
+        self.series_chip.clicked.connect(self.on_filter_changed)
         
         media_layout.addStretch()
         self.content_layout.addWidget(media_widget)
@@ -337,6 +386,7 @@ class MainWindow(QMainWindow):
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
         self.channels_list.itemDoubleClicked.connect(self.play_channel)
+        self.channels_list.currentItemChanged.connect(self.on_channel_selection_changed)
         self.content_layout.addWidget(self.channels_list)
         
         # Stats label below channel list
@@ -1134,6 +1184,167 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
     
+    def show_channel_details_by_id(self, channel_id: str):
+        """Show channel details in details pane (for sidebar selections)"""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                self.update_details_pane_for_channel(channel)
+        finally:
+            session.close()
+    
+    def on_channel_selection_changed(self, current, previous):
+        """Handle channel selection change - update details pane"""
+        if not current:
+            return
+        
+        channel_id = current.data(Qt.ItemDataRole.UserRole)
+        if not channel_id:
+            return
+        
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                self.update_details_pane_for_channel(channel)
+        finally:
+            session.close()
+    
+    def update_details_pane_for_channel(self, channel):
+        """Update details pane with channel metadata (async)"""
+        from concurrent.futures import ThreadPoolExecutor
+        import asyncio
+        
+        # Get provider URLs for image failover
+        provider_urls = []
+        try:
+            session = self.db.get_session()
+            repos = RepositoryFactory(session)
+            provider_db = repos.providers.get_by_id(channel.provider_id)
+            if provider_db and provider_db.urls:
+                import json
+                urls_data = json.loads(provider_db.urls) if isinstance(provider_db.urls, str) else provider_db.urls
+                provider_urls = [u.get('url') for u in urls_data if u.get('is_active', True) and u.get('url')]
+            session.close()
+            logger.debug(f"Provider URLs for failover: {provider_urls}")
+        except Exception as e:
+            logger.warning(f"Could not fetch provider URLs: {e}")
+        
+        # Set provider URLs in details pane
+        self.details_pane.set_provider_urls(provider_urls)
+        
+        # Show basic channel info immediately (Tier 1 - instant)
+        self.details_pane.show_channel(channel, metadata=None)
+        logger.debug(f"Showing basic info for: {channel.name}")
+        
+        # Fetch metadata in background thread
+        def fetch_metadata():
+            logger.debug(f"=== fetch_metadata() thread started for {channel.name}")
+            try:
+                # Create a new event loop for this thread
+                logger.debug("Creating event loop...")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                logger.debug(f"Fetching metadata for: {channel.name} (id={channel.id})")
+                logger.debug(f"Calling metadata_manager.get_metadata({channel.id})...")
+                
+                metadata = loop.run_until_complete(
+                    self.metadata_manager.get_metadata(channel.id)
+                )
+                
+                logger.debug(f"get_metadata returned: {metadata}")
+                loop.close()
+                
+                if metadata:
+                    logger.info(f"Metadata fetched for {channel.name}: plot={bool(metadata.plot)}, cast={len(metadata.cast)}, poster={bool(metadata.poster_url)}")
+                else:
+                    logger.warning(f"No metadata returned for {channel.name}")
+                
+                return metadata
+            except Exception as e:
+                logger.error(f"Failed to load metadata for {channel.name}: {e}", exc_info=True)
+                return None
+        
+        def on_metadata_loaded(future):
+            try:
+                metadata = future.result()
+                logger.debug(f"on_metadata_loaded called, metadata={metadata is not None}")
+                if metadata:
+                    logger.debug(f"Emitting metadata_loaded signal for {channel.name}")
+                    # Emit signal for thread-safe UI update on main thread
+                    self.metadata_loaded.emit(channel, metadata)
+                else:
+                    logger.warning(f"on_metadata_loaded: No metadata returned for {channel.name}")
+            except Exception as e:
+                logger.error(f"Error in on_metadata_loaded: {e}", exc_info=True)
+        
+        # Submit to thread pool
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(fetch_metadata)
+        future.add_done_callback(on_metadata_loaded)
+    
+    def _update_details_with_metadata(self, channel, metadata):
+        """Update details pane with metadata (called on main thread)"""
+        try:
+            logger.debug(f"_update_details_with_metadata called for {channel.name}")
+            logger.debug(f"Metadata has plot: {bool(metadata.plot)}, cast: {len(metadata.cast) if metadata.cast else 0}")
+            self.details_pane.show_channel(channel, metadata=metadata)
+            logger.debug(f"Details pane updated with metadata for {channel.name}")
+        except Exception as e:
+            logger.error(f"Error updating details pane: {e}", exc_info=True)
+    
+    def play_channel_by_id(self, channel_id: str):
+        """Play channel by ID (for details pane Play button)"""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                from metatv.core.models import MediaType
+                if channel.media_type == MediaType.SERIES:
+                    self.drill_into_series(channel)
+                else:
+                    self.play_media(channel)
+        finally:
+            session.close()
+    
+    def toggle_favorite_by_id(self, channel_id: str):
+        """Toggle favorite by ID (for details pane Favorite button)"""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                new_status = repos.channels.toggle_favorite(channel_id)
+                channel.is_favorite = new_status
+                
+                status = "added to" if channel.is_favorite else "removed from"
+                self.status_bar.showMessage(f"{channel.name} {status} favorites")
+                
+                # Update details pane to reflect new favorite status
+                self.update_details_pane_for_channel(channel)
+                
+                # Refresh favorites sidebar
+                self.load_favorites()
+                
+                # Update channel list display if visible
+                for i in range(self.channels_list.count()):
+                    item = self.channels_list.item(i)
+                    if item.data(Qt.ItemDataRole.UserRole) == channel_id:
+                        current_text = item.text()
+                        if channel.is_favorite:
+                            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
+                        else:
+                            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
+                        item.setText(updated_text)
+                        break
+        finally:
+            session.close()
+    
     def play_channel(self, item):
         """Play selected channel in external player or drill down into series"""
         logger.info(f"=== play_channel called ===")
@@ -1644,6 +1855,7 @@ class MainWindow(QMainWindow):
             if not channel:
                 logger.error(f"Channel not found: {channel_id}")
                 self.status_bar.showMessage("Error: Channel not found")
+                self.loading_channels.discard(channel_id)
                 return
             
             # Validate stream URL
@@ -1692,6 +1904,7 @@ class MainWindow(QMainWindow):
                     dismissible=True,
                     auto_dismiss_seconds=10
                 )
+                self.loading_channels.discard(channel_id)
                 return
             
             if final_url != channel.stream_url:
@@ -1721,6 +1934,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error playing channel: {e}")
             self.status_bar.showMessage(f"Error playing channel: {e}")
+            self.loading_channels.discard(channel_id)
         finally:
             session.close()
     
@@ -1900,17 +2114,24 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         logger.info("Show about")
     
-    def save_sidebar_width(self):
-        """Save sidebar width to config"""
+    def save_splitter_sizes(self):
+        """Save all splitter panel sizes to config"""
         try:
             sizes = self.main_splitter.sizes()
-            if sizes and len(sizes) > 0:
+            if sizes and len(sizes) >= 3:
                 sidebar_width = sizes[0]
+                details_width = sizes[2]
+                
                 self.config.sidebar_width = sidebar_width
+                self.config.details_pane_width = details_width
+                
+                # Track if details pane is visible
+                self.config.details_pane_visible = (details_width > 0)
+                
                 self.config.save()
-                logger.debug(f"Saved sidebar width: {sidebar_width}px")
+                logger.debug(f"Saved splitter sizes: sidebar={sidebar_width}px, details={details_width}px")
         except Exception as e:
-            logger.warning(f"Could not save sidebar width: {e}")
+            logger.warning(f"Could not save splitter sizes: {e}")
     
     def save_sidebar_section_sizes(self):
         """Save sidebar section sizes to config"""
@@ -1925,8 +2146,8 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """Handle window close"""
-        # Save sidebar width one final time
-        self.save_sidebar_width()
+        # Save splitter sizes one final time
+        self.save_splitter_sizes()
         
         # Cleanup player resources
         self.player_manager.cleanup()

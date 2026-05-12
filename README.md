@@ -5,7 +5,10 @@ A powerful, cross-platform IPTV stream organizer with advanced filtering, metada
 ## Current Features
 
 ### ✅ Implemented
+- **Multi-Provider Support**: Manage multiple IPTV sources with priority-based URL failover
 - **Xtream API Support**: Full integration with Xtream-based IPTV providers
+- **Stream Validation**: Automatic URL health checks with geo-blocking failover
+- **URL Failover**: Automatically tries alternate provider URLs when primary fails
 - **Series Management**: Browse seasons and episodes with hierarchical tree view
 - **Favorites System**: Star your favorite series, movies, and streams
 - **Watch History**: Tracks recently played content with last episode info
@@ -15,22 +18,30 @@ A powerful, cross-platform IPTV stream organizer with advanced filtering, metada
 - **Real-Time Search**: Filter channels as you type
 - **SQLite Database**: Fast local caching of channels, seasons, and episodes
 - **Background Loading**: Non-blocking UI with threaded data fetching
-- **Collapsible Sidebar**: Favorites and History sections with persistent state
+- **Advanced Filtering**: Prefix detection for language, quality, and platform grouping
+- **Collapsible Filter Section**: Expandable filter controls with persistent visibility state
+- **Persistent UI State**: All sidebar sizes, section states, and filter selections remembered
+- **Resizable Sections**: Draggable sidebar sections with saved heights
 - **Context Menus**: Add/remove favorites with right-click
+- **Language Filters**: Filter content by language prefix (EN, ES, FR, etc.)
+- **Quality Filters**: Filter by resolution (4K, HD, SD)
+- **Platform Filters**: Filter by streaming service (Netflix, HBO, etc.)
+- **Repository Pattern**: Clean data access layer separating business logic from UI
+- **Player Abstraction**: Plugin-based player system (mpv, VLC, ffplay)
+- **Provider Abstraction**: Plugin-based provider system ready for M3U, PLEX, Jellyfin
 
 ### 🚧 In Progress
 - **Episode Auto-Queue**: Automatically queue next episodes in season
 - **Browse Mode**: Category-based navigation with expandable groups
-- **Language Filters**: Filter content by language prefix (EN, ES, FR, etc.)
-- **Metadata Integration**: TMDb/OMDb enrichment for cast, ratings, descriptions
 
 ### 📋 Planned
-- **Quality Filters**: Filter by resolution (4K, HD, SD)
+- **Metadata Integration**: TMDb/OMDb for posters, cast, ratings, and descriptions
+- **De-duplication**: Group quality variants (reduce 240k channels to 20-30k unique)
 - **Genre Filters**: Organize by genre from metadata
 - **Preview Pane**: Rich metadata display with cover art
 - **Resume Playback**: Continue from last position
 - **Custom Collections**: User-created playlists and groups
-- **Multi-Provider Support**: Manage multiple IPTV sources
+- **Watch Alerts**: Notifications for new content matching patterns
 - **Export/Import**: Backup and share configuration
 
 ## Tech Stack
@@ -71,7 +82,7 @@ python -m metatv
 ## Usage
 
 ### First Run
-1. Launch MetaTV: `python -m metatv`
+1. Launch MetaTV: `python -m metatv` or `run.sh`
 2. Add IPTV Provider: Settings → Add Provider
 3. Enter Xtream API credentials:
    - Name: Your provider name

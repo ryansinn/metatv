@@ -64,9 +64,12 @@ class ToggleChip(QPushButton):
         return self._enabled
     
     def set_enabled(self, enabled: bool):
-        """Set chip enabled state"""
+        """Set chip enabled state without triggering signals"""
         self._enabled = enabled
+        # Block signals to prevent triggering on_filter_changed during restore
+        self.blockSignals(True)
         self.setChecked(enabled)
+        self.blockSignals(False)
         self.update_appearance()
 
 

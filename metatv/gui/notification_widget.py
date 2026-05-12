@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QProgressBar, QPushButton, QFrame
+    QProgressBar, QPushButton, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QRect
 from PyQt6.QtGui import QPalette, QColor
@@ -25,6 +25,9 @@ class NotificationCard(QFrame):
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setMinimumWidth(350)
         self.setMaximumWidth(400)
+        
+        # Prevent notification from being compressed vertically
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
         # Style based on type
         if self.notification.type == NotificationType.ERROR:
@@ -124,6 +127,10 @@ class NotificationCard(QFrame):
         # Force layout update and proper sizing
         self.updateGeometry()
         self.adjustSize()
+        
+        # Set fixed height based on content to prevent compression
+        content_height = self.sizeHint().height()
+        self.setFixedHeight(content_height)
     
     def update_notification(self, notification: Notification):
         """Update notification display"""
@@ -153,6 +160,12 @@ class NotificationCard(QFrame):
                 progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
                 percentage = int(notification.progress * 100) if notification.progress else 0
                 self.progress_label.setText(f"{progress_text} ({percentage}%)")
+        
+        # Recalculate height after content update
+        self.updateGeometry()
+        self.adjustSize()
+        content_height = self.sizeHint().height()
+        self.setFixedHeight(content_height)
     
     def dismiss(self):
         """Dismiss this notification"""
@@ -192,9 +205,20 @@ class NotificationWidget(QWidget):
         if self.parent():
             parent_rect = self.parent().rect()
             
-            # Calculate height based on content
-            self.adjustSize()
-            widget_height = min(self.sizeHint().height(), parent_rect.height() - 100)
+            # Calculate height based on actual card heights
+            self.updateGeometry()
+            
+            # Sum up heights of all cards plus margins and spacing
+            total_height = self.layout.contentsMargins().top() + self.layout.contentsMargins().bottom()
+            for i in range(self.layout.count()):
+                widget = self.layout.itemAt(i).widget()
+                if widget and widget.isVisible():
+                    total_height += widget.height()
+                    if i > 0:  # Add spacing between cards
+                        total_height += self.layout.spacing()
+            
+            # Ensure we don't exceed parent height
+            widget_height = min(total_height, parent_rect.height() - 100)
             
             # Position in bottom-right with margins
             x = parent_rect.width() - self.width() - 20
