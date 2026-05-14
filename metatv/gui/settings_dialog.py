@@ -1,0 +1,253 @@
+"""Settings dialog with Playback and Metadata/API Keys tabs."""
+
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QFormLayout, QComboBox, QCheckBox, QSpinBox, QLineEdit,
+    QPushButton, QLabel, QDialogButtonBox, QGroupBox,
+)
+from loguru import logger
+
+from metatv.core.config import Config
+
+
+class SettingsDialog(QDialog):
+    """Modal settings dialog with Playback and Metadata/API Keys tabs."""
+
+    def __init__(self, config: Config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(520)
+        self.setModal(True)
+        self._setup_ui()
+        self._load_values()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._build_playback_tab(), "Playback")
+        self._tabs.addTab(self._build_metadata_tab(), "Metadata & API Keys")
+        layout.addWidget(self._tabs)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel |
+            QDialogButtonBox.StandardButton.Apply
+        )
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply)
+        layout.addWidget(buttons)
+
+    def _build_playback_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        player_group = QGroupBox("Player")
+        player_form = QFormLayout(player_group)
+        player_form.setSpacing(8)
+
+        self._player_combo = QComboBox()
+        self._player_combo.addItems(["mpv", "vlc", "custom"])
+        player_form.addRow("Preferred player:", self._player_combo)
+
+        self._player_mode_combo = QComboBox()
+        self._player_mode_combo.addItems(["Single instance", "Multiple instances"])
+        player_form.addRow("Player mode:", self._player_mode_combo)
+
+        self._autoplay_check = QCheckBox("Autoplay next episode when playing from a season")
+        player_form.addRow("", self._autoplay_check)
+
+        self._close_player_check = QCheckBox("Close player when stream finishes")
+        player_form.addRow("", self._close_player_check)
+
+        self._cache_combo = QComboBox()
+        self._cache_combo.addItems(["auto", "50M", "100M", "250M"])
+        player_form.addRow("Stream cache size:", self._cache_combo)
+
+        layout.addWidget(player_group)
+
+        net_group = QGroupBox("Network")
+        net_form = QFormLayout(net_group)
+        net_form.setSpacing(8)
+
+        self._timeout_spin = QSpinBox()
+        self._timeout_spin.setRange(1, 60)
+        self._timeout_spin.setSuffix(" s")
+        net_form.addRow("Network timeout:", self._timeout_spin)
+
+        self._reconnect_spin = QSpinBox()
+        self._reconnect_spin.setRange(0, 10)
+        net_form.addRow("Reconnect attempts:", self._reconnect_spin)
+
+        layout.addWidget(net_group)
+
+        mpv_group = QGroupBox("MPV Extra Arguments")
+        mpv_layout = QVBoxLayout(mpv_group)
+        mpv_layout.setSpacing(4)
+        self._mpv_args_input = QLineEdit()
+        self._mpv_args_input.setPlaceholderText("--cache=yes --demuxer-max-bytes=50M")
+        hint = QLabel("Space-separated flags passed directly to mpv.")
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        mpv_layout.addWidget(self._mpv_args_input)
+        mpv_layout.addWidget(hint)
+        layout.addWidget(mpv_group)
+
+        layout.addStretch()
+        return tab
+
+    def _build_metadata_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        meta_group = QGroupBox("Metadata Enrichment")
+        meta_form = QFormLayout(meta_group)
+        meta_form.setSpacing(8)
+
+        self._meta_enabled_check = QCheckBox("Enable metadata enrichment")
+        meta_form.addRow("", self._meta_enabled_check)
+
+        self._meta_autofetch_check = QCheckBox("Auto-fetch on channel select")
+        meta_form.addRow("", self._meta_autofetch_check)
+
+        self._cache_ttl_spin = QSpinBox()
+        self._cache_ttl_spin.setRange(1, 365)
+        self._cache_ttl_spin.setSuffix(" days")
+        meta_form.addRow("Cache TTL (fresh content):", self._cache_ttl_spin)
+
+        self._cache_old_ttl_spin = QSpinBox()
+        self._cache_old_ttl_spin.setRange(1, 365)
+        self._cache_old_ttl_spin.setSuffix(" days")
+        meta_form.addRow("Cache TTL (old content >2yr):", self._cache_old_ttl_spin)
+
+        layout.addWidget(meta_group)
+
+        tmdb_group = QGroupBox("TMDb")
+        tmdb_form = QFormLayout(tmdb_group)
+        tmdb_form.setSpacing(8)
+
+        tmdb_key_row = QHBoxLayout()
+        self._tmdb_key_input = QLineEdit()
+        self._tmdb_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._tmdb_key_input.setPlaceholderText("your-tmdb-api-key")
+        tmdb_key_row.addWidget(self._tmdb_key_input, 1)
+        tmdb_link_btn = QPushButton("Get key →")
+        tmdb_link_btn.setFixedWidth(80)
+        tmdb_link_btn.setStyleSheet(
+            "QPushButton { color: #4488ff; border: none; padding: 0; }"
+            " QPushButton:hover { color: #88aaff; }"
+        )
+        tmdb_link_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api"))
+        )
+        tmdb_key_row.addWidget(tmdb_link_btn)
+        tmdb_form.addRow("API key:", tmdb_key_row)
+
+        self._tmdb_lang_input = QLineEdit()
+        self._tmdb_lang_input.setPlaceholderText("en-US")
+        self._tmdb_lang_input.setMaxLength(10)
+        tmdb_form.addRow("Language:", self._tmdb_lang_input)
+
+        layout.addWidget(tmdb_group)
+
+        omdb_group = QGroupBox("OMDb")
+        omdb_form = QFormLayout(omdb_group)
+        omdb_form.setSpacing(8)
+
+        omdb_key_row = QHBoxLayout()
+        self._omdb_key_input = QLineEdit()
+        self._omdb_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._omdb_key_input.setPlaceholderText("your-omdb-api-key")
+        omdb_key_row.addWidget(self._omdb_key_input, 1)
+        omdb_link_btn = QPushButton("Get key →")
+        omdb_link_btn.setFixedWidth(80)
+        omdb_link_btn.setStyleSheet(
+            "QPushButton { color: #4488ff; border: none; padding: 0; }"
+            " QPushButton:hover { color: #88aaff; }"
+        )
+        omdb_link_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.omdbapi.com/apikey.aspx"))
+        )
+        omdb_key_row.addWidget(omdb_link_btn)
+        omdb_form.addRow("API key:", omdb_key_row)
+
+        layout.addWidget(omdb_group)
+
+        layout.addStretch()
+        return tab
+
+    def _load_values(self):
+        """Populate widgets from current config."""
+        c = self.config
+
+        # Playback
+        player_idx = {"mpv": 0, "vlc": 1}.get(c.preferred_player, 2)
+        self._player_combo.setCurrentIndex(player_idx)
+
+        mode_idx = 0 if c.player_mode == "single-instance" else 1
+        self._player_mode_combo.setCurrentIndex(mode_idx)
+
+        self._autoplay_check.setChecked(c.autoplay_season_episodes)
+        self._close_player_check.setChecked(c.close_player_when_finished)
+        self._timeout_spin.setValue(c.network_timeout)
+        self._reconnect_spin.setValue(c.reconnect_attempts)
+
+        cache_idx = {"auto": 0, "50M": 1, "100M": 2, "250M": 3}.get(c.default_cache_size, 0)
+        self._cache_combo.setCurrentIndex(cache_idx)
+
+        self._mpv_args_input.setText(" ".join(c.mpv_extra_args))
+
+        # Metadata
+        self._meta_enabled_check.setChecked(c.metadata_enabled)
+        self._meta_autofetch_check.setChecked(c.metadata_auto_fetch)
+        self._cache_ttl_spin.setValue(c.metadata_cache_ttl_days)
+        self._cache_old_ttl_spin.setValue(c.metadata_old_content_ttl_days)
+        self._tmdb_key_input.setText(c.metadata_tmdb_api_key)
+        self._tmdb_lang_input.setText(c.metadata_tmdb_language)
+        self._omdb_key_input.setText(c.metadata_omdb_api_key)
+
+    def _save_values(self):
+        """Write widget values back to config and persist."""
+        c = self.config
+
+        # Playback
+        c.preferred_player = self._player_combo.currentText()
+        c.player_mode = (
+            "single-instance" if self._player_mode_combo.currentIndex() == 0
+            else "multiple-instances"
+        )
+        c.autoplay_season_episodes = self._autoplay_check.isChecked()
+        c.close_player_when_finished = self._close_player_check.isChecked()
+        c.network_timeout = self._timeout_spin.value()
+        c.reconnect_attempts = self._reconnect_spin.value()
+        c.default_cache_size = self._cache_combo.currentText()
+
+        raw_args = self._mpv_args_input.text().strip()
+        c.mpv_extra_args = raw_args.split() if raw_args else []
+
+        # Metadata
+        c.metadata_enabled = self._meta_enabled_check.isChecked()
+        c.metadata_auto_fetch = self._meta_autofetch_check.isChecked()
+        c.metadata_cache_ttl_days = self._cache_ttl_spin.value()
+        c.metadata_old_content_ttl_days = self._cache_old_ttl_spin.value()
+        c.metadata_tmdb_api_key = self._tmdb_key_input.text().strip()
+        c.metadata_tmdb_language = self._tmdb_lang_input.text().strip()
+        c.metadata_omdb_api_key = self._omdb_key_input.text().strip()
+
+        c.save()
+        logger.info("Settings saved")
+
+    def _apply(self):
+        self._save_values()
+
+    def _accept(self):
+        self._save_values()
+        self.accept()

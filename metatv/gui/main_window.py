@@ -1,12 +1,13 @@
 """Main application window"""
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QSplitter,
     QTreeWidget, QListWidget, QMenuBar, QMenu,
     QCheckBox, QTreeWidgetItem, QLineEdit, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QKeySequence
 from loguru import logger
 import subprocess
 import shutil
@@ -22,15 +23,19 @@ from metatv.core.player_manager import PlayerManager
 from metatv.core.provider_loader import SeriesLoadThread
 from metatv.gui.dialogs import AddProviderDialog
 from metatv.gui.notification_widget import NotificationWidget
-from metatv.gui.provider_settings_dialog import ProviderSettingsDialog
+from metatv.gui.provider_editor import ProviderEditorView
 from metatv.gui.sidebar_sections import (
-    SourcesSection, WatchAlertsSection, 
+    SourcesSection, WatchAlertsSection,
     HistorySection, FavoritesSection
 )
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
 from metatv.gui.ppv_view import PPVView
+from metatv.gui.sports_view import SportsView
+from metatv.gui.events_view import EventsView
+from metatv.gui.epg_view import EpgView
+from metatv.core.epg_manager import EpgManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
@@ -77,6 +82,7 @@ class MainWindow(QMainWindow):
         
         # Track selected provider for filtering
         self.selected_provider_id = None
+        self._in_provider_edit_mode = False
         
         # Store channel data for filtering
         self.all_channels = []  # List of (display_text, channel_db_obj)
@@ -138,7 +144,20 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         """Set up the user interface"""
         self.setWindowTitle("MetaTV - IPTV Stream Organizer")
-        self.setGeometry(100, 100, 1400, 900)
+
+        # Restore saved geometry, or fall back to a sensible default
+        restored = False
+        saved_geom = getattr(self.config, 'window_geometry', '')
+        if saved_geom:
+            try:
+                import base64
+                from PyQt6.QtCore import QByteArray
+                geom_bytes = QByteArray(base64.b64decode(saved_geom))
+                restored = self.restoreGeometry(geom_bytes)
+            except Exception as e:
+                logger.warning(f"Could not restore window geometry: {e}")
+        if not restored:
+            self.setGeometry(100, 100, 1400, 900)
         
         # Create menu bar
         self.create_menu_bar()
@@ -155,24 +174,31 @@ class MainWindow(QMainWindow):
         
         # Left sidebar
         sidebar = self.create_sidebar()
+        sidebar.setMinimumWidth(200)
         self.main_splitter.addWidget(sidebar)
-        
+
         # Main content area
         content = self.create_content_area()
+        content.setMinimumWidth(400)
         self.main_splitter.addWidget(content)
-        
+
         # Right details pane
         self.details_pane = DetailsPaneWidget(self.config, self.image_cache)
         self.details_pane.play_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.main_splitter.addWidget(self.details_pane)
-        
+
+        # Center panel gets all extra space when window is resized
+        self.main_splitter.setStretchFactor(0, 0)  # sidebar: fixed
+        self.main_splitter.setStretchFactor(1, 1)  # center: stretches
+        self.main_splitter.setStretchFactor(2, 0)  # details: fixed
+
         # Set initial sizes: sidebar | content | details
-        sidebar_width = getattr(self.config, 'sidebar_width', 300)
+        sidebar_width = getattr(self.config, 'sidebar_width', 340)
         details_width = getattr(self.config, 'details_pane_width', 400)
         total_width = self.width()
-        content_width = total_width - sidebar_width - details_width
-        
+        content_width = max(400, total_width - sidebar_width - details_width)
+
         self.main_splitter.setSizes([sidebar_width, content_width, details_width])
         
         # Initially collapse details pane if not visible in config
@@ -197,7 +223,10 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu("&File")
         file_menu.addAction("&Add Provider...", self.add_provider)
         file_menu.addSeparator()
-        file_menu.addAction("&Settings", self.open_settings)
+        settings_action = QAction("&Settings", self)
+        settings_action.setShortcut(QKeySequence("Ctrl+,"))
+        settings_action.triggered.connect(self.open_settings)
+        file_menu.addAction(settings_action)
         file_menu.addSeparator()
         file_menu.addAction("E&xit", self.close)
         
@@ -252,8 +281,9 @@ class MainWindow(QMainWindow):
             section = SourcesSection(self.config, self.db, self)
             section.providerSelected.connect(self.on_provider_selected_new)
             section.providerRefreshClicked.connect(self.refresh_provider)
+            section.providerEditClicked.connect(self.enter_provider_edit_mode)
+            section.providerToggleClicked.connect(self.toggle_provider_active)
             section.addProviderClicked.connect(self.add_provider)
-            section.settingsClicked.connect(self.edit_provider)
             return section
         
         elif section_id == "alerts":
@@ -359,12 +389,16 @@ class MainWindow(QMainWindow):
         self.sports_chip = ToggleChip("⚽ Sports", enabled=False)
         self.sports_chip.clicked.connect(self.on_special_view_toggle)
         media_layout.addWidget(self.sports_chip)
+
+        self.epg_chip = ToggleChip("📅 EPG", enabled=False)
+        self.epg_chip.clicked.connect(self.on_special_view_toggle)
+        media_layout.addWidget(self.epg_chip)
         
         self.content_layout.addWidget(media_widget)
         
         # Search and filter controls
-        controls = QWidget()
-        controls_layout = QHBoxLayout(controls)
+        self.search_controls = QWidget()
+        controls_layout = QHBoxLayout(self.search_controls)
         controls_layout.addWidget(QLabel("Search:"))
         
         self.search_input = QLineEdit()
@@ -385,9 +419,15 @@ class MainWindow(QMainWindow):
         self.toggle_filters_btn.setToolTip("Show/hide filters")
         self.toggle_filters_btn.clicked.connect(self.toggle_filters)
         controls_layout.addWidget(self.toggle_filters_btn)
-        
-        self.content_layout.addWidget(controls)
-        
+
+        # Settings button
+        settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setToolTip("Open settings (Ctrl+,)")
+        settings_btn.clicked.connect(self.open_settings)
+        controls_layout.addWidget(settings_btn)
+
+        self.content_layout.addWidget(self.search_controls)
+
         # Collapsible filter bar
         self.filter_bar = FilterBar(self.config)
         self.filter_bar.filter_changed.connect(self.on_filter_changed)
@@ -429,7 +469,42 @@ class MainWindow(QMainWindow):
         self.ppv_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
         self.ppv_view.setVisible(False)
         self.content_layout.addWidget(self.ppv_view)
-        
+
+        # Events view (hidden by default)
+        self.events_view = EventsView(self.config, self.db, self)
+        self.events_view.play_channel_requested.connect(self.play_special_event)
+        self.events_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.events_view.channel_selected.connect(self._on_view_channel_selected)
+        self.events_view.setVisible(False)
+        self.content_layout.addWidget(self.events_view)
+
+        # Sports view (hidden by default)
+        self.sports_view = SportsView(self.config, self.db, self)
+        self.sports_view.play_channel_requested.connect(self.play_special_event)
+        self.sports_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.sports_view.channel_selected.connect(self._on_view_channel_selected)
+        self.sports_view.setVisible(False)
+        self.content_layout.addWidget(self.sports_view)
+
+        # EPG manager + view (hidden by default)
+        self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
+        self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
+        self.epg_view.play_channel_requested.connect(self.play_special_event)
+        self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.epg_view.channel_selected.connect(self._on_view_channel_selected)
+        self.epg_view.setVisible(False)
+        self.content_layout.addWidget(self.epg_view)
+        self.epg_manager.start_notification_timer()
+
+        # Provider editor (hidden by default; replaces center panel in edit mode)
+        self.provider_editor = ProviderEditorView(self.db, self)
+        self.provider_editor.done.connect(self.exit_provider_edit_mode)
+        self.provider_editor.provider_saved.connect(self._on_provider_saved)
+        self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
+        self.provider_editor.refresh_requested.connect(self.refresh_provider)
+        self.provider_editor.setVisible(False)
+        self.content_layout.addWidget(self.provider_editor)
+
         # Stats label below all views
         stats_container = QWidget()
         stats_layout = QHBoxLayout(stats_container)
@@ -513,11 +588,62 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.load_providers()
     
+    def _hide_all_content_views(self):
+        """Hide every content widget so one can be shown exclusively."""
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(False)
+        self.events_view.setVisible(False)
+        self.sports_view.setVisible(False)
+        self.provider_editor.setVisible(False)
+        self.filter_bar.setVisible(False)
+
+    def enter_provider_edit_mode(self, provider_id: str):
+        """Switch center panel to provider editor for the given provider."""
+        self._hide_all_content_views()
+        self.search_controls.setVisible(False)
+        self.provider_editor.setVisible(True)
+        self.provider_editor.load_provider(provider_id)
+        self.stats_label.setText("Editing provider — click a source to switch")
+        self._in_provider_edit_mode = True
+
+    def exit_provider_edit_mode(self):
+        """Return to the normal channel list view."""
+        self._in_provider_edit_mode = False
+        self.switch_to_list_view()
+        self.load_providers()
+
+    def toggle_provider_active(self, provider_id: str):
+        """Flip the is_active flag for a provider and refresh the sidebar."""
+        session = self.db.get_session()
+        try:
+            from metatv.core.database import ProviderDB as _PDB
+            db_prov = session.query(_PDB).filter_by(id=provider_id).first()
+            if db_prov:
+                db_prov.is_active = not db_prov.is_active
+                session.commit()
+                logger.info(f"Provider '{db_prov.name}' is_active → {db_prov.is_active}")
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to toggle provider: {e}")
+        finally:
+            session.close()
+        self.load_providers()
+
+    def _on_provider_saved(self, provider_id: str):
+        """Reload sidebar after a provider is saved in the editor."""
+        self.load_providers()
+        self.status_bar.showMessage("Provider saved.", 3000)
+
+    def _on_provider_deleted(self, provider_id: str):
+        """Clean up after a provider is deleted from the editor."""
+        self.load_providers()
+        self.exit_provider_edit_mode()
+        self.status_bar.showMessage("Provider deleted.", 3000)
+
     def edit_provider(self):
-        """Edit selected provider settings"""
-        # TODO: Get selected provider from tree
-        # For now, just log
-        logger.info("Edit provider settings")
+        """Legacy hook — no longer used (edit triggers from sidebar widget)."""
+        pass
     
     def refresh_channels(self):
         """Refresh channel list"""
@@ -529,6 +655,23 @@ class MainWindow(QMainWindow):
         """Load providers from database into sidebar"""
         if "sources" in self.sidebar_sections:
             self.sidebar_sections["sources"].refresh()
+        self._refresh_details_provider_map()
+
+    def _refresh_details_provider_map(self):
+        """Push current provider icon/name map to the details pane."""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            providers = repos.providers.get_all()
+            provider_map = {
+                p.id: {"icon": getattr(p, "icon", "") or "", "name": p.name}
+                for p in providers
+            }
+            self.details_pane.set_provider_map(provider_map)
+        except Exception as e:
+            logger.warning(f"Could not refresh provider map: {e}")
+        finally:
+            session.close()
     
     def load_history(self):
         """Load playback history into sidebar"""
@@ -620,14 +763,12 @@ class MainWindow(QMainWindow):
                     provider_id=None,
                     language_groups=self.config.filter_language_groups,
                     quality_groups=self.config.filter_quality_groups,
-                    platform_groups=self.config.filter_platform_groups
                 )
-                
+
                 # Update filter bar with current counts
                 self.filter_bar.update_filter_groups(
                     language_groups=stats['language_groups'],
                     quality_groups=stats['quality_groups'],
-                    platform_groups=stats['platform_groups']
                 )
                 logger.info(f"Filter stats: {stats['channels_with_prefix']} channels have prefixes")
                 
@@ -659,7 +800,14 @@ class MainWindow(QMainWindow):
             self.load_channels(provider_id)
     
     def on_provider_selected_new(self, provider_id: str):
-        """Handle provider selection from modular sidebar"""
+        """Handle provider selection from modular sidebar.
+
+        In provider edit mode, clicking a source switches the editor instead of
+        filtering the channel list.
+        """
+        if self._in_provider_edit_mode:
+            self.provider_editor.load_provider(provider_id)
+            return
         self.selected_provider_id = provider_id
         logger.info(f"Selected provider: {provider_id}")
         self.load_channels(provider_id)
@@ -719,53 +867,72 @@ class MainWindow(QMainWindow):
             # Get filter state from FilterBar
             filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
             
-            # Convert language/quality/platform groups to prefix lists
+            # Convert language/quality groups to prefix lists
             language_prefixes = []
             for group_name in filter_state.get('language_groups', []):
                 prefixes = self.config.filter_language_groups.get(group_name, [])
                 language_prefixes.extend(prefixes)
-            
+
             quality_prefixes = []
             for group_name in filter_state.get('quality_groups', []):
                 prefixes = self.config.filter_quality_groups.get(group_name, [])
                 quality_prefixes.extend(prefixes)
-            
-            platform_prefixes = []
-            for group_name in filter_state.get('platform_groups', []):
-                prefixes = self.config.filter_platform_groups.get(group_name, [])
-                platform_prefixes.extend(prefixes)
-            
+
             # If no specific groups selected, pass None (show all)
             language_prefixes = language_prefixes if language_prefixes else None
             quality_prefixes = quality_prefixes if quality_prefixes else None
-            platform_prefixes = platform_prefixes if platform_prefixes else None
-            
+
             # Get enabled media types
             media_types = filter_state.get('media_types', ['live', 'movie', 'series'])
             show_excluded = filter_state.get('show_excluded', False)
-            
+            include_untagged = filter_state.get('include_untagged', True)
+            adult_mode = filter_state.get('adult_mode', 'hide')
+
             # Determine provider filter
-            target_provider_id = None
+            # Start from all active providers, then subtract source-chip exclusions
+            active_providers = repos.providers.get_all(active_only=True)
+            active_provider_ids = [p.id for p in active_providers]
+
+            # Update source chips in filter bar
+            self.filter_bar.update_source_chips(active_providers)
+
+            excluded_ids = set(filter_state.get('excluded_provider_ids', []))
+
             if provider_id:
-                # Show channels from specific provider
+                # Sidebar selected a specific provider
                 target_provider_id = provider_id
             else:
-                # Show channels from all active providers
-                active_providers = repos.providers.get_all(active_only=True)
-                active_provider_ids = [p.id for p in active_providers]
-                # If only one active provider, use it; otherwise None means all
-                if len(active_provider_ids) == 1:
-                    target_provider_id = active_provider_ids[0]
-            
+                visible_ids = [pid for pid in active_provider_ids if pid not in excluded_ids]
+                if len(visible_ids) == len(active_provider_ids) and len(visible_ids) == 1:
+                    target_provider_id = visible_ids[0]
+                elif len(visible_ids) < len(active_provider_ids):
+                    # Source chips excluded some — pass the list
+                    target_provider_id = visible_ids if visible_ids else None
+                else:
+                    target_provider_id = None  # show all active
+
             # Get filtered channels from repository
+            # Collect provider IDs that are force_adult so the query can match them
+            all_providers = repos.providers.get_all()
+            force_adult_ids = [p.id for p in all_providers if getattr(p, 'force_adult', False)]
+
             channels = repos.channels.get_all(
                 provider_id=target_provider_id,
                 media_types=media_types,
                 language_prefixes=language_prefixes,
                 quality_prefixes=quality_prefixes,
-                platform_prefixes=platform_prefixes,
-                invert_prefix_filters=show_excluded
+                invert_prefix_filters=show_excluded,
+                include_untagged=include_untagged,
+                adult_mode=adult_mode,
+                force_adult_provider_ids=force_adult_ids or None,
             )
+
+            # Show the adult filter only when there are actually adult channels or
+            # at least one provider is marked force_adult
+            has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
+                ChannelDB.is_adult == True
+            ).limit(1).count() > 0
+            self.filter_bar.set_adult_filter_visible(has_adult)
             
             # Sort by name
             channels = sorted(channels, key=lambda c: c.name)
@@ -782,21 +949,34 @@ class MainWindow(QMainWindow):
                 self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
                 return
             
+            # Build provider icon map for multi-provider display
+            show_provider_icon = target_provider_id is None
+            provider_icon_map: dict = {}
+            if show_provider_icon:
+                all_provs = repos.providers.get_all()
+                for p in all_provs:
+                    provider_icon_map[p.id] = (getattr(p, "icon", "") or "📡")
+
             # Store channels for text filtering
             for channel in channels:
                 # Get media type icon
                 media_icon = self.get_media_type_icon(channel.media_type)
-                
+
                 # Show favorite status with star icon
                 fav_icon = self.favorite_icon if channel.is_favorite else self.unfavorite_icon
-                
-                # Format: "📡★ Channel Name [Category] (Quality)"
-                display_text = f"{media_icon}{fav_icon} {channel.name}"
+
+                # Provider badge when multiple sources active
+                src_badge = ""
+                if show_provider_icon and channel.provider_id in provider_icon_map:
+                    src_badge = provider_icon_map[channel.provider_id] + " "
+
+                # Format: "[src icon] 📺★ Channel Name [Category] (Quality)"
+                display_text = f"{src_badge}{media_icon}{fav_icon} {channel.name}"
                 if channel.category:
                     display_text += f" [{channel.category}]"
                 if channel.quality and channel.quality != "unknown":
                     display_text += f" ({channel.quality})"
-                
+
                 self.all_channels.append((display_text, channel))
             
             # Update filter stats
@@ -811,6 +991,20 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'ppv_chip'):
                 ppv_count = session.query(ChannelDB).filter(ChannelDB.special_view == 'ppv').count()
                 self.ppv_chip.set_count(ppv_count)
+            if hasattr(self, 'events_chip'):
+                events_count = session.query(ChannelDB).filter(
+                    ChannelDB.special_view == 'live_event',
+                    ChannelDB.stream_url.isnot(None),
+                    ~ChannelDB.name.like('#%'),
+                ).count()
+                self.events_chip.set_count(events_count)
+            if hasattr(self, 'sports_chip'):
+                sports_count = session.query(ChannelDB).filter(
+                    ChannelDB.special_view == 'sports',
+                    ChannelDB.stream_url.isnot(None),
+                    ~ChannelDB.name.like('#%'),
+                ).count()
+                self.sports_chip.set_count(sports_count)
             
             # Update status bar
             if provider_id:
@@ -926,16 +1120,14 @@ class MainWindow(QMainWindow):
                 provider_id=None,
                 language_groups=self.config.filter_language_groups,
                 quality_groups=self.config.filter_quality_groups,
-                platform_groups=self.config.filter_platform_groups
             )
-            
+
             # Update filter bar with current counts
             self.filter_bar.update_filter_groups(
                 language_groups=stats['language_groups'],
                 quality_groups=stats['quality_groups'],
-                platform_groups=stats['platform_groups']
             )
-            
+
             logger.info(f"Initialized filter stats: {stats['channels_with_prefix']} channels with prefixes")
             
         except Exception as e:
@@ -1432,16 +1624,18 @@ class MainWindow(QMainWindow):
         
         # Get provider info
         from metatv.core.models import Provider
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(channel.provider_id)
-            
+
             if not provider_db:
                 self.status_bar.showMessage("Error: Provider not found")
                 return
-            
-            # Convert to Provider model
+
             provider = repos.providers.to_model(provider_db)
+        finally:
+            session.close()
         
         # Start loading series in background
         load_thread = SeriesLoadThread(
@@ -1525,15 +1719,21 @@ class MainWindow(QMainWindow):
         self.view_mode = "list"
         
         # Show list, hide tree and special views
+        self._in_provider_edit_mode = False
         self.channels_list.setVisible(True)
         self.series_tree.setVisible(False)
         self.ppv_view.setVisible(False)
+        self.events_view.setVisible(False)
+        self.sports_view.setVisible(False)
+        self.provider_editor.setVisible(False)
         
         # Hide back button
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         
-        # Re-enable search
+        # Restore search bar and filter bar
+        self.search_controls.setVisible(True)
+        self.filter_bar.setVisible(self.filters_visible)
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
         
@@ -1563,19 +1763,19 @@ class MainWindow(QMainWindow):
     def switch_to_ppv_view(self):
         """Switch content area to PPV view"""
         self.view_mode = "ppv"
-        
-        # Hide list and tree, show PPV view
+
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
+        self.events_view.setVisible(False)
+        self.sports_view.setVisible(False)
+        self.epg_view.setVisible(False)
         self.ppv_view.setVisible(True)
         
         # Hide back button
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         
-        # Disable search (PPV has its own filtering)
-        self.search_input.setEnabled(False)
-        self.search_input.setPlaceholderText("Search not available in PPV view")
+        self.search_controls.setVisible(False)
         
         # Activate PPV view (loads events)
         self.ppv_view.on_activate()
@@ -1584,6 +1784,95 @@ class MainWindow(QMainWindow):
         ppv_count = self.ppv_view.get_ppv_event_count()
         self.stats_label.setText(f"{ppv_count} PPV events")
     
+    def switch_to_events_view(self):
+        """Switch content area to Events view."""
+        self.view_mode = "events"
+
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(False)
+        self.sports_view.setVisible(False)
+        self.epg_view.setVisible(False)
+        self.events_view.setVisible(True)
+
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+
+        self.search_controls.setVisible(False)
+
+        self.events_view.on_activate()
+
+        count = self.events_view.get_events_channel_count()
+        self.stats_label.setText(f"{count:,} live events")
+
+    def switch_to_sports_view(self):
+        """Switch content area to Sports view."""
+        self.view_mode = "sports"
+
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(False)
+        self.events_view.setVisible(False)
+        self.epg_view.setVisible(False)
+        self.sports_view.setVisible(True)
+
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+
+        self.search_controls.setVisible(False)
+
+        self.sports_view.on_activate()
+
+        count = self.sports_view.get_sports_channel_count()
+        self.stats_label.setText(f"{count:,} sports channels")
+
+    def switch_to_epg_view(self):
+        """Switch content area to EPG view."""
+        self.view_mode = "epg"
+
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.ppv_view.setVisible(False)
+        self.events_view.setVisible(False)
+        self.sports_view.setVisible(False)
+        self.epg_view.setVisible(True)
+
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+        self.search_controls.setVisible(False)
+
+        self.epg_view.on_activate()
+
+        total = self.epg_manager.get_total_programmes(self.epg_view._provider_ids)
+        if total:
+            self.stats_label.setText(f"{total:,} EPG programmes")
+        else:
+            self.stats_label.setText("EPG — fetching…")
+
+    def play_special_event(self, channel):
+        """Play a channel from EventsView or SportsView."""
+        logger.info(f"Playing special event: {channel.name}")
+
+        if not channel.stream_url:
+            self.status_bar.showMessage(f"No stream URL available for {channel.name}")
+            return
+
+        self.player_manager.play(channel.stream_url, channel.name)
+
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.channels.mark_played(channel.id)
+        finally:
+            session.close()
+
+        self.status_bar.showMessage(f"Playing: {channel.name}")
+
+    def _on_view_channel_selected(self, channel):
+        """Handle channel selected from SportsView or EventsView."""
+        if channel:
+            self.details_pane.show_channel(channel)
+
     def on_special_view_toggle(self):
         """Handle special content view chip toggles"""
         sender = self.sender()
@@ -1591,37 +1880,38 @@ class MainWindow(QMainWindow):
         # Determine which chip was clicked
         if sender == self.ppv_chip:
             if self.ppv_chip.is_enabled():
-                # Disable other special chips
                 self.events_chip.set_enabled(False)
                 self.sports_chip.set_enabled(False)
-                # Switch to PPV view
+                self.epg_chip.set_enabled(False)
                 self.switch_to_ppv_view()
             else:
-                # Return to list view
                 self.switch_to_list_view()
-        
+
         elif sender == self.events_chip:
             if self.events_chip.is_enabled():
-                # Disable other special chips
                 self.ppv_chip.set_enabled(False)
                 self.sports_chip.set_enabled(False)
-                # TODO: Switch to events view (not implemented yet)
-                self.status_bar.showMessage("Events view coming soon!")
-                self.events_chip.set_enabled(False)
+                self.epg_chip.set_enabled(False)
+                self.switch_to_events_view()
             else:
-                # Return to list view
                 self.switch_to_list_view()
-        
+
         elif sender == self.sports_chip:
             if self.sports_chip.is_enabled():
-                # Disable other special chips
                 self.ppv_chip.set_enabled(False)
                 self.events_chip.set_enabled(False)
-                # TODO: Switch to sports view (not implemented yet)
-                self.status_bar.showMessage("Sports view coming soon!")
-                self.sports_chip.set_enabled(False)
+                self.epg_chip.set_enabled(False)
+                self.switch_to_sports_view()
             else:
-                # Return to list view
+                self.switch_to_list_view()
+
+        elif sender == self.epg_chip:
+            if self.epg_chip.is_enabled():
+                self.ppv_chip.set_enabled(False)
+                self.events_chip.set_enabled(False)
+                self.sports_chip.set_enabled(False)
+                self.switch_to_epg_view()
+            else:
                 self.switch_to_list_view()
     
     def play_ppv_event(self, channel):
@@ -1637,10 +1927,13 @@ class MainWindow(QMainWindow):
         self.player_manager.play(channel.stream_url, channel.name)
         
         # Update play count and last_played
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             repos.channels.mark_played(channel.id)
-        
+        finally:
+            session.close()
+
         self.status_bar.showMessage(f"Playing: {channel.name}")
     
     def navigate_back(self):
@@ -1916,29 +2209,33 @@ class MainWindow(QMainWindow):
         # Refresh the tree to update display
         self.populate_series_tree()
     
-    def validate_stream_url(self, url: str, timeout: int = 3) -> bool:
-        """Quick validation that stream URL responds
-        
-        Args:
-            url: Stream URL to validate
-            timeout: Timeout in seconds
-            
-        Returns:
-            True if URL responds successfully
+    def validate_stream_url(self, url: str, timeout: int = 5) -> bool:
+        """Validate a stream URL by reading its first bytes.
+
+        Sends a streaming GET request and confirms that the server delivers
+        data — the same thing mpv would do.  HEAD requests are unreliable for
+        IPTV (servers often return 5xx on HEAD while serving fine on GET).
         """
         try:
+            from metatv.providers.xtream import _DEFAULT_HEADERS
             logger.debug(f"Validating stream URL: {url}")
-            # Use HEAD request for minimal bandwidth
-            response = requests.head(url, timeout=timeout, allow_redirects=True)
-            
-            # Accept 2xx, 3xx, and some 4xx codes (403/401 might need player headers)
-            if response.status_code < 500:
-                logger.debug(f"Stream URL validated: {response.status_code}")
+            with requests.get(
+                url,
+                stream=True,
+                timeout=(timeout, timeout),
+                allow_redirects=True,
+                headers=_DEFAULT_HEADERS,
+            ) as response:
+                if response.status_code >= 400:
+                    logger.warning(f"Stream URL returned HTTP {response.status_code}")
+                    return False
+                # Read a small chunk — confirms the server is actually streaming
+                chunk = next(response.iter_content(chunk_size=64), None)
+                if chunk is None:
+                    logger.warning(f"Stream URL returned no data")
+                    return False
+                logger.debug(f"Stream URL validated: HTTP {response.status_code}, got {len(chunk)} bytes")
                 return True
-            else:
-                logger.warning(f"Stream URL returned {response.status_code}")
-                return False
-                
         except requests.exceptions.Timeout:
             logger.warning(f"Stream URL validation timeout: {url}")
             return False
@@ -1982,49 +2279,43 @@ class MainWindow(QMainWindow):
                 logger.error(f"Provider not found: {provider_id}")
                 return ""
             
-            # Check if provider has alternate URLs configured (stored as JSON dicts)
-            if provider_db.urls and len(provider_db.urls) > 0:
-                # Sort URLs by priority (lower number = higher priority)
-                sorted_urls = sorted(provider_db.urls, key=lambda u: u.get('priority', 999))
-                logger.info(f"Found {len(sorted_urls)} alternate URLs for provider {provider_db.name}")
-                
-                # Try each URL in priority order
-                for url_dict in sorted_urls:
-                    if not url_dict.get('is_active', True):
-                        continue
-                    
-                    # Skip if this is the same as the original base
-                    alt_url = url_dict['url'].rstrip('/')
-                    if alt_url == original_base:
-                        continue
-                    
-                    # Reconstruct stream URL with new base
-                    new_stream_url = self.reconstruct_stream_url(
-                        stream_url, original_base, alt_url
-                    )
-                    
-                    logger.info(f"Trying alternate URL (priority {url_dict.get('priority', '?')}): {new_stream_url}")
-                    if self.validate_stream_url(new_stream_url):
-                        logger.info(f"Alternate URL validated successfully!")
-                        
-                        # Update success statistics
-                        url_dict['success_count'] = url_dict.get('success_count', 0) + 1
-                        url_dict['last_success'] = datetime.now().isoformat()
-                        provider_db.urls = sorted_urls  # Update the full list
-                        repos.providers.update(provider_db)
-                        session.commit()
-                        
-                        return new_stream_url
-                    else:
-                        # Update failure statistics
-                        url_dict['failure_count'] = url_dict.get('failure_count', 0) + 1
-                        url_dict['last_failure'] = datetime.now().isoformat()
-                        provider_db.urls = sorted_urls  # Update the full list
-                        repos.providers.update(provider_db)
-                        session.commit()
-            else:
+            provider_model = repos.providers.to_model(provider_db)
+            candidate_bases = [u for u in provider_model.ordered_urls() if u.rstrip('/') != original_base]
+
+            if not candidate_bases:
                 logger.warning(f"Provider {provider_db.name} has no alternate URLs configured")
-            
+                logger.error("No working alternate URLs found")
+                return ""
+
+            logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_db.name} (reliability order)")
+
+            raw_urls = provider_db.urls or []
+            if isinstance(raw_urls, str):
+                import json as _json
+                raw_urls = _json.loads(raw_urls)
+
+            for alt_base in candidate_bases:
+                new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
+                logger.info(f"Trying: {new_stream_url}")
+
+                url_entry = next((u for u in raw_urls if u.get('url', '').rstrip('/') == alt_base), None)
+                if self.validate_stream_url(new_stream_url):
+                    logger.info("Alternate URL validated successfully")
+                    if url_entry:
+                        url_entry['success_count'] = url_entry.get('success_count', 0) + 1
+                        url_entry['last_success'] = datetime.now().isoformat()
+                        provider_db.urls = raw_urls
+                        repos.providers.update(provider_db)
+                        session.commit()
+                    return new_stream_url
+                else:
+                    if url_entry:
+                        url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
+                        url_entry['last_failure'] = datetime.now().isoformat()
+                        provider_db.urls = raw_urls
+                        repos.providers.update(provider_db)
+                        session.commit()
+
             logger.error("No working alternate URLs found")
             return ""
             
@@ -2322,7 +2613,9 @@ class MainWindow(QMainWindow):
     
     def open_settings(self):
         """Open settings dialog"""
-        logger.info("Open settings")
+        from metatv.gui.settings_dialog import SettingsDialog
+        dialog = SettingsDialog(self.config, self)
+        dialog.exec()
     
     def show_about(self):
         """Show about dialog"""
@@ -2360,12 +2653,21 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """Handle window close"""
+        # Save window geometry so it restores on next launch
+        try:
+            import base64
+            self.config.window_geometry = base64.b64encode(
+                bytes(self.saveGeometry())
+            ).decode("ascii")
+        except Exception as e:
+            logger.warning(f"Could not save window geometry: {e}")
+
         # Save splitter sizes one final time
         self.save_splitter_sizes()
-        
+
         # Cleanup player resources
         self.player_manager.cleanup()
-        
+
         # Close database
         self.db.close()
         event.accept()

@@ -13,58 +13,85 @@ from metatv.core.repositories import RepositoryFactory
 
 
 class ProviderItemWidget(QWidget):
-    """Custom widget for provider items with refresh button"""
-    
-    refreshClicked = pyqtSignal(str)  # provider_id
-    
-    def __init__(self, provider_id, provider_name, is_active=True, parent=None):
+    """Custom widget for provider items with refresh, edit, and toggle buttons."""
+
+    refreshClicked = pyqtSignal(str)   # provider_id
+    editClicked = pyqtSignal(str)      # provider_id
+    toggleClicked = pyqtSignal(str)    # provider_id
+
+    def __init__(self, provider_id: str, provider_name: str, is_active: bool = True,
+                 icon: str = "", sub_color: str = "", parent=None):
         super().__init__(parent)
         self.provider_id = provider_id
-        
-        # Set opaque background to prevent tree item text from showing through
+        self._is_active = is_active
+
         self.setAutoFillBackground(True)
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(6)
-        
-        # Status indicator
-        status = "●" if is_active else "○"
-        status_label = QLabel(status)
-        status_label.setFixedWidth(12)
-        layout.addWidget(status_label, 0)
-        
-        # Provider name with elided text
-        text_label = QLabel(provider_name)
-        text_label.setWordWrap(False)
-        # Enable eliding to truncate long names with ...
-        from PyQt6.QtCore import Qt
-        text_label.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(text_label, 1)  # Stretch factor 1
-        
-        # Refresh button
-        refresh_btn = QPushButton("🔄")
-        refresh_btn.setFixedSize(24, 20)
-        refresh_btn.setToolTip("Refresh channels from provider")
-        refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(68, 136, 255, 0.2);
-                border: 1px solid #4488ff;
+        layout.setSpacing(4)
+
+        # Provider icon / emoji (optional)
+        if icon:
+            icon_lbl = QLabel(icon)
+            icon_lbl.setFixedWidth(18)
+            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(icon_lbl)
+
+        # Active/inactive dot
+        self._status_lbl = QLabel("●" if is_active else "○")
+        self._status_lbl.setFixedWidth(12)
+        self._status_lbl.setStyleSheet(f"color: {'#4CAF50' if is_active else '#555'};")
+        layout.addWidget(self._status_lbl)
+
+        # Provider name — colored by subscription time if available
+        self._name_lbl = QLabel(provider_name)
+        self._name_lbl.setWordWrap(False)
+        self._name_lbl.setTextFormat(Qt.TextFormat.PlainText)
+        if sub_color:
+            self._name_lbl.setStyleSheet(f"color: {sub_color};")
+        layout.addWidget(self._name_lbl, 1)
+
+        _btn_style = """
+            QPushButton {{
+                background: rgba({r},{g},{b},0.15);
+                border: 1px solid rgba({r},{g},{b},0.5);
                 border-radius: 3px;
                 font-size: 10px;
-                color: #4488ff;
-            }
-            QPushButton:hover {
-                background-color: rgba(68, 136, 255, 0.4);
-            }
-            QPushButton:pressed {
-                background-color: rgba(68, 136, 255, 0.6);
-            }
-        """)
+                color: rgb({r},{g},{b});
+            }}
+            QPushButton:hover {{ background: rgba({r},{g},{b},0.35); }}
+        """
+
+        # Toggle (enable/disable)
+        self._toggle_btn = QPushButton("●" if is_active else "○")
+        self._toggle_btn.setFixedSize(22, 20)
+        self._toggle_btn.setToolTip("Enable / Disable this provider")
+        self._toggle_btn.setStyleSheet(_btn_style.format(r=180, g=180, b=180))
+        self._toggle_btn.clicked.connect(lambda: self.toggleClicked.emit(self.provider_id))
+        layout.addWidget(self._toggle_btn)
+
+        # Edit pencil
+        edit_btn = QPushButton("✎")
+        edit_btn.setFixedSize(22, 20)
+        edit_btn.setToolTip("Edit provider settings")
+        edit_btn.setStyleSheet(_btn_style.format(r=100, g=160, b=255))
+        edit_btn.clicked.connect(lambda: self.editClicked.emit(self.provider_id))
+        layout.addWidget(edit_btn)
+
+        # Refresh
+        refresh_btn = QPushButton("↻")
+        refresh_btn.setFixedSize(22, 20)
+        refresh_btn.setToolTip("Refresh channels from provider")
+        refresh_btn.setStyleSheet(_btn_style.format(r=68, g=136, b=255))
+        refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
-        
-        self.setLayout(layout)
+
+    def update_active(self, is_active: bool):
+        self._is_active = is_active
+        self._status_lbl.setText("●" if is_active else "○")
+        self._status_lbl.setStyleSheet(f"color: {'#4CAF50' if is_active else '#555'};")
+        self._toggle_btn.setText("●" if is_active else "○")
 
 
 class HistoryItemWidget(QWidget):
@@ -267,112 +294,110 @@ class CollapsibleSection(QFrame):
 
 class SourcesSection(CollapsibleSection):
     """Sources provider list section"""
-    
-    # Signals
-    providerSelected = pyqtSignal(str)  # provider_id
-    providerRefreshClicked = pyqtSignal(str)  # provider_id
+
+    providerSelected = pyqtSignal(str)         # provider_id
+    providerRefreshClicked = pyqtSignal(str)   # provider_id
+    providerEditClicked = pyqtSignal(str)      # provider_id
+    providerToggleClicked = pyqtSignal(str)    # provider_id
     addProviderClicked = pyqtSignal()
-    settingsClicked = pyqtSignal()
-    
+
     def __init__(self, config, db, parent=None):
         self.db = db
         super().__init__("Sources", "📡", config, parent)
-    
+
     def get_section_id(self):
         return "sources"
-    
+
+    def create_header(self):
+        """Override to add '+' button in the header instead of bottom buttons."""
+        header = QWidget()
+        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(5, 3, 5, 3)
+
+        self.toggle_btn = QPushButton(self.config.collapse_icon)
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        header_layout.addWidget(self.toggle_btn)
+
+        self.title_label = QLabel(f"📡 <b>Sources</b>")
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(22, 20)
+        add_btn.setToolTip("Add Source…")
+        add_btn.setStyleSheet("""
+            QPushButton { font-size: 14px; font-weight: bold; border: 1px solid #4488ff;
+                          border-radius: 3px; color: #4488ff; background: rgba(68,136,255,0.1); }
+            QPushButton:hover { background: rgba(68,136,255,0.3); }
+        """)
+        add_btn.clicked.connect(self.addProviderClicked.emit)
+        header_layout.addWidget(add_btn)
+
+        self.main_layout.addWidget(header)
+
     def create_content(self):
-        """Create sources tree and buttons"""
-        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
-        
-        # Sources tree
+        """Create sources tree (no bottom buttons — they moved to the header)."""
+        from PyQt6.QtWidgets import QTreeWidget
         self.sources_tree = QTreeWidget()
         self.sources_tree.setHeaderHidden(True)
-        self.sources_tree.setMaximumHeight(200)
+        self.sources_tree.setMaximumHeight(250)
         self.sources_tree.itemClicked.connect(self.on_provider_clicked)
         self.content_layout.addWidget(self.sources_tree)
-        
-        # Buttons
-        button_widget = QWidget()
-        button_layout = QHBoxLayout(button_widget)
-        button_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.add_btn = QPushButton("Add Provider")
-        self.add_btn.clicked.connect(self.addProviderClicked.emit)
-        button_layout.addWidget(self.add_btn)
-        
-        self.settings_btn = QPushButton("Settings")
-        self.settings_btn.clicked.connect(self.settingsClicked.emit)
-        button_layout.addWidget(self.settings_btn)
-        
-        self.content_layout.addWidget(button_widget)
-    
+
     def refresh(self):
-        """Load providers from database"""
+        """Load providers from database."""
         self.sources_tree.clear()
-        
-        with self.db.get_session() as session:
+
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             providers = repos.providers.get_all()
-            
             self.set_empty(len(providers) == 0)
-            
+
             for provider in providers:
+                from PyQt6.QtWidgets import QTreeWidgetItem
                 item = QTreeWidgetItem(self.sources_tree)
-                # Clear any default text display
                 item.setText(0, "")
                 item.setData(0, Qt.ItemDataRole.UserRole, provider.id)
-                # Disable item interaction flags that might interfere
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                
-                # Create custom widget with refresh button
+
+                # Subscription color from cached account info
+                sub_color = ""
+                if provider.account_exp_date:
+                    from metatv.gui.provider_editor import subscription_color
+                    sub_color = subscription_color(provider.account_exp_date, provider.account_created_at)
+
+                icon = getattr(provider, "icon", "") or ""
+
                 widget = ProviderItemWidget(
-                    provider.id,
-                    provider.name,
-                    provider.is_active
+                    provider.id, provider.name,
+                    is_active=provider.is_active,
+                    icon=icon,
+                    sub_color=sub_color,
                 )
-                # Use lambda with default argument to avoid closure issues
                 widget.refreshClicked.connect(
                     lambda pid=provider.id: self.providerRefreshClicked.emit(pid)
                 )
-                
+                widget.editClicked.connect(
+                    lambda pid=provider.id: self.providerEditClicked.emit(pid)
+                )
+                widget.toggleClicked.connect(
+                    lambda pid=provider.id: self.providerToggleClicked.emit(pid)
+                )
                 self.sources_tree.setItemWidget(item, 0, widget)
-    
+        finally:
+            session.close()
+
     def on_provider_clicked(self, item, column):
-        """Handle provider selection"""
         provider_id = item.data(0, Qt.ItemDataRole.UserRole)
         if provider_id:
             self.providerSelected.emit(provider_id)
-    
+
     def update_provider_status(self, provider_id: str, status: str):
-        """Update visual status indicator for a provider
-        
-        Args:
-            provider_id: Provider ID
-            status: 'disabled', 'testing', 'online', 'offline'
-        """
-        for i in range(self.sources_tree.topLevelItemCount()):
-            item = self.sources_tree.topLevelItem(i)
-            pid = item.data(0, Qt.ItemDataRole.UserRole)
-            if pid == provider_id:
-                # Update item text with status indicator
-                with self.db.get_session() as session:
-                    repos = RepositoryFactory(session)
-                    provider = repos.providers.get_by_id(provider_id)
-                    if provider:
-                        if status == 'disabled':
-                            status_icon = "○"
-                        elif status == 'testing':
-                            status_icon = "⟳"
-                        elif status == 'online':
-                            status_icon = "●✓"
-                        elif status == 'offline':
-                            status_icon = "⚠"
-                        else:
-                            status_icon = "●"
-                        
-                        item.setText(0, f"{status_icon} {provider.name}")
-                break
+        """Legacy method — no-op; widgets now update via refresh()."""
+        pass
 
 
 class WatchAlertsSection(CollapsibleSection):
@@ -436,45 +461,43 @@ class HistorySection(CollapsibleSection):
         self.content_layout.addWidget(self.clear_btn)
     
     def refresh(self):
-        """Load history from database"""
+        """Load history from database — shows all providers, no filtering"""
         from metatv.core.models import MediaType
-        
+
         self.history_list.clear()
-        
-        with self.db.get_session() as session:
+
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             recent = repos.channels.get_recent_history(limit=30)
-            
+
             self.set_empty(len(recent) == 0)
-            
+
             if len(recent) == 0:
                 return
-            
+
             for channel in recent:
                 from PyQt6.QtWidgets import QListWidgetItem
                 item = QListWidgetItem(self.history_list)
-                
-                # Get media type icon
+
                 media_icon = self.get_media_icon(channel.media_type)
-                
-                # For series, show last watched episode as subtitle
+
                 if channel.media_type == MediaType.SERIES:
-                    # Find most recent episode played for this series
                     last_episode = repos.episodes.get_last_played(
                         series_id=channel.source_id,
                         provider_id=channel.provider_id
                     )
-                    
                     if last_episode:
-                        # Format: S03E01 or just episode title
                         episode_code = f"S{last_episode.season_num:02d}E{last_episode.episode_num:02d}"
                         item.setText(f"{media_icon} {channel.name}\n   → {episode_code}")
                     else:
                         item.setText(f"{media_icon} {channel.name}")
                 else:
                     item.setText(f"{media_icon} {channel.name}")
-                
+
                 item.setData(Qt.ItemDataRole.UserRole, channel.id)
+        finally:
+            session.close()
     
     def get_media_icon(self, media_type):
         """Get icon for media type"""
@@ -529,10 +552,11 @@ class FavoritesSection(CollapsibleSection):
         self.content_layout.addWidget(self.favorites_list)
     
     def refresh(self):
-        """Load favorites from database"""
+        """Load favorites from database — shows all providers, no filtering"""
         self.favorites_list.clear()
-        
-        with self.db.get_session() as session:
+
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             all_favorites = repos.channels.get_favorites()
             
@@ -566,7 +590,9 @@ class FavoritesSection(CollapsibleSection):
                 self.add_header("Never Watched")
                 for channel in never_watched:
                     self.add_favorite_item(channel)
-    
+        finally:
+            session.close()
+
     def add_header(self, text):
         """Add a section header"""
         from PyQt6.QtWidgets import QListWidgetItem

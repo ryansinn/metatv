@@ -1,0 +1,392 @@
+"""EPG Manager — fetch, parse, store XMLTV data + notification timer."""
+
+from __future__ import annotations
+
+import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Optional
+
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from loguru import logger
+
+from metatv.core.config import Config
+from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
+from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class EpgManager(QObject):
+    """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
+
+    All network/DB work runs in a ThreadPoolExecutor. Signals are emitted on
+    the Qt main thread for safe UI updates.
+    """
+
+    refresh_started  = pyqtSignal(str)        # provider_id
+    refresh_finished = pyqtSignal(str, int)   # provider_id, programme_count
+    refresh_error    = pyqtSignal(str, str)   # provider_id, error_message
+    watchlist_notification = pyqtSignal(str, str, str)  # title, channel_name, time_str
+    # Internal signals marshal notification calls from worker threads to main thread
+    _notify          = pyqtSignal(str, str, str, int)  # title, message, type, auto_dismiss_ms
+    _progress_update = pyqtSignal(str, int, str)        # notif_id, current, message
+    _progress_done   = pyqtSignal(str, str)             # notif_id, final_message
+    _progress_error  = pyqtSignal(str)                  # notif_id — dismiss on error
+
+    def __init__(self, db: Database, config: Config, notifications=None, parent=None) -> None:
+        super().__init__(parent)
+        self.db = db
+        self.config = config
+        self.notifications = notifications  # NotificationManager or None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
+        self._notified_this_session: set[int] = set()  # programme IDs already toasted
+        self._notification_timer: QTimer | None = None
+        self._notify.connect(self._do_notify)
+        self._progress_update.connect(self._do_progress_update)
+        self._progress_done.connect(self._do_progress_done)
+        self._progress_error.connect(self._do_progress_error)
+        self._active_refreshes: set[str] = set()  # provider IDs currently refreshing
+
+    def _do_notify(self, title: str, message: str, type_: str, auto_dismiss_ms: int) -> None:
+        if self.notifications:
+            self.notifications.show(
+                title=title, message=message,
+                type=type_, auto_dismiss_ms=auto_dismiss_ms,
+            )
+
+    def _do_progress_update(self, notif_id: str, current: int, message: str) -> None:
+        if self.notifications and notif_id:
+            self.notifications.update(notif_id, progress_current=current, message=message)
+
+    def _do_progress_done(self, notif_id: str, message: str) -> None:
+        if self.notifications and notif_id:
+            self.notifications.complete_progress(notif_id, message)
+
+    def _do_progress_error(self, notif_id: str) -> None:
+        if self.notifications and notif_id:
+            self.notifications.dismiss(notif_id)
+
+    def _show_notification(self, title: str, message: str,
+                           type_: str = "info", auto_dismiss_ms: int = 4000) -> None:
+        """Thread-safe helper: emit signal so notification runs on main thread."""
+        self._notify.emit(title, message, type_, auto_dismiss_ms)
+
+    # ------------------------------------------------------------------
+    # Refresh control
+    # ------------------------------------------------------------------
+
+    def needs_refresh(self, provider: ProviderDB) -> bool:
+        """Return True if this provider's EPG data should be re-fetched.
+
+        Triggers only when data is absent or within epg_refresh_hours_before
+        of expiry (default 48h, configurable per provider).
+        """
+        if not getattr(provider, "epg_url", ""):
+            return False
+
+        data_end = getattr(provider, "epg_data_end", None)
+        if data_end is None:
+            return True  # never fetched
+
+        hours_before = getattr(provider, "epg_refresh_hours_before", 48) or 48
+        return data_end < _now_utc() + timedelta(hours=hours_before)
+
+    def refresh_all_if_needed(self) -> None:
+        """Check every active provider and trigger a background refresh if needed."""
+        if not self.config.epg_auto_refresh:
+            return
+
+        session = self.db.get_session()
+        try:
+            providers = session.query(ProviderDB).filter_by(is_active=True).all()
+            for provider in providers:
+                if provider.id not in self._active_refreshes and self.needs_refresh(provider):
+                    self._start_refresh(provider.id, provider.epg_url,
+                                        provider.name, force=False)
+        finally:
+            session.close()
+
+    def force_refresh_provider(self, provider_id: str) -> None:
+        """Unconditionally refresh one provider's EPG data."""
+        if provider_id in self._active_refreshes:
+            logger.info(f"EPG refresh already running for {provider_id}")
+            return
+
+        session = self.db.get_session()
+        try:
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if not provider or not getattr(provider, "epg_url", ""):
+                logger.warning(f"No EPG URL for provider {provider_id}")
+                return
+            self._start_refresh(provider.id, provider.epg_url, provider.name, force=True)
+        finally:
+            session.close()
+
+    def _start_refresh(self, provider_id: str, epg_url: str,
+                       provider_name: str, force: bool) -> None:
+        self._active_refreshes.add(provider_id)
+        self.refresh_started.emit(provider_id)
+
+        # Create progress notification on the main thread; pass ID to worker
+        notif_id: str | None = None
+        if self.notifications:
+            notif_id = self.notifications.show_progress(
+                title=f"EPG: {provider_name}",
+                total=None,  # indeterminate — we don't know the total yet
+            )
+            self.notifications.update(notif_id, message="Connecting…")
+
+        self._executor.submit(
+            self._fetch_worker, provider_id, epg_url, provider_name, notif_id
+        )
+
+    def _fetch_worker(self, provider_id: str, epg_url: str,
+                      provider_name: str, notif_id: str | None = None) -> None:
+        """Background worker: download, parse, and store XMLTV data."""
+        session = self.db.get_session()
+        try:
+            def on_parse_progress(count: int) -> None:
+                self._progress_update.emit(
+                    notif_id or "",
+                    count,
+                    f"Parsing… {count:,} programmes",
+                )
+
+            # Parse the XMLTV feed
+            channels, programmes = parse_xmltv_url(
+                epg_url, timeout=180,
+                on_progress=on_parse_progress if notif_id else None,
+            )
+            self._progress_update.emit(notif_id or "", len(programmes),
+                                       f"Matching {len(programmes):,} programmes to channels…")
+
+            # Build channel match map: epg_id → channel_db_id
+            match_map = self._build_match_map(session, channels)
+            logger.info(f"EPG: matched {len(match_map)} channels for {provider_name}")
+
+            # Clear existing data and bulk-insert new rows
+            session.query(EpgProgramDB).filter_by(provider_id=provider_id).delete()
+
+            batch: list[EpgProgramDB] = []
+            max_stop: datetime | None = None
+
+            for prog in programmes:
+                channel_db_id = match_map.get(prog.channel_id)
+                row = EpgProgramDB(
+                    provider_id    = provider_id,
+                    channel_epg_id = prog.channel_id,
+                    channel_db_id  = channel_db_id,
+                    title          = prog.title,
+                    description    = prog.description,
+                    start_time     = prog.start_time,
+                    stop_time      = prog.stop_time,
+                    is_live        = prog.is_live,
+                    is_new         = prog.is_new,
+                )
+                batch.append(row)
+
+                if max_stop is None or prog.stop_time > max_stop:
+                    max_stop = prog.stop_time
+
+                if len(batch) >= 2000:
+                    session.bulk_save_objects(batch)
+                    session.flush()
+                    batch.clear()
+
+            if batch:
+                session.bulk_save_objects(batch)
+
+            # Update provider timestamps
+            now = _now_utc()
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if provider:
+                provider.epg_last_fetched = now
+                provider.epg_data_end = max_stop
+
+            session.commit()
+            count = session.query(EpgProgramDB).filter_by(provider_id=provider_id).count()
+            logger.info(f"EPG: stored {count} programmes for {provider_name}")
+
+            self.refresh_finished.emit(provider_id, count)
+            self._progress_done.emit(notif_id or "", f"{count:,} programmes loaded")
+
+        except Exception as e:
+            logger.error(f"EPG refresh failed for {provider_name}: {e}")
+            session.rollback()
+            self.refresh_error.emit(provider_id, str(e))
+            self._progress_error.emit(notif_id or "")
+            self._show_notification(
+                "EPG Error", f"{provider_name}: {e}",
+                type_="error", auto_dismiss_ms=6000,
+            )
+        finally:
+            session.close()
+            self._active_refreshes.discard(provider_id)
+
+    def _build_match_map(self, session, xmltv_channels) -> dict[str, str]:
+        """Build xmltv_epg_id → channel_db_id lookup.
+
+        Primary match: ChannelDB.epg_channel_id == xmltv channel.epg_id (exact)
+        Fallback: normalized display-name comparison against ALL live channels
+        """
+        # Exact match: channels with a populated epg_channel_id
+        db_channels_with_id = session.query(ChannelDB).filter(
+            ChannelDB.epg_channel_id.isnot(None),
+            ChannelDB.is_hidden == False,
+        ).all()
+        exact: dict[str, str] = {
+            ch.epg_channel_id: ch.id
+            for ch in db_channels_with_id
+            if ch.epg_channel_id
+        }
+
+        # Fuzzy fallback: normalize all live channel names
+        all_live = session.query(ChannelDB).filter(
+            ChannelDB.media_type == "live",
+            ChannelDB.is_hidden == False,
+        ).all()
+        name_to_id: dict[str, str] = {
+            normalize_channel_name(ch.name): ch.id
+            for ch in all_live
+        }
+
+        result: dict[str, str] = {}
+        for xch in xmltv_channels:
+            if xch.epg_id in exact:
+                result[xch.epg_id] = exact[xch.epg_id]
+            else:
+                norm = normalize_channel_name(xch.display_name)
+                if norm in name_to_id:
+                    result[xch.epg_id] = name_to_id[norm]
+
+        matched = sum(1 for v in result.values() if v)
+        logger.info(f"EPG channel matching: {matched}/{len(xmltv_channels)} XMLTV channels matched to playable streams")
+        return result
+
+    # ------------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------------
+
+    def get_status_text(self, provider_id: str) -> str:
+        """Human-readable EPG status for a provider."""
+        session = self.db.get_session()
+        try:
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if not provider:
+                return "No EPG data"
+
+            last = getattr(provider, "epg_last_fetched", None)
+            end  = getattr(provider, "epg_data_end", None)
+
+            if last is None:
+                return "No EPG data — click ⟳ to fetch"
+
+            now = _now_utc()
+            age = now - last
+            if age.total_seconds() < 3600:
+                age_str = f"{int(age.total_seconds() / 60)}m ago"
+            elif age.total_seconds() < 86400:
+                age_str = f"{int(age.total_seconds() / 3600)}h ago"
+            else:
+                age_str = f"{age.days}d ago"
+
+            end_str = ""
+            if end:
+                end_str = f" · data through {end.strftime('%a %b %d %I:%M%p').replace(' 0', ' ')}"
+
+            return f"Updated {age_str}{end_str}"
+        finally:
+            session.close()
+
+    def get_total_programmes(self, provider_ids: list[str]) -> int:
+        """Total programme count across the given providers."""
+        session = self.db.get_session()
+        try:
+            return (
+                session.query(EpgProgramDB)
+                .filter(EpgProgramDB.provider_id.in_(provider_ids))
+                .count()
+            )
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # Notification timer
+    # ------------------------------------------------------------------
+
+    def start_notification_timer(self) -> None:
+        """Start a 60-second repeating timer to check for watchlist shows starting soon."""
+        if self._notification_timer is not None:
+            return
+        self._notification_timer = QTimer(self)
+        self._notification_timer.setInterval(60_000)
+        self._notification_timer.timeout.connect(self._check_watchlist_notifications)
+        self._notification_timer.start()
+        logger.info("EPG notification timer started")
+
+    def stop_notification_timer(self) -> None:
+        if self._notification_timer:
+            self._notification_timer.stop()
+            self._notification_timer = None
+
+    def _check_watchlist_notifications(self) -> None:
+        """Called every 60s. Toast for any watchlist show starting soon."""
+        patterns = self.config.epg_watchlist_patterns
+        if not patterns or not self.notifications:
+            return
+
+        minutes = self.config.epg_notification_minutes_before
+        session = self.db.get_session()
+        try:
+            from metatv.core.repositories.epg import EpgRepository
+            repo = EpgRepository(session)
+            providers = session.query(ProviderDB).filter_by(is_active=True).all()
+            provider_ids = [p.id for p in providers if getattr(p, "epg_url", "")]
+
+            if not provider_ids:
+                return
+
+            upcoming = repo.get_programs_starting_soon(minutes, provider_ids)
+            for prog in upcoming:
+                if prog.id in self._notified_this_session:
+                    continue
+                # Check if title matches any watchlist pattern
+                title_lower = prog.title.lower()
+                matched = any(pat.lower() in title_lower for pat in patterns)
+                if not matched:
+                    continue
+
+                self._notified_this_session.add(prog.id)
+
+                # Resolve channel name
+                channel = None
+                if prog.channel_db_id:
+                    channel = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
+                channel_name = channel.name if channel else prog.channel_epg_id
+
+                # Minutes until start
+                now = _now_utc()
+                mins_away = max(0, int((prog.start_time - now).total_seconds() / 60))
+                time_str = f"in {mins_away} min" if mins_away > 0 else "now"
+
+                if self.notifications:
+                    self.notifications.show(
+                        title=f"Starting {time_str}: {prog.title}",
+                        message=f"On {channel_name}",
+                        type="info",
+                        auto_dismiss_ms=10_000,
+                    )
+                self.watchlist_notification.emit(prog.title, channel_name, time_str)
+
+        except Exception as e:
+            logger.error(f"EPG notification check error: {e}")
+        finally:
+            session.close()
+
+    def shutdown(self) -> None:
+        """Clean up resources on app exit."""
+        self.stop_notification_timer()
+        self._executor.shutdown(wait=False)

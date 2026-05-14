@@ -1,5 +1,6 @@
 """Dialogs for various operations"""
 
+from datetime import datetime
 from typing import Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -14,6 +15,7 @@ from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider
 from metatv.core.notifications import NotificationManager
 from metatv.core.provider_loader import ProviderTestThread
+from metatv.core.repositories import RepositoryFactory
 
 
 class AddProviderDialog(QDialog):
@@ -25,6 +27,7 @@ class AddProviderDialog(QDialog):
         self.db = db
         self.notification_manager = notification_manager
         self.test_thread: Optional[ProviderTestThread] = None
+        self._fetched_account_info: Optional[dict] = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -172,16 +175,91 @@ class AddProviderDialog(QDialog):
         self.status_text.append(f"• {message}")
     
     def on_test_result(self, success: bool, message: str):
-        """Handle test result"""
+        """Handle test result — on success, fetch and display account info."""
         self.test_button.setEnabled(True)
         self.progress_label.hide()
-        
+
         if success:
             self.status_text.append(f"\n✓ {message}")
             self.add_button.setEnabled(True)
+            self._fetch_account_info()
         else:
             self.status_text.append(f"\n✗ {message}")
             self.add_button.setEnabled(False)
+
+    def _fetch_account_info(self):
+        """Fetch account/subscription info and append to status log."""
+        urls = self.get_urls()
+        if not urls:
+            url = self.url_input.text().strip()
+            if url:
+                urls = [url]
+        if not urls:
+            return
+
+        username = self.username_input.text().strip()
+        password = self.password_input.text().strip()
+
+        from metatv.core.models import ProviderURL
+        from metatv.gui.provider_editor import FetchAccountInfoThread
+
+        temp_provider = Provider(
+            id="__temp__",
+            name="temp",
+            type="xtream",
+            url=urls[0],
+            urls=[ProviderURL(url=u) for u in urls],
+            username=username,
+            password=password,
+        )
+
+        self.status_text.append("\n⟳ Fetching account info…")
+        self._acct_thread = FetchAccountInfoThread(temp_provider)
+        self._acct_thread.finished.connect(self._on_account_info)
+        self._acct_thread.start()
+
+    def _on_account_info(self, success: bool, result):
+        """Append parsed account info to the status log."""
+        if not success:
+            self.status_text.append(f"  ⚠ Account info unavailable: {result}")
+            return
+
+        info = result
+        self._fetched_account_info = info  # stored for saving with the provider
+
+        status = info.get("status", "Unknown")
+        status_icon = "✓" if status.lower() == "active" else "⚠"
+        lines = [f"\n{status_icon} Account: {status}"]
+
+        exp_ts = info.get("exp_date")
+        if exp_ts:
+            try:
+                exp_dt = datetime.fromtimestamp(int(exp_ts))
+                days_left = (exp_dt - datetime.now()).days
+                lines.append(f"  Expires:     {exp_dt.strftime('%Y-%m-%d')}  ({days_left} days remaining)")
+            except Exception:
+                pass
+
+        created_ts = info.get("created_at")
+        if created_ts:
+            try:
+                created_dt = datetime.fromtimestamp(int(created_ts))
+                lines.append(f"  Created:     {created_dt.strftime('%Y-%m-%d')}")
+            except Exception:
+                pass
+
+        active = info.get("active_cons", 0)
+        max_c = info.get("max_connections", 1)
+        lines.append(f"  Connections: {active} active / {max_c} max")
+
+        if info.get("is_trial"):
+            lines.append("  ⚠ Trial account")
+
+        server = info.get("server_info", {})
+        if server.get("timezone"):
+            lines.append(f"  Server TZ:   {server['timezone']}")
+
+        self.status_text.append("\n".join(lines))
     
     def add_provider(self):
         """Add the provider"""
@@ -225,6 +303,16 @@ class AddProviderDialog(QDialog):
                 'failed_client_ips': {}
             })
         
+        # Auto-assign a colored icon if none is set
+        from metatv.gui.provider_editor import ICON_PALETTE, pick_next_icon
+        icon_session = self.db.get_session()
+        try:
+            icon_repos = RepositoryFactory(icon_session)
+            used_icons = icon_repos.providers.get_used_icons()
+        finally:
+            icon_session.close()
+        assigned_icon = pick_next_icon(used_icons)
+
         # Save to database
         session = self.db.get_session()
         try:
@@ -233,10 +321,26 @@ class AddProviderDialog(QDialog):
                 name=provider.name,
                 type=provider.type,
                 url=provider.url,
-                urls=provider_urls,  # Store as JSON
+                urls=provider_urls,
                 username=provider.username,
-                password=provider.password
+                password=provider.password,
+                icon=assigned_icon,
             )
+            # Persist account info fetched during test (if available)
+            if self._fetched_account_info:
+                info = self._fetched_account_info
+                db_provider.account_status = info.get("status")
+                db_provider.max_connections = info.get("max_connections", 1)
+                db_provider.account_active_cons = info.get("active_cons", 0)
+                try:
+                    exp_ts = info.get("exp_date")
+                    if exp_ts:
+                        db_provider.account_exp_date = datetime.fromtimestamp(int(exp_ts))
+                    created_ts = info.get("created_at")
+                    if created_ts:
+                        db_provider.account_created_at = datetime.fromtimestamp(int(created_ts))
+                except Exception:
+                    pass
             session.add(db_provider)
             session.commit()
         finally:

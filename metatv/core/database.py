@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from loguru import logger
@@ -36,9 +36,10 @@ class ChannelDB(Base):
     
     is_favorite = Column(Boolean, default=False, index=True)
     is_hidden = Column(Boolean, default=False, index=True)
+    is_adult = Column(Boolean, default=False, index=True)
     last_played = Column(DateTime)
     play_count = Column(Integer, default=0)
-    
+
     raw_data = Column(JSON)
     
     # Special content categorization (PPV, Events, Sports)
@@ -119,7 +120,22 @@ class ProviderDB(Base):
     total_channels = Column(Integer, default=0)
     total_categories = Column(Integer, default=0)
     max_connections = Column(Integer, default=1)  # Maximum simultaneous streams allowed by provider
-    
+
+    # Customization
+    icon = Column(String, default="")       # User-chosen emoji/icon e.g. "🔥" or "⭐"
+    color = Column(String, default="")      # CSS hex color for sidebar label e.g. "#ff8800"
+    epg_url = Column(String, default="")   # XMLTV EPG feed URL
+    force_adult = Column(Boolean, default=False)  # Treat all channels as adult regardless of is_adult flag
+    epg_last_fetched = Column(DateTime, nullable=True)      # When EPG was last downloaded
+    epg_data_end = Column(DateTime, nullable=True)          # Latest stop_time in fetched EPG data
+    epg_refresh_hours_before = Column(Integer, default=48)  # Refresh when data expires within N hours
+
+    # Account info cached from provider API
+    account_status = Column(String)         # Active, Expired, Banned, Disabled
+    account_exp_date = Column(DateTime)     # Subscription expiry
+    account_created_at = Column(DateTime)   # Account creation date
+    account_active_cons = Column(Integer, default=0)  # Active connections at last check
+
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -235,6 +251,22 @@ class EpisodeDB(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class EpgProgramDB(Base):
+    """EPG programme — one scheduled broadcast slot from an XMLTV feed."""
+    __tablename__ = "epg_programmes"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    provider_id    = Column(String, nullable=False, index=True)
+    channel_epg_id = Column(String, nullable=False, index=True)  # XMLTV <channel id="...">
+    channel_db_id  = Column(String, nullable=True,  index=True)  # matched ChannelDB.id
+    title          = Column(String, nullable=False,  index=True)
+    description    = Column(Text, default="")
+    start_time     = Column(DateTime, nullable=False, index=True)
+    stop_time      = Column(DateTime, nullable=False, index=True)
+    is_live        = Column(Boolean, default=False)  # ᴸᶦᵛᵉ badge stripped from title
+    is_new         = Column(Boolean, default=False)  # ᴺᵉʷ badge stripped from title
+
+
 class Database:
     """Database connection manager"""
     
@@ -247,6 +279,32 @@ class Database:
         """Create all tables"""
         Base.metadata.create_all(self.engine)
         logger.info("Database tables created")
+        self._migrate()
+
+    def _migrate(self):
+        """Apply incremental schema migrations (safe to run on every startup)."""
+        migrations = [
+            ("providers", "account_status",      "TEXT"),
+            ("providers", "account_exp_date",    "DATETIME"),
+            ("providers", "account_created_at",  "DATETIME"),
+            ("providers", "account_active_cons", "INTEGER DEFAULT 0"),
+            ("providers", "icon",                "TEXT DEFAULT ''"),
+            ("providers", "color",               "TEXT DEFAULT ''"),
+            ("providers", "epg_url",             "TEXT DEFAULT ''"),
+            ("providers", "force_adult",          "INTEGER DEFAULT 0"),
+            ("channels",  "is_adult",             "INTEGER DEFAULT 0"),
+            ("providers", "epg_last_fetched",          "DATETIME"),
+            ("providers", "epg_data_end",              "DATETIME"),
+            ("providers", "epg_refresh_hours_before",  "INTEGER DEFAULT 48"),
+        ]
+        with self.engine.connect() as conn:
+            for table, col, col_type in migrations:
+                try:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+                    logger.info(f"Migration: added column {col} to {table}")
+                except Exception:
+                    pass  # column already exists
     
     def get_session(self) -> Session:
         """Get a new database session"""

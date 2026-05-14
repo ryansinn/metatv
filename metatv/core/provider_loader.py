@@ -31,21 +31,47 @@ class ProviderLoadThread(QThread):
     
     async def load_provider(self):
         """Load provider data using provider plugin"""
-        # Get provider plugin
         provider_plugin = get_provider(self.provider.type)
         if not provider_plugin:
             self.finished.emit(False, f"Unknown provider type: {self.provider.type}")
             return
-        
-        # Progress callback
+
         def on_progress(current, total, message):
             self.progress.emit(current, total, message)
-        
-        # Fetch channels using provider plugin
+
         channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
-        
+
         total = len(channels)
         logger.info(f"Loaded {total:,} items from {self.provider.name}")
+
+        # Refresh account info in the background while channels are being stored
+        await self._refresh_account_info(provider_plugin)
+
+        # Persist updated URL success/failure counts back to the DB
+        if self.provider.urls:
+            url_session = self.db.get_session()
+            try:
+                from metatv.core.database import ProviderDB
+                import json as _json
+                db_prov = url_session.query(ProviderDB).filter_by(id=self.provider.id).first()
+                if db_prov:
+                    raw = db_prov.urls or []
+                    if isinstance(raw, str):
+                        raw = _json.loads(raw)
+                    # Merge updated counts from the in-memory ProviderURL objects
+                    url_map = {pu.url.rstrip('/'): pu for pu in self.provider.urls}
+                    for entry in raw:
+                        key = entry.get('url', '').rstrip('/')
+                        if key in url_map:
+                            pu = url_map[key]
+                            entry['success_count'] = pu.success_count
+                            entry['failure_count'] = pu.failure_count
+                    db_prov.urls = raw
+                    url_session.commit()
+            except Exception as e:
+                logger.warning(f"Failed to persist URL stats: {e}")
+            finally:
+                url_session.close()
         
         # Store in database
         session = self.db.get_session()
@@ -55,6 +81,8 @@ class ProviderLoadThread(QThread):
             
             # Process all channels
             for channel in channels:
+                raw = channel.raw_data or {}
+                is_adult = bool(raw.get("is_adult") in (1, "1", True))
                 db_channel = ChannelDB(
                     id=channel.id,
                     source_id=channel.source_id,
@@ -66,6 +94,7 @@ class ProviderLoadThread(QThread):
                     logo_url=channel.logo_url,
                     media_type=channel.media_type,
                     quality=channel.quality.value,
+                    is_adult=is_adult,
                     raw_data=channel.raw_data
                 )
                 session.merge(db_channel)
@@ -79,14 +108,98 @@ class ProviderLoadThread(QThread):
             # Final commit
             session.commit()
             self.progress.emit(100, 100, f"Completed loading {total:,} channels")
-            self.finished.emit(True, f"Loaded {total:,} channels successfully")
-            
+
         except Exception as e:
             session.rollback()
             logger.error(f"Database error during provider load: {e}")
             raise
         finally:
             session.close()
+
+        # Categorize special content (PPV, Events, Sports) for this provider's
+        # uncategorized channels.  Runs after the session is closed so it gets a
+        # fresh snapshot and doesn't compete with the merge loop above.
+        self._categorize_special_content()
+
+        self.finished.emit(True, f"Loaded {total:,} channels successfully")
+
+    def _categorize_special_content(self) -> None:
+        """Categorize PPV / Events / Sports for uncategorized channels from this provider.
+
+        Only processes channels where special_view IS NULL so subsequent refreshes
+        of the same provider are fast.  All providers are always included in the
+        queries — this scopes to the just-loaded provider to bound the work.
+        """
+        from metatv.core.special_content import update_channel_special_content
+
+        session = self.db.get_session()
+        try:
+            channels = session.query(ChannelDB).filter(
+                ChannelDB.provider_id == self.provider.id,
+                ChannelDB.special_view.is_(None),
+            ).all()
+
+            if not channels:
+                return
+
+            logger.info(
+                f"Categorizing special content for {len(channels):,} uncategorized "
+                f"channels from '{self.provider.name}'"
+            )
+
+            updated = 0
+            for i, channel in enumerate(channels):
+                if update_channel_special_content(channel):
+                    updated += 1
+                if i % 5000 == 4999:
+                    session.commit()
+
+            session.commit()
+            logger.info(
+                f"Special content: {updated:,} channels categorized "
+                f"(PPV/Events/Sports) for '{self.provider.name}'"
+            )
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to categorize special content: {e}")
+        finally:
+            session.close()
+
+    async def _refresh_account_info(self, provider_plugin) -> None:
+        """Fetch and store fresh account/subscription info after a channel load."""
+        if not hasattr(provider_plugin, "fetch_account_info"):
+            return
+        try:
+            info = await provider_plugin.fetch_account_info(self.provider)
+            if not info:
+                return
+            from metatv.core.database import ProviderDB
+            from datetime import datetime as _dt
+            acct_session = self.db.get_session()
+            try:
+                db_prov = acct_session.query(ProviderDB).filter_by(id=self.provider.id).first()
+                if db_prov:
+                    db_prov.account_status = info.get("status")
+                    db_prov.max_connections = info.get("max_connections", 1)
+                    db_prov.account_active_cons = info.get("active_cons", 0)
+                    exp_ts = info.get("exp_date")
+                    if exp_ts:
+                        db_prov.account_exp_date = _dt.fromtimestamp(int(exp_ts))
+                    created_ts = info.get("created_at")
+                    if created_ts:
+                        db_prov.account_created_at = _dt.fromtimestamp(int(created_ts))
+                    acct_session.commit()
+                    logger.info(
+                        f"Account info refreshed for '{self.provider.name}': "
+                        f"status={info.get('status')} exp={db_prov.account_exp_date}"
+                    )
+            except Exception as e:
+                acct_session.rollback()
+                logger.warning(f"Failed to store account info: {e}")
+            finally:
+                acct_session.close()
+        except Exception as e:
+            logger.warning(f"Failed to fetch account info during load: {e}")
 
 
 class ProviderTestThread(QThread):

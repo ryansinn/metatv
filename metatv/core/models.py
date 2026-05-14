@@ -213,6 +213,39 @@ class Provider:
     added_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
+    def ordered_urls(self) -> List[str]:
+        """Return base URLs in reliability-first order.
+
+        Tier 0 — Has at least one success: sorted by reliability (successes/total) descending.
+        Tier 1 — Untested (zero attempts): sorted by stored priority ascending.
+        Tier 2 — Never succeeded (only failures): sorted by failure count ascending.
+
+        The legacy ``self.url`` is always the final fallback if not already present.
+        The first element is always the statistically best bet, so URL cycling
+        becomes a rare safety net rather than routine overhead.
+        """
+        def _key(pu: ProviderURL):
+            total = pu.success_count + pu.failure_count
+            if total == 0:
+                return (1, 0.0, pu.priority)                           # untested — middle tier
+            if pu.success_count > 0:
+                return (0, -(pu.success_count / total), pu.priority)   # working — best reliability first
+            return (2, float(pu.failure_count), pu.priority)           # never worked — least failures first
+
+        seen: set = set()
+        ordered: List[str] = []
+        for pu in sorted((u for u in self.urls if u.is_active), key=_key):
+            base = pu.url.rstrip('/')
+            if base not in seen:
+                seen.add(base)
+                ordered.append(base)
+
+        primary = (self.url or '').rstrip('/')
+        if primary and primary not in seen:
+            ordered.append(primary)
+
+        return ordered or [self.url]
+
 
 @dataclass
 class Filter:

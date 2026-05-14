@@ -63,7 +63,8 @@ class Config(BaseModel):
     sidebar_sections: list = Field(default_factory=lambda: ["alerts", "favorites", "history", "sources"])  # Order of sections
     sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "favorites", "history", "sources"])  # Which sections to show
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
-    sidebar_width: int = 300  # Width of sidebar in pixels
+    sidebar_width: int = 340  # Width of sidebar in pixels
+    window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
     sidebar_section_sizes: list = Field(default_factory=list)  # Heights of sidebar sections in pixels
     
     # Performance
@@ -124,6 +125,10 @@ class Config(BaseModel):
         "Vietnamese": ["VN"],
         "Indonesian": ["ID"],
         "Filipino": ["PH"],
+        "Persian/Iranian": ["IR", "FA"],
+        "Albanian": ["AL", "ALB"],
+        "Latin American": ["LAT", "LATS"],
+        "Streaming": ["NF", "SC", "TM"],
     })
     filter_quality_groups: dict = Field(default_factory=lambda: {
         "4K / UHD": ["4K", "UHD", "8K", "2160P"],
@@ -138,7 +143,8 @@ class Config(BaseModel):
     })
     filter_included_languages: list = Field(default_factory=list)  # Empty = all included
     filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
-    filter_included_platforms: list = Field(default_factory=list)  # Empty = all included
+    filter_include_untagged: bool = True   # Show channels with no detected_prefix
+    filter_adult_mode: str = "hide"        # "all", "hide", or "only"
     show_excluded_count: bool = True
     search_includes_filtered: bool = True
     
@@ -165,6 +171,28 @@ class Config(BaseModel):
     image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
     
+    # Sports / Events view filter state persistence
+    # Keyword definitions (sport_keywords, league_keywords) live in:
+    #   ~/.config/metatv/sports_definitions.yaml
+    # That file is created on first run and is freely editable.
+    sports_filter_state: dict = Field(default_factory=dict)
+    events_filter_state: dict = Field(default_factory=dict)
+
+    # EPG settings
+    epg_watchlist_patterns: list = Field(default_factory=list)
+    # e.g. ["NHL", "Jeopardy!", "MasterChef Canada"]
+    epg_dismissed_channels: dict = Field(default_factory=dict)
+    # {channel_db_id: iso_timestamp_dismissed_until}
+    epg_notification_minutes_before: int = 15
+    epg_auto_refresh: bool = True
+    epg_refresh_interval_hours: int = 24
+    epg_hide_filler: bool = True
+    epg_filler_patterns: list = Field(default_factory=lambda: [
+        "No Game Today", "No Event Today", "Off Air",
+        "Sign Off", "No Programme", "TBA",
+    ])
+    epg_filter_state: dict = Field(default_factory=dict)
+
     # Details pane UI settings
     details_pane_visible: bool = False  # Show/hide details pane
     details_pane_width: int = 400  # Width of details pane in pixels

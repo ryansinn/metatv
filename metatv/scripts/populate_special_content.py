@@ -30,7 +30,6 @@ Future expansions:
 """
 
 import argparse
-from pathlib import Path
 from loguru import logger
 
 from metatv.core.config import Config
@@ -43,37 +42,49 @@ def populate_special_content(
     provider_id: str = None,
     force: bool = False,
     dry_run: bool = False,
-    verbose: bool = False
-):
-    """Populate special content categorization for channels
-    
+    verbose: bool = False,
+    sports_only: bool = False,
+) -> None:
+    """Populate special content categorization for channels.
+
     Args:
-        config: Application configuration
-        provider_id: Only process channels from this provider (None = all)
-        force: Re-categorize already categorized channels
-        dry_run: Show what would be updated without making changes
-        verbose: Show detailed progress per channel
+        config: Application configuration.
+        provider_id: Only process channels from this provider (None = all).
+        force: Re-categorize already categorized channels.
+        dry_run: Show what would be updated without making changes.
+        verbose: Show detailed progress per channel.
+        sports_only: Only (re-)parse sport_type/league_name/team_name for
+                     channels already flagged as sports.  Fast targeted backfill
+                     after keyword map changes without touching all 284k channels.
     """
-    
+
     db = Database(config.database_url)
     session = db.get_session()
-    
+
     try:
-        # Query channels
         query = session.query(ChannelDB)
-        
-        if provider_id:
-            query = query.filter(ChannelDB.provider_id == provider_id)
-            logger.info(f"Processing channels from provider: {provider_id}")
+
+        if sports_only:
+            # Targeted mode: only sports channels missing sport_type
+            query = query.filter(ChannelDB.special_view == 'sports')
+            if not force:
+                query = query.filter(ChannelDB.sport_type.is_(None))
+            logger.info(
+                "Sports-only mode: re-parsing sport_type/league_name/team_name "
+                "for sports channels" + (" (all)" if force else " (missing sport_type)")
+            )
         else:
-            logger.info("Processing all channels")
-        
-        if not force:
-            # Only process uncategorized channels (special_view is NULL)
-            query = query.filter(ChannelDB.special_view.is_(None))
-            logger.info("Skipping already categorized channels (use --force to re-categorize)")
-        else:
-            logger.info("Force mode: Re-categorizing all channels")
+            if provider_id:
+                query = query.filter(ChannelDB.provider_id == provider_id)
+                logger.info(f"Processing channels from provider: {provider_id}")
+            else:
+                logger.info("Processing all channels")
+
+            if not force:
+                query = query.filter(ChannelDB.special_view.is_(None))
+                logger.info("Skipping already categorized channels (use --force to re-categorize)")
+            else:
+                logger.info("Force mode: Re-categorizing all channels")
         
         channels = query.all()
         total = len(channels)
@@ -95,35 +106,65 @@ def populate_special_content(
         updated = 0
         
         for i, channel in enumerate(channels, 1):
-            # Show progress every 1000 channels
             if i % 1000 == 0 or verbose:
                 logger.info(f"Progress: {i:,}/{total:,} ({i*100//total}%)")
-            
-            # Categorize channel
-            was_updated = update_channel_special_content(channel)
-            
-            if was_updated:
+
+            if sports_only:
+                # Only re-parse sport/league/team fields; don't change special_view
+                from metatv.core.special_content import parse_sports_channel
+                sports_data = parse_sports_channel(channel, config)
+                channel.sport_type = sports_data['sport_type']
+                channel.league_name = sports_data['league_name']
+                channel.team_name = sports_data['team_name']
                 updated += 1
-                category = channel.special_view
-                if category:
-                    stats[category] = stats.get(category, 0) + 1
-                    if verbose:
-                        logger.debug(f"  [{category}] {channel.name}")
-                else:
-                    stats['uncategorized'] += 1
+                stats['sports'] = stats.get('sports', 0) + 1
+                if verbose:
+                    logger.debug(
+                        f"  [sports] {channel.name} → "
+                        f"{sports_data['sport_type']} / "
+                        f"{sports_data['league_name']} / "
+                        f"{sports_data['team_name']}"
+                    )
+            else:
+                was_updated = update_channel_special_content(channel, config)
+                if was_updated:
+                    updated += 1
+                    category = channel.special_view
+                    if category:
+                        stats[category] = stats.get(category, 0) + 1
+                        if verbose:
+                            logger.debug(f"  [{category}] {channel.name}")
+                    else:
+                        stats['uncategorized'] += 1
         
-        # Display summary
         logger.info(f"\n{'='*60}")
-        logger.info("CATEGORIZATION SUMMARY")
-        logger.info(f"{'='*60}")
-        logger.info(f"Total processed: {total:,}")
-        logger.info(f"Updated: {updated:,}")
-        logger.info(f"")
-        logger.info(f"Categories:")
-        logger.info(f"  💰 PPV:         {stats['ppv']:>6,} channels")
-        logger.info(f"  🎪 Live Events: {stats['live_event']:>6,} channels")
-        logger.info(f"  ⚽ Sports:       {stats['sports']:>6,} channels")
-        logger.info(f"  ❓ Other:        {stats['uncategorized']:>6,} channels")
+        if sports_only:
+            logger.info("SPORTS PARSING SUMMARY")
+            logger.info(f"{'='*60}")
+            logger.info(f"Sports channels processed: {total:,}")
+            logger.info(f"Updated: {updated:,}")
+            # Show sport_type breakdown
+            from sqlalchemy import func as sqlfunc
+            sport_rows = session.query(
+                ChannelDB.sport_type, sqlfunc.count(ChannelDB.id)
+            ).filter(ChannelDB.special_view == 'sports').group_by(
+                ChannelDB.sport_type
+            ).all()
+            logger.info("\nSport type breakdown:")
+            for sport, count in sorted(sport_rows, key=lambda r: -(r[1])):
+                label = sport if sport else 'unknown'
+                logger.info(f"  {label:<25} {count:>6,}")
+        else:
+            logger.info("CATEGORIZATION SUMMARY")
+            logger.info(f"{'='*60}")
+            logger.info(f"Total processed: {total:,}")
+            logger.info(f"Updated: {updated:,}")
+            logger.info(f"")
+            logger.info(f"Categories:")
+            logger.info(f"  💰 PPV:         {stats.get('ppv', 0):>6,} channels")
+            logger.info(f"  🎪 Live Events: {stats.get('live_event', 0):>6,} channels")
+            logger.info(f"  ⚽ Sports:       {stats.get('sports', 0):>6,} channels")
+            logger.info(f"  ❓ Other:        {stats.get('uncategorized', 0):>6,} channels")
         logger.info(f"{'='*60}")
         
         if dry_run:
@@ -190,7 +231,16 @@ Examples:
         action='store_true',
         help='Show detailed progress per channel'
     )
-    
+
+    parser.add_argument(
+        '--sports-only',
+        action='store_true',
+        help=(
+            'Only re-parse sport_type/league_name/team_name for channels already '
+            'flagged as sports. Fast targeted backfill after keyword map changes.'
+        )
+    )
+
     args = parser.parse_args()
     
     # Configure logging
@@ -202,13 +252,13 @@ Examples:
     config = Config.load()
     logger.info(f"Loaded config. Database: {config.database_url}")
     
-    # Run categorization
     populate_special_content(
         config=config,
         provider_id=args.provider,
         force=args.force,
         dry_run=args.dry_run,
-        verbose=args.verbose
+        verbose=args.verbose,
+        sports_only=args.sports_only,
     )
 
 

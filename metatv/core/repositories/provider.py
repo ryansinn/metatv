@@ -5,8 +5,9 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from loguru import logger
 
+import json
 from metatv.core.database import ProviderDB
-from metatv.core.models import Provider
+from metatv.core.models import Provider, ProviderURL
 
 
 class ProviderRepository:
@@ -59,13 +60,37 @@ class ProviderRepository:
             provider.updated_at = datetime.now()
             self.session.commit()
     
+    def get_used_icons(self) -> List[str]:
+        """Return all non-empty icon values currently set on providers."""
+        rows = self.session.query(ProviderDB.icon).all()
+        return [r.icon for r in rows if r.icon]
+
     def to_model(self, db_provider: ProviderDB) -> Provider:
-        """Convert database model to domain model"""
+        """Convert database model to domain model, including alternate URLs."""
+        urls: List[ProviderURL] = []
+        raw_urls = db_provider.urls or []
+        if isinstance(raw_urls, str):
+            try:
+                raw_urls = json.loads(raw_urls)
+            except Exception:
+                raw_urls = []
+        for u in raw_urls:
+            if not isinstance(u, dict) or not u.get('url'):
+                continue
+            urls.append(ProviderURL(
+                url=u['url'],
+                priority=u.get('priority', 999),
+                is_active=u.get('is_active', True),
+                success_count=u.get('success_count', 0),
+                failure_count=u.get('failure_count', 0),
+            ))
+
         return Provider(
             id=db_provider.id,
             name=db_provider.name,
             type=db_provider.type,
             url=db_provider.url,
+            urls=urls,
             username=db_provider.username,
             password=db_provider.password
         )

@@ -34,7 +34,8 @@ class DetailsPaneWidget(QWidget):
         self.current_channel = None
         self.current_metadata = None
         self.provider_urls = []  # Alternative URLs for image failover
-        
+        self._provider_map: dict = {}  # provider_id → {"icon": str, "name": str}
+
         self.setup_ui()
         
         # Connect to image cache signals
@@ -44,6 +45,14 @@ class DetailsPaneWidget(QWidget):
     def set_provider_urls(self, urls: list):
         """Set provider URLs for image failover"""
         self.provider_urls = urls
+
+    def set_provider_map(self, provider_map: dict):
+        """Update the provider icon/name map used in the source badge.
+
+        Args:
+            provider_map: Dict mapping provider_id → {"icon": str, "name": str}
+        """
+        self._provider_map = provider_map
     
     def setup_ui(self):
         """Create the UI layout"""
@@ -148,7 +157,24 @@ class DetailsPaneWidget(QWidget):
         
         meta_row.addStretch()
         self.content_layout.addLayout(meta_row)
-        
+
+        # Source badge (provider name + icon) and adult indicator on the same row
+        badge_row = QHBoxLayout()
+        self.source_label = QLabel()
+        self.source_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.source_label.hide()
+        badge_row.addWidget(self.source_label)
+
+        self.adult_indicator = QLabel("🔞 Adult")
+        self.adult_indicator.setStyleSheet(
+            "color: #cc4444; font-size: 11px; font-weight: 600;"
+            " background: rgba(204,68,68,0.15); border-radius: 3px; padding: 1px 5px;"
+        )
+        self.adult_indicator.hide()
+        badge_row.addWidget(self.adult_indicator)
+        badge_row.addStretch()
+        self.content_layout.addLayout(badge_row)
+
         # Genres
         self.genres_label = QLabel()
         self.genres_label.setWordWrap(True)
@@ -297,6 +323,9 @@ class DetailsPaneWidget(QWidget):
         self.plot_label.clear()
         self.tech_details_label.clear()
         self.cast_label.clear()
+        self.source_label.clear()
+        self.source_label.hide()
+        self.adult_indicator.hide()
         
         self.poster_loading.hide()
         self.plot_loading.hide()
@@ -318,8 +347,24 @@ class DetailsPaneWidget(QWidget):
             "movie": self.config.movie_icon,
             "series": self.config.series_icon,
         }.get(channel.media_type, self.config.unknown_icon)
-        
+
         self.year_label.setText(f"{media_icon} {channel.media_type.title()}")
+
+        # Source badge
+        provider_info = self._provider_map.get(getattr(channel, 'provider_id', None))
+        if provider_info:
+            icon = provider_info.get('icon', '')
+            name = provider_info.get('name', '')
+            badge = f"{icon} {name}".strip() if icon else name
+            if badge:
+                self.source_label.setText(f"Source: {badge}")
+                self.source_label.show()
+
+        # Adult content indicator
+        if getattr(channel, 'is_adult', False):
+            self.adult_indicator.show()
+        else:
+            self.adult_indicator.hide()
     
     def _show_loading_state(self):
         """Show loading indicators for sections being fetched"""

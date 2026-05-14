@@ -811,50 +811,61 @@
 - [ ] Database indexes and query optimization
 
 ### EPG (Electronic Program Guide) System
-- [ ] **EPG plugin architecture**
-  - **Base class**: `EPGProviderPlugin` abstract interface
-  - **Core methods**: `get_program_guide()`, `get_current_program()`, `get_schedule()`, `search_programs()`
-  - **Plugin registry**: Auto-discover EPG providers from `metatv/epg_providers/` directory
-  - **Data model**: ProgramDB table (program_id, channel_id, title, start_time, end_time, description, category)
-  - **Caching**: Local SQLite storage with automatic refresh
-  - **Channel matching**: Link EPG data to channels via epg_channel_id
-  
-- [ ] **Built-in EPG providers**
-  - **XtreamEPGProvider**: Use provider's EPG endpoint
-    - Endpoint: `/player_api.php?username=X&password=Y&action=get_simple_data_table&stream_id=Z`
-    - Parse XML/JSON EPG data
-    - Auto-refresh every 4-6 hours
-  - **XMLTV Provider**: Standard XMLTV format support
-    - File-based or URL-based XMLTV
-    - Parser for compressed formats (.gz, .xz)
-    - Configurable refresh schedule
-  - **M3U EPG**: Extract EPG URLs from M3U playlists
-    - Parse #EXTINF tags for EPG references
-    - Support TVG attributes
-  
-- [ ] **EPG UI features**
-  - **Live TV "Now Playing" view**: Grid showing current programs
-  - **Channel details pane**: Current + next program for selected channel
-  - **Timeline view**: Horizontal program schedule with time slots
-  - **Genre filtering**: Filter live TV by EPG genre
-  - **Program search**: Search EPG data across all channels
-  - **Reminders**: Alert when favorite programs air
-  - **Recording markers**: Visual indicators for programs to record (future)
-  
-- [ ] **EPG configuration**
-  - Enable/disable EPG providers
-  - Configure EPG URLs
-  - Set refresh schedule (hourly, every 6h, daily, manual)
-  - EPG timezone settings
-  - Cache size limits
-  - Match EPG to channels (auto + manual mapping)
-  
-- [ ] **EPG data management**
-  - Auto-cleanup of old program data (keep 7 days history, 7 days future)
-  - Background refresh worker
-  - Manual refresh trigger
-  - EPG coverage statistics (% of channels with EPG data)
-  - Missing EPG detection and reporting
+
+- [x] **Core EPG infrastructure** ✅
+  - `metatv/core/xmltv_parser.py` — streaming iterparse, handles 140MB+ feeds without loading into RAM; graceful recovery from truncated XML; `on_progress` callback for UI progress bars
+  - `metatv/core/epg_manager.py` — background fetch/parse/store via `ThreadPoolExecutor(max_workers=1)` (serialised to avoid SQLite lock conflicts); progress notifications via queued signals (thread-safe); refresh only when `epg_data_end < now + N hours` (configurable per provider, default 48h); 60s watchlist notification timer
+  - `metatv/core/repositories/epg.py` — queries: current programmes (On Now), watchlist upcoming/live, daily schedule, full-text search, channel recommendations, starting-soon (for notifications); all queries support optional `lang_code` suffix filter
+  - `metatv/core/database.py` — `EpgProgramDB` table; `epg_last_fetched`, `epg_data_end`, `epg_refresh_hours_before` on ProviderDB; migrations applied
+  - Channel matching: exact `epg_channel_id` first, then normalized display-name fuzzy fallback; ~4,600 of 6,664 ProSat XMLTV channels matched to playable streams
+  - Provider editor: EPG URL field + "Refresh when data expires within N hours" spinbox (6–168h, default 48h)
+
+- [x] **EPG view — watchlist-first UI** ⚠️ (`metatv/gui/epg_view.py`) — *functional, some rough edges*
+  - **📅 EPG chip** in header bar; `switch_to_epg_view()` wired alongside PPV/Events/Sports; defaults to Browse tab when watchlist is empty
+  - **📋 Watchlist tab**: always-visible keyword input with hint text; tracks show titles/keywords (e.g. "NHL", "Jeopardy"); live 🔴 / upcoming ⏰ per pattern; up to 3 next airings shown; add/remove patterns; auto-switches to Browse on open if no patterns set
+  - **Recommendations**: channels with most watchlist-pattern matches in next 7 days; dismiss for 7 days; manage dismissed dialog
+  - **📺 On Now tab**: QTreeWidget with columns Channel | Show | Progress (████░░) | Remaining; playable channels only; filler hidden by default; watchlist matches highlighted blue; double-click to play, single-click to show in details pane
+  - **📅 Browse tab**: QTreeWidget with columns Time | Channel | Show | Duration; sortable columns with correct time sort (by UTC epoch, not display string); date picker (today + 5 days); time slot filter (all/morning/afternoon/prime time/late night); live search; region filter (top 10 country codes by frequency); watchlist matches bold/blue; double-click to play
+  - All times displayed in **machine local timezone** (EPG stored as UTC; converted for display)
+  - Region filter: top-10 two-letter country code suffixes from EPG channel IDs; "All" resets filter; actually filters all three tabs
+  - In-app toast notifications when watchlist show starts within N minutes (configurable in config.yaml)
+  - Progress bar notification during EPG fetch (indeterminate; updates every 10K programmes; auto-completes)
+
+- [ ] **EPG known issues / rough edges**
+  - On Now may show 0 results if the EPG data has gaps for the current UTC hour (overnight/early morning)
+  - Watchlist recommendations are empty until at least one pattern is added
+  - No persistence of which EPG tab was last active
+  - Browse "All Day" for a full provider can be slow on first load (no pagination)
+  - Watchlist airings only look 48h ahead; no way to browse further from the Watchlist tab
+  - `epg_notification_minutes_before`, `epg_auto_refresh`, and `epg_filler_patterns` are config-file-only (no settings UI yet)
+
+- [ ] **EPG content-type filter** *(consider for future sprint)*
+  - **Context**: ProSat's XMLTV feed has **no `<category>` tags** — only `title`, `desc`, `start`, `stop`. Xtream also returns no category for ProSat channels. Standard XMLTV genre filtering is therefore not available from this provider.
+  - **Viable approach**: Derive content type from the **matched channel's name** (reliable, structured) rather than programme title (inconsistent). Channel names consistently contain genre keywords:
+    - Sports: `SPORT`, `ESPN`, `TSN`, `DAZN`, `MLB`, `NFL`, `NBA`, `NHL`, `SKY SPORTS`, `BEIN`
+    - News: `NEWS`, `CNN`, `BBC`, `FOX NEWS`, `MSNBC`, `SKY NEWS`
+    - Kids: `KIDS`, `CARTOON`, `DISNEY JR`, `NICK`, `JUNIOR`
+    - Music: `MUSIC`, `MTV`, `VH1`, `MC MUSIC`
+    - Movies/Premium: `MOVIE`, `CINEMA`, `HBO`, `CINEMAX`, `STARZ`
+  - **Implementation**: Add `content_type` classification function in `xmltv_parser.py` or `epg_manager.py`. During channel matching in `_build_match_map()`, look up the matched `ChannelDB.name` and classify it. Store as a new column on `EpgProgramDB` or compute at query time by joining ChannelDB.
+  - **UI**: Add a `[All Types ▼]` dropdown chip in the EPG header (alongside the existing language dropdown). Filter applies to all three tabs.
+  - **Fallback for unmatched channels**: If `channel_db_id` is NULL (no playable stream found), fall back to keyword-scanning the XMLTV display-name directly using the same keyword lists.
+  - **Note**: If a future provider supplies real `<category>` tags, parse them in `_parse_programme()` and store in a new `category` column on `EpgProgramDB`. The UI dropdown can then prefer real categories over inferred ones.
+
+- [ ] **EPG data management UI** *(Settings dialog tab)*
+  - Notification minutes-before (currently config-only)
+  - Auto-refresh toggle + interval (currently config-only)
+  - Filler patterns list (currently config-only, default: "No Game Today", "Off Air", "TBA")
+  - "Refresh EPG now" button per provider
+  - EPG coverage stats (% of channels with matched EPG data)
+
+- [ ] **Compressed XMLTV support**
+  - Many providers serve `.xml.gz` — add gzip decompression in `parse_xmltv_url()` via `gzip.open()` around the response stream
+  - Check `Content-Encoding: gzip` header and decompress transparently
+
+- [ ] **EPG data cleanup**
+  - Auto-delete `EpgProgramDB` rows where `stop_time < now - 24h` (keep only recent history + future)
+  - Run on startup or on refresh to prevent unbounded DB growth
 
 ### Content Discovery
 - [ ] Recommendations based on watch history

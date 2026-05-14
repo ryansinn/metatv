@@ -53,7 +53,9 @@ class CollapsibleSplitter(QSplitter):
     def __init__(self, orientation=Qt.Orientation.Horizontal, parent=None):
         super().__init__(orientation, parent)
         self.collapsed_panels = {}  # index -> previous_size
-        self.setChildrenCollapsible(True)
+        # Prevent Qt from collapsing panels to zero on drag — our click-to-collapse
+        # logic calls setSizes() directly and still works with this off.
+        self.setChildrenCollapsible(False)
     
     def createHandle(self):
         """Create custom handle with click detection"""

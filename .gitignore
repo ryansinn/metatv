@@ -54,3 +54,8 @@ Thumbs.db
 config.json
 *.db
 metatv.db
+
+# Local scratch / personal files
+flsp_*.txt
+*_watchlist.txt
+json
