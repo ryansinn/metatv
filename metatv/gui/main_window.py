@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.addWidget(content)
 
         # Right details pane
-        self.details_pane = DetailsPaneWidget(self.config, self.image_cache)
+        self.details_pane = DetailsPaneWidget(self.config, self.image_cache, self.db)
         self.details_pane.play_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.main_splitter.addWidget(self.details_pane)
@@ -595,6 +595,7 @@ class MainWindow(QMainWindow):
         self.ppv_view.setVisible(False)
         self.events_view.setVisible(False)
         self.sports_view.setVisible(False)
+        self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.filter_bar.setVisible(False)
 
@@ -606,6 +607,10 @@ class MainWindow(QMainWindow):
         self.provider_editor.load_provider(provider_id)
         self.stats_label.setText("Editing provider — click a source to switch")
         self._in_provider_edit_mode = True
+        # Reset EPG chip so it doesn't appear active after editing
+        self.epg_chip.blockSignals(True)
+        self.epg_chip.set_enabled(False)
+        self.epg_chip.blockSignals(False)
 
     def exit_provider_edit_mode(self):
         """Return to the normal channel list view."""
@@ -1441,8 +1446,16 @@ class MainWindow(QMainWindow):
     def update_details_pane_for_channel(self, channel):
         """Update details pane with channel metadata (async)"""
         from concurrent.futures import ThreadPoolExecutor
+        from metatv.core.models import MediaType
         import asyncio
-        
+
+        # Live channels have no TMDb/OMDb metadata — show basic info and return.
+        # EPG agenda and channel icon are handled directly by the details pane.
+        if getattr(channel, "media_type", None) == MediaType.LIVE:
+            self.details_pane.set_provider_urls([])
+            self.details_pane.show_channel(channel, metadata=None)
+            return
+
         # Get provider URLs for image failover
         provider_urls = []
         try:
@@ -1725,6 +1738,7 @@ class MainWindow(QMainWindow):
         self.ppv_view.setVisible(False)
         self.events_view.setVisible(False)
         self.sports_view.setVisible(False)
+        self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
         
         # Hide back button

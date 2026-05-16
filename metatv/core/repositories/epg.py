@@ -33,6 +33,8 @@ class EpgRepository:
         filler_patterns: list[str] | None = None,
         dismissed_channel_ids: set[str] | None = None,
         lang_code: str = "",
+        hidden_titles: list[str] | None = None,
+        hidden_channel_ids: list[str] | None = None,
     ) -> list[EpgProgramDB]:
         """Programmes airing right now across the given providers.
 
@@ -58,6 +60,12 @@ class EpgRepository:
 
         if lang_code:
             query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
+
+        if hidden_titles:
+            query = query.filter(~EpgProgramDB.title.in_(hidden_titles))
+
+        if hidden_channel_ids:
+            query = query.filter(~EpgProgramDB.channel_db_id.in_(hidden_channel_ids))
 
         return query.order_by(EpgProgramDB.start_time).all()
 
@@ -282,6 +290,44 @@ class EpgRepository:
                 break
 
         return results
+
+    # ------------------------------------------------------------------
+    # Per-channel schedule (for details pane agenda)
+    # ------------------------------------------------------------------
+
+    def get_now_for_channel(self, channel_db_id: str) -> EpgProgramDB | None:
+        """Return the programme currently airing on a specific channel, or None."""
+        now = _now_utc()
+        return (
+            self.session.query(EpgProgramDB)
+            .filter(
+                EpgProgramDB.channel_db_id == channel_db_id,
+                EpgProgramDB.start_time <= now,
+                EpgProgramDB.stop_time > now,
+            )
+            .first()
+        )
+
+    def get_schedule_for_channel(
+        self,
+        channel_db_id: str,
+        from_time: datetime | None = None,
+        hours_ahead: int = 8,
+    ) -> list[EpgProgramDB]:
+        """Return upcoming programmes on a specific channel ordered by start_time."""
+        start = from_time if from_time is not None else _now_utc()
+        cutoff = start + timedelta(hours=hours_ahead)
+        return (
+            self.session.query(EpgProgramDB)
+            .filter(
+                EpgProgramDB.channel_db_id == channel_db_id,
+                EpgProgramDB.stop_time > start,
+                EpgProgramDB.start_time < cutoff,
+            )
+            .order_by(EpgProgramDB.start_time)
+            .limit(12)
+            .all()
+        )
 
     # ------------------------------------------------------------------
     # Meta / maintenance

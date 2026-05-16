@@ -1,7 +1,55 @@
 """Details pane widget - shows metadata for selected channel"""
+import re as _re
 from typing import Optional
 
 from loguru import logger
+
+# Regex to extract the category/country prefix from channel names like
+# "BE ★ Channel Name", "ARGENTINA ★ ...", "EPL ★ ...", "EFL-L1 ★ ..."
+_CHANNEL_PREFIX_RE = _re.compile(r'^([A-Z][A-Z0-9\-]{1,11})\s*([★|])\s*(.+)$')
+
+_COUNTRY_ABBREV_DP: dict[str, str] = {
+    "ARGENTINA": "ARG", "AUSTRALIA": "AUS", "AUSTRIA": "AUT",
+    "BELGIUM": "BEL", "BOLIVIA": "BOL", "BRAZIL": "BRA",
+    "CANADA": "CAN", "CHILE": "CHL", "COLOMBIA": "COL",
+    "CROATIA": "HRV", "DENMARK": "DEN", "ECUADOR": "ECU",
+    "FINLAND": "FIN", "FRANCE": "FRA", "GERMANY": "GER",
+    "GREECE": "GRE", "HUNGARY": "HUN", "IRELAND": "IRL",
+    "ITALY": "ITA", "MEXICO": "MEX", "NETHERLANDS": "NED",
+    "NORWAY": "NOR", "PARAGUAY": "PAR", "PERU": "PER",
+    "POLAND": "POL", "PORTUGAL": "POR", "ROMANIA": "ROU",
+    "RUSSIA": "RUS", "SPAIN": "ESP", "SWEDEN": "SWE",
+    "SWITZERLAND": "SUI", "TURKEY": "TUR", "UKRAINE": "UKR",
+    "URUGUAY": "URY", "VENEZUELA": "VEN",
+}
+
+_CATEGORY_FULL_NAMES_DP: dict[str, str] = {
+    "US": "United States", "UK": "United Kingdom", "GB": "United Kingdom",
+    "BE": "Belgium", "FR": "France", "DE": "Germany", "ES": "Spain",
+    "IT": "Italy", "PT": "Portugal", "NL": "Netherlands", "SE": "Sweden",
+    "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
+    "RO": "Romania", "HU": "Hungary", "CZ": "Czech Republic", "GR": "Greece",
+    "TR": "Turkey", "RU": "Russia", "UA": "Ukraine", "BR": "Brazil",
+    "MX": "Mexico", "CA": "Canada", "AU": "Australia", "NZ": "New Zealand",
+    "JP": "Japan", "KR": "South Korea", "CN": "China", "IN": "India",
+    "AR": "Argentina", "CL": "Chile", "CO": "Colombia", "PE": "Peru",
+    "VE": "Venezuela", "IR": "Iran", "SA": "Saudi Arabia", "AE": "UAE",
+    "EG": "Egypt", "MA": "Morocco", "IL": "Israel", "ZA": "South Africa",
+    "AT": "Austria", "CH": "Switzerland", "IE": "Ireland", "HR": "Croatia",
+    "SK": "Slovakia", "SI": "Slovenia", "BG": "Bulgaria", "RS": "Serbia",
+    "ARG": "Argentina", "AUS": "Australia", "AUT": "Austria", "BEL": "Belgium",
+    "BOL": "Bolivia", "BRA": "Brazil", "CAN": "Canada", "CHL": "Chile",
+    "COL": "Colombia", "HRV": "Croatia", "DEN": "Denmark", "ECU": "Ecuador",
+    "FIN": "Finland", "FRA": "France", "GER": "Germany", "GRE": "Greece",
+    "HUN": "Hungary", "IRL": "Ireland", "ITA": "Italy", "MEX": "Mexico",
+    "NED": "Netherlands", "NOR": "Norway", "PAR": "Paraguay", "PER": "Peru",
+    "POL": "Poland", "POR": "Portugal", "ROU": "Romania", "RUS": "Russia",
+    "ESP": "Spain", "SWE": "Sweden", "SUI": "Switzerland", "TUR": "Turkey",
+    "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela",
+    "EPL": "English Premier League", "EFL": "English Football League",
+    "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
+    "NHL": "NHL Hockey", "UFC": "UFC / MMA",
+}
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
@@ -10,6 +58,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QPixmap
 
+from metatv.core.database import Database
+from metatv.core.models import MediaType
+from metatv.gui.epg_agenda_widget import EpgAgendaWidget
 from metatv.metadata_providers.base import MetadataResult
 
 
@@ -27,10 +78,11 @@ class DetailsPaneWidget(QWidget):
     play_requested = pyqtSignal(str)  # channel_id
     favorite_toggled = pyqtSignal(str)  # channel_id
     
-    def __init__(self, config, image_cache, parent=None):
+    def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
         self.config = config
         self.image_cache = image_cache
+        self._db = db
         self.current_channel = None
         self.current_metadata = None
         self.provider_urls = []  # Alternative URLs for image failover
@@ -86,7 +138,13 @@ class DetailsPaneWidget(QWidget):
         
         # Cast section (collapsible - Phase 2+)
         self.create_cast_section()
-        
+
+        # EPG agenda (live channels only — hidden when no data)
+        self._epg_agenda = EpgAgendaWidget(self._db, self.config) if self._db else None
+        if self._epg_agenda:
+            self.content_layout.addWidget(self._epg_agenda)
+            self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
+
         # Add stretch at bottom
         self.content_layout.addStretch()
         
@@ -103,10 +161,10 @@ class DetailsPaneWidget(QWidget):
     
     def create_poster_section(self):
         """Create poster image section"""
-        poster_container = QWidget()
-        poster_layout = QVBoxLayout(poster_container)
+        self._poster_section = QWidget()
+        poster_layout = QVBoxLayout(self._poster_section)
         poster_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Poster label
         self.poster_label = QLabel()
         self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -120,17 +178,37 @@ class DetailsPaneWidget(QWidget):
         """)
         self.poster_label.setScaledContents(False)  # Keep aspect ratio
         self.poster_label.setText("No poster available")
-        
+
         poster_layout.addWidget(self.poster_label)
-        
+
         # Loading indicator (hidden by default)
         self.poster_loading = QLabel("Loading poster...")
         self.poster_loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.poster_loading.setStyleSheet("color: gray; font-style: italic;")
         self.poster_loading.hide()
         poster_layout.addWidget(self.poster_loading)
-        
-        self.content_layout.addWidget(poster_container)
+
+        # Channel icon row for live channels (hidden by default)
+        self._live_header = QWidget()
+        live_header_layout = QHBoxLayout(self._live_header)
+        live_header_layout.setContentsMargins(0, 4, 0, 4)
+        live_header_layout.setSpacing(8)
+        self._channel_icon_lbl = QLabel()
+        self._channel_icon_lbl.setFixedSize(32, 32)
+        self._channel_icon_lbl.setScaledContents(True)
+        self._channel_icon_lbl.hide()
+        live_header_layout.addWidget(self._channel_icon_lbl)
+
+        self._country_info_lbl = QLabel()
+        self._country_info_lbl.setStyleSheet("font-size: 11px; color: #777; font-style: italic;")
+        self._country_info_lbl.setWordWrap(True)
+        self._country_info_lbl.hide()
+        live_header_layout.addWidget(self._country_info_lbl, 1)
+
+        self._live_header.hide()
+
+        self.content_layout.addWidget(self._poster_section)
+        self.content_layout.addWidget(self._live_header)
     
     def create_basic_info_section(self):
         """Create basic info section (title, year, rating, genres)"""
@@ -139,24 +217,26 @@ class DetailsPaneWidget(QWidget):
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         self.content_layout.addWidget(self.title_label)
-        
-        # Metadata row (year, rating, runtime)
-        meta_row = QHBoxLayout()
-        
+
+        # Metadata row (year, rating, runtime) — hidden for live channels
+        self._meta_row_widget = QWidget()
+        meta_row = QHBoxLayout(self._meta_row_widget)
+        meta_row.setContentsMargins(0, 0, 0, 0)
+
         self.year_label = QLabel()
         self.year_label.setStyleSheet("color: gray;")
         meta_row.addWidget(self.year_label)
-        
+
         self.rating_label = QLabel()
         self.rating_label.setStyleSheet("color: gold; font-weight: bold;")
         meta_row.addWidget(self.rating_label)
-        
+
         self.runtime_label = QLabel()
         self.runtime_label.setStyleSheet("color: gray;")
         meta_row.addWidget(self.runtime_label)
-        
+
         meta_row.addStretch()
-        self.content_layout.addLayout(meta_row)
+        self.content_layout.addWidget(self._meta_row_widget)
 
         # Source badge (provider name + icon) and adult indicator on the same row
         badge_row = QHBoxLayout()
@@ -175,30 +255,37 @@ class DetailsPaneWidget(QWidget):
         badge_row.addStretch()
         self.content_layout.addLayout(badge_row)
 
-        # Genres
+        # Genres — hidden for live channels
         self.genres_label = QLabel()
         self.genres_label.setWordWrap(True)
         self.genres_label.setStyleSheet("color: lightblue;")
         self.content_layout.addWidget(self.genres_label)
-        
+
         # Action buttons
+        self._current_epg_show_title: str = ""
         buttons_layout = QHBoxLayout()
-        
+
         self.play_button = QPushButton(f"{self.config.play_icon} Play")
         self.play_button.clicked.connect(self._on_play_clicked)
-        buttons_layout.addWidget(self.play_button)
-        
+        buttons_layout.addWidget(self.play_button, 1)
+
         self.favorite_button = QPushButton()
         self.favorite_button.clicked.connect(self._on_favorite_clicked)
-        buttons_layout.addWidget(self.favorite_button)
-        
+        buttons_layout.addWidget(self.favorite_button, 1)
+
+        self.watchlist_button = QPushButton("+ Watchlist")
+        self.watchlist_button.setToolTip("Add current show to watchlist patterns")
+        self.watchlist_button.clicked.connect(self._on_watchlist_clicked)
+        self.watchlist_button.hide()  # shown only for live channels with EPG data
+        buttons_layout.addWidget(self.watchlist_button, 1)
+
         self.content_layout.addLayout(buttons_layout)
     
     def create_plot_section(self):
         """Create plot/description section"""
         # Section header
-        plot_header = QLabel("<b>Overview</b>")
-        self.content_layout.addWidget(plot_header)
+        self._plot_header = QLabel("<b>Overview</b>")
+        self.content_layout.addWidget(self._plot_header)
         
         # Plot text
         self.plot_label = QLabel()
@@ -216,7 +303,8 @@ class DetailsPaneWidget(QWidget):
     def create_technical_section(self):
         """Create technical details section (collapsible)"""
         # Section header
-        tech_header_widget = QWidget()
+        self._tech_header = QWidget()
+        tech_header_widget = self._tech_header
         tech_header_layout = QHBoxLayout(tech_header_widget)
         tech_header_layout.setContentsMargins(0, 5, 0, 5)
         
@@ -252,7 +340,8 @@ class DetailsPaneWidget(QWidget):
     def create_cast_section(self):
         """Create cast section (collapsible) - Phase 2+"""
         # Section header
-        cast_header_widget = QWidget()
+        self._cast_header = QWidget()
+        cast_header_widget = self._cast_header
         cast_header_layout = QHBoxLayout(cast_header_widget)
         cast_header_layout.setContentsMargins(0, 5, 0, 5)
         
@@ -287,7 +376,7 @@ class DetailsPaneWidget(QWidget):
     
     def show_channel(self, channel, metadata: Optional[MetadataResult] = None):
         """Display metadata for a channel
-        
+
         Args:
             channel: Channel object from database
             metadata: Optional MetadataResult (if None, will show basic info only)
@@ -295,22 +384,68 @@ class DetailsPaneWidget(QWidget):
         logger.debug(f"show_channel called for {channel.name}, metadata={metadata is not None}")
         self.current_channel = channel
         self.current_metadata = metadata
-        
+        is_live = getattr(channel, "media_type", None) == MediaType.LIVE
+
+        # Configure layout for channel type (before clearing so flicker is minimised)
+        self._configure_for_live(is_live)
+
         # Clear previous state
         self._clear_display()
-        
+
+        # Country/category info for live channels (after clear so it isn't hidden again)
+        if is_live:
+            self._update_country_info(channel.name)
+
         # Show basic channel info immediately (Tier 1 - instant)
         self._show_basic_channel_info(channel)
-        
+
+        # Channel icon for live channels (async)
+        if is_live:
+            logo = getattr(channel, "logo_url", None)
+            if logo:
+                pix = self.image_cache.get_image_sync(logo)
+                if pix:
+                    self._channel_icon_lbl.setPixmap(pix)
+                    self._channel_icon_lbl.show()
+                else:
+                    self._channel_icon_lbl.hide()
+                    self.image_cache.get_image_async(logo)
+            else:
+                self._channel_icon_lbl.hide()
+
+        # EPG agenda — only for live channels
+        if self._epg_agenda:
+            if is_live:
+                self._epg_agenda.load_for_channel(channel.id)
+            else:
+                self._epg_agenda.clear()
+
         # If we have metadata, display it (Tier 2/3 - progressive)
         if metadata:
             logger.debug(f"Calling _show_metadata for {channel.name}")
             self._show_metadata(metadata)
-        else:
-            # Show loading indicators
+        elif not is_live:
             logger.debug(f"Showing loading state for {channel.name}")
             self._show_loading_state()
     
+    def _update_country_info(self, channel_name: str) -> None:
+        """Extract and display category/country prefix from channel name."""
+        m = _CHANNEL_PREFIX_RE.match(channel_name)
+        if not m:
+            self._country_info_lbl.setText("Category: unknown  ·  no prefix detected")
+            self._country_info_lbl.show()
+            return
+        raw = m.group(1)
+        delimiter = "★" if m.group(2) == "★" else "|"
+        code = _COUNTRY_ABBREV_DP.get(raw, raw)
+        full = _CATEGORY_FULL_NAMES_DP.get(code, "")
+        if full:
+            text = f"Category: {full} ({code})  ·  via {delimiter} prefix"
+        else:
+            text = f"Category: {code}  ·  via {delimiter} prefix (unrecognized)"
+        self._country_info_lbl.setText(text)
+        self._country_info_lbl.show()
+
     def _clear_display(self):
         """Clear all displayed content"""
         self.poster_label.clear()
@@ -326,10 +461,61 @@ class DetailsPaneWidget(QWidget):
         self.source_label.clear()
         self.source_label.hide()
         self.adult_indicator.hide()
-        
+        self._country_info_lbl.hide()
+
         self.poster_loading.hide()
         self.plot_loading.hide()
-    
+
+    def _configure_for_live(self, is_live: bool) -> None:
+        """Show/hide sections depending on whether the selected channel is live TV."""
+        # Sections only relevant for VOD (movies, series)
+        for widget in (
+            self._poster_section,
+            self._meta_row_widget,
+            self.genres_label,
+            self._plot_header,
+            self.plot_label,
+            self.plot_loading,
+            self._tech_header,
+            self.tech_content,
+            self._cast_header,
+            self.cast_content,
+        ):
+            widget.setVisible(not is_live)
+
+        # Live-only elements
+        self._live_header.setVisible(is_live)
+        self.watchlist_button.setVisible(is_live)
+
+        # Title font: larger for live since it's the channel name without other context
+        if is_live:
+            self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+        else:
+            self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+
+    def _on_epg_title_changed(self, title: str) -> None:
+        """Called when the EPG agenda loads the current show title."""
+        self._current_epg_show_title = title
+        if title:
+            already = title in (self.config.epg_watchlist_patterns or [])
+            self.watchlist_button.setText("✓ On Watchlist" if already else "+ Watchlist")
+        else:
+            self.watchlist_button.setText("+ Watchlist")
+
+    def _on_watchlist_clicked(self) -> None:
+        title = self._current_epg_show_title
+        if not title:
+            return
+        patterns = list(self.config.epg_watchlist_patterns or [])
+        if title in patterns:
+            patterns.remove(title)
+            self.watchlist_button.setText("+ Watchlist")
+        else:
+            patterns.append(title)
+            self.watchlist_button.setText("✓ On Watchlist")
+        self.config.epg_watchlist_patterns = patterns
+        self.config.save()
+
     def _show_basic_channel_info(self, channel):
         """Show basic channel info (immediate - Tier 1)"""
         # Title
@@ -474,10 +660,15 @@ class DetailsPaneWidget(QWidget):
     
     def _on_image_loaded(self, url: str, pixmap: QPixmap):
         """Handle image loaded from cache"""
-        # Check if this is for the current channel
+        # Poster for VOD channels
         if self.current_metadata and self.current_metadata.poster_url == url:
             self._display_poster(pixmap)
             self.poster_loading.hide()
+        # Channel icon for live channels
+        logo = getattr(self.current_channel, "logo_url", None) if self.current_channel else None
+        if logo and logo == url and not pixmap.isNull():
+            self._channel_icon_lbl.setPixmap(pixmap)
+            self._channel_icon_lbl.show()
     
     def _on_image_failed(self, url: str, error: str):
         """Handle image load failure"""

@@ -992,6 +992,27 @@
 - [ ] Recording/DVR functionality
 - [ ] Chromecast/AirPlay support
 
+### Internationalisation (i18n)
+- [ ] **UI language selection** — All labels, buttons, tooltips, and status messages translatable; user picks language in Settings (English default); candidates: Spanish, French, Arabic, Portuguese, Turkish
+- [ ] **Qt Linguist / gettext pipeline** — Extract strings into `.ts`/`.po` files so community contributors can add translations without touching Python code
+- [ ] **RTL layout support** — Mirror layout direction for Arabic/Hebrew; Qt has built-in `LayoutDirection::RightToLeft` support that needs to be enabled and tested
+- [ ] **Locale-aware date/time formatting** — Time display (12h vs 24h), date order, and weekday names follow the selected locale rather than a hard-coded format string
+
+---
+
+## EPG — Future
+
+- [ ] **Right-click context menu on On Now rows** — "Hide show globally", "Add to watchlist (global)", "Watch on [Channel] only", "Dismiss channel for 7 days"
+- [ ] **Channel-specific watchlist** — `config.epg_channel_watchlist: dict[channel_db_id, list[str]]`; two-tier Watchlist tab showing global patterns + per-channel entries with priority channels rising to top
+- [x] **Remaining column visual** — Replaced text with `QStyledItemDelegate` progress bar showing proportion aired; tooltip gives exact remaining time
+- [ ] **Guide Channel player** — Embedded mpv player in EPG view (50/50 split), autoplay on channel browse with debounce, Autoplay On/Off toggle
+- [ ] **Collapsible category groups in On Now** — Group rows by category prefix (parent items), allow collapsing/expanding groups; collapsed state persists in config; replaces the region filter dropdown
+- [ ] **Configurable channel prefix patterns** — Settings screen to define custom delimiter rules (e.g., `"EPL:"` special case), rename/alias category codes, and mark prefixes as league vs. country; currently best-effort with static defaults
+- [ ] **EPG accuracy flagging — suppress + diagnose** — Per-channel "flag EPG as unreliable" action (right-click or details pane button). Two effects:
+  - **Operational**: flagged channels are excluded from watchlist matching and show "EPG data unreliable" in On Now / details pane instead of a potentially wrong show title — degrades gracefully rather than misleading the user
+  - **Diagnostic**: stores structured mismatch reports locally (`epg_accuracy_flags.json`: `{channel_db_id, channel_name, epg_channel_id, matched_score, flagged_at, user_note?}`); flag visible in the details pane debug line and the 🚫 Hidden tab
+- [ ] **AI-assisted EPG mismatch analysis** — Export accumulated flags to an LLM (Claude API) with context: channel name, matched EPG ID, sample of recent programme titles, fuzzy-match score. Model identifies the failure pattern (wrong feed linked, normalization mismatch, timezone offset, etc.) and suggests a corrected `epg_channel_id` mapping. Output shown in a review dialog; user accepts the fix or dismisses.
+
 ---
 
 ## Current Sprint Focus

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QGroupBox,
     QListWidget, QListWidgetItem, QComboBox,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
-    QCheckBox, QProgressBar, QTextEdit, QSpacerItem, QSpinBox,
+    QCheckBox, QProgressBar, QTextEdit, QSpacerItem,
 )
 from loguru import logger
 
@@ -472,7 +472,6 @@ class ProviderEditorView(QWidget):
         self._build_credentials_group()
         self._build_urls_group()
         self._build_settings_group()
-        self._build_epg_group()
         self._content_layout.addStretch(1)
         self._build_footer_row()
 
@@ -582,24 +581,38 @@ class ProviderEditorView(QWidget):
         form = QFormLayout(group)
         form.setSpacing(8)
 
+        un_row = QHBoxLayout()
         self._username_input = QLineEdit()
+        self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._username_input.setPlaceholderText("username")
-        form.addRow("Username:", self._username_input)
+        un_row.addWidget(self._username_input, 1)
+        un_eye = QPushButton("👁")
+        un_eye.setFixedWidth(28)
+        un_eye.setCheckable(True)
+        un_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
+        un_eye.toggled.connect(
+            lambda checked: self._username_input.setEchoMode(
+                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+            )
+        )
+        un_row.addWidget(un_eye)
+        form.addRow("Username:", un_row)
 
         pw_row = QHBoxLayout()
         self._password_input = QLineEdit()
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_input.setPlaceholderText("password")
         pw_row.addWidget(self._password_input, 1)
-        show_btn = QPushButton("Show")
-        show_btn.setFixedWidth(52)
-        show_btn.setCheckable(True)
-        show_btn.toggled.connect(
+        pw_eye = QPushButton("👁")
+        pw_eye.setFixedWidth(28)
+        pw_eye.setCheckable(True)
+        pw_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
+        pw_eye.toggled.connect(
             lambda checked: self._password_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
             )
         )
-        pw_row.addWidget(show_btn)
+        pw_row.addWidget(pw_eye)
         form.addRow("Password:", pw_row)
 
         self._content_layout.addWidget(group)
@@ -642,51 +655,6 @@ class ProviderEditorView(QWidget):
             "but you want the adult content filter to apply to it."
         )
         form.addRow("Adult content:", self._force_adult_check)
-
-        self._content_layout.addWidget(group)
-
-    def _build_epg_group(self):
-        group = QGroupBox("EPG Feed")
-        layout = QVBoxLayout(group)
-        layout.setSpacing(6)
-
-        hint = QLabel(
-            "XMLTV EPG feed URL for this provider. "
-            "Xtream sources typically provide one at /xmltv.php."
-        )
-        hint.setStyleSheet("color: #888; font-size: 11px;")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        url_row = QHBoxLayout()
-        self._epg_url_input = QLineEdit()
-        self._epg_url_input.setPlaceholderText("http://provider.example.com:8080/xmltv.php?username=…&password=…")
-        url_row.addWidget(self._epg_url_input, 1)
-
-        auto_btn = QPushButton("Auto-detect")
-        auto_btn.setFixedWidth(100)
-        auto_btn.setToolTip("Build XMLTV URL from configured credentials and primary server URL")
-        auto_btn.clicked.connect(self._auto_detect_epg)
-        url_row.addWidget(auto_btn)
-        layout.addLayout(url_row)
-
-        refresh_row = QHBoxLayout()
-        refresh_lbl = QLabel("Refresh when data expires within")
-        refresh_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-        refresh_row.addWidget(refresh_lbl)
-        self._epg_refresh_hours = QSpinBox()
-        self._epg_refresh_hours.setRange(6, 168)
-        self._epg_refresh_hours.setSingleStep(12)
-        self._epg_refresh_hours.setSuffix("h")
-        self._epg_refresh_hours.setValue(48)
-        self._epg_refresh_hours.setFixedWidth(72)
-        self._epg_refresh_hours.setToolTip(
-            "Auto-refresh EPG data this many hours before the current data expires.\n"
-            "Default 48h — with a 6-day feed, this means one refresh per week."
-        )
-        refresh_row.addWidget(self._epg_refresh_hours)
-        refresh_row.addStretch()
-        layout.addLayout(refresh_row)
 
         self._content_layout.addWidget(group)
 
@@ -756,8 +724,6 @@ class ProviderEditorView(QWidget):
             schedule_map = {"manual": 0, "launch": 1, "daily": 2, "weekly": 3, "monthly": 4}
             self._refresh_combo.setCurrentIndex(schedule_map.get(db_prov.refresh_schedule or "manual", 0))
 
-            self._epg_url_input.setText(getattr(db_prov, "epg_url", "") or "")
-            self._epg_refresh_hours.setValue(getattr(db_prov, "epg_refresh_hours_before", 48) or 48)
             self._force_adult_check.setChecked(bool(getattr(db_prov, "force_adult", False)))
 
             # Account info from DB (cached)
@@ -835,10 +801,6 @@ class ProviderEditorView(QWidget):
             "active_cons": info.get("active_cons", 0),
             "max_connections": info.get("max_connections", 1),
         })
-
-        # Auto-populate EPG URL if empty and server_info provides a base URL
-        if not self._epg_url_input.text().strip():
-            self._try_populate_epg_from_info(info)
 
         # Update top-bar
         status = info.get("status", "")
@@ -969,8 +931,6 @@ class ProviderEditorView(QWidget):
             db_prov.is_active = self._enabled_check.isChecked()
             db_prov.username = self._username_input.text().strip()
             db_prov.password = self._password_input.text().strip()
-            db_prov.epg_url = self._epg_url_input.text().strip()
-            db_prov.epg_refresh_hours_before = self._epg_refresh_hours.value()
             db_prov.force_adult = self._force_adult_check.isChecked()
 
             schedule_map = {0: "manual", 1: "launch", 2: "daily", 3: "weekly", 4: "monthly"}
@@ -1128,45 +1088,13 @@ class ProviderEditorView(QWidget):
 
     # ── EPG helpers ───────────────────────────────────────────────────────────
 
-    def _build_xmltv_url(self) -> str:
-        """Construct the standard Xtream XMLTV URL from the primary server URL and credentials."""
-        if not self._provider_urls:
-            return ""
-        base = self._provider_urls[0].url.rstrip("/")
-        username = self._username_input.text().strip()
-        password = self._password_input.text().strip()
-        if username and password:
-            return f"{base}/xmltv.php?username={username}&password={password}"
-        return f"{base}/xmltv.php"
-
-    def _try_populate_epg_from_info(self, info: dict):
-        """Attempt to fill the EPG URL from server_info if it exposes a usable URL."""
-        server_info = info.get("server_info", {}) if isinstance(info, dict) else {}
-        # Some providers expose an explicit EPG/XMLTV URL in server_info
-        epg_url = server_info.get("epg_url") or server_info.get("xmltv_url") or server_info.get("xmltv_api")
-        if epg_url:
-            self._epg_url_input.setText(str(epg_url))
-            return
-        # Fall back to constructing the standard Xtream XMLTV URL
-        constructed = self._build_xmltv_url()
-        if constructed:
-            self._epg_url_input.setText(constructed)
-
-    def _auto_detect_epg(self):
-        """Populate EPG URL by constructing the standard XMLTV endpoint from current credentials."""
-        url = self._build_xmltv_url()
-        if url:
-            self._epg_url_input.setText(url)
-        else:
-            self._epg_url_input.setPlaceholderText("Add at least one server URL first")
-
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _set_fields_enabled(self, enabled: bool):
         for w in [self._icon_picker, self._name_input, self._enabled_check,
                   self._username_input, self._password_input, self._refresh_combo,
                   self._force_adult_check, self._url_list, self._new_url_input,
-                  self._refresh_acct_btn, self._test_btn, self._epg_url_input]:
+                  self._refresh_acct_btn, self._test_btn]:
             w.setEnabled(enabled)
 
     @staticmethod

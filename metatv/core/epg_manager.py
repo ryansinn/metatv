@@ -78,6 +78,42 @@ class EpgManager(QObject):
     # Refresh control
     # ------------------------------------------------------------------
 
+    def _build_epg_url(self, provider: ProviderDB) -> str | None:
+        """Construct the standard Xtream XMLTV URL from provider credentials + primary server."""
+        import json as _json
+        raw_urls = provider.urls or []
+        if isinstance(raw_urls, str):
+            try:
+                raw_urls = _json.loads(raw_urls)
+            except Exception:
+                raw_urls = []
+        if not raw_urls:
+            return None
+        first = raw_urls[0] if isinstance(raw_urls[0], dict) else {}
+        base = first.get("url", "").rstrip("/")
+        if not base:
+            return None
+        username = provider.username or ""
+        password = provider.password or ""
+        if username and password:
+            return f"{base}/xmltv.php?username={username}&password={password}"
+        return f"{base}/xmltv.php"
+
+    def _ensure_epg_url(self, provider: ProviderDB, session) -> bool:
+        """Auto-populate epg_url from credentials if it is empty. Returns True if URL is set."""
+        if getattr(provider, "epg_url", ""):
+            return True
+        url = self._build_epg_url(provider)
+        if not url:
+            return False
+        provider.epg_url = url
+        try:
+            session.commit()
+            logger.info(f"EPG: auto-detected URL for {provider.name}: {url}")
+        except Exception:
+            session.rollback()
+        return True
+
     def needs_refresh(self, provider: ProviderDB) -> bool:
         """Return True if this provider's EPG data should be re-fetched.
 
@@ -103,6 +139,7 @@ class EpgManager(QObject):
         try:
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             for provider in providers:
+                self._ensure_epg_url(provider, session)
                 if provider.id not in self._active_refreshes and self.needs_refresh(provider):
                     self._start_refresh(provider.id, provider.epg_url,
                                         provider.name, force=False)
@@ -118,8 +155,11 @@ class EpgManager(QObject):
         session = self.db.get_session()
         try:
             provider = session.query(ProviderDB).filter_by(id=provider_id).first()
-            if not provider or not getattr(provider, "epg_url", ""):
-                logger.warning(f"No EPG URL for provider {provider_id}")
+            if not provider:
+                logger.warning(f"EPG: provider {provider_id} not found")
+                return
+            if not self._ensure_epg_url(provider, session):
+                logger.warning(f"EPG: no URL available for provider {provider_id}")
                 return
             self._start_refresh(provider.id, provider.epg_url, provider.name, force=True)
         finally:

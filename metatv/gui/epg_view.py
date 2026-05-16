@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QStyledItemDelegate,
     QTabBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -42,18 +43,54 @@ from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.content_view import ContentView
 
-_SORT_ROLE = Qt.ItemDataRole.UserRole + 2  # stores epoch float for time-column sorting
+_SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
+_PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
+_REMAIN_ROLE   = Qt.ItemDataRole.UserRole + 4  # "10m left" tooltip string
+
+
+class _ProgressBarDelegate(QStyledItemDelegate):
+    """Paints a compact horizontal progress bar in the Remaining column."""
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802
+        from PyQt6.QtGui import QColor
+        pct = index.data(_PROGRESS_ROLE)
+        if pct is None:
+            super().paint(painter, option, index)
+            return
+        painter.save()
+        r = option.rect.adjusted(4, 6, -4, -6)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(55, 55, 55))
+        painter.drawRoundedRect(r, 2, 2)
+        fill_w = max(4, int(r.width() * pct / 100))
+        # hue: 55 (yellow) at start → 30 (orange) near end
+        hue = int(55 - (pct / 100) * 25)
+        painter.setBrush(QColor.fromHsv(hue, 200, 210, 200))
+        from PyQt6.QtCore import QRect
+        fill_r = QRect(r.x(), r.y(), fill_w, r.height())
+        painter.drawRoundedRect(fill_r, 2, 2)
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: N802
+        from PyQt6.QtCore import QSize
+        return QSize(64, super().sizeHint(option, index).height())
 
 
 class _EpgTreeItem(QTreeWidgetItem):
-    """QTreeWidgetItem that sorts the Time column (col 0) by epoch timestamp."""
+    """QTreeWidgetItem that sorts any column with a _SORT_ROLE numeric value."""
 
     def __lt__(self, other: QTreeWidgetItem) -> bool:
         col = self.treeWidget().sortColumn() if self.treeWidget() else 0
+        a = self.data(col, _SORT_ROLE)
+        b = other.data(col, _SORT_ROLE)
+        if a is not None and b is not None:
+            return float(a) < float(b)
+        # Category column: empty strings sort after non-empty in both directions
         if col == 0:
-            a = self.data(0, _SORT_ROLE) or 0.0
-            b = other.data(0, _SORT_ROLE) or 0.0
-            return a < b
+            a_text = self.text(0)
+            b_text = other.text(0)
+            if bool(a_text) != bool(b_text):
+                return bool(a_text) > bool(b_text)  # non-empty < empty → non-empty first
         return super().__lt__(other)
 
 
@@ -152,26 +189,10 @@ class EpgView(ContentView):
         self.tab_bar.addTab("📋 Watchlist")
         self.tab_bar.addTab("📺 On Now")
         self.tab_bar.addTab("📅 Browse")
+        self.tab_bar.addTab("🚫 Hidden")
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
         header_layout.addWidget(self.tab_bar)
         header_layout.addStretch()
-
-        # Search (only for Browse)
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search programmes…")
-        self.search_input.setFixedWidth(200)
-        self.search_input.textChanged.connect(self._on_search_changed)
-        self.search_input.setVisible(False)
-        header_layout.addWidget(self.search_input)
-
-        # Region filter
-        header_layout.addWidget(QLabel("Region:"))
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItem("All")
-        self.lang_combo.setFixedWidth(72)
-        self.lang_combo.setToolTip("Filter by channel region (country code suffix in EPG IDs)")
-        self.lang_combo.currentIndexChanged.connect(self._on_lang_filter_changed)
-        header_layout.addWidget(self.lang_combo)
 
         # Status label
         self.status_label = QLabel("")
@@ -200,6 +221,7 @@ class EpgView(ContentView):
         self._build_watchlist_tab()
         self._build_on_now_tab()
         self._build_browse_tab()
+        self._build_hidden_tab()
 
     # ── Tab 0: Watchlist ───────────────────────────────────────────────
 
@@ -287,39 +309,79 @@ class EpgView(ContentView):
     # ── Tab 1: On Now ──────────────────────────────────────────────────
 
     def _build_on_now_tab(self) -> None:
+        from metatv.gui.filter_bar import FilterDropdown
+
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
-        # Filter row
+        # Filter row: search | region dropdown | → | Hide Hidden
         filter_row = QHBoxLayout()
-        self.filler_check_btn = QPushButton("Hide Filler ✓")
+        filter_row.setSpacing(6)
+
+        self.on_now_search = QLineEdit()
+        self.on_now_search.setPlaceholderText("Search On Now…")
+        self.on_now_search.setFixedWidth(180)
+        self.on_now_search.textChanged.connect(self._apply_on_now_filters)
+        filter_row.addWidget(self.on_now_search)
+
+        on_now_clear = QPushButton("✕")
+        on_now_clear.setFixedWidth(24)
+        on_now_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        on_now_clear.clicked.connect(self.on_now_search.clear)
+        filter_row.addWidget(on_now_clear)
+
+        self.on_now_prefix_dropdown = FilterDropdown("Category", {}, all_selected=True)
+        self.on_now_prefix_dropdown.filter_changed.connect(self._apply_on_now_filters)
+        filter_row.addWidget(self.on_now_prefix_dropdown)
+
+        filter_row.addStretch()
+
+        self.filler_check_btn = QPushButton("Show All")
         self.filler_check_btn.setCheckable(True)
         self.filler_check_btn.setChecked(True)
-        self.filler_check_btn.setFixedWidth(100)
-        self.filler_check_btn.clicked.connect(self._reload_on_now)
-        filter_row.addWidget(QLabel("Airing right now — double-click to play:"))
-        filter_row.addStretch()
+        self.filler_check_btn.setFixedWidth(110)
+        self.filler_check_btn.clicked.connect(self._on_filler_toggled)
         filter_row.addWidget(self.filler_check_btn)
+
         layout.addLayout(filter_row)
 
-        # Programme tree: Channel | Show | Progress | Remaining
+        # Programme tree: Category | Channel | Show | Progress | [hide]
         self.on_now_list = QTreeWidget()
         self.on_now_list.setAlternatingRowColors(True)
         self.on_now_list.setRootIsDecorated(False)
         self.on_now_list.setUniformRowHeights(True)
         self.on_now_list.setSortingEnabled(True)
-        self.on_now_list.setColumnCount(4)
-        self.on_now_list.setHeaderLabels(["Channel", "Show", "Progress", "Remaining"])
+        self.on_now_list.setColumnCount(5)
+        self.on_now_list.setHeaderLabels(["", "Channel", "Show", "Progress", "Hide"])
         hdr = self.on_now_list.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.on_now_list.setColumnWidth(2, 140)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.on_now_list.setColumnWidth(1, 140)
+        self.on_now_list.setColumnWidth(3, 64)
+        self.on_now_list.setColumnWidth(4, 22)
+        self.on_now_list.headerItem().setToolTip(0, "Category / prefix extracted from channel name")
+        self.on_now_list.headerItem().setToolTip(3, "Progress through current show (hover for time remaining)")
+        self._progress_delegate = _ProgressBarDelegate(self.on_now_list)
+        self.on_now_list.setItemDelegateForColumn(3, self._progress_delegate)
+        from PyQt6.QtWidgets import QAbstractItemView
+        self.on_now_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.on_now_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.on_now_list.customContextMenuRequested.connect(self._on_now_context_menu)
         self.on_now_list.itemDoubleClicked.connect(self._on_now_double_click)
+        self.on_now_list.itemClicked.connect(self._on_now_item_clicked)
         self.on_now_list.currentItemChanged.connect(self._on_now_selection_changed)
+        # Restore persisted sort; save whenever user clicks a header
+        _col = self.config.epg_filter_state.get("on_now_sort_col", 0)
+        _ord = Qt.SortOrder(self.config.epg_filter_state.get("on_now_sort_order", 0))
+        self.on_now_list.sortByColumn(_col, _ord)
+        self.on_now_list.header().sortIndicatorChanged.connect(
+            lambda col, order: self._save_epg_sort("on_now", col, order)
+        )
         layout.addWidget(self.on_now_list)
 
         self.on_now_stats = QLabel("")
@@ -335,6 +397,12 @@ class EpgView(ContentView):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
+
+        # Search row
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search programmes…")
+        self.search_input.textChanged.connect(self._on_search_changed)
+        layout.addWidget(self.search_input)
 
         # Filter row
         filter_row = QHBoxLayout()
@@ -387,13 +455,248 @@ class EpgView(ContentView):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
         self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
+        # Restore persisted sort
+        _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
+        _bord = Qt.SortOrder(self.config.epg_filter_state.get("browse_sort_order", 0))
+        self.browse_list.sortByColumn(_bcol, _bord)
+        self.browse_list.header().sortIndicatorChanged.connect(
+            lambda col, order: self._save_epg_sort("browse", col, order)
+        )
+        self.browse_list.setVisible(False)
         layout.addWidget(self.browse_list)
+
+        self.browse_placeholder = QLabel("Search for a programme, sport, or show above")
+        self.browse_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.browse_placeholder.setStyleSheet("color: #555; font-size: 13px; padding: 40px;")
+        layout.addWidget(self.browse_placeholder)
 
         self.browse_stats = QLabel("")
         self.browse_stats.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(self.browse_stats)
 
         self.stack.addWidget(page)
+
+    # ── Tab 3: Hidden ──────────────────────────────────────────────────
+
+    def _build_hidden_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._hidden_content = QWidget()
+        self._hidden_layout = QVBoxLayout(self._hidden_content)
+        self._hidden_layout.setSpacing(4)
+        self._hidden_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(self._hidden_content)
+        layout.addWidget(scroll)
+
+        self.stack.addWidget(page)
+
+    def _render_hidden(self) -> None:
+        while self._hidden_layout.count():
+            item = self._hidden_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # ── Section 1: User-hidden show titles ──────────────────────────
+        sec1_lbl = QLabel("HIDDEN SHOWS")
+        sec1_lbl.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
+        )
+        self._hidden_layout.addWidget(sec1_lbl)
+
+        hidden_titles = list(self.config.epg_hidden_titles or [])
+        if hidden_titles:
+            for title in hidden_titles:
+                self._hidden_layout.addWidget(self._make_hidden_row(
+                    title, "exact match · global",
+                    lambda _, t=title: self._remove_hidden_title(t),
+                ))
+        else:
+            lbl = QLabel("No shows hidden yet — click 🚫 on any On Now row to hide a show.")
+            lbl.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl.setWordWrap(True)
+            self._hidden_layout.addWidget(lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        self._hidden_layout.addWidget(sep)
+
+        # ── Section 2: Filler patterns ──────────────────────────────────
+        sec2_lbl = QLabel("FILLER PATTERNS")
+        sec2_lbl.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
+        )
+        self._hidden_layout.addWidget(sec2_lbl)
+
+        hint = QLabel("Substring match — hides any show whose title contains these words.")
+        hint.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+        hint.setWordWrap(True)
+        self._hidden_layout.addWidget(hint)
+
+        filler_patterns = list(self.config.epg_filler_patterns or [])
+        for pattern in filler_patterns:
+            self._hidden_layout.addWidget(self._make_hidden_row(
+                pattern, "substring match",
+                lambda _, p=pattern: self._remove_filler_pattern(p),
+            ))
+
+        # Add-pattern row
+        add_row = QHBoxLayout()
+        add_input = QLineEdit()
+        add_input.setPlaceholderText("Add filler pattern…")
+        add_btn = QPushButton("Add")
+        add_btn.setFixedWidth(50)
+        add_btn.clicked.connect(lambda: self._add_filler_pattern(add_input.text().strip()))
+        add_input.returnPressed.connect(lambda: self._add_filler_pattern(add_input.text().strip()))
+        add_row.addWidget(add_input, 1)
+        add_row.addWidget(add_btn)
+        self._hidden_layout.addLayout(add_row)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        self._hidden_layout.addWidget(sep2)
+
+        # ── Section 3: Hidden channels ──────────────────────────────────
+        sec3_lbl = QLabel("HIDDEN CHANNELS")
+        sec3_lbl.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
+        )
+        self._hidden_layout.addWidget(sec3_lbl)
+
+        hidden_channels = list(self.config.epg_hidden_channels or [])
+        if hidden_channels:
+            hint3 = QLabel("Entire channel hidden from On Now.")
+            hint3.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            self._hidden_layout.addWidget(hint3)
+            for ch_id in hidden_channels:
+                ch_name = self._get_channel_name_from_db(ch_id)
+                self._hidden_layout.addWidget(self._make_hidden_row(
+                    ch_name, "channel",
+                    lambda _, cid=ch_id: self._remove_hidden_channel(cid),
+                ))
+        else:
+            lbl3 = QLabel("No channels hidden yet — use the 🚫 button on any On Now row.")
+            lbl3.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl3.setWordWrap(True)
+            self._hidden_layout.addWidget(lbl3)
+
+        sep3 = QFrame()
+        sep3.setFrameShape(QFrame.Shape.HLine)
+        sep3.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        self._hidden_layout.addWidget(sep3)
+
+        # ── Section 4: Hidden categories ────────────────────────────────
+        sec4_lbl = QLabel("HIDDEN CATEGORIES")
+        sec4_lbl.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
+        )
+        self._hidden_layout.addWidget(sec4_lbl)
+
+        hidden_prefixes = list(self.config.epg_hidden_prefixes or [])
+        if hidden_prefixes:
+            hint4 = QLabel("All channels with this prefix are hidden from On Now.")
+            hint4.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            self._hidden_layout.addWidget(hint4)
+            for prefix in hidden_prefixes:
+                full = self._CATEGORY_FULL_NAMES.get(prefix, "")
+                label = f"{prefix}  —  {full}" if full else prefix
+                self._hidden_layout.addWidget(self._make_hidden_row(
+                    label, "category",
+                    lambda _, p=prefix: self._remove_hidden_category(p),
+                ))
+        else:
+            lbl4 = QLabel("No categories hidden yet — use the ⊘ button on any On Now row.")
+            lbl4.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl4.setWordWrap(True)
+            self._hidden_layout.addWidget(lbl4)
+
+        sep5 = QFrame()
+        sep5.setFrameShape(QFrame.Shape.HLine)
+        sep5.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        self._hidden_layout.addWidget(sep5)
+
+        # ── Section 5: Category overrides ──────────────────────────────
+        sec5_lbl = QLabel("CATEGORY OVERRIDES")
+        sec5_lbl.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
+        )
+        self._hidden_layout.addWidget(sec5_lbl)
+
+        overrides = dict(self.config.epg_category_overrides or {})
+        if overrides:
+            hint5 = QLabel("Manually assigned categories — applied before auto-detection.")
+            hint5.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            self._hidden_layout.addWidget(hint5)
+            for ch_id, cat_code in overrides.items():
+                ch_name = self._get_channel_name_from_db(ch_id)
+                full = self._CATEGORY_FULL_NAMES.get(cat_code, "")
+                cat_label = f"{cat_code}  —  {full}" if full else cat_code
+                self._hidden_layout.addWidget(self._make_hidden_row(
+                    ch_name, cat_label,
+                    lambda _, cid=ch_id: self._remove_category_overrides([cid]),
+                ))
+        else:
+            lbl5 = QLabel(
+                "No overrides yet — right-click On Now rows to assign a category."
+            )
+            lbl5.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl5.setWordWrap(True)
+            self._hidden_layout.addWidget(lbl5)
+
+    def _make_hidden_row(self, label: str, detail: str, on_remove) -> QWidget:
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 2, 0, 2)
+        h.setSpacing(8)
+        lbl = QLabel(label)
+        lbl.setStyleSheet("font-size: 12px; color: #ddd;")
+        h.addWidget(lbl, 1)
+        det = QLabel(detail)
+        det.setStyleSheet("font-size: 11px; color: #555;")
+        h.addWidget(det)
+        rm_btn = QPushButton("×")
+        rm_btn.setFixedWidth(24)
+        rm_btn.setStyleSheet("border: none; color: #888; font-size: 14px; font-weight: bold;")
+        rm_btn.setToolTip("Remove")
+        rm_btn.clicked.connect(on_remove)
+        h.addWidget(rm_btn)
+        return row
+
+    def _remove_hidden_title(self, title: str) -> None:
+        hidden = list(self.config.epg_hidden_titles or [])
+        if title in hidden:
+            hidden.remove(title)
+            self.config.epg_hidden_titles = hidden
+            self.config.save()
+        self._render_hidden()
+        self._update_filler_btn_label()
+
+    def _remove_filler_pattern(self, pattern: str) -> None:
+        patterns = list(self.config.epg_filler_patterns or [])
+        if pattern in patterns:
+            patterns.remove(pattern)
+            self.config.epg_filler_patterns = patterns
+            self.config.save()
+        self._render_hidden()
+        self._update_filler_btn_label()
+
+    def _add_filler_pattern(self, pattern: str) -> None:
+        if not pattern:
+            return
+        patterns = list(self.config.epg_filler_patterns or [])
+        if pattern not in patterns:
+            patterns.append(pattern)
+            self.config.epg_filler_patterns = patterns
+            self.config.save()
+        self._render_hidden()
+        self._update_filler_btn_label()
 
     # ------------------------------------------------------------------
     # ContentView interface
@@ -410,12 +713,12 @@ class EpgView(ContentView):
         self._load_provider_ids()
         self._update_status_label()
 
-        # Default to Browse when watchlist is empty so the user sees content
-        if not self.config.epg_watchlist_patterns and self.tab_bar.currentIndex() == 0:
+        # Default to On Now; stay on Watchlist only if patterns already exist
+        if self.tab_bar.currentIndex() == 0 and not self.config.epg_watchlist_patterns:
             self.tab_bar.blockSignals(True)
-            self.tab_bar.setCurrentIndex(2)
+            self.tab_bar.setCurrentIndex(1)
             self.tab_bar.blockSignals(False)
-            self.stack.setCurrentIndex(2)
+            self.stack.setCurrentIndex(1)
 
         self._reload_all()
         self.epg_manager.refresh_all_if_needed()
@@ -436,41 +739,8 @@ class EpgView(ContentView):
                 p.id for p in providers
                 if getattr(p, "epg_url", "")
             ]
-            self._populate_lang_filter(session)
         finally:
             session.close()
-
-    def _populate_lang_filter(self, session) -> None:
-        """Fill region dropdown from 2-letter country-code suffixes in EPG IDs.
-
-        Samples up to 10k distinct channel IDs, counts suffix frequency,
-        and shows the top 10 codes — keeps the dropdown short and relevant.
-        """
-        from collections import Counter
-        from metatv.core.database import EpgProgramDB as EPG
-        rows = (
-            session.query(EPG.channel_epg_id)
-            .filter(EPG.provider_id.in_(self._provider_ids))
-            .distinct()
-            .limit(10_000)
-            .all()
-        )
-        counts: Counter = Counter()
-        for (epg_id,) in rows:
-            # Strict 2-letter suffix only — avoids .hdtv, .vod, etc.
-            m = re.search(r"\.([a-z]{2})$", (epg_id or "").lower())
-            if m:
-                counts[m.group(1).upper()] += 1
-
-        self.lang_combo.blockSignals(True)
-        current = self.lang_combo.currentText()
-        self.lang_combo.clear()
-        self.lang_combo.addItem("All")
-        for code, _ in counts.most_common(10):
-            self.lang_combo.addItem(code)
-        idx = self.lang_combo.findText(current)
-        self.lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.lang_combo.blockSignals(False)
 
     def _reload_all(self) -> None:
         tab = self.tab_bar.currentIndex()
@@ -480,49 +750,44 @@ class EpgView(ContentView):
             self._reload_on_now()
         elif tab == 2:
             self._reload_browse()
+        elif tab == 3:
+            self._render_hidden()
 
     def _reload_watchlist(self) -> None:
         patterns = self.config.epg_watchlist_patterns
         provider_ids = self._filtered_provider_ids()
-        lang = self._current_lang_code()
-        self._executor.submit(self._fetch_watchlist, patterns, provider_ids, lang)
+        self._executor.submit(self._fetch_watchlist, patterns, provider_ids)
 
     def _reload_on_now(self) -> None:
         provider_ids = self._filtered_provider_ids()
         hide_filler = self.filler_check_btn.isChecked()
-        lang = self._current_lang_code()
-        self._executor.submit(self._fetch_on_now, provider_ids, hide_filler, lang)
+        self._executor.submit(self._fetch_on_now, provider_ids, hide_filler)
 
     def _reload_browse(self) -> None:
+        search = self.search_input.text().strip()
+        if not search:
+            self._data_loaded.emit({"tab": "browse", "programs": [], "placeholder": True})
+            return
         provider_ids = self._filtered_provider_ids()
         target_date = self.date_combo.currentData()
         time_slot = self.time_combo.currentData()
-        search = self.search_input.text().strip()
         hide_filler = self.hide_filler_btn.isChecked()
-        lang = self._current_lang_code()
         self._executor.submit(
-            self._fetch_browse, provider_ids, target_date, time_slot, search, hide_filler, lang
+            self._fetch_browse, provider_ids, target_date, time_slot, search, hide_filler
         )
 
     def _filtered_provider_ids(self) -> list[str]:
         return self._provider_ids
 
-    def _current_lang_code(self) -> str:
-        """Return selected 2-letter region code (lowercase), or '' for All."""
-        text = self.lang_combo.currentText()
-        return "" if text == "All" else text.lower()
-
     # ── Background workers ─────────────────────────────────────────────
 
-    def _fetch_watchlist(self, patterns: list[str], provider_ids: list[str], lang_code: str = "") -> None:
+    def _fetch_watchlist(self, patterns: list[str], provider_ids: list[str]) -> None:
         session = self.db.get_session()
         try:
             repo = EpgRepository(session)
             watchlist_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=48,
-                                                              provider_ids=provider_ids,
-                                                              lang_code=lang_code)
-            live_data = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids,
-                                                     lang_code=lang_code)
+                                                              provider_ids=provider_ids)
+            live_data = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
 
             # Build dismissed set (expired entries are filtered out)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -554,7 +819,7 @@ class EpgView(ContentView):
         finally:
             session.close()
 
-    def _fetch_on_now(self, provider_ids: list[str], hide_filler: bool, lang_code: str = "") -> None:
+    def _fetch_on_now(self, provider_ids: list[str], hide_filler: bool) -> None:
         if not provider_ids:
             logger.warning("EpgView on-now: no EPG provider IDs — is EPG loaded?")
             self._data_loaded.emit({"tab": "on_now", "programs": []})
@@ -569,7 +834,8 @@ class EpgView(ContentView):
                 hide_filler=hide_filler,
                 filler_patterns=filler,
                 dismissed_channel_ids=dismissed,
-                lang_code=lang_code,
+                hidden_titles=list(self.config.epg_hidden_titles or []),
+                hidden_channel_ids=list(self.config.epg_hidden_channels or []),
             )
             logger.debug(f"EpgView on-now: {len(programs)} programmes from providers {provider_ids}")
             # Build name map
@@ -589,15 +855,14 @@ class EpgView(ContentView):
             session.close()
 
     def _fetch_browse(self, provider_ids: list[str], target_date: date,
-                      time_slot: str, search: str, hide_filler: bool, lang_code: str = "") -> None:
+                      time_slot: str, search: str, hide_filler: bool) -> None:
         session = self.db.get_session()
         try:
             repo = EpgRepository(session)
             filler = self.config.epg_filler_patterns if hide_filler else []
 
             if search:
-                programs = repo.search_programs(search, provider_ids, hours_ahead=168,
-                                                lang_code=lang_code)
+                programs = repo.search_programs(search, provider_ids, hours_ahead=168)
             else:
                 programs = repo.get_schedule(
                     target_date=target_date,
@@ -605,7 +870,6 @@ class EpgView(ContentView):
                     hide_filler=hide_filler,
                     filler_patterns=filler,
                     time_slot=time_slot,
-                    lang_code=lang_code,
                 )
 
             # Build channel name map
@@ -653,7 +917,7 @@ class EpgView(ContentView):
         elif tab == "on_now":
             self._render_on_now(payload["programs"])
         elif tab == "browse":
-            self._render_browse(payload["programs"])
+            self._render_browse(payload["programs"], payload.get("placeholder", False))
 
     # ── Watchlist render ───────────────────────────────────────────────
 
@@ -786,42 +1050,178 @@ class EpgView(ContentView):
 
     # ── On Now render ──────────────────────────────────────────────────
 
+    # Regex extracts the prefix from "BE ★ Channel Name", "US| Channel Name",
+    # "ARGENTINA ★ ...", "EPL ★ ...", "EFL-L1 ★ ..." — allows hyphens/digits for
+    # competition/league codes. Best-effort; not all prefixes are countries.
+    _PREFIX_RE = re.compile(
+        r'^([A-Z][A-Z0-9\-]{1,11})\s*(?:[★|]|-\s+)\s*(.+)$',
+        re.IGNORECASE,
+    )
+
+    # Normalize full country names that appear as prefixes → short codes for display
+    _COUNTRY_ABBREV: dict[str, str] = {
+        "ARGENTINA": "ARG",
+        "AUSTRALIA": "AUS",
+        "AUSTRIA": "AUT",
+        "BELGIUM": "BEL",
+        "BOLIVIA": "BOL",
+        "BRAZIL": "BRA",
+        "CANADA": "CAN",
+        "CHILE": "CHL",
+        "COLOMBIA": "COL",
+        "CROATIA": "HRV",
+        "DENMARK": "DEN",
+        "ECUADOR": "ECU",
+        "FINLAND": "FIN",
+        "FRANCE": "FRA",
+        "GERMANY": "GER",
+        "GREECE": "GRE",
+        "HUNGARY": "HUN",
+        "IRELAND": "IRL",
+        "ITALY": "ITA",
+        "MEXICO": "MEX",
+        "NETHERLANDS": "NED",
+        "NORWAY": "NOR",
+        "PARAGUAY": "PAR",
+        "PERU": "PER",
+        "POLAND": "POL",
+        "PORTUGAL": "POR",
+        "ROMANIA": "ROU",
+        "RUSSIA": "RUS",
+        "SPAIN": "ESP",
+        "SWEDEN": "SWE",
+        "SWITZERLAND": "SUI",
+        "TURKEY": "TUR",
+        "UKRAINE": "UKR",
+        "URUGUAY": "URY",
+        "VENEZUELA": "VEN",
+    }
+
+    # Maps category/prefix codes → human-readable name for tooltips.
+    # Covers common 2-letter ISO codes, 3-letter sport codes from _COUNTRY_ABBREV,
+    # and known competition codes. Best-effort — unknown codes show the raw code.
+    _CATEGORY_FULL_NAMES: dict[str, str] = {
+        # 2-letter ISO
+        "US": "United States", "UK": "United Kingdom", "GB": "United Kingdom",
+        "BE": "Belgium", "FR": "France", "DE": "Germany", "ES": "Spain",
+        "IT": "Italy", "PT": "Portugal", "NL": "Netherlands", "SE": "Sweden",
+        "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
+        "RO": "Romania", "HU": "Hungary", "CZ": "Czech Republic", "GR": "Greece",
+        "TR": "Turkey", "RU": "Russia", "UA": "Ukraine", "BR": "Brazil",
+        "MX": "Mexico", "CA": "Canada", "AU": "Australia", "NZ": "New Zealand",
+        "JP": "Japan", "KR": "South Korea", "CN": "China", "IN": "India",
+        "AR": "Argentina", "CL": "Chile", "CO": "Colombia", "PE": "Peru",
+        "VE": "Venezuela", "IR": "Iran", "SA": "Saudi Arabia", "AE": "UAE",
+        "EG": "Egypt", "MA": "Morocco", "IL": "Israel", "ZA": "South Africa",
+        "NG": "Nigeria", "PK": "Pakistan", "BD": "Bangladesh", "TH": "Thailand",
+        "VN": "Vietnam", "ID": "Indonesia", "PH": "Philippines", "AT": "Austria",
+        "CH": "Switzerland", "IE": "Ireland", "HR": "Croatia", "SK": "Slovakia",
+        "SI": "Slovenia", "BG": "Bulgaria", "RS": "Serbia", "BA": "Bosnia",
+        "AL": "Albania", "MK": "North Macedonia", "LU": "Luxembourg",
+        # 3-letter from _COUNTRY_ABBREV
+        "ARG": "Argentina", "AUS": "Australia", "AUT": "Austria", "BEL": "Belgium",
+        "BOL": "Bolivia", "BRA": "Brazil", "CAN": "Canada", "CHL": "Chile",
+        "COL": "Colombia", "HRV": "Croatia", "DEN": "Denmark", "ECU": "Ecuador",
+        "FIN": "Finland", "FRA": "France", "GER": "Germany", "GRE": "Greece",
+        "HUN": "Hungary", "IRL": "Ireland", "ITA": "Italy", "MEX": "Mexico",
+        "NED": "Netherlands", "NOR": "Norway", "PAR": "Paraguay", "PER": "Peru",
+        "POL": "Poland", "POR": "Portugal", "ROU": "Romania", "RUS": "Russia",
+        "ESP": "Spain", "SWE": "Sweden", "SUI": "Switzerland", "TUR": "Turkey",
+        "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela",
+        # Common sports/competition leagues — displayed as-is in tooltip
+        "EPL": "English Premier League", "EFL": "English Football League",
+        "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
+        "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
+        # Well-known brands — used for tooltip display when user manually assigns
+        "BEIN": "beIN Sports", "MBC": "MBC", "SKY": "Sky",
+        "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
+    }
+
     def _render_on_now(self, programs: list[EpgProgramDB]) -> None:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
+        hidden_prefixes = set(self.config.epg_hidden_prefixes or [])
+        now = _now_utc()
+        prefix_counts: dict[str, int] = {}
 
         for prog in programs:
             ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            progress = _progress_bar(prog.start_time, prog.stop_time, 16)
-            remaining = _remaining_str(prog.stop_time)
             title = prog.title
             if prog.is_live:
                 title += " ᴸᶦᵛᵉ"
             if prog.is_new:
                 title += " ᴺᵉʷ"
 
-            item = _EpgTreeItem([ch_name, title, progress, remaining])
+            override_cat = self.config.epg_category_overrides.get(prog.channel_db_id or "")
+            if override_cat:
+                category = override_cat
+                bare_name = ch_name
+            else:
+                m = self._PREFIX_RE.match(ch_name)
+                if m:
+                    raw = m.group(1).upper()
+                    category = self._COUNTRY_ABBREV.get(raw, raw)
+                    bare_name = m.group(2).strip()
+                else:
+                    category, bare_name = "", ch_name
+
+            if category in hidden_prefixes:
+                continue
+
+            if category:
+                prefix_counts[category] = prefix_counts.get(category, 0) + 1
+
+            # Progress bar data
+            total_secs = max(1, (prog.stop_time - prog.start_time).total_seconds())
+            elapsed_secs = max(0, (now - prog.start_time).total_seconds())
+            pct = int(min(100, elapsed_secs / total_secs * 100))
+            remaining_text = _remaining_str(prog.stop_time)
+            secs_remaining = max(0.0, (prog.stop_time - now).total_seconds())
+
+            # Columns: Category | Channel | Show | Progress bar | 🚫
+            item = _EpgTreeItem([category, bare_name, title, "", "⊘"])
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
-            item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
+            item.setData(3, _SORT_ROLE, secs_remaining)
+            item.setData(3, _PROGRESS_ROLE, pct)
+            item.setData(3, _REMAIN_ROLE, remaining_text)
+            item.setToolTip(3, remaining_text)
+            item.setData(4, Qt.ItemDataRole.UserRole, prog.title)
+            item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
+            item.setToolTip(4, "Click to hide…")
+
+            if category:
+                full_name = self._CATEGORY_FULL_NAMES.get(category, "")
+                item.setToolTip(0, full_name if full_name else category)
 
             if any(pat in prog.title.lower() for pat in patterns):
                 for col in range(4):
                     item.setForeground(col, QColor("#4af"))
-                font = item.font(1)
+                font = item.font(2)
                 font.setBold(True)
-                item.setFont(1, font)
+                item.setFont(2, font)
 
             self.on_now_list.addTopLevelItem(item)
 
+        self.on_now_prefix_dropdown.update_groups(prefix_counts)
         self.on_now_list.setSortingEnabled(True)
-        count = len(programs)
+        self._apply_on_now_filters()
+        self._update_filler_btn_label()
+        count = self.on_now_list.topLevelItemCount()
         self.on_now_stats.setText(f"{count:,} channels on now")
         self.status_message.emit(f"EPG: {count:,} on now")
 
     # ── Browse render ──────────────────────────────────────────────────
 
-    def _render_browse(self, programs: list[EpgProgramDB]) -> None:
+    def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False) -> None:
+        if placeholder:
+            self.browse_list.setVisible(False)
+            self.browse_placeholder.setVisible(True)
+            self.browse_stats.clear()
+            return
+        self.browse_placeholder.setVisible(False)
+        self.browse_list.setVisible(True)
         self.browse_list.setSortingEnabled(False)
         self.browse_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
@@ -859,14 +1259,225 @@ class EpgView(ContentView):
     # ------------------------------------------------------------------
 
     def _on_tab_changed(self, index: int) -> None:
-        self.search_input.setVisible(index == 2)
+        self.stack.setCurrentIndex(index)
         self._reload_all()
+
+    def _apply_on_now_filters(self) -> None:
+        """Client-side filter on the On Now tree: search text + region prefix."""
+        q = self.on_now_search.text().strip().lower()
+        selected = set(self.on_now_prefix_dropdown.get_selected())
+        all_prefixes = set(self.on_now_prefix_dropdown.groups.keys())
+        filter_prefix = bool(selected) and selected != all_prefixes
+
+        for i in range(self.on_now_list.topLevelItemCount()):
+            item = self.on_now_list.topLevelItem(i)
+            visible = True
+
+            if q:
+                region = item.text(0).lower()
+                ch = item.text(1).lower()
+                show = item.text(2).lower()
+                if q not in region and q not in ch and q not in show:
+                    visible = False
+
+            if visible and filter_prefix:
+                if item.text(0) not in selected:
+                    visible = False
+
+            item.setHidden(not visible)
+
+    def _on_now_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        if column == 4 and len(self.on_now_list.selectedItems()) == 1:
+            title = item.data(4, Qt.ItemDataRole.UserRole)
+            ch_id = item.data(0, Qt.ItemDataRole.UserRole)
+            ch_name = item.text(1)
+            category = item.data(0, Qt.ItemDataRole.UserRole + 1) or ""
+            if title or ch_id:
+                self._show_hide_dialog(title, ch_id, ch_name, category)
+
+    def _on_now_context_menu(self, pos) -> None:
+        from PyQt6.QtWidgets import QMenu
+        items = self.on_now_list.selectedItems()
+        if not items:
+            return
+        n = len(items)
+        menu = QMenu(self)
+
+        assign_act = menu.addAction(f"Assign category… ({n} channel{'s' if n > 1 else ''})")
+        assign_act.triggered.connect(lambda: self._bulk_assign_category(items[:]))
+
+        ch_ids = [i.data(0, Qt.ItemDataRole.UserRole) for i in items]
+        has_override = any(
+            cid in self.config.epg_category_overrides for cid in ch_ids if cid
+        )
+        if has_override:
+            rm_act = menu.addAction("Remove category override")
+            rm_act.triggered.connect(lambda: self._remove_category_overrides(ch_ids[:]))
+
+        menu.addSeparator()
+        hide_ch = menu.addAction(f"Hide channel{'s' if n > 1 else ''}…")
+        hide_ch.triggered.connect(lambda: self._bulk_hide_channels(ch_ids[:]))
+        hide_show = menu.addAction(f"Hide show{'s' if n > 1 else ''}…")
+        hide_show.triggered.connect(lambda: self._bulk_hide_titles(items[:]))
+
+        menu.exec(self.on_now_list.viewport().mapToGlobal(pos))
+
+    def _bulk_assign_category(self, items: list[QTreeWidgetItem]) -> None:
+        dlg = _AssignCategoryDialog(self._known_categories(), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        code = dlg.category_code()
+        if not code:
+            return
+        overrides = dict(self.config.epg_category_overrides)
+        for item in items:
+            cid = item.data(0, Qt.ItemDataRole.UserRole)
+            if cid:
+                overrides[cid] = code
+        self.config.epg_category_overrides = overrides
+        self.config.save()
+        self._reload_on_now()
+
+    def _remove_category_overrides(self, ch_ids: list[str]) -> None:
+        overrides = dict(self.config.epg_category_overrides)
+        for cid in ch_ids:
+            overrides.pop(cid, None)
+        self.config.epg_category_overrides = overrides
+        self.config.save()
+        self._reload_on_now()
+        self._render_hidden()
+
+    def _bulk_hide_channels(self, ch_ids: list[str]) -> None:
+        hidden = list(self.config.epg_hidden_channels or [])
+        for cid in ch_ids:
+            if cid and cid not in hidden:
+                hidden.append(cid)
+        self.config.epg_hidden_channels = hidden
+        self.config.save()
+        self._reload_on_now()
+
+    def _bulk_hide_titles(self, items: list[QTreeWidgetItem]) -> None:
+        hidden = list(self.config.epg_hidden_titles or [])
+        for item in items:
+            title = item.data(4, Qt.ItemDataRole.UserRole)
+            if title and title not in hidden:
+                hidden.append(title)
+        self.config.epg_hidden_titles = hidden
+        self.config.save()
+        self._reload_on_now()
+
+    def _known_categories(self) -> list[str]:
+        existing = set(self.config.epg_category_overrides.values())
+        visible = {
+            self.on_now_list.topLevelItem(i).text(0)
+            for i in range(self.on_now_list.topLevelItemCount())
+            if self.on_now_list.topLevelItem(i).text(0)
+        }
+        return sorted(existing | visible | set(self._CATEGORY_FULL_NAMES.keys()))
+
+    def _show_hide_dialog(self, title: str, ch_id: str | None, ch_name: str, category: str) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Hide from On Now")
+        dlg.setModal(True)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(6)
+        lay.setContentsMargins(12, 12, 12, 12)
+        prompt = QLabel("What would you like to hide?")
+        prompt.setStyleSheet("font-weight: bold;")
+        lay.addWidget(prompt)
+        if title:
+            btn_show = QPushButton(f'Hide show: "{title}"')
+            btn_show.clicked.connect(lambda: (self._hide_title(title), dlg.accept()))
+            lay.addWidget(btn_show)
+        if ch_id and ch_name:
+            btn_ch = QPushButton(f'Hide channel: "{ch_name}"')
+            btn_ch.clicked.connect(lambda: (self._hide_channel(ch_id), dlg.accept()))
+            lay.addWidget(btn_ch)
+        if category:
+            full = self._CATEGORY_FULL_NAMES.get(category, "")
+            cat_label = f'Hide category: "{category}"' + (f" — {full}" if full else "")
+            btn_cat = QPushButton(cat_label)
+            btn_cat.clicked.connect(lambda: (self._hide_category(category), dlg.accept()))
+            lay.addWidget(btn_cat)
+        cancel = QPushButton("Cancel")
+        cancel.setStyleSheet("color: #888;")
+        cancel.clicked.connect(dlg.reject)
+        lay.addWidget(cancel)
+        dlg.exec()
+
+    def _hide_title(self, title: str) -> None:
+        hidden = list(self.config.epg_hidden_titles or [])
+        if title not in hidden:
+            hidden.append(title)
+            self.config.epg_hidden_titles = hidden
+            self.config.save()
+        self._reload_on_now()
+
+    def _hide_channel(self, ch_id: str) -> None:
+        hidden = list(self.config.epg_hidden_channels or [])
+        if ch_id not in hidden:
+            hidden.append(ch_id)
+            self.config.epg_hidden_channels = hidden
+            self.config.save()
+        self._reload_on_now()
+
+    def _hide_category(self, prefix: str) -> None:
+        hidden = list(self.config.epg_hidden_prefixes or [])
+        if prefix not in hidden:
+            hidden.append(prefix)
+            self.config.epg_hidden_prefixes = hidden
+            self.config.save()
+        self._reload_on_now()
+
+    def _remove_hidden_channel(self, ch_id: str) -> None:
+        hidden = list(self.config.epg_hidden_channels or [])
+        if ch_id in hidden:
+            hidden.remove(ch_id)
+            self.config.epg_hidden_channels = hidden
+            self.config.save()
+        self._render_hidden()
+        self._update_filler_btn_label()
+
+    def _remove_hidden_category(self, prefix: str) -> None:
+        hidden = list(self.config.epg_hidden_prefixes or [])
+        if prefix in hidden:
+            hidden.remove(prefix)
+            self.config.epg_hidden_prefixes = hidden
+            self.config.save()
+        self._render_hidden()
+        self._update_filler_btn_label()
+
+    def _get_channel_name_from_db(self, ch_id: str) -> str:
+        session = self.db.get_session()
+        try:
+            ch = session.query(ChannelDB).filter_by(id=ch_id).first()
+            return ch.name if ch else ch_id
+        finally:
+            session.close()
+
+    def _on_filler_toggled(self) -> None:
+        self._update_filler_btn_label()
+        self._reload_on_now()
+
+    def _update_filler_btn_label(self) -> None:
+        n = (len(self.config.epg_hidden_titles or [])
+             + len(self.config.epg_filler_patterns or [])
+             + len(self.config.epg_hidden_channels or [])
+             + len(self.config.epg_hidden_prefixes or []))
+        if self.filler_check_btn.isChecked():
+            # Hiding is active — clicking will show everything
+            self.filler_check_btn.setText("Show All")
+        else:
+            # Hiding is off — clicking will re-enable hiding
+            self.filler_check_btn.setText(f"Hide ({n})")
 
     def _on_search_changed(self, _: str) -> None:
         self._reload_browse()
 
-    def _on_lang_filter_changed(self, _: int) -> None:
-        self._reload_all()
+    def _save_epg_sort(self, tab: str, col: int, order: Qt.SortOrder) -> None:
+        self.config.epg_filter_state[f"{tab}_sort_col"] = col
+        self.config.epg_filter_state[f"{tab}_sort_order"] = int(order.value)
+        self.config.save()
 
     def _on_force_refresh(self) -> None:
         for pid in self._provider_ids:
@@ -1017,6 +1628,48 @@ class _DismissedDialog(QDialog):
             self.config.save()
             row = self.list.row(item)
             self.list.takeItem(row)
+
+
+# ------------------------------------------------------------------
+# Assign Category dialog
+# ------------------------------------------------------------------
+
+class _AssignCategoryDialog(QDialog):
+    """Lets the user pick or type a category code to assign to selected channels."""
+
+    def __init__(self, known: list[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Assign Category")
+        self.setModal(True)
+        self.setMinimumWidth(300)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+        lay.setContentsMargins(12, 12, 12, 12)
+
+        lay.addWidget(QLabel("Category code (e.g. BEIN, US, UK, NHL):"))
+
+        self._edit = QLineEdit()
+        self._edit.setPlaceholderText("Type a code or pick from list below…")
+        lay.addWidget(self._edit)
+
+        from PyQt6.QtWidgets import QComboBox
+        combo = QComboBox()
+        combo.addItem("— pick existing —")
+        combo.addItems(known)
+        combo.currentIndexChanged.connect(
+            lambda i: self._edit.setText(combo.currentText()) if i > 0 else None
+        )
+        lay.addWidget(combo)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def category_code(self) -> str:
+        return self._edit.text().strip().upper()
 
 
 # ------------------------------------------------------------------

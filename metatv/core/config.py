@@ -191,6 +191,10 @@ class Config(BaseModel):
         "No Game Today", "No Event Today", "Off Air",
         "Sign Off", "No Programme", "TBA",
     ])
+    epg_hidden_titles: list = Field(default_factory=list)
+    epg_hidden_channels: list = Field(default_factory=list)
+    epg_hidden_prefixes: list = Field(default_factory=list)
+    epg_category_overrides: dict = Field(default_factory=dict)  # channel_db_id → category code
     epg_filter_state: dict = Field(default_factory=dict)
 
     # Details pane UI settings
