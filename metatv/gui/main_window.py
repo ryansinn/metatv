@@ -31,9 +31,6 @@ from metatv.gui.sidebar_sections import (
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
-from metatv.gui.ppv_view import PPVView
-from metatv.gui.sports_view import SportsView
-from metatv.gui.events_view import EventsView
 from metatv.gui.epg_view import EpgView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.image_cache import ImageCache
@@ -325,6 +322,33 @@ class MainWindow(QMainWindow):
         if section:
             section.refresh()
 
+    def _watch_channel_from_list(self, channel_id: str) -> None:
+        if channel_id not in self.config.epg_watchlist_channels:
+            self.config.epg_watchlist_channels.append(channel_id)
+            self.config.save()
+            self._refresh_watch_alerts()
+
+    def _unwatch_channel_from_list(self, channel_id: str) -> None:
+        if channel_id in self.config.epg_watchlist_channels:
+            self.config.epg_watchlist_channels.remove(channel_id)
+            self.config.save()
+            self._refresh_watch_alerts()
+
+    def _prompt_track_from_list(self, channel_name: str) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(
+            self, "Track keyword",
+            "Add watchlist pattern — edit to a keyword for broader matching:",
+            text=channel_name,
+        )
+        if ok and text.strip():
+            patterns = list(self.config.epg_watchlist_patterns)
+            if text.strip() not in patterns:
+                patterns.append(text.strip())
+                self.config.epg_watchlist_patterns = patterns
+                self.config.save()
+            self._refresh_watch_alerts()
+
     def _on_alert_clicked(self, channel_db_id: str) -> None:
         """Play the channel immediately when a sidebar watch alert is double-clicked."""
         if channel_db_id:
@@ -384,22 +408,6 @@ class MainWindow(QMainWindow):
         
         media_layout.addStretch()
         
-        # Special content view chips (PPV, Events, Sports)
-        media_layout.addWidget(QLabel(" | "))
-        media_layout.addWidget(QLabel("Special:"))
-        
-        self.ppv_chip = ToggleChip("💰 PPV", enabled=False)
-        self.ppv_chip.clicked.connect(self.on_special_view_toggle)
-        media_layout.addWidget(self.ppv_chip)
-        
-        self.events_chip = ToggleChip("🎪 Events", enabled=False)
-        self.events_chip.clicked.connect(self.on_special_view_toggle)
-        media_layout.addWidget(self.events_chip)
-        
-        self.sports_chip = ToggleChip("⚽ Sports", enabled=False)
-        self.sports_chip.clicked.connect(self.on_special_view_toggle)
-        media_layout.addWidget(self.sports_chip)
-
         self.epg_chip = ToggleChip("📅 EPG", enabled=False)
         self.epg_chip.clicked.connect(self.on_special_view_toggle)
         media_layout.addWidget(self.epg_chip)
@@ -473,29 +481,6 @@ class MainWindow(QMainWindow):
         self.series_tree.setVisible(False)
         self.content_layout.addWidget(self.series_tree)
         
-        # PPV view (hidden by default)
-        self.ppv_view = PPVView(self.config, self.db, self)
-        self.ppv_view.play_channel_requested.connect(self.play_ppv_event)
-        self.ppv_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
-        self.ppv_view.setVisible(False)
-        self.content_layout.addWidget(self.ppv_view)
-
-        # Events view (hidden by default)
-        self.events_view = EventsView(self.config, self.db, self)
-        self.events_view.play_channel_requested.connect(self.play_special_event)
-        self.events_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
-        self.events_view.channel_selected.connect(self._on_view_channel_selected)
-        self.events_view.setVisible(False)
-        self.content_layout.addWidget(self.events_view)
-
-        # Sports view (hidden by default)
-        self.sports_view = SportsView(self.config, self.db, self)
-        self.sports_view.play_channel_requested.connect(self.play_special_event)
-        self.sports_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
-        self.sports_view.channel_selected.connect(self._on_view_channel_selected)
-        self.sports_view.setVisible(False)
-        self.content_layout.addWidget(self.sports_view)
-
         # EPG manager + view (hidden by default)
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
@@ -605,9 +590,6 @@ class MainWindow(QMainWindow):
         """Hide every content widget so one can be shown exclusively."""
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
-        self.ppv_view.setVisible(False)
-        self.events_view.setVisible(False)
-        self.sports_view.setVisible(False)
         self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.filter_bar.setVisible(False)
@@ -1005,25 +987,6 @@ class MainWindow(QMainWindow):
             # Apply current search text filter
             self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
             
-            # Update special content view badges
-            if hasattr(self, 'ppv_chip'):
-                ppv_count = session.query(ChannelDB).filter(ChannelDB.special_view == 'ppv').count()
-                self.ppv_chip.set_count(ppv_count)
-            if hasattr(self, 'events_chip'):
-                events_count = session.query(ChannelDB).filter(
-                    ChannelDB.special_view == 'live_event',
-                    ChannelDB.stream_url.isnot(None),
-                    ~ChannelDB.name.like('#%'),
-                ).count()
-                self.events_chip.set_count(events_count)
-            if hasattr(self, 'sports_chip'):
-                sports_count = session.query(ChannelDB).filter(
-                    ChannelDB.special_view == 'sports',
-                    ChannelDB.stream_url.isnot(None),
-                    ~ChannelDB.name.like('#%'),
-                ).count()
-                self.sports_chip.set_count(sports_count)
-            
             # Update status bar
             if provider_id:
                 self.status_bar.showMessage(f"{len(channels):,} channels from selected provider")
@@ -1352,7 +1315,28 @@ class MainWindow(QMainWindow):
             play_action = QAction("Play", self)
             play_action.triggered.connect(lambda: self.play_channel(item))
             menu.addAction(play_action)
-            
+
+            menu.addSeparator()
+
+            if channel.id in self.config.epg_watchlist_channels:
+                unwatch_act = QAction("Stop watching this channel", self)
+                unwatch_act.triggered.connect(
+                    lambda: self._unwatch_channel_from_list(channel.id)
+                )
+                menu.addAction(unwatch_act)
+            else:
+                watch_act = QAction("Watch this channel (EPG alerts)", self)
+                watch_act.triggered.connect(
+                    lambda: self._watch_channel_from_list(channel.id)
+                )
+                menu.addAction(watch_act)
+
+            track_act = QAction("Track keyword…", self)
+            track_act.triggered.connect(
+                lambda: self._prompt_track_from_list(channel.name)
+            )
+            menu.addAction(track_act)
+
             menu.exec(self.channels_list.mapToGlobal(position))
         finally:
             session.close()
@@ -1727,7 +1711,6 @@ class MainWindow(QMainWindow):
         # Hide list and special views, show tree
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(True)
-        self.ppv_view.setVisible(False)
         
         # Show back button and breadcrumb
         self.back_button.setVisible(True)
@@ -1750,9 +1733,6 @@ class MainWindow(QMainWindow):
         self._in_provider_edit_mode = False
         self.channels_list.setVisible(True)
         self.series_tree.setVisible(False)
-        self.ppv_view.setVisible(False)
-        self.events_view.setVisible(False)
-        self.sports_view.setVisible(False)
         self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
         
@@ -1789,81 +1769,12 @@ class MainWindow(QMainWindow):
         
         self.status_bar.showMessage("Returned to channel list")
     
-    def switch_to_ppv_view(self):
-        """Switch content area to PPV view"""
-        self.view_mode = "ppv"
-
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.events_view.setVisible(False)
-        self.sports_view.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.ppv_view.setVisible(True)
-        
-        # Hide back button
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-        
-        self.search_controls.setVisible(False)
-        
-        # Activate PPV view (loads events)
-        self.ppv_view.on_activate()
-        
-        # Update stats
-        ppv_count = self.ppv_view.get_ppv_event_count()
-        self.stats_label.setText(f"{ppv_count} PPV events")
-    
-    def switch_to_events_view(self):
-        """Switch content area to Events view."""
-        self.view_mode = "events"
-
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.ppv_view.setVisible(False)
-        self.sports_view.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.events_view.setVisible(True)
-
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-
-        self.search_controls.setVisible(False)
-
-        self.events_view.on_activate()
-
-        count = self.events_view.get_events_channel_count()
-        self.stats_label.setText(f"{count:,} live events")
-
-    def switch_to_sports_view(self):
-        """Switch content area to Sports view."""
-        self.view_mode = "sports"
-
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.ppv_view.setVisible(False)
-        self.events_view.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.sports_view.setVisible(True)
-
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-
-        self.search_controls.setVisible(False)
-
-        self.sports_view.on_activate()
-
-        count = self.sports_view.get_sports_channel_count()
-        self.stats_label.setText(f"{count:,} sports channels")
-
     def switch_to_epg_view(self):
         """Switch content area to EPG view."""
         self.view_mode = "epg"
 
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
-        self.ppv_view.setVisible(False)
-        self.events_view.setVisible(False)
-        self.sports_view.setVisible(False)
         self.epg_view.setVisible(True)
 
         self.back_button.setVisible(False)
@@ -1879,7 +1790,7 @@ class MainWindow(QMainWindow):
             self.stats_label.setText("EPG — fetching…")
 
     def play_special_event(self, channel):
-        """Play a channel from EventsView or SportsView."""
+        """Play a channel from a special content view."""
         logger.info(f"Playing special event: {channel.name}")
 
         if not channel.stream_url:
@@ -1898,72 +1809,15 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Playing: {channel.name}")
 
     def _on_view_channel_selected(self, channel):
-        """Handle channel selected from SportsView or EventsView."""
+        """Handle channel selected from a content view."""
         if channel:
             self.details_pane.show_channel(channel)
 
-    def on_special_view_toggle(self):
-        """Handle special content view chip toggles"""
-        sender = self.sender()
-        
-        # Determine which chip was clicked
-        if sender == self.ppv_chip:
-            if self.ppv_chip.is_enabled():
-                self.events_chip.set_enabled(False)
-                self.sports_chip.set_enabled(False)
-                self.epg_chip.set_enabled(False)
-                self.switch_to_ppv_view()
-            else:
-                self.switch_to_list_view()
-
-        elif sender == self.events_chip:
-            if self.events_chip.is_enabled():
-                self.ppv_chip.set_enabled(False)
-                self.sports_chip.set_enabled(False)
-                self.epg_chip.set_enabled(False)
-                self.switch_to_events_view()
-            else:
-                self.switch_to_list_view()
-
-        elif sender == self.sports_chip:
-            if self.sports_chip.is_enabled():
-                self.ppv_chip.set_enabled(False)
-                self.events_chip.set_enabled(False)
-                self.epg_chip.set_enabled(False)
-                self.switch_to_sports_view()
-            else:
-                self.switch_to_list_view()
-
-        elif sender == self.epg_chip:
-            if self.epg_chip.is_enabled():
-                self.ppv_chip.set_enabled(False)
-                self.events_chip.set_enabled(False)
-                self.sports_chip.set_enabled(False)
-                self.switch_to_epg_view()
-            else:
-                self.switch_to_list_view()
-    
-    def play_ppv_event(self, channel):
-        """Play PPV event from PPV view"""
-        logger.info(f"Playing PPV event: {channel.name}")
-        
-        # Validate stream URL
-        if not channel.stream_url:
-            self.status_bar.showMessage(f"No stream URL available for {channel.name}")
-            return
-        
-        # Play through player manager
-        self.player_manager.play(channel.stream_url, channel.name)
-        
-        # Update play count and last_played
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.mark_played(channel.id)
-        finally:
-            session.close()
-
-        self.status_bar.showMessage(f"Playing: {channel.name}")
+    def on_special_view_toggle(self) -> None:
+        if self.epg_chip.is_enabled():
+            self.switch_to_epg_view()
+        else:
+            self.switch_to_list_view()
     
     def navigate_back(self):
         """Navigate back from series view to channel list"""

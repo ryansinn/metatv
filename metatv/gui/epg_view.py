@@ -504,6 +504,8 @@ class EpgView(ContentView):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
         self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
+        self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
         # Restore persisted sort
         _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
         _bord = Qt.SortOrder(self.config.epg_filter_state.get("browse_sort_order", 0))
@@ -1466,6 +1468,15 @@ class EpgView(ContentView):
             unwatch_act = menu.addAction(f"Unwatch channel{'s' if len(watched) > 1 else ''}…")
             unwatch_act.triggered.connect(lambda: [self._unwatch_channel(cid) for cid in watched])
 
+        # Track show title as watchlist pattern
+        show_titles = list({
+            i.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
+        })
+        if show_titles:
+            preview = show_titles[0] if len(show_titles) == 1 else f"{len(show_titles)} shows"
+            track_act = menu.addAction(f"Track show: '{preview}'…")
+            track_act.triggered.connect(lambda: self._track_shows_from_items(items[:]))
+
         menu.addSeparator()
         hide_ch = menu.addAction(f"Hide channel{'s' if n > 1 else ''}…")
         hide_ch.triggered.connect(lambda: self._bulk_hide_channels(ch_ids[:]))
@@ -1649,6 +1660,30 @@ class EpgView(ContentView):
 
     # ── Watchlist management ───────────────────────────────────────────
 
+    def _track_shows_from_items(self, items: list[QTreeWidgetItem]) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        titles = list({
+            i.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
+        })
+        default = titles[0] if len(titles) == 1 else ""
+        text, ok = QInputDialog.getText(
+            self, "Track show",
+            "Add watchlist pattern — edit to a keyword for broader matching:",
+            text=default,
+        )
+        if ok and text.strip():
+            self._add_pattern(text.strip())
+
+    def _prompt_track(self, default_text: str) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(
+            self, "Track show",
+            "Add watchlist pattern — edit to a keyword for broader matching:",
+            text=default_text,
+        )
+        if ok and text.strip():
+            self._add_pattern(text.strip())
+
     def _on_add_pattern(self) -> None:
         pattern = self.add_pattern_input.text().strip()
         if pattern and pattern not in self.config.epg_watchlist_patterns:
@@ -1722,6 +1757,23 @@ class EpgView(ContentView):
 
     def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
+
+    def _on_browse_context_menu(self, pos) -> None:
+        from PyQt6.QtWidgets import QMenu
+        item = self.browse_list.itemAt(pos)
+        if not item:
+            return
+        title = item.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
+        channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        track_act = menu.addAction(f"Track: '{title}'…")
+        track_act.triggered.connect(lambda: self._prompt_track(title))
+        if channel_db_id and channel_db_id not in self.config.epg_watchlist_channels:
+            watch_act = menu.addAction("Watch this channel")
+            watch_act.triggered.connect(lambda: self._watch_channel(channel_db_id))
+        play_act = menu.addAction("▶ Play")
+        play_act.triggered.connect(lambda: self._play_channel(channel_db_id))
+        menu.exec(self.browse_list.viewport().mapToGlobal(pos))
 
     def _on_now_selection_changed(self, current, _) -> None:
         if not current:
