@@ -1,15 +1,16 @@
-"""PPV (Pay-Per-View) events view with time-based grid layout"""
+"""PPV (Pay-Per-View) events view with responsive flow grid layout"""
 
 import json
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QWidget,
-    QGridLayout, QPushButton, QFrame
+    QPushButton, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from loguru import logger
 
 from metatv.gui.content_view import ContentView
+from metatv.gui.flow_layout import FlowLayout
 from metatv.core.database import ChannelDB
 
 
@@ -79,7 +80,7 @@ class PPVEventCard(QFrame):
         badges_layout.addStretch()
         layout.addLayout(badges_layout)
 
-        play_button = QPushButton("▶ Watch")
+        play_button = QPushButton("▶ Play")
         play_button.clicked.connect(lambda: self.play_requested.emit(self.channel))
         play_button.setStyleSheet(
             "background-color: #ff6b35; color: white; border: none; "
@@ -149,7 +150,8 @@ class PPVView(ContentView):
         title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
-        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn = QPushButton("⟳ Refresh")
+        refresh_btn.setToolTip("Reload PPV events")
         refresh_btn.clicked.connect(self._load_ppv_events)
         header_layout.addWidget(refresh_btn)
         layout.addLayout(header_layout)
@@ -158,8 +160,7 @@ class PPVView(ContentView):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.grid_container = QWidget()
-        self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setSpacing(15)
+        self.grid_layout = FlowLayout(self.grid_container, spacing=15)
         scroll_area.setWidget(self.grid_container)
         layout.addWidget(scroll_area)
 
@@ -168,8 +169,10 @@ class PPVView(ContentView):
             card.update_countdown()
 
     def _clear_cards(self):
-        for card in self.event_cards:
-            card.deleteLater()
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         self.event_cards.clear()
 
     def _load_ppv_events(self):
@@ -198,14 +201,11 @@ class PPVView(ContentView):
 
         logger.info(f"Found {len(all_events)} PPV events ({len(upcoming)} upcoming, {len(past)} past)")
 
-        for i, channel in enumerate(all_events):
+        for channel in all_events:
             card = PPVEventCard(channel)
             card.play_requested.connect(self._on_play_requested)
             self.event_cards.append(card)
-            self.grid_layout.addWidget(card, i // 3, i % 3)
-
-        if all_events:
-            self.grid_layout.setRowStretch(len(all_events) // 3 + 1, 1)
+            self.grid_layout.addWidget(card)
 
         self.status_message.emit(f"Loaded {len(all_events)} PPV events")
 

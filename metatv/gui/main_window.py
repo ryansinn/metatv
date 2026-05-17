@@ -1112,7 +1112,9 @@ class MainWindow(QMainWindow):
         # Get filter state from FilterBar and add media types from chips
         self.current_filter_state = self.filter_bar.get_filter_state()
         self.current_filter_state['media_types'] = self.get_enabled_media_types()
-        self.load_channels(self.selected_provider_id)
+        # Chip state drives provider filtering; sidebar selection is set separately
+        # via on_provider_selected_new which calls load_channels(provider_id) directly.
+        self.load_channels(None)
     
     def initialize_filter_stats(self):
         """Initialize filter bar with current prefix statistics"""

@@ -34,11 +34,13 @@ class URLListItem(QWidget):
         
         up_btn = QPushButton("▲")
         up_btn.setFixedSize(24, 20)
+        up_btn.setToolTip("Move up")
         up_btn.clicked.connect(self.move_up)
         priority_layout.addWidget(up_btn)
-        
+
         down_btn = QPushButton("▼")
         down_btn.setFixedSize(24, 20)
+        down_btn.setToolTip("Move down")
         down_btn.clicked.connect(self.move_down)
         priority_layout.addWidget(down_btn)
         

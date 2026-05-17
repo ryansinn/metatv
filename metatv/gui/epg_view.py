@@ -186,10 +186,12 @@ class EpgView(ContentView):
 
         # Tab bar
         self.tab_bar = QTabBar()
-        self.tab_bar.addTab("📋 Watchlist")
-        self.tab_bar.addTab("📺 On Now")
-        self.tab_bar.addTab("📅 Browse")
-        self.tab_bar.addTab("🚫 Hidden")
+        self.tab_bar.addTab("⏰ Watchlist")   # 0
+        self.tab_bar.addTab("📺 My Channels") # 1
+        self.tab_bar.addTab("✨ Discover")    # 2
+        self.tab_bar.addTab("🔴 On Now")      # 3
+        self.tab_bar.addTab("📅 Browse")      # 4
+        self.tab_bar.addTab("🚫 Manage")      # 5
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
         header_layout.addWidget(self.tab_bar)
         header_layout.addStretch()
@@ -200,9 +202,8 @@ class EpgView(ContentView):
         header_layout.addWidget(self.status_label)
 
         # Refresh button
-        self.refresh_btn = QPushButton("⟳")
-        self.refresh_btn.setToolTip("Refresh EPG data")
-        self.refresh_btn.setFixedWidth(30)
+        self.refresh_btn = QPushButton("⟳ Refresh")
+        self.refresh_btn.setToolTip("Refresh EPG data from all providers")
         self.refresh_btn.clicked.connect(self._on_force_refresh)
         header_layout.addWidget(self.refresh_btn)
 
@@ -218,35 +219,31 @@ class EpgView(ContentView):
         self.stack = QStackedWidget()
         root.addWidget(self.stack)
 
-        self._build_watchlist_tab()
-        self._build_on_now_tab()
-        self._build_browse_tab()
-        self._build_hidden_tab()
+        self._build_watchlist_tab()    # stack 0
+        self._build_channels_tab()    # stack 1
+        self._build_discover_tab()    # stack 2
+        self._build_on_now_tab()      # stack 3
+        self._build_browse_tab()      # stack 4
+        self._build_hidden_tab()      # stack 5
 
     # ── Tab 0: Watchlist ───────────────────────────────────────────────
 
     def _build_watchlist_tab(self) -> None:
+        from metatv.gui.flow_layout import FlowLayout
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
-        # "MY WATCHLIST" header
-        wl_header = QHBoxLayout()
-        wl_title = QLabel("MY WATCHLIST")
-        wl_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #aaa; letter-spacing: 1px;")
-        wl_header.addWidget(wl_title)
-        wl_header.addStretch()
-        layout.addLayout(wl_header)
-
-        # Always-visible add-keyword row
-        hint = QLabel("Track a show or keyword — type it and press Enter to add it to your watchlist:")
+        # Add-keyword row
+        hint = QLabel("Track a show or keyword — press Enter or click Track to add:")
         hint.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(hint)
 
         add_row = QHBoxLayout()
         self.add_pattern_input = QLineEdit()
         self.add_pattern_input.setPlaceholderText("e.g.  NHL  ·  Jeopardy  ·  MasterChef Canada")
+        self.add_pattern_input.setToolTip("Pattern matching is not case-sensitive")
         self.add_pattern_input.returnPressed.connect(self._on_add_pattern)
         add_row.addWidget(self.add_pattern_input, 1)
         self.add_btn = QPushButton("Track")
@@ -255,43 +252,50 @@ class EpgView(ContentView):
         add_row.addWidget(self.add_btn)
         layout.addLayout(add_row)
 
-        # Watchlist items (scrollable)
+        ci_note = QLabel("Patterns are not case-sensitive")
+        ci_note.setStyleSheet("color: #555; font-size: 10px;")
+        layout.addWidget(ci_note)
+
+        # Pattern cards — responsive FlowLayout
         self.watchlist_scroll = QScrollArea()
         self.watchlist_scroll.setWidgetResizable(True)
         self.watchlist_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.watchlist_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.watchlist_content = QWidget()
-        self.watchlist_layout = QVBoxLayout(self.watchlist_content)
-        self.watchlist_layout.setSpacing(4)
-        self.watchlist_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.watchlist_layout = FlowLayout(self.watchlist_content, spacing=8)
         self.watchlist_scroll.setWidget(self.watchlist_content)
-        layout.addWidget(self.watchlist_scroll, 3)
+        layout.addWidget(self.watchlist_scroll, 1)
 
-        # Empty state label
-        self.wl_empty_label = QLabel("No watchlist items yet.\nAdd a show or keyword above to get started.")
+        self.wl_empty_label = QLabel(
+            "No watchlist items yet.\nAdd a show or keyword above to get started."
+        )
         self.wl_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.wl_empty_label.setStyleSheet("color: #666; font-size: 13px; padding: 20px;")
 
-        # MY CHANNELS section
-        ch_sep = QFrame()
-        ch_sep.setFrameShape(QFrame.Shape.HLine)
-        ch_sep.setStyleSheet("border: none; border-top: 1px solid #333; margin-top: 8px;")
-        layout.addWidget(ch_sep)
+        self.stack.addWidget(page)
 
-        ch_header = QHBoxLayout()
-        ch_title = QLabel("MY CHANNELS")
-        ch_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #aaa; letter-spacing: 1px;")
-        ch_header.addWidget(ch_title)
-        ch_header.addStretch()
-        layout.addLayout(ch_header)
+    def _build_channels_tab(self) -> None:
+        from metatv.gui.flow_layout import FlowLayout
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+
+        hdr = QHBoxLayout()
+        hdr.addWidget(QLabel("Pinned channels — right-click any channel in On Now to add one."))
+        hdr.addStretch()
+        layout.addLayout(hdr)
 
         self.channels_scroll = QScrollArea()
         self.channels_scroll.setWidgetResizable(True)
         self.channels_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.channels_scroll.setMaximumHeight(200)
+        self.channels_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.channels_content = QWidget()
-        self.channels_layout = QVBoxLayout(self.channels_content)
-        self.channels_layout.setSpacing(4)
-        self.channels_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.channels_layout = FlowLayout(self.channels_content, spacing=8)
         self.channels_scroll.setWidget(self.channels_content)
         layout.addWidget(self.channels_scroll, 1)
 
@@ -299,22 +303,25 @@ class EpgView(ContentView):
             "No channels pinned yet.\nRight-click any channel in On Now → Watch this channel."
         )
         self.ch_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ch_empty_label.setStyleSheet("color: #555; font-size: 12px; padding: 10px;")
+        self.ch_empty_label.setStyleSheet("color: #555; font-size: 13px; padding: 20px;")
 
-        # Separator before recommendations
-        rec_sep = QFrame()
-        rec_sep.setFrameShape(QFrame.Shape.HLine)
-        rec_sep.setStyleSheet("border: none; border-top: 1px solid #333; margin-top: 8px;")
-        layout.addWidget(rec_sep)
+        self.stack.addWidget(page)
 
-        # Recommendations
+    def _build_discover_tab(self) -> None:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+
         rec_header = QHBoxLayout()
-        rec_title = QLabel("RECOMMENDED FOR YOU")
-        rec_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #aaa; letter-spacing: 1px;")
+        rec_title = QLabel("Channels with content matching your watchlist patterns:")
+        rec_title.setStyleSheet("color: #888; font-size: 11px;")
         rec_header.addWidget(rec_title)
         rec_header.addStretch()
-        self.manage_dismissed_btn = QPushButton("manage dismissed")
-        self.manage_dismissed_btn.setStyleSheet("color: #888; font-size: 11px; border: none; background: transparent;")
+        self.manage_dismissed_btn = QPushButton("Manage dismissed")
+        self.manage_dismissed_btn.setStyleSheet(
+            "color: #888; font-size: 11px; border: none; background: transparent;"
+        )
         self.manage_dismissed_btn.clicked.connect(self._manage_dismissed)
         rec_header.addWidget(self.manage_dismissed_btn)
         layout.addLayout(rec_header)
@@ -322,7 +329,6 @@ class EpgView(ContentView):
         self.rec_scroll = QScrollArea()
         self.rec_scroll.setWidgetResizable(True)
         self.rec_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.rec_scroll.setMaximumHeight(200)
         self.rec_content = QWidget()
         self.rec_layout = QVBoxLayout(self.rec_content)
         self.rec_layout.setSpacing(4)
@@ -330,9 +336,11 @@ class EpgView(ContentView):
         self.rec_scroll.setWidget(self.rec_content)
         layout.addWidget(self.rec_scroll, 1)
 
-        self.rec_empty_label = QLabel("Add watchlist items to get recommendations.")
+        self.rec_empty_label = QLabel(
+            "Add watchlist patterns to get channel recommendations."
+        )
         self.rec_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.rec_empty_label.setStyleSheet("color: #555; font-size: 12px; padding: 10px;")
+        self.rec_empty_label.setStyleSheet("color: #555; font-size: 13px; padding: 20px;")
 
         self.stack.addWidget(page)
 
@@ -358,6 +366,7 @@ class EpgView(ContentView):
 
         on_now_clear = QPushButton("✕")
         on_now_clear.setFixedWidth(24)
+        on_now_clear.setToolTip("Clear search")
         on_now_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
         on_now_clear.clicked.connect(self.on_now_search.clear)
         filter_row.addWidget(on_now_clear)
@@ -428,11 +437,20 @@ class EpgView(ContentView):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
-        # Search row
+        # Search row with clear button
+        search_row = QHBoxLayout()
+        search_row.setSpacing(4)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search programmes…")
         self.search_input.textChanged.connect(self._on_search_changed)
-        layout.addWidget(self.search_input)
+        search_row.addWidget(self.search_input, 1)
+        browse_clear = QPushButton("✕")
+        browse_clear.setFixedWidth(24)
+        browse_clear.setToolTip("Clear")
+        browse_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        browse_clear.clicked.connect(self.search_input.clear)
+        search_row.addWidget(browse_clear)
+        layout.addLayout(search_row)
 
         # Filter row
         filter_row = QHBoxLayout()
@@ -743,12 +761,12 @@ class EpgView(ContentView):
         self._load_provider_ids()
         self._update_status_label()
 
-        # Default to On Now; stay on Watchlist only if patterns already exist
-        if self.tab_bar.currentIndex() == 0 and not self.config.epg_watchlist_patterns:
+        # Default to On Now (tab 3); stay on a watchlist tab only if patterns already exist
+        if self.tab_bar.currentIndex() in (0, 1, 2) and not self.config.epg_watchlist_patterns:
             self.tab_bar.blockSignals(True)
-            self.tab_bar.setCurrentIndex(1)
+            self.tab_bar.setCurrentIndex(3)
             self.tab_bar.blockSignals(False)
-            self.stack.setCurrentIndex(1)
+            self.stack.setCurrentIndex(3)
 
         self._reload_all()
         self.epg_manager.refresh_all_if_needed()
@@ -774,13 +792,13 @@ class EpgView(ContentView):
 
     def _reload_all(self) -> None:
         tab = self.tab_bar.currentIndex()
-        if tab == 0:
-            self._reload_watchlist()
-        elif tab == 1:
-            self._reload_on_now()
-        elif tab == 2:
-            self._reload_browse()
+        if tab in (0, 1, 2):
+            self._reload_watchlist()   # Watchlist / My Channels / Discover share one fetch
         elif tab == 3:
+            self._reload_on_now()
+        elif tab == 4:
+            self._reload_browse()
+        elif tab == 5:
             self._render_hidden()
 
     def _reload_watchlist(self) -> None:
@@ -968,12 +986,15 @@ class EpgView(ContentView):
                           recommendations: list, dismissed: set,
                           channel_now: dict | None = None,
                           channel_names: dict | None = None) -> None:
-        # Clear existing watchlist widgets (never delete the sentinel labels)
+        # Clear watchlist widgets — detach sentinels without deleting (reused next render)
         while self.watchlist_layout.count():
             child = self.watchlist_layout.takeAt(0)
             w = child.widget()
-            if w and w is not self.wl_empty_label:
-                w.deleteLater()
+            if w:
+                if w is self.wl_empty_label:
+                    w.setParent(None)
+                else:
+                    w.deleteLater()
 
         patterns = self.config.epg_watchlist_patterns
 
@@ -991,8 +1012,11 @@ class EpgView(ContentView):
         while self.channels_layout.count():
             child = self.channels_layout.takeAt(0)
             w = child.widget()
-            if w and w is not self.ch_empty_label:
-                w.deleteLater()
+            if w:
+                if w is self.ch_empty_label:
+                    w.setParent(None)
+                else:
+                    w.deleteLater()
 
         channel_ids = self.config.epg_watchlist_channels
         channel_now = channel_now or {}
@@ -1010,8 +1034,11 @@ class EpgView(ContentView):
         while self.rec_layout.count():
             child = self.rec_layout.takeAt(0)
             w = child.widget()
-            if w and w is not self.rec_empty_label:
-                w.deleteLater()
+            if w:
+                if w is self.rec_empty_label:
+                    w.setParent(None)
+                else:
+                    w.deleteLater()
 
         if not recommendations:
             self.rec_layout.addWidget(self.rec_empty_label)
@@ -1024,6 +1051,8 @@ class EpgView(ContentView):
     def _make_watchlist_item(self, pattern: str, live: list[EpgProgramDB],
                               upcoming: list[EpgProgramDB]) -> QWidget:
         w = QWidget()
+        w.setMinimumWidth(280)
+        w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         w.setStyleSheet("QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }")
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -1085,6 +1114,8 @@ class EpgView(ContentView):
     def _make_channel_item(self, channel_db_id: str, channel_name: str,
                            prog: EpgProgramDB | None) -> QWidget:
         w = QWidget()
+        w.setMinimumWidth(280)
+        w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         w.setStyleSheet("QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }")
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)

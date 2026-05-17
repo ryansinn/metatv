@@ -62,7 +62,8 @@ class SportsView(ContentView):
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         header.addWidget(title)
         header.addStretch()
-        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn = QPushButton("⟳ Refresh")
+        self.refresh_btn.setToolTip("Reload sports channels")
         self.refresh_btn.clicked.connect(self.on_activate)
         header.addWidget(self.refresh_btn)
         layout.addLayout(header)
@@ -72,12 +73,21 @@ class SportsView(ContentView):
         self.filter_bar.filter_changed.connect(self._on_filter_changed)
         layout.addWidget(self.filter_bar)
 
-        # Inline text search
+        # Inline text search with clear button
+        search_row = QHBoxLayout()
+        search_row.setSpacing(4)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search sports channels…")
         self.search_input.textChanged.connect(self._apply_search)
         self.search_input.textChanged.connect(self._save_filter_state)
-        layout.addWidget(self.search_input)
+        search_row.addWidget(self.search_input, 1)
+        clear_btn = QPushButton("✕")
+        clear_btn.setFixedWidth(24)
+        clear_btn.setToolTip("Clear")
+        clear_btn.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        clear_btn.clicked.connect(self.search_input.clear)
+        search_row.addWidget(clear_btn)
+        layout.addLayout(search_row)
 
         # Channel list
         self.channel_list = QListWidget()
