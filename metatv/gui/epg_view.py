@@ -271,6 +271,36 @@ class EpgView(ContentView):
         self.wl_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.wl_empty_label.setStyleSheet("color: #666; font-size: 13px; padding: 20px;")
 
+        # MY CHANNELS section
+        ch_sep = QFrame()
+        ch_sep.setFrameShape(QFrame.Shape.HLine)
+        ch_sep.setStyleSheet("border: none; border-top: 1px solid #333; margin-top: 8px;")
+        layout.addWidget(ch_sep)
+
+        ch_header = QHBoxLayout()
+        ch_title = QLabel("MY CHANNELS")
+        ch_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #aaa; letter-spacing: 1px;")
+        ch_header.addWidget(ch_title)
+        ch_header.addStretch()
+        layout.addLayout(ch_header)
+
+        self.channels_scroll = QScrollArea()
+        self.channels_scroll.setWidgetResizable(True)
+        self.channels_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.channels_scroll.setMaximumHeight(200)
+        self.channels_content = QWidget()
+        self.channels_layout = QVBoxLayout(self.channels_content)
+        self.channels_layout.setSpacing(4)
+        self.channels_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.channels_scroll.setWidget(self.channels_content)
+        layout.addWidget(self.channels_scroll, 1)
+
+        self.ch_empty_label = QLabel(
+            "No channels pinned yet.\nRight-click any channel in On Now → Watch this channel."
+        )
+        self.ch_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.ch_empty_label.setStyleSheet("color: #555; font-size: 12px; padding: 10px;")
+
         # Separator before recommendations
         rec_sep = QFrame()
         rec_sep.setFrameShape(QFrame.Shape.HLine)
@@ -807,12 +837,23 @@ class EpgView(ContentView):
             name_map = self._build_name_map(session, watchlist_data, live_data)
             self._channel_name_map.update(name_map)
 
+            # MY CHANNELS — current program for each pinned channel
+            channel_ids = self.config.epg_watchlist_channels
+            channel_now: dict[str, EpgProgramDB | None] = {}
+            channel_names: dict[str, str] = {}
+            for cid in channel_ids:
+                channel_now[cid] = repo.get_now_for_channel(cid)
+                ch = session.query(ChannelDB).filter_by(id=cid).first()
+                channel_names[cid] = ch.name if ch else cid
+
             self._data_loaded.emit({
                 "tab": "watchlist",
                 "watchlist_data": watchlist_data,
                 "live_data": live_data,
                 "recommendations": recs,
                 "dismissed": dismissed,
+                "channel_now": channel_now,
+                "channel_names": channel_names,
             })
         except Exception as e:
             logger.error(f"EpgView watchlist fetch error: {e}")
@@ -913,6 +954,8 @@ class EpgView(ContentView):
                 payload["live_data"],
                 payload["recommendations"],
                 payload["dismissed"],
+                payload.get("channel_now", {}),
+                payload.get("channel_names", {}),
             )
         elif tab == "on_now":
             self._render_on_now(payload["programs"])
@@ -922,7 +965,9 @@ class EpgView(ContentView):
     # ── Watchlist render ───────────────────────────────────────────────
 
     def _render_watchlist(self, watchlist_data: dict, live_data: dict,
-                          recommendations: list, dismissed: set) -> None:
+                          recommendations: list, dismissed: set,
+                          channel_now: dict | None = None,
+                          channel_names: dict | None = None) -> None:
         # Clear existing watchlist widgets (never delete the sentinel labels)
         while self.watchlist_layout.count():
             child = self.watchlist_layout.takeAt(0)
@@ -941,6 +986,25 @@ class EpgView(ContentView):
                 self.watchlist_layout.addWidget(
                     self._make_watchlist_item(pattern, live_progs, upcoming[:3])
                 )
+
+        # MY CHANNELS
+        while self.channels_layout.count():
+            child = self.channels_layout.takeAt(0)
+            w = child.widget()
+            if w and w is not self.ch_empty_label:
+                w.deleteLater()
+
+        channel_ids = self.config.epg_watchlist_channels
+        channel_now = channel_now or {}
+        channel_names = channel_names or {}
+
+        if not channel_ids:
+            self.channels_layout.addWidget(self.ch_empty_label)
+        else:
+            for cid in channel_ids:
+                prog = channel_now.get(cid)
+                name = channel_names.get(cid, cid)
+                self.channels_layout.addWidget(self._make_channel_item(cid, name, prog))
 
         # Recommendations
         while self.rec_layout.count():
@@ -1015,6 +1079,53 @@ class EpgView(ContentView):
             row_lbl = QLabel(f"{prefix}{time_str}  ·  {ch_name}")
             row_lbl.setStyleSheet("color: #999; font-size: 11px; padding-left: 16px;")
             layout.addWidget(row_lbl)
+
+        return w
+
+    def _make_channel_item(self, channel_db_id: str, channel_name: str,
+                           prog: EpgProgramDB | None) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(3)
+
+        header = QHBoxLayout()
+        name_lbl = QLabel(f"📺  {channel_name}")
+        name_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        header.addWidget(name_lbl)
+        header.addStretch()
+
+        if prog:
+            play_btn = QPushButton("▶ Play")
+            play_btn.setFixedWidth(70)
+            play_btn.setStyleSheet(
+                "background: #2a6; color: white; border-radius: 3px; padding: 2px 6px;"
+            )
+            play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
+            header.addWidget(play_btn)
+
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedWidth(24)
+        remove_btn.setToolTip(f"Stop watching '{channel_name}'")
+        remove_btn.setStyleSheet(
+            "color: #666; border: none; background: transparent; font-size: 14px;"
+        )
+        remove_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._unwatch_channel(cid))
+        header.addWidget(remove_btn)
+        layout.addLayout(header)
+
+        if prog:
+            now = _now_utc()
+            remain = _remaining_str(prog.stop_time) if prog.stop_time > now else ""
+            suffix = f"  ·  {remain}" if remain else ""
+            prog_lbl = QLabel(f"  {prog.title}{suffix}")
+            prog_lbl.setStyleSheet("color: #999; font-size: 11px; padding-left: 16px;")
+            layout.addWidget(prog_lbl)
+        else:
+            no_epg = QLabel("  No EPG data")
+            no_epg.setStyleSheet("color: #555; font-size: 11px; padding-left: 16px;")
+            layout.addWidget(no_epg)
 
         return w
 
@@ -1314,6 +1425,15 @@ class EpgView(ContentView):
             rm_act = menu.addAction("Remove category override")
             rm_act.triggered.connect(lambda: self._remove_category_overrides(ch_ids[:]))
 
+        watched = [cid for cid in ch_ids if cid and cid in self.config.epg_watchlist_channels]
+        unwatched = [cid for cid in ch_ids if cid and cid not in self.config.epg_watchlist_channels]
+        if unwatched:
+            watch_act = menu.addAction(f"Watch channel{'s' if len(unwatched) > 1 else ''}…")
+            watch_act.triggered.connect(lambda: [self._watch_channel(cid) for cid in unwatched])
+        if watched:
+            unwatch_act = menu.addAction(f"Unwatch channel{'s' if len(watched) > 1 else ''}…")
+            unwatch_act.triggered.connect(lambda: [self._unwatch_channel(cid) for cid in watched])
+
         menu.addSeparator()
         hide_ch = menu.addAction(f"Hide channel{'s' if n > 1 else ''}…")
         hide_ch.triggered.connect(lambda: self._bulk_hide_channels(ch_ids[:]))
@@ -1514,6 +1634,18 @@ class EpgView(ContentView):
     def _remove_pattern(self, pattern: str) -> None:
         if pattern in self.config.epg_watchlist_patterns:
             self.config.epg_watchlist_patterns.remove(pattern)
+            self.config.save()
+            self._reload_watchlist()
+
+    def _watch_channel(self, channel_db_id: str) -> None:
+        if channel_db_id not in self.config.epg_watchlist_channels:
+            self.config.epg_watchlist_channels.append(channel_db_id)
+            self.config.save()
+            self._reload_watchlist()
+
+    def _unwatch_channel(self, channel_db_id: str) -> None:
+        if channel_db_id in self.config.epg_watchlist_channels:
+            self.config.epg_watchlist_channels.remove(channel_db_id)
             self.config.save()
             self._reload_watchlist()
 

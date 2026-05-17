@@ -181,6 +181,8 @@ class Config(BaseModel):
     # EPG settings
     epg_watchlist_patterns: list = Field(default_factory=list)
     # e.g. ["NHL", "Jeopardy!", "MasterChef Canada"]
+    epg_watchlist_channels: list = Field(default_factory=list)
+    # channel_db_ids pinned to watchlist (MY CHANNELS section)
     epg_dismissed_channels: dict = Field(default_factory=dict)
     # {channel_db_id: iso_timestamp_dismissed_until}
     epg_notification_minutes_before: int = 15
