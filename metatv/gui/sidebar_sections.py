@@ -415,7 +415,7 @@ class WatchAlertsSection(CollapsibleSection):
     def create_content(self):
         self.alerts_list = QListWidget()
         self.alerts_list.setMaximumHeight(150)
-        self.alerts_list.itemClicked.connect(
+        self.alerts_list.itemDoubleClicked.connect(
             lambda item: self.alertClicked.emit(item.data(Qt.ItemDataRole.UserRole) or "")
         )
         self.content_layout.addWidget(self.alerts_list)

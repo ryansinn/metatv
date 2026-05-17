@@ -138,6 +138,7 @@ class EpgView(ContentView):
     """Watchlist-first EPG view with On Now and Browse tabs."""
 
     play_channel_requested = pyqtSignal(object)  # ChannelDB
+    watchlist_changed = pyqtSignal()             # patterns or channels modified
 
     # Internal thread-safe signals
     _data_loaded = pyqtSignal(object)  # payload dict keyed by tab
@@ -1653,6 +1654,7 @@ class EpgView(ContentView):
         if pattern and pattern not in self.config.epg_watchlist_patterns:
             self.config.epg_watchlist_patterns.append(pattern)
             self.config.save()
+            self.watchlist_changed.emit()
         self.add_pattern_input.clear()
         self._reload_watchlist()
 
@@ -1660,24 +1662,28 @@ class EpgView(ContentView):
         if pattern and pattern not in self.config.epg_watchlist_patterns:
             self.config.epg_watchlist_patterns.append(pattern)
             self.config.save()
+            self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _remove_pattern(self, pattern: str) -> None:
         if pattern in self.config.epg_watchlist_patterns:
             self.config.epg_watchlist_patterns.remove(pattern)
             self.config.save()
+            self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _watch_channel(self, channel_db_id: str) -> None:
         if channel_db_id not in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.append(channel_db_id)
             self.config.save()
+            self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _unwatch_channel(self, channel_db_id: str) -> None:
         if channel_db_id in self.config.epg_watchlist_channels:
             self.config.epg_watchlist_channels.remove(channel_db_id)
             self.config.save()
+            self.watchlist_changed.emit()
             self._reload_watchlist()
 
     def _dismiss_channel(self, channel_db_id: str) -> None:

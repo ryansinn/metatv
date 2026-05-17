@@ -326,10 +326,9 @@ class MainWindow(QMainWindow):
             section.refresh()
 
     def _on_alert_clicked(self, channel_db_id: str) -> None:
-        """Switch to EPG view when the user clicks a sidebar watch alert."""
-        if not self.epg_chip.is_enabled():
-            self.epg_chip.set_enabled(True)
-            self.on_special_view_toggle()
+        """Play the channel immediately when a sidebar watch alert is double-clicked."""
+        if channel_db_id:
+            self.play_channel_by_id(channel_db_id)
 
     def create_content_area(self) -> QWidget:
         """Create main content area"""
@@ -503,6 +502,7 @@ class MainWindow(QMainWindow):
         self.epg_view.play_channel_requested.connect(self.play_special_event)
         self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
         self.epg_view.channel_selected.connect(self._on_view_channel_selected)
+        self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
         self.epg_view.setVisible(False)
         self.content_layout.addWidget(self.epg_view)
         self.epg_manager.start_notification_timer()
