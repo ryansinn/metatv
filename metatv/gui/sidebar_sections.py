@@ -413,20 +413,76 @@ class WatchAlertsSection(CollapsibleSection):
         return "alerts"
     
     def create_content(self):
-        """Create alerts list"""
-        from PyQt6.QtWidgets import QListWidget
-        
         self.alerts_list = QListWidget()
-        self.alerts_list.setMaximumHeight(120)
+        self.alerts_list.setMaximumHeight(150)
+        self.alerts_list.itemClicked.connect(
+            lambda item: self.alertClicked.emit(item.data(Qt.ItemDataRole.UserRole) or "")
+        )
         self.content_layout.addWidget(self.alerts_list)
-        
-        # Placeholder for now
         self.set_empty(True)
-    
-    def refresh(self):
-        """Load alerts from database"""
-        # TODO: Implement when alert system is integrated
-        self.set_empty(True)
+
+    def refresh(self) -> None:
+        from metatv.core.repositories.epg import EpgRepository
+        from metatv.core.database import ChannelDB
+        from datetime import datetime, timezone
+
+        patterns = self.config.epg_watchlist_patterns
+        self.alerts_list.clear()
+        if not patterns:
+            self.set_empty(True)
+            return
+
+        session = self.db.get_session()
+        try:
+            repo = EpgRepository(session)
+            live     = repo.get_live_for_watchlist(patterns)
+            upcoming = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24)
+
+            items: list[tuple] = []  # (sort_key, display_text, tooltip, channel_db_id)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+            for pattern, progs in live.items():
+                for prog in progs:
+                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
+                    ch_name = ch.name if ch else (prog.channel_epg_id or "")
+                    mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
+                    remain = f"{mins_left}m left" if mins_left >= 1 else "ending"
+                    items.append((0, f"🔴 {pattern}  ·  {remain}", f"{prog.title}\n{ch_name}", prog.channel_db_id))
+
+            for pattern, progs in upcoming.items():
+                for prog in progs[:3]:
+                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
+                    ch_name = ch.name if ch else (prog.channel_epg_id or "")
+                    mins = int((prog.start_time - now).total_seconds() / 60)
+                    if mins < 60:
+                        time_str = f"in {mins}m"
+                    elif prog.start_time.date() == now.date():
+                        local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
+                        time_str = local.strftime("%-I:%M %p")
+                    else:
+                        local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
+                        time_str = local.strftime("%a %-I:%M %p")
+                    items.append((prog.start_time.timestamp(), f"⏰ {pattern}  ·  {time_str}", f"{prog.title}\n{ch_name}", prog.channel_db_id))
+
+            # Live entries (sort_key=0) first, then upcoming by start time
+            items.sort(key=lambda x: x[0])
+
+            if not items:
+                self.set_empty(True)
+                return
+
+            for _, text, tooltip, channel_db_id in items[:20]:
+                list_item = QListWidgetItem(text)
+                list_item.setToolTip(tooltip)
+                list_item.setData(Qt.ItemDataRole.UserRole, channel_db_id)
+                self.alerts_list.addItem(list_item)
+
+            self.set_empty(False)
+        except Exception as e:
+            logger.error(f"WatchAlertsSection refresh error: {e}")
+            self.set_empty(True)
+        finally:
+            session.close()
 
 
 class HistorySection(CollapsibleSection):

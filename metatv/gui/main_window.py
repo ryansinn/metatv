@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         
         elif section_id == "alerts":
             section = WatchAlertsSection(self.config, self.db, self)
-            # TODO: Connect alert signals when implemented
+            section.alertClicked.connect(self._on_alert_clicked)
             return section
         
         elif section_id == "history":
@@ -319,7 +319,18 @@ class MainWindow(QMainWindow):
         for section in self.sidebar_sections.values():
             section.refresh()
 
-    
+    def _refresh_watch_alerts(self, *_) -> None:
+        """Refresh the sidebar Watch Alerts section after any EPG data update."""
+        section = self.sidebar_sections.get("alerts")
+        if section:
+            section.refresh()
+
+    def _on_alert_clicked(self, channel_db_id: str) -> None:
+        """Switch to EPG view when the user clicks a sidebar watch alert."""
+        if not self.epg_chip.is_enabled():
+            self.epg_chip.set_enabled(True)
+            self.on_special_view_toggle()
+
     def create_content_area(self) -> QWidget:
         """Create main content area"""
         content = QWidget()
@@ -495,6 +506,8 @@ class MainWindow(QMainWindow):
         self.epg_view.setVisible(False)
         self.content_layout.addWidget(self.epg_view)
         self.epg_manager.start_notification_timer()
+        self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
+        self._refresh_watch_alerts()
 
         # Provider editor (hidden by default; replaces center panel in edit mode)
         self.provider_editor = ProviderEditorView(self.db, self)
