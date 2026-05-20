@@ -174,6 +174,15 @@ class ChannelRepository:
             return True
         return False
     
+    def set_hidden(self, channel_id: str, hidden: bool) -> None:
+        """Set channel hidden status."""
+        channel = self.get_by_id(channel_id)
+        if channel:
+            channel.is_hidden = hidden
+            channel.updated_at = datetime.now()
+            self.session.commit()
+            logger.info(f"Channel {channel.name} hidden={hidden}")
+
     def search(self, query: str, provider_id: Optional[str] = None,
                media_type: Optional[str] = None) -> List[ChannelDB]:
         """Search channels by name"""

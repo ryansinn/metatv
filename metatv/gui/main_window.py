@@ -68,10 +68,13 @@ class MainWindow(QMainWindow):
         self.loading_icon = config.loading_icon
         self.close_icon = config.close_icon
         self.delete_icon = config.delete_icon
+        self.hide_icon = config.hide_icon
         self.refresh_icon = config.refresh_icon
         self.settings_icon = config.settings_icon
         self.search_icon = config.search_icon
         self.filter_icon = config.filter_icon
+        self.watched_icon = config.watched_icon
+        self.rating_star_icon = config.rating_star_icon
         self.history_icon = config.history_icon
         
         # Store active threads to prevent garbage collection
@@ -286,6 +289,7 @@ class MainWindow(QMainWindow):
         elif section_id == "alerts":
             section = WatchAlertsSection(self.config, self.db, self)
             section.alertClicked.connect(self._on_alert_clicked)
+            section.channelContextMenuRequested.connect(self._on_alert_channel_context_menu)
             return section
         
         elif section_id == "history":
@@ -348,6 +352,89 @@ class MainWindow(QMainWindow):
                 self.config.epg_watchlist_patterns = patterns
                 self.config.save()
             self._refresh_watch_alerts()
+
+    def _toggle_rating(self, channel_id: str, rating: int) -> None:
+        """Toggle a like (+1) or dislike (-1) rating; clicking the active rating clears it."""
+        from datetime import datetime
+        from metatv.core.database import UserRatingDB
+        session = self.db.get_session()
+        try:
+            current = session.get(UserRatingDB, channel_id)
+            if current and current.rating == rating:
+                session.delete(current)
+            else:
+                session.merge(UserRatingDB(channel_id=channel_id, rating=rating,
+                                           rated_at=datetime.utcnow()))
+            session.commit()
+        finally:
+            session.close()
+
+    def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                channel.is_favorite = make_favorite
+                session.commit()
+                self.load_favorites()
+        finally:
+            session.close()
+
+    def _hide_channel_from_alerts(self, channel_id: str) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.channels.set_hidden(channel_id, True)
+            self._refresh_watch_alerts()
+            self.load_history()
+            self.load_channels()
+        finally:
+            session.close()
+
+    def _on_alert_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return
+            menu = QMenu()
+
+            play_act = QAction(f"{self.config.play_icon} Play", self)
+            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
+            menu.addAction(play_act)
+
+            menu.addSeparator()
+
+            if channel.is_favorite:
+                fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
+                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
+            else:
+                fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
+                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
+            menu.addAction(fav_act)
+
+            if channel_id in self.config.epg_watchlist_channels:
+                watch_act = QAction("Stop watching this channel", self)
+                watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel_id))
+            else:
+                watch_act = QAction("Watch this channel (EPG alerts)", self)
+                watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel_id))
+            menu.addAction(watch_act)
+
+            menu.addSeparator()
+
+            hide_act = QAction(f"{self.hide_icon} Hide channel", self)
+            hide_act.triggered.connect(lambda: self._hide_channel_from_alerts(channel_id))
+            menu.addAction(hide_act)
+
+            menu.exec(QPoint(gx, gy))
+        finally:
+            session.close()
 
     def _on_alert_clicked(self, channel_db_id: str) -> None:
         """Play the channel immediately when a sidebar watch alert is double-clicked."""
@@ -425,21 +512,21 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.search_input)
         
         # Clear search button
-        clear_btn = QPushButton("✕")
+        clear_btn = QPushButton(self.close_icon)
         clear_btn.setFixedWidth(30)
         clear_btn.setToolTip("Clear search")
         clear_btn.clicked.connect(lambda: self.search_input.clear())
         controls_layout.addWidget(clear_btn)
         
         # Toggle filters button
-        self.toggle_filters_btn = QPushButton("⚙ Filters ▼")
+        self.toggle_filters_btn = QPushButton(f"{self.settings_icon} Filters {self.config.collapse_icon}")
         self.toggle_filters_btn.setFixedWidth(100)
         self.toggle_filters_btn.setToolTip("Show/hide filters")
         self.toggle_filters_btn.clicked.connect(self.toggle_filters)
         controls_layout.addWidget(self.toggle_filters_btn)
 
         # Settings button
-        settings_btn = QPushButton("⚙ Settings")
+        settings_btn = QPushButton(f"{self.settings_icon} Settings")
         settings_btn.setToolTip("Open settings (Ctrl+,)")
         settings_btn.clicked.connect(self.open_settings)
         controls_layout.addWidget(settings_btn)
@@ -453,7 +540,7 @@ class MainWindow(QMainWindow):
         # Restore filter section visibility from config
         self.filters_visible = getattr(self.config, 'filter_section_visible', True)
         self.filter_bar.setVisible(self.filters_visible)
-        self.toggle_filters_btn.setText("⚙ Filters ▼" if self.filters_visible else "⚙ Filters ▶")
+        self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}" if self.filters_visible else f"{self.settings_icon} Filters {self.config.expand_icon}")
         
         self.content_layout.addWidget(self.filter_bar)
         
@@ -495,7 +582,7 @@ class MainWindow(QMainWindow):
         self._refresh_watch_alerts()
 
         # Provider editor (hidden by default; replaces center panel in edit mode)
-        self.provider_editor = ProviderEditorView(self.db, self)
+        self.provider_editor = ProviderEditorView(self.db, self.config, self)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
@@ -818,9 +905,9 @@ class MainWindow(QMainWindow):
         self.filter_bar.setVisible(self.filters_visible)
         
         if self.filters_visible:
-            self.toggle_filters_btn.setText("⚙ Filters ▼")
+            self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}")
         else:
-            self.toggle_filters_btn.setText("⚙ Filters ▶")
+            self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.expand_icon}")
         
         # Save state to config
         self.config.filter_section_visible = self.filters_visible
@@ -955,7 +1042,7 @@ class MainWindow(QMainWindow):
             if show_provider_icon:
                 all_provs = repos.providers.get_all()
                 for p in all_provs:
-                    provider_icon_map[p.id] = (getattr(p, "icon", "") or "📡")
+                    provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
             # Store channels for text filtering
             for channel in channels:
@@ -1161,15 +1248,47 @@ class MainWindow(QMainWindow):
             menu.addAction(remove_action)
             
             menu.addSeparator()
-            
+
             play_action = QAction("Play", self)
             play_action.triggered.connect(lambda: self.play_from_history(item))
             menu.addAction(play_action)
-            
+
+            menu.addSeparator()
+
+            hide_action = QAction(f"{self.hide_icon} Hide channel", self)
+            hide_action.triggered.connect(lambda: self._hide_channel_from_history(channel_id))
+            menu.addAction(hide_action)
+
+            if channel.media_type in ("movie", "series"):
+                menu.addSeparator()
+                current_rating = repos.ratings.get(channel.id)
+
+                like_act = QAction(f"{self.config.like_icon} Like", self)
+                like_act.setCheckable(True)
+                like_act.setChecked(current_rating == 1)
+                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
+                menu.addAction(like_act)
+
+                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+                dislike_act.setCheckable(True)
+                dislike_act.setChecked(current_rating == -1)
+                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
+                menu.addAction(dislike_act)
+
             menu.exec(list_widget.mapToGlobal(position))
         finally:
             session.close()
-    
+
+    def _hide_channel_from_history(self, channel_id: str) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.channels.set_hidden(channel_id, True)
+            self.load_history()
+            self.load_channels()
+        finally:
+            session.close()
+
     def play_from_history(self, item):
         """Play a channel from history"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
@@ -1262,25 +1381,52 @@ class MainWindow(QMainWindow):
                 list_widget = self.favorites_list
             else:
                 return
-        
+
         item = list_widget.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
-        
+
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
-        
-        menu = QMenu()
-        
-        remove_action = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-        remove_action.triggered.connect(lambda: self.toggle_favorite(item))
-        menu.addAction(remove_action)
-        
-        play_action = QAction("Play", self)
-        play_action.triggered.connect(lambda: self.play_favorite(item))
-        menu.addAction(play_action)
-        
-        menu.exec(list_widget.mapToGlobal(position))
+
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return
+
+            menu = QMenu()
+
+            remove_action = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
+            remove_action.triggered.connect(lambda: self.toggle_favorite(item))
+            menu.addAction(remove_action)
+
+            play_action = QAction("Play", self)
+            play_action.triggered.connect(lambda: self.play_favorite(item))
+            menu.addAction(play_action)
+
+            if channel.media_type in ("movie", "series"):
+                menu.addSeparator()
+                current_rating = repos.ratings.get(channel.id)
+
+                like_act = QAction(f"{self.config.like_icon} Like", self)
+                like_act.setCheckable(True)
+                like_act.setChecked(current_rating == 1)
+                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
+                menu.addAction(like_act)
+
+                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+                dislike_act.setCheckable(True)
+                dislike_act.setChecked(current_rating == -1)
+                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
+                menu.addAction(dislike_act)
+
+            menu.exec(list_widget.mapToGlobal(position))
+        finally:
+            session.close()
     
     def show_channel_context_menu(self, position):
         """Show context menu for channel list"""
@@ -1336,6 +1482,22 @@ class MainWindow(QMainWindow):
                 lambda: self._prompt_track_from_list(channel.name)
             )
             menu.addAction(track_act)
+
+            if channel.media_type in ("movie", "series"):
+                menu.addSeparator()
+                current_rating = repos.ratings.get(channel.id)
+
+                like_act = QAction(f"{self.config.like_icon} Like", self)
+                like_act.setCheckable(True)
+                like_act.setChecked(current_rating == 1)
+                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
+                menu.addAction(like_act)
+
+                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+                dislike_act.setCheckable(True)
+                dislike_act.setChecked(current_rating == -1)
+                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
+                menu.addAction(dislike_act)
 
             menu.exec(self.channels_list.mapToGlobal(position))
         finally:
@@ -1854,7 +2016,7 @@ class MainWindow(QMainWindow):
                 if season.raw_data and isinstance(season.raw_data, dict):
                     rating = season.raw_data.get("rating", "")
                     if rating:
-                        season_item.setText(3, f"★ {rating}")
+                        season_item.setText(3, f"{self.rating_star_icon} {rating}")
                 
                 season_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "season", "data": season})
                 
@@ -1870,7 +2032,7 @@ class MainWindow(QMainWindow):
                 for episode in episodes:
                     # Create episode item
                     episode_item = QTreeWidgetItem(season_item)
-                    watched_indicator = "✓ " if episode.is_watched else ""
+                    watched_indicator = f"{self.watched_icon} " if episode.is_watched else ""
                     episode_item.setText(0, f"  {self.episode_icon} {watched_indicator}{episode.title}")
                     
                     # Episode number
@@ -1886,7 +2048,7 @@ class MainWindow(QMainWindow):
                         if isinstance(info, dict):
                             rating = info.get("rating", "")
                             if rating:
-                                episode_item.setText(3, f"★ {rating}")
+                                episode_item.setText(3, f"{self.rating_star_icon} {rating}")
                     
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
                 

@@ -8,6 +8,7 @@ from .episode import EpisodeRepository
 from .season import SeasonRepository
 from .filter import FilterRepository
 from .alert import AlertRepository
+from .rating import RatingRepository
 
 
 class RepositoryFactory:
@@ -21,6 +22,7 @@ class RepositoryFactory:
         self._seasons = None
         self._filters = None
         self._alerts = None
+        self._ratings = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -64,6 +66,13 @@ class RepositoryFactory:
             self._alerts = AlertRepository(self.session)
         return self._alerts
 
+    @property
+    def ratings(self) -> RatingRepository:
+        """Get rating repository"""
+        if self._ratings is None:
+            self._ratings = RatingRepository(self.session)
+        return self._ratings
+
 
 # Export all repositories and factory for convenience
 __all__ = [
@@ -74,4 +83,5 @@ __all__ = [
     'SeasonRepository',
     'FilterRepository',
     'AlertRepository',
+    'RatingRepository',
 ]

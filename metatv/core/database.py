@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from loguru import logger
@@ -267,11 +267,33 @@ class EpgProgramDB(Base):
     is_new         = Column(Boolean, default=False)  # ᴺᵉʷ badge stripped from title
 
 
+class UserRatingDB(Base):
+    """User rating for a movie or series — +1 (like) or -1 (dislike)."""
+    __tablename__ = "user_ratings"
+
+    channel_id = Column(String, primary_key=True)   # 1:1 with ChannelDB; upsert replaces
+    rating     = Column(Integer, nullable=False)     # +1 or -1
+    rated_at   = Column(DateTime, default=datetime.utcnow)
+
+
 class Database:
     """Database connection manager"""
-    
+
     def __init__(self, database_url: str):
-        self.engine = create_engine(database_url, echo=False)
+        self.engine = create_engine(
+            database_url,
+            echo=False,
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
+
+        @event.listens_for(self.engine, "connect")
+        def _set_pragmas(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=5000")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.close()
+
         self.SessionLocal = sessionmaker(bind=self.engine)
         logger.info(f"Database initialized: {database_url}")
     

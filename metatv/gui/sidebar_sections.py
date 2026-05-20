@@ -303,7 +303,7 @@ class SourcesSection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Sources", "📡", config, parent)
+        super().__init__("Sources", config.provider_icon, config, parent)
 
     def get_section_id(self):
         return "sources"
@@ -402,24 +402,43 @@ class SourcesSection(CollapsibleSection):
 
 class WatchAlertsSection(CollapsibleSection):
     """Watch alerts section"""
-    
-    alertClicked = pyqtSignal(str)  # alert_id
-    
+
+    alertClicked = pyqtSignal(str)                    # channel_db_id — double-click to play
+    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_db_id, global_x, global_y
+
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Watch Alerts", "⚠", config, parent)
-    
+        super().__init__("Watch Alerts", config.watch_alerts_icon, config, parent)
+
     def get_section_id(self):
         return "alerts"
-    
+
     def create_content(self):
-        self.alerts_list = QListWidget()
-        self.alerts_list.setMaximumHeight(150)
-        self.alerts_list.itemDoubleClicked.connect(
-            lambda item: self.alertClicked.emit(item.data(Qt.ItemDataRole.UserRole) or "")
-        )
-        self.content_layout.addWidget(self.alerts_list)
+        self.alerts_tree = QTreeWidget()
+        self.alerts_tree.setHeaderHidden(True)
+        self.alerts_tree.setColumnCount(1)
+        self.alerts_tree.setMaximumHeight(200)
+        self.alerts_tree.setIndentation(12)
+        self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
+        self.content_layout.addWidget(self.alerts_tree)
         self.set_empty(True)
+
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.parent():  # only child (airing) rows, not group headers
+            channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
+            if channel_db_id:
+                self.alertClicked.emit(channel_db_id)
+
+    def _on_context_menu(self, pos) -> None:
+        item = self.alerts_tree.itemAt(pos)
+        if not item or not item.parent():  # skip headers
+            return
+        channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if channel_db_id:
+            gp = self.alerts_tree.viewport().mapToGlobal(pos)
+            self.channelContextMenuRequested.emit(channel_db_id, gp.x(), gp.y())
 
     def refresh(self) -> None:
         from metatv.core.repositories.epg import EpgRepository
@@ -427,7 +446,7 @@ class WatchAlertsSection(CollapsibleSection):
         from datetime import datetime, timezone
 
         patterns = self.config.epg_watchlist_patterns
-        self.alerts_list.clear()
+        self.alerts_tree.clear()
         if not patterns:
             self.set_empty(True)
             return
@@ -438,21 +457,34 @@ class WatchAlertsSection(CollapsibleSection):
             live     = repo.get_live_for_watchlist(patterns)
             upcoming = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24)
 
-            items: list[tuple] = []  # (sort_key, display_text, tooltip, channel_db_id)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-            for pattern, progs in live.items():
+            # Collect all airings grouped by show title (case-insensitive key).
+            # display_title tracks the first seen form for each group.
+            by_key: dict[str, list[tuple]] = {}
+            display_title: dict[str, str] = {}
+
+            def _title_key(title: str) -> str:
+                return " ".join(title.casefold().replace("&", "and").split())
+
+            def _add(title: str, entry: tuple) -> None:
+                key = _title_key(title)
+                if key not in display_title:
+                    display_title[key] = title
+                by_key.setdefault(key, []).append(entry)
+
+            for _pattern, progs in live.items():
                 for prog in progs:
                     ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    ch_name = ch.name if ch else (prog.channel_epg_id or "")
+                    ch_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
-                    remain = f"{mins_left}m left" if mins_left >= 1 else "ending"
-                    items.append((0, f"🔴 {pattern}  ·  {remain}", f"{prog.title}\n{ch_name}", prog.channel_db_id))
+                    time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
+                    _add(prog.title, (0, "🔴", time_str, ch_name, prog.channel_db_id))
 
-            for pattern, progs in upcoming.items():
-                for prog in progs[:3]:
+            for _pattern, progs in upcoming.items():
+                for prog in progs:
                     ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    ch_name = ch.name if ch else (prog.channel_epg_id or "")
+                    ch_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
                     mins = int((prog.start_time - now).total_seconds() / 60)
                     if mins < 60:
                         time_str = f"in {mins}m"
@@ -462,20 +494,35 @@ class WatchAlertsSection(CollapsibleSection):
                     else:
                         local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
                         time_str = local.strftime("%a %-I:%M %p")
-                    items.append((prog.start_time.timestamp(), f"⏰ {pattern}  ·  {time_str}", f"{prog.title}\n{ch_name}", prog.channel_db_id))
+                    _add(prog.title, (prog.start_time.timestamp(), "⏰", time_str, ch_name, prog.channel_db_id))
 
-            # Live entries (sort_key=0) first, then upcoming by start time
-            items.sort(key=lambda x: x[0])
-
-            if not items:
+            if not by_key:
                 self.set_empty(True)
                 return
 
-            for _, text, tooltip, channel_db_id in items[:20]:
-                list_item = QListWidgetItem(text)
-                list_item.setToolTip(tooltip)
-                list_item.setData(Qt.ItemDataRole.UserRole, channel_db_id)
-                self.alerts_list.addItem(list_item)
+            # Sort groups by their earliest airing; live (sort_key=0) floats to top
+            def _group_sort_key(airings):
+                return min(a[0] for a in airings)
+
+            sorted_titles = sorted(by_key.items(), key=lambda kv: _group_sort_key(kv[1]))
+
+            for key, airings in sorted_titles:
+                title = display_title[key]
+                airings.sort(key=lambda a: a[0])  # sort children by time within group
+                count = len(airings)
+                soonest_icon, soonest_time = airings[0][1], airings[0][2]
+                summary = f"{soonest_icon} {soonest_time}" if count == 1 else f"{soonest_icon} {soonest_time}  +{count - 1}"
+                header = QTreeWidgetItem([f"{title}  {summary}"])
+                header.setFlags(header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                self.alerts_tree.addTopLevelItem(header)
+
+                for _key, icon, time_str, ch_name, channel_db_id in airings[:10]:
+                    child = QTreeWidgetItem([f"{icon} {ch_name}  ·  {time_str}"])
+                    child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+                    child.setToolTip(0, f"{title}\n{ch_name}")
+                    header.addChild(child)
+
+                header.setExpanded(True)
 
             self.set_empty(False)
         except Exception as e:
@@ -589,7 +636,7 @@ class FavoritesSection(CollapsibleSection):
     
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Favorites", "★", config, parent)
+        super().__init__("Favorites", config.favorite_icon, config, parent)
         
         # Favorites should expand to fill remaining space
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
