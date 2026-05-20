@@ -32,7 +32,7 @@ class EpgManager(QObject):
     watchlist_notification = pyqtSignal(str, str, str)  # title, channel_name, time_str
     # Internal signals marshal notification calls from worker threads to main thread
     _notify          = pyqtSignal(str, str, str, int)  # title, message, type, auto_dismiss_ms
-    _progress_update = pyqtSignal(str, int, str)        # notif_id, current, message
+    _progress_update = pyqtSignal(str, int, int, str)   # notif_id, current, total (-1=indeterminate), message
     _progress_done   = pyqtSignal(str, str)             # notif_id, final_message
     _progress_error  = pyqtSignal(str)                  # notif_id — dismiss on error
 
@@ -41,7 +41,7 @@ class EpgManager(QObject):
         self.db = db
         self.config = config
         self.notifications = notifications  # NotificationManager or None
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
         self._notification_timer: QTimer | None = None
         self._notify.connect(self._do_notify)
@@ -57,9 +57,13 @@ class EpgManager(QObject):
                 type=type_, auto_dismiss_ms=auto_dismiss_ms,
             )
 
-    def _do_progress_update(self, notif_id: str, current: int, message: str) -> None:
+    def _do_progress_update(self, notif_id: str, current: int, total: int, message: str) -> None:
         if self.notifications and notif_id:
-            self.notifications.update(notif_id, progress_current=current, message=message)
+            kwargs: dict = {"progress_current": current, "message": message}
+            if total > 0:
+                kwargs["progress_total"] = total
+                kwargs["progress"] = current / total
+            self.notifications.update(notif_id, **kwargs)
 
     def _do_progress_done(self, notif_id: str, message: str) -> None:
         if self.notifications and notif_id:
@@ -190,8 +194,7 @@ class EpgManager(QObject):
         try:
             def on_parse_progress(count: int) -> None:
                 self._progress_update.emit(
-                    notif_id or "",
-                    count,
+                    notif_id or "", count, -1,
                     f"Parsing… {count:,} programmes",
                 )
 
@@ -200,18 +203,30 @@ class EpgManager(QObject):
                 epg_url, timeout=180,
                 on_progress=on_parse_progress if notif_id else None,
             )
-            self._progress_update.emit(notif_id or "", len(programmes),
-                                       f"Matching {len(programmes):,} programmes to channels…")
+            total_progs = len(programmes)
+            self._progress_update.emit(
+                notif_id or "", 0, total_progs,
+                f"Matching {total_progs:,} programmes to channels…"
+            )
 
             # Build channel match map: epg_id → channel_db_id
             match_map = self._build_match_map(session, channels)
             logger.info(f"EPG: matched {len(match_map)} channels for {provider_name}")
 
-            # Clear existing data and bulk-insert new rows
+            # Clear existing data — commit delete immediately so the write lock is released
+            # before the bulk insert begins.  Each insert batch is also committed
+            # separately so concurrent writers (provider loader, second EPG feed) can
+            # interleave rather than waiting 30-40 s for one giant transaction.
+            self._progress_update.emit(
+                notif_id or "", 0, total_progs, f"Saving {total_progs:,} programmes…"
+            )
             session.query(EpgProgramDB).filter_by(provider_id=provider_id).delete()
+            session.commit()  # release write lock before inserts start
 
             batch: list[EpgProgramDB] = []
             max_stop: datetime | None = None
+            saved = 0
+            _report_every = max(1, total_progs // 20)  # ~5% increments
 
             for prog in programmes:
                 channel_db_id = match_map.get(prog.channel_id)
@@ -233,11 +248,20 @@ class EpgManager(QObject):
 
                 if len(batch) >= 2000:
                     session.bulk_save_objects(batch)
-                    session.flush()
+                    session.commit()  # release lock between batches
+                    saved += len(batch)
                     batch.clear()
+                    if saved % _report_every < 2000:
+                        pct = int(saved / total_progs * 100)
+                        self._progress_update.emit(
+                            notif_id or "", saved, total_progs,
+                            f"Saving… {saved:,}/{total_progs:,} ({pct}%)",
+                        )
 
             if batch:
                 session.bulk_save_objects(batch)
+                session.commit()
+                saved += len(batch)
 
             # Update provider timestamps
             now = _now_utc()
@@ -248,7 +272,7 @@ class EpgManager(QObject):
 
             session.commit()
             count = session.query(EpgProgramDB).filter_by(provider_id=provider_id).count()
-            logger.info(f"EPG: stored {count} programmes for {provider_name}")
+            logger.info(f"EPG: stored {count:,} programmes for {provider_name}")
 
             self.refresh_finished.emit(provider_id, count)
             self._progress_done.emit(notif_id or "", f"{count:,} programmes loaded")

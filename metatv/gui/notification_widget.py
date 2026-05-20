@@ -117,12 +117,10 @@ class NotificationCard(QFrame):
             
             layout.addLayout(progress_layout)
             
-            # Progress text
-            if self.notification.progress_current is not None and self.notification.progress_total is not None:
-                progress_text = f"{self.notification.progress_current:,} / {self.notification.progress_total:,}"
-                percentage = int(self.notification.progress * 100) if self.notification.progress else 0
-                self.progress_label = QLabel(f"{progress_text} ({percentage}%)")
-                layout.addWidget(self.progress_label)
+            # Progress text — always created, shown once we have a total
+            self.progress_label = QLabel("")
+            self.progress_label.setVisible(False)
+            layout.addWidget(self.progress_label)
         
         # Force layout update and proper sizing
         self.updateGeometry()
@@ -160,6 +158,8 @@ class NotificationCard(QFrame):
                 progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
                 percentage = int(notification.progress * 100) if notification.progress else 0
                 self.progress_label.setText(f"{progress_text} ({percentage}%)")
+                if not self.progress_label.isVisible():
+                    self.progress_label.setVisible(True)
         
         # Recalculate height after content update
         self.updateGeometry()
