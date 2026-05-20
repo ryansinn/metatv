@@ -50,6 +50,21 @@ metatv/
 
 ## Critical Rules
 
+### Icons — always from Config, never hardcoded
+Every icon, emoji, or symbol displayed in the UI must be defined as a field on `Config` (`metatv/core/config.py`) and referenced through it. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything. Never write a literal emoji or symbol string directly in widget or layout code.
+
+```python
+# Correct
+rm_btn = QPushButton(self.config.close_icon)
+section_icon = config.favorite_icon
+
+# Wrong — hardcoded literals
+rm_btn = QPushButton("×")
+super().__init__("Favorites", "★", config, parent)
+```
+
+If you need an icon that doesn't exist in Config yet, add it there first, then reference it.
+
 ### Logging — always loguru, never stdlib
 ```python
 from loguru import logger   # correct

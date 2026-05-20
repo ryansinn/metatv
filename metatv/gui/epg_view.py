@@ -187,12 +187,12 @@ class EpgView(ContentView):
 
         # Tab bar
         self.tab_bar = QTabBar()
-        self.tab_bar.addTab("⏰ Watchlist")   # 0
-        self.tab_bar.addTab("📺 My Channels") # 1
-        self.tab_bar.addTab("✨ Discover")    # 2
-        self.tab_bar.addTab("🔴 On Now")      # 3
-        self.tab_bar.addTab("📅 Browse")      # 4
-        self.tab_bar.addTab("🚫 Manage")      # 5
+        self.tab_bar.addTab(f"{self.config.watchlist_icon} Watchlist")      # 0
+        self.tab_bar.addTab(f"{self.config.series_icon} My Channels")      # 1
+        self.tab_bar.addTab(f"{self.config.discover_icon} Discover")       # 2
+        self.tab_bar.addTab(f"{self.config.live_indicator_icon} On Now")   # 3
+        self.tab_bar.addTab(f"{self.config.calendar_icon} Browse")         # 4
+        self.tab_bar.addTab(f"{self.config.hide_icon} Manage")             # 5
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
         header_layout.addWidget(self.tab_bar)
         header_layout.addStretch()
@@ -203,7 +203,7 @@ class EpgView(ContentView):
         header_layout.addWidget(self.status_label)
 
         # Refresh button
-        self.refresh_btn = QPushButton("⟳ Refresh")
+        self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
         self.refresh_btn.setToolTip("Refresh EPG data from all providers")
         self.refresh_btn.clicked.connect(self._on_force_refresh)
         header_layout.addWidget(self.refresh_btn)
@@ -365,7 +365,7 @@ class EpgView(ContentView):
         self.on_now_search.textChanged.connect(self._apply_on_now_filters)
         filter_row.addWidget(self.on_now_search)
 
-        on_now_clear = QPushButton("✕")
+        on_now_clear = QPushButton(self.config.close_icon)
         on_now_clear.setFixedWidth(24)
         on_now_clear.setToolTip("Clear search")
         on_now_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
@@ -445,7 +445,7 @@ class EpgView(ContentView):
         self.search_input.setPlaceholderText("Search programmes…")
         self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
-        browse_clear = QPushButton("✕")
+        browse_clear = QPushButton(self.config.close_icon)
         browse_clear.setFixedWidth(24)
         browse_clear.setToolTip("Clear")
         browse_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
@@ -712,7 +712,7 @@ class EpgView(ContentView):
         det = QLabel(detail)
         det.setStyleSheet("font-size: 11px; color: #555;")
         h.addWidget(det)
-        rm_btn = QPushButton("×")
+        rm_btn = QPushButton(self.config.close_icon)
         rm_btn.setFixedWidth(24)
         rm_btn.setStyleSheet("border: none; color: #888; font-size: 14px; font-weight: bold;")
         rm_btn.setToolTip("Remove")
@@ -1073,7 +1073,7 @@ class EpgView(ContentView):
         if is_live_now:
             prog = live[0]
             ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            play_btn = QPushButton("▶ Play")
+            play_btn = QPushButton(f"{self.config.play_icon} Play")
             play_btn.setFixedWidth(70)
             play_btn.setStyleSheet("background: #2a6; color: white; border-radius: 3px; padding: 2px 6px;")
             play_btn.clicked.connect(lambda _=False, cid=prog.channel_db_id: self._play_channel(cid))
@@ -1082,7 +1082,7 @@ class EpgView(ContentView):
             header.addWidget(live_lbl)
             header.addWidget(play_btn)
 
-        remove_btn = QPushButton("×")
+        remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Remove '{pattern}' from watchlist")
         remove_btn.setStyleSheet("color: #666; border: none; background: transparent; font-size: 14px;")
@@ -1125,13 +1125,13 @@ class EpgView(ContentView):
         layout.setSpacing(3)
 
         header = QHBoxLayout()
-        name_lbl = QLabel(f"📺  {channel_name}")
+        name_lbl = QLabel(f"{self.config.series_icon}  {channel_name}")
         name_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
         header.addWidget(name_lbl)
         header.addStretch()
 
         if prog:
-            play_btn = QPushButton("▶ Play")
+            play_btn = QPushButton(f"{self.config.play_icon} Play")
             play_btn.setFixedWidth(70)
             play_btn.setStyleSheet(
                 "background: #2a6; color: white; border-radius: 3px; padding: 2px 6px;"
@@ -1139,7 +1139,7 @@ class EpgView(ContentView):
             play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
             header.addWidget(play_btn)
 
-        remove_btn = QPushButton("×")
+        remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Stop watching '{channel_name}'")
         remove_btn.setStyleSheet(
@@ -1184,7 +1184,7 @@ class EpgView(ContentView):
         watch_btn.clicked.connect(lambda _=False, n=channel_name: self._add_pattern(n))
         layout.addWidget(watch_btn)
 
-        skip_btn = QPushButton("× skip")
+        skip_btn = QPushButton(f"{self.config.close_icon} skip")
         skip_btn.setFixedWidth(55)
         skip_btn.setStyleSheet("color: #666; border: none; background: transparent; font-size: 11px;")
         skip_btn.setToolTip("Dismiss this recommendation for 7 days")
@@ -1771,7 +1771,7 @@ class EpgView(ContentView):
         if channel_db_id and channel_db_id not in self.config.epg_watchlist_channels:
             watch_act = menu.addAction("Watch this channel")
             watch_act.triggered.connect(lambda: self._watch_channel(channel_db_id))
-        play_act = menu.addAction("▶ Play")
+        play_act = menu.addAction(f"{self.config.play_icon} Play")
         play_act.triggered.connect(lambda: self._play_channel(channel_db_id))
         menu.exec(self.browse_list.viewport().mapToGlobal(pos))
 

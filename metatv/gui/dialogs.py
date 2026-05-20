@@ -228,7 +228,7 @@ class AddProviderDialog(QDialog):
         self._fetched_account_info = info  # stored for saving with the provider
 
         status = info.get("status", "Unknown")
-        status_icon = "✓" if status.lower() == "active" else "⚠"
+        status_icon = self.config.notification_success_icon if status.lower() == "active" else self.config.notification_warning_icon
         lines = [f"\n{status_icon} Account: {status}"]
 
         exp_ts = info.get("exp_date")
@@ -359,5 +359,5 @@ class AddProviderDialog(QDialog):
     def show_status(self, message: str, error: bool = False):
         """Show status message"""
         self.status_text.show()
-        prefix = "✗" if error else "ℹ"
+        prefix = self.config.notification_error_icon if error else self.config.notification_info_icon
         self.status_text.append(f"{prefix} {message}")

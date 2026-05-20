@@ -43,14 +43,28 @@ class Config(BaseModel):
     settings_icon: str = "⚙"  # Settings button
     search_icon: str = "🔍"  # Search indicator
     filter_icon: str = "⚡"  # Filter/preset indicator
-    history_icon: str = "🕒"  # History indicator
+    history_icon: str = "🕒"            # History indicator
+    provider_icon: str = "📡"          # Provider / source section
+    watch_alerts_icon: str = "⚠"      # Watch Alerts section
+    watchlist_icon: str = "⏰"         # Watchlist tab
+    live_indicator_icon: str = "🔴"    # On Now / live indicator
+    calendar_icon: str = "📅"          # Browse / calendar tab
+    discover_icon: str = "✨"          # Discover tab
+    move_up_icon: str = "▲"            # Move item up in list
+    move_down_icon: str = "▼"          # Move item down in list
+    visibility_toggle_icon: str = "👁" # Show/hide password toggle
+    watched_icon: str = "✓"            # Watched / completed indicator
+    rating_star_icon: str = "★"        # Star used in content rating display
+    like_icon: str = "👍"              # Like / positive rating
+    dislike_icon: str = "👎"           # Dislike / negative rating
+    hide_icon: str = "🚫"              # Hide / suppress content
     
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification
     notification_success_icon: str = "✓"  # Success notification
     notification_error_icon: str = "✗"  # Error notification
     notification_warning_icon: str = "⚠"  # Warning notification
-    notification_info_icon: str = "ℹ"  # Info notification
+    notification_info_icon: str = ""   # Info notification (no icon by default)
     
     # Theme & Appearance (for future theming system)
     theme: str = "auto"  # "light", "dark", "auto" (follows system)

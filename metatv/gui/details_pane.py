@@ -498,7 +498,7 @@ class DetailsPaneWidget(QWidget):
         self._current_epg_show_title = title
         if title:
             already = title in (self.config.epg_watchlist_patterns or [])
-            self.watchlist_button.setText("✓ On Watchlist" if already else "+ Watchlist")
+            self.watchlist_button.setText(f"{self.config.watched_icon} On Watchlist" if already else "+ Watchlist")
         else:
             self.watchlist_button.setText("+ Watchlist")
 
@@ -574,7 +574,7 @@ class DetailsPaneWidget(QWidget):
         
         # Rating
         if metadata.rating:
-            stars = "★" * int(metadata.rating / 2)  # Convert 0-10 to 0-5 stars
+            stars = self.config.rating_star_icon * int(metadata.rating / 2)  # Convert 0-10 to 0-5 stars
             self.rating_label.setText(f"{stars} {metadata.rating:.1f}/10")
         
         # Runtime

@@ -148,9 +148,10 @@ class URLRowWidget(QWidget):
     moveDown = pyqtSignal()
     removed = pyqtSignal()
 
-    def __init__(self, provider_url: ProviderURL, index: int, total: int, parent=None):
+    def __init__(self, provider_url: ProviderURL, index: int, total: int, config=None, parent=None):
         super().__init__(parent)
         self.provider_url = provider_url
+        self._config = config
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
@@ -158,11 +159,13 @@ class URLRowWidget(QWidget):
         # Order controls
         order_col = QVBoxLayout()
         order_col.setSpacing(1)
-        self._up_btn = QPushButton("▲")
+        up_icon = config.move_up_icon if config else "▲"
+        down_icon = config.move_down_icon if config else "▼"
+        self._up_btn = QPushButton(up_icon)
         self._up_btn.setFixedSize(22, 18)
         self._up_btn.setEnabled(index > 0)
         self._up_btn.clicked.connect(self.moveUp)
-        self._down_btn = QPushButton("▼")
+        self._down_btn = QPushButton(down_icon)
         self._down_btn.setFixedSize(22, 18)
         self._down_btn.setEnabled(index < total - 1)
         self._down_btn.clicked.connect(self.moveDown)
@@ -186,7 +189,7 @@ class URLRowWidget(QWidget):
         url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         info_col.addWidget(url_label)
 
-        self._stats_label = QLabel(self._build_stats(provider_url))
+        self._stats_label = QLabel(self._build_stats(provider_url, config))
         self._stats_label.setStyleSheet("color: #888; font-size: 10px;")
         info_col.addWidget(self._stats_label)
         layout.addLayout(info_col, 1)
@@ -200,7 +203,7 @@ class URLRowWidget(QWidget):
         layout.addWidget(self._result_badge)
 
         # Remove button
-        rm_btn = QPushButton("✕")
+        rm_btn = QPushButton(config.close_icon if config else "×")
         rm_btn.setFixedSize(24, 24)
         rm_btn.setToolTip("Remove this URL")
         rm_btn.setStyleSheet("""
@@ -212,17 +215,20 @@ class URLRowWidget(QWidget):
 
     def show_testing(self):
         """Show a 'Testing…' spinner while waiting for result."""
-        self._result_badge.setText("⟳ Testing…")
+        icon = self._config.loading_icon if self._config else "⟳"
+        self._result_badge.setText(f"{icon} Testing…")
         self._result_badge.setStyleSheet("font-size: 10px; color: #888;")
         self._result_badge.show()
 
     def show_test_result(self, success: bool, message: str):
         """Update badge with pass/fail result."""
+        ok_icon = self._config.notification_success_icon if self._config else "✓"
+        err_icon = self._config.notification_error_icon if self._config else "✗"
         if success:
-            self._result_badge.setText(f"✓  {message}")
+            self._result_badge.setText(f"{ok_icon}  {message}")
             self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #4CAF50;")
         else:
-            self._result_badge.setText(f"✗  {message}")
+            self._result_badge.setText(f"{err_icon}  {message}")
             self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #e05050;")
         self._result_badge.show()
 
@@ -231,12 +237,14 @@ class URLRowWidget(QWidget):
         self._result_badge.setText("")
 
     @staticmethod
-    def _build_stats(pu: ProviderURL) -> str:
+    def _build_stats(pu: ProviderURL, config=None) -> str:
         total = pu.success_count + pu.failure_count
         if total == 0:
             return "Untested"
+        ok = config.notification_success_icon if config else "✓"
+        err = config.notification_error_icon if config else "✗"
         rel = f"{pu.reliability_score:.0f}% reliability"
-        parts = [rel, f"✓{pu.success_count}", f"✗{pu.failure_count}"]
+        parts = [rel, f"{ok}{pu.success_count}", f"{err}{pu.failure_count}"]
         if pu.last_success:
             parts.append(f"last ok {pu.last_success.strftime('%m/%d')}")
         return "  ·  ".join(parts)
@@ -276,9 +284,10 @@ class ProviderIconPicker(QWidget):
         " background: rgba(68,136,255,0.25); }"
     )
 
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self._icon = ""
+        self._config = config
         self._color_btns: List[tuple] = []
         self._setup()
 
@@ -287,7 +296,8 @@ class ProviderIconPicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._btn = QPushButton("📡")
+        default_icon = self._config.provider_icon if self._config else "📡"
+        self._btn = QPushButton(default_icon)
         self._btn.setFixedSize(48, 48)
         self._btn.setStyleSheet(
             "QPushButton { font-size: 24px; border: 1px solid rgba(255,255,255,0.15);"
@@ -366,7 +376,7 @@ class ProviderIconPicker(QWidget):
 
     def set_icon(self, icon: str):
         self._icon = icon
-        self._btn.setText(icon if icon else "📡")
+        self._btn.setText(icon if icon else (self._config.provider_icon if self._config else "📡"))
         self._update_selection(icon)
 
     def setEnabled(self, enabled: bool):
@@ -416,9 +426,10 @@ class ProviderEditorView(QWidget):
     provider_deleted = pyqtSignal(str)      # provider_id deleted
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
 
-    def __init__(self, db: Database, parent=None):
+    def __init__(self, db: Database, config=None, parent=None):
         super().__init__(parent)
         self.db = db
+        self.config = config
         self._provider_id: Optional[str] = None
         self._provider_urls: List[ProviderURL] = []
         self._account_thread: Optional[FetchAccountInfoThread] = None
@@ -489,7 +500,7 @@ class ProviderEditorView(QWidget):
         lbl_icon = QLabel("Icon")
         lbl_icon.setStyleSheet("color: #888; font-size: 11px;")
         icon_col.addWidget(lbl_icon)
-        self._icon_picker = ProviderIconPicker()
+        self._icon_picker = ProviderIconPicker(self.config)
         icon_col.addWidget(self._icon_picker)
         icon_col.addStretch()
         row.addLayout(icon_col)
@@ -586,7 +597,7 @@ class ProviderEditorView(QWidget):
         self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._username_input.setPlaceholderText("username")
         un_row.addWidget(self._username_input, 1)
-        un_eye = QPushButton("👁")
+        un_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
         un_eye.setFixedWidth(28)
         un_eye.setCheckable(True)
         un_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
@@ -603,7 +614,7 @@ class ProviderEditorView(QWidget):
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_input.setPlaceholderText("password")
         pw_row.addWidget(self._password_input, 1)
-        pw_eye = QPushButton("👁")
+        pw_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
         pw_eye.setFixedWidth(28)
         pw_eye.setCheckable(True)
         pw_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
@@ -661,7 +672,7 @@ class ProviderEditorView(QWidget):
     def _build_footer_row(self):
         row = QHBoxLayout()
 
-        delete_btn = QPushButton("🗑  Delete Provider")
+        delete_btn = QPushButton(f"{self.config.delete_icon if self.config else '🗑'}  Delete Provider")
         delete_btn.setStyleSheet("""
             QPushButton { color: #e05050; border: 1px solid #e05050; border-radius: 4px; padding: 6px 14px; }
             QPushButton:hover { background: rgba(224,80,80,0.15); }
@@ -873,7 +884,7 @@ class ProviderEditorView(QWidget):
         total = len(self._provider_urls)
         for i, pu in enumerate(self._provider_urls):
             item = QListWidgetItem()
-            widget = URLRowWidget(pu, i, total)
+            widget = URLRowWidget(pu, i, total, self.config)
             widget.moveUp.connect(lambda idx=i: self._move_url(idx, -1))
             widget.moveDown.connect(lambda idx=i: self._move_url(idx, 1))
             widget.removed.connect(lambda idx=i: self._remove_url(idx))
@@ -1053,9 +1064,11 @@ class ProviderEditorView(QWidget):
         working = [r for r in sorted_results if r[1]]
         failed  = [r for r in sorted_results if not r[1]]
 
+        ok_icon = self.config.notification_success_icon if self.config else "✓"
+        err_icon = self.config.notification_error_icon if self.config else "✗"
         self._test_btn.setText(
-            f"✓ {len(working)}/{len(sorted_results)} working"
-            if working else f"✗ All {len(sorted_results)} failed"
+            f"{ok_icon} {len(working)}/{len(sorted_results)} working"
+            if working else f"{err_icon} All {len(sorted_results)} failed"
         )
 
         if not sorted_results:
