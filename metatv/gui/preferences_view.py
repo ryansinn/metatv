@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import QSize, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy,
@@ -25,7 +25,6 @@ class _AttrRow(QWidget):
         hl.setSpacing(6)
 
         lbl = QLabel()
-        # Elide long names with "…" rather than clipping mid-character
         fm = lbl.fontMetrics()
         lbl.setText(fm.elidedText(label, Qt.TextElideMode.ElideRight, 140))
         lbl.setToolTip(label)
@@ -77,7 +76,6 @@ class _AttrColumn(QWidget):
 
         if items:
             max_abs = max(abs(v) for _, v in items)
-            # Show positives first, then negatives
             for label, value in sorted(items, key=lambda kv: kv[1], reverse=True):
                 inner_vl.addWidget(_AttrRow(label, value, max_abs))
         else:
@@ -88,11 +86,34 @@ class _AttrColumn(QWidget):
         vl.addWidget(scroll)
 
 
+class _RecRow(QWidget):
+    """Single recommendation row: text label + 👎 dislike button."""
+
+    def __init__(self, channel_id: str, text: str, config: Config, parent=None):
+        super().__init__(parent)
+        self.channel_id = channel_id
+        hl = QHBoxLayout(self)
+        hl.setContentsMargins(4, 2, 4, 2)
+        hl.setSpacing(6)
+
+        lbl = QLabel(text)
+        lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        hl.addWidget(lbl)
+
+        self.dislike_btn = QPushButton(config.dislike_icon)
+        self.dislike_btn.setFixedSize(26, 26)
+        self.dislike_btn.setToolTip("Dislike — remove from recommendations")
+        self.dislike_btn.setFlat(True)
+        hl.addWidget(self.dislike_btn)
+
+
 class PreferencesView(QWidget):
     """Dashboard: rated-item attribute weights + ranked recommendations."""
 
-    playRequested    = pyqtSignal(str)  # channel_id
-    channelSelected  = pyqtSignal(str)  # channel_id — single-click → details pane
+    playRequested               = pyqtSignal(str)       # channel_id
+    channelSelected             = pyqtSignal(str)       # channel_id — single-click → details pane
+    ratingRequested             = pyqtSignal(str, int)  # channel_id, ±1
+    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     def __init__(self, db: Database, config: Config, parent=None):
         super().__init__(parent)
@@ -112,6 +133,12 @@ class PreferencesView(QWidget):
         header_row.addWidget(self._header_label)
         header_row.addStretch()
 
+        self._toggle_attrs_btn = QPushButton(self.config.expand_icon)
+        self._toggle_attrs_btn.setFixedSize(24, 24)
+        self._toggle_attrs_btn.setToolTip("Show attribute breakdown")
+        self._toggle_attrs_btn.clicked.connect(self._toggle_attributes)
+        header_row.addWidget(self._toggle_attrs_btn)
+
         refresh_btn = QPushButton(self.config.refresh_icon)
         refresh_btn.setFixedSize(28, 28)
         refresh_btn.setToolTip("Refresh")
@@ -119,22 +146,28 @@ class PreferencesView(QWidget):
         header_row.addWidget(refresh_btn)
         vl.addLayout(header_row)
 
-        # Attribute columns area (replaced on each refresh)
+        # Collapsible container: attribute columns + keywords
+        self._attrs_container = QWidget()
+        attrs_vl = QVBoxLayout(self._attrs_container)
+        attrs_vl.setContentsMargins(0, 0, 0, 4)
+        attrs_vl.setSpacing(4)
+
         self._attr_area = QWidget()
         self._attr_layout = QHBoxLayout(self._attr_area)
         self._attr_layout.setContentsMargins(0, 0, 0, 0)
         self._attr_layout.setSpacing(8)
-        vl.addWidget(self._attr_area, stretch=2)
+        attrs_vl.addWidget(self._attr_area, stretch=1)
 
-        # Keyword row
         kw_label = QLabel("<b>Keywords from your ratings</b>")
-        vl.addWidget(kw_label)
+        attrs_vl.addWidget(kw_label)
         self._keyword_label = QLabel("")
         self._keyword_label.setWordWrap(True)
         self._keyword_label.setTextFormat(Qt.TextFormat.RichText)
-        vl.addWidget(self._keyword_label)
+        attrs_vl.addWidget(self._keyword_label)
 
-        # Recommendations
+        vl.addWidget(self._attrs_container, stretch=2)
+
+        # Recommendations list
         rec_label = QLabel(f"<b>{self.config.discover_icon} Recommended for you</b>  "
                            "<small>(double-click to play)</small>")
         rec_label.setTextFormat(Qt.TextFormat.RichText)
@@ -143,7 +176,31 @@ class PreferencesView(QWidget):
         self._rec_list = QListWidget()
         self._rec_list.itemDoubleClicked.connect(self._on_rec_double_click)
         self._rec_list.currentItemChanged.connect(self._on_rec_selection_changed)
+        self._rec_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._rec_list.customContextMenuRequested.connect(self._on_rec_context_menu)
         vl.addWidget(self._rec_list, stretch=3)
+
+        # Restore collapse state
+        expanded = getattr(self.config, "preferences_attributes_expanded", False)
+        self._attrs_container.setVisible(expanded)
+        self._toggle_attrs_btn.setText(
+            self.config.collapse_icon if expanded else self.config.expand_icon
+        )
+        self._toggle_attrs_btn.setToolTip(
+            "Hide attribute breakdown" if expanded else "Show attribute breakdown"
+        )
+
+    def _toggle_attributes(self) -> None:
+        expanded = not self._attrs_container.isVisible()
+        self._attrs_container.setVisible(expanded)
+        self._toggle_attrs_btn.setText(
+            self.config.collapse_icon if expanded else self.config.expand_icon
+        )
+        self._toggle_attrs_btn.setToolTip(
+            "Hide attribute breakdown" if expanded else "Show attribute breakdown"
+        )
+        self.config.preferences_attributes_expanded = expanded
+        self.config.save()
 
     def on_activate(self) -> None:
         self.refresh()
@@ -194,7 +251,9 @@ class PreferencesView(QWidget):
         if top_neg:
             words = "  ".join(top_neg)
             parts.append(f'<span style="color:#f44336">− {words}</span>')
-        self._keyword_label.setText("  |  ".join(parts) if parts else "<i>Rate more content to see keywords</i>")
+        self._keyword_label.setText(
+            "  |  ".join(parts) if parts else "<i>Rate more content to see keywords</i>"
+        )
 
         # Recommendations
         self._rec_list.clear()
@@ -207,14 +266,29 @@ class PreferencesView(QWidget):
 
         for sc in recs:
             text = f"{sc.channel_name}  ·  {sc.reason}"
-            item = QListWidgetItem(text)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setToolTip(
                 f"Score: {sc.score:.2f}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}\n"
                 f"Keywords: {', '.join(sc.matching_keywords) or '—'}"
             )
+            item.setSizeHint(QSize(0, 32))
             self._rec_list.addItem(item)
+            row = _RecRow(sc.channel_id, text, self.config)
+            row.dislike_btn.clicked.connect(
+                lambda checked, cid=sc.channel_id: self.ratingRequested.emit(cid, -1)
+            )
+            self._rec_list.setItemWidget(item, row)
+
+    def _on_rec_context_menu(self, pos) -> None:
+        item = self._rec_list.itemAt(pos)
+        if not item:
+            return
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            gp = self._rec_list.viewport().mapToGlobal(pos)
+            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
 
     def _on_rec_selection_changed(self, current: QListWidgetItem, _previous) -> None:
         if current:

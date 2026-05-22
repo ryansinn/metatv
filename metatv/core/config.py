@@ -59,6 +59,9 @@ class Config(BaseModel):
     dislike_icon: str = "👎"           # Dislike / negative rating
     hide_icon: str = "🚫"              # Hide / suppress content
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
+
+    # Recommended view state
+    preferences_attributes_expanded: bool = False  # collapsed by default
     
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification

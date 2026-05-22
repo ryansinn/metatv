@@ -39,6 +39,7 @@ STOP_WORDS: frozenset[str] = frozenset({
     "real", "keep", "face", "left", "side", "much", "hard", "days",
     "full", "home", "last", "next", "year", "play", "live", "turn",
     "move", "hand", "work", "down", "away", "again", "being", "still",
+    "choice", "together",
 })
 
 MAX_CORPUS_FREQ: float = 0.35  # drop words appearing in >35% of all plots

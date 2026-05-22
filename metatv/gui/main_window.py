@@ -395,6 +395,61 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
 
+    def _hide_channel_from_recommendations(self, channel_id: str) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.channels.set_hidden(channel_id, True)
+            session.commit()
+        finally:
+            session.close()
+        self.preferences_view.refresh()
+        self.load_channels()
+
+    def _on_rec_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        from metatv.core.database import UserRatingDB
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return
+            rating_row = session.get(UserRatingDB, channel_id)
+            current_rating = rating_row.rating if rating_row else 0
+        finally:
+            session.close()
+
+        menu = QMenu(self)
+
+        play_act = QAction(f"{self.config.play_icon} Play", self)
+        play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
+        menu.addAction(play_act)
+
+        menu.addSeparator()
+
+        like_act = QAction(f"{self.config.like_icon} Like", self)
+        like_act.setCheckable(True)
+        like_act.setChecked(current_rating == 1)
+        like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
+        menu.addAction(like_act)
+
+        dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+        dislike_act.setCheckable(True)
+        dislike_act.setChecked(current_rating == -1)
+        dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
+        menu.addAction(dislike_act)
+
+        menu.addSeparator()
+
+        hide_act = QAction(f"{self.config.hide_icon} Hide channel", self)
+        hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
+        menu.addAction(hide_act)
+
+        menu.exec(QPoint(gx, gy))
+
     def _on_alert_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
         from PyQt6.QtCore import QPoint
         from PyQt6.QtWidgets import QMenu
@@ -589,6 +644,8 @@ class MainWindow(QMainWindow):
         self.preferences_view = PreferencesView(self.db, self.config, self)
         self.preferences_view.playRequested.connect(self.play_channel_by_id)
         self.preferences_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.preferences_view.ratingRequested.connect(self._toggle_rating)
+        self.preferences_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.preferences_view.setVisible(False)
         self.content_layout.addWidget(self.preferences_view)
 
