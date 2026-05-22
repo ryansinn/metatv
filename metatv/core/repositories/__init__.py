@@ -9,11 +9,12 @@ from .season import SeasonRepository
 from .filter import FilterRepository
 from .alert import AlertRepository
 from .rating import RatingRepository
+from .queue import WatchQueueRepository
 
 
 class RepositoryFactory:
     """Factory for creating repository instances with a shared session"""
-    
+
     def __init__(self, session: Session):
         self.session = session
         self._providers = None
@@ -23,6 +24,7 @@ class RepositoryFactory:
         self._filters = None
         self._alerts = None
         self._ratings = None
+        self._queue = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -73,6 +75,13 @@ class RepositoryFactory:
             self._ratings = RatingRepository(self.session)
         return self._ratings
 
+    @property
+    def queue(self) -> WatchQueueRepository:
+        """Get watch queue repository"""
+        if self._queue is None:
+            self._queue = WatchQueueRepository(self.session)
+        return self._queue
+
 
 # Export all repositories and factory for convenience
 __all__ = [
@@ -84,4 +93,5 @@ __all__ = [
     'FilterRepository',
     'AlertRepository',
     'RatingRepository',
+    'WatchQueueRepository',
 ]

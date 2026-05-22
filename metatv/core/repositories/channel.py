@@ -175,13 +175,22 @@ class ChannelRepository:
         return False
     
     def set_hidden(self, channel_id: str, hidden: bool) -> None:
-        """Set channel hidden status."""
+        """Set channel hidden status (removes from all views)."""
         channel = self.get_by_id(channel_id)
         if channel:
             channel.is_hidden = hidden
             channel.updated_at = datetime.now()
             self.session.commit()
             logger.info(f"Channel {channel.name} hidden={hidden}")
+
+    def set_rec_suppressed(self, channel_id: str, suppressed: bool) -> None:
+        """Suppress/unsuppress channel from recommendations only."""
+        channel = self.get_by_id(channel_id)
+        if channel:
+            channel.is_rec_suppressed = suppressed
+            channel.updated_at = datetime.now()
+            self.session.commit()
+            logger.info(f"Channel {channel.name} rec_suppressed={suppressed}")
 
     def search(self, query: str, provider_id: Optional[str] = None,
                media_type: Optional[str] = None) -> List[ChannelDB]:

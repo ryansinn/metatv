@@ -1,48 +1,72 @@
 # MetaTV - IPTV Stream Organizer
 
-A powerful, cross-platform IPTV stream organizer with advanced filtering, metadata integration, and flexible organization options.
+A powerful, cross-platform IPTV stream organizer with advanced filtering, metadata enrichment, personalized recommendations, and flexible content organization.
 
 ## Current Features
 
 ### ✅ Implemented
+
+**Providers & Streaming**
 - **Multi-Provider Support**: Manage multiple IPTV sources with priority-based URL failover
 - **Xtream API Support**: Full integration with Xtream-based IPTV providers
 - **Stream Validation**: Automatic URL health checks with geo-blocking failover
-- **URL Failover**: Automatically tries alternate provider URLs when primary fails
-- **Series Management**: Browse seasons and episodes with hierarchical tree view
-- **Favorites System**: Star your favorite series, movies, and streams
-- **Watch History**: Tracks recently played content with last episode info
-- **Smart Notifications**: Auto-dismissing progress notifications for background operations
 - **Single-Instance mpv Player**: Persistent player window with IPC control
 - **External Player Support**: Fallback to VLC, ffplay, or other players
+- **Episode Auto-Queue**: Automatically queue subsequent episodes in a season
+
+**Content Organization**
+- **Series Management**: Browse seasons and episodes with hierarchical tree view
+- **Favorites System**: Star your favorite series, movies, and streams (Continue Watching / Never Watched sections)
+- **Watch History**: Tracks recently played content with last episode info
+- **Watch Queue**: Ordered manual queue with "Continue Watching" / "Up Next" sections, persists across restarts, Clear All / Clear Watched
+
+**Discovery & Recommendations**
+- **Preference-Based Recommendations**: Attribute-weighted scoring (genres, directors, cast) combined with TF-IDF plot keyword matching; sidebar section + full Preferences dashboard with weight breakdown
+- **Like / Dislike Ratings**: Rate movies and series; signals feed directly into the recommendation engine
+- **Not Interested**: Suppress a title from recommendations without hiding it from browsing
+- **Hide Channel**: Remove content from all views permanently
+- **Content Preference Signals**: ▲/▼ indicators on cast and director names in the details pane
+
+**EPG & Alerts**
+- **EPG System**: XMLTV feed parsing (140 MB+ supported), background fetch, channel matching
+- **EPG Watchlist**: Keyword-based pattern matching; live 🔴 and upcoming ⏰ alerts in sidebar
+- **EPG On Now / Browse**: See what's airing now or browse the full schedule by channel/time
+
+**Special Content**
+- **PPV View**: Pay-per-view event detection with countdown timers
+- **Live Events View**: Dedicated view for detected live events
+- **Sports View**: Sports channels with sport/league filtering
+
+**Details Pane**
+- **Rich Metadata Display**: Posters, cast, ratings, plot, technical details, and content rating
+- **Metadata Provider System**: Plugin chain for enriching channels with structured data
+- **Image Caching**: Async poster/backdrop loading with LRU cache (500 MB)
+
+**Filtering & Search**
 - **Real-Time Search**: Filter channels as you type
-- **SQLite Database**: Fast local caching of channels, seasons, and episodes
-- **Background Loading**: Non-blocking UI with threaded data fetching
 - **Advanced Filtering**: Prefix detection for language, quality, and platform grouping
+- **Language / Quality / Platform Filters**: EN, ES, 4K, HD, Netflix, etc.
 - **Collapsible Filter Section**: Expandable filter controls with persistent visibility state
+
+**UI & Platform**
+- **Smart Notifications**: Auto-dismissing progress notifications for background operations
+- **SQLite Database**: Fast local caching with background loading and WAL mode
 - **Persistent UI State**: All sidebar sizes, section states, and filter selections remembered
 - **Resizable Sections**: Draggable sidebar sections with saved heights
-- **Context Menus**: Add/remove favorites with right-click
-- **Language Filters**: Filter content by language prefix (EN, ES, FR, etc.)
-- **Quality Filters**: Filter by resolution (4K, HD, SD)
-- **Platform Filters**: Filter by streaming service (Netflix, HBO, etc.)
+- **Context Menus**: Rich right-click menus across all content surfaces
 - **Repository Pattern**: Clean data access layer separating business logic from UI
-- **Player Abstraction**: Plugin-based player system (mpv, VLC, ffplay)
-- **Provider Abstraction**: Plugin-based provider system ready for M3U, PLEX, Jellyfin
+- **Player / Provider Abstraction**: Plugin-based systems ready for additional backends
 
 ### 🚧 In Progress
-- **Episode Auto-Queue**: Automatically queue next episodes in season
-- **Browse Mode**: Category-based navigation with expandable groups
+- **TMDb / OMDb Metadata Providers**: Architecture complete; external provider implementations pending
+- **Resume Playback**: Continue from last position (requires mpv IPC event system)
 
 ### 📋 Planned
-- **Metadata Integration**: TMDb/OMDb for posters, cast, ratings, and descriptions
-- **De-duplication**: Group quality variants (reduce 240k channels to 20-30k unique)
+- **Missing Episode Detection**: Detect and surface gaps when a provider is missing episodes
+- **De-duplication**: Group quality variants (reduce channel count to unique titles)
 - **Genre Filters**: Organize by genre from metadata
-- **Preview Pane**: Rich metadata display with cover art
-- **Resume Playback**: Continue from last position
 - **Custom Collections**: User-created playlists and groups
-- **Watch Alerts**: Notifications for new content matching patterns
-- **Export/Import**: Backup and share configuration
+- **Export / Import**: Backup and share configuration
 
 ## Tech Stack
 
@@ -63,60 +87,50 @@ A powerful, cross-platform IPTV stream organizer with advanced filtering, metada
 ### Setup
 
 ```bash
-# Clone repository (when public)
 git clone https://github.com/yourusername/metatv.git
 cd metatv
 
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # venv\Scripts\activate  # Windows
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Run application
 python -m metatv
 ```
 
 ## Usage
 
 ### First Run
-1. Launch MetaTV: `python -m metatv` or `run.sh`
-2. Add IPTV Provider: Settings → Add Provider
-3. Enter Xtream API credentials:
-   - Name: Your provider name
-   - URL: Provider base URL
-   - Username: Your username
-   - Password: Your password
-4. Click "Refresh" to load channels
+1. Launch MetaTV: `python -m metatv` or `./run.sh`
+2. Add an IPTV provider via the **+** button in the Sources sidebar section
+3. Enter your Xtream API credentials and click **Refresh** to load channels
 
 ### Navigating Content
 
 **Double-Click Actions:**
 - **Series** → Load seasons and episodes
 - **Season** → Expand/collapse episode list
-- **Episode** → Play episode
-- **Movie/Stream** → Play immediately
+- **Episode / Movie / Stream** → Play immediately
 - **History Item** → Resume from last episode
 
 **Right-Click Menus:**
-- Add/Remove from Favorites
-- Refresh series data (re-fetch from provider)
+- Add/Remove from Favorites or Watch Queue
+- Like / Dislike (drives recommendations)
+- Not Interested / Hide Channel
+- Refresh series data
 
 **Search:**
-- Type in search box to filter channels in real-time
-- Clear with × button or Esc key
+- Type in the search box to filter channels in real-time
+- Clear with × or Esc
 
-### Favorites & History
-- **Add to Favorites**: Right-click channel → "Add to Favorites"
-- **View Favorites**: Sidebar → Favorites section
-- **View History**: Sidebar → History section (shows last watched episode)
+### Recommendations
+Rate movies and series with 👍/👎 buttons in the details pane. The preference engine learns your taste from genres, directors, and cast, then surfaces personalized recommendations in the sidebar and the **Recommended** dashboard (click the 🎯 chip).
 
-### Player Controls
-- MetaTV uses mpv in a persistent window
-- Control playback in mpv window (space to pause, q to close, etc.)
-- Episodes play in same window without restart
+### Watch Queue
+Right-click any channel → **Add to Queue**. The queue persists across restarts and splits into **Continue Watching** (previously started) and **Up Next** (never played).
+
+### EPG / Watch Alerts
+Add show title patterns to the watchlist (+ Watchlist button in the details pane when a live channel is selected). The Watch Alerts sidebar section shows live and upcoming airings matching your patterns.
 
 ## Configuration
 
@@ -124,20 +138,14 @@ python -m metatv
 - **Config**: `~/.config/metatv/config.yaml`
 - **Database**: `~/.local/share/metatv/metatv.db`
 - **Logs**: `~/.config/metatv/logs/`
+- **Image cache**: `~/.cache/metatv/images/`
 
-### Settings
-Edit `config.yaml` or use Settings dialog (future):
-
+### Key Settings
 ```yaml
 playback:
   player: mpv
   use_single_instance: true
   autoplay_season_episodes: true
-
-ui:
-  sidebar:
-    favorites_collapsed: false
-    history_collapsed: false
 ```
 
 ## Development
@@ -146,90 +154,62 @@ ui:
 ```
 metatv/
 ├── metatv/
-│   ├── core/           # Business logic
-│   │   ├── config.py   # Configuration management
-│   │   ├── database.py # SQLAlchemy models
-│   │   ├── notifications.py # Notification system
-│   │   └── provider_loader.py # Background data loading
-│   ├── gui/            # PyQt6 UI
-│   │   ├── main_window.py # Main application window
-│   │   ├── sidebar_sections.py # Collapsible sections
-│   │   └── notification_widget.py # Toast notifications
-│   ├── providers/      # IPTV provider adapters
-│   │   └── xtream.py   # Xtream API client
-│   └── __main__.py     # Entry point
-├── docs/               # Documentation
-│   ├── xtream_api_schema.md # API reference
-│   └── UI_UX_GUIDELINES.md # UI/UX standards
-├── requirements.txt    # Python dependencies
-└── ROADMAP.md         # Feature roadmap
+│   ├── core/                    # Business logic (no UI dependencies)
+│   │   ├── config.py            # Pydantic config
+│   │   ├── database.py          # SQLAlchemy models + connection
+│   │   ├── preference_engine.py # Attribute-weight + TF-IDF recommendations
+│   │   ├── epg_manager.py       # EPG fetch/parse/store
+│   │   ├── metadata_manager.py  # Metadata provider chain
+│   │   ├── special_content.py   # PPV/Events/Sports detection
+│   │   └── repositories/        # Data access layer
+│   │       ├── channel.py
+│   │       ├── epg.py
+│   │       ├── queue.py         # Watch queue CRUD
+│   │       └── provider.py
+│   ├── gui/                     # PyQt6 UI components
+│   │   ├── main_window.py       # Three-panel main window
+│   │   ├── sidebar_sections.py  # Collapsible sidebar sections
+│   │   ├── details_pane.py      # Right panel with metadata
+│   │   ├── preferences_view.py  # Preference dashboard + recommendations
+│   │   ├── epg_view.py          # EPG: Watchlist / On Now / Browse
+│   │   ├── events_view.py       # Live events view
+│   │   ├── sports_view.py       # Sports events view
+│   │   └── sports_filter_bar.py # Sport/league filter chips
+│   ├── providers/               # IPTV source plugins
+│   │   └── xtream.py
+│   └── metadata_providers/      # Metadata enrichment plugins
+│       └── provider.py
+├── docs/                        # Architecture and design docs
+└── ROADMAP.md
 ```
 
 ### Architecture Principles
 - **Clean Separation**: Core logic independent of UI
-- **Async Operations**: Background threads for I/O
-- **Database First**: Cache everything locally
-- **Stateless Providers**: Providers fetch, core manages state
-- **Event-Driven UI**: Signals/slots for loose coupling
+- **Async Operations**: Background threads for all blocking I/O
+- **Database First**: Cache everything locally in SQLite
+- **Event-Driven UI**: Qt signals/slots for loose coupling
+- **Plugin-Based**: Providers, players, and metadata sources are swappable
 
-See [UI/UX Guidelines](docs/UI_UX_GUIDELINES.md) for interaction patterns and standards.
-
-## Contributing
-
-MetaTV is under active development. Contributions welcome!
-
-### Development Setup
-```bash
-# Install in development mode
-pip install -e .
-
-# Run with debug logging
-python -m metatv --debug
-
-# Check logs
-tail -f ~/.config/metatv/logs/metatv_*.log
-```
-
-### Coding Standards
-- Follow PEP 8 style guide
-- Use type hints (Python 3.11+ syntax)
-- Document public APIs with docstrings
-- Keep functions focused and testable
-- Refer to [UI/UX Guidelines](docs/UI_UX_GUIDELINES.md) for UI patterns
+See [CLAUDE.md](CLAUDE.md) for coding rules and [docs/](docs/) for design documents.
 
 ## Troubleshooting
 
 ### Player Not Found
-```
-Error: Player not found
-```
 Install mpv: `sudo apt install mpv` (Ubuntu/Debian) or `brew install mpv` (Mac)
 
 ### Connection Failed
-```
-Failed to connect to provider
-```
 - Verify URL, username, and password
 - Check internet connection
-- Try provider's web interface first
+- Try the provider's web interface first
 
 ### No Episodes Showing
-- Right-click series → "Refresh" to re-fetch data
-- Check logs: `~/.config/metatv/logs/`
-- Verify provider has episode data (some providers only list channels)
+- Right-click the series → **Refresh** to re-fetch from provider
+- Check logs at `~/.config/metatv/logs/`
 
 ## License
 
-GPL v3 - See [LICENSE](LICENSE) file
-
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+GPL v3 — See [LICENSE](LICENSE) file.
 
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned features and development priorities.
-
-## Support
-
-- **Issues**: GitHub Issues (when repository is public)
-- **Logs**: Check `~/.config/metatv/logs/` for errors
-- **Config**: Located at `~/.config/metatv/config.yaml`

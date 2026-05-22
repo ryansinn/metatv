@@ -1,7 +1,7 @@
 """Modular collapsible sidebar sections"""
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QSizePolicy, QTreeWidget,
     QTreeWidgetItem, QListWidget, QListWidgetItem
 )
@@ -413,6 +413,23 @@ class WatchAlertsSection(CollapsibleSection):
     def get_section_id(self):
         return "alerts"
 
+    def create_header(self):
+        header = QWidget()
+        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(5, 3, 5, 3)
+        self.toggle_btn = QPushButton(self.config.collapse_icon)
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        hl.addWidget(self.toggle_btn)
+        self.title_label = QLabel(
+            f'<span style="color:#FFB300">{self.icon}</span> <b>{self.title}</b>'
+        )
+        self.title_label.setTextFormat(Qt.TextFormat.RichText)
+        hl.addWidget(self.title_label)
+        hl.addStretch()
+        self.main_layout.addWidget(header)
+
     def create_content(self):
         self.alerts_tree = QTreeWidget()
         self.alerts_tree.setHeaderHidden(True)
@@ -630,20 +647,37 @@ class HistorySection(CollapsibleSection):
 
 class FavoritesSection(CollapsibleSection):
     """Favorites section"""
-    
+
     favoriteClicked = pyqtSignal(str)  # channel_id (double-click)
     itemSelected = pyqtSignal(str)  # channel_id (single-click)
-    
+
     def __init__(self, config, db, parent=None):
         self.db = db
         super().__init__("Favorites", config.favorite_icon, config, parent)
-        
+
         # Favorites should expand to fill remaining space
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-    
+
     def get_section_id(self):
         return "favorites"
-    
+
+    def create_header(self):
+        header = QWidget()
+        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(5, 3, 5, 3)
+        self.toggle_btn = QPushButton(self.config.collapse_icon)
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        hl.addWidget(self.toggle_btn)
+        self.title_label = QLabel(
+            f'<span style="color:#FFD700">{self.icon}</span> <b>{self.title}</b>'
+        )
+        self.title_label.setTextFormat(Qt.TextFormat.RichText)
+        hl.addWidget(self.title_label)
+        hl.addStretch()
+        self.main_layout.addWidget(header)
+
     def create_content(self):
         """Create favorites list"""
         from PyQt6.QtWidgets import QListWidget
@@ -744,4 +778,233 @@ class FavoritesSection(CollapsibleSection):
         channel_id = current.data(Qt.ItemDataRole.UserRole)
         if channel_id:
             self.itemSelected.emit(channel_id)
+
+
+class RecommendedSection(CollapsibleSection):
+    """Sidebar section showing top VOD recommendations from the preference engine."""
+
+    itemSelected              = pyqtSignal(str, str)  # channel_id, reason
+    itemDoubleClicked         = pyqtSignal(str)        # channel_id
+    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
+
+    def __init__(self, config, db, parent=None):
+        self.db = db
+        super().__init__("Recommended", config.preferences_icon, config, parent)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+    def get_section_id(self):
+        return "recommended"
+
+    def create_header(self):
+        header = QWidget()
+        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(5, 3, 5, 3)
+
+        self.toggle_btn = QPushButton(self.config.collapse_icon)
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        hl.addWidget(self.toggle_btn)
+
+        self.title_label = QLabel(f"{self.config.preferences_icon} <b>Recommended</b>")
+        hl.addWidget(self.title_label)
+        hl.addStretch()
+
+        refresh_btn = QPushButton(self.config.refresh_icon)
+        refresh_btn.setFixedSize(22, 20)
+        refresh_btn.setToolTip("Refresh recommendations")
+        refresh_btn.clicked.connect(self.refresh)
+        hl.addWidget(refresh_btn)
+
+        self.main_layout.addWidget(header)
+
+    def create_content(self):
+        self._list = QListWidget()
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.itemDoubleClicked.connect(self._on_double_click)
+        self._list.currentItemChanged.connect(self._on_selection_changed)
+        self._list.customContextMenuRequested.connect(self._on_context_menu)
+        self.content_layout.addWidget(self._list)
+        self.set_empty(True)
+
+    def refresh(self):
+        from metatv.core.preference_engine import compute_weights, score_candidates
+        from metatv.core.models import MediaType
+
+        self._list.clear()
+        session = self.db.get_session()
+        try:
+            weights = compute_weights(session)
+            if weights.is_empty():
+                item = QListWidgetItem("Rate movies/series to get recommendations")
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self._list.addItem(item)
+                self.set_empty(True)
+                return
+            recs = score_candidates(session, weights, limit=20)
+        finally:
+            session.close()
+
+        if not recs:
+            item = QListWidgetItem("No recommendations yet — rate more content")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(item)
+            self.set_empty(True)
+            return
+
+        for sc in recs:
+            media_icon = (
+                self.config.movie_icon if sc.media_type == "movie"
+                else self.config.series_icon
+            )
+            liked_prefix = f"{self.config.like_icon} " if sc.already_liked else ""
+            item = QListWidgetItem(f"{liked_prefix}{media_icon} {sc.channel_name}")
+            item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
+            rating_tip = f"  ★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
+            item.setToolTip(
+                f"{sc.reason}{rating_tip}\n"
+                f"Genres: {', '.join(sc.matching_genres) or '—'}"
+            )
+            self._list.addItem(item)
+
+        self.set_empty(False)
+
+    def _on_double_click(self, item: QListWidgetItem) -> None:
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            self.itemDoubleClicked.emit(channel_id)
+
+    def _on_selection_changed(self, current: QListWidgetItem, _previous) -> None:
+        if current:
+            channel_id = current.data(Qt.ItemDataRole.UserRole)
+            reason = current.data(Qt.ItemDataRole.UserRole + 1) or ""
+            if channel_id:
+                self.itemSelected.emit(channel_id, reason)
+
+    def _on_context_menu(self, pos) -> None:
+        item = self._list.itemAt(pos)
+        if not item:
+            return
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            gp = self._list.viewport().mapToGlobal(pos)
+            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+
+
+class WatchQueueSection(CollapsibleSection):
+    """Sidebar section showing the user's ordered watch queue."""
+
+    itemDoubleClicked           = pyqtSignal(str)        # channel_id
+    itemSelected                = pyqtSignal(str)        # channel_id
+    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
+    clearQueueClicked           = pyqtSignal()
+    clearWatchedClicked         = pyqtSignal()
+
+    def __init__(self, config, db, parent=None):
+        self.db = db
+        super().__init__("Watch Queue", config.queue_icon, config, parent)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+    def get_section_id(self):
+        return "queue"
+
+    def create_content(self):
+        self._list = QListWidget()
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.itemDoubleClicked.connect(self._on_double_click)
+        self._list.currentItemChanged.connect(self._on_selection_changed)
+        self._list.customContextMenuRequested.connect(self._on_context_menu)
+        self.content_layout.addWidget(self._list)
+
+        btn_row = QHBoxLayout()
+        self._clear_watched_btn = QPushButton(f"{self.config.watched_icon} Clear Watched")
+        self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
+        btn_row.addWidget(self._clear_watched_btn)
+
+        self._clear_all_btn = QPushButton(f"{self.config.delete_icon} Clear All")
+        self._clear_all_btn.clicked.connect(self.clearQueueClicked.emit)
+        btn_row.addWidget(self._clear_all_btn)
+        self.content_layout.addLayout(btn_row)
+
+        self.set_empty(True)
+
+    def _media_icon(self, media_type: str) -> str:
+        if media_type == "movie":
+            return self.config.movie_icon
+        if media_type == "series":
+            return self.config.series_icon
+        if media_type == "live":
+            return self.config.live_icon
+        return self.config.unknown_icon
+
+    def _add_header(self, text: str) -> None:
+        item = QListWidgetItem(text)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        font = QFont()
+        font.setBold(True)
+        item.setFont(font)
+        self._list.addItem(item)
+
+    def refresh(self):
+        self._list.clear()
+        entries = []
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            entries = repos.queue.get_all()
+        except Exception as e:
+            logger.error(f"WatchQueueSection refresh error: {e}")
+        finally:
+            session.close()
+
+        self.set_empty(len(entries) == 0)
+        if not entries:
+            item = QListWidgetItem("Queue is empty — right-click any channel to add")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(item)
+            return
+
+        # Split into continue-watching (has last_played) and not-yet-started.
+        # Use e.last_played (eagerly copied) to avoid DetachedInstanceError.
+        continue_watching = sorted(
+            [e for e in entries if e.last_played],
+            key=lambda e: e.last_played,
+            reverse=True,
+        )
+        never_watched = [e for e in entries if not e.last_played]
+
+        if continue_watching:
+            self._add_header("Continue Watching")
+            for e in continue_watching:
+                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {e.channel_name}")
+                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+                self._list.addItem(item)
+
+        if never_watched:
+            self._add_header("Up Next")
+            for e in never_watched:
+                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {e.channel_name}")
+                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+                self._list.addItem(item)
+
+    def _on_double_click(self, item: QListWidgetItem) -> None:
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            self.itemDoubleClicked.emit(channel_id)
+
+    def _on_selection_changed(self, current: QListWidgetItem, _previous) -> None:
+        if current:
+            channel_id = current.data(Qt.ItemDataRole.UserRole)
+            if channel_id:
+                self.itemSelected.emit(channel_id)
+
+    def _on_context_menu(self, pos) -> None:
+        item = self._list.itemAt(pos)
+        if not item:
+            return
+        channel_id = item.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            gp = self._list.viewport().mapToGlobal(pos)
+            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
 

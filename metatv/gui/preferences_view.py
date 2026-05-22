@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, pyqtSignal, Qt
+from PyQt6.QtCore import QSize, pyqtSignal, Qt, QPoint
+from PyQt6.QtGui import QContextMenuEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy,
@@ -87,14 +88,30 @@ class _AttrColumn(QWidget):
 
 
 class _RecRow(QWidget):
-    """Single recommendation row: text label + 👎 dislike button."""
+    """Single recommendation row: label + 👍/👎 buttons + Not Interested."""
 
-    def __init__(self, channel_id: str, text: str, config: Config, parent=None):
+    dislikeClicked       = pyqtSignal(str)        # channel_id
+    notInterestedClicked = pyqtSignal(str)        # channel_id
+    contextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
+
+    _BTN_STYLE = (
+        "QPushButton { border: none; border-radius: 3px; padding: 2px; }"
+        "QPushButton:checked { background: rgba(255,255,255,0.18); }"
+        "QPushButton:hover   { background: rgba(255,255,255,0.10); }"
+    )
+
+    def __init__(self, channel_id: str, text: str, config: Config,
+                 already_liked: bool = False, parent=None):
         super().__init__(parent)
         self.channel_id = channel_id
         hl = QHBoxLayout(self)
         hl.setContentsMargins(4, 2, 4, 2)
-        hl.setSpacing(6)
+        hl.setSpacing(4)
+
+        if already_liked:
+            liked_lbl = QLabel(config.like_icon)
+            liked_lbl.setFixedWidth(18)
+            hl.addWidget(liked_lbl)
 
         lbl = QLabel(text)
         lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -102,9 +119,23 @@ class _RecRow(QWidget):
 
         self.dislike_btn = QPushButton(config.dislike_icon)
         self.dislike_btn.setFixedSize(26, 26)
-        self.dislike_btn.setToolTip("Dislike — remove from recommendations")
+        self.dislike_btn.setToolTip("Dislike")
         self.dislike_btn.setFlat(True)
+        self.dislike_btn.setStyleSheet(self._BTN_STYLE)
+        self.dislike_btn.clicked.connect(lambda: self.dislikeClicked.emit(self.channel_id))
         hl.addWidget(self.dislike_btn)
+
+        self.ni_btn = QPushButton(config.not_interested_icon)
+        self.ni_btn.setFixedSize(26, 26)
+        self.ni_btn.setToolTip("Not interested — hide from recommendations")
+        self.ni_btn.setFlat(True)
+        self.ni_btn.setStyleSheet(self._BTN_STYLE)
+        self.ni_btn.clicked.connect(lambda: self.notInterestedClicked.emit(self.channel_id))
+        hl.addWidget(self.ni_btn)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        self.contextMenuRequested.emit(self.channel_id, event.globalPos().x(), event.globalPos().y())
+        event.accept()
 
 
 class PreferencesView(QWidget):
@@ -113,6 +144,7 @@ class PreferencesView(QWidget):
     playRequested               = pyqtSignal(str)       # channel_id
     channelSelected             = pyqtSignal(str)       # channel_id — single-click → details pane
     ratingRequested             = pyqtSignal(str, int)  # channel_id, ±1
+    notInterestedRequested      = pyqtSignal(str)       # channel_id — hide from recommendations
     channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     def __init__(self, db: Database, config: Config, parent=None):
@@ -266,19 +298,24 @@ class PreferencesView(QWidget):
 
         for sc in recs:
             text = f"{sc.channel_name}  ·  {sc.reason}"
+            rating_tip = f"\n★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setToolTip(
-                f"Score: {sc.score:.2f}\n"
+                f"Score: {sc.score:.2f}{rating_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}\n"
                 f"Keywords: {', '.join(sc.matching_keywords) or '—'}"
             )
             item.setSizeHint(QSize(0, 32))
             self._rec_list.addItem(item)
-            row = _RecRow(sc.channel_id, text, self.config)
-            row.dislike_btn.clicked.connect(
-                lambda checked, cid=sc.channel_id: self.ratingRequested.emit(cid, -1)
+            row = _RecRow(sc.channel_id, text, self.config, already_liked=sc.already_liked)
+            row.dislikeClicked.connect(
+                lambda cid=sc.channel_id: self.ratingRequested.emit(cid, -1)
             )
+            row.notInterestedClicked.connect(
+                lambda cid=sc.channel_id: self.notInterestedRequested.emit(cid)
+            )
+            row.contextMenuRequested.connect(self.channelContextMenuRequested)
             self._rec_list.setItemWidget(item, row)
 
     def _on_rec_context_menu(self, pos) -> None:

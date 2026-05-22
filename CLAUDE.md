@@ -22,6 +22,7 @@ metatv/
 │   └── repositories/
 │       ├── channel.py   # Channel queries
 │       ├── epg.py       # EPG programme queries (current, watchlist, browse, search)
+│       ├── queue.py     # Watch queue CRUD (QueueEntry, WatchQueueRepository)
 │       └── provider.py  # Provider queries
 ├── gui/                # PyQt6 UI components
 │   ├── main_window.py       # Three-panel main window + chip nav
@@ -29,9 +30,10 @@ metatv/
 │   ├── events_view.py       # Live events view
 │   ├── sports_view.py       # Sports events view
 │   ├── sports_filter_bar.py # Sport/league filter chips
+│   ├── preferences_view.py  # Preference dashboard (attribute weights + recommendations)
 │   ├── provider_editor.py   # Provider add/edit form
 │   ├── settings_dialog.py   # App settings
-│   ├── sidebar_sections.py  # CollapsibleSection base + sections
+│   ├── sidebar_sections.py  # CollapsibleSection base + sections (queue, recs, alerts, favorites, history)
 │   ├── details_pane.py      # Right panel with metadata display
 │   └── notification_widget.py
 ├── providers/          # IPTV source plugins

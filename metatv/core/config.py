@@ -57,8 +57,10 @@ class Config(BaseModel):
     rating_star_icon: str = "★"        # Star used in content rating display
     like_icon: str = "👍"              # Like / positive rating
     dislike_icon: str = "👎"           # Dislike / negative rating
-    hide_icon: str = "🚫"              # Hide / suppress content
+    not_interested_icon: str = "🙅"    # Not Interested — suppress from recommendations only
+    hide_icon: str = "🚫"              # Hide channel from all views
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
+    queue_icon: str = "📋"             # Watch Queue section / action
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
@@ -78,8 +80,8 @@ class Config(BaseModel):
     font_size: int = 0  # 0 = system default
     
     # Sidebar Configuration
-    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "favorites", "history", "sources"])  # Order of sections
-    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "favorites", "history", "sources"])  # Which sections to show
+    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "queue", "recommended", "favorites", "history", "sources"])
+    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "queue", "recommended", "favorites", "history", "sources"])
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
@@ -222,9 +224,26 @@ class Config(BaseModel):
     details_pane_width: int = 400  # Width of details pane in pixels
     details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
     
+    def _inject_new_sections(self) -> None:
+        """Insert newly added sidebar sections into existing configs that predate them."""
+        new_sections = ["queue", "recommended"]
+        changed = False
+        for sid in new_sections:
+            if sid not in self.sidebar_sections:
+                # Insert after "alerts" if present, otherwise at index 0
+                idx = self.sidebar_sections.index("alerts") + 1 if "alerts" in self.sidebar_sections else 0
+                self.sidebar_sections.insert(idx, sid)
+                changed = True
+            if sid not in self.sidebar_visible_sections:
+                idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
+                self.sidebar_visible_sections.insert(idx, sid)
+                changed = True
+        if changed:
+            self.save()
+
     class Config:
         arbitrary_types_allowed = True
-    
+
     @classmethod
     def load(cls) -> "Config":
         """Load configuration from file or create default"""
@@ -236,10 +255,12 @@ class Config(BaseModel):
                 with open(config_file) as f:
                     data = yaml.safe_load(f) or {}
                 logger.info(f"Loaded config from {config_file}")
-                return cls(**data)
+                config = cls(**data)
+                config._inject_new_sections()
+                return config
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
-        
+
         # Create default config
         config = cls()
         config.save()

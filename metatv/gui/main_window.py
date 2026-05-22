@@ -26,7 +26,8 @@ from metatv.gui.notification_widget import NotificationWidget
 from metatv.gui.provider_editor import ProviderEditorView
 from metatv.gui.sidebar_sections import (
     SourcesSection, WatchAlertsSection,
-    HistorySection, FavoritesSection
+    HistorySection, FavoritesSection,
+    RecommendedSection, WatchQueueSection,
 )
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
@@ -77,7 +78,8 @@ class MainWindow(QMainWindow):
         self.watched_icon = config.watched_icon
         self.rating_star_icon = config.rating_star_icon
         self.history_icon = config.history_icon
-        
+        self.queue_icon = config.queue_icon
+
         # Store active threads to prevent garbage collection
         self.active_threads = []
         
@@ -127,7 +129,9 @@ class MainWindow(QMainWindow):
         self.load_providers()
         self.load_favorites()
         self.load_history()
-        
+        self._refresh_queue_section()
+        self._refresh_recommended_section()
+
         # Auto-load channels from all active providers on startup
         self.load_channels()
         
@@ -187,6 +191,8 @@ class MainWindow(QMainWindow):
         self.details_pane = DetailsPaneWidget(self.config, self.image_cache, self.db)
         self.details_pane.play_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
+        self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
+        self.details_pane.rating_requested.connect(self._toggle_rating)
         self.main_splitter.addWidget(self.details_pane)
 
         # Center panel gets all extra space when window is resized
@@ -313,7 +319,23 @@ class MainWindow(QMainWindow):
                 lambda pos: self.show_favorites_context_menu(pos, section.favorites_list)
             )
             return section
-        
+
+        elif section_id == "recommended":
+            section = RecommendedSection(self.config, self.db, self)
+            section.itemSelected.connect(self._on_rec_sidebar_selected)
+            section.itemDoubleClicked.connect(self.play_channel_by_id)
+            section.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
+            return section
+
+        elif section_id == "queue":
+            section = WatchQueueSection(self.config, self.db, self)
+            section.itemSelected.connect(self.show_channel_details_by_id)
+            section.itemDoubleClicked.connect(self.play_queue_item_id)
+            section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
+            section.clearQueueClicked.connect(self._clear_queue)
+            section.clearWatchedClicked.connect(self._clear_watched_queue)
+            return section
+
         return None
     
     def refresh_sidebar(self):
@@ -371,6 +393,7 @@ class MainWindow(QMainWindow):
             session.close()
         if self.view_mode == "preferences":
             self.preferences_view.refresh()
+        self._refresh_recommended_section()
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
         session = self.db.get_session()
@@ -395,6 +418,18 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
 
+    def _not_interested(self, channel_id: str) -> None:
+        """Suppress channel from recommendations only — does not hide it from browsing."""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.channels.set_rec_suppressed(channel_id, True)
+            session.commit()
+        finally:
+            session.close()
+        self.preferences_view.refresh()
+        self._refresh_recommended_section()
+
     def _hide_channel_from_recommendations(self, channel_id: str) -> None:
         session = self.db.get_session()
         try:
@@ -404,9 +439,122 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
         self.preferences_view.refresh()
+        self._refresh_recommended_section()
         self.load_channels()
 
-    def _on_rec_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
+    # --- Recommended sidebar helpers ---
+
+    def _on_rec_sidebar_selected(self, channel_id: str, reason: str) -> None:
+        self.show_channel_details_by_id(channel_id)
+        self.details_pane.set_recommendation_reason(reason)
+
+    def _refresh_recommended_section(self) -> None:
+        section = self.sidebar_sections.get("recommended")
+        if section:
+            section.refresh()
+
+    # --- Watch Queue helpers ---
+
+    def _add_to_queue(self, channel_id: str) -> None:
+        from metatv.core.database import ChannelDB
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            ch = session.get(ChannelDB, channel_id)
+            repos.queue.add(
+                channel_id,
+                channel_name=ch.name if ch else "",
+                media_type=ch.media_type if ch else "",
+                source_id=ch.source_id if ch else "",
+            )
+            session.commit()
+        finally:
+            session.close()
+        self._refresh_queue_section()
+
+    def _remove_from_queue(self, channel_id: str) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            repos.queue.remove(channel_id)
+            session.commit()
+        finally:
+            session.close()
+        self._refresh_queue_section()
+
+    def _refresh_queue_section(self) -> None:
+        section = self.sidebar_sections.get("queue")
+        if section:
+            section.refresh()
+
+    def _clear_queue(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Clear Queue",
+            "Are you sure you want to clear the watch queue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            session = self.db.get_session()
+            try:
+                repos = RepositoryFactory(session)
+                repos.queue.clear()
+                session.commit()
+            finally:
+                session.close()
+            self._refresh_queue_section()
+
+    def _clear_watched_queue(self) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            count = repos.queue.clear_watched()
+            session.commit()
+        finally:
+            session.close()
+        self._refresh_queue_section()
+        if count:
+            self.status_bar.showMessage(f"Removed {count} watched item(s) from queue")
+
+    def play_queue_item_id(self, channel_id: str) -> None:
+        """Play a queue item — series opens the season view, others play directly."""
+        from metatv.core.models import MediaType
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+        finally:
+            session.close()
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel)
+
+    def _on_details_queue_toggle(self, channel_id: str) -> None:
+        """Handle queue toggle from the details pane button."""
+        from metatv.core.database import ChannelDB
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            if repos.queue.is_queued(channel_id):
+                repos.queue.remove(channel_id)
+            else:
+                ch = session.get(ChannelDB, channel_id)
+                repos.queue.add(
+                    channel_id,
+                    channel_name=ch.name if ch else "",
+                    media_type=ch.media_type if ch else "",
+                    source_id=ch.source_id if ch else "",
+                )
+            session.commit()
+        finally:
+            session.close()
+        self._refresh_queue_section()
+
+    def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
         from PyQt6.QtCore import QPoint
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
@@ -425,8 +573,67 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
 
         play_act = QAction(f"{self.config.play_icon} Play", self)
+        play_act.triggered.connect(lambda: self.play_queue_item_id(channel_id))
+        menu.addAction(play_act)
+
+        menu.addSeparator()
+
+        remove_act = QAction(f"{self.config.queue_icon} Remove from Queue", self)
+        remove_act.triggered.connect(lambda: self._remove_from_queue(channel_id))
+        menu.addAction(remove_act)
+
+        menu.addSeparator()
+
+        fav_act = QAction(f"{self.config.favorite_icon} Add to Favorites", self)
+        fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
+        menu.addAction(fav_act)
+
+        if channel.media_type in ("movie", "series"):
+            menu.addSeparator()
+            like_act = QAction(f"{self.config.like_icon} Like", self)
+            like_act.setCheckable(True)
+            like_act.setChecked(current_rating == 1)
+            like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
+            menu.addAction(like_act)
+
+            dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+            dislike_act.setCheckable(True)
+            dislike_act.setChecked(current_rating == -1)
+            dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
+            menu.addAction(dislike_act)
+
+        menu.exec(QPoint(gx, gy))
+
+    def _on_rec_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        from metatv.core.database import UserRatingDB
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return
+            rating_row = session.get(UserRatingDB, channel_id)
+            current_rating = rating_row.rating if rating_row else 0
+            in_queue = repos.queue.is_queued(channel_id)
+        finally:
+            session.close()
+
+        menu = QMenu(self)
+
+        play_act = QAction(f"{self.config.play_icon} Play", self)
         play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
         menu.addAction(play_act)
+
+        queue_act = QAction(
+            f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+        )
+        queue_act.triggered.connect(
+            lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
+        )
+        menu.addAction(queue_act)
 
         menu.addSeparator()
 
@@ -443,6 +650,10 @@ class MainWindow(QMainWindow):
         menu.addAction(dislike_act)
 
         menu.addSeparator()
+
+        not_interested_act = QAction(f"{self.config.not_interested_icon} Not Interested", self)
+        not_interested_act.triggered.connect(lambda: self._not_interested(channel_id))
+        menu.addAction(not_interested_act)
 
         hide_act = QAction(f"{self.config.hide_icon} Hide channel", self)
         hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
@@ -645,6 +856,7 @@ class MainWindow(QMainWindow):
         self.preferences_view.playRequested.connect(self.play_channel_by_id)
         self.preferences_view.channelSelected.connect(self.show_channel_details_by_id)
         self.preferences_view.ratingRequested.connect(self._toggle_rating)
+        self.preferences_view.notInterestedRequested.connect(self._not_interested)
         self.preferences_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.preferences_view.setVisible(False)
         self.content_layout.addWidget(self.preferences_view)
@@ -1325,6 +1537,15 @@ class MainWindow(QMainWindow):
             play_action.triggered.connect(lambda: self.play_from_history(item))
             menu.addAction(play_action)
 
+            in_queue = repos.queue.is_queued(channel_id)
+            queue_act = QAction(
+                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+            )
+            queue_act.triggered.connect(
+                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
+            )
+            menu.addAction(queue_act)
+
             menu.addSeparator()
 
             hide_action = QAction(f"{self.hide_icon} Hide channel", self)
@@ -1480,6 +1701,15 @@ class MainWindow(QMainWindow):
             play_action.triggered.connect(lambda: self.play_favorite(item))
             menu.addAction(play_action)
 
+            in_queue = repos.queue.is_queued(channel_id)
+            queue_act = QAction(
+                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+            )
+            queue_act.triggered.connect(
+                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
+            )
+            menu.addAction(queue_act)
+
             if channel.media_type in ("movie", "series"):
                 menu.addSeparator()
                 current_rating = repos.ratings.get(channel.id)
@@ -1499,7 +1729,7 @@ class MainWindow(QMainWindow):
             menu.exec(list_widget.mapToGlobal(position))
         finally:
             session.close()
-    
+
     def show_channel_context_menu(self, position):
         """Show context menu for channel list"""
         item = self.channels_list.itemAt(position)
@@ -1529,10 +1759,19 @@ class MainWindow(QMainWindow):
             menu.addAction(fav_action)
             
             menu.addSeparator()
-            
+
             play_action = QAction("Play", self)
             play_action.triggered.connect(lambda: self.play_channel(item))
             menu.addAction(play_action)
+
+            in_queue = repos.queue.is_queued(channel_id)
+            queue_act = QAction(
+                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+            )
+            queue_act.triggered.connect(
+                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
+            )
+            menu.addAction(queue_act)
 
             menu.addSeparator()
 

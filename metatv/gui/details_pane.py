@@ -64,6 +64,17 @@ from metatv.gui.epg_agenda_widget import EpgAgendaWidget
 from metatv.metadata_providers.base import MetadataResult
 
 
+def _pref_signal(name: str, weights, attr: str) -> str:
+    """Return HTML indicator for a person based on their preference weight."""
+    d = getattr(weights, attr, {})
+    score = d.get(name, 0.0)
+    if score > 0.3:
+        return '<span style="color:#4caf50">▲ </span>'
+    if score < -0.3:
+        return '<span style="color:#f44336">▼ </span>'
+    return ''
+
+
 class DetailsPaneWidget(QWidget):
     """Right-side details pane showing channel metadata
     
@@ -75,9 +86,11 @@ class DetailsPaneWidget(QWidget):
     """
     
     # Signals
-    play_requested = pyqtSignal(str)  # channel_id
-    favorite_toggled = pyqtSignal(str)  # channel_id
-    
+    play_requested   = pyqtSignal(str)       # channel_id
+    favorite_toggled = pyqtSignal(str)       # channel_id
+    queue_toggled    = pyqtSignal(str)       # channel_id — add/remove queue
+    rating_requested = pyqtSignal(str, int)  # channel_id, ±1
+
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
         self.config = config
@@ -87,6 +100,8 @@ class DetailsPaneWidget(QWidget):
         self.current_metadata = None
         self.provider_urls = []  # Alternative URLs for image failover
         self._provider_map: dict = {}  # provider_id → {"icon": str, "name": str}
+        self._in_queue: bool = False
+        self._current_rating: int = 0
 
         self.setup_ui()
         
@@ -236,6 +251,32 @@ class DetailsPaneWidget(QWidget):
         meta_row.addWidget(self.runtime_label)
 
         meta_row.addStretch()
+
+        _RATING_BTN_STYLE = """
+            QPushButton { border: none; border-radius: 3px; padding: 2px; }
+            QPushButton:checked { background: rgba(255,255,255,0.18); }
+            QPushButton:hover   { background: rgba(255,255,255,0.10); }
+        """
+        self.like_button = QPushButton(self.config.like_icon)
+        self.like_button.setFixedSize(28, 22)
+        self.like_button.setCheckable(True)
+        self.like_button.setFlat(True)
+        self.like_button.setToolTip("Like")
+        self.like_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.like_button.clicked.connect(self._on_like_clicked)
+        self.like_button.hide()
+        meta_row.addWidget(self.like_button)
+
+        self.dislike_button = QPushButton(self.config.dislike_icon)
+        self.dislike_button.setFixedSize(28, 22)
+        self.dislike_button.setCheckable(True)
+        self.dislike_button.setFlat(True)
+        self.dislike_button.setToolTip("Dislike")
+        self.dislike_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.dislike_button.clicked.connect(self._on_dislike_clicked)
+        self.dislike_button.hide()
+        meta_row.addWidget(self.dislike_button)
+
         self.content_layout.addWidget(self._meta_row_widget)
 
         # Source badge (provider name + icon) and adult indicator on the same row
@@ -261,25 +302,40 @@ class DetailsPaneWidget(QWidget):
         self.genres_label.setStyleSheet("color: lightblue;")
         self.content_layout.addWidget(self.genres_label)
 
-        # Action buttons
-        self._current_epg_show_title: str = ""
-        buttons_layout = QHBoxLayout()
+        # Recommendation reason — shown only when item selected from a rec surface
+        self.rec_reason_label = QLabel()
+        self.rec_reason_label.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic;")
+        self.rec_reason_label.setWordWrap(True)
+        self.rec_reason_label.hide()
+        self.content_layout.addWidget(self.rec_reason_label)
 
+        # Action buttons — 3 semantic rows
+        self._current_epg_show_title: str = ""
+
+        # Row 1: Watch actions (always visible)
+        row1 = QHBoxLayout()
         self.play_button = QPushButton(f"{self.config.play_icon} Play")
         self.play_button.clicked.connect(self._on_play_clicked)
-        buttons_layout.addWidget(self.play_button, 1)
+        row1.addWidget(self.play_button, 1)
 
+        self.queue_button = QPushButton(f"{self.config.queue_icon} Add to Queue")
+        self.queue_button.clicked.connect(self._on_queue_clicked)
+        row1.addWidget(self.queue_button, 1)
+        self.content_layout.addLayout(row1)
+
+        # Row 2: Library actions
+        row2 = QHBoxLayout()
         self.favorite_button = QPushButton()
         self.favorite_button.clicked.connect(self._on_favorite_clicked)
-        buttons_layout.addWidget(self.favorite_button, 1)
+        row2.addWidget(self.favorite_button, 1)
 
         self.watchlist_button = QPushButton("+ Watchlist")
         self.watchlist_button.setToolTip("Add current show to watchlist patterns")
         self.watchlist_button.clicked.connect(self._on_watchlist_clicked)
         self.watchlist_button.hide()  # shown only for live channels with EPG data
-        buttons_layout.addWidget(self.watchlist_button, 1)
+        row2.addWidget(self.watchlist_button, 1)
+        self.content_layout.addLayout(row2)
 
-        self.content_layout.addLayout(buttons_layout)
     
     def create_plot_section(self):
         """Create plot/description section"""
@@ -389,8 +445,11 @@ class DetailsPaneWidget(QWidget):
         # Configure layout for channel type (before clearing so flicker is minimised)
         self._configure_for_live(is_live)
 
-        # Clear previous state
+        # Clear previous state (also clears rec reason label)
         self._clear_display()
+
+        # Load queue/rating state for action buttons
+        self._load_action_state(channel.id)
 
         # Country/category info for live channels (after clear so it isn't hidden again)
         if is_live:
@@ -462,6 +521,7 @@ class DetailsPaneWidget(QWidget):
         self.source_label.hide()
         self.adult_indicator.hide()
         self._country_info_lbl.hide()
+        self.rec_reason_label.hide()
 
         self.poster_loading.hide()
         self.plot_loading.hide()
@@ -486,6 +546,10 @@ class DetailsPaneWidget(QWidget):
         # Live-only elements
         self._live_header.setVisible(is_live)
         self.watchlist_button.setVisible(is_live)
+
+        # Like/Dislike only for movies/series
+        self.like_button.setVisible(not is_live)
+        self.dislike_button.setVisible(not is_live)
 
         # Title font: larger for live since it's the channel name without other context
         if is_live:
@@ -619,29 +683,55 @@ class DetailsPaneWidget(QWidget):
             self.poster_label.setText("No poster available")
             logger.debug("No poster URL available")
         
+        # Load preference weights once for director/cast annotation
+        _weights = None
+        if self._db:
+            from metatv.core.preference_engine import compute_weights
+            _wt_sess = self._db.get_session()
+            try:
+                _w = compute_weights(_wt_sess)
+                _weights = None if _w.is_empty() else _w
+            except Exception:
+                pass
+            finally:
+                _wt_sess.close()
+
         # Technical details
         tech_parts = []
         if metadata.release_date:
             tech_parts.append(f"<b>Release Date:</b> {metadata.release_date}")
         if metadata.content_rating:
-            tech_parts.append(f"<b>Rating:</b> {metadata.content_rating}")
+            tech_parts.append(f"<b>Content Rating:</b> {metadata.content_rating}")
         if metadata.director:
-            tech_parts.append(f"<b>Director:</b> {metadata.director}")
+            if _weights:
+                from metatv.core.preference_engine import _split_directors
+                dir_parts = [
+                    f"{_pref_signal(d, _weights, 'directors')}{d}"
+                    for d in _split_directors(metadata.director)
+                ]
+                dir_str = ", ".join(dir_parts)
+            else:
+                dir_str = metadata.director
+            tech_parts.append(f"<b>Director:</b> {dir_str}")
         if metadata.tmdb_id:
             tech_parts.append(f"<b>TMDb ID:</b> {metadata.tmdb_id}")
-        
+
         if tech_parts:
             self.tech_details_label.setText("<br>".join(tech_parts))
             logger.debug(f"Technical details: {len(tech_parts)} fields")
         else:
             logger.debug("No technical details available")
-        
-        # Cast
+
+        # Cast — annotate with preference signals if weights available
         if metadata.cast:
-            cast_names = [actor.get('name', 'Unknown') for actor in metadata.cast[:10]]  # First 10
-            if cast_names:
-                self.cast_label.setText(", ".join(cast_names))
-                logger.debug(f"Cast: {len(cast_names)} actors")
+            parts = []
+            for actor in metadata.cast[:10]:
+                name = actor.get('name', 'Unknown') if isinstance(actor, dict) else str(actor)
+                sig = _pref_signal(name, _weights, 'actors') if _weights else ''
+                parts.append(f"{sig}{name}")
+            if parts:
+                self.cast_label.setText(", ".join(parts))
+                logger.debug(f"Cast: {len(parts)} actors")
         else:
             logger.debug("No cast available")
     
@@ -718,3 +808,55 @@ class DetailsPaneWidget(QWidget):
         """Handle favorite button click"""
         if self.current_channel:
             self.favorite_toggled.emit(self.current_channel.id)
+
+    def _on_queue_clicked(self):
+        if self.current_channel:
+            self._in_queue = not self._in_queue
+            self._update_action_buttons()
+            self.queue_toggled.emit(self.current_channel.id)
+
+    def _on_like_clicked(self):
+        if self.current_channel:
+            new_rating = 0 if self._current_rating == 1 else 1
+            self._current_rating = new_rating
+            self._update_action_buttons()
+            self.rating_requested.emit(self.current_channel.id, 1)
+
+    def _on_dislike_clicked(self):
+        if self.current_channel:
+            new_rating = 0 if self._current_rating == -1 else -1
+            self._current_rating = new_rating
+            self._update_action_buttons()
+            self.rating_requested.emit(self.current_channel.id, -1)
+
+    def _load_action_state(self, channel_id: str) -> None:
+        """Query DB for queue and rating state, then update button display."""
+        self._in_queue = False
+        self._current_rating = 0
+        if self._db:
+            from metatv.core.repositories import RepositoryFactory
+            session = self._db.get_session()
+            try:
+                repos = RepositoryFactory(session)
+                self._in_queue = repos.queue.is_queued(channel_id)
+                self._current_rating = repos.ratings.get(channel_id) or 0
+            finally:
+                session.close()
+        self._update_action_buttons()
+
+    def _update_action_buttons(self) -> None:
+        """Refresh button labels and checked states from cached _in_queue / _current_rating."""
+        self.queue_button.setText(
+            f"{self.config.queue_icon} Remove from Queue" if self._in_queue
+            else f"{self.config.queue_icon} Add to Queue"
+        )
+        self.like_button.setChecked(self._current_rating == 1)
+        self.dislike_button.setChecked(self._current_rating == -1)
+
+    def set_recommendation_reason(self, reason: str | None) -> None:
+        """Show or hide the 'Recommended because …' label."""
+        if reason:
+            self.rec_reason_label.setText(f"{self.config.preferences_icon} Recommended: {reason}")
+            self.rec_reason_label.show()
+        else:
+            self.rec_reason_label.hide()

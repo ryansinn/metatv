@@ -35,8 +35,9 @@ class ChannelDB(Base):
     metadata_id = Column(String, index=True)
     
     is_favorite = Column(Boolean, default=False, index=True)
-    is_hidden = Column(Boolean, default=False, index=True)
+    is_hidden = Column(Boolean, default=False, index=True)  # hidden from all views
     is_adult = Column(Boolean, default=False, index=True)
+    is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
     last_played = Column(DateTime)
     play_count = Column(Integer, default=0)
 
@@ -276,6 +277,19 @@ class UserRatingDB(Base):
     rated_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class WatchQueueDB(Base):
+    """Ordered watch queue — content the user wants to watch soon."""
+    __tablename__ = "watch_queue"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    channel_id   = Column(String, nullable=False)            # no FK — channels may be replaced on refresh
+    channel_name = Column(String, nullable=False, default="")  # denormalized — survives channel ID changes
+    media_type   = Column(String, nullable=False, default="")  # "movie", "series", "live"
+    source_id    = Column(String, nullable=False, default="")  # provider's native stream ID (fallback lookup)
+    position     = Column(Integer, nullable=False, default=0)
+    added_at     = Column(DateTime, default=datetime.utcnow)
+
+
 class Database:
     """Database connection manager"""
 
@@ -315,9 +329,13 @@ class Database:
             ("providers", "epg_url",             "TEXT DEFAULT ''"),
             ("providers", "force_adult",          "INTEGER DEFAULT 0"),
             ("channels",  "is_adult",             "INTEGER DEFAULT 0"),
-            ("providers", "epg_last_fetched",          "DATETIME"),
-            ("providers", "epg_data_end",              "DATETIME"),
-            ("providers", "epg_refresh_hours_before",  "INTEGER DEFAULT 48"),
+            ("providers",    "epg_last_fetched",         "DATETIME"),
+            ("providers",    "epg_data_end",             "DATETIME"),
+            ("providers",    "epg_refresh_hours_before", "INTEGER DEFAULT 48"),
+            ("watch_queue",  "channel_name",             "TEXT NOT NULL DEFAULT ''"),
+            ("watch_queue",  "media_type",               "TEXT NOT NULL DEFAULT ''"),
+            ("watch_queue",  "source_id",                "TEXT NOT NULL DEFAULT ''"),
+            ("channels",     "is_rec_suppressed",        "INTEGER DEFAULT 0"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

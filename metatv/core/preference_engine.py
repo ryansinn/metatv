@@ -68,15 +68,17 @@ class AttributeWeights:
 @dataclass
 class ScoredChannel:
     """A candidate recommendation with its computed match score."""
-    channel_id:       str
-    channel_name:     str
-    media_type:       str
-    score:            float
-    matching_genres:  list[str]
+    channel_id:        str
+    channel_name:      str
+    media_type:        str
+    score:             float
+    matching_genres:   list[str]
     matching_keywords: list[str]
-    director:         str | None
-    poster_url:       str | None
-    reason:           str  # e.g. "Action, Nolan, +heist"
+    director:          str | None
+    poster_url:        str | None
+    reason:            str          # e.g. "Action, Nolan, +heist"
+    already_liked:     bool = False  # user has given this a thumbs-up
+    metadata_rating:   float | None = None  # TMDb/OMDb score (0–10)
 
 
 def extract_keywords(plot: str) -> list[str]:
@@ -113,7 +115,17 @@ def compute_weights(session) -> AttributeWeights:
     from metatv.core.database import UserRatingDB, ChannelDB, MetadataDB
 
     ratings = session.query(UserRatingDB).all()
-    if not ratings:
+
+    # Include favorites as implicit +0.5 signals (they shaped the user's taste
+    # even if never explicitly rated).
+    rated_channel_ids = {r.channel_id for r in ratings}
+    favorites = [
+        ch for ch in session.query(ChannelDB)
+        .filter(ChannelDB.is_favorite == True, ChannelDB.metadata_id.isnot(None)).all()  # noqa: E712
+        if ch.id not in rated_channel_ids
+    ]
+
+    if not ratings and not favorites:
         return AttributeWeights()
 
     weights = AttributeWeights(
@@ -126,15 +138,21 @@ def compute_weights(session) -> AttributeWeights:
     idf = build_idf(all_plots)
     logger.debug(f"Preference engine: IDF corpus = {len(all_plots)} plots, {len(idf)} unique terms")
 
+    # Build a combined signal list: (channel, sig) pairs
+    signal_pairs: list[tuple] = []
     for r in ratings:
-        channel = session.get(ChannelDB, r.channel_id)
+        ch = session.get(ChannelDB, r.channel_id)
+        if ch:
+            signal_pairs.append((ch, float(r.rating)))
+    for ch in favorites:
+        signal_pairs.append((ch, 0.5))  # implicit moderate positive signal
+
+    for channel, sig in signal_pairs:
         if not channel or not channel.metadata_id:
             continue
         meta = session.get(MetadataDB, channel.metadata_id)
         if not meta:
             continue
-
-        sig = float(r.rating)  # +1.0 or -1.0
 
         # Level 1 — structured attributes
         for genre in _split_genres(_loads(meta.genres) or []):
@@ -166,23 +184,43 @@ def compute_weights(session) -> AttributeWeights:
 
 
 def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> list[ScoredChannel]:
-    """Score all unrated movies/series by user preference weights.
+    """Score movies/series by user preference weights.
 
-    Returns a ranked list of recommendations, highest score first.
-    Channels without MetadataDB or with score <= 0 are excluded.
+    Exclusion rules:
+    - Disliked (rating < 0) → always excluded
+    - Already watched (last_played set) → excluded; recommendation served its purpose
+    - Liked but not yet watched → kept, with already_liked=True; capped at 5 of the limit slots
+
+    Returns a ranked list, highest score first.
     """
+    from datetime import datetime
     from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
 
     if weights.is_empty():
         return []
 
-    rated_ids = {r.channel_id for r in session.query(UserRatingDB).all()}
+    disliked_ids: set[str] = {
+        r.channel_id for r in session.query(UserRatingDB)
+        .filter(UserRatingDB.rating < 0).all()
+    }
+    # Explicitly liked items (sort newer first)
+    liked_map: dict[str, datetime] = {
+        r.channel_id: r.rated_at for r in session.query(UserRatingDB)
+        .filter(UserRatingDB.rating > 0).all()
+    }
+    # Favorited items are excluded from the recommendations list — the user already
+    # has them; surfacing them again would be redundant.
+    favorite_ids: set[str] = {
+        ch.id for ch in session.query(ChannelDB)
+        .filter(ChannelDB.is_favorite == True).all()  # noqa: E712
+    }
 
     candidates = (
         session.query(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
+            ChannelDB.is_rec_suppressed == False,  # noqa: E712
             ChannelDB.metadata_id.isnot(None),
         )
         .all()
@@ -190,7 +228,11 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
 
     scored: list[ScoredChannel] = []
     for channel in candidates:
-        if channel.id in rated_ids:
+        if channel.id in disliked_ids:
+            continue
+        if channel.id in favorite_ids:  # already in favorites — no need to surface again
+            continue
+        if channel.last_played:  # already watched — recommendation done
             continue
         meta = session.get(MetadataDB, channel.metadata_id)
         if not meta:
@@ -237,10 +279,23 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
             director=meta.director,
             poster_url=meta.poster_url,
             reason=", ".join(parts) or "Attribute match",
+            already_liked=channel.id in liked_map,
+            metadata_rating=meta.rating,
         ))
 
     scored.sort(key=lambda s: s.score, reverse=True)
-    return scored[:limit]
+
+    # Cap already-liked items at 5 slots (newest-liked first) so they don't crowd
+    # out new discoveries. Remaining slots go to fresh (unrated) content.
+    liked_results = sorted(
+        [sc for sc in scored if sc.already_liked],
+        key=lambda sc: liked_map.get(sc.channel_id, datetime.min),
+        reverse=True,
+    )
+    fresh_results = [sc for sc in scored if not sc.already_liked]
+    liked_cap = min(5, len(liked_results))
+    merged = liked_results[:liked_cap] + fresh_results[:limit - liked_cap]
+    return merged[:limit]
 
 
 def _split_names(value: str) -> list[str]:
