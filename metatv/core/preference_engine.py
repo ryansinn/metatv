@@ -40,6 +40,29 @@ STOP_WORDS: frozenset[str] = frozenset({
     "full", "home", "last", "next", "year", "play", "live", "turn",
     "move", "hand", "work", "down", "away", "again", "being", "still",
     "choice", "together",
+    "everything", "something", "anything", "nothing", "someone", "anyone",
+    "everyone", "nobody", "somebody", "noone", "none", "nowhere",
+    "wherever", "whenever", "whatever",
+    "however", "although", "because", "though", "since", "until", "unless",
+    "place", "people", "things", "thing", "ways", "kind", "sort", "type",
+    "every", "never", "always", "often", "later", "early", "maybe", "perhaps",
+    "around", "against", "within", "without", "across", "along", "behind",
+    "beneath", "beyond", "inside", "outside", "under", "above", "below",
+    # Plot-pacing adverbs
+    "abruptly", "suddenly", "eventually", "quickly", "slowly",
+    # Plot-arc verbs — describe story structure, not preference
+    "discover", "reveal", "escape", "return", "realize",
+    "struggle", "decide", "learn", "begin", "attempt",
+    # Generic social/group nouns
+    "population", "community", "society", "crowd",
+    "family", "party", "member", "leader", "fellow",
+    # Vague adjectives that appear across all genres
+    "wealthy", "dangerous", "mysterious", "powerful", "ancient",
+    "deadly", "unlikely", "hidden", "unknown", "legendary",
+    "famous", "local", "former",
+    # Broad nouns — too generic to carry preference signal
+    "world", "drama", "system", "force", "power",
+    "journey", "quest", "mission", "battle",
 })
 
 MAX_CORPUS_FREQ: float = 0.35  # drop words appearing in >35% of all plots
@@ -79,6 +102,7 @@ class ScoredChannel:
     reason:            str          # e.g. "Action, Nolan, +heist"
     already_liked:     bool = False  # user has given this a thumbs-up
     metadata_rating:   float | None = None  # TMDb/OMDb score (0–10)
+    rec_shown_count:   int = 0       # total impression count (for tooltip + decay)
 
 
 def extract_keywords(plot: str) -> list[str]:
@@ -183,18 +207,22 @@ def compute_weights(session) -> AttributeWeights:
     return weights
 
 
-def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> list[ScoredChannel]:
+def score_candidates(session, weights: AttributeWeights, limit: int = 30,
+                     muted_attrs: dict | None = None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
     - Disliked (rating < 0) → always excluded
+    - Hidden (is_hidden) → excluded
+    - Rec-suppressed (is_rec_suppressed) → excluded
     - Already watched (last_played set) → excluded; recommendation served its purpose
-    - Liked but not yet watched → kept, with already_liked=True; capped at 5 of the limit slots
+    - Currently in Watch Queue → excluded; user already queued it
+    - Currently in Favorites → excluded (capped at 5 liked-but-unwatched items)
 
     Returns a ranked list, highest score first.
     """
     from datetime import datetime
-    from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
+    from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB
 
     if weights.is_empty():
         return []
@@ -214,6 +242,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
         ch.id for ch in session.query(ChannelDB)
         .filter(ChannelDB.is_favorite == True).all()  # noqa: E712
     }
+    queued_ids: set[str] = {
+        row.channel_id for row in session.query(WatchQueueDB).all()
+    }
 
     candidates = (
         session.query(ChannelDB)
@@ -232,6 +263,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
             continue
         if channel.id in favorite_ids:  # already in favorites — no need to surface again
             continue
+        if channel.id in queued_ids:   # already in watch queue — user knows about it
+            continue
         if channel.last_played:  # already watched — recommendation done
             continue
         meta = session.get(MetadataDB, channel.metadata_id)
@@ -242,18 +275,29 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
         cast   = _loads(meta.cast)   or []
         kws    = extract_keywords(meta.plot) if meta.plot else []
 
-        genre_score   = sum(weights.genres.get(g, 0.0) for g in genres)
-        dir_score     = sum(weights.directors.get(d, 0.0) for d in _split_directors(meta.director)) if meta.director else 0.0
+        _muted       = muted_attrs or {}
+        muted_genres = set(_muted.get("genres",    []))
+        muted_dirs   = set(_muted.get("directors", []))
+        muted_actors = set(_muted.get("actors",    []))
+        muted_kws    = set(_muted.get("keywords",  []))
+
+        genre_score   = sum(weights.genres.get(g, 0.0) for g in genres if g not in muted_genres)
+        dir_score     = sum(weights.directors.get(d, 0.0) for d in _split_directors(meta.director)
+                            if d not in muted_dirs) if meta.director else 0.0
         actor_score   = sum(
             weights.actors.get(p.get("name", ""), 0.0)
             for p in cast[:5]
-            if isinstance(p, dict)
+            if isinstance(p, dict) and p.get("name", "") not in muted_actors
         )
-        keyword_score = sum(weights.keywords.get(k, 0.0) for k in kws) * 0.4
+        keyword_score = sum(weights.keywords.get(k, 0.0) for k in kws if k not in muted_kws) * 0.4
 
         total = genre_score + dir_score + actor_score + keyword_score
         if total <= 0:
             continue
+
+        shown = getattr(channel, 'rec_shown_count', 0) or 0
+        if shown > 0:
+            total *= max(0.4, 1.0 - shown * 0.04)  # -4% per impression, floor at 40%
 
         match_genres = [g for g in genres if weights.genres.get(g, 0.0) > 0]
         match_kws = sorted(
@@ -281,6 +325,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
             reason=", ".join(parts) or "Attribute match",
             already_liked=channel.id in liked_map,
             metadata_rating=meta.rating,
+            rec_shown_count=getattr(channel, 'rec_shown_count', 0) or 0,
         ))
 
     scored.sort(key=lambda s: s.score, reverse=True)
@@ -296,6 +341,25 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30) -> lis
     liked_cap = min(5, len(liked_results))
     merged = liked_results[:liked_cap] + fresh_results[:limit - liked_cap]
     return merged[:limit]
+
+
+def record_impressions(session, channel_ids: list[str], cooldown_minutes: int = 60) -> None:
+    """Increment rec_shown_count for each channel, deduplicated within a cooldown window.
+
+    Channels already recorded within cooldown_minutes are skipped — prevents a single
+    browsing session from inflating counts on every list refresh.
+    """
+    from datetime import datetime, timedelta
+    from metatv.core.database import ChannelDB
+
+    now = datetime.utcnow()
+    cutoff = now - timedelta(minutes=cooldown_minutes)
+    for cid in channel_ids:
+        ch = session.get(ChannelDB, cid)
+        if ch and (ch.rec_last_shown is None or ch.rec_last_shown < cutoff):
+            ch.rec_shown_count = (ch.rec_shown_count or 0) + 1
+            ch.rec_last_shown = now
+    session.commit()
 
 
 def _split_names(value: str) -> list[str]:

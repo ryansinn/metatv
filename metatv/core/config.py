@@ -64,6 +64,9 @@ class Config(BaseModel):
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
+    muted_attributes: dict = Field(default_factory=lambda: {
+        "genres": [], "directors": [], "actors": [], "keywords": []
+    })
     
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification

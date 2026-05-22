@@ -868,9 +868,16 @@
   - Run on startup or on refresh to prevent unbounded DB growth
 
 ### Content Discovery
-- [ ] Recommendations based on watch history
+- [x] **Preference-based recommendations** ✅
+  - Attribute-weighted scoring (genres, directors, cast) + TF-IDF plot keywords
+  - Like/Dislike ratings; favorites contribute implicit +0.5 signal
+  - Sidebar section + full Preferences dashboard with attribute weight breakdown
+  - Impression tracking and decay (−4%/impression, 40% floor)
+  - Attribute muting (🙅 per attribute row) and keyword muting (clickable links)
+  - Exclusions review panel with "Change your mind?" undo links
+  - Smart exclusions: disliked, hidden, watched, favorited, and queued items all suppressed
 - [ ] Related content suggestions
-- [ ] Trending content
+- [ ] Trending content (requires external data feed)
 
 ### UI Polish
 - [ ] Dark mode / themes
@@ -1017,19 +1024,16 @@
 
 ## Current Sprint Focus
 
-**Priority 1: Test Recent Changes**
-- Favorites system (add/remove, context menus)
-- History tracking (playback recording, clear history)
-- Favorite status display (★ vs ☆)
-- Real-time UI updates
+**Completed (this sprint)**
+- ✅ Impression tracking + score decay (rotates stale recs naturally)
+- ✅ Attribute muting (🙅 per genre/director/actor row)
+- ✅ Clickable keyword exclusion in Preferences dashboard
+- ✅ Exclusions review panel with undo links
+- ✅ Watch Queue exclusion from recommendations
+- ✅ Sidebar collapse state fix (`_user_collapsed` flag)
+- ✅ "Never Watched" rename in Watch Queue section
 
-**Priority 2: Essential Missing Features**
-- Media type tabs (All, Livestream, Series, Movies)
-- TMDb metadata integration (for bookshelf UI)
-- Filter preset integration into GUI
-
-**Priority 3: Favorites Bookshelf**
-- Grid/card view prototype
-- Cover art display
-- Carousel layout
-- Auto-organized shelves
+**Next Up**
+- Discovery UI — 🧭 chip, genre/decade/director/actor shelves
+- TMDb / OMDb metadata provider implementations (architecture already in place)
+- Resume playback via mpv IPC event system

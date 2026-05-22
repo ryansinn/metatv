@@ -152,6 +152,7 @@ class CollapsibleSection(QFrame):
         self.config = config
         self.is_collapsed = False
         self.is_empty = True
+        self._user_collapsed = False  # True when user (or restore) explicitly collapsed
         
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
@@ -199,6 +200,7 @@ class CollapsibleSection(QFrame):
     
     def toggle_collapse(self):
         """Toggle collapsed/expanded state"""
+        self._user_collapsed = not self.is_collapsed  # record user intent before toggling
         self.set_collapsed(not self.is_collapsed)
     
     def set_collapsed(self, collapsed: bool, save: bool = True):
@@ -235,13 +237,12 @@ class CollapsibleSection(QFrame):
         """Set empty state and auto-collapse if empty"""
         was_empty = self.is_empty
         self.is_empty = empty
-        
+
         # Auto-collapse when becoming empty
         if empty and not was_empty:
             self.set_collapsed(True)
-        # Auto-expand when getting content (if not manually collapsed)
-        elif not empty and was_empty and self.is_collapsed:
-            # Only auto-expand if this is the first content
+        # Auto-expand only when section was empty-collapsed (not user/restore-collapsed)
+        elif not empty and was_empty and self.is_collapsed and not self._user_collapsed:
             self.set_collapsed(False)
     
     def get_section_id(self):
@@ -279,6 +280,8 @@ class CollapsibleSection(QFrame):
         if state:
             # Restore collapsed state (don't save during restore)
             collapsed = state.get('collapsed', False)
+            if collapsed:
+                self._user_collapsed = True  # treat restored-collapsed as explicit user intent
             self.set_collapsed(collapsed, save=False)
             
             # Restore height (if not collapsed)
@@ -841,7 +844,10 @@ class RecommendedSection(CollapsibleSection):
                 self._list.addItem(item)
                 self.set_empty(True)
                 return
-            recs = score_candidates(session, weights, limit=20)
+            recs = score_candidates(
+                session, weights, limit=20,
+                muted_attrs=getattr(self.config, 'muted_attributes', None),
+            )
         finally:
             session.close()
 
@@ -862,11 +868,20 @@ class RecommendedSection(CollapsibleSection):
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             rating_tip = f"  ★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
+            shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             item.setToolTip(
-                f"{sc.reason}{rating_tip}\n"
+                f"{sc.reason}{rating_tip}{shown_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}"
             )
             self._list.addItem(item)
+
+        # Record impressions after rendering — open a fresh session (prior one is closed)
+        imp_session = self.db.get_session()
+        try:
+            from metatv.core.preference_engine import record_impressions
+            record_impressions(imp_session, [sc.channel_id for sc in recs])
+        finally:
+            imp_session.close()
 
         self.set_empty(False)
 
@@ -982,7 +997,7 @@ class WatchQueueSection(CollapsibleSection):
                 self._list.addItem(item)
 
         if never_watched:
-            self._add_header("Up Next")
+            self._add_header("Never Watched")
             for e in never_watched:
                 item = QListWidgetItem(f"{self._media_icon(e.media_type)} {e.channel_name}")
                 item.setData(Qt.ItemDataRole.UserRole, e.channel_id)

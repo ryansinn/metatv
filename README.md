@@ -23,9 +23,14 @@ A powerful, cross-platform IPTV stream organizer with advanced filtering, metada
 **Discovery & Recommendations**
 - **Preference-Based Recommendations**: Attribute-weighted scoring (genres, directors, cast) combined with TF-IDF plot keyword matching; sidebar section + full Preferences dashboard with weight breakdown
 - **Like / Dislike Ratings**: Rate movies and series; signals feed directly into the recommendation engine
+- **Impression Tracking & Decay**: Items shown repeatedly without engagement gradually decay in score (−4% per impression, 40% floor) so the list rotates naturally
+- **Attribute Muting**: Click 🙅 next to any genre, director, or actor to exclude that attribute from scoring; click again to restore
+- **Clickable Keyword Exclusion**: Plot keywords in the Preferences dashboard are clickable links — click to mute/restore individual keywords from the TF-IDF signal
+- **Exclusions Review Panel**: Collapsible panel at the bottom of the Preferences dashboard lists everything excluded (muted attributes and not-interested titles) with "Change your mind?" links to undo each
 - **Not Interested**: Suppress a title from recommendations without hiding it from browsing
 - **Hide Channel**: Remove content from all views permanently
 - **Content Preference Signals**: ▲/▼ indicators on cast and director names in the details pane
+- **Smart Recommendation Exclusions**: Disliked, hidden, watched, favorited, and Watch Queue items are all automatically excluded from recommendations — only unengaged content surfaces
 
 **EPG & Alerts**
 - **EPG System**: XMLTV feed parsing (140 MB+ supported), background fetch, channel matching
@@ -126,8 +131,15 @@ python -m metatv
 ### Recommendations
 Rate movies and series with 👍/👎 buttons in the details pane. The preference engine learns your taste from genres, directors, and cast, then surfaces personalized recommendations in the sidebar and the **Recommended** dashboard (click the 🎯 chip).
 
+In the Preferences dashboard you can:
+- Click **🙅** next to any genre, director, or actor to mute it from scoring
+- Click any plot keyword to mute/restore it as a recommendation signal
+- See everything you've excluded in the **Exclusions** panel at the bottom, with one-click undo links
+
+The engine automatically excludes content you've disliked, hidden, watched, favorited, or added to the Watch Queue. Items that keep appearing without a reaction are gently deprioritized so new content rotates in.
+
 ### Watch Queue
-Right-click any channel → **Add to Queue**. The queue persists across restarts and splits into **Continue Watching** (previously started) and **Up Next** (never played).
+Right-click any channel → **Add to Queue**. The queue persists across restarts and splits into **Continue Watching** (previously started) and **Never Watched** (never played). Items in the queue are automatically excluded from recommendations — no need to manage both lists.
 
 ### EPG / Watch Alerts
 Add show title patterns to the watchlist (+ Watchlist button in the details pane when a live channel is selected). The Watch Alerts sidebar section shows live and upcoming airings matching your patterns.

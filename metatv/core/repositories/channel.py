@@ -192,6 +192,15 @@ class ChannelRepository:
             self.session.commit()
             logger.info(f"Channel {channel.name} rec_suppressed={suppressed}")
 
+    def get_rec_suppressed(self) -> List[ChannelDB]:
+        """Return all channels suppressed from recommendations, ordered by name."""
+        return (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.is_rec_suppressed == True)  # noqa: E712
+            .order_by(ChannelDB.name)
+            .all()
+        )
+
     def search(self, query: str, provider_id: Optional[str] = None,
                media_type: Optional[str] = None) -> List[ChannelDB]:
         """Search channels by name"""

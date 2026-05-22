@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, pyqtSignal, Qt, QPoint
-from PyQt6.QtGui import QContextMenuEvent
+from PyQt6.QtCore import QSize, pyqtSignal, Qt
+from PyQt6.QtGui import QContextMenuEvent, QColor, QPalette
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy,
@@ -17,10 +17,18 @@ from metatv.core.preference_engine import AttributeWeights, ScoredChannel
 
 
 class _AttrRow(QWidget):
-    """Single row: label | progress bar | ±value."""
+    """Single row: label | 🙅 | progress bar | ±value."""
 
-    def __init__(self, label: str, value: float, max_abs: float, parent=None):
+    muteClicked = pyqtSignal(str, str)  # attr_type, attr_name
+
+    def __init__(self, label: str, value: float, max_abs: float,
+                 attr_type: str = "", attr_name: str = "",
+                 muted: bool = False, config: Config | None = None,
+                 parent=None):
         super().__init__(parent)
+        self._attr_type = attr_type
+        self._attr_name = attr_name or label
+
         hl = QHBoxLayout(self)
         hl.setContentsMargins(2, 1, 4, 1)
         hl.setSpacing(6)
@@ -49,14 +57,46 @@ class _AttrRow(QWidget):
         sign_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         hl.addWidget(lbl)
+
+        if config and attr_type:
+            icon = config.close_icon if muted else config.not_interested_icon
+            tip  = "Restore to recommendations" if muted else "Exclude from recommendations"
+            mute_btn = QPushButton(icon)
+            mute_btn.setFixedSize(20, 20)
+            mute_btn.setFlat(True)
+            mute_btn.setToolTip(tip)
+            mute_btn.setStyleSheet(
+                "QPushButton { border: none; }"
+                "QPushButton:hover { background: rgba(255,255,255,0.10); border-radius: 3px; }"
+            )
+            mute_btn.clicked.connect(
+                lambda: self.muteClicked.emit(self._attr_type, self._attr_name)
+            )
+            hl.addWidget(mute_btn)
+
         hl.addWidget(bar)
         hl.addWidget(sign_lbl)
+
+        if muted:
+            gray = QColor("#666666")
+            for w in (lbl, sign_lbl):
+                palette = w.palette()
+                palette.setColor(QPalette.ColorRole.WindowText, gray)
+                w.setPalette(palette)
+            bar.setStyleSheet(
+                "QProgressBar { border: 1px solid #333; border-radius: 3px; background: #222; }"
+                "QProgressBar::chunk { background: #555; border-radius: 2px; }"
+            )
 
 
 class _AttrColumn(QWidget):
     """Scrollable column of attribute rows with a header."""
 
-    def __init__(self, title: str, items: list[tuple[str, float]], parent=None):
+    muteClicked = pyqtSignal(str, str)  # attr_type, attr_name
+
+    def __init__(self, title: str, items: list[tuple[str, float]],
+                 attr_type: str = "", muted_names: set[str] | None = None,
+                 config: Config | None = None, parent=None):
         super().__init__(parent)
         vl = QVBoxLayout(self)
         vl.setContentsMargins(0, 0, 0, 0)
@@ -75,10 +115,18 @@ class _AttrColumn(QWidget):
         inner_vl.setContentsMargins(0, 0, 0, 0)
         inner_vl.setSpacing(1)
 
+        _muted = muted_names or set()
+
         if items:
             max_abs = max(abs(v) for _, v in items)
             for label, value in sorted(items, key=lambda kv: kv[1], reverse=True):
-                inner_vl.addWidget(_AttrRow(label, value, max_abs))
+                row = _AttrRow(
+                    label, value, max_abs,
+                    attr_type=attr_type, attr_name=label,
+                    muted=label in _muted, config=config,
+                )
+                row.muteClicked.connect(self.muteClicked)
+                inner_vl.addWidget(row)
         else:
             inner_vl.addWidget(QLabel("No data yet"))
 
@@ -195,6 +243,9 @@ class PreferencesView(QWidget):
         self._keyword_label = QLabel("")
         self._keyword_label.setWordWrap(True)
         self._keyword_label.setTextFormat(Qt.TextFormat.RichText)
+        self._keyword_label.setToolTip("Click any keyword to exclude it from recommendations")
+        self._keyword_label.setOpenExternalLinks(False)
+        self._keyword_label.linkActivated.connect(self._on_keyword_link)
         attrs_vl.addWidget(self._keyword_label)
 
         vl.addWidget(self._attrs_container, stretch=2)
@@ -211,6 +262,26 @@ class PreferencesView(QWidget):
         self._rec_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._rec_list.customContextMenuRequested.connect(self._on_rec_context_menu)
         vl.addWidget(self._rec_list, stretch=3)
+
+        # Exclusions panel — collapsible, at the bottom
+        excl_header = QHBoxLayout()
+        self._excl_toggle_btn = QPushButton(f"{self.config.expand_icon} Excluded (0)")
+        self._excl_toggle_btn.setFlat(True)
+        self._excl_toggle_btn.setStyleSheet(
+            "QPushButton { text-align: left; color: #aaa; font-size: 11px; border: none; padding: 2px 0; }"
+            "QPushButton:hover { color: #ccc; }"
+        )
+        self._excl_toggle_btn.clicked.connect(self._toggle_exclusions)
+        excl_header.addWidget(self._excl_toggle_btn)
+        excl_header.addStretch()
+        vl.addLayout(excl_header)
+
+        self._excl_container = QWidget()
+        self._excl_layout = QVBoxLayout(self._excl_container)
+        self._excl_layout.setContentsMargins(4, 0, 4, 4)
+        self._excl_layout.setSpacing(2)
+        self._excl_container.setVisible(False)
+        vl.addWidget(self._excl_container)
 
         # Restore collapse state
         expanded = getattr(self.config, "preferences_attributes_expanded", False)
@@ -234,6 +305,26 @@ class PreferencesView(QWidget):
         self.config.preferences_attributes_expanded = expanded
         self.config.save()
 
+    def _toggle_exclusions(self) -> None:
+        visible = not self._excl_container.isVisible()
+        self._excl_container.setVisible(visible)
+        self._update_excl_toggle_label()
+
+    def _update_excl_toggle_label(self) -> None:
+        muted = getattr(self.config, 'muted_attributes', {})
+        attr_count = sum(len(v) for v in muted.values())
+
+        session = self.db.get_session()
+        try:
+            from metatv.core.repositories.channel import ChannelRepository
+            chan_count = len(ChannelRepository(session).get_rec_suppressed())
+        finally:
+            session.close()
+
+        total = attr_count + chan_count
+        arrow = self.config.collapse_icon if self._excl_container.isVisible() else self.config.expand_icon
+        self._excl_toggle_btn.setText(f"{arrow} Excluded ({total})")
+
     def on_activate(self) -> None:
         self.refresh()
 
@@ -243,7 +334,10 @@ class PreferencesView(QWidget):
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
-            recs = score_candidates(session, weights)
+            recs = score_candidates(
+                session, weights,
+                muted_attrs=getattr(self.config, 'muted_attributes', None),
+            )
         finally:
             session.close()
 
@@ -263,26 +357,42 @@ class PreferencesView(QWidget):
                 f"{self.config.dislike_icon} {weights.disliked_count}"
             )
 
-        # Rebuild attribute columns
+        # Rebuild attribute columns with mute buttons
         while self._attr_layout.count():
             item = self._attr_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        self._attr_layout.addWidget(_AttrColumn("Genres",    weights.top("genres")))
-        self._attr_layout.addWidget(_AttrColumn("Directors", weights.top("directors")))
-        self._attr_layout.addWidget(_AttrColumn("Actors",    weights.top("actors")))
+        muted = getattr(self.config, 'muted_attributes', {})
 
-        # Keywords
+        for title, attr_type in (("Genres", "genres"), ("Directors", "directors"), ("Actors", "actors")):
+            col = _AttrColumn(
+                title, weights.top(attr_type),
+                attr_type=attr_type,
+                muted_names=set(muted.get(attr_type, [])),
+                config=self.config,
+            )
+            col.muteClicked.connect(self._on_attr_mute)
+            self._attr_layout.addWidget(col)
+
+        # Keywords — rendered as clickable links; muted words shown grayed/strikethrough
+        muted_kws = set(muted.get("keywords", []))
         top_pos = [k for k, v in weights.top("keywords", 20) if v > 0][:8]
         top_neg = [k for k, v in weights.top("keywords", 20) if v < 0][:5]
+
+        def _kw_link(word: str, base_color: str) -> str:
+            if word in muted_kws:
+                return (f'<a href="kw:{word}" style="color:#555; '
+                        f'text-decoration:line-through; font-style:italic;">{word}</a>')
+            return f'<a href="kw:{word}" style="color:{base_color}; text-decoration:none;">{word}</a>'
+
         parts: list[str] = []
         if top_pos:
-            words = "  ".join(top_pos)
-            parts.append(f'<span style="color:#4caf50">+ {words}</span>')
+            links = "  ".join(_kw_link(k, "#4caf50") for k in top_pos)
+            parts.append(f"+ {links}")
         if top_neg:
-            words = "  ".join(top_neg)
-            parts.append(f'<span style="color:#f44336">− {words}</span>')
+            links = "  ".join(_kw_link(k, "#f44336") for k in top_neg)
+            parts.append(f"− {links}")
         self._keyword_label.setText(
             "  |  ".join(parts) if parts else "<i>Rate more content to see keywords</i>"
         )
@@ -294,15 +404,17 @@ class PreferencesView(QWidget):
                 self._rec_list.addItem("Rate some movies or series to get recommendations")
             else:
                 self._rec_list.addItem("No matching unrated content found — try rating more items")
+            self._rebuild_exclusions()
             return
 
         for sc in recs:
             text = f"{sc.channel_name}  ·  {sc.reason}"
             rating_tip = f"\n★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
+            shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setToolTip(
-                f"Score: {sc.score:.2f}{rating_tip}\n"
+                f"Score: {sc.score:.2f}{rating_tip}{shown_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}\n"
                 f"Keywords: {', '.join(sc.matching_keywords) or '—'}"
             )
@@ -317,6 +429,120 @@ class PreferencesView(QWidget):
             )
             row.contextMenuRequested.connect(self.channelContextMenuRequested)
             self._rec_list.setItemWidget(item, row)
+
+        # Record impressions after rendering (not before — count what the user actually saw)
+        session = self.db.get_session()
+        try:
+            from metatv.core.preference_engine import record_impressions
+            record_impressions(session, [sc.channel_id for sc in recs])
+        finally:
+            session.close()
+
+        self._rebuild_exclusions()
+
+    def _rebuild_exclusions(self) -> None:
+        """Repopulate the exclusions review panel."""
+        while self._excl_layout.count():
+            item = self._excl_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        muted = getattr(self.config, 'muted_attributes', {})
+
+        has_content = False
+
+        # Muted attributes — grouped by type
+        for attr_type, names in muted.items():
+            if not names:
+                continue
+            has_content = True
+            type_header = QLabel(f"<b>{attr_type.capitalize()}</b>")
+            type_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            self._excl_layout.addWidget(type_header)
+            for name in names:
+                row = self._make_exclusion_row(
+                    name, attr_type,
+                    lambda n=name, t=attr_type: self._on_attr_mute(t, n),
+                )
+                self._excl_layout.addWidget(row)
+
+        # Not-interested channel titles
+        session = self.db.get_session()
+        try:
+            from metatv.core.repositories.channel import ChannelRepository
+            suppressed = ChannelRepository(session).get_rec_suppressed()
+            names_ids = [(ch.name, ch.id) for ch in suppressed]
+        finally:
+            session.close()
+
+        if names_ids:
+            has_content = True
+            titles_header = QLabel("<b>Not Interested titles</b>")
+            titles_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            self._excl_layout.addWidget(titles_header)
+            for name, cid in names_ids:
+                row = self._make_exclusion_row(
+                    name, "title",
+                    lambda c=cid: self._on_restore_channel(c),
+                )
+                self._excl_layout.addWidget(row)
+
+        if not has_content:
+            self._excl_layout.addWidget(QLabel("<i>Nothing excluded yet</i>"))
+
+        self._update_excl_toggle_label()
+
+    def _make_exclusion_row(self, name: str, type_label: str, on_restore) -> QWidget:
+        """Row: '[name] · [type] — not interesting to you   Change your mind?'"""
+        w = QWidget()
+        hl = QHBoxLayout(w)
+        hl.setContentsMargins(4, 2, 4, 2)
+        hl.setSpacing(6)
+
+        singular = type_label.rstrip("s") if type_label.endswith("s") else type_label
+        lbl = QLabel(
+            f"<b>{name}</b> · "
+            f"<span style='color:#888'>{singular}</span>"
+            f" — not interesting to you"
+        )
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        hl.addWidget(lbl, stretch=1)
+
+        change_btn = QPushButton("Change your mind?")
+        change_btn.setFlat(True)
+        change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        change_btn.setStyleSheet(
+            "QPushButton { color: #4488ff; text-decoration: underline; border: none; "
+            "background: transparent; padding: 0; font-size: 11px; }"
+            "QPushButton:hover { color: #66aaff; }"
+        )
+        change_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        change_btn.clicked.connect(on_restore)
+        hl.addWidget(change_btn)
+        return w
+
+    def _on_keyword_link(self, href: str) -> None:
+        if href.startswith("kw:"):
+            self._on_attr_mute("keywords", href[3:])
+
+    def _on_attr_mute(self, attr_type: str, attr_name: str) -> None:
+        muted: list = self.config.muted_attributes.setdefault(attr_type, [])
+        if attr_name in muted:
+            muted.remove(attr_name)
+        else:
+            muted.append(attr_name)
+        self.config.save()
+        self.refresh()
+
+    def _on_restore_channel(self, channel_id: str) -> None:
+        from metatv.core.repositories.channel import ChannelRepository
+        session = self.db.get_session()
+        try:
+            ChannelRepository(session).set_rec_suppressed(channel_id, False)
+        finally:
+            session.close()
+        self.refresh()
 
     def _on_rec_context_menu(self, pos) -> None:
         item = self._rec_list.itemAt(pos)

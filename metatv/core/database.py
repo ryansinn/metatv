@@ -50,7 +50,10 @@ class ChannelDB(Base):
     league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
     team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
     event_metadata = Column(JSON)  # Additional parsed data (event name, quality, etc.)
-    
+
+    rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
+    rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
+
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -336,6 +339,8 @@ class Database:
             ("watch_queue",  "media_type",               "TEXT NOT NULL DEFAULT ''"),
             ("watch_queue",  "source_id",                "TEXT NOT NULL DEFAULT ''"),
             ("channels",     "is_rec_suppressed",        "INTEGER DEFAULT 0"),
+            ("channels",     "rec_shown_count",           "INTEGER DEFAULT 0"),
+            ("channels",     "rec_last_shown",            "DATETIME"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
