@@ -58,6 +58,7 @@ class Config(BaseModel):
     like_icon: str = "👍"              # Like / positive rating
     dislike_icon: str = "👎"           # Dislike / negative rating
     hide_icon: str = "🚫"              # Hide / suppress content
+    preferences_icon: str = "🎯"       # Preferences / Taste dashboard
     
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification

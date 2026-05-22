@@ -32,6 +32,7 @@ from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
 from metatv.gui.epg_view import EpgView
+from metatv.gui.preferences_view import PreferencesView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
@@ -368,6 +369,8 @@ class MainWindow(QMainWindow):
             session.commit()
         finally:
             session.close()
+        if self.view_mode == "preferences":
+            self.preferences_view.refresh()
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
         session = self.db.get_session()
@@ -498,7 +501,11 @@ class MainWindow(QMainWindow):
         self.epg_chip = ToggleChip("📅 EPG", enabled=False)
         self.epg_chip.clicked.connect(self.on_special_view_toggle)
         media_layout.addWidget(self.epg_chip)
-        
+
+        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Taste", enabled=False)
+        self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
+        media_layout.addWidget(self.prefs_chip)
+
         self.content_layout.addWidget(media_widget)
         
         # Search and filter controls
@@ -577,6 +584,14 @@ class MainWindow(QMainWindow):
         self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
         self.epg_view.setVisible(False)
         self.content_layout.addWidget(self.epg_view)
+
+        # Preferences / Taste view (hidden by default)
+        self.preferences_view = PreferencesView(self.db, self.config, self)
+        self.preferences_view.playRequested.connect(self.play_channel_by_id)
+        self.preferences_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.preferences_view.setVisible(False)
+        self.content_layout.addWidget(self.preferences_view)
+
         self.epg_manager.start_notification_timer()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
         self._refresh_watch_alerts()
@@ -1896,7 +1911,11 @@ class MainWindow(QMainWindow):
         self.channels_list.setVisible(True)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
+        self.preferences_view.setVisible(False)
         self.provider_editor.setVisible(False)
+        self.prefs_chip.blockSignals(True)
+        self.prefs_chip.set_enabled(False)
+        self.prefs_chip.blockSignals(False)
         
         # Hide back button
         self.back_button.setVisible(False)
@@ -1938,6 +1957,10 @@ class MainWindow(QMainWindow):
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(True)
+        self.preferences_view.setVisible(False)
+        self.prefs_chip.blockSignals(True)
+        self.prefs_chip.set_enabled(False)
+        self.prefs_chip.blockSignals(False)
 
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
@@ -1977,10 +2000,38 @@ class MainWindow(QMainWindow):
 
     def on_special_view_toggle(self) -> None:
         if self.epg_chip.is_enabled():
+            # Deactivate Taste chip if it was on
+            self.prefs_chip.blockSignals(True)
+            self.prefs_chip.set_enabled(False)
+            self.prefs_chip.blockSignals(False)
             self.switch_to_epg_view()
         else:
             self.switch_to_list_view()
-    
+
+    def on_preferences_view_toggle(self) -> None:
+        if self.prefs_chip.is_enabled():
+            # Deactivate EPG chip if it was on
+            self.epg_chip.blockSignals(True)
+            self.epg_chip.set_enabled(False)
+            self.epg_chip.blockSignals(False)
+            self.switch_to_preferences_view()
+        else:
+            self.switch_to_list_view()
+
+    def switch_to_preferences_view(self) -> None:
+        """Switch content area to the Taste / Preferences dashboard."""
+        self.view_mode = "preferences"
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.epg_view.setVisible(False)
+        self.provider_editor.setVisible(False)
+        self.preferences_view.setVisible(True)
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+        self.search_controls.setVisible(False)
+        self.stats_label.setText("Preference dashboard")
+        self.preferences_view.on_activate()
+
     def navigate_back(self):
         """Navigate back from series view to channel list"""
         self.switch_to_list_view()
