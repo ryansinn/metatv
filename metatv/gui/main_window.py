@@ -502,7 +502,7 @@ class MainWindow(QMainWindow):
         self.epg_chip.clicked.connect(self.on_special_view_toggle)
         media_layout.addWidget(self.epg_chip)
 
-        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Taste", enabled=False)
+        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Recommended", enabled=False)
         self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
         media_layout.addWidget(self.prefs_chip)
 
