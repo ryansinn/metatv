@@ -32,6 +32,7 @@ from metatv.gui.sidebar_sections import (
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
+from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
 from metatv.core.epg_manager import EpgManager
@@ -772,6 +773,10 @@ class MainWindow(QMainWindow):
         self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
         media_layout.addWidget(self.prefs_chip)
 
+        self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
+        self.discover_chip.clicked.connect(self.on_discover_view_toggle)
+        media_layout.addWidget(self.discover_chip)
+
         self.content_layout.addWidget(media_widget)
         
         # Search and filter controls
@@ -860,6 +865,13 @@ class MainWindow(QMainWindow):
         self.preferences_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.preferences_view.setVisible(False)
         self.content_layout.addWidget(self.preferences_view)
+
+        self.discover_view = DiscoverView(self.db, self.config, self.image_cache, self)
+        self.discover_view.playRequested.connect(self.play_channel_by_id)
+        self.discover_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.discover_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
+        self.discover_view.setVisible(False)
+        self.content_layout.addWidget(self.discover_view)
 
         self.epg_manager.start_notification_timer()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
@@ -2208,10 +2220,14 @@ class MainWindow(QMainWindow):
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
         self.preferences_view.setVisible(False)
+        self.discover_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.prefs_chip.blockSignals(True)
         self.prefs_chip.set_enabled(False)
         self.prefs_chip.blockSignals(False)
+        self.discover_chip.blockSignals(True)
+        self.discover_chip.set_enabled(False)
+        self.discover_chip.blockSignals(False)
         
         # Hide back button
         self.back_button.setVisible(False)
@@ -2254,9 +2270,13 @@ class MainWindow(QMainWindow):
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(True)
         self.preferences_view.setVisible(False)
+        self.discover_view.setVisible(False)
         self.prefs_chip.blockSignals(True)
         self.prefs_chip.set_enabled(False)
         self.prefs_chip.blockSignals(False)
+        self.discover_chip.blockSignals(True)
+        self.discover_chip.set_enabled(False)
+        self.discover_chip.blockSignals(False)
 
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
@@ -2296,21 +2316,37 @@ class MainWindow(QMainWindow):
 
     def on_special_view_toggle(self) -> None:
         if self.epg_chip.is_enabled():
-            # Deactivate Taste chip if it was on
             self.prefs_chip.blockSignals(True)
             self.prefs_chip.set_enabled(False)
             self.prefs_chip.blockSignals(False)
+            self.discover_chip.blockSignals(True)
+            self.discover_chip.set_enabled(False)
+            self.discover_chip.blockSignals(False)
             self.switch_to_epg_view()
         else:
             self.switch_to_list_view()
 
     def on_preferences_view_toggle(self) -> None:
         if self.prefs_chip.is_enabled():
-            # Deactivate EPG chip if it was on
             self.epg_chip.blockSignals(True)
             self.epg_chip.set_enabled(False)
             self.epg_chip.blockSignals(False)
+            self.discover_chip.blockSignals(True)
+            self.discover_chip.set_enabled(False)
+            self.discover_chip.blockSignals(False)
             self.switch_to_preferences_view()
+        else:
+            self.switch_to_list_view()
+
+    def on_discover_view_toggle(self) -> None:
+        if self.discover_chip.is_enabled():
+            self.epg_chip.blockSignals(True)
+            self.epg_chip.set_enabled(False)
+            self.epg_chip.blockSignals(False)
+            self.prefs_chip.blockSignals(True)
+            self.prefs_chip.set_enabled(False)
+            self.prefs_chip.blockSignals(False)
+            self.switch_to_discover_view()
         else:
             self.switch_to_list_view()
 
@@ -2321,12 +2357,29 @@ class MainWindow(QMainWindow):
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
+        self.discover_view.setVisible(False)
         self.preferences_view.setVisible(True)
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
         self.stats_label.setText("Preference dashboard")
         self.preferences_view.on_activate()
+
+    def switch_to_discover_view(self) -> None:
+        """Switch content area to the Discovery browse view."""
+        self.view_mode = "discover"
+        self.channels_list.setVisible(False)
+        self.series_tree.setVisible(False)
+        self.epg_view.setVisible(False)
+        self.provider_editor.setVisible(False)
+        self.preferences_view.setVisible(False)
+        self.discover_view.setVisible(True)
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
+        self.search_controls.setVisible(False)
+        self.filter_bar.setVisible(False)
+        self.stats_label.setText("Discover")
+        self.discover_view.on_activate()
 
     def navigate_back(self):
         """Navigate back from series view to channel list"""
