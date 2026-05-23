@@ -67,6 +67,8 @@ class Config(BaseModel):
     muted_attributes: dict = Field(default_factory=lambda: {
         "genres": [], "directors": [], "actors": [], "keywords": []
     })
+    rec_dedupe_overrides: list = Field(default_factory=list)
+    # channel_ids that bypass title-based dedup ("not the same show" user override)
     
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification

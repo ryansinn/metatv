@@ -313,6 +313,7 @@ class PreferencesView(QWidget):
     def _update_excl_toggle_label(self) -> None:
         muted = getattr(self.config, 'muted_attributes', {})
         attr_count = sum(len(v) for v in muted.values())
+        dedup_count = len(getattr(self.config, 'rec_dedupe_overrides', []))
 
         session = self.db.get_session()
         try:
@@ -321,7 +322,7 @@ class PreferencesView(QWidget):
         finally:
             session.close()
 
-        total = attr_count + chan_count
+        total = attr_count + chan_count + dedup_count
         arrow = self.config.collapse_icon if self._excl_container.isVisible() else self.config.expand_icon
         self._excl_toggle_btn.setText(f"{arrow} Excluded ({total})")
 
@@ -337,6 +338,7 @@ class PreferencesView(QWidget):
             recs = score_candidates(
                 session, weights,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
+                dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
             )
         finally:
             session.close()
@@ -413,8 +415,10 @@ class PreferencesView(QWidget):
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
+            item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
+            variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
             item.setToolTip(
-                f"Score: {sc.score:.2f}{rating_tip}{shown_tip}\n"
+                f"Score: {sc.score:.2f}{rating_tip}{shown_tip}{variant_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}\n"
                 f"Keywords: {', '.join(sc.matching_keywords) or '—'}"
             )
@@ -427,7 +431,9 @@ class PreferencesView(QWidget):
             row.notInterestedClicked.connect(
                 lambda cid=sc.channel_id: self.notInterestedRequested.emit(cid)
             )
-            row.contextMenuRequested.connect(self.channelContextMenuRequested)
+            row.contextMenuRequested.connect(
+                lambda cid, gx, gy, vc=sc.variant_count: self._on_row_context_menu(cid, gx, gy, vc)
+            )
             self._rec_list.setItemWidget(item, row)
 
         # Record impressions after rendering (not before — count what the user actually saw)
@@ -487,6 +493,27 @@ class PreferencesView(QWidget):
                 )
                 self._excl_layout.addWidget(row)
 
+        # Dedup overrides — channels broken out of their title group
+        dedup_overrides = getattr(self.config, 'rec_dedupe_overrides', [])
+        if dedup_overrides:
+            has_content = True
+            dedup_header = QLabel("<b>Shown separately (ungrouped)</b>")
+            dedup_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            self._excl_layout.addWidget(dedup_header)
+            session = self.db.get_session()
+            try:
+                from metatv.core.database import ChannelDB
+                for cid in dedup_overrides:
+                    ch = session.get(ChannelDB, cid)
+                    name = ch.name if ch else cid
+                    row = self._make_exclusion_row(
+                        name, "ungrouped",
+                        lambda c=cid: self._on_restore_dedup(c),
+                    )
+                    self._excl_layout.addWidget(row)
+            finally:
+                session.close()
+
         if not has_content:
             self._excl_layout.addWidget(QLabel("<i>Nothing excluded yet</i>"))
 
@@ -544,14 +571,47 @@ class PreferencesView(QWidget):
             session.close()
         self.refresh()
 
+    def _on_row_context_menu(self, channel_id: str, gx: int, gy: int, variant_count: int = 1) -> None:
+        if variant_count <= 1:
+            self.channelContextMenuRequested.emit(channel_id, gx, gy)
+            return
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        sep_action = menu.addAction(f"≠  Show {variant_count} versions separately")
+        menu.addSeparator()
+        more_action = menu.addAction("More options...")
+        chosen = menu.exec(QPoint(gx, gy))
+        if chosen == sep_action:
+            self._on_show_separately(channel_id)
+        elif chosen == more_action:
+            self.channelContextMenuRequested.emit(channel_id, gx, gy)
+
+    def _on_show_separately(self, channel_id: str) -> None:
+        overrides: list = list(getattr(self.config, 'rec_dedupe_overrides', []))
+        if channel_id not in overrides:
+            overrides.append(channel_id)
+            self.config.rec_dedupe_overrides = overrides
+            self.config.save()
+        self.refresh()
+
+    def _on_restore_dedup(self, channel_id: str) -> None:
+        overrides: list = list(getattr(self.config, 'rec_dedupe_overrides', []))
+        if channel_id in overrides:
+            overrides.remove(channel_id)
+            self.config.rec_dedupe_overrides = overrides
+            self.config.save()
+        self.refresh()
+
     def _on_rec_context_menu(self, pos) -> None:
         item = self._rec_list.itemAt(pos)
         if not item:
             return
         channel_id = item.data(Qt.ItemDataRole.UserRole)
+        variant_count = item.data(Qt.ItemDataRole.UserRole + 2) or 1
         if channel_id:
             gp = self._rec_list.viewport().mapToGlobal(pos)
-            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+            self._on_row_context_menu(channel_id, gp.x(), gp.y(), variant_count)
 
     def _on_rec_selection_changed(self, current: QListWidgetItem, _previous) -> None:
         if current:

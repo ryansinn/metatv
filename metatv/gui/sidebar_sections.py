@@ -847,6 +847,7 @@ class RecommendedSection(CollapsibleSection):
             recs = score_candidates(
                 session, weights, limit=20,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
+                dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
             )
         finally:
             session.close()
@@ -867,10 +868,12 @@ class RecommendedSection(CollapsibleSection):
             item = QListWidgetItem(f"{liked_prefix}{media_icon} {sc.channel_name}")
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
+            item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
             rating_tip = f"  ★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
+            variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
             item.setToolTip(
-                f"{sc.reason}{rating_tip}{shown_tip}\n"
+                f"{sc.reason}{rating_tip}{shown_tip}{variant_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}"
             )
             self._list.addItem(item)
@@ -902,9 +905,32 @@ class RecommendedSection(CollapsibleSection):
         if not item:
             return
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if channel_id:
-            gp = self._list.viewport().mapToGlobal(pos)
+        if not channel_id:
+            return
+        variant_count = item.data(Qt.ItemDataRole.UserRole + 2) or 1
+        gp = self._list.viewport().mapToGlobal(pos)
+        if variant_count > 1:
+            from PyQt6.QtCore import QPoint
+            from PyQt6.QtWidgets import QMenu
+            menu = QMenu(self)
+            sep_action = menu.addAction(f"≠  Show {variant_count} versions separately")
+            menu.addSeparator()
+            more_action = menu.addAction("More options...")
+            chosen = menu.exec(QPoint(gp.x(), gp.y()))
+            if chosen == sep_action:
+                self._on_show_separately(channel_id)
+            elif chosen == more_action:
+                self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+        else:
             self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+
+    def _on_show_separately(self, channel_id: str) -> None:
+        overrides: list = list(getattr(self.config, 'rec_dedupe_overrides', []))
+        if channel_id not in overrides:
+            overrides.append(channel_id)
+            self.config.rec_dedupe_overrides = overrides
+            self.config.save()
+        self.refresh()
 
 
 class WatchQueueSection(CollapsibleSection):

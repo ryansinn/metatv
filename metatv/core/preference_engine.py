@@ -103,6 +103,7 @@ class ScoredChannel:
     already_liked:     bool = False  # user has given this a thumbs-up
     metadata_rating:   float | None = None  # TMDb/OMDb score (0–10)
     rec_shown_count:   int = 0       # total impression count (for tooltip + decay)
+    variant_count:     int = 0       # how many source/language copies collapsed into this entry
 
 
 def extract_keywords(plot: str) -> list[str]:
@@ -208,7 +209,8 @@ def compute_weights(session) -> AttributeWeights:
 
 
 def score_candidates(session, weights: AttributeWeights, limit: int = 30,
-                     muted_attrs: dict | None = None) -> list[ScoredChannel]:
+                     muted_attrs: dict | None = None,
+                     dedupe_overrides: set[str] | None = None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
@@ -217,12 +219,16 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     - Rec-suppressed (is_rec_suppressed) → excluded
     - Already watched (last_played set) → excluded; recommendation served its purpose
     - Currently in Watch Queue → excluded; user already queued it
-    - Currently in Favorites → excluded (capped at 5 liked-but-unwatched items)
+    - Currently in Favorites → excluded (capped at 5 liked-but-unwatched slots)
+    - Same production from another source (norm_title + media_type + year + director match)
+      → excluded unless channel.id is in dedupe_overrides
+    - Duplicate source/language variants → only highest-scoring copy surfaced
 
     Returns a ranked list, highest score first.
     """
     from datetime import datetime
     from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB
+    from metatv.core.content_dedup import build_dedup_key, build_engaged_normalized
 
     if weights.is_empty():
         return []
@@ -246,6 +252,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         row.channel_id for row in session.query(WatchQueueDB).all()
     }
 
+    _overrides = dedupe_overrides or set()
+    all_engaged_ids = disliked_ids | favorite_ids | queued_ids | set(liked_map.keys())
+    engaged_normalized = build_engaged_normalized(session, all_engaged_ids, _overrides)
+
     candidates = (
         session.query(ChannelDB)
         .filter(
@@ -257,7 +267,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         .all()
     )
 
-    scored: list[ScoredChannel] = []
+    best_per_title: dict[tuple, ScoredChannel] = {}
+    variant_counts: dict[tuple, int] = {}
     for channel in candidates:
         if channel.id in disliked_ids:
             continue
@@ -269,6 +280,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             continue
         meta = session.get(MetadataDB, channel.metadata_id)
         if not meta:
+            continue
+
+        dedup_key = build_dedup_key(channel, meta)
+        if channel.id not in _overrides and dedup_key in engaged_normalized:
             continue
 
         genres = _split_genres(_loads(meta.genres) or [])
@@ -313,7 +328,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         if match_kws:
             parts.append("+" + ", ".join(match_kws[:2]))
 
-        scored.append(ScoredChannel(
+        sc = ScoredChannel(
             channel_id=channel.id,
             channel_name=channel.name,
             media_type=channel.media_type,
@@ -326,8 +341,16 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             already_liked=channel.id in liked_map,
             metadata_rating=meta.rating,
             rec_shown_count=getattr(channel, 'rec_shown_count', 0) or 0,
-        ))
+        )
+        variant_counts[dedup_key] = variant_counts.get(dedup_key, 0) + 1
+        existing = best_per_title.get(dedup_key)
+        if existing is None or total > existing.score:
+            best_per_title[dedup_key] = sc
 
+    for key, sc in best_per_title.items():
+        sc.variant_count = variant_counts.get(key, 1)
+
+    scored = list(best_per_title.values())
     scored.sort(key=lambda s: s.score, reverse=True)
 
     # Cap already-liked items at 5 slots (newest-liked first) so they don't crowd
@@ -338,7 +361,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         reverse=True,
     )
     fresh_results = [sc for sc in scored if not sc.already_liked]
-    liked_cap = min(5, len(liked_results))
+    liked_cap = min(3, len(liked_results))
     merged = liked_results[:liked_cap] + fresh_results[:limit - liked_cap]
     return merged[:limit]
 
