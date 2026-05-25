@@ -60,7 +60,42 @@ class Config(BaseModel):
     not_interested_icon: str = "🙅"    # Not Interested — suppress from recommendations only
     hide_icon: str = "🚫"              # Hide channel from all views
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
+    preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
     queue_icon: str = "📋"             # Watch Queue section / action
+    pin_icon: str = "📌"               # Pin shelf to top in Discover
+    manage_icon: str = "⚙"            # Manage / settings button
+
+    # Global content category filter (applies to discovery + recommendations)
+    # Category group names from filter_language_groups (e.g. ["English", "French"])
+    # Empty list = no filter (all categories shown)
+    global_filter_included_categories: list = Field(default_factory=list)
+    global_filter_include_uncategorized: bool = True  # show content with no detected_prefix
+    global_filter_icon: str = "fa5s.filter"  # qtawesome key — resolved via icon_utils.resolve_icon()
+    # Explicit prefix blocklist — always hidden everywhere, regardless of the allowlist above.
+    # Written by the "Block [PREFIX]" quick action in the Other Versions panel.
+    global_filter_excluded_prefixes: list = Field(default_factory=list)
+
+    # Prefix detection settings
+    # Separators tried in order when extracting the prefix code from a channel name.
+    # Longer/more-specific patterns should come first (e.g. " ★ " before "★").
+    prefix_separators: list = Field(
+        default_factory=lambda: [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
+    )
+    prefix_bracket_enabled: bool = True  # extract [XX] bracket format
+    # Bump CURRENT_DETECTOR_VERSION in main_window.py to trigger a one-time auto-rescan
+    # for all users the next time they launch the app.
+    prefix_detector_version: int = 0
+    # Whether to show content whose prefix code didn't match any named language group.
+    # True = include "Other" content; False = hide it. Controlled by the filter dialog.
+    global_filter_include_other_prefixes: bool = True
+
+    # Discover view zone persistence
+    # shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.
+    discover_pinned_shelves: list = Field(default_factory=list)
+    discover_expanded_shelves: list = Field(default_factory=list)
+    discover_collapsed_shelves: list = Field(default_factory=list)
+    discover_hidden_shelves: list = Field(default_factory=list)
+    discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
@@ -196,6 +231,25 @@ class Config(BaseModel):
     image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
     
+    # Content category groups — maps raw source_category labels (from ## headers ##) to
+    # normalized display names used in the Global Filter and Discovery shelves.
+    # Keys are the normalized type name shown in the UI; values are lists of raw labels
+    # exactly as they appear in the provider's ## header ## strings (case-insensitive match).
+    content_category_groups: dict = Field(default_factory=lambda: {
+        "Sports":        ["SPORTS NETWORK", "SOCCER PPV", "NBA LIVE EVENTS", "NBA TEAMS",
+                          "NBA LEAGUE REPLAY", "NHL LIVE EVENTS", "NHL TEAMS", "NFL LIVE EVENTS",
+                          "NFL LEAGUE REPLAY", "USA NCAA LIVE", "DAZN PPV US", "FIFA+ PPV",
+                          "NBA PASS PPV", "BALLY NETWORK", "B1G+ PPV"],
+        "Entertainment": ["ENTERTAINMENT", "SPECTRUM NETWORK", "BEIN CINEMA"],
+        "News":          ["NEWS NETWORK"],
+        "Kids":          ["KIDS NETWORK"],
+        "Movies":        ["MOVIES NETWORK", "PRIME", "TUBI", "PARAMOUNT+ PPV"],
+        "Religious":     ["BIBLICAL/RELIGIOUS"],
+        "Relaxation":    ["RELAX", "RELAX 4K", "RELAX UHD"],
+    })
+    # Which content types to include (empty = all shown; mirrors global_filter_included_categories)
+    global_filter_included_content_types: list = Field(default_factory=list)
+
     # Sports / Events view filter state persistence
     # Keyword definitions (sport_keywords, league_keywords) live in:
     #   ~/.config/metatv/sports_definitions.yaml
@@ -228,6 +282,18 @@ class Config(BaseModel):
     details_pane_visible: bool = False  # Show/hide details pane
     details_pane_width: int = 400  # Width of details pane in pixels
     details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
+
+    # Version preference settings (used in "Other Versions" section of details pane)
+    preferred_version_prefixes: list = Field(default_factory=list)
+    # Ordered prefix codes, e.g. ["EN", "US"] — first match wins (+10 per rank position)
+    preferred_version_quality: str = ""
+    # Quality marker to prefer, e.g. "1080p", "4K", "HD" — matched against channel name
+    preferred_version_provider_ids: list = Field(default_factory=list)
+    # Ordered provider UUIDs — prefer content from this provider (+5 per rank position)
+
+    # User-defined human-readable names for prefix codes (e.g. {"KU": "Kurdish", "EAR": "Early Release"})
+    # Checked first in _resolve_category_name(), before the built-in lookup tables.
+    category_name_overrides: dict = Field(default_factory=dict)
     
     def _inject_new_sections(self) -> None:
         """Insert newly added sidebar sections into existing configs that predate them."""

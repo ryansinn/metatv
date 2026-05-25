@@ -105,6 +105,23 @@ class NotificationCard(QFrame):
             self.message_label.setMinimumHeight(20)
             layout.addWidget(self.message_label)
         
+        # Action buttons (e.g. "Undo")
+        if self.notification.actions:
+            action_layout = QHBoxLayout()
+            action_layout.setContentsMargins(0, 4, 0, 0)
+            action_layout.addStretch()
+            for label, callback in self.notification.actions:
+                btn = QPushButton(label)
+                btn.setStyleSheet(
+                    "QPushButton { font-size: 11px; font-weight: bold; border: 1px solid #666;"
+                    " border-radius: 3px; padding: 2px 8px; }"
+                    "QPushButton:hover { background: rgba(255,255,255,0.15); }"
+                )
+                btn.setToolTip(label)
+                btn.clicked.connect(lambda _, cb=callback: (cb(), self.dismiss()))
+                action_layout.addWidget(btn)
+            layout.addLayout(action_layout)
+
         # Progress bar for progress notifications
         if self.notification.type == NotificationType.PROGRESS:
             progress_layout = QHBoxLayout()

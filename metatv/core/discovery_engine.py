@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import text
 from loguru import logger
 
 from metatv.core.content_dedup import _PREFIX_NOISE_RE, _YEAR_EXTRACT_RE
+
+
+# Splits comma- or slash-delimited genre strings into individual genres.
+_GENRE_SEP_RE = re.compile(r"[/,]")
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +37,12 @@ class ContentCard:
     thumbnail_url: str | None
     rating: float | None
     year: int | None
-    genre: str | None    # primary genre only (first "/" segment)
+    genre: str | None    # primary genre only (first segment)
+    is_favorite: bool = False
+    in_queue: bool = False
+    already_watched: bool = False
+    is_liked: bool = False
+    detected_prefix: str | None = None  # provider category label (e.g. "DE", "KU")
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +62,10 @@ def display_title(channel) -> str:
             rf"^{re.escape(prefix)}\s*[|:*\-–—●•★◉\xb7\s]\s*",
             "", name, flags=re.IGNORECASE,
         )
-        if stripped:
+        if stripped and stripped != name:
             return stripped.strip()
+    # Fall through to regex-based prefix stripping (handles formats that
+    # detected_prefix misses, or where the prefix itself contains the separator)
     return _PREFIX_NOISE_RE.sub("", name).strip()
 
 
@@ -90,122 +101,178 @@ def _primary_genre(channel) -> str | None:
     genre_str = (rd.get("genre") or "").strip()
     if not genre_str:
         return None
-    return genre_str.split("/")[0].strip() or None
+    # Take first segment from either delimiter
+    for seg in _GENRE_SEP_RE.split(genre_str):
+        seg = seg.strip()
+        if seg:
+            return seg
+    return None
 
 
-def _to_card(channel) -> ContentCard:
+def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
+             watched_ids=None, liked_ids=None) -> ContentCard:
+    title = display_title(channel)
+    # Fallback to MetadataDB title when display_title yields a non-alpha string (e.g. "2013")
+    if meta and meta.title and not any(c.isalpha() for c in title):
+        title = meta.title
     return ContentCard(
         channel_id=channel.id,
-        title=display_title(channel),
+        title=title,
         media_type=channel.media_type,
         thumbnail_url=_thumbnail(channel),
         rating=_raw_rating(channel) or None,
         year=_raw_year(channel),
         genre=_primary_genre(channel),
+        is_favorite=channel.id in (fav_ids or set()),
+        in_queue=channel.id in (queue_ids or set()),
+        already_watched=channel.id in (watched_ids or set()),
+        is_liked=channel.id in (liked_ids or set()),
+        detected_prefix=channel.detected_prefix or None,
     )
+
+
+def _dedup_cards(cards: list[ContentCard]) -> list[ContentCard]:
+    """Remove source/language duplicates — same title+year, keep highest-rated."""
+    from metatv.core.content_dedup import normalize_title
+    seen: dict[tuple, ContentCard] = {}
+    for card in cards:
+        key = (normalize_title(card.title), card.year)
+        existing = seen.get(key)
+        if existing is None or (card.rating or 0) > (existing.rating or 0):
+            seen[key] = card
+    return list(seen.values())
+
+
+def _apply_prefix_filter(query, included_prefixes, include_uncategorized):
+    """Apply global category filter to a SQLAlchemy query on ChannelDB."""
+    from metatv.core.database import ChannelDB
+    from sqlalchemy import or_
+    if included_prefixes:
+        cond = ChannelDB.detected_prefix.in_(included_prefixes)
+        if include_uncategorized:
+            cond = or_(cond, ChannelDB.detected_prefix.is_(None))
+        return query.filter(cond)
+    elif not include_uncategorized:
+        return query.filter(ChannelDB.detected_prefix.isnot(None))
+    return query
 
 
 # ---------------------------------------------------------------------------
 # Shelf queries
 # ---------------------------------------------------------------------------
 
-def get_recently_added(session, limit: int = 30) -> list[ContentCard]:
+def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
+                       watched_ids=None, liked_ids=None,
+                       included_prefixes=None, include_uncategorized: bool = True,
+                       ) -> list[ContentCard]:
     """Movies and series sorted by provider-added timestamp, newest first."""
-    from metatv.core.database import ChannelDB
-    rows = (
-        session.query(ChannelDB)
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
         )
-        .order_by(text("CAST(json_extract(raw_data, '$.added') AS REAL) DESC"))
-        .limit(limit)
-        .all()
     )
-    return [_to_card(ch) for ch in rows]
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    rows = q.order_by(
+        text("CAST(json_extract(channels.raw_data, '$.added') AS REAL) DESC")
+    ).limit(limit * 5).all()
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+             for ch, meta in rows]
+    return _dedup_cards(cards)[:limit]
 
 
 def get_top_rated(session, media_type: str = "movie", limit: int = 30,
-                  min_rating: float = 5.0) -> list[ContentCard]:
+                  min_rating: float = 5.0, fav_ids=None, queue_ids=None,
+                  watched_ids=None, liked_ids=None,
+                  included_prefixes=None, include_uncategorized: bool = True,
+                  ) -> list[ContentCard]:
     """Top-rated content of the given media_type by provider rating."""
-    from metatv.core.database import ChannelDB
-    rows = (
-        session.query(ChannelDB)
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
             ChannelDB.media_type == media_type,
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text(f"CAST(json_extract(raw_data, '$.rating') AS REAL) >= {min_rating}"),
-            text("CAST(json_extract(raw_data, '$.rating') AS REAL) <= 10"),
+            text(f"CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= {min_rating}"),
+            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) <= 10"),
         )
-        .order_by(text("CAST(json_extract(raw_data, '$.rating') AS REAL) DESC"))
-        .limit(limit)
-        .all()
     )
-    return [_to_card(ch) for ch in rows]
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    rows = q.order_by(
+        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+    ).limit(limit * 5).all()
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+             for ch, meta in rows]
+    return _dedup_cards(cards)[:limit]
 
 
-def get_by_genre(session, genre: str, limit: int = 30) -> list[ContentCard]:
-    """Series matching a genre string (partial match), sorted by rating."""
-    from metatv.core.database import ChannelDB
-    rows = (
-        session.query(ChannelDB)
-        .filter(
-            ChannelDB.media_type == "series",
-            ChannelDB.is_hidden == False,  # noqa: E712
-            ChannelDB.raw_data.isnot(None),
-            text("json_extract(raw_data, '$.genre') LIKE :pat").bindparams(
-                pat=f"%{genre}%"
-            ),
-        )
-        .order_by(text("CAST(json_extract(raw_data, '$.rating') AS REAL) DESC"))
-        .limit(limit)
-        .all()
-    )
-    return [_to_card(ch) for ch in rows]
-
-
-def get_by_decade(session, decade: int, limit: int = 30) -> list[ContentCard]:
-    """Movies and series from a decade (e.g. decade=1990 → 1990–1999).
-
-    Year is extracted Python-side since it comes from title text or a date
-    field rather than a clean integer column.
-    """
-    from metatv.core.database import ChannelDB
-    start, end = decade, decade + 9
-    # Pre-filter: only channels whose name or releaseDate plausibly has a year
-    # in that range — avoids pulling all 305K rows into Python.
-    year_pats = [str(y) for y in range(start, end + 1)]
-    raw = (
-        session.query(ChannelDB)
+def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
+                 queue_ids=None, watched_ids=None, liked_ids=None,
+                 included_prefixes=None, include_uncategorized: bool = True,
+                 ) -> list[ContentCard]:
+    """Content matching a genre string (partial match), sorted by rating."""
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text("CAST(json_extract(raw_data, '$.rating') AS REAL) >= 5"),
-            text("CAST(json_extract(raw_data, '$.rating') AS REAL) <= 10"),
+            text("json_extract(channels.raw_data, '$.genre') LIKE :pat").bindparams(
+                pat=f"%{genre}%"
+            ),
         )
-        .all()
     )
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    rows = q.order_by(
+        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+    ).limit(limit * 5).all()
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+             for ch, meta in rows]
+    return _dedup_cards(cards)[:limit]
+
+
+def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
+                  queue_ids=None, watched_ids=None, liked_ids=None,
+                  included_prefixes=None, include_uncategorized: bool = True,
+                  ) -> list[ContentCard]:
+    """Movies and series from a decade (e.g. decade=1990 → 1990–1999)."""
+    from metatv.core.database import ChannelDB, MetadataDB
+    start, end = decade, decade + 9
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        .filter(
+            ChannelDB.media_type.in_(["movie", "series"]),
+            ChannelDB.is_hidden == False,  # noqa: E712
+            ChannelDB.raw_data.isnot(None),
+            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= 5"),
+            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) <= 10"),
+        )
+    )
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
     results: list[ContentCard] = []
-    for ch in raw:
+    for ch, meta in q.all():
         yr = _raw_year(ch)
         if yr and start <= yr <= end:
-            results.append(_to_card(ch))
+            results.append(_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids))
     results.sort(key=lambda c: c.rating or 0, reverse=True)
+    results = _dedup_cards(results)
     return results[:limit]
 
 
-def get_featured_actor(
-    session, weights=None
-) -> tuple[str, list[ContentCard]]:
-    """Return (actor_name, cards) for a Featured Actor shelf.
-
-    Selection priority:
-    1. Top actor from user preference weights (if weights provided and non-empty).
-    2. Actor appearing most frequently in series with rating ≥ 7.5.
-    """
+def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
+                       watched_ids=None, liked_ids=None,
+                       included_prefixes=None, include_uncategorized: bool = True,
+                       ) -> tuple[str, list[ContentCard]]:
+    """Return (actor_name, cards) for a Featured Actor shelf."""
     from metatv.core.database import ChannelDB
 
     actor: str | None = None
@@ -216,7 +283,7 @@ def get_featured_actor(
             actor = max(positive, key=lambda k: positive[k])
 
     if not actor:
-        rows = (
+        q = (
             session.query(ChannelDB)
             .filter(
                 ChannelDB.media_type == "series",
@@ -224,10 +291,10 @@ def get_featured_actor(
                 ChannelDB.raw_data.isnot(None),
                 text("CAST(json_extract(raw_data, '$.rating') AS REAL) >= 7.5"),
             )
-            .all()
         )
+        q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
         counter: Counter = Counter()
-        for ch in rows:
+        for ch in q.all():
             cast_str = (ch.raw_data or {}).get("cast") or ""
             for name in [n.strip() for n in cast_str.split(",") if n.strip()]:
                 counter[name] += 1
@@ -237,69 +304,90 @@ def get_featured_actor(
     if not actor:
         return ("", [])
 
-    cards = get_by_actor(session, actor, limit=30)
+    cards = get_by_actor(session, actor, limit=30,
+                         fav_ids=fav_ids, queue_ids=queue_ids,
+                         watched_ids=watched_ids, liked_ids=liked_ids,
+                         included_prefixes=included_prefixes,
+                         include_uncategorized=include_uncategorized)
     logger.debug(f"Featured actor: {actor!r} ({len(cards)} cards)")
     return (actor, cards)
 
 
-def get_by_actor(session, actor: str, limit: int = 30) -> list[ContentCard]:
+def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
+                 queue_ids=None, watched_ids=None, liked_ids=None,
+                 included_prefixes=None, include_uncategorized: bool = True,
+                 ) -> list[ContentCard]:
     """Series featuring a named actor (partial match on cast string)."""
-    from metatv.core.database import ChannelDB
-    rows = (
-        session.query(ChannelDB)
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
             ChannelDB.media_type == "series",
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text("json_extract(raw_data, '$.cast') LIKE :pat").bindparams(
+            text("json_extract(channels.raw_data, '$.cast') LIKE :pat").bindparams(
                 pat=f"%{actor}%"
             ),
         )
-        .order_by(text("CAST(json_extract(raw_data, '$.rating') AS REAL) DESC"))
-        .limit(limit)
-        .all()
     )
-    return [_to_card(ch) for ch in rows]
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    rows = q.order_by(
+        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+    ).limit(limit * 5).all()
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+             for ch, meta in rows]
+    return _dedup_cards(cards)[:limit]
 
 
-def get_all_genres(session, min_count: int = 10) -> list[str]:
-    """Return genre names (from series raw_data) that have ≥ min_count entries."""
+def get_all_genres(session, min_count: int = 10,
+                   included_prefixes=None, include_uncategorized: bool = True,
+                   ) -> list[str]:
+    """Return individual genre names that have ≥ min_count entries.
+
+    Genre strings from raw_data are split on both '/' and ',' so compound
+    strings like 'Action & Adventure / Drama' or 'Animation, Mystery' yield
+    individual genre counts rather than counting the compound string as-is.
+    Only counts genres from channels that pass the global category filter.
+    """
     from metatv.core.database import ChannelDB
-    rows = (
+    q = (
         session.query(ChannelDB)
         .filter(
-            ChannelDB.media_type == "series",
+            ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
             text("json_extract(raw_data, '$.genre') IS NOT NULL"),
             text("json_extract(raw_data, '$.genre') != ''"),
         )
-        .all()
     )
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
     counter: Counter = Counter()
-    for ch in rows:
+    for ch in q.all():
         genre_str = (ch.raw_data or {}).get("genre") or ""
-        for g in genre_str.split("/"):
+        for g in _GENRE_SEP_RE.split(genre_str):
             g = g.strip()
             if g:
                 counter[g] += 1
     return [g for g, cnt in counter.most_common() if cnt >= min_count]
 
 
-def get_all_decades(session) -> list[int]:
+def get_all_decades(session,
+                    included_prefixes=None, include_uncategorized: bool = True,
+                    ) -> list[int]:
     """Return decades (as start year) that have ≥ 5 entries with a known year."""
     from metatv.core.database import ChannelDB
-    rows = (
+    q = (
         session.query(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
         )
-        .all()
     )
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
     decade_counts: Counter = Counter()
-    for ch in rows:
+    for ch in q.all():
         yr = _raw_year(ch)
         if yr and 1950 <= yr <= 2030:
             decade_counts[(yr // 10) * 10] += 1
@@ -307,3 +395,24 @@ def get_all_decades(session) -> list[int]:
         [d for d, cnt in decade_counts.items() if cnt >= 5],
         reverse=True,
     )
+
+
+def _rank_genres_by_preference(genres: list[str], liked_ids: set,
+                                session,
+                                included_prefixes=None,
+                                include_uncategorized: bool = True,
+                                ) -> list[str]:
+    """Sort genres so those with more liked content appear first."""
+    if not liked_ids:
+        return genres
+    from metatv.core.database import ChannelDB
+    genre_score: dict[str, int] = {g: 0 for g in genres}
+    q = session.query(ChannelDB).filter(ChannelDB.id.in_(liked_ids))
+    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    for ch in q.all():
+        genre_str = (ch.raw_data or {}).get("genre") or ""
+        for g in _GENRE_SEP_RE.split(genre_str):
+            g = g.strip()
+            if g in genre_score:
+                genre_score[g] += 1
+    return sorted(genres, key=lambda g: genre_score[g], reverse=True)

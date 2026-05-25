@@ -54,6 +54,14 @@ class ChannelDB(Base):
     rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
     rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
 
+    # Provider-ordering and header-derived category (live channels only)
+    # source_num: the `num` field from the Xtream API — provider's canonical display order
+    # source_category: label extracted from the nearest preceding ##...## header in the stream list
+    # source_quality_flags: comma-separated quality markers decoded from that header (HD,RAW,60FPS,UHD)
+    source_num           = Column(Integer, index=True)
+    source_category      = Column(String,  index=True)
+    source_quality_flags = Column(String)
+
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -341,6 +349,9 @@ class Database:
             ("channels",     "is_rec_suppressed",        "INTEGER DEFAULT 0"),
             ("channels",     "rec_shown_count",           "INTEGER DEFAULT 0"),
             ("channels",     "rec_last_shown",            "DATETIME"),
+            ("channels",     "source_num",                "INTEGER"),
+            ("channels",     "source_category",           "TEXT"),
+            ("channels",     "source_quality_flags",      "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

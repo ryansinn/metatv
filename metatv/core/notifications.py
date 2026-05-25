@@ -133,7 +133,8 @@ class NotificationManager:
                 message=kwargs.get('message', ''),
                 type=notif_type,
                 dismissible=kwargs.get('dismissible', True),
-                auto_dismiss_seconds=auto_dismiss_seconds
+                auto_dismiss_seconds=auto_dismiss_seconds,
+                actions=kwargs.get('actions', []),
             )
         
         self.notifications.append(notification)

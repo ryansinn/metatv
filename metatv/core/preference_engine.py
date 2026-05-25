@@ -210,7 +210,9 @@ def compute_weights(session) -> AttributeWeights:
 
 def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      muted_attrs: dict | None = None,
-                     dedupe_overrides: set[str] | None = None) -> list[ScoredChannel]:
+                     dedupe_overrides: set[str] | None = None,
+                     included_prefixes: list[str] | None = None,
+                     include_uncategorized: bool = True) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
@@ -256,7 +258,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     all_engaged_ids = disliked_ids | favorite_ids | queued_ids | set(liked_map.keys())
     engaged_normalized = build_engaged_normalized(session, all_engaged_ids, _overrides)
 
-    candidates = (
+    from metatv.core.discovery_engine import _apply_prefix_filter
+    candidates_q = (
         session.query(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
@@ -264,8 +267,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             ChannelDB.is_rec_suppressed == False,  # noqa: E712
             ChannelDB.metadata_id.isnot(None),
         )
-        .all()
     )
+    candidates_q = _apply_prefix_filter(candidates_q, included_prefixes, include_uncategorized)
+    candidates = candidates_q.all()
 
     best_per_title: dict[tuple, ScoredChannel] = {}
     variant_counts: dict[tuple, int] = {}

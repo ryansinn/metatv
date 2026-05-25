@@ -159,14 +159,18 @@ class FilterDropdown(QPushButton):
     def select_all(self):
         self.selected_groups = set(self.groups.keys())
         for cb in self.checkboxes.values():
+            cb.blockSignals(True)
             cb.setChecked(True)
+            cb.blockSignals(False)
         self.update_button_label()
         self.filter_changed.emit()
 
     def clear_all(self):
         self.selected_groups.clear()
         for cb in self.checkboxes.values():
+            cb.blockSignals(True)
             cb.setChecked(False)
+            cb.blockSignals(False)
         self.update_button_label()
         self.filter_changed.emit()
 
@@ -228,7 +232,7 @@ class FilterBar(QWidget):
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("Filters:"))
 
-        self.language_dropdown = FilterDropdown("Languages", {})
+        self.language_dropdown = FilterDropdown("Categories", {})
         self.language_dropdown.filter_changed.connect(self.on_filter_changed)
         filter_row.addWidget(self.language_dropdown)
 
@@ -404,8 +408,12 @@ class FilterBar(QWidget):
                 if chip:
                     chip.set_enabled(True)
 
+        self.language_dropdown.blockSignals(True)
+        self.quality_dropdown.blockSignals(True)
         self.language_dropdown.select_all()
         self.quality_dropdown.select_all()
+        self.language_dropdown.blockSignals(False)
+        self.quality_dropdown.blockSignals(False)
 
         self.include_untagged_check.blockSignals(True)
         self.include_untagged_check.setChecked(True)

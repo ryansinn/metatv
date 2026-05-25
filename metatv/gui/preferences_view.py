@@ -5,7 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSize, pyqtSignal, Qt
 from PyQt6.QtGui import QContextMenuEvent, QColor, QPalette
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy,
     QVBoxLayout, QWidget,
 )
@@ -283,6 +283,9 @@ class PreferencesView(QWidget):
         self._excl_container.setVisible(False)
         vl.addWidget(self._excl_container)
 
+        # Version Preferences section
+        self._setup_version_prefs_section(vl)
+
         # Restore collapse state
         expanded = getattr(self.config, "preferences_attributes_expanded", False)
         self._attrs_container.setVisible(expanded)
@@ -292,6 +295,159 @@ class PreferencesView(QWidget):
         self._toggle_attrs_btn.setToolTip(
             "Hide attribute breakdown" if expanded else "Show attribute breakdown"
         )
+
+    def _setup_version_prefs_section(self, vl: QVBoxLayout) -> None:
+        """Build the collapsible Version Preferences section."""
+        ver_hdr = QHBoxLayout()
+        self._ver_prefs_toggle_btn = QPushButton(
+            f"{self.config.expand_icon} Version Preferences"
+        )
+        self._ver_prefs_toggle_btn.setFlat(True)
+        self._ver_prefs_toggle_btn.setStyleSheet(
+            "QPushButton { text-align: left; color: #aaa; font-size: 11px; border: none; padding: 2px 0; }"
+            "QPushButton:hover { color: #ccc; }"
+        )
+        self._ver_prefs_toggle_btn.clicked.connect(self._toggle_version_prefs)
+        ver_hdr.addWidget(self._ver_prefs_toggle_btn)
+        ver_hdr.addStretch()
+        vl.addLayout(ver_hdr)
+
+        self._ver_prefs_container = QWidget()
+        ver_vl = QVBoxLayout(self._ver_prefs_container)
+        ver_vl.setContentsMargins(4, 2, 4, 4)
+        ver_vl.setSpacing(6)
+
+        # Preferred prefixes
+        ver_vl.addWidget(QLabel(
+            "<b>Preferred prefixes</b>  <small>(ordered — first match wins)</small>"
+        ))
+
+        self._ver_prefix_list = QListWidget()
+        self._ver_prefix_list.setMaximumHeight(100)
+        self._ver_prefix_list.setToolTip(
+            "Channels whose prefix matches the top entry get the highest preference score"
+        )
+        ver_vl.addWidget(self._ver_prefix_list)
+
+        prefix_btn_row = QHBoxLayout()
+        self._ver_prefix_input = QLineEdit()
+        self._ver_prefix_input.setPlaceholderText("Add prefix (e.g. EN, US)")
+        self._ver_prefix_input.setMaximumWidth(140)
+        self._ver_prefix_input.returnPressed.connect(self._add_version_prefix)
+        prefix_btn_row.addWidget(self._ver_prefix_input)
+
+        add_prefix_btn = QPushButton("Add")
+        add_prefix_btn.setFixedWidth(48)
+        add_prefix_btn.clicked.connect(self._add_version_prefix)
+        prefix_btn_row.addWidget(add_prefix_btn)
+
+        rm_prefix_btn = QPushButton(self.config.close_icon)
+        rm_prefix_btn.setFixedWidth(28)
+        rm_prefix_btn.setToolTip("Remove selected prefix")
+        rm_prefix_btn.clicked.connect(self._remove_version_prefix)
+        prefix_btn_row.addWidget(rm_prefix_btn)
+
+        up_btn = QPushButton(self.config.move_up_icon)
+        up_btn.setFixedWidth(28)
+        up_btn.setToolTip("Move selected prefix up (higher priority)")
+        up_btn.clicked.connect(lambda: self._move_version_prefix(-1))
+        prefix_btn_row.addWidget(up_btn)
+
+        dn_btn = QPushButton(self.config.move_down_icon)
+        dn_btn.setFixedWidth(28)
+        dn_btn.setToolTip("Move selected prefix down")
+        dn_btn.clicked.connect(lambda: self._move_version_prefix(1))
+        prefix_btn_row.addWidget(dn_btn)
+
+        prefix_btn_row.addStretch()
+        ver_vl.addLayout(prefix_btn_row)
+
+        # Preferred quality
+        qual_row = QHBoxLayout()
+        qual_row.addWidget(QLabel("<b>Preferred quality:</b>"))
+        self._ver_quality_combo = QComboBox()
+        self._ver_quality_combo.addItems(
+            ["None (no preference)", "4K", "UHD", "FHD", "1080p", "HD", "RAW"]
+        )
+        self._ver_quality_combo.currentTextChanged.connect(self._on_quality_changed)
+        qual_row.addWidget(self._ver_quality_combo)
+        qual_row.addStretch()
+        ver_vl.addLayout(qual_row)
+
+        qual_note = QLabel(
+            "<small>Channels whose name contains the quality marker get a preference boost.</small>"
+        )
+        qual_note.setTextFormat(Qt.TextFormat.RichText)
+        qual_note.setWordWrap(True)
+        ver_vl.addWidget(qual_note)
+
+        self._ver_prefs_container.setVisible(False)
+        vl.addWidget(self._ver_prefs_container)
+
+        # Populate from config
+        self._refresh_version_prefs_ui()
+
+    def _toggle_version_prefs(self) -> None:
+        visible = not self._ver_prefs_container.isVisible()
+        self._ver_prefs_container.setVisible(visible)
+        icon = self.config.collapse_icon if visible else self.config.expand_icon
+        self._ver_prefs_toggle_btn.setText(f"{icon} Version Preferences")
+
+    def _refresh_version_prefs_ui(self) -> None:
+        self._ver_prefix_list.clear()
+        for p in self.config.preferred_version_prefixes:
+            self._ver_prefix_list.addItem(p)
+        quality = self.config.preferred_version_quality or ""
+        idx = self._ver_quality_combo.findText(quality)
+        if idx < 0:
+            idx = 0
+        self._ver_quality_combo.blockSignals(True)
+        self._ver_quality_combo.setCurrentIndex(idx)
+        self._ver_quality_combo.blockSignals(False)
+
+    def _add_version_prefix(self) -> None:
+        text = self._ver_prefix_input.text().strip().upper()
+        if not text:
+            return
+        prefixes = list(self.config.preferred_version_prefixes)
+        if text not in prefixes:
+            prefixes.append(text)
+            self.config.preferred_version_prefixes = prefixes
+            self.config.save()
+            self._ver_prefix_list.addItem(text)
+        self._ver_prefix_input.clear()
+
+    def _remove_version_prefix(self) -> None:
+        row = self._ver_prefix_list.currentRow()
+        if row < 0:
+            return
+        prefixes = list(self.config.preferred_version_prefixes)
+        if row < len(prefixes):
+            prefixes.pop(row)
+            self.config.preferred_version_prefixes = prefixes
+            self.config.save()
+            self._ver_prefix_list.takeItem(row)
+
+    def _move_version_prefix(self, delta: int) -> None:
+        row = self._ver_prefix_list.currentRow()
+        prefixes = list(self.config.preferred_version_prefixes)
+        new_row = row + delta
+        if row < 0 or not (0 <= new_row < len(prefixes)):
+            return
+        prefixes[row], prefixes[new_row] = prefixes[new_row], prefixes[row]
+        self.config.preferred_version_prefixes = prefixes
+        self.config.save()
+        self._ver_prefix_list.clear()
+        for p in prefixes:
+            self._ver_prefix_list.addItem(p)
+        self._ver_prefix_list.setCurrentRow(new_row)
+
+    def _on_quality_changed(self, text: str) -> None:
+        if text.startswith("None"):
+            self.config.preferred_version_quality = ""
+        else:
+            self.config.preferred_version_quality = text
+        self.config.save()
 
     def _toggle_attributes(self) -> None:
         expanded = not self._attrs_container.isVisible()
@@ -331,6 +487,9 @@ class PreferencesView(QWidget):
 
     def refresh(self) -> None:
         from metatv.core.preference_engine import compute_weights, score_candidates
+        from metatv.core.filter_utils import get_active_category_filter
+
+        included_prefixes, include_uncategorized = get_active_category_filter(self.config)
 
         session = self.db.get_session()
         try:
@@ -339,6 +498,8 @@ class PreferencesView(QWidget):
                 session, weights,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
                 dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
+                included_prefixes=included_prefixes,
+                include_uncategorized=include_uncategorized,
             )
         finally:
             session.close()

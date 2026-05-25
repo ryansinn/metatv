@@ -1,51 +1,57 @@
 """Filtering utilities for channel organization"""
 
+import re
 from typing import Optional, Dict, List, Set
 from dataclasses import dataclass
 from loguru import logger
 
 
-def extract_prefix(channel_name: str) -> Optional[str]:
-    """Extract prefix from channel name using simple heuristic.
-    
-    Strategy: Take everything before first ' - '
-    Only return if it looks like a prefix (short, has uppercase)
-    
-    Deliberately ignores other formats like [XX], |XX|, etc. to keep them
-    included by default (inclusive philosophy).
-    
-    Args:
-        channel_name: Full channel name
-        
-    Returns:
-        Detected prefix or None if no clear prefix found
-        
-    Examples:
-        >>> extract_prefix("EN - Breaking Bad")
-        'EN'
-        >>> extract_prefix("AR - Drama Series")
-        'AR'
-        >>> extract_prefix("UK/US - The Office")
-        'UK/US'
-        >>> extract_prefix("4K - Movie Title")
-        '4K'
-        >>> extract_prefix("[SE] Star Trek")
-        None  # No ' - ' separator, included by default
-        >>> extract_prefix("Breaking Bad - S01E01")
-        None
-        >>> extract_prefix("Just A Title")
-        None
+# Bracket prefix at start of name: [SE], [UK], [4K], etc.
+_BRACKET_RE = re.compile(r'^\[([A-Z0-9]{1,8})\]\s*')
+
+# Valid prefix: starts with uppercase letter or digit, only [A-Z0-9/], max 10 chars.
+# Rejects anything with spaces, lowercase, ★, or other separators embedded in it.
+_VALID_PREFIX = re.compile(r'^[A-Z0-9][A-Z0-9/]{0,9}$')
+
+# Default separator search order — longer/more-specific patterns first to avoid
+# partial matches (e.g. " ★ " before bare "★").
+DEFAULT_PREFIX_SEPARATORS: list[str] = [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
+
+
+def extract_prefix(channel_name: str, separators: list[str] | None = None) -> Optional[str]:
+    """Extract the prefix code from a channel name.
+
+    Tries, in order:
+    1. Bracket format: ``[XX] Title`` → returns ``XX``
+    2. Each separator in *separators* (default: ★, |, :, then ' - ').
+       The candidate before the separator must match ``[A-Z0-9][A-Z0-9/]{0,9}``
+       (no spaces, no lowercase, ≤ 10 chars) to avoid false positives.
+
+    Examples::
+
+        extract_prefix("EN - Breaking Bad")   → 'EN'
+        extract_prefix("AF ★ Wede - Doc")     → 'AF'
+        extract_prefix("AFR| RTN TELE SAHEL") → 'AFR'
+        extract_prefix("[SE] Star Trek")      → 'SE'
+        extract_prefix("UK: Channel Name")    → 'UK'
+        extract_prefix("Breaking Bad - S01")  → None  (has lowercase)
+        extract_prefix("Just A Title")        → None
     """
-    if not channel_name or ' - ' not in channel_name:
+    if not channel_name:
         return None
-    
-    first_segment = channel_name.split(' - ', 1)[0].strip()
-    
-    # Heuristic: prefix should be short and have some uppercase
-    # This filters out false positives like "Breaking Bad - S01E01"
-    if len(first_segment) <= 20 and any(c.isupper() for c in first_segment):
-        return first_segment
-    
+
+    # [XX] bracket format at start of name
+    m = _BRACKET_RE.match(channel_name)
+    if m:
+        return m.group(1)
+
+    seps = separators if separators is not None else DEFAULT_PREFIX_SEPARATORS
+    for sep in seps:
+        if sep in channel_name:
+            candidate = channel_name.split(sep, 1)[0].strip()
+            if _VALID_PREFIX.match(candidate):
+                return candidate
+
     return None
 
 
@@ -174,6 +180,52 @@ def compute_prefix_stats(
         total_channels=len(channels),
         channels_with_prefix=channels_with_prefix
     )
+
+
+def get_excluded_prefixes(config) -> set[str]:
+    """Return the set of explicitly blocked prefix codes.
+
+    These are always hidden regardless of the allowlist state. Written by the
+    "Block [PREFIX]" quick action in the Other Versions section of the details pane.
+    """
+    return set(getattr(config, "global_filter_excluded_prefixes", []))
+
+
+def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
+    """Return stored prefix codes as the active category filter.
+
+    config.global_filter_included_categories stores actual prefix codes
+    (e.g. ["EN", "KU"]), not group names. Empty list = no filter (show all).
+
+    Returns:
+        (included_prefixes_or_None, include_uncategorized)
+        included_prefixes is None when no filter is active (show everything).
+    """
+    prefixes = list(getattr(config, "global_filter_included_categories", []))
+    include_uncategorized = getattr(config, "global_filter_include_uncategorized", True)
+    return (prefixes if prefixes else None), include_uncategorized
+
+
+def get_active_content_type_filter(config) -> list[str] | None:
+    """Resolve global_filter_included_content_types → raw source_category labels.
+
+    Returns a list of raw labels to include (e.g. ["SPORTS NETWORK", "NBA LIVE EVENTS"]),
+    or None when no content-type filter is active (show everything).
+    The sentinel "_other_" in the stored list means "channels with unmapped source_category"
+    — callers must handle that specially.
+    """
+    included_types: list[str] = list(getattr(config, "global_filter_included_content_types", []))
+    if not included_types:
+        return None  # no filter active
+
+    groups: dict = getattr(config, "content_category_groups", {})
+    raw_labels: list[str] = []
+    for type_name in included_types:
+        if type_name == "_other_":
+            continue  # handled separately by callers
+        for lbl in groups.get(type_name, []):
+            raw_labels.append(lbl)
+    return raw_labels
 
 
 def matches_filter(

@@ -36,7 +36,9 @@ class ChannelRepository:
                 invert_prefix_filters: bool = False,
                 include_untagged: bool = True,
                 adult_mode: str = "all",
-                force_adult_provider_ids: Optional[List[str]] = None) -> List[ChannelDB]:
+                force_adult_provider_ids: Optional[List[str]] = None,
+                source_categories: Optional[List[str]] = None,
+                include_uncategorized_content_types: bool = True) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
         Args:
@@ -48,6 +50,10 @@ class ChannelRepository:
             include_hidden: Include hidden channels.
             invert_prefix_filters: If True, show only items NOT matching prefix filters.
             include_untagged: When False, exclude channels with no detected_prefix.
+            source_categories: Raw source_category labels to include (live channels only).
+                None = no filter (show all). Only meaningful when querying live channels.
+            include_uncategorized_content_types: When source_categories is set, also
+                include live channels with no source_category (True by default).
 
         Returns:
             List of channels matching all filters.
@@ -111,6 +117,14 @@ class ChannelRepository:
         elif not include_untagged:
             # No prefix filter active, but user wants to hide untagged channels
             query = query.filter(ChannelDB.detected_prefix.isnot(None))
+
+        # Content-type filter (source_category — live channels only)
+        if source_categories is not None:
+            from sqlalchemy import or_
+            cond = ChannelDB.source_category.in_(source_categories)
+            if include_uncategorized_content_types:
+                cond = or_(cond, ChannelDB.source_category.is_(None))
+            query = query.filter(cond)
 
         return query.all()
     
@@ -277,26 +291,32 @@ class ChannelRepository:
         
         return query.count()
     
-    def update_detected_prefixes(self, provider_id: Optional[str] = None):
-        """Update detected_prefix for all channels using prefix detection
-        
+    def update_detected_prefixes(
+        self,
+        provider_id: Optional[str] = None,
+        separators: list[str] | None = None,
+    ):
+        """Update detected_prefix for all channels using prefix detection.
+
         Args:
-            provider_id: Only update channels for this provider, or None for all
+            provider_id: Only update channels for this provider, or None for all.
+            separators: Ordered list of separator strings to try. Defaults to
+                ``DEFAULT_PREFIX_SEPARATORS`` from filter_utils when None.
         """
         query = self.session.query(ChannelDB)
         if provider_id:
             query = query.filter_by(provider_id=provider_id)
-        
+
         channels = query.all()
         updated = 0
-        
+
         for channel in channels:
-            detected = extract_prefix(channel.name)
+            detected = extract_prefix(channel.name, separators=separators)
             if detected != channel.detected_prefix:
                 channel.detected_prefix = detected
                 channel.updated_at = datetime.now()
                 updated += 1
-        
+
         self.session.commit()
         logger.info(f"Updated detected_prefix for {updated} of {len(channels)} channels")
         return updated

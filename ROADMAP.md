@@ -707,6 +707,20 @@
   - Double-click favorited series → open series view (current behavior)
   - Icon indicators in series tree for favorited items
 
+- [ ] **Cross-source episode completeness diagnostic tool**
+  - **Context**: Providers frequently return mismatched season/episode data for the same title:
+    - Provider may list season metadata for only season 1 but actually supply episodes for seasons 1 and 2 under separate episode groups (ProSat pattern — caused our loader to silently drop season 2)
+    - Provider may have genuinely fewer episodes than another source (TREX EN Dan Da Dan: 7 eps vs ProSat: 24 eps)
+    - The existing `metatv/scripts/inspect_series.py` queries the DB but shows nothing when episodes haven't been fetched yet
+  - **Goal**: A tool that fetches live API data for all sources of a given normalized title, compares episode/season counts across providers, and flags divergences that may indicate a loader bug vs. a genuine provider data gap
+  - **Capabilities needed**:
+    - Given a title substring, find all matching series channels across all providers
+    - For each, call the provider API (`get_series_info`) directly and show: seasons in metadata array, episode group keys, episode count per group, sample episode IDs
+    - Cross-compare: highlight when group keys exist beyond the seasons metadata (the bug we just fixed), when one provider has fewer episodes than another for the same normalized title, when duplicate episode IDs appear within a group
+    - Distinguish "provider data gap" (source genuinely has fewer episodes) from "loader processing gap" (source has the data but we aren't storing it correctly)
+  - **Implementation notes**: Extend `metatv/scripts/inspect_series.py` with a `--live` flag that fetches from the Xtream API directly (using `fetch_series_info` from `xtream.py`) rather than querying the DB; show a side-by-side comparison table per normalized title
+  - **Priority**: Low — fix is in place; tool is for future regression checking and provider quality assessment
+
 - [ ] **Smart caching & background updates**
   - **Instant Display**: Show cached series/episodes from database immediately (no loading wait)
   - **Background Refresh**: Check API in background for new episodes

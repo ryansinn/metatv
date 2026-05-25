@@ -6,11 +6,13 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QListWidget, QMenuBar, QMenu,
     QCheckBox, QTreeWidgetItem, QLineEdit, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
+from metatv.gui.icon_utils import resolve_icon
 from loguru import logger
 import subprocess
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from urllib.parse import urlparse, urlunparse
 from datetime import datetime
@@ -40,12 +42,83 @@ from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
 
+# Increment this when the prefix detection logic changes to trigger a one-time
+# background re-scan for all users who have an older detected version stored in config.
+CURRENT_DETECTOR_VERSION = 1
+
+
+def _looks_like_text(chunk: bytes) -> bool:
+    """Return True if a stream response chunk looks like text rather than binary video data.
+
+    MPEG-TS sync byte (0x47) as the first byte is a strong binary signal.
+    Otherwise we check the printable-ASCII ratio of the first 256 bytes.
+    """
+    if not chunk:
+        return False
+    if chunk[0] == 0x47:   # MPEG-TS sync byte — definitely binary
+        return False
+    printable = sum(1 for b in chunk[:256] if 0x20 <= b <= 0x7E or b in (0x09, 0x0A, 0x0D))
+    return (printable / min(len(chunk), 256)) > 0.85
+
+
+def _version_score(channel, config) -> int:
+    """Score a channel version against the user's version preferences.
+
+    Higher score = better match. Used to identify the preferred version
+    and sort the Other Versions list in the details pane.
+    """
+    score = 0
+    if config.preferred_version_prefixes and channel.detected_prefix:
+        try:
+            idx = config.preferred_version_prefixes.index(channel.detected_prefix)
+            score += max(0, 10 - idx)
+        except ValueError:
+            pass
+    if config.preferred_version_provider_ids and channel.provider_id in config.preferred_version_provider_ids:
+        try:
+            idx = config.preferred_version_provider_ids.index(channel.provider_id)
+            score += max(0, 5 - idx)
+        except ValueError:
+            pass
+    if config.preferred_version_quality:
+        if config.preferred_version_quality.upper() in channel.name.upper():
+            score += 5
+    return score
+
+
+from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
+
+class _PrefixRescanThread(QThread):
+    """Background thread that re-runs update_detected_prefixes and emits the count."""
+    finished = _pyqtSignal(int)
+
+    def __init__(self, db, separators, parent=None):
+        super().__init__(parent)
+        self._db = db
+        self._separators = separators
+
+    def run(self):
+        from metatv.core.repositories import RepositoryFactory
+        session = self._db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            updated = repos.channels.update_detected_prefixes(separators=self._separators)
+            self.finished.emit(updated)
+        except Exception as e:
+            logger.error(f"Prefix rescan failed: {e}")
+            self.finished.emit(0)
+        finally:
+            session.close()
+
 
 class MainWindow(QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
     metadata_loaded = pyqtSignal(object, object)
+    _channels_loaded = pyqtSignal(list, dict)        # (channels, params) — worker → main thread
+    _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
+    _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
     
     def __init__(self, config: Config):
         super().__init__()
@@ -127,6 +200,14 @@ class MainWindow(QMainWindow):
         
         self.setup_ui()
         self.setup_notifications()
+
+        # Initialize before load_channels() which uses these
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self._load_channels_token: int = 0
+        self._last_shown_channel_id: str | None = None
+        self.metadata_loaded.connect(self._update_details_with_metadata)
+        self._channels_loaded.connect(self._on_channels_loaded)
+
         self.load_providers()
         self.load_favorites()
         self.load_history()
@@ -135,16 +216,16 @@ class MainWindow(QMainWindow):
 
         # Auto-load channels from all active providers on startup
         self.load_channels()
-        
+
         # Initialize filter statistics
         self.initialize_filter_stats()
-        
+
         # Test provider connections in background
         self.test_all_providers()
-        
-        # Connect metadata loaded signal for thread-safe UI updates
-        self.metadata_loaded.connect(self._update_details_with_metadata)
-        
+
+        # One-time auto-rescan if prefix detector version is behind
+        QTimer.singleShot(1000, self._maybe_rescan_prefixes)
+
         logger.info("Main window initialized")
     
     def setup_ui(self):
@@ -194,7 +275,29 @@ class MainWindow(QMainWindow):
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
         self.details_pane.rating_requested.connect(self._toggle_rating)
+        self.details_pane.suppression_requested.connect(self._on_suppression_requested)
+        self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
+        self.details_pane.channel_versions_requested.connect(self._fetch_channel_versions)
+        self.details_pane.version_selected.connect(self.show_channel_details_by_id)
+        self.details_pane.prefix_block_requested.connect(self._on_prefix_block)
+        self.details_pane.prefix_unblock_requested.connect(self._on_prefix_unblock)
+        self.details_pane.prefix_name_saved.connect(self._on_prefix_name_saved)
+        self.details_pane.manage_filters_requested.connect(self.manage_filters)
+        self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
+        self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
+        self._versions_loaded.connect(self._on_versions_loaded)
+        self._similar_titles_loaded.connect(self._on_similar_titles_loaded)
         self.main_splitter.addWidget(self.details_pane)
+
+        # Similar titles lightbox — overlay child widget, hidden by default
+        from metatv.gui.similar_lightbox import SimilarTitleLightbox
+        self._lightbox = SimilarTitleLightbox(self, self.config, self.image_cache, self.db)
+        self._lightbox.play_requested.connect(self.play_channel_by_id)
+        self._lightbox.queue_toggled.connect(self._on_details_queue_toggle)
+        self._lightbox.favorite_toggled.connect(self.toggle_favorite_by_id)
+        self._lightbox.hide_requested.connect(self._on_hide_from_details_pane)
+        self._lightbox.rating_requested.connect(self._toggle_rating)
+        self._lightbox.suppression_requested.connect(self._on_suppression_requested)
 
         # Center panel gets all extra space when window is resized
         self.main_splitter.setStretchFactor(0, 0)  # sidebar: fixed
@@ -419,17 +522,275 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
 
-    def _not_interested(self, channel_id: str) -> None:
-        """Suppress channel from recommendations only — does not hide it from browsing."""
+    def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
+        """Suppress (or un-suppress) channel from recommendations only."""
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            repos.channels.set_rec_suppressed(channel_id, True)
+            repos.channels.set_rec_suppressed(channel_id, suppressed)
             session.commit()
         finally:
             session.close()
         self.preferences_view.refresh()
         self._refresh_recommended_section()
+
+    def _on_suppression_requested(self, channel_id: str, suppressed: bool) -> None:
+        self._not_interested(channel_id, suppressed)
+
+    def _on_hide_from_details_pane(self, channel_id: str) -> None:
+        self._hide_channel_from_recommendations(channel_id)
+
+    # --- Other Versions / Other Sources ---
+
+    def _fetch_channel_versions(self, channel_id: str) -> None:
+        self.executor.submit(self._bg_fetch_versions, channel_id)
+
+    def _bg_fetch_versions(self, channel_id: str) -> None:
+        from metatv.core.database import ChannelDB, WatchQueueDB, ProviderDB
+        from metatv.core.content_dedup import normalize_title
+        from metatv.gui.details_pane import ChannelVersion
+
+        session = self.db.get_session()
+        try:
+            channel = session.get(ChannelDB, channel_id)
+            if not channel:
+                return
+
+            queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
+            provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
+            allowed_prefixes = set(self.config.global_filter_included_categories)
+            blocked_prefixes = set(self.config.global_filter_excluded_prefixes)
+
+            def _is_filtered(ch: ChannelDB) -> bool:
+                p = ch.detected_prefix
+                if p and p in blocked_prefixes:
+                    return True
+                if allowed_prefixes and p not in allowed_prefixes:
+                    return True
+                return False
+
+            def _is_hidden_category(ch: ChannelDB) -> bool:
+                return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)
+
+            def _first_significant_word(text: str) -> str:
+                """Return first word ≥3 chars, avoiding noise like 'a', 'an', 'the'."""
+                for w in text.split():
+                    if len(w) >= 3:
+                        return w
+                return text.split()[0] if text.split() else ""
+
+            is_live = channel.media_type == "live"
+            if is_live:
+                norm = normalize_title(channel.name, channel.detected_prefix)
+                if not norm:
+                    self._versions_loaded.emit(channel_id, [])
+                    return
+                first_word = _first_significant_word(norm)
+                candidates = (
+                    session.query(ChannelDB)
+                    .filter(
+                        ChannelDB.media_type == "live",
+                        ChannelDB.id != channel_id,
+                        ChannelDB.name.ilike(f"%{first_word}%"),
+                    )
+                    .all()
+                )
+                versions_raw = [
+                    ch for ch in candidates
+                    if normalize_title(ch.name, ch.detected_prefix) == norm
+                ]
+            else:
+                # Use normalize_title comparison (same as live branch) — avoids strict year/director
+                # matching from build_dedup_key which breaks when providers have inconsistent metadata.
+                current_norm = normalize_title(channel.name, channel.detected_prefix)
+                if not current_norm:
+                    self._versions_loaded.emit(channel_id, [])
+                    return
+                first_word = _first_significant_word(current_norm)
+                if not first_word:
+                    self._versions_loaded.emit(channel_id, [])
+                    return
+                candidates = (
+                    session.query(ChannelDB)
+                    .filter(
+                        ChannelDB.media_type == channel.media_type,
+                        ChannelDB.id != channel_id,
+                        ChannelDB.name.ilike(f"%{first_word}%"),
+                    )
+                    .all()
+                )
+                versions_raw = [
+                    ch for ch in candidates
+                    if normalize_title(ch.name, ch.detected_prefix) == current_norm
+                ]
+
+            current_score = _version_score(channel, self.config)
+            best_score = current_score
+            best_ch = None
+            for ch in versions_raw:
+                s = _version_score(ch, self.config)
+                if s > best_score:
+                    best_score = s
+                    best_ch = ch
+
+            versions = [
+                ChannelVersion(
+                    channel_id=ch.id,
+                    name=ch.name,
+                    in_queue=ch.id in queue_ids,
+                    detected_prefix=ch.detected_prefix,
+                    is_preferred=(ch is best_ch),
+                    is_filtered=_is_filtered(ch) if not ch.is_hidden else False,
+                    is_hidden=bool(ch.is_hidden),
+                    is_hidden_category=_is_hidden_category(ch),
+                    is_favorite=bool(ch.is_favorite),
+                    in_history=bool(ch.play_count),
+                    provider_name=provider_names.get(ch.provider_id),
+                )
+                for ch in versions_raw
+            ]
+            versions.sort(key=lambda v: (
+                v.is_hidden,
+                v.is_filtered,
+                -_version_score(
+                    next(c for c in versions_raw if c.id == v.channel_id), self.config
+                ),
+                v.name,
+            ))
+            versions = versions[:20]
+
+        except Exception:
+            logger.exception("Error fetching channel versions for %s", channel_id)
+            versions = []
+        finally:
+            session.close()
+
+        self._versions_loaded.emit(channel_id, versions)
+
+    def _on_versions_loaded(self, channel_id: str, versions: list) -> None:
+        if (self.details_pane.current_channel
+                and self.details_pane.current_channel.id == channel_id):
+            self.details_pane.set_versions(versions)
+
+    def _on_prefix_block(self, prefix: str) -> None:
+        if prefix and prefix not in self.config.global_filter_excluded_prefixes:
+            self.config.global_filter_excluded_prefixes.append(prefix)
+            self.config.save()
+            self._update_filter_btn_state()
+            self.load_channels()
+            if self.details_pane.current_channel:
+                self._fetch_channel_versions(self.details_pane.current_channel.id)
+            self.notification_manager.show(
+                title=f"{prefix} channels hidden",
+                type="info",
+                auto_dismiss_ms=6000,
+                actions=[("Undo", lambda p=prefix: self._on_prefix_unblock(p))],
+            )
+
+    def _on_prefix_unblock(self, prefix: str) -> None:
+        if prefix in self.config.global_filter_excluded_prefixes:
+            self.config.global_filter_excluded_prefixes.remove(prefix)
+            self.config.save()
+            self._update_filter_btn_state()
+            self.load_channels()
+            if self.details_pane.current_channel:
+                self._fetch_channel_versions(self.details_pane.current_channel.id)
+            self.notification_manager.show(
+                title=f"{prefix} channels visible again",
+                type="info",
+                auto_dismiss_ms=4000,
+            )
+
+    def _on_prefix_name_saved(self, prefix: str, name: str) -> None:
+        if name:
+            self.config.category_name_overrides[prefix] = name
+        else:
+            self.config.category_name_overrides.pop(prefix, None)
+        self.config.save()
+        if self.details_pane.current_channel:
+            self._fetch_channel_versions(self.details_pane.current_channel.id)
+
+    def _fetch_similar_titles(self, channel_id: str) -> None:
+        self.executor.submit(self._bg_fetch_similar_titles, channel_id)
+
+    def _bg_fetch_similar_titles(self, channel_id: str) -> None:
+        from metatv.core.database import ChannelDB, WatchQueueDB
+        from metatv.core.content_dedup import normalize_title, build_dedup_key
+        from metatv.gui.details_pane import ChannelVersion
+
+        session = self.db.get_session()
+        try:
+            channel = session.get(ChannelDB, channel_id)
+            if not channel or not channel.detected_prefix:
+                self._similar_titles_loaded.emit(channel_id, [])
+                return
+
+            norm = normalize_title(channel.name, channel.detected_prefix)
+            words = [w for w in norm.split() if len(w) >= 4]
+            if not words:
+                self._similar_titles_loaded.emit(channel_id, [])
+                return
+
+            # SQL pre-filter: same prefix, same media_type, first key word in name
+            candidates = (
+                session.query(ChannelDB)
+                .filter(
+                    ChannelDB.detected_prefix == channel.detected_prefix,
+                    ChannelDB.media_type == channel.media_type,
+                    ChannelDB.id != channel_id,
+                    ChannelDB.is_hidden == False,
+                    ChannelDB.name.ilike(f"%{words[0]}%"),
+                )
+                .limit(200)
+                .all()
+            )
+
+            # Python-level: word overlap ≥ 50% of current title's key words
+            threshold = max(1, len(words) // 2)
+            seen_norms: set[str] = set()
+            # Also exclude channels that are exact dedup matches (those are "Other Versions")
+            from metatv.core.database import MetadataDB
+            current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
+            current_key = build_dedup_key(channel, current_meta)
+
+            results: list[ChannelDB] = []
+            for ch in candidates:
+                ch_norm = normalize_title(ch.name, ch.detected_prefix)
+                ch_words = {w for w in ch_norm.split() if len(w) >= 4}
+                overlap = sum(1 for w in words if w in ch_words)
+                if overlap >= threshold and ch_norm != norm and ch_norm not in seen_norms:
+                    # Skip exact dedup matches (other versions of same content)
+                    if current_key:
+                        ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
+                        if build_dedup_key(ch, ch_meta) == current_key:
+                            continue
+                    seen_norms.add(ch_norm)
+                    results.append(ch)
+
+            queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
+            similar = [
+                ChannelVersion(
+                    channel_id=ch.id,
+                    name=ch.name,
+                    in_queue=ch.id in queue_ids,
+                    detected_prefix=ch.detected_prefix,
+                    is_favorite=bool(ch.is_favorite),
+                    in_history=bool(ch.play_count),
+                )
+                for ch in results[:20]
+            ]
+        except Exception:
+            logger.exception("Error fetching similar titles for %s", channel_id)
+            similar = []
+        finally:
+            session.close()
+
+        self._similar_titles_loaded.emit(channel_id, similar)
+
+    def _on_similar_titles_loaded(self, channel_id: str, titles: list) -> None:
+        if (self.details_pane.current_channel
+                and self.details_pane.current_channel.id == channel_id):
+            self.details_pane.set_similar_titles(titles)
 
     def _hide_channel_from_recommendations(self, channel_id: str) -> None:
         session = self.db.get_session()
@@ -656,7 +1017,7 @@ class MainWindow(QMainWindow):
         not_interested_act.triggered.connect(lambda: self._not_interested(channel_id))
         menu.addAction(not_interested_act)
 
-        hide_act = QAction(f"{self.config.hide_icon} Hide channel", self)
+        hide_act = QAction(f"{self.config.hide_icon} Hide", self)
         hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
         menu.addAction(hide_act)
 
@@ -736,16 +1097,24 @@ class MainWindow(QMainWindow):
         media_widget = QWidget()
         media_layout = QHBoxLayout(media_widget)
         media_layout.setContentsMargins(0, 5, 0, 5)
-        media_layout.addWidget(QLabel("Media:"))
-        
+
+        # Grouped in a sub-widget so they can be hidden when in non-list views
+        self._media_type_widget = QWidget()
+        _mt_layout = QHBoxLayout(self._media_type_widget)
+        _mt_layout.setContentsMargins(0, 0, 8, 0)
+        _mt_layout.setSpacing(4)
+        _mt_layout.addWidget(QLabel("Media:"))
+
         self.live_chip = ToggleChip("Live", enabled=True)
-        media_layout.addWidget(self.live_chip)
-        
+        _mt_layout.addWidget(self.live_chip)
+
         self.movies_chip = ToggleChip("Movies", enabled=True)
-        media_layout.addWidget(self.movies_chip)
-        
+        _mt_layout.addWidget(self.movies_chip)
+
         self.series_chip = ToggleChip("Series", enabled=True)
-        media_layout.addWidget(self.series_chip)
+        _mt_layout.addWidget(self.series_chip)
+
+        media_layout.addWidget(self._media_type_widget)
         
         # Restore media chip state from config (before connecting signals)
         enabled_types = getattr(self.config, 'filter_enabled_media_types', ['live', 'movie', 'series'])
@@ -776,6 +1145,15 @@ class MainWindow(QMainWindow):
         self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         media_layout.addWidget(self.discover_chip)
+
+        # Global content filter button — text pill, right-aligned
+        media_layout.addStretch()
+        self._filter_btn = QPushButton("Filters")
+        self._filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_btn.setToolTip("Content category filters")
+        self._filter_btn.clicked.connect(self._open_global_filter_dialog)
+        media_layout.addWidget(self._filter_btn)
+        QTimer.singleShot(0, self._update_filter_btn_state)
 
         self.content_layout.addWidget(media_widget)
         
@@ -934,10 +1312,21 @@ class MainWindow(QMainWindow):
         self.notification_widget.repaint()
     
     def resizeEvent(self, event):
-        """Handle window resize to reposition notifications"""
+        """Handle window resize to reposition notifications and lightbox."""
         super().resizeEvent(event)
         if hasattr(self, 'notification_widget'):
             self.notification_widget.reposition()
+        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
+            self._lightbox.resize(self.size())
+
+    def _show_similar_lightbox(
+        self,
+        channel_ids: list,
+        index: int,
+        origin_title: str,
+    ) -> None:
+        self._lightbox.resize(self.size())
+        self._lightbox.show_preview(channel_ids, index, origin_title)
     
     def show_test_notification(self):
         """Show a test notification (for development)"""
@@ -1033,7 +1422,26 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Refreshing channels...")
         logger.info("Refreshing channels")
         self.load_providers()
-    
+
+    def _maybe_rescan_prefixes(self) -> None:
+        """Run a background prefix re-scan if the detector version is behind."""
+        if self.config.prefix_detector_version >= CURRENT_DETECTOR_VERSION:
+            return
+        logger.info(
+            f"Prefix detector version {self.config.prefix_detector_version} < "
+            f"{CURRENT_DETECTOR_VERSION} — running background re-scan"
+        )
+        self._rescan_thread = _PrefixRescanThread(
+            self.db, self.config.prefix_separators, parent=self
+        )
+        self._rescan_thread.finished.connect(self._on_prefix_rescan_done)
+        self._rescan_thread.start()
+
+    def _on_prefix_rescan_done(self, updated: int) -> None:
+        logger.info(f"Prefix re-scan complete: {updated} channels updated")
+        self.config.prefix_detector_version = CURRENT_DETECTOR_VERSION
+        self.config.save()
+
     def load_providers(self):
         """Load providers from database into sidebar"""
         if "sources" in self.sidebar_sections:
@@ -1097,7 +1505,12 @@ class MainWindow(QMainWindow):
             )
             
             # Start loading in background thread
-            load_thread = ProviderLoadThread(provider, self.db)
+            load_thread = ProviderLoadThread(
+                provider, self.db,
+                separators=self.config.prefix_separators,
+                language_groups=self.config.filter_language_groups,
+                quality_groups=self.config.filter_quality_groups,
+            )
             load_thread.provider_id = provider.id  # Store for cleanup
             load_thread.progress.connect(
                 lambda cur, tot, msg: self.notification_manager.update_progress(notif_id, cur, tot, msg)
@@ -1132,34 +1545,16 @@ class MainWindow(QMainWindow):
         
         if success:
             self.notification_manager.complete_progress(notif_id, message)
-            
-            # Update detected prefixes for all channels
-            session = self.db.get_session()
-            try:
-                repos = RepositoryFactory(session)
-                logger.info("Updating detected prefixes after provider refresh...")
-                updated = repos.channels.update_detected_prefixes(provider_id=None)
-                logger.info(f"Updated {updated} channel prefixes")
-                
-                # Get prefix statistics
-                stats = repos.channels.get_prefix_stats(
-                    provider_id=None,
-                    language_groups=self.config.filter_language_groups,
-                    quality_groups=self.config.filter_quality_groups,
-                )
 
-                # Update filter bar with current counts
+            # Prefix stats were computed in the worker thread — just apply them
+            stats = getattr(thread, 'prefix_stats', None)
+            if stats:
                 self.filter_bar.update_filter_groups(
                     language_groups=stats['language_groups'],
                     quality_groups=stats['quality_groups'],
                 )
-                logger.info(f"Filter stats: {stats['channels_with_prefix']} channels have prefixes")
-                
-            except Exception as e:
-                logger.error(f"Failed to update prefix stats: {e}")
-            finally:
-                session.close()
-            
+                logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
+
             # Reload sidebar and channels
             self.load_providers()
             self.load_channels()
@@ -1237,151 +1632,163 @@ class MainWindow(QMainWindow):
             session.close()
     
     def load_channels(self, provider_id=None):
-        """Load channels from database into the list"""
+        """Load channels from database into the list (non-blocking)."""
+        from metatv.core.database import ChannelDB
+        from metatv.core.filter_utils import get_active_content_type_filter
+
+        # Show loading state immediately so the user knows something is happening
         self.channels_list.clear()
         self.all_channels = []
-        
+        self.status_bar.showMessage("Loading channels…")
+
+        # --- All UI-state reads must happen here on the main thread ---
+        filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
+
+        language_prefixes = []
+        for group_name in filter_state.get('language_groups', []):
+            language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
+        quality_prefixes = []
+        for group_name in filter_state.get('quality_groups', []):
+            quality_prefixes.extend(self.config.filter_quality_groups.get(group_name, []))
+
+        # Resolve provider filter on main thread (tiny queries)
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            active_providers = repos.providers.get_all(active_only=True)
+            all_providers   = repos.providers.get_all()
+        finally:
+            session.close()
+
+        self.filter_bar.update_source_chips(active_providers)
+
+        active_provider_ids = [p.id for p in active_providers]
+        force_adult_ids     = [p.id for p in all_providers if getattr(p, 'force_adult', False)]
+        excluded_ids        = set(filter_state.get('excluded_provider_ids', []))
+
+        if provider_id:
+            target_provider_id = provider_id
+        else:
+            visible_ids = [pid for pid in active_provider_ids if pid not in excluded_ids]
+            if len(visible_ids) == len(active_provider_ids) and len(visible_ids) == 1:
+                target_provider_id = visible_ids[0]
+            elif len(visible_ids) < len(active_provider_ids):
+                target_provider_id = visible_ids if visible_ids else None
+            else:
+                target_provider_id = None
+
+        # Build provider icon map (used later for display)
+        show_provider_icon = (target_provider_id is None)
+        provider_icon_map: dict = {}
+        if show_provider_icon:
+            for p in all_providers:
+                provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
+
+        from metatv.core.filter_utils import get_excluded_prefixes
+        params = dict(
+            provider_id=target_provider_id,
+            media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
+            language_prefixes=language_prefixes or None,
+            quality_prefixes=quality_prefixes or None,
+            invert_prefix_filters=filter_state.get('show_excluded', False),
+            include_untagged=filter_state.get('include_untagged', True),
+            adult_mode=filter_state.get('adult_mode', 'hide'),
+            force_adult_ids=force_adult_ids,
+            source_categories=get_active_content_type_filter(self.config),
+            show_provider_icon=show_provider_icon,
+            provider_icon_map=provider_icon_map,
+            given_provider_id=provider_id,
+            excluded_prefixes=get_excluded_prefixes(self.config),
+        )
+
+        # Stamp a token so stale results from a previous query are discarded
+        self._load_channels_token += 1
+        token = self._load_channels_token
+        self.executor.submit(self._bg_load_channels, params, token)
+
+    def _bg_load_channels(self, params: dict, token: int) -> None:
+        """Worker thread: run the heavy DB query, then signal back to main thread."""
         session = self.db.get_session()
         try:
             from metatv.core.database import ChannelDB
-            
             repos = RepositoryFactory(session)
-            
-            # Get filter state from FilterBar
-            filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
-            
-            # Convert language/quality groups to prefix lists
-            language_prefixes = []
-            for group_name in filter_state.get('language_groups', []):
-                prefixes = self.config.filter_language_groups.get(group_name, [])
-                language_prefixes.extend(prefixes)
 
-            quality_prefixes = []
-            for group_name in filter_state.get('quality_groups', []):
-                prefixes = self.config.filter_quality_groups.get(group_name, [])
-                quality_prefixes.extend(prefixes)
-
-            # If no specific groups selected, pass None (show all)
-            language_prefixes = language_prefixes if language_prefixes else None
-            quality_prefixes = quality_prefixes if quality_prefixes else None
-
-            # Get enabled media types
-            media_types = filter_state.get('media_types', ['live', 'movie', 'series'])
-            show_excluded = filter_state.get('show_excluded', False)
-            include_untagged = filter_state.get('include_untagged', True)
-            adult_mode = filter_state.get('adult_mode', 'hide')
-
-            # Determine provider filter
-            # Start from all active providers, then subtract source-chip exclusions
-            active_providers = repos.providers.get_all(active_only=True)
-            active_provider_ids = [p.id for p in active_providers]
-
-            # Update source chips in filter bar
-            self.filter_bar.update_source_chips(active_providers)
-
-            excluded_ids = set(filter_state.get('excluded_provider_ids', []))
-
-            if provider_id:
-                # Sidebar selected a specific provider
-                target_provider_id = provider_id
-            else:
-                visible_ids = [pid for pid in active_provider_ids if pid not in excluded_ids]
-                if len(visible_ids) == len(active_provider_ids) and len(visible_ids) == 1:
-                    target_provider_id = visible_ids[0]
-                elif len(visible_ids) < len(active_provider_ids):
-                    # Source chips excluded some — pass the list
-                    target_provider_id = visible_ids if visible_ids else None
-                else:
-                    target_provider_id = None  # show all active
-
-            # Get filtered channels from repository
-            # Collect provider IDs that are force_adult so the query can match them
-            all_providers = repos.providers.get_all()
-            force_adult_ids = [p.id for p in all_providers if getattr(p, 'force_adult', False)]
-
+            force_adult_ids = params['force_adult_ids']
             channels = repos.channels.get_all(
-                provider_id=target_provider_id,
-                media_types=media_types,
-                language_prefixes=language_prefixes,
-                quality_prefixes=quality_prefixes,
-                invert_prefix_filters=show_excluded,
-                include_untagged=include_untagged,
-                adult_mode=adult_mode,
+                provider_id=params['provider_id'],
+                media_types=params['media_types'],
+                language_prefixes=params['language_prefixes'],
+                quality_prefixes=params['quality_prefixes'],
+                invert_prefix_filters=params['invert_prefix_filters'],
+                include_untagged=params['include_untagged'],
+                adult_mode=params['adult_mode'],
                 force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
             )
-
-            # Show the adult filter only when there are actually adult channels or
-            # at least one provider is marked force_adult
+            total = repos.channels.count(provider_id=params['provider_id'])
             has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
                 ChannelDB.is_adult == True
             ).limit(1).count() > 0
-            self.filter_bar.set_adult_filter_visible(has_adult)
-            
-            # Sort by name
+            excluded_prefixes = params.get('excluded_prefixes', set())
+            if excluded_prefixes:
+                channels = [c for c in channels if c.detected_prefix not in excluded_prefixes]
             channels = sorted(channels, key=lambda c: c.name)
-            
-            # Get total count for stats
-            total_channels = repos.channels.count(provider_id=target_provider_id)
-            
-            logger.info(f"=== Loading {len(channels)} channels (filtered from {total_channels} total) ===")
-            
-            if len(channels) == 0:
-                logger.warning("No channels match current filters!")
-                self.status_bar.showMessage("No channels match filters - try adjusting filter settings")
-                # Update filter stats
-                self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
-                return
-            
-            # Build provider icon map for multi-provider display
-            show_provider_icon = target_provider_id is None
-            provider_icon_map: dict = {}
-            if show_provider_icon:
-                all_provs = repos.providers.get_all()
-                for p in all_provs:
-                    provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
-
-            # Store channels for text filtering
-            for channel in channels:
-                # Get media type icon
-                media_icon = self.get_media_type_icon(channel.media_type)
-
-                # Show favorite status with star icon
-                fav_icon = self.favorite_icon if channel.is_favorite else self.unfavorite_icon
-
-                # Provider badge when multiple sources active
-                src_badge = ""
-                if show_provider_icon and channel.provider_id in provider_icon_map:
-                    src_badge = provider_icon_map[channel.provider_id] + " "
-
-                # Format: "[src icon] 📺★ Channel Name [Category] (Quality)"
-                display_text = f"{src_badge}{media_icon}{fav_icon} {channel.name}"
-                if channel.category:
-                    display_text += f" [{channel.category}]"
-                if channel.quality and channel.quality != "unknown":
-                    display_text += f" ({channel.quality})"
-
-                self.all_channels.append((display_text, channel))
-            
-            # Update filter stats
-            shown = len(channels)
-            filtered = total_channels - shown
-            self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
-            
-            # Apply current search text filter
-            self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
-            
-            # Update status bar
-            if provider_id:
-                self.status_bar.showMessage(f"{len(channels):,} channels from selected provider")
-            else:
-                self.status_bar.showMessage(f"{len(channels):,} channels from active providers")
-                
+            params['total_channels'] = total
+            params['has_adult']      = has_adult
+            params['token']          = token
+            self._channels_loaded.emit(channels, params)
         except Exception as e:
-            logger.error(f"Failed to load channels: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Channel query failed: {e}")
         finally:
             session.close()
+
+    def _on_channels_loaded(self, channels: list, params: dict) -> None:
+        """Main thread: build the channel list UI from query results."""
+        # Discard results from a superseded query
+        if params.get('token') != self._load_channels_token:
+            return
+
+        total_channels    = params.get('total_channels', 0)
+        has_adult         = params.get('has_adult', False)
+        show_provider_icon = params.get('show_provider_icon', False)
+        provider_icon_map  = params.get('provider_icon_map', {})
+        given_provider_id  = params.get('given_provider_id')
+
+        self.filter_bar.set_adult_filter_visible(has_adult)
+
+        logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
+
+        if not channels:
+            logger.warning("No channels match current filters!")
+            self.status_bar.showMessage("No channels match filters - try adjusting filter settings")
+            self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
+            return
+
+        for channel in channels:
+            media_icon = self.get_media_type_icon(channel.media_type)
+            fav_icon   = self.favorite_icon if channel.is_favorite else self.unfavorite_icon
+            src_badge  = ""
+            if show_provider_icon and channel.provider_id in provider_icon_map:
+                src_badge = provider_icon_map[channel.provider_id] + " "
+
+            display_text = f"{src_badge}{media_icon}{fav_icon} {channel.name}"
+            if channel.category:
+                display_text += f" [{channel.category}]"
+            if channel.quality and channel.quality != "unknown":
+                display_text += f" ({channel.quality})"
+            self.all_channels.append((display_text, channel))
+
+        shown    = len(channels)
+        filtered = total_channels - shown
+        self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
+
+        self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
+
+        if given_provider_id:
+            self.status_bar.showMessage(f"{shown:,} channels from selected provider")
+        else:
+            self.status_bar.showMessage(f"{shown:,} channels from active providers")
     
     def filter_channels(self, search_text: str):
         """Filter channels based on search text"""
@@ -1913,11 +2320,12 @@ class MainWindow(QMainWindow):
         """Handle channel selection change - update details pane"""
         if not current:
             return
-        
+
         channel_id = current.data(Qt.ItemDataRole.UserRole)
-        if not channel_id:
+        if not channel_id or channel_id == self._last_shown_channel_id:
             return
-        
+        self._last_shown_channel_id = channel_id
+
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -2233,6 +2641,8 @@ class MainWindow(QMainWindow):
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         
+        self._media_type_widget.setVisible(True)
+
         # Restore search bar and filter bar
         self.search_controls.setVisible(True)
         self.filter_bar.setVisible(self.filters_visible)
@@ -2278,6 +2688,7 @@ class MainWindow(QMainWindow):
         self.discover_chip.set_enabled(False)
         self.discover_chip.blockSignals(False)
 
+        self._media_type_widget.setVisible(False)
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
@@ -2338,6 +2749,41 @@ class MainWindow(QMainWindow):
         else:
             self.switch_to_list_view()
 
+    def _update_filter_btn_state(self) -> None:
+        """Update the Filters pill button to reflect whether any content filters are active."""
+        active = (
+            bool(self.config.global_filter_included_categories)
+            or bool(self.config.global_filter_included_content_types)
+            or bool(self.config.global_filter_excluded_prefixes)
+        )
+        if active:
+            self._filter_btn.setText("Filters\nACTIVE")
+            self._filter_btn.setStyleSheet(
+                "QPushButton { font-size: 11px; color: #4a9eff; border: 1px solid #4a9eff;"
+                " border-radius: 4px; padding: 2px 8px; background: rgba(74,158,255,0.08); }"
+                "QPushButton:hover { background: rgba(74,158,255,0.15); }"
+            )
+            self._filter_btn.setToolTip("Content filters are active — click to manage")
+        else:
+            self._filter_btn.setText("Filters")
+            self._filter_btn.setStyleSheet(
+                "QPushButton { font-size: 11px; color: #aaa; border: 1px solid #444;"
+                " border-radius: 4px; padding: 2px 8px; }"
+                "QPushButton:hover { border-color: #666; color: #ccc; }"
+            )
+            self._filter_btn.setToolTip("Content category filters")
+
+    def _open_global_filter_dialog(self) -> None:
+        from metatv.gui.global_filter_dialog import GlobalFilterDialog
+        dlg = GlobalFilterDialog(self.db, self.config, self)
+        if dlg.exec() == GlobalFilterDialog.DialogCode.Accepted:
+            self._update_filter_btn_state()
+            # Reload discovery and recommendations with new filter
+            if hasattr(self, "discover_view"):
+                self.discover_view.reload()
+            if hasattr(self, "preferences_view"):
+                self.preferences_view.refresh()
+
     def on_discover_view_toggle(self) -> None:
         if self.discover_chip.is_enabled():
             self.epg_chip.blockSignals(True)
@@ -2359,6 +2805,7 @@ class MainWindow(QMainWindow):
         self.provider_editor.setVisible(False)
         self.discover_view.setVisible(False)
         self.preferences_view.setVisible(True)
+        self._media_type_widget.setVisible(False)
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
@@ -2374,6 +2821,7 @@ class MainWindow(QMainWindow):
         self.provider_editor.setVisible(False)
         self.preferences_view.setVisible(False)
         self.discover_view.setVisible(True)
+        self._media_type_widget.setVisible(False)
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
@@ -2555,19 +3003,66 @@ class MainWindow(QMainWindow):
         self.launch_player_for_episode(episode.stream_url, episode.title, episodes_to_queue)
     
     def launch_player_for_episode(self, stream_url, title, queue_episodes=None):
-        """Launch media player for an episode and queue subsequent episodes
-        
-        Args:
-            stream_url: URL of the episode to play
-            title: Title of the episode
-            queue_episodes: Optional list of EpisodeDB objects to queue after current episode
+        """Launch media player for an episode and queue subsequent episodes.
+
+        Pre-flight validates the stream URL in a background thread before handing
+        off to mpv, so text error responses (e.g. "not available") surface as an
+        in-app notification rather than a black mpv window.
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
             self.status_bar.showMessage("Error: No media player found. Please install mpv.")
             return
-        
-        # Play first episode using player manager
+
+        notif_id = self.notification_manager.show(
+            title="Loading Episode",
+            message=f"Checking stream: {title}…",
+            type="info",
+            auto_dismiss_ms=6000,
+        )
+
+        def _preflight():
+            ok, err = self.validate_stream_url(stream_url, timeout=6)
+            return ok, err
+
+        def _on_preflight_done(future):
+            try:
+                ok, err = future.result()
+            except Exception as exc:
+                logger.warning(f"Episode preflight check failed: {exc}")
+                ok, err = True, None   # assume valid on unexpected errors
+
+            if not ok:
+                detail = err if err else "Stream did not respond"
+                logger.warning(f"Episode stream unavailable: {title!r} — {detail}")
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self._on_episode_stream_unavailable(
+                    notif_id, title, detail
+                ))
+                return
+
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._do_launch_episode(
+                notif_id, stream_url, title, queue_episodes
+            ))
+
+        future = self.executor.submit(_preflight)
+        future.add_done_callback(_on_preflight_done)
+
+    def _on_episode_stream_unavailable(self, notif_id, title: str, detail: str) -> None:
+        self.status_bar.showMessage(f"Stream unavailable: {title}")
+        self.notification_manager.update(
+            notif_id,
+            title="Stream Unavailable",
+            message=f"{title}\n{detail}",
+            type="error",
+            dismissible=True,
+            auto_dismiss_seconds=12,
+        )
+
+    def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes) -> None:
+        """Actually launch mpv after a successful preflight check (called on main thread)."""
+        self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
         if self.player_manager.play(stream_url, title):
             
@@ -2654,12 +3149,15 @@ class MainWindow(QMainWindow):
         # Refresh the tree to update display
         self.populate_series_tree()
     
-    def validate_stream_url(self, url: str, timeout: int = 5) -> bool:
+    def validate_stream_url(self, url: str, timeout: int = 5) -> tuple[bool, str | None]:
         """Validate a stream URL by reading its first bytes.
 
-        Sends a streaming GET request and confirms that the server delivers
-        data — the same thing mpv would do.  HEAD requests are unreliable for
-        IPTV (servers often return 5xx on HEAD while serving fine on GET).
+        Returns ``(is_valid, error_message)``.  ``error_message`` is set when
+        the server delivers a text error (e.g. "This channel is not available")
+        instead of binary video data so the caller can surface it to the user.
+
+        HEAD requests are unreliable for IPTV (servers often return 5xx on HEAD
+        while serving fine on GET), so we use a streaming GET and read one chunk.
         """
         try:
             from metatv.providers.xtream import _DEFAULT_HEADERS
@@ -2673,64 +3171,76 @@ class MainWindow(QMainWindow):
             ) as response:
                 if response.status_code >= 400:
                     logger.warning(f"Stream URL returned HTTP {response.status_code}")
-                    return False
-                # Read a small chunk — confirms the server is actually streaming
-                chunk = next(response.iter_content(chunk_size=64), None)
+                    return False, f"HTTP {response.status_code}"
+                chunk = next(response.iter_content(chunk_size=256), None)
                 if chunk is None:
                     logger.warning(f"Stream URL returned no data")
-                    return False
+                    return False, None
+                # Detect text error messages (e.g. "This channel is not available")
+                ct = response.headers.get("Content-Type", "").lower()
+                is_text_ct = any(t in ct for t in ("text/", "application/json"))
+                if is_text_ct or _looks_like_text(chunk):
+                    msg = chunk.decode("utf-8", errors="replace").strip()
+                    msg = msg.splitlines()[0][:160]   # first line, ≤160 chars
+                    logger.warning(f"Stream URL returned text error: {msg!r}")
+                    return False, msg or "Stream unavailable"
                 logger.debug(f"Stream URL validated: HTTP {response.status_code}, got {len(chunk)} bytes")
-                return True
+                return True, None
         except requests.exceptions.Timeout:
             logger.warning(f"Stream URL validation timeout: {url}")
-            return False
+            return False, None
         except requests.exceptions.ConnectionError:
             logger.warning(f"Stream URL connection failed: {url}")
-            return False
+            return False, None
         except Exception as e:
             logger.warning(f"Stream URL validation error: {e}")
-            return False
+            return False, None
     
-    def validate_and_failover_stream_url(self, stream_url: str, provider_id: str, 
-                                          source_id: str, media_type: str) -> str:
-        """Validate stream URL and try alternate provider URLs if needed
-        
-        Args:
-            stream_url: Original stream URL
-            provider_id: Provider ID for looking up alternates
-            source_id: Channel's source ID (stream ID from provider)
-            media_type: Type of media (live/movie/series)
-            
-        Returns:
-            Working URL or empty string if all failed
+    def validate_and_failover_stream_url(
+        self,
+        stream_url: str,
+        provider_id: str,
+        source_id: str,
+        media_type: str,
+    ) -> tuple[str, str | None]:
+        """Validate stream URL and try alternate provider URLs if needed.
+
+        Returns ``(working_url, error_message)``.
+        ``working_url`` is empty when all URLs fail; ``error_message`` is the
+        server-provided text (e.g. "This channel is not available") or None.
         """
-        # First try the original URL
-        if self.validate_stream_url(stream_url):
-            return stream_url
-        
+        ok, err_msg = self.validate_stream_url(stream_url)
+        if ok:
+            return stream_url, None
+
         logger.warning(f"Primary URL failed validation: {stream_url}")
-        
+
+        # If the primary URL returned a clear text error (e.g. "not available"),
+        # skip alternate-URL probing — the error is content-level, not URL-level.
+        if err_msg:
+            return "", err_msg
+
         # Extract base URL from stream URL
         parsed = urlparse(stream_url)
         original_base = f"{parsed.scheme}://{parsed.netloc}"
-        
-        # Try to reconstruct URL with alternate provider domains
+
+        # Try alternate provider domains
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(provider_id)
-            
+
             if not provider_db:
                 logger.error(f"Provider not found: {provider_id}")
-                return ""
-            
+                return "", None
+
             provider_model = repos.providers.to_model(provider_db)
             candidate_bases = [u for u in provider_model.ordered_urls() if u.rstrip('/') != original_base]
 
             if not candidate_bases:
                 logger.warning(f"Provider {provider_db.name} has no alternate URLs configured")
                 logger.error("No working alternate URLs found")
-                return ""
+                return "", None
 
             logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_db.name} (reliability order)")
 
@@ -2744,7 +3254,8 @@ class MainWindow(QMainWindow):
                 logger.info(f"Trying: {new_stream_url}")
 
                 url_entry = next((u for u in raw_urls if u.get('url', '').rstrip('/') == alt_base), None)
-                if self.validate_stream_url(new_stream_url):
+                alt_ok, alt_err = self.validate_stream_url(new_stream_url)
+                if alt_ok:
                     logger.info("Alternate URL validated successfully")
                     if url_entry:
                         url_entry['success_count'] = url_entry.get('success_count', 0) + 1
@@ -2752,7 +3263,7 @@ class MainWindow(QMainWindow):
                         provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
-                    return new_stream_url
+                    return new_stream_url, None
                 else:
                     if url_entry:
                         url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
@@ -2760,10 +3271,12 @@ class MainWindow(QMainWindow):
                         provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
+                    if alt_err:
+                        return "", alt_err   # content-level error; stop trying
 
             logger.error("No working alternate URLs found")
-            return ""
-            
+            return "", None
+
         finally:
             session.close()
     
@@ -2836,20 +3349,21 @@ class MainWindow(QMainWindow):
             logger.info(f"Player: {self.player_manager.get_player_name()}")
             
             # Validate and failover if needed
-            final_url = self.validate_and_failover_stream_url(
+            final_url, stream_err = self.validate_and_failover_stream_url(
                 channel.stream_url,
                 channel.provider_id,
                 channel.source_id,
                 channel.media_type
             )
-            
+
             if not final_url:
                 logger.error(f"All stream URLs failed validation for {channel.name}")
                 self.status_bar.showMessage(f"Error: Stream unavailable for {channel.name}")
+                detail = stream_err if stream_err else "All URLs failed (possibly geo-blocked)"
                 self.notification_manager.update(
                     notif_id,
                     title="Stream Unavailable",
-                    message=f"{channel.name} - All URLs failed (possibly geo-blocked)",
+                    message=f"{channel.name}\n{detail}",
                     type="error",
                     dismissible=True,
                     auto_dismiss_seconds=10
@@ -2871,6 +3385,7 @@ class MainWindow(QMainWindow):
                 # Update UI lists in real-time
                 self.load_history()
                 self.load_favorites()
+                self._refresh_queue_section()
                 
                 # Update status after brief delay
                 QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {channel.name}"))

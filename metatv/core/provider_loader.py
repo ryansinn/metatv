@@ -1,6 +1,7 @@
 """Provider data loading and management"""
 
 import asyncio
+import re
 from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
@@ -9,17 +10,52 @@ from metatv.core.models import Provider, MediaType
 from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB
 from metatv.providers.factory import get_provider
 
+_HASH_HEADER_RE = re.compile(r'^#{2,}\s*(.*?)\s*#{2,}$')
+
+# Superscript quality markers embedded in ## category headers ##
+_SUPERSCRIPT_QUALITY: list[tuple[str, str]] = [
+    ("ᴴᴰ",   "HD"),
+    ("ᵁᴴᴰ",  "UHD"),
+    ("ᴿᴬᵂ",  "RAW"),
+    ("⁶⁰ᶠᵖˢ", "60FPS"),
+    ("⁵⁰ᶠᵖˢ", "50FPS"),
+]
+
+
+def _parse_hash_header(name: str) -> tuple[str, str] | None:
+    """Return (clean_label, quality_flags) if *name* is a ##...## header, else None.
+
+    quality_flags is a comma-separated string of decoded markers (may be empty).
+    """
+    m = _HASH_HEADER_RE.match(name)
+    if not m:
+        return None
+    label = m.group(1)
+    flags: list[str] = []
+    for superscript, flag in _SUPERSCRIPT_QUALITY:
+        if superscript in label:
+            label = label.replace(superscript, "").strip()
+            flags.append(flag)
+    return label.strip(), ",".join(flags)
+
 
 class ProviderLoadThread(QThread):
     """Background thread for loading provider data into database"""
-    
+
     finished = pyqtSignal(bool, str)  # success, message
     progress = pyqtSignal(int, int, str)  # current, total, message
-    
-    def __init__(self, provider: Provider, db: Database):
+
+    def __init__(self, provider: Provider, db: Database,
+                 separators: list[str] | None = None,
+                 language_groups: dict | None = None,
+                 quality_groups: dict | None = None):
         super().__init__()
         self.provider = provider
         self.db = db
+        self._separators = separators
+        self._language_groups = language_groups or {}
+        self._quality_groups = quality_groups or {}
+        self.prefix_stats: dict | None = None  # populated after run; read by main thread
     
     def run(self):
         """Load provider data"""
@@ -78,11 +114,27 @@ class ProviderLoadThread(QThread):
         
         try:
             processed = 0
-            
+            current_source_category: str | None = None
+            current_source_quality: str | None = None
+
             # Process all channels
             for channel in channels:
                 raw = channel.raw_data or {}
                 is_adult = bool(raw.get("is_adult") in (1, "1", True))
+                source_num = raw.get("num")
+                if source_num is not None:
+                    try:
+                        source_num = int(source_num)
+                    except (ValueError, TypeError):
+                        source_num = None
+
+                # Detect ##...## positional category headers (live only)
+                if channel.media_type == "live":
+                    parsed = _parse_hash_header(channel.name)
+                    if parsed is not None:
+                        current_source_category = parsed[0] or None
+                        current_source_quality = parsed[1] or None
+
                 db_channel = ChannelDB(
                     id=channel.id,
                     source_id=channel.source_id,
@@ -95,19 +147,22 @@ class ProviderLoadThread(QThread):
                     media_type=channel.media_type,
                     quality=channel.quality.value,
                     is_adult=is_adult,
-                    raw_data=channel.raw_data
+                    raw_data=channel.raw_data,
+                    source_num=source_num,
+                    source_category=current_source_category if channel.media_type == "live" else None,
+                    source_quality_flags=current_source_quality if channel.media_type == "live" else None,
                 )
                 session.merge(db_channel)
                 
                 processed += 1
                 if processed % 100 == 0:
                     session.commit()  # Commit periodically
-                    percent = int(70 + (processed / total * 30))
-                    self.progress.emit(percent, 100, f"Processing channels ({processed:,}/{total:,})...")
-            
+                    percent = int(50 + (processed / total * 20))  # 50–70%
+                    self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
+
             # Final commit
             session.commit()
-            self.progress.emit(100, 100, f"Completed loading {total:,} channels")
+            self.progress.emit(70, 100, f"Stored {total:,} channels")
 
         except Exception as e:
             session.rollback()
@@ -116,11 +171,19 @@ class ProviderLoadThread(QThread):
         finally:
             session.close()
 
-        # Categorize special content (PPV, Events, Sports) for this provider's
-        # uncategorized channels.  Runs after the session is closed so it gets a
-        # fresh snapshot and doesn't compete with the merge loop above.
+        # Phase: categorize special content (PPV / Events / Sports)
+        self.progress.emit(72, 100, "Categorizing content (PPV/Events/Sports)…")
         self._categorize_special_content()
 
+        # Phase: detect channel prefixes
+        self.progress.emit(87, 100, "Detecting channel prefixes…")
+        self._update_prefixes_in_thread()
+
+        # Phase: compute prefix stats for the filter bar
+        self.progress.emit(97, 100, "Updating filter statistics…")
+        self._compute_prefix_stats_in_thread()
+
+        self.progress.emit(100, 100, f"Loaded {total:,} channels")
         self.finished.emit(True, f"Loaded {total:,} channels successfully")
 
     def _categorize_special_content(self) -> None:
@@ -148,11 +211,14 @@ class ProviderLoadThread(QThread):
             )
 
             updated = 0
+            n = len(channels)
             for i, channel in enumerate(channels):
                 if update_channel_special_content(channel):
                     updated += 1
                 if i % 5000 == 4999:
                     session.commit()
+                    pct = int(72 + (i / n) * 15)  # 72–87%
+                    self.progress.emit(pct, 100, f"Categorizing content ({i+1:,}/{n:,})…")
 
             session.commit()
             logger.info(
@@ -162,6 +228,36 @@ class ProviderLoadThread(QThread):
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to categorize special content: {e}")
+        finally:
+            session.close()
+
+    def _update_prefixes_in_thread(self) -> None:
+        """Run update_detected_prefixes in the worker thread (never the main thread)."""
+        from metatv.core.repositories import RepositoryFactory
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            updated = repos.channels.update_detected_prefixes(separators=self._separators)
+            logger.info(f"Prefix detection: updated {updated:,} channels")
+        except Exception as e:
+            logger.error(f"Prefix detection failed: {e}")
+        finally:
+            session.close()
+
+    def _compute_prefix_stats_in_thread(self) -> None:
+        """Compute prefix stats and store on self.prefix_stats for the main thread."""
+        from metatv.core.repositories import RepositoryFactory
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            self.prefix_stats = repos.channels.get_prefix_stats(
+                provider_id=None,
+                language_groups=self._language_groups,
+                quality_groups=self._quality_groups,
+            )
+        except Exception as e:
+            logger.error(f"Prefix stats failed: {e}")
+            self.prefix_stats = None
         finally:
             session.close()
 
@@ -344,9 +440,9 @@ class SeriesLoadThread(QThread):
             
             season_count = len(seasons)
             total_episodes = sum(len(eps) for eps in episodes_by_season.values())
-            
+
             logger.info(f"Found {season_count} seasons and {total_episodes} episodes for {self.series_name}")
-            
+
             # Handle case where there are episodes but no seasons metadata
             # Create a default season so episodes can be stored and displayed
             if season_count == 0 and total_episodes > 0:
@@ -355,7 +451,7 @@ class SeriesLoadThread(QThread):
                 season_nums = [int(s) for s in episodes_by_season.keys() if s.isdigit()]
                 if not season_nums:
                     season_nums = [1]  # Default to season 1
-                
+
                 # Create a season entry for each season number that has episodes
                 seasons = []
                 for season_num in sorted(season_nums):
@@ -368,7 +464,28 @@ class SeriesLoadThread(QThread):
                         "episodes": episode_count
                     })
                     logger.debug(f"Created default season {season_num} with {episode_count} episodes")
-                
+
+                season_count = len(seasons)
+            else:
+                # Seasons metadata exists but may not cover all episode groups.
+                # Some providers (e.g. ProSat) return season metadata for season 1 only
+                # but split episodes across groups "1" and "2". Append synthetic season
+                # entries for any episode groups not already represented.
+                covered = {str(s.get("season_number", 0)) for s in seasons if isinstance(s, dict)}
+                for season_key in sorted(episodes_by_season.keys()):
+                    if season_key.isdigit() and season_key not in covered:
+                        season_num = int(season_key)
+                        episode_count = len(episodes_by_season[season_key])
+                        seasons.append({
+                            "season_number": season_num,
+                            "name": f"Season {season_num}",
+                            "cover": "",
+                            "episodes": episode_count
+                        })
+                        logger.info(
+                            f"Episode group '{season_key}' has no season metadata entry — "
+                            f"created synthetic Season {season_num} with {episode_count} episodes"
+                        )
                 season_count = len(seasons)
             
             for season_data in seasons:
@@ -422,9 +539,10 @@ class SeriesLoadThread(QThread):
                     # Check if episode exists
                     existing_episode = session.query(EpisodeDB).filter_by(id=db_episode_id).first()
                     
-                    # Build stream URL
+                    # Build stream URL (strip trailing slash to avoid double-slash)
                     container = episode_data.get("container_extension", "mp4")
-                    stream_url = f"{self.provider.url}/series/{self.provider.username}/{self.provider.password}/{episode_id}.{container}"
+                    base = self.provider.url.rstrip("/")
+                    stream_url = f"{base}/series/{self.provider.username}/{self.provider.password}/{episode_id}.{container}"
                     
                     if existing_episode:
                         # Update existing

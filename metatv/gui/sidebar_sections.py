@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame, QSizePolicy, QTreeWidget,
     QTreeWidgetItem, QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QFont
 from loguru import logger
 
@@ -542,14 +542,36 @@ class WatchAlertsSection(CollapsibleSection):
                     child.setToolTip(0, f"{title}\n{ch_name}")
                     header.addChild(child)
 
-                header.setExpanded(True)
-
             self.set_empty(False)
+            QTimer.singleShot(0, self._apply_expansion)
         except Exception as e:
             logger.error(f"WatchAlertsSection refresh error: {e}")
             self.set_empty(True)
         finally:
             session.close()
+
+    def _apply_expansion(self) -> None:
+        """Expand all items if they all fit in the visible tree height; otherwise expand none."""
+        tree = self.alerts_tree
+        n = tree.topLevelItemCount()
+        if n == 0:
+            return
+        row_h = tree.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = 22
+        visible_h = tree.viewport().height()
+        if visible_h <= 0:
+            visible_h = tree.height()
+        if visible_h <= 0:
+            return
+        max_rows = visible_h // row_h
+        total_if_expanded = sum(
+            1 + tree.topLevelItem(i).childCount()
+            for i in range(n)
+        )
+        expand_all = total_if_expanded <= max_rows
+        for i in range(n):
+            tree.topLevelItem(i).setExpanded(expand_all)
 
 
 class HistorySection(CollapsibleSection):

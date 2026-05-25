@@ -49,19 +49,158 @@ _CATEGORY_FULL_NAMES_DP: dict[str, str] = {
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
     "NHL": "NHL Hockey", "UFC": "UFC / MMA",
+    # Language / content-type codes common in IPTV channel naming
+    "EN": "English", "AL": "Albania", "ALB": "Albania",
+    "KU": "Kurdish", "KR": "Korean", "FA": "Farsi / Persian",
+    "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
+    "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali",
+    "MR": "Marathi", "GU": "Gujarati", "PA": "Punjabi",
+    "TH": "Thai", "VN": "Vietnamese", "ID": "Indonesian", "PH": "Filipino",
+    "LAT": "Latin America", "LATS": "Latin America (Spanish)",
+    "NF": "Netflix", "SC": "Starz / Cinemax", "TM": "TMDB Streaming",
+    "EAR": "Early Release",
 }
+
+from dataclasses import dataclass
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
-    QFrame, QPushButton, QSizePolicy
+    QFrame, QPushButton, QSizePolicy, QMenu, QLineEdit, QLayout, QLayoutItem,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.database import Database
 from metatv.core.models import MediaType
 from metatv.gui.epg_agenda_widget import EpgAgendaWidget
 from metatv.metadata_providers.base import MetadataResult
+
+
+@dataclass
+class ChannelVersion:
+    """A single alternative version of the currently displayed channel."""
+    channel_id: str
+    name: str
+    in_queue: bool
+    detected_prefix: str | None = None
+    is_preferred: bool = False        # best match for user's version preferences
+    is_filtered: bool = False         # excluded by allowlist (not in included_categories)
+    is_hidden: bool = False           # channel explicitly hidden (channel.is_hidden=True)
+    is_hidden_category: bool = False  # prefix in global_filter_excluded_prefixes (blocklist)
+    is_favorite: bool = False         # channel is in favorites
+    in_history: bool = False          # channel appears in watch history
+    provider_name: str | None = None  # source provider display name
+
+
+def _resolve_category_name(prefix: str, config=None) -> str:
+    """Return the human-readable name for a prefix code, checking user overrides first."""
+    if config is not None:
+        overrides = getattr(config, "category_name_overrides", {})
+        if prefix in overrides:
+            return overrides[prefix]
+    abbrev = _COUNTRY_ABBREV_DP.get(prefix, prefix)
+    return _CATEGORY_FULL_NAMES_DP.get(abbrev, _CATEGORY_FULL_NAMES_DP.get(prefix, ""))
+
+
+class _FlowLayout(QLayout):
+    """Wrapping flow layout — arranges widgets left-to-right, wrapping to new rows."""
+
+    def __init__(self, parent=None, h_spacing: int = 4, v_spacing: int = 4):
+        super().__init__(parent)
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self._items: list[QLayoutItem] = []
+
+    def addItem(self, item: QLayoutItem) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _do_layout(self, rect: QRect, test_only: bool) -> int:
+        m = self.contentsMargins()
+        eff = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        x, y, row_h = eff.x(), eff.y(), 0
+        for item in self._items:
+            w = item.widget()
+            if w and not w.isVisible():
+                continue
+            hint = item.sizeHint()
+            next_x = x + hint.width() + self._h_spacing
+            if next_x - self._h_spacing > eff.right() and row_h > 0:
+                x = eff.x()
+                y += row_h + self._v_spacing
+                next_x = x + hint.width() + self._h_spacing
+                row_h = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x = next_x
+            row_h = max(row_h, hint.height())
+        return y + row_h - rect.y() + m.bottom()
+
+
+class _CategoryNamePopup(QFrame):
+    """Inline popup for naming/renaming a category prefix. Triggered from context menu."""
+
+    name_saved = pyqtSignal(str, str)   # prefix, new_name
+
+    def __init__(self, prefix: str, current_name: str, config, parent=None):
+        super().__init__(parent, Qt.WindowType.ToolTip)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setStyleSheet(
+            "QFrame { background: #252525; border: 1px solid #555; border-radius: 4px; }"
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+        prefix_lbl = QLabel(prefix)
+        prefix_lbl.setStyleSheet("color: #888; font-size: 11px; font-weight: bold;")
+        layout.addWidget(prefix_lbl)
+        self._edit = QLineEdit(current_name)
+        self._edit.setPlaceholderText(f"Name for {prefix}…")
+        self._edit.setMinimumWidth(160)
+        self._edit.returnPressed.connect(self._on_save)
+        layout.addWidget(self._edit)
+        save_btn = QPushButton(config.watched_icon)
+        save_btn.setFixedSize(28, 28)
+        save_btn.setToolTip("Save category name")
+        save_btn.clicked.connect(self._on_save)
+        layout.addWidget(save_btn)
+        self._prefix = prefix
+        self._edit.setFocus()
+
+    def _on_save(self) -> None:
+        self.name_saved.emit(self._prefix, self._edit.text().strip())
+        self.close()
 
 
 def _pref_signal(name: str, weights, attr: str) -> str:
@@ -86,10 +225,20 @@ class DetailsPaneWidget(QWidget):
     """
     
     # Signals
-    play_requested   = pyqtSignal(str)       # channel_id
-    favorite_toggled = pyqtSignal(str)       # channel_id
-    queue_toggled    = pyqtSignal(str)       # channel_id — add/remove queue
-    rating_requested = pyqtSignal(str, int)  # channel_id, ±1
+    play_requested             = pyqtSignal(str)        # channel_id
+    favorite_toggled           = pyqtSignal(str)        # channel_id
+    queue_toggled              = pyqtSignal(str)        # channel_id — add/remove queue
+    rating_requested           = pyqtSignal(str, int)   # channel_id, ±1
+    suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
+    hide_requested             = pyqtSignal(str)         # channel_id
+    channel_versions_requested = pyqtSignal(str)        # channel_id — trigger background fetch
+    version_selected           = pyqtSignal(str)        # channel_id — user clicked a version chip
+    prefix_block_requested     = pyqtSignal(str)        # prefix → add to global excluded list
+    prefix_unblock_requested   = pyqtSignal(str)        # prefix → remove from global excluded list
+    prefix_name_saved          = pyqtSignal(str, str)   # prefix, name → save to config
+    manage_filters_requested   = pyqtSignal()           # open Content Categories filter panel
+    similar_titles_requested   = pyqtSignal(str)        # channel_id — trigger similar titles fetch
+    similar_preview_requested  = pyqtSignal(list, int, str)  # (channel_ids, index, origin_title)
 
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
@@ -102,6 +251,9 @@ class DetailsPaneWidget(QWidget):
         self._provider_map: dict = {}  # provider_id → {"icon": str, "name": str}
         self._in_queue: bool = False
         self._current_rating: int = 0
+        self._current_suppressed: bool = False
+        self._similar_channel_ids: list[str] = []
+        self._similar_origin_title: str = ""
 
         self.setup_ui()
         
@@ -144,7 +296,9 @@ class DetailsPaneWidget(QWidget):
         
         # Basic info section
         self.create_basic_info_section()
-        
+
+        # (Version chips are set up inside create_basic_info_section, right after source badge)
+
         # Plot section
         self.create_plot_section()
         
@@ -153,6 +307,9 @@ class DetailsPaneWidget(QWidget):
         
         # Cast section (collapsible - Phase 2+)
         self.create_cast_section()
+
+        # Similar Titles section (fuzzy title match, same prefix category)
+        self._setup_similar_titles_section()
 
         # EPG agenda (live channels only — hidden when no data)
         self._epg_agenda = EpgAgendaWidget(self._db, self.config) if self._db else None
@@ -267,6 +424,16 @@ class DetailsPaneWidget(QWidget):
         self.like_button.hide()
         meta_row.addWidget(self.like_button)
 
+        self.not_interested_button = QPushButton(self.config.not_interested_icon)
+        self.not_interested_button.setFixedSize(28, 22)
+        self.not_interested_button.setCheckable(True)
+        self.not_interested_button.setFlat(True)
+        self.not_interested_button.setToolTip("Not Interested (suppress from recommendations)")
+        self.not_interested_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
+        self.not_interested_button.hide()
+        meta_row.addWidget(self.not_interested_button)
+
         self.dislike_button = QPushButton(self.config.dislike_icon)
         self.dislike_button.setFixedSize(28, 22)
         self.dislike_button.setCheckable(True)
@@ -295,6 +462,12 @@ class DetailsPaneWidget(QWidget):
         badge_row.addWidget(self.adult_indicator)
         badge_row.addStretch()
         self.content_layout.addLayout(badge_row)
+
+        # Version chips — appear right after source badge, before genres and action buttons
+        self._setup_version_chips()
+        self.content_layout.addWidget(self._versions_cat_label)
+        self.content_layout.addWidget(self._pref_nudge)
+        self.content_layout.addWidget(self._versions_chips_row)
 
         # Genres — hidden for live channels
         self.genres_label = QLabel()
@@ -334,6 +507,11 @@ class DetailsPaneWidget(QWidget):
         self.watchlist_button.clicked.connect(self._on_watchlist_clicked)
         self.watchlist_button.hide()  # shown only for live channels with EPG data
         row2.addWidget(self.watchlist_button, 1)
+
+        self.hide_button = QPushButton(f"{self.config.hide_icon} Hide")
+        self.hide_button.setToolTip("Hide this channel from all views")
+        self.hide_button.clicked.connect(self._on_hide_clicked)
+        row2.addWidget(self.hide_button, 1)
         self.content_layout.addLayout(row2)
 
     
@@ -430,6 +608,347 @@ class DetailsPaneWidget(QWidget):
             self.cast_content.hide()
             self.cast_toggle_btn.setText(self.config.expand_icon)
     
+    def _setup_version_chips(self) -> None:
+        """Build the preferred-version nudge banner and compact version chip row.
+
+        Widgets are created here but NOT added to content_layout — the caller
+        (create_basic_info_section) inserts them at the right position.
+        """
+        # "Categories:" section label
+        self._versions_cat_label = QLabel("Categories:")
+        self._versions_cat_label.setStyleSheet("color: #888; font-size: 11px;")
+        self._versions_cat_label.hide()
+
+        # Preferred version nudge banner (green)
+        self._pref_nudge = QFrame()
+        self._pref_nudge.setStyleSheet(
+            "QFrame { background: rgba(80,160,80,0.15); border-radius: 4px;"
+            " border: 1px solid rgba(80,160,80,0.4); }"
+        )
+        nudge_row = QHBoxLayout(self._pref_nudge)
+        nudge_row.setContentsMargins(8, 4, 8, 4)
+        self._pref_nudge_lbl = QLabel()
+        self._pref_nudge_lbl.setStyleSheet("font-size: 11px; color: #8fca8f;")
+        self._pref_nudge_lbl.setWordWrap(True)
+        self._pref_nudge_switch_btn = QPushButton("Switch")
+        self._pref_nudge_switch_btn.setFlat(True)
+        self._pref_nudge_switch_btn.setStyleSheet(
+            "color: #8fca8f; font-size: 11px; font-weight: bold; border: none;"
+        )
+        self._pref_nudge_switch_btn.setToolTip("Switch the details pane to show your preferred version")
+        nudge_row.addWidget(self._pref_nudge_lbl, 1)
+        nudge_row.addWidget(self._pref_nudge_switch_btn)
+        self._pref_nudge.hide()
+
+        # Version chip row — wrapping flow layout
+        self._versions_chips_row = QWidget()
+        self._versions_chips_row.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self._versions_chips_layout = _FlowLayout(self._versions_chips_row, h_spacing=4, v_spacing=4)
+        self._versions_chips_row.hide()
+
+    def set_versions(self, versions: list) -> None:
+        """Rebuild the version chip row from a fresh list of ChannelVersion objects."""
+        # Clear existing chips
+        layout = self._versions_chips_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            if w := item.widget():
+                w.deleteLater()
+
+        try:
+            self._pref_nudge_switch_btn.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self._pref_nudge.hide()
+        self._versions_cat_label.hide()
+
+        if not versions:
+            self._versions_chips_row.hide()
+            return
+
+        active   = [v for v in versions if not v.is_filtered and not v.is_hidden]
+        filtered = [v for v in versions if v.is_filtered and not v.is_hidden]
+
+        if not active and not filtered:
+            self._versions_chips_row.hide()
+            return
+
+        # Preferred version nudge
+        preferred = next((v for v in versions if v.is_preferred), None)
+        if preferred:
+            self._pref_nudge_lbl.setText(
+                f"{self.config.preferred_version_icon} Preferred: {preferred.name}"
+            )
+            self._pref_nudge_switch_btn.clicked.connect(
+                lambda: self.version_selected.emit(preferred.channel_id)
+            )
+            self._pref_nudge.show()
+
+        for v in active:
+            layout.addWidget(self._make_active_chip(v))
+        for v in filtered:
+            layout.addWidget(self._make_greyed_chip(v))
+
+        self._versions_cat_label.show()
+        self._versions_chips_row.show()
+        self._versions_chips_row.updateGeometry()
+
+    def _make_active_chip(self, v: "ChannelVersion") -> QPushButton:
+        prefix = v.detected_prefix or "?"
+        status = ""
+        if v.is_preferred: status += f" {self.config.preferred_version_icon}"
+        if v.in_queue:     status += f" {self.config.queue_icon}"
+        if v.is_favorite:  status += f" {self.config.favorite_icon}"
+        if v.in_history:   status += f" {self.config.history_icon}"
+
+        chip = QPushButton(prefix + status)
+        chip.setStyleSheet(
+            "QPushButton { font-size: 11px; color: #ccc; border: 1px solid #555;"
+            " border-radius: 4px; padding: 2px 8px; }"
+            "QPushButton:hover { color: #fff; border-color: #888;"
+            " background: rgba(255,255,255,0.05); }"
+        )
+        full = _resolve_category_name(prefix, self.config)
+        tip = full or prefix
+        if v.provider_name:
+            tip += f"\nSource: {v.provider_name}"
+        chip.setToolTip(tip)
+        chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
+        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        chip.customContextMenuRequested.connect(
+            lambda pos, _v=v, _c=chip: self._show_version_chip_menu(_c.mapToGlobal(pos), _v)
+        )
+        return chip
+
+    def _make_greyed_chip(self, v: "ChannelVersion") -> QPushButton:
+        prefix = v.detected_prefix or "?"
+        is_hidden_cat = v.is_hidden_category
+        extra = "text-decoration: line-through;" if is_hidden_cat else ""
+        chip = QPushButton(prefix)
+        chip.setStyleSheet(
+            f"QPushButton {{ font-size: 11px; color: #444; border: 1px solid #333;"
+            f" border-radius: 4px; padding: 2px 8px; {extra} }}"
+        )
+        full = _resolve_category_name(prefix, self.config)
+        reason = "hidden" if is_hidden_cat else "filtered"
+        chip.setToolTip(
+            f"{full or prefix} ({prefix}) — {reason}. Right-click to manage."
+        )
+        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        chip.customContextMenuRequested.connect(
+            lambda pos, p=prefix, hid=is_hidden_cat, _c=chip:
+                self._show_filtered_chip_menu(_c.mapToGlobal(pos), p, hid)
+        )
+        return chip
+
+    def _show_version_chip_menu(self, global_pos, v: "ChannelVersion") -> None:
+        prefix = v.detected_prefix or "?"
+        full = _resolve_category_name(prefix, self.config)
+        header = f"{full} ({prefix})" if full else prefix
+
+        menu = QMenu(self)
+        title_act = menu.addAction(header)
+        title_act.setEnabled(False)
+        menu.addSeparator()
+
+        show_act = menu.addAction(f"Show details for {prefix} version")
+        show_act.setToolTip(v.name)
+        menu.addSeparator()
+
+        fav_act = menu.addAction(
+            "Remove from Favorites" if v.is_favorite else "Add to Favorites"
+        )
+        queue_act = menu.addAction(
+            "Remove from Queue" if v.in_queue else "Add to Queue"
+        )
+        hide_act = menu.addAction(f"Hide this {prefix} version")
+        hide_act.setToolTip(f"Hides only: {v.name}")
+        menu.addSeparator()
+
+        filter_act = menu.addAction(f'Filter out ALL "{prefix}" content')
+        filter_act.setToolTip(f"Deselects {prefix} from Content Categories — easy to undo from filter panel")
+        hide_cat_act = menu.addAction(f"Hide the {prefix} category")
+        hide_cat_act.setToolTip(f"Suppresses {prefix} entirely — removed from filter options")
+        menu.addSeparator()
+
+        edit_act = menu.addAction("Edit Category Name…")
+
+        chosen = menu.exec(global_pos)
+        if chosen == show_act:
+            self.version_selected.emit(v.channel_id)
+        elif chosen == fav_act:
+            self.favorite_toggled.emit(v.channel_id)
+        elif chosen == queue_act:
+            self.queue_toggled.emit(v.channel_id)
+        elif chosen == hide_act:
+            self.hide_requested.emit(v.channel_id)
+        elif chosen == filter_act:
+            self.prefix_block_requested.emit(prefix)
+        elif chosen == hide_cat_act:
+            self.prefix_block_requested.emit(prefix)
+        elif chosen == edit_act:
+            self._show_category_name_popup(prefix, global_pos)
+
+    def _show_filtered_chip_menu(self, global_pos, prefix: str, is_hidden: bool) -> None:
+        full = _resolve_category_name(prefix, self.config)
+        state = "hidden" if is_hidden else "filtered"
+        header = f"{full} ({prefix}) — {state}" if full else f"{prefix} — {state}"
+
+        menu = QMenu(self)
+        title_act = menu.addAction(header)
+        title_act.setEnabled(False)
+        menu.addSeparator()
+
+        if is_hidden:
+            restore_act = menu.addAction(f"Unhide {prefix} category")
+        else:
+            restore_act = menu.addAction(f"Remove filter on {prefix} content")
+        menu.addSeparator()
+
+        manage_act = menu.addAction("Manage content filters…")
+
+        chosen = menu.exec(global_pos)
+        if chosen == restore_act:
+            self.prefix_unblock_requested.emit(prefix)
+        elif chosen == manage_act:
+            self.manage_filters_requested.emit()
+
+    def _show_category_name_popup(self, prefix: str, pos) -> None:
+        current = _resolve_category_name(prefix, self.config)
+        popup = _CategoryNamePopup(prefix, current, self.config, self)
+        popup.name_saved.connect(lambda p, n: self.prefix_name_saved.emit(p, n))
+        popup.move(pos)
+        popup.show()
+
+    # ------------------------------------------------------------------ #
+    # Similar Titles section                                               #
+    # ------------------------------------------------------------------ #
+
+    def _setup_similar_titles_section(self) -> None:
+        """Build the collapsible Similar Titles section (hidden until populated)."""
+        # Header row with collapse toggle
+        self._similar_header = QWidget()
+        hdr = QHBoxLayout(self._similar_header)
+        hdr.setContentsMargins(0, 4, 0, 2)
+        hdr.setSpacing(4)
+        self._similar_toggle_btn = QPushButton(self.config.collapse_icon)
+        self._similar_toggle_btn.setFlat(True)
+        self._similar_toggle_btn.setFixedSize(20, 20)
+        self._similar_toggle_btn.setToolTip("Collapse Similar Titles")
+        self._similar_toggle_btn.clicked.connect(self._toggle_similar_titles)
+        self._similar_title_lbl = QLabel()
+        self._similar_title_lbl.setStyleSheet("font-weight: bold; color: #ccc;")
+        hdr.addWidget(self._similar_toggle_btn)
+        hdr.addWidget(self._similar_title_lbl)
+        hdr.addStretch()
+        self._similar_header.hide()
+        self.content_layout.addWidget(self._similar_header)
+
+        # Body container
+        self._similar_body = QWidget()
+        self._similar_layout = QVBoxLayout(self._similar_body)
+        self._similar_layout.setContentsMargins(4, 0, 0, 4)
+        self._similar_layout.setSpacing(2)
+        self._similar_body.hide()
+        self.content_layout.addWidget(self._similar_body)
+
+        self._similar_expanded = True
+
+    def _toggle_similar_titles(self) -> None:
+        self._similar_expanded = not self._similar_expanded
+        self._similar_body.setVisible(self._similar_expanded)
+        self._similar_toggle_btn.setText(
+            self.config.collapse_icon if self._similar_expanded else self.config.expand_icon
+        )
+        self._similar_toggle_btn.setToolTip(
+            "Collapse Similar Titles" if self._similar_expanded else "Expand Similar Titles"
+        )
+
+    def set_similar_titles(self, titles: list) -> None:
+        """Populate the Similar Titles section with a list of ChannelVersion objects."""
+        while self._similar_layout.count():
+            item = self._similar_layout.takeAt(0)
+            if w := item.widget():
+                w.deleteLater()
+
+        if not titles:
+            self._similar_header.hide()
+            self._similar_body.hide()
+            self._similar_channel_ids = []
+            return
+
+        # Store ordered channel_ids for lightbox cycling
+        self._similar_channel_ids = [v.channel_id for v in titles]
+        self._similar_origin_title = (
+            self.current_channel.name if self.current_channel else ""
+        )
+
+        self._similar_title_lbl.setText(f"Similar Titles ({len(titles)})")
+        self._similar_header.show()
+        if self._similar_expanded:
+            self._similar_body.show()
+
+        for v in titles:
+            row_w = QWidget()
+            row = QHBoxLayout(row_w)
+            row.setContentsMargins(0, 1, 0, 1)
+            row.setSpacing(4)
+
+            play_btn = QPushButton(self.config.play_icon)
+            play_btn.setFixedSize(24, 20)
+            play_btn.setFlat(True)
+            play_btn.setToolTip(f"Play: {v.name}")
+            play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
+            row.addWidget(play_btn)
+
+            name_btn = QPushButton(v.name)
+            name_btn.setFlat(True)
+            name_btn.setStyleSheet(
+                "QPushButton { text-align: left; color: #ccc; font-size: 11px; border: none; }"
+                "QPushButton:hover { color: #fff; }"
+            )
+            name_btn.setToolTip("Click: go to details  ·  Right-click: preview")
+            name_btn.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
+            name_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            idx = self._similar_channel_ids.index(v.channel_id)
+            name_btn.customContextMenuRequested.connect(
+                lambda _pos, _idx=idx: self.similar_preview_requested.emit(
+                    self._similar_channel_ids, _idx, self._similar_origin_title
+                )
+            )
+            row.addWidget(name_btn, 1)
+
+            # Status icons
+            status_parts = []
+            if v.is_favorite: status_parts.append(self.config.favorite_icon)
+            if v.in_history:  status_parts.append(self.config.history_icon)
+            if v.in_queue:    status_parts.append(self.config.queue_icon)
+            if status_parts:
+                status_lbl = QLabel(" ".join(status_parts))
+                status_lbl.setStyleSheet("font-size: 10px; color: #666;")
+                row.addWidget(status_lbl)
+
+            fav_btn = QPushButton(
+                self.config.favorite_icon if v.is_favorite else self.config.unfavorite_icon
+            )
+            fav_btn.setFixedSize(24, 20)
+            fav_btn.setFlat(True)
+            fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
+            fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
+            row.addWidget(fav_btn)
+
+            queue_icon = self.config.watched_icon if v.in_queue else self.config.queue_icon
+            queue_btn = QPushButton(queue_icon)
+            queue_btn.setFixedSize(24, 20)
+            queue_btn.setFlat(True)
+            queue_btn.setToolTip("Remove from Queue" if v.in_queue else "Add to Queue")
+            queue_btn.clicked.connect(lambda _, cid=v.channel_id: self.queue_toggled.emit(cid))
+            row.addWidget(queue_btn)
+
+            self._similar_layout.addWidget(row_w)
+
     def show_channel(self, channel, metadata: Optional[MetadataResult] = None):
         """Display metadata for a channel
 
@@ -447,6 +966,11 @@ class DetailsPaneWidget(QWidget):
 
         # Clear previous state (also clears rec reason label)
         self._clear_display()
+
+        # Hide versions and similar titles immediately; populated asynchronously
+        if metadata is None:
+            self.set_versions([])
+            self.set_similar_titles([])
 
         # Load queue/rating state for action buttons
         self._load_action_state(channel.id)
@@ -483,9 +1007,14 @@ class DetailsPaneWidget(QWidget):
         if metadata:
             logger.debug(f"Calling _show_metadata for {channel.name}")
             self._show_metadata(metadata)
-        elif not is_live:
-            logger.debug(f"Showing loading state for {channel.name}")
-            self._show_loading_state()
+        else:
+            if not is_live:
+                logger.debug(f"Showing loading state for {channel.name}")
+                self._show_loading_state()
+            # Trigger async versions + similar titles fetch on first (metadata=None) call only
+            self.channel_versions_requested.emit(channel.id)
+            if not is_live and getattr(channel, "detected_prefix", None):
+                self.similar_titles_requested.emit(channel.id)
     
     def _update_country_info(self, channel_name: str) -> None:
         """Extract and display category/country prefix from channel name."""
@@ -525,6 +1054,8 @@ class DetailsPaneWidget(QWidget):
 
         self.poster_loading.hide()
         self.plot_loading.hide()
+        self._similar_header.hide()
+        self._similar_body.hide()
 
     def _configure_for_live(self, is_live: bool) -> None:
         """Show/hide sections depending on whether the selected channel is live TV."""
@@ -547,8 +1078,9 @@ class DetailsPaneWidget(QWidget):
         self._live_header.setVisible(is_live)
         self.watchlist_button.setVisible(is_live)
 
-        # Like/Dislike only for movies/series
+        # Like/Dislike/Not Interested only for movies/series
         self.like_button.setVisible(not is_live)
+        self.not_interested_button.setVisible(not is_live)
         self.dislike_button.setVisible(not is_live)
 
         # Title font: larger for live since it's the channel name without other context
@@ -700,7 +1232,7 @@ class DetailsPaneWidget(QWidget):
         tech_parts = []
         if metadata.release_date:
             tech_parts.append(f"<b>Release Date:</b> {metadata.release_date}")
-        if metadata.content_rating:
+        if metadata.content_rating and not metadata.rating:
             tech_parts.append(f"<b>Content Rating:</b> {metadata.content_rating}")
         if metadata.director:
             if _weights:
@@ -829,10 +1361,21 @@ class DetailsPaneWidget(QWidget):
             self._update_action_buttons()
             self.rating_requested.emit(self.current_channel.id, -1)
 
+    def _on_not_interested_clicked(self):
+        if self.current_channel:
+            self._current_suppressed = not self._current_suppressed
+            self._update_action_buttons()
+            self.suppression_requested.emit(self.current_channel.id, self._current_suppressed)
+
+    def _on_hide_clicked(self) -> None:
+        if self.current_channel:
+            self.hide_requested.emit(self.current_channel.id)
+
     def _load_action_state(self, channel_id: str) -> None:
-        """Query DB for queue and rating state, then update button display."""
+        """Query DB for queue, rating, and suppression state, then update button display."""
         self._in_queue = False
         self._current_rating = 0
+        self._current_suppressed = False
         if self._db:
             from metatv.core.repositories import RepositoryFactory
             session = self._db.get_session()
@@ -840,17 +1383,20 @@ class DetailsPaneWidget(QWidget):
                 repos = RepositoryFactory(session)
                 self._in_queue = repos.queue.is_queued(channel_id)
                 self._current_rating = repos.ratings.get(channel_id) or 0
+                ch = repos.channels.get_by_id(channel_id)
+                self._current_suppressed = bool(ch.is_rec_suppressed) if ch else False
             finally:
                 session.close()
         self._update_action_buttons()
 
     def _update_action_buttons(self) -> None:
-        """Refresh button labels and checked states from cached _in_queue / _current_rating."""
+        """Refresh button labels and checked states from cached _in_queue / _current_rating / _current_suppressed."""
         self.queue_button.setText(
             f"{self.config.queue_icon} Remove from Queue" if self._in_queue
             else f"{self.config.queue_icon} Add to Queue"
         )
         self.like_button.setChecked(self._current_rating == 1)
+        self.not_interested_button.setChecked(self._current_suppressed)
         self.dislike_button.setChecked(self._current_rating == -1)
 
     def set_recommendation_reason(self, reason: str | None) -> None:
