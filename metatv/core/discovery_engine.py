@@ -92,8 +92,12 @@ def _raw_year(channel) -> int | None:
 
 def _thumbnail(channel) -> str | None:
     rd = channel.raw_data or {}
-    url = rd.get("stream_icon") or rd.get("cover") or ""
-    return url.strip() or None
+    url = (rd.get("stream_icon") or rd.get("cover") or "").strip()
+    if not url:
+        return None
+    # Collapse double slashes in path from provider data quality issues (e.g. /movies//file.jpg).
+    # Negative lookbehind preserves the :// in http:// / https://.
+    return re.sub(r"(?<!:)/+", "/", url)
 
 
 def _primary_genre(channel) -> str | None:

@@ -1060,15 +1060,15 @@ class DiscoverView(QWidget):
 
     def _add_to_zone(self, shelf: _Shelf, zone: str) -> None:
         self._zone_layout(zone).addWidget(shelf)
-        if self._bulk_loading:
-            # During initial load, defer visibility to _on_load_finished to avoid
-            # triggering N layout recalculations that cause visible shelves to bounce.
-            return
         if zone == _ZONE_PINNED:
             self._pinned_zone.setVisible(True)
         elif zone == _ZONE_EXPANDED:
             self._expanded_zone.setVisible(True)
-        elif zone == _ZONE_COLLAPSED:
+        elif zone == _ZONE_COLLAPSED and not self._bulk_loading:
+            # Defer collapsed-zone visibility until load finishes — genre/decade shelves
+            # arrive in rapid succession and each setVisible() would thrash the layout,
+            # causing pinned/expanded shelves above to bounce. Pinned and expanded zones
+            # are shown immediately (they populate slowly and don't cause bounce).
             self._collapsed_zone.setVisible(True)
             self._update_more_btn()
 
@@ -1230,13 +1230,11 @@ class DiscoverView(QWidget):
         self._loaded = True
         if self._loading_lbl.isVisible():
             self._loading_lbl.setText("No content found")
-        # Reveal all zones that received shelves in one pass — no per-shelf layout thrashing
-        if self._pinned_layout.count():
-            self._pinned_zone.setVisible(True)
-        if self._expanded_layout.count():
-            self._expanded_zone.setVisible(True)
-        self._update_more_btn()  # sets _collapsed_zone + _more_btn visibility atomically
-        # Zones just became visible — defer image loading until Qt finishes the layout pass
+        # Pinned/expanded zones are already visible (shown as each shelf arrived).
+        # Collapsed zone was deferred — reveal it now atomically so all genre/decade
+        # shelves appear at once without bouncing the expanded shelves above.
+        self._update_more_btn()
+        # Trigger image loading for any shelves whose layout settled during the load
         QTimer.singleShot(300, self._trigger_image_load_all)
 
     def _trigger_image_load_all(self) -> None:
