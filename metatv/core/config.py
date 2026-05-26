@@ -7,6 +7,96 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 
+# ---------------------------------------------------------------------------
+# Base lookup tables — shipped with the app, never written to config.yaml.
+# Users extend these via user_prefix_overrides / user_quality_overrides /
+# user_platform_overrides (prefix/code → group name).
+# Providers can add per-provider overrides via provider_prefix_overrides.
+# ---------------------------------------------------------------------------
+
+BASE_PREFIX_GROUPS: dict[str, list[str]] = {
+    "Albanian":         ["AL", "ALB"],
+    "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD"],
+    "Argentine":        ["ARG", "ARGENTINA"],
+    "Armenian":         ["AM", "ARM"],
+    "Azerbaijani":      ["AZ"],
+    "Bulgarian":        ["BG"],
+    "Chinese":          ["CN", "HK", "TW", "SG"],
+    "Czech":            ["CZ"],
+    "Danish":           ["DK"],
+    "Dutch":            ["NL", "BE"],
+    "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH", "ZA", "ZM", "ZW", "NG"],
+    "Filipino":         ["PH"],
+    "Finnish":          ["FI"],
+    "French":           ["FR", "BE", "CH", "CA", "LU", "MC"],
+    "Georgian":         ["GE"],
+    "German":           ["DE", "AT", "CH", "LI"],
+    "Greek":            ["GR", "CY"],
+    "Hebrew":           ["IL", "ISR"],
+    "Hungarian":        ["HU"],
+    "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA"],
+    "Indonesian":       ["ID"],
+    "Italian":          ["IT", "CH", "SM", "VA"],
+    "Japanese":         ["JP"],
+    "Korean":           ["KR"],
+    "Kurdish":          ["KU"],
+    "Latvian":          ["LV"],
+    "Lithuanian":       ["LT"],
+    "Malay":            ["MY"],
+    "Norwegian":        ["NO"],
+    "Persian/Iranian":  ["IR", "FA"],
+    "Polish":           ["PL"],
+    "Portuguese":       ["PT", "BR", "CV"],
+    "Romanian":         ["RO"],
+    "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ"],
+    "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR"],
+    "Slovak":           ["SK"],
+    "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"],
+    "Swahili":          ["TZ"],
+    "Swedish":          ["SE"],
+    "Thai":             ["TH"],
+    "Turkish":          ["TR", "CY"],
+    "Ukrainian":        ["UA"],
+    "Urdu/Pakistani":   ["PK", "UR"],
+    "Vietnamese":       ["VN"],
+}
+
+BASE_QUALITY_GROUPS: dict[str, list[str]] = {
+    "4K / UHD":        ["4K", "UHD", "8K", "2160P"],
+    "HD":              ["HD", "FHD", "1080P", "720P", "HDR", "HDR10", "HDR10+"],
+    "HQ":              ["HQ"],
+    "SD":              ["SD", "480P", "360P"],
+    "LQ":              ["LQ", "LD"],
+    "CAM / Pre-release": ["CAM", "HDTS", "CAMRIP", "TSCAM"],
+}
+
+BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
+    "Streaming": ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME", "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+"],
+    "Sports":    ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS"],
+    "News":      ["CNN", "BBC", "FOX", "NBC", "CBS", "ABC", "MSNBC", "SKY NEWS", "AL JAZEERA", "FRANCE24"],
+    "Kids":      ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS"],
+}
+
+BASE_PREFIX_SEPARATORS: list[str] = [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
+
+
+def _apply_overrides(
+    base: dict[str, list[str]],
+    overrides: dict[str, str],  # {code: group_name}
+) -> dict[str, list[str]]:
+    """Return a copy of base with per-code group assignments overridden."""
+    result: dict[str, list[str]] = {k: list(v) for k, v in base.items()}
+    for code, group_name in overrides.items():
+        # Remove from any existing group
+        for codes in result.values():
+            if code in codes:
+                codes.remove(code)
+        # Add to target group (create group if new)
+        result.setdefault(group_name, []).append(code)
+    # Drop any groups left empty after override removal
+    return {k: v for k, v in result.items() if v}
+
+
 class Config(BaseModel):
     """Application configuration"""
     
@@ -85,11 +175,6 @@ class Config(BaseModel):
     global_filter_excluded_prefixes: list = Field(default_factory=list)
 
     # Prefix detection settings
-    # Separators tried in order when extracting the prefix code from a channel name.
-    # Longer/more-specific patterns should come first (e.g. " ★ " before "★").
-    prefix_separators: list = Field(
-        default_factory=lambda: [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
-    )
     prefix_bracket_enabled: bool = True  # extract [XX] bracket format
     # Bump CURRENT_DETECTOR_VERSION in main_window.py to trigger a one-time auto-rescan
     # for all users the next time they launch the app.
@@ -167,66 +252,16 @@ class Config(BaseModel):
     filter_default_mode: str = "include_all"  # "include_all" or "exclude_all"
     filter_media_types: list = Field(default_factory=lambda: ["live", "movies", "series"])  # Which media types to show
     filter_enabled_media_types: list = Field(default_factory=lambda: ["live", "movie", "series"])  # User's current selection
-    filter_language_groups: dict = Field(default_factory=lambda: {
-        "Albanian":         ["AL", "ALB"],
-        "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD"],
-        "Argentine":        ["ARG", "ARGENTINA"],
-        "Armenian":         ["AM", "ARM"],
-        "Azerbaijani":      ["AZ"],
-        "Bulgarian":        ["BG"],
-        "Chinese":          ["CN", "HK", "TW", "SG"],
-        "Czech":            ["CZ"],
-        "Danish":           ["DK"],
-        "Dutch":            ["NL", "BE"],
-        "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH", "ZA", "ZM", "ZW", "NG"],
-        "Filipino":         ["PH"],
-        "Finnish":          ["FI"],
-        "French":           ["FR", "BE", "CH", "CA", "LU", "MC"],
-        "Georgian":         ["GE"],
-        "German":           ["DE", "AT", "CH", "LI"],
-        "Greek":            ["GR", "CY"],
-        "Hebrew":           ["IL", "ISR"],
-        "Hungarian":        ["HU"],
-        "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA"],
-        "Indonesian":       ["ID"],
-        "Italian":          ["IT", "CH", "SM", "VA"],
-        "Japanese":         ["JP"],
-        "Korean":           ["KR"],
-        "Kurdish":          ["KU"],
-        "Latvian":          ["LV"],
-        "Lithuanian":       ["LT"],
-        "Malay":            ["MY"],
-        "Norwegian":        ["NO"],
-        "Persian/Iranian":  ["IR", "FA"],
-        "Polish":           ["PL"],
-        "Portuguese":       ["PT", "BR", "CV"],
-        "Romanian":         ["RO"],
-        "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ"],
-        "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR"],
-        "Slovak":           ["SK"],
-        "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"],
-        "Swahili":          ["TZ"],
-        "Swedish":          ["SE"],
-        "Thai":             ["TH"],
-        "Turkish":          ["TR", "CY"],
-        "Ukrainian":        ["UA"],
-        "Urdu/Pakistani":   ["PK", "UR"],
-        "Vietnamese":       ["VN"],
-    })
-    filter_quality_groups: dict = Field(default_factory=lambda: {
-        "4K / UHD": ["4K", "UHD", "8K", "2160P"],
-        "HD": ["HD", "FHD", "1080P", "720P", "HDR", "HDR10", "HDR10+"],
-        "HQ": ["HQ"],
-        "SD": ["SD", "480P", "360P"],
-        "LQ": ["LQ", "LD"],
-        "CAM / Pre-release": ["CAM", "HDTS", "CAMRIP", "TSCAM"],
-    })
-    filter_platform_groups: dict = Field(default_factory=lambda: {
-        "Streaming": ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME", "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+"],
-        "Sports": ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS"],
-        "News": ["CNN", "BBC", "FOX", "NBC", "CBS", "ABC", "MSNBC", "SKY NEWS", "AL JAZEERA", "FRANCE24"],
-        "Kids": ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS"],
-    })
+    # User-level overrides for the base lookup tables.
+    # Structure: {code: group_name} — assigns a specific prefix/code to a group,
+    # overriding (or extending) the base. Provider-level overrides are keyed by
+    # provider UUID: {provider_uuid: {code: group_name}}.
+    user_prefix_overrides: dict = Field(default_factory=dict)
+    provider_prefix_overrides: dict = Field(default_factory=dict)
+    user_quality_overrides: dict = Field(default_factory=dict)
+    user_platform_overrides: dict = Field(default_factory=dict)
+    # Extra separator strings the user has added beyond the built-in set.
+    user_extra_separators: list = Field(default_factory=list)
     filter_included_languages: list = Field(default_factory=list)  # Empty = all included
     filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
@@ -321,10 +356,34 @@ class Config(BaseModel):
     # Checked first in _resolve_category_name(), before the built-in lookup tables.
     category_name_overrides: dict = Field(default_factory=dict)
     
-    def _inject_new_sections(self) -> None:
-        """Insert newly added sidebar sections and merge new default prefix groups into existing configs."""
-        changed = False
+    # ── Computed views of the base lookup tables ─────────────────────────────
+    # These are NOT stored in config.yaml — they're computed from the base
+    # constants + user/provider overrides at access time.
 
+    @property
+    def filter_language_groups(self) -> dict[str, list[str]]:
+        """Effective prefix→group mapping: base + user overrides."""
+        return _apply_overrides(BASE_PREFIX_GROUPS, self.user_prefix_overrides)
+
+    @property
+    def filter_quality_groups(self) -> dict[str, list[str]]:
+        """Effective quality-code→group mapping: base + user overrides."""
+        return _apply_overrides(BASE_QUALITY_GROUPS, self.user_quality_overrides)
+
+    @property
+    def filter_platform_groups(self) -> dict[str, list[str]]:
+        """Effective platform-code→group mapping: base + user overrides."""
+        return _apply_overrides(BASE_PLATFORM_GROUPS, self.user_platform_overrides)
+
+    @property
+    def prefix_separators(self) -> list[str]:
+        """Effective separator list: base + any user additions."""
+        extra = [s for s in self.user_extra_separators if s not in BASE_PREFIX_SEPARATORS]
+        return BASE_PREFIX_SEPARATORS + extra
+
+    def _inject_new_sections(self) -> None:
+        """Insert newly added sidebar sections into existing configs that predate them."""
+        changed = False
         new_sections = ["queue", "recommended"]
         for sid in new_sections:
             if sid not in self.sidebar_sections:
@@ -335,27 +394,6 @@ class Config(BaseModel):
                 idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
                 self.sidebar_visible_sections.insert(idx, sid)
                 changed = True
-
-        # Merge any new default filter_language_groups entries into existing saved configs.
-        # Handles both entirely new groups and new codes added to existing groups.
-        default_groups = Config.model_fields["filter_language_groups"].default_factory()
-        for group_name, default_codes in default_groups.items():
-            if group_name not in self.filter_language_groups:
-                self.filter_language_groups[group_name] = list(default_codes)
-                changed = True
-            else:
-                existing = set(self.filter_language_groups[group_name])
-                new_codes = [p for p in default_codes if p not in existing]
-                if new_codes:
-                    self.filter_language_groups[group_name].extend(new_codes)
-                    changed = True
-
-        # Remove stale groups that no longer exist in defaults (e.g. "Latin American", "Streaming").
-        stale = [g for g in self.filter_language_groups if g not in default_groups]
-        for g in stale:
-            del self.filter_language_groups[g]
-            changed = True
-
         if changed:
             self.save()
 

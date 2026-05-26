@@ -401,6 +401,17 @@ class GlobalFilterDialog(QDialog):
         self._rescan_btn.clicked.connect(self._start_rescan)
         shortcut_row.addWidget(self._rescan_btn)
 
+        reset_btn = QPushButton("Reset Category Overrides")
+        reset_btn.setFlat(True)
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset_btn.setStyleSheet("font-size: 11px; color: #a66;")
+        reset_btn.setToolTip(
+            "Clear all your custom category assignments and restore built-in defaults.\n"
+            "Provider-specific overrides are not affected."
+        )
+        reset_btn.clicked.connect(self._reset_user_overrides)
+        shortcut_row.addWidget(reset_btn)
+
         vl.addLayout(shortcut_row)
 
         # ── OK / Cancel ────────────────────────────────────────────────────────
@@ -608,6 +619,17 @@ class GlobalFilterDialog(QDialog):
         self._inner_vl.addStretch()
 
     # ── Actions ────────────────────────────────────────────────────────────────
+
+    def _reset_user_overrides(self) -> None:
+        """Clear user_prefix_overrides and re-render — groups revert to built-in defaults."""
+        self._config.user_prefix_overrides.clear()
+        self._config.save()
+        stretch_idx = self._inner_vl.count() - 1
+        self._inner_vl.takeAt(stretch_idx)
+        self._clear_groups()
+        self._populate_groups()
+        self._inner_vl.addStretch()
+        logger.info("User category overrides reset to defaults")
 
     def _select_all(self, checked: bool) -> None:
         for section in self._sections:
