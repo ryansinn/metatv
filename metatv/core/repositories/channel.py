@@ -33,6 +33,7 @@ class ChannelRepository:
                 language_prefixes: Optional[List[str]] = None,
                 quality_prefixes: Optional[List[str]] = None,
                 include_hidden: bool = False,
+                hidden_only: bool = False,
                 invert_prefix_filters: bool = False,
                 include_untagged: bool = True,
                 adult_mode: str = "all",
@@ -47,7 +48,8 @@ class ChannelRepository:
             media_types: Filter by list of media types (e.g. ['live', 'movies']).
             language_prefixes: List of language prefixes to include (e.g. ['EN', 'UK']).
             quality_prefixes: List of quality prefixes to include (e.g. ['4K', 'UHD']).
-            include_hidden: Include hidden channels.
+            include_hidden: Include hidden channels (visible + hidden).
+            hidden_only: Show only hidden channels (overrides include_hidden).
             invert_prefix_filters: If True, show only items NOT matching prefix filters.
             include_untagged: When False, exclude channels with no detected_prefix.
             source_categories: Raw source_category labels to include (live channels only).
@@ -72,7 +74,9 @@ class ChannelRepository:
         elif media_type:
             query = query.filter_by(media_type=media_type)
 
-        if not include_hidden:
+        if hidden_only:
+            query = query.filter(ChannelDB.is_hidden == True)  # noqa: E712
+        elif not include_hidden:
             query = query.filter_by(is_hidden=False)
 
         if adult_mode != "all":
@@ -227,11 +231,16 @@ class ChannelRepository:
         )
 
     def search(self, query: str, provider_id: Optional[str] = None,
-               media_type: Optional[str] = None) -> List[ChannelDB]:
+               media_type: Optional[str] = None,
+               hidden_only: bool = False) -> List[ChannelDB]:
         """Search channels by name"""
+        if hidden_only:
+            hidden_filter = (ChannelDB.is_hidden == True)  # noqa: E712
+        else:
+            hidden_filter = (ChannelDB.is_hidden == False)  # noqa: E712
         db_query = self.session.query(ChannelDB).filter(
             ChannelDB.name.ilike(f"%{query}%"),
-            ChannelDB.is_hidden == False
+            hidden_filter,
         )
         
         if provider_id:

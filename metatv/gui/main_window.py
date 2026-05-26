@@ -244,6 +244,7 @@ class MainWindow(QMainWindow):
         # Initialize before load_channels() which uses these
         self.executor = ThreadPoolExecutor(max_workers=4)
         self._load_channels_token: int = 0
+        self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
         self._channels_loaded.connect(self._on_channels_loaded)
@@ -325,6 +326,7 @@ class MainWindow(QMainWindow):
         self.details_pane.rating_requested.connect(self._toggle_rating)
         self.details_pane.suppression_requested.connect(self._on_suppression_requested)
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
+        self.details_pane.unhide_requested.connect(self._unhide_channel)
         self.details_pane.channel_versions_requested.connect(self._fetch_channel_versions)
         self.details_pane.version_selected.connect(self.show_channel_details_by_id)
         self.details_pane.prefix_block_requested.connect(self._on_prefix_block)
@@ -856,6 +858,17 @@ class MainWindow(QMainWindow):
         self._refresh_recommended_section()
         self.load_channels()
 
+    def _unhide_channel(self, channel_id: str) -> None:
+        def _bg() -> None:
+            session = self.db.get_session()
+            try:
+                repos = RepositoryFactory(session)
+                repos.channels.set_hidden(channel_id, False)
+            finally:
+                session.close()
+        self.executor.submit(_bg)
+        QTimer.singleShot(150, self.load_channels)
+
     # --- Recommended sidebar helpers ---
 
     def _on_rec_sidebar_selected(self, channel_id: str, reason: str) -> None:
@@ -1220,8 +1233,8 @@ class MainWindow(QMainWindow):
         self.series_chip = ToggleChip("Series", enabled=True)
         _mt_layout.addWidget(self.series_chip)
 
-        media_layout.addWidget(self._media_type_widget)
-        
+        # _media_type_widget lives in search_controls row (added there below)
+
         # Restore media chip state from config (before connecting signals)
         enabled_types = getattr(self.config, 'filter_enabled_media_types', ['live', 'movie', 'series'])
         # If empty list, use default
@@ -1232,14 +1245,20 @@ class MainWindow(QMainWindow):
         self.movies_chip.set_enabled('movie' in enabled_types)
         self.series_chip.set_enabled('series' in enabled_types)
         logger.debug(f"After restore - Live: {self.live_chip.is_enabled()}, Movies: {self.movies_chip.is_enabled()}, Series: {self.series_chip.is_enabled()}")
-        
+
         # NOW connect signals after state is restored
         self.live_chip.clicked.connect(self.on_filter_changed)
         self.movies_chip.clicked.connect(self.on_filter_changed)
         self.series_chip.clicked.connect(self.on_filter_changed)
-        
+
+        # Search chip — activates the channel list / search view (the default)
+        self.search_chip = ToggleChip(f"{self.config.search_icon} Search", enabled=True)
+        self.search_chip.setToolTip("Channel list and search")
+        self.search_chip.clicked.connect(self.on_search_view_toggle)
+        media_layout.addWidget(self.search_chip)
+
         media_layout.addStretch()
-        
+
         self.epg_chip = ToggleChip("📅 EPG", enabled=False)
         self.epg_chip.clicked.connect(self.on_special_view_toggle)
         media_layout.addWidget(self.epg_chip)
@@ -1251,6 +1270,11 @@ class MainWindow(QMainWindow):
         self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         media_layout.addWidget(self.discover_chip)
+
+        self.hidden_chip = ToggleChip(f"{self.config.hide_icon} Hidden", enabled=False)
+        self.hidden_chip.setToolTip("Show channels you've hidden — right-click to unhide")
+        self.hidden_chip.clicked.connect(self.on_hidden_view_toggle)
+        media_layout.addWidget(self.hidden_chip)
 
         # Global content filter button — text pill, right-aligned
         media_layout.addStretch()
@@ -1266,6 +1290,7 @@ class MainWindow(QMainWindow):
         # Search and filter controls
         self.search_controls = QWidget()
         controls_layout = QHBoxLayout(self.search_controls)
+        controls_layout.addWidget(self._media_type_widget)
         controls_layout.addWidget(QLabel("Search:"))
         
         self.search_input = QLineEdit()
@@ -1305,7 +1330,19 @@ class MainWindow(QMainWindow):
         self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}" if self.filters_visible else f"{self.settings_icon} Filters {self.config.expand_icon}")
         
         self.content_layout.addWidget(self.filter_bar)
-        
+
+        # Hidden-mode banner (shown only when Hidden chip is active)
+        self._hidden_banner = QLabel(
+            f"{self.config.hide_icon}  Showing hidden channels — right-click to unhide"
+        )
+        self._hidden_banner.setStyleSheet(
+            "color: #cc8800; font-size: 11px; padding: 4px 8px;"
+            " background: rgba(204,136,0,0.10); border-radius: 4px;"
+        )
+        self._hidden_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hidden_banner.hide()
+        self.content_layout.addWidget(self._hidden_banner)
+
         # Channels list (default view)
         self.channels_list = QListWidget()
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1471,6 +1508,7 @@ class MainWindow(QMainWindow):
         self.epg_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.filter_bar.setVisible(False)
+        self._hidden_banner.setVisible(False)
 
     def enter_provider_edit_mode(self, provider_id: str):
         """Switch center panel to provider editor for the given provider."""
@@ -1480,10 +1518,7 @@ class MainWindow(QMainWindow):
         self.provider_editor.load_provider(provider_id)
         self.stats_label.setText("Editing provider — click a source to switch")
         self._in_provider_edit_mode = True
-        # Reset EPG chip so it doesn't appear active after editing
-        self.epg_chip.blockSignals(True)
-        self.epg_chip.set_enabled(False)
-        self.epg_chip.blockSignals(False)
+        self._deactivate_view_chips()
 
     def exit_provider_edit_mode(self):
         """Return to the normal channel list view."""
@@ -1808,6 +1843,7 @@ class MainWindow(QMainWindow):
             provider_icon_map=provider_icon_map,
             given_provider_id=provider_id,
             excluded_prefixes=get_excluded_prefixes(self.config),
+            hidden_only=self._hidden_mode,
         )
 
         # Stamp a token so stale results from a previous query are discarded
@@ -1823,25 +1859,29 @@ class MainWindow(QMainWindow):
             repos = RepositoryFactory(session)
 
             force_adult_ids = params['force_adult_ids']
+            hidden_only = params.get('hidden_only', False)
             channels = repos.channels.get_all(
                 provider_id=params['provider_id'],
-                media_types=params['media_types'],
-                language_prefixes=params['language_prefixes'],
-                quality_prefixes=params['quality_prefixes'],
-                invert_prefix_filters=params['invert_prefix_filters'],
-                include_untagged=params['include_untagged'],
-                adult_mode=params['adult_mode'],
-                force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params['source_categories'],
+                media_types=params['media_types'] if not hidden_only else None,
+                language_prefixes=params['language_prefixes'] if not hidden_only else None,
+                quality_prefixes=params['quality_prefixes'] if not hidden_only else None,
+                invert_prefix_filters=params['invert_prefix_filters'] if not hidden_only else False,
+                include_untagged=params['include_untagged'] if not hidden_only else True,
+                adult_mode=params['adult_mode'] if not hidden_only else 'all',
+                force_adult_provider_ids=force_adult_ids or None if not hidden_only else None,
+                source_categories=params['source_categories'] if not hidden_only else None,
                 include_uncategorized_content_types=True,
+                hidden_only=hidden_only,
+                include_hidden=hidden_only,
             )
             total = repos.channels.count(provider_id=params['provider_id'])
             has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
                 ChannelDB.is_adult == True
             ).limit(1).count() > 0
-            excluded_prefixes = params.get('excluded_prefixes', set())
-            if excluded_prefixes:
-                channels = [c for c in channels if c.detected_prefix not in excluded_prefixes]
+            if not hidden_only:
+                excluded_prefixes = params.get('excluded_prefixes', set())
+                if excluded_prefixes:
+                    channels = [c for c in channels if c.detected_prefix not in excluded_prefixes]
             channels = sorted(channels, key=lambda c: c.name)
             params['total_channels'] = total
             params['has_adult']      = has_adult
@@ -1870,8 +1910,12 @@ class MainWindow(QMainWindow):
 
         if not channels:
             logger.warning("No channels match current filters!")
-            self.status_bar.showMessage("No channels match filters - try adjusting filter settings")
-            self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
+            if params.get('hidden_only'):
+                self.status_bar.showMessage("No hidden channels found")
+                self.stats_label.setText("No hidden channels")
+            else:
+                self.status_bar.showMessage("No channels match filters - try adjusting filter settings")
+                self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
             return
 
         for channel in channels:
@@ -1889,15 +1933,18 @@ class MainWindow(QMainWindow):
             self.all_channels.append((display_text, channel))
 
         shown    = len(channels)
-        filtered = total_channels - shown
-        self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
+        if params.get('hidden_only'):
+            self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
+            self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
+        else:
+            filtered = total_channels - shown
+            self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
+            if given_provider_id:
+                self.status_bar.showMessage(f"{shown:,} channels from selected provider")
+            else:
+                self.status_bar.showMessage(f"{shown:,} channels from active providers")
 
         self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
-
-        if given_provider_id:
-            self.status_bar.showMessage(f"{shown:,} channels from selected provider")
-        else:
-            self.status_bar.showMessage(f"{shown:,} channels from active providers")
     
     def filter_channels(self, search_text: str):
         """Filter channels based on search text"""
@@ -2088,16 +2135,24 @@ class MainWindow(QMainWindow):
             menu.addAction(hide_act)
         elif variant == "channel":
             menu.addSeparator()
-            if channel.id in self.config.epg_watchlist_channels:
-                watch_act = QAction("Stop watching this channel", self)
-                watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel.id))
+            if channel.is_hidden:
+                unhide_act = QAction(f"{self.config.hide_icon} Unhide", self)
+                unhide_act.triggered.connect(lambda: self._unhide_channel(channel_id))
+                menu.addAction(unhide_act)
             else:
-                watch_act = QAction("Watch this channel (EPG alerts)", self)
-                watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel.id))
-            menu.addAction(watch_act)
-            track_act = QAction("Track keyword…", self)
-            track_act.triggered.connect(lambda: self._prompt_track_from_list(channel.name))
-            menu.addAction(track_act)
+                if channel.id in self.config.epg_watchlist_channels:
+                    watch_act = QAction("Stop watching this channel", self)
+                    watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel.id))
+                else:
+                    watch_act = QAction("Watch this channel (EPG alerts)", self)
+                    watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel.id))
+                menu.addAction(watch_act)
+                track_act = QAction("Track keyword…", self)
+                track_act.triggered.connect(lambda: self._prompt_track_from_list(channel.name))
+                menu.addAction(track_act)
+                hide_act = QAction(f"{self.config.hide_icon} Hide", self)
+                hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
+                menu.addAction(hide_act)
 
         if channel.media_type in ("movie", "series"):
             menu.addSeparator()
@@ -2632,7 +2687,11 @@ class MainWindow(QMainWindow):
     def switch_to_list_view(self):
         """Switch content area back to channel list view"""
         self.view_mode = "list"
-        
+
+        # Reset hidden mode
+        self._hidden_mode = False
+        self._hidden_banner.setVisible(False)
+
         # Show list, hide tree and special views
         self._in_provider_edit_mode = False
         self.channels_list.setVisible(True)
@@ -2647,11 +2706,17 @@ class MainWindow(QMainWindow):
         self.discover_chip.blockSignals(True)
         self.discover_chip.set_enabled(False)
         self.discover_chip.blockSignals(False)
-        
+        self.hidden_chip.blockSignals(True)
+        self.hidden_chip.set_enabled(False)
+        self.hidden_chip.blockSignals(False)
+        self.search_chip.blockSignals(True)
+        self.search_chip.set_enabled(True)
+        self.search_chip.blockSignals(False)
+
         # Hide back button
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
-        
+
         self._media_type_widget.setVisible(True)
 
         # Restore search bar and filter bar
@@ -2698,6 +2763,12 @@ class MainWindow(QMainWindow):
         self.discover_chip.blockSignals(True)
         self.discover_chip.set_enabled(False)
         self.discover_chip.blockSignals(False)
+        self.hidden_chip.blockSignals(True)
+        self.hidden_chip.set_enabled(False)
+        self.hidden_chip.blockSignals(False)
+        self.search_chip.blockSignals(True)
+        self.search_chip.set_enabled(False)
+        self.search_chip.blockSignals(False)
 
         self._media_type_widget.setVisible(False)
         self.back_button.setVisible(False)
@@ -2736,26 +2807,25 @@ class MainWindow(QMainWindow):
         if channel:
             self.details_pane.show_channel(channel)
 
+    def _deactivate_view_chips(self, *keep) -> None:
+        """Deactivate all view chips except those in keep."""
+        for chip in (self.search_chip, self.epg_chip, self.prefs_chip,
+                     self.discover_chip, self.hidden_chip):
+            if chip not in keep:
+                chip.blockSignals(True)
+                chip.set_enabled(False)
+                chip.blockSignals(False)
+
     def on_special_view_toggle(self) -> None:
         if self.epg_chip.is_enabled():
-            self.prefs_chip.blockSignals(True)
-            self.prefs_chip.set_enabled(False)
-            self.prefs_chip.blockSignals(False)
-            self.discover_chip.blockSignals(True)
-            self.discover_chip.set_enabled(False)
-            self.discover_chip.blockSignals(False)
+            self._deactivate_view_chips(self.epg_chip)
             self.switch_to_epg_view()
         else:
             self.switch_to_list_view()
 
     def on_preferences_view_toggle(self) -> None:
         if self.prefs_chip.is_enabled():
-            self.epg_chip.blockSignals(True)
-            self.epg_chip.set_enabled(False)
-            self.epg_chip.blockSignals(False)
-            self.discover_chip.blockSignals(True)
-            self.discover_chip.set_enabled(False)
-            self.discover_chip.blockSignals(False)
+            self._deactivate_view_chips(self.prefs_chip)
             self.switch_to_preferences_view()
         else:
             self.switch_to_list_view()
@@ -2798,15 +2868,42 @@ class MainWindow(QMainWindow):
 
     def on_discover_view_toggle(self) -> None:
         if self.discover_chip.is_enabled():
-            self.epg_chip.blockSignals(True)
-            self.epg_chip.set_enabled(False)
-            self.epg_chip.blockSignals(False)
-            self.prefs_chip.blockSignals(True)
-            self.prefs_chip.set_enabled(False)
-            self.prefs_chip.blockSignals(False)
+            self._deactivate_view_chips(self.discover_chip)
             self.switch_to_discover_view()
         else:
             self.switch_to_list_view()
+
+    def on_search_view_toggle(self) -> None:
+        if self.search_chip.is_enabled():
+            # Already in search mode — no-op (can't deselect the active view)
+            pass
+        else:
+            self.switch_to_list_view()
+            self.load_channels()
+
+    def on_hidden_view_toggle(self) -> None:
+        if self.hidden_chip.is_enabled():
+            self._deactivate_view_chips(self.hidden_chip)
+            self._hidden_mode = True
+            self.view_mode = "hidden"
+            self.channels_list.setVisible(True)
+            self.series_tree.setVisible(False)
+            self.epg_view.setVisible(False)
+            self.preferences_view.setVisible(False)
+            self.discover_view.setVisible(False)
+            self.provider_editor.setVisible(False)
+            self._media_type_widget.setVisible(False)
+            self.search_controls.setVisible(True)
+            self.filter_bar.setVisible(False)
+            self._hidden_banner.setVisible(True)
+            self.back_button.setVisible(False)
+            self.breadcrumb_label.setText("")
+            self.stats_label.setText("Hidden channels")
+            self.load_channels()
+        else:
+            self._hidden_mode = False
+            self.switch_to_list_view()
+            self.load_channels()
 
     def switch_to_preferences_view(self) -> None:
         """Switch content area to the Taste / Preferences dashboard."""
@@ -2821,6 +2918,12 @@ class MainWindow(QMainWindow):
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
+        self.hidden_chip.blockSignals(True)
+        self.hidden_chip.set_enabled(False)
+        self.hidden_chip.blockSignals(False)
+        self.search_chip.blockSignals(True)
+        self.search_chip.set_enabled(False)
+        self.search_chip.blockSignals(False)
         self.stats_label.setText("Preference dashboard")
         self.preferences_view.on_activate()
 
@@ -2838,6 +2941,12 @@ class MainWindow(QMainWindow):
         self.breadcrumb_label.setText("")
         self.search_controls.setVisible(False)
         self.filter_bar.setVisible(False)
+        self.hidden_chip.blockSignals(True)
+        self.hidden_chip.set_enabled(False)
+        self.hidden_chip.blockSignals(False)
+        self.search_chip.blockSignals(True)
+        self.search_chip.set_enabled(False)
+        self.search_chip.blockSignals(False)
         self.stats_label.setText("Discover")
         self.discover_view.on_activate()
 

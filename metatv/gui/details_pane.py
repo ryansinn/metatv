@@ -231,6 +231,7 @@ class DetailsPaneWidget(QWidget):
     rating_requested           = pyqtSignal(str, int)   # channel_id, ±1
     suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
     hide_requested             = pyqtSignal(str)         # channel_id
+    unhide_requested           = pyqtSignal(str)         # channel_id
     channel_versions_requested = pyqtSignal(str)        # channel_id — trigger background fetch
     version_selected           = pyqtSignal(str)        # channel_id — user clicked a version chip
     prefix_block_requested     = pyqtSignal(str)        # prefix → add to global excluded list
@@ -252,6 +253,7 @@ class DetailsPaneWidget(QWidget):
         self._in_queue: bool = False
         self._current_rating: int = 0
         self._current_suppressed: bool = False
+        self._is_hidden: bool = False
         self._similar_channel_ids: list[str] = []
         self._similar_origin_title: str = ""
 
@@ -473,8 +475,8 @@ class DetailsPaneWidget(QWidget):
 
         self.hide_button = QPushButton(f"{self.config.hide_icon} Hide")
         self.hide_button.setToolTip("Hide this channel from all views")
-        self.hide_button.clicked.connect(self._on_hide_clicked)
         row2.addWidget(self.hide_button, 1)
+        self._update_hide_button()
         self.content_layout.addLayout(row2)
 
         # Row 3: Sentiment rating — compact, only visible for VOD
@@ -1388,13 +1390,22 @@ class DetailsPaneWidget(QWidget):
 
     def _on_hide_clicked(self) -> None:
         if self.current_channel:
+            self._is_hidden = True
+            self._update_hide_button()
             self.hide_requested.emit(self.current_channel.id)
 
+    def _on_unhide_clicked(self) -> None:
+        if self.current_channel:
+            self._is_hidden = False
+            self._update_hide_button()
+            self.unhide_requested.emit(self.current_channel.id)
+
     def _load_action_state(self, channel_id: str) -> None:
-        """Query DB for queue, rating, and suppression state, then update button display."""
+        """Query DB for queue, rating, suppression, and hidden state, then update button display."""
         self._in_queue = False
         self._current_rating = 0
         self._current_suppressed = False
+        self._is_hidden = False
         if self._db:
             from metatv.core.repositories import RepositoryFactory
             session = self._db.get_session()
@@ -1403,13 +1414,15 @@ class DetailsPaneWidget(QWidget):
                 self._in_queue = repos.queue.is_queued(channel_id)
                 self._current_rating = repos.ratings.get(channel_id) or 0
                 ch = repos.channels.get_by_id(channel_id)
-                self._current_suppressed = bool(ch.is_rec_suppressed) if ch else False
+                if ch:
+                    self._current_suppressed = bool(ch.is_rec_suppressed)
+                    self._is_hidden = bool(ch.is_hidden)
             finally:
                 session.close()
         self._update_action_buttons()
 
     def _update_action_buttons(self) -> None:
-        """Refresh button labels and checked states from cached _in_queue / _current_rating / _current_suppressed."""
+        """Refresh button labels and checked states from cached state."""
         self.queue_button.setText(
             f"{self.config.queue_icon} Remove from Queue" if self._in_queue
             else f"{self.config.queue_icon} Add to Queue"
@@ -1417,6 +1430,22 @@ class DetailsPaneWidget(QWidget):
         self.like_button.setChecked(self._current_rating == 1)
         self.not_interested_button.setChecked(self._current_suppressed)
         self.dislike_button.setChecked(self._current_rating == -1)
+        self._update_hide_button()
+
+    def _update_hide_button(self) -> None:
+        """Sync hide button text with current _is_hidden state."""
+        try:
+            self.hide_button.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        if self._is_hidden:
+            self.hide_button.setText(f"{self.config.hide_icon} Unhide")
+            self.hide_button.setToolTip("Unhide this channel — restore it to all views")
+            self.hide_button.clicked.connect(self._on_unhide_clicked)
+        else:
+            self.hide_button.setText(f"{self.config.hide_icon} Hide")
+            self.hide_button.setToolTip("Hide this channel from all views")
+            self.hide_button.clicked.connect(self._on_hide_clicked)
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         """Show or hide the 'Recommended because …' label."""
