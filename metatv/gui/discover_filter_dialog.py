@@ -85,7 +85,7 @@ class _ShelfRow(QWidget):
         )
         if tooltip:
             btn.setToolTip(tooltip)
-        btn.clicked.connect(slot)
+        btn.clicked.connect(lambda _checked=False, _s=slot: _s())
         self.layout().addWidget(btn)
         self._buttons.append(btn)
         return btn

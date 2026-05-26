@@ -841,12 +841,16 @@ class _LoaderWorker(QObject):
             hidden = set(self._config.discover_hidden_shelves)
 
             def emit(data: _ShelfData) -> None:
-                if data.shelf_key not in hidden and data.cards:
-                    cards = data.cards
-                    if excluded_prefixes:
-                        cards = [c for c in cards if c.detected_prefix not in excluded_prefixes]
-                    if cards:
-                        self.shelfReady.emit(_ShelfData(data.title, data.shelf_key, cards))
+                if data.shelf_key in hidden:
+                    return
+                if not data.cards:
+                    return
+                cards = data.cards
+                if excluded_prefixes:
+                    cards = [c for c in cards if c.detected_prefix not in excluded_prefixes]
+                if not cards:
+                    return
+                self.shelfReady.emit(_ShelfData(data.title, data.shelf_key, cards))
 
             # Fixed shelves
             emit(_ShelfData(
@@ -1003,8 +1007,7 @@ class DiscoverView(QWidget):
         )
         self._more_btn.clicked.connect(self._toggle_more_categories)
         self._more_btn.setVisible(False)
-        self._more_expanded = True  # collapsed zone starts visible when shown
-        self._bulk_loading = False  # suppresses per-shelf zone visibility during initial load
+        self._more_expanded = self._config.discover_more_expanded
         self._shelves_layout.addWidget(self._more_btn)
 
         self._collapsed_zone = QWidget()
@@ -1041,15 +1044,16 @@ class DiscoverView(QWidget):
     def _determine_zone(self, shelf_key: str) -> str:
         cfg = self._config
         if shelf_key in cfg.discover_pinned_shelves:
-            return _ZONE_PINNED
-        if shelf_key in cfg.discover_expanded_shelves:
-            return _ZONE_EXPANDED
-        if shelf_key in cfg.discover_collapsed_shelves:
-            return _ZONE_COLLAPSED
-        # First-launch default: auto-expand a small set
-        if self._is_first_launch():
-            return _ZONE_EXPANDED if shelf_key in _DEFAULT_EXPANDED else _ZONE_COLLAPSED
-        return _ZONE_COLLAPSED
+            zone = _ZONE_PINNED
+        elif shelf_key in cfg.discover_expanded_shelves:
+            zone = _ZONE_EXPANDED
+        elif shelf_key in cfg.discover_collapsed_shelves:
+            zone = _ZONE_COLLAPSED
+        elif self._is_first_launch():
+            zone = _ZONE_EXPANDED if shelf_key in _DEFAULT_EXPANDED else _ZONE_COLLAPSED
+        else:
+            zone = _ZONE_COLLAPSED
+        return zone
 
     def _zone_layout(self, zone: str):
         return {
@@ -1064,12 +1068,7 @@ class DiscoverView(QWidget):
             self._pinned_zone.setVisible(True)
         elif zone == _ZONE_EXPANDED:
             self._expanded_zone.setVisible(True)
-        elif zone == _ZONE_COLLAPSED and not self._bulk_loading:
-            # Defer collapsed-zone visibility until load finishes — genre/decade shelves
-            # arrive in rapid succession and each setVisible() would thrash the layout,
-            # causing pinned/expanded shelves above to bounce. Pinned and expanded zones
-            # are shown immediately (they populate slowly and don't cause bounce).
-            self._collapsed_zone.setVisible(True)
+        elif zone == _ZONE_COLLAPSED:
             self._update_more_btn()
 
     def _remove_from_zone(self, shelf: _Shelf, zone: str) -> None:
@@ -1097,6 +1096,8 @@ class DiscoverView(QWidget):
 
     def _toggle_more_categories(self) -> None:
         self._more_expanded = not self._more_expanded
+        self._config.discover_more_expanded = self._more_expanded
+        self._config.save()
         self._update_more_btn()
 
     def _move_shelf(self, shelf_key: str, new_zone: str) -> None:
@@ -1186,7 +1187,6 @@ class DiscoverView(QWidget):
         self._collapsed_zone.setVisible(False)
         self._update_more_btn()
 
-        self._bulk_loading = True
         self._loading_lbl.setVisible(True)
         self._loading_lbl.setText("Loading…")
 
@@ -1226,13 +1226,9 @@ class DiscoverView(QWidget):
         self._add_to_zone(shelf, zone)
 
     def _on_load_finished(self) -> None:
-        self._bulk_loading = False
         self._loaded = True
         if self._loading_lbl.isVisible():
             self._loading_lbl.setText("No content found")
-        # Pinned/expanded zones are already visible (shown as each shelf arrived).
-        # Collapsed zone was deferred — reveal it now atomically so all genre/decade
-        # shelves appear at once without bouncing the expanded shelves above.
         self._update_more_btn()
         # Trigger image loading for any shelves whose layout settled during the load
         QTimer.singleShot(300, self._trigger_image_load_all)
