@@ -1501,19 +1501,25 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.load_providers()
     
-    def _hide_all_content_views(self):
-        """Hide every content widget so one can be shown exclusively."""
+    def _hide_all_content_views(self) -> None:
+        """Blank-slate all views. Call before activating any single view."""
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
+        self.preferences_view.setVisible(False)
+        self.discover_view.setVisible(False)
         self.provider_editor.setVisible(False)
+        self.search_controls.setVisible(False)
         self.filter_bar.setVisible(False)
+        self._media_type_widget.setVisible(False)
         self._hidden_banner.setVisible(False)
+        self._hidden_mode = False
+        self.back_button.setVisible(False)
+        self.breadcrumb_label.setText("")
 
     def enter_provider_edit_mode(self, provider_id: str):
         """Switch center panel to provider editor for the given provider."""
         self._hide_all_content_views()
-        self.search_controls.setVisible(False)
         self.provider_editor.setVisible(True)
         self.provider_editor.load_provider(provider_id)
         self.stats_label.setText("Editing provider — click a source to switch")
@@ -2685,103 +2691,47 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Viewing series: {self.current_series.name}")
     
     def switch_to_list_view(self):
-        """Switch content area back to channel list view"""
+        """Switch content area back to channel list view."""
         self.view_mode = "list"
-
-        # Reset hidden mode
-        self._hidden_mode = False
-        self._hidden_banner.setVisible(False)
-
-        # Show list, hide tree and special views
         self._in_provider_edit_mode = False
-        self.channels_list.setVisible(True)
-        self.series_tree.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.preferences_view.setVisible(False)
-        self.discover_view.setVisible(False)
-        self.provider_editor.setVisible(False)
-        self.prefs_chip.blockSignals(True)
-        self.prefs_chip.set_enabled(False)
-        self.prefs_chip.blockSignals(False)
-        self.discover_chip.blockSignals(True)
-        self.discover_chip.set_enabled(False)
-        self.discover_chip.blockSignals(False)
-        self.hidden_chip.blockSignals(True)
-        self.hidden_chip.set_enabled(False)
-        self.hidden_chip.blockSignals(False)
+        self._hide_all_content_views()
+        self._deactivate_view_chips(self.search_chip)
         self.search_chip.blockSignals(True)
         self.search_chip.set_enabled(True)
         self.search_chip.blockSignals(False)
 
-        # Hide back button
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-
-        self._media_type_widget.setVisible(True)
-
-        # Restore search bar and filter bar
+        self.channels_list.setVisible(True)
         self.search_controls.setVisible(True)
+        self._media_type_widget.setVisible(True)
         self.filter_bar.setVisible(self.filters_visible)
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
-        
-        # Restore channel stats (based on all_channels list)
+
         if hasattr(self, 'all_channels') and self.all_channels:
             total_channels = len(self.all_channels)
-            # Count what's actually in the list view currently
             shown = self.channels_list.count()
-            # Subtract non-channel items (warnings, messages, etc.)
             for i in range(self.channels_list.count()):
                 item = self.channels_list.item(i)
-                if not item.data(Qt.ItemDataRole.UserRole):  # No channel data = message item
+                if not item.data(Qt.ItemDataRole.UserRole):
                     shown -= 1
-            
             filtered = total_channels - shown
             if filtered > 0:
                 self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
             else:
                 self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
-        
-        # Clear series data
+
         self.current_series = None
         self.series_data = None
-        
         self.status_bar.showMessage("Returned to channel list")
     
     def switch_to_epg_view(self):
         """Switch content area to EPG view."""
         self.view_mode = "epg"
-
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
+        self._hide_all_content_views()
         self.epg_view.setVisible(True)
-        self.preferences_view.setVisible(False)
-        self.discover_view.setVisible(False)
-        self.prefs_chip.blockSignals(True)
-        self.prefs_chip.set_enabled(False)
-        self.prefs_chip.blockSignals(False)
-        self.discover_chip.blockSignals(True)
-        self.discover_chip.set_enabled(False)
-        self.discover_chip.blockSignals(False)
-        self.hidden_chip.blockSignals(True)
-        self.hidden_chip.set_enabled(False)
-        self.hidden_chip.blockSignals(False)
-        self.search_chip.blockSignals(True)
-        self.search_chip.set_enabled(False)
-        self.search_chip.blockSignals(False)
-
-        self._media_type_widget.setVisible(False)
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-        self.search_controls.setVisible(False)
-
         self.epg_view.on_activate()
-
         total = self.epg_manager.get_total_programmes(self.epg_view._provider_ids)
-        if total:
-            self.stats_label.setText(f"{total:,} EPG programmes")
-        else:
-            self.stats_label.setText("EPG — fetching…")
+        self.stats_label.setText(f"{total:,} EPG programmes" if total else "EPG — fetching…")
 
     def play_special_event(self, channel):
         """Play a channel from a special content view."""
@@ -2884,69 +2834,31 @@ class MainWindow(QMainWindow):
     def on_hidden_view_toggle(self) -> None:
         if self.hidden_chip.is_enabled():
             self._deactivate_view_chips(self.hidden_chip)
+            self._hide_all_content_views()
             self._hidden_mode = True
             self.view_mode = "hidden"
             self.channels_list.setVisible(True)
-            self.series_tree.setVisible(False)
-            self.epg_view.setVisible(False)
-            self.preferences_view.setVisible(False)
-            self.discover_view.setVisible(False)
-            self.provider_editor.setVisible(False)
-            self._media_type_widget.setVisible(False)
             self.search_controls.setVisible(True)
-            self.filter_bar.setVisible(False)
             self._hidden_banner.setVisible(True)
-            self.back_button.setVisible(False)
-            self.breadcrumb_label.setText("")
             self.stats_label.setText("Hidden channels")
             self.load_channels()
         else:
-            self._hidden_mode = False
             self.switch_to_list_view()
             self.load_channels()
 
     def switch_to_preferences_view(self) -> None:
         """Switch content area to the Taste / Preferences dashboard."""
         self.view_mode = "preferences"
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.provider_editor.setVisible(False)
-        self.discover_view.setVisible(False)
+        self._hide_all_content_views()
         self.preferences_view.setVisible(True)
-        self._media_type_widget.setVisible(False)
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-        self.search_controls.setVisible(False)
-        self.hidden_chip.blockSignals(True)
-        self.hidden_chip.set_enabled(False)
-        self.hidden_chip.blockSignals(False)
-        self.search_chip.blockSignals(True)
-        self.search_chip.set_enabled(False)
-        self.search_chip.blockSignals(False)
         self.stats_label.setText("Preference dashboard")
         self.preferences_view.on_activate()
 
     def switch_to_discover_view(self) -> None:
         """Switch content area to the Discovery browse view."""
         self.view_mode = "discover"
-        self.channels_list.setVisible(False)
-        self.series_tree.setVisible(False)
-        self.epg_view.setVisible(False)
-        self.provider_editor.setVisible(False)
-        self.preferences_view.setVisible(False)
+        self._hide_all_content_views()
         self.discover_view.setVisible(True)
-        self._media_type_widget.setVisible(False)
-        self.back_button.setVisible(False)
-        self.breadcrumb_label.setText("")
-        self.search_controls.setVisible(False)
-        self.filter_bar.setVisible(False)
-        self.hidden_chip.blockSignals(True)
-        self.hidden_chip.set_enabled(False)
-        self.hidden_chip.blockSignals(False)
-        self.search_chip.blockSignals(True)
-        self.search_chip.set_enabled(False)
-        self.search_chip.blockSignals(False)
         self.stats_label.setText("Discover")
         self.discover_view.on_activate()
 
