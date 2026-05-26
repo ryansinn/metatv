@@ -1299,6 +1299,6 @@ class DiscoverView(QWidget):
             self._shelf_widgets, self._shelf_zones,
             parent=self,
         )
-        if dlg.exec():
-            # Dialog saved config — rebuild view to reflect changes
+        dlg.exec()
+        if dlg._changed:
             self.refresh()
