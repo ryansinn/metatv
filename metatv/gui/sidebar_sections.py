@@ -707,7 +707,8 @@ class HistorySection(CollapsibleSection):
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            recent = repos.channels.get_recent_history(limit=30)
+            adult_mode = getattr(self.config, "filter_adult_mode", "all")
+            recent = repos.channels.get_recent_history(limit=30, adult_mode=adult_mode)
 
             self.set_empty(len(recent) == 0)
 
@@ -813,7 +814,8 @@ class FavoritesSection(CollapsibleSection):
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            all_favorites = repos.channels.get_favorites()
+            adult_mode = getattr(self.config, "filter_adult_mode", "all")
+            all_favorites = repos.channels.get_favorites(adult_mode=adult_mode)
             
             self.set_empty(len(all_favorites) == 0)
             

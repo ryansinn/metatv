@@ -33,7 +33,7 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 
 if TYPE_CHECKING:
-    from metatv.gui.discover_view import _Shelf
+    from metatv.gui.discover_shelf import _Shelf
 
 _ZONE_PINNED    = "pinned"
 _ZONE_EXPANDED  = "expanded"

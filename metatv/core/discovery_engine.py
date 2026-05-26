@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from sqlalchemy import text
 from loguru import logger
@@ -162,6 +163,56 @@ def _apply_prefix_filter(query, included_prefixes, include_uncategorized):
     return query
 
 
+def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[str] | None):
+    """Apply adult content filter to a SQLAlchemy query on ChannelDB."""
+    if adult_mode == "all":
+        return query
+    from metatv.core.database import ChannelDB
+    from sqlalchemy import or_
+    force_ids = force_adult_provider_ids or []
+    if force_ids:
+        is_adult_expr = or_(ChannelDB.is_adult == True, ChannelDB.provider_id.in_(force_ids))  # noqa: E712
+    else:
+        is_adult_expr = (ChannelDB.is_adult == True)  # noqa: E712
+    if adult_mode == "hide":
+        return query.filter(~is_adult_expr)
+    if adult_mode == "only":
+        return query.filter(is_adult_expr)
+    return query
+
+
+def build_adult_filter(session, config) -> tuple[str, list[str]]:
+    """Return (adult_mode, force_adult_provider_ids) from config + DB.
+
+    Call once per worker run and pass results into all discovery functions.
+    """
+    from metatv.core.database import ProviderDB
+    adult_mode = getattr(config, "filter_adult_mode", "hide")
+    force_ids = [p.id for p in session.query(ProviderDB).all() if getattr(p, "force_adult", False)]
+    return adult_mode, force_ids
+
+
+# ---------------------------------------------------------------------------
+# Status sets
+# ---------------------------------------------------------------------------
+
+class StatusSets(NamedTuple):
+    fav_ids:     set[str]
+    queue_ids:   set[str]
+    watched_ids: set[str]
+    liked_ids:   set[str]
+
+
+def build_status_sets(session) -> StatusSets:
+    """Build per-user status sets in a single pass. Call once per worker run."""
+    from metatv.core.database import ChannelDB, WatchQueueDB, UserRatingDB
+    fav_ids     = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.is_favorite == True).all()}  # noqa: E712
+    queue_ids   = {r.channel_id for r in session.query(WatchQueueDB).all()}
+    watched_ids = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.last_played.isnot(None)).all()}
+    liked_ids   = {r.channel_id for r in session.query(UserRatingDB).filter(UserRatingDB.rating > 0).all()}
+    return StatusSets(fav_ids, queue_ids, watched_ids, liked_ids)
+
+
 # ---------------------------------------------------------------------------
 # Shelf queries
 # ---------------------------------------------------------------------------
@@ -169,6 +220,7 @@ def _apply_prefix_filter(query, included_prefixes, include_uncategorized):
 def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
                        watched_ids=None, liked_ids=None,
                        included_prefixes=None, include_uncategorized: bool = True,
+                       adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        ) -> list[ContentCard]:
     """Movies and series sorted by provider-added timestamp, newest first."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -182,6 +234,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.added') AS REAL) DESC")
     ).limit(limit * 5).all()
@@ -194,6 +247,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
                   min_rating: float = 5.0, fav_ids=None, queue_ids=None,
                   watched_ids=None, liked_ids=None,
                   included_prefixes=None, include_uncategorized: bool = True,
+                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   ) -> list[ContentCard]:
     """Top-rated content of the given media_type by provider rating."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -209,6 +263,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
@@ -220,6 +275,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
 def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None,
                  included_prefixes=None, include_uncategorized: bool = True,
+                 adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
     """Content matching a genre string (partial match), sorted by rating."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -236,6 +292,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
@@ -247,6 +304,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
 def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
                   queue_ids=None, watched_ids=None, liked_ids=None,
                   included_prefixes=None, include_uncategorized: bool = True,
+                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   ) -> list[ContentCard]:
     """Movies and series from a decade (e.g. decade=1990 → 1990–1999)."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -263,6 +321,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     results: list[ContentCard] = []
     for ch, meta in q.all():
         yr = _raw_year(ch)
@@ -276,6 +335,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
 def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                        watched_ids=None, liked_ids=None,
                        included_prefixes=None, include_uncategorized: bool = True,
+                       adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        ) -> tuple[str, list[ContentCard]]:
     """Return (actor_name, cards) for a Featured Actor shelf."""
     from metatv.core.database import ChannelDB
@@ -298,6 +358,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
             )
         )
         q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+        q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
         counter: Counter = Counter()
         for ch in q.all():
             cast_str = (ch.raw_data or {}).get("cast") or ""
@@ -313,7 +374,9 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                          fav_ids=fav_ids, queue_ids=queue_ids,
                          watched_ids=watched_ids, liked_ids=liked_ids,
                          included_prefixes=included_prefixes,
-                         include_uncategorized=include_uncategorized)
+                         include_uncategorized=include_uncategorized,
+                         adult_mode=adult_mode,
+                         force_adult_provider_ids=force_adult_provider_ids)
     logger.debug(f"Featured actor: {actor!r} ({len(cards)} cards)")
     return (actor, cards)
 
@@ -321,6 +384,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
 def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None,
                  included_prefixes=None, include_uncategorized: bool = True,
+                 adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
     """Series featuring a named actor (partial match on cast string)."""
     from metatv.core.database import ChannelDB, MetadataDB
@@ -337,6 +401,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
@@ -347,6 +412,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
 
 def get_all_genres(session, min_count: int = 10,
                    included_prefixes=None, include_uncategorized: bool = True,
+                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                    ) -> list[str]:
     """Return individual genre names that have ≥ min_count entries.
 
@@ -367,6 +433,7 @@ def get_all_genres(session, min_count: int = 10,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     counter: Counter = Counter()
     for ch in q.all():
         genre_str = (ch.raw_data or {}).get("genre") or ""
@@ -379,6 +446,7 @@ def get_all_genres(session, min_count: int = 10,
 
 def get_all_decades(session,
                     included_prefixes=None, include_uncategorized: bool = True,
+                    adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                     ) -> list[int]:
     """Return decades (as start year) that have ≥ 5 entries with a known year."""
     from metatv.core.database import ChannelDB
@@ -391,6 +459,7 @@ def get_all_decades(session,
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     decade_counts: Counter = Counter()
     for ch in q.all():
         yr = _raw_year(ch)
