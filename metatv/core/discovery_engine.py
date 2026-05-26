@@ -115,12 +115,13 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
     # Fallback to MetadataDB title when display_title yields a non-alpha string (e.g. "2013")
     if meta and meta.title and not any(c.isalpha() for c in title):
         title = meta.title
+    _r = _raw_rating(channel)
     return ContentCard(
         channel_id=channel.id,
         title=title,
         media_type=channel.media_type,
         thumbnail_url=_thumbnail(channel),
-        rating=_raw_rating(channel) or None,
+        rating=_r if 0 < _r < 10 else None,
         year=_raw_year(channel),
         genre=_primary_genre(channel),
         is_favorite=channel.id in (fav_ids or set()),
@@ -200,7 +201,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
             text(f"CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= {min_rating}"),
-            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) <= 10"),
+            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
@@ -254,7 +255,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
             text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= 5"),
-            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) <= 10"),
+            text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
         )
     )
     q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)

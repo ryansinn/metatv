@@ -301,6 +301,22 @@ class WatchQueueDB(Base):
     added_at     = Column(DateTime, default=datetime.utcnow)
 
 
+class StreamRetryDB(Base):
+    """Tracks streams that failed validation so they can be re-checked later."""
+    __tablename__ = "stream_retry"
+
+    id              = Column(String, primary_key=True)
+    channel_id      = Column(String, nullable=False, unique=True)
+    channel_name    = Column(String, nullable=False, default="")
+    stream_url      = Column(String, nullable=False, default="")
+    first_failed_at = Column(DateTime, default=datetime.utcnow)
+    last_checked_at = Column(DateTime)
+    next_check_at   = Column(DateTime)
+    attempt_count   = Column(Integer, default=0)
+    last_error      = Column(String)
+    status          = Column(String, default="pending")  # "pending" | "online"
+
+
 class Database:
     """Database connection manager"""
 

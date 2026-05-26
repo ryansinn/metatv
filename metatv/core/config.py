@@ -45,7 +45,10 @@ class Config(BaseModel):
     filter_icon: str = "⚡"  # Filter/preset indicator
     history_icon: str = "🕒"            # History indicator
     provider_icon: str = "📡"          # Provider / source section
-    watch_alerts_icon: str = "⚠"      # Watch Alerts section
+    watch_alerts_icon: str = "⚠"      # Alerts section
+    stream_retry_pending_icon: str = "🔴"  # Stream retry — awaiting re-check
+    stream_retry_online_icon:  str = "🟢"  # Stream retry — back online
+    info_icon: str = "ℹ"
     watchlist_icon: str = "⏰"         # Watchlist tab
     live_indicator_icon: str = "🔴"    # On Now / live indicator
     calendar_icon: str = "📅"          # Browse / calendar tab
@@ -193,7 +196,10 @@ class Config(BaseModel):
     filter_quality_groups: dict = Field(default_factory=lambda: {
         "4K / UHD": ["4K", "UHD", "8K", "2160P"],
         "HD": ["HD", "FHD", "1080P", "720P", "HDR", "HDR10", "HDR10+"],
+        "HQ": ["HQ"],
         "SD": ["SD", "480P", "360P"],
+        "LQ": ["LQ", "LD"],
+        "CAM / Pre-release": ["CAM", "HDTS", "CAMRIP", "TSCAM"],
     })
     filter_platform_groups: dict = Field(default_factory=lambda: {
         "Streaming": ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME", "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+"],

@@ -33,7 +33,8 @@ class PrefixDetector:
     # Quality markers
     QUALITY_MARKERS = {
         '4K', '8K', 'UHD', 'FHD', 'HD', 'SD', 'HDR', 'HDR10',
-        'DOLBY', 'ATMOS', 'DTS', '60FPS', '50FPS', 'HEVC', 'H264', 'H265'
+        'DOLBY', 'ATMOS', 'DTS', '60FPS', '50FPS', 'HEVC', 'H264', 'H265',
+        'HQ', 'LQ', 'LD', 'CAM', 'HDTS', 'CAMRIP', 'TSCAM',
     }
     
     # Platform/network markers

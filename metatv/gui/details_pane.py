@@ -408,42 +408,6 @@ class DetailsPaneWidget(QWidget):
         meta_row.addWidget(self.runtime_label)
 
         meta_row.addStretch()
-
-        _RATING_BTN_STYLE = """
-            QPushButton { border: none; border-radius: 3px; padding: 2px; }
-            QPushButton:checked { background: rgba(255,255,255,0.18); }
-            QPushButton:hover   { background: rgba(255,255,255,0.10); }
-        """
-        self.like_button = QPushButton(self.config.like_icon)
-        self.like_button.setFixedSize(28, 22)
-        self.like_button.setCheckable(True)
-        self.like_button.setFlat(True)
-        self.like_button.setToolTip("Like")
-        self.like_button.setStyleSheet(_RATING_BTN_STYLE)
-        self.like_button.clicked.connect(self._on_like_clicked)
-        self.like_button.hide()
-        meta_row.addWidget(self.like_button)
-
-        self.not_interested_button = QPushButton(self.config.not_interested_icon)
-        self.not_interested_button.setFixedSize(28, 22)
-        self.not_interested_button.setCheckable(True)
-        self.not_interested_button.setFlat(True)
-        self.not_interested_button.setToolTip("Not Interested (suppress from recommendations)")
-        self.not_interested_button.setStyleSheet(_RATING_BTN_STYLE)
-        self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
-        self.not_interested_button.hide()
-        meta_row.addWidget(self.not_interested_button)
-
-        self.dislike_button = QPushButton(self.config.dislike_icon)
-        self.dislike_button.setFixedSize(28, 22)
-        self.dislike_button.setCheckable(True)
-        self.dislike_button.setFlat(True)
-        self.dislike_button.setToolTip("Dislike")
-        self.dislike_button.setStyleSheet(_RATING_BTN_STYLE)
-        self.dislike_button.clicked.connect(self._on_dislike_clicked)
-        self.dislike_button.hide()
-        meta_row.addWidget(self.dislike_button)
-
         self.content_layout.addWidget(self._meta_row_widget)
 
         # Source badge (provider name + icon) and adult indicator on the same row
@@ -463,11 +427,10 @@ class DetailsPaneWidget(QWidget):
         badge_row.addStretch()
         self.content_layout.addLayout(badge_row)
 
-        # Version chips — appear right after source badge, before genres and action buttons
+        # Version chips — inline "Categories: [chip] [chip]" row
         self._setup_version_chips()
-        self.content_layout.addWidget(self._versions_cat_label)
         self.content_layout.addWidget(self._pref_nudge)
-        self.content_layout.addWidget(self._versions_chips_row)
+        self.content_layout.addWidget(self._versions_row_container)
 
         # Genres — hidden for live channels
         self.genres_label = QLabel()
@@ -513,6 +476,48 @@ class DetailsPaneWidget(QWidget):
         self.hide_button.clicked.connect(self._on_hide_clicked)
         row2.addWidget(self.hide_button, 1)
         self.content_layout.addLayout(row2)
+
+        # Row 3: Sentiment rating — compact, only visible for VOD
+        _RATING_BTN_STYLE = """
+            QPushButton { border: none; border-radius: 3px; padding: 2px 6px; font-size: 14px; }
+            QPushButton:checked { background: rgba(255,255,255,0.18); }
+            QPushButton:hover   { background: rgba(255,255,255,0.10); }
+        """
+        row3 = QHBoxLayout()
+        row3.addStretch()
+
+        self.like_button = QPushButton(self.config.like_icon)
+        self.like_button.setFixedHeight(22)
+        self.like_button.setCheckable(True)
+        self.like_button.setFlat(True)
+        self.like_button.setToolTip("Like")
+        self.like_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.like_button.clicked.connect(self._on_like_clicked)
+        self.like_button.hide()
+        row3.addWidget(self.like_button)
+
+        self.not_interested_button = QPushButton(self.config.not_interested_icon)
+        self.not_interested_button.setFixedHeight(22)
+        self.not_interested_button.setCheckable(True)
+        self.not_interested_button.setFlat(True)
+        self.not_interested_button.setToolTip("Not Interested — suppress from recommendations")
+        self.not_interested_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
+        self.not_interested_button.hide()
+        row3.addWidget(self.not_interested_button)
+
+        self.dislike_button = QPushButton(self.config.dislike_icon)
+        self.dislike_button.setFixedHeight(22)
+        self.dislike_button.setCheckable(True)
+        self.dislike_button.setFlat(True)
+        self.dislike_button.setToolTip("Dislike")
+        self.dislike_button.setStyleSheet(_RATING_BTN_STYLE)
+        self.dislike_button.clicked.connect(self._on_dislike_clicked)
+        self.dislike_button.hide()
+        row3.addWidget(self.dislike_button)
+
+        row3.addStretch()
+        self.content_layout.addLayout(row3)
 
     
     def create_plot_section(self):
@@ -565,11 +570,8 @@ class DetailsPaneWidget(QWidget):
         tech_content_layout.addWidget(self.tech_details_label)
         
         self.content_layout.addWidget(self.tech_content)
-        
-        # Restore collapsed state
-        if "technical" in self.config.details_pane_collapsed_sections:
-            self.tech_content.hide()
-            self.tech_toggle_btn.setText(self.config.expand_icon)
+
+        self._tech_collapsed: bool = "technical" in self.config.details_pane_collapsed_sections
     
     def create_cast_section(self):
         """Create cast section (collapsible) - Phase 2+"""
@@ -602,11 +604,8 @@ class DetailsPaneWidget(QWidget):
         cast_content_layout.addWidget(self.cast_label)
         
         self.content_layout.addWidget(self.cast_content)
-        
-        # Restore collapsed state
-        if "cast" in self.config.details_pane_collapsed_sections:
-            self.cast_content.hide()
-            self.cast_toggle_btn.setText(self.config.expand_icon)
+
+        self._cast_collapsed: bool = "cast" in self.config.details_pane_collapsed_sections
     
     def _setup_version_chips(self) -> None:
         """Build the preferred-version nudge banner and compact version chip row.
@@ -614,11 +613,6 @@ class DetailsPaneWidget(QWidget):
         Widgets are created here but NOT added to content_layout — the caller
         (create_basic_info_section) inserts them at the right position.
         """
-        # "Categories:" section label
-        self._versions_cat_label = QLabel("Categories:")
-        self._versions_cat_label.setStyleSheet("color: #888; font-size: 11px;")
-        self._versions_cat_label.hide()
-
         # Preferred version nudge banner (green)
         self._pref_nudge = QFrame()
         self._pref_nudge.setStyleSheet(
@@ -640,13 +634,29 @@ class DetailsPaneWidget(QWidget):
         nudge_row.addWidget(self._pref_nudge_switch_btn)
         self._pref_nudge.hide()
 
+        # Inline "Categories: [chip] [chip]" row container
+        # Label sits left-aligned; the flow-layout chip widget fills remaining space.
+        self._versions_row_container = QWidget()
+        row_layout = QHBoxLayout(self._versions_row_container)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(6)
+
+        self._versions_cat_label = QLabel("Categories:")
+        self._versions_cat_label.setStyleSheet("color: #888; font-size: 11px;")
+        self._versions_cat_label.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
+        row_layout.addWidget(self._versions_cat_label, 0)
+
         # Version chip row — wrapping flow layout
         self._versions_chips_row = QWidget()
         self._versions_chips_row.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
         self._versions_chips_layout = _FlowLayout(self._versions_chips_row, h_spacing=4, v_spacing=4)
-        self._versions_chips_row.hide()
+        row_layout.addWidget(self._versions_chips_row, 1)
+
+        self._versions_row_container.hide()
 
     def set_versions(self, versions: list) -> None:
         """Rebuild the version chip row from a fresh list of ChannelVersion objects."""
@@ -662,17 +672,15 @@ class DetailsPaneWidget(QWidget):
         except (RuntimeError, TypeError):
             pass
         self._pref_nudge.hide()
-        self._versions_cat_label.hide()
+        self._versions_row_container.hide()
 
         if not versions:
-            self._versions_chips_row.hide()
             return
 
         active   = [v for v in versions if not v.is_filtered and not v.is_hidden]
         filtered = [v for v in versions if v.is_filtered and not v.is_hidden]
 
         if not active and not filtered:
-            self._versions_chips_row.hide()
             return
 
         # Preferred version nudge
@@ -691,8 +699,7 @@ class DetailsPaneWidget(QWidget):
         for v in filtered:
             layout.addWidget(self._make_greyed_chip(v))
 
-        self._versions_cat_label.show()
-        self._versions_chips_row.show()
+        self._versions_row_container.show()
         self._versions_chips_row.updateGeometry()
 
     def _make_active_chip(self, v: "ChannelVersion") -> QPushButton:
@@ -1057,9 +1064,27 @@ class DetailsPaneWidget(QWidget):
         self._similar_header.hide()
         self._similar_body.hide()
 
+    def _apply_section_collapse_state(self) -> None:
+        """Re-assert collapse state for technical/cast sections using stored booleans.
+
+        Must be called after any setVisible() that resets child visibility (e.g.
+        _configure_for_live), so the stored user preference is always respected.
+        """
+        self.tech_content.setVisible(not self._tech_collapsed)
+        self.tech_toggle_btn.setText(
+            self.config.expand_icon if self._tech_collapsed else self.config.collapse_icon
+        )
+        self.cast_content.setVisible(not self._cast_collapsed)
+        self.cast_toggle_btn.setText(
+            self.config.expand_icon if self._cast_collapsed else self.config.collapse_icon
+        )
+
     def _configure_for_live(self, is_live: bool) -> None:
         """Show/hide sections depending on whether the selected channel is live TV."""
-        # Sections only relevant for VOD (movies, series)
+        # Sections only relevant for VOD (movies, series).
+        # tech_content and cast_content are intentionally excluded here —
+        # _apply_section_collapse_state() is the sole authority on their visibility,
+        # preventing a show-then-immediately-hide double layout event.
         for widget in (
             self._poster_section,
             self._meta_row_widget,
@@ -1068,11 +1093,15 @@ class DetailsPaneWidget(QWidget):
             self.plot_label,
             self.plot_loading,
             self._tech_header,
-            self.tech_content,
             self._cast_header,
-            self.cast_content,
         ):
             widget.setVisible(not is_live)
+
+        if is_live:
+            self.tech_content.setVisible(False)
+            self.cast_content.setVisible(False)
+        else:
+            self._apply_section_collapse_state()
 
         # Live-only elements
         self._live_header.setVisible(is_live)
@@ -1300,35 +1329,25 @@ class DetailsPaneWidget(QWidget):
             logger.debug(f"Failed to load poster: {error}")
     
     def _toggle_technical_section(self):
-        """Toggle technical details section"""
-        is_visible = self.tech_content.isVisible()
-        self.tech_content.setVisible(not is_visible)
-        
-        if is_visible:
-            self.tech_toggle_btn.setText(self.config.expand_icon)
-            if "technical" not in self.config.details_pane_collapsed_sections:
-                self.config.details_pane_collapsed_sections.append("technical")
+        self._tech_collapsed = not self._tech_collapsed
+        self._apply_section_collapse_state()
+        collapsed_set = set(self.config.details_pane_collapsed_sections)
+        if self._tech_collapsed:
+            collapsed_set.add("technical")
         else:
-            self.tech_toggle_btn.setText(self.config.collapse_icon)
-            if "technical" in self.config.details_pane_collapsed_sections:
-                self.config.details_pane_collapsed_sections.remove("technical")
-        
+            collapsed_set.discard("technical")
+        self.config.details_pane_collapsed_sections = list(collapsed_set)
         self.config.save()
-    
+
     def _toggle_cast_section(self):
-        """Toggle cast section"""
-        is_visible = self.cast_content.isVisible()
-        self.cast_content.setVisible(not is_visible)
-        
-        if is_visible:
-            self.cast_toggle_btn.setText(self.config.expand_icon)
-            if "cast" not in self.config.details_pane_collapsed_sections:
-                self.config.details_pane_collapsed_sections.append("cast")
+        self._cast_collapsed = not self._cast_collapsed
+        self._apply_section_collapse_state()
+        collapsed_set = set(self.config.details_pane_collapsed_sections)
+        if self._cast_collapsed:
+            collapsed_set.add("cast")
         else:
-            self.cast_toggle_btn.setText(self.config.collapse_icon)
-            if "cast" in self.config.details_pane_collapsed_sections:
-                self.config.details_pane_collapsed_sections.remove("cast")
-        
+            collapsed_set.discard("cast")
+        self.config.details_pane_collapsed_sections = list(collapsed_set)
         self.config.save()
     
     def _on_play_clicked(self):

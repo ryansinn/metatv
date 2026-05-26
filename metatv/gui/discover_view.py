@@ -370,7 +370,7 @@ class _Shelf(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollBar:horizontal { height: 6px; }")
+        scroll.setStyleSheet("QScrollBar:horizontal { height: 10px; }")
         self._scroll_area = scroll
 
         inner = QWidget()
@@ -1004,6 +1004,7 @@ class DiscoverView(QWidget):
         self._more_btn.clicked.connect(self._toggle_more_categories)
         self._more_btn.setVisible(False)
         self._more_expanded = True  # collapsed zone starts visible when shown
+        self._bulk_loading = False  # suppresses per-shelf zone visibility during initial load
         self._shelves_layout.addWidget(self._more_btn)
 
         self._collapsed_zone = QWidget()
@@ -1059,6 +1060,10 @@ class DiscoverView(QWidget):
 
     def _add_to_zone(self, shelf: _Shelf, zone: str) -> None:
         self._zone_layout(zone).addWidget(shelf)
+        if self._bulk_loading:
+            # During initial load, defer visibility to _on_load_finished to avoid
+            # triggering N layout recalculations that cause visible shelves to bounce.
+            return
         if zone == _ZONE_PINNED:
             self._pinned_zone.setVisible(True)
         elif zone == _ZONE_EXPANDED:
@@ -1181,6 +1186,7 @@ class DiscoverView(QWidget):
         self._collapsed_zone.setVisible(False)
         self._update_more_btn()
 
+        self._bulk_loading = True
         self._loading_lbl.setVisible(True)
         self._loading_lbl.setText("Loading…")
 
@@ -1220,9 +1226,26 @@ class DiscoverView(QWidget):
         self._add_to_zone(shelf, zone)
 
     def _on_load_finished(self) -> None:
+        self._bulk_loading = False
         self._loaded = True
         if self._loading_lbl.isVisible():
             self._loading_lbl.setText("No content found")
+        # Reveal all zones that received shelves in one pass — no per-shelf layout thrashing
+        if self._pinned_layout.count():
+            self._pinned_zone.setVisible(True)
+        if self._expanded_layout.count():
+            self._expanded_zone.setVisible(True)
+        self._update_more_btn()  # sets _collapsed_zone + _more_btn visibility atomically
+        # Zones just became visible — defer image loading until Qt finishes the layout pass
+        QTimer.singleShot(300, self._trigger_image_load_all)
+
+    def _trigger_image_load_all(self) -> None:
+        """Fire image loading for all pinned/expanded shelves after zones become visible."""
+        for shelf_key, zone in self._shelf_zones.items():
+            if zone in (_ZONE_PINNED, _ZONE_EXPANDED):
+                shelf = self._shelf_widgets.get(shelf_key)
+                if shelf:
+                    shelf._load_visible()
 
     # ---- Browse drill-down --------------------------------------------------
 

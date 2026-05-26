@@ -544,12 +544,15 @@ class SeriesLoadThread(QThread):
                     base = self.provider.url.rstrip("/")
                     stream_url = f"{base}/series/{self.provider.username}/{self.provider.password}/{episode_id}.{container}"
                     
+                    info = episode_data.get("info", {})
+                    duration = info.get("duration", "") or episode_data.get("duration", "")
+
                     if existing_episode:
                         # Update existing
                         existing_episode.title = episode_data.get("title", f"Episode {episode_num}")
-                        existing_episode.duration = episode_data.get("duration", "")
+                        existing_episode.duration = duration
                         existing_episode.stream_url = stream_url
-                        existing_episode.cover_url = episode_data.get("info", {}).get("movie_image", "")
+                        existing_episode.cover_url = info.get("movie_image", "")
                         existing_episode.container_extension = container
                         existing_episode.raw_data = episode_data
                     else:
@@ -563,10 +566,10 @@ class SeriesLoadThread(QThread):
                             episode_num=episode_num,
                             season_num=season_num,
                             title=episode_data.get("title", f"Episode {episode_num}"),
-                            duration=episode_data.get("duration", ""),
+                            duration=duration,
                             container_extension=container,
                             stream_url=stream_url,
-                            cover_url=episode_data.get("info", {}).get("movie_image", ""),
+                            cover_url=info.get("movie_image", ""),
                             series_name=self.series_name,
                             raw_data=episode_data
                         )

@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from metatv.gui.icon_utils import resolve_icon
 from loguru import logger
+import re
 import subprocess
 import shutil
 from concurrent.futures import ThreadPoolExecutor
@@ -59,6 +60,35 @@ def _looks_like_text(chunk: bytes) -> bool:
         return False
     printable = sum(1 for b in chunk[:256] if 0x20 <= b <= 0x7E or b in (0x09, 0x0A, 0x0D))
     return (printable / min(len(chunk), 256)) > 0.85
+
+
+_SXXEXX = re.compile(r'[-–\s]+S(\d{1,3})E(\d{1,4})[-–\s]*(.*)$', re.IGNORECASE)
+
+
+def _clean_episode_title(raw: str, season_num: int, ep_num: int, series_name: str | None) -> str:
+    """Strip series name and SxxExx prefix from a raw IPTV episode title."""
+    m = _SXXEXX.search(raw)
+    if m:
+        s, e, after = int(m.group(1)), int(m.group(2)), m.group(3).strip()
+        if s == season_num and e == ep_num:
+            return after if after else f"Episode {ep_num}"
+    if series_name and raw.startswith(series_name):
+        remainder = raw[len(series_name):].lstrip(" -–").strip()
+        if remainder:
+            return remainder
+    return raw
+
+
+def _format_episode_duration(raw: str) -> str:
+    """Convert 'HH:MM:SS' → '1h 21m' or '53m'."""
+    parts = raw.split(":")
+    if len(parts) == 3:
+        try:
+            h, m = int(parts[0]), int(parts[1])
+            return f"{h}h {m}m" if h else f"{m}m"
+        except ValueError:
+            pass
+    return raw
 
 
 def _version_score(channel, config) -> int:
@@ -119,6 +149,10 @@ class MainWindow(QMainWindow):
     _channels_loaded = pyqtSignal(list, dict)        # (channels, params) — worker → main thread
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
+    # Episode preflight results — emitted from done callback, connected to main-thread slots.
+    # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
+    _episode_ready  = pyqtSignal(str, str, str, object)  # notif_id, url, title, queue_episodes
+    _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
     
     def __init__(self, config: Config):
         super().__init__()
@@ -197,7 +231,11 @@ class MainWindow(QMainWindow):
         
         # Initialize metadata manager
         self.metadata_manager = MetadataManager(self.metadata_registry, self.db)
-        
+
+        # Stream retry manager — must exist before setup_ui() which wires sidebar signals
+        from metatv.core.stream_retry_manager import StreamRetryManager
+        self.stream_retry_manager = StreamRetryManager(self.db, self.validate_stream_url, parent=self)
+
         self.setup_ui()
         self.setup_notifications()
 
@@ -207,6 +245,13 @@ class MainWindow(QMainWindow):
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
         self._channels_loaded.connect(self._on_channels_loaded)
+        self._episode_ready.connect(self._do_launch_episode)
+        self._episode_failed.connect(self._on_episode_stream_unavailable)
+
+        self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
+        self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
+        self.stream_retry_manager.start()
+        self._refresh_alerts_retry_section()  # restore persisted entries on startup
 
         self.load_providers()
         self.load_favorites()
@@ -401,6 +446,10 @@ class MainWindow(QMainWindow):
             section = WatchAlertsSection(self.config, self.db, self)
             section.alertClicked.connect(self._on_alert_clicked)
             section.channelContextMenuRequested.connect(self._on_alert_channel_context_menu)
+            section.retryRemoveRequested.connect(self.stream_retry_manager.remove)
+            section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
+            section.retryPlayRequested.connect(self._on_retry_play_requested)
+            section.retryContextMenuRequested.connect(self._on_retry_context_menu_requested)
             return section
         
         elif section_id == "history":
@@ -721,7 +770,7 @@ class MainWindow(QMainWindow):
         session = self.db.get_session()
         try:
             channel = session.get(ChannelDB, channel_id)
-            if not channel or not channel.detected_prefix:
+            if not channel:
                 self._similar_titles_loaded.emit(channel_id, [])
                 return
 
@@ -731,11 +780,11 @@ class MainWindow(QMainWindow):
                 self._similar_titles_loaded.emit(channel_id, [])
                 return
 
-            # SQL pre-filter: same prefix, same media_type, first key word in name
+            # SQL pre-filter: same media_type, first key word in name (no prefix filter —
+            # dedup and word-overlap handle language duplicates)
             candidates = (
                 session.query(ChannelDB)
                 .filter(
-                    ChannelDB.detected_prefix == channel.detected_prefix,
                     ChannelDB.media_type == channel.media_type,
                     ChannelDB.id != channel_id,
                     ChannelDB.is_hidden == False,
@@ -848,6 +897,60 @@ class MainWindow(QMainWindow):
         section = self.sidebar_sections.get("queue")
         if section:
             section.refresh()
+
+    def _refresh_alerts_retry_section(self) -> None:
+        section = self.sidebar_sections.get("alerts")
+        if section and hasattr(section, "refresh_retry"):
+            entries = self.stream_retry_manager.get_all_pending()
+            section.refresh_retry(entries)
+
+    def _on_retry_play_requested(self, channel_id: str, stream_url: str, channel_name: str) -> None:
+        """Double-click on a Stream Monitoring item — try launching the stream again."""
+        from metatv.core.database import ChannelDB
+        session = self.db.get_session()
+        try:
+            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+        finally:
+            session.close()
+        if channel:
+            self.play_media(channel)
+        else:
+            # Episode path — no ChannelDB entry; validate and play directly
+            self.launch_player_for_episode(stream_url, channel_name or stream_url, [])
+
+    def _on_retry_context_menu_requested(self, entry_id: str, channel_id: str, x: int, y: int) -> None:
+        """Build combined channel + Stream Monitoring context menu."""
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtCore import QPoint
+        from metatv.core.database import ChannelDB
+
+        session = self.db.get_session()
+        try:
+            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+        finally:
+            session.close()
+
+        menu = QMenu(self)
+        if channel:
+            self._populate_channel_context_menu(menu, channel)
+            menu.addSeparator()
+
+        remove_act = menu.addAction(f"{self.config.close_icon} Remove from Stream Monitoring")
+        remove_act.triggered.connect(lambda: self.stream_retry_manager.remove(entry_id))
+        clear_act = menu.addAction("Clear all from Stream Monitoring")
+        clear_act.triggered.connect(self.stream_retry_manager.clear_all)
+        menu.exec(QPoint(x, y))
+
+    def _on_stream_back_online(self, channel_id: str, channel_name: str) -> None:
+        from PyQt6.QtWidgets import QApplication
+        self.notification_manager.show(
+            title="Stream Available",
+            message=f"{channel_name} is back online.",
+            type="success",
+            dismissible=True,
+            auto_dismiss_seconds=30,
+        )
+        self._refresh_alerts_retry_section()
 
     def _clear_queue(self) -> None:
         from PyQt6.QtWidgets import QMessageBox
@@ -1558,6 +1661,9 @@ class MainWindow(QMainWindow):
             # Reload sidebar and channels
             self.load_providers()
             self.load_channels()
+            # Re-check any failed streams now that content is fresh
+            if hasattr(self, "stream_retry_manager"):
+                self.stream_retry_manager.check_all_now()
         else:
             from metatv.core.notifications import NotificationType
             self.notification_manager.update(
@@ -2455,8 +2561,9 @@ class MainWindow(QMainWindow):
                 status = "added to" if channel.is_favorite else "removed from"
                 self.status_bar.showMessage(f"{channel.name} {status} favorites")
                 
-                # Update details pane to reflect new favorite status
-                self.update_details_pane_for_channel(channel)
+                # Update details pane — but not while the lightbox has focus (D6)
+                if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
+                    self.update_details_pane_for_channel(channel)
                 
                 # Refresh favorites sidebar
                 self.load_favorites()
@@ -2778,11 +2885,12 @@ class MainWindow(QMainWindow):
         dlg = GlobalFilterDialog(self.db, self.config, self)
         if dlg.exec() == GlobalFilterDialog.DialogCode.Accepted:
             self._update_filter_btn_state()
-            # Reload discovery and recommendations with new filter
+            # Reload all filter-aware surfaces with the new filter
             if hasattr(self, "discover_view"):
                 self.discover_view.reload()
             if hasattr(self, "preferences_view"):
                 self.preferences_view.refresh()
+            self._refresh_recommended_section()
 
     def on_discover_view_toggle(self) -> None:
         if self.discover_chip.is_enabled():
@@ -2881,14 +2989,21 @@ class MainWindow(QMainWindow):
                     # Create episode item
                     episode_item = QTreeWidgetItem(season_item)
                     watched_indicator = f"{self.watched_icon} " if episode.is_watched else ""
-                    episode_item.setText(0, f"  {self.episode_icon} {watched_indicator}{episode.title}")
-                    
+                    display_title = _clean_episode_title(
+                        episode.title, episode.season_num, episode.episode_num, episode.series_name
+                    )
+                    episode_item.setText(0, f"  {self.episode_icon} {watched_indicator}{display_title}")
+                    episode_item.setToolTip(0, episode.title)
+
                     # Episode number
                     episode_item.setText(1, f"E{episode.episode_num}")
-                    
-                    # Duration
-                    if episode.duration:
-                        episode_item.setText(2, episode.duration)
+
+                    # Duration — stored field first, fall back to raw_data["info"]["duration"]
+                    dur_raw = episode.duration or (
+                        (episode.raw_data or {}).get("info", {}).get("duration", "")
+                    )
+                    if dur_raw:
+                        episode_item.setText(2, _format_episode_duration(dur_raw))
                     
                     # Rating from episode raw_data
                     if episode.raw_data and isinstance(episode.raw_data, dict):
@@ -3014,9 +3129,11 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Error: No media player found. Please install mpv.")
             return
 
+        safe_title = title if not title.startswith("http") else "…"
+        display_title = (safe_title[:55] + "…") if len(safe_title) > 55 else safe_title
         notif_id = self.notification_manager.show(
             title="Loading Episode",
-            message=f"Checking stream: {title}…",
+            message=display_title,
             type="info",
             auto_dismiss_ms=6000,
         )
@@ -3035,30 +3152,33 @@ class MainWindow(QMainWindow):
             if not ok:
                 detail = err if err else "Stream did not respond"
                 logger.warning(f"Episode stream unavailable: {title!r} — {detail}")
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(0, lambda: self._on_episode_stream_unavailable(
-                    notif_id, title, detail
-                ))
+                self._episode_failed.emit(notif_id, title, detail, stream_url)
                 return
 
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._do_launch_episode(
-                notif_id, stream_url, title, queue_episodes
-            ))
+            self._episode_ready.emit(notif_id, stream_url, title, queue_episodes)
 
         future = self.executor.submit(_preflight)
         future.add_done_callback(_on_preflight_done)
 
-    def _on_episode_stream_unavailable(self, notif_id, title: str, detail: str) -> None:
-        self.status_bar.showMessage(f"Stream unavailable: {title}")
-        self.notification_manager.update(
-            notif_id,
+    def _on_episode_stream_unavailable(self, notif_id: str, title: str, detail: str, stream_url: str = "") -> None:
+        from PyQt6.QtWidgets import QApplication
+        # Dismiss the old "Checking stream" notif — safe even if it already auto-dismissed
+        self.notification_manager.dismiss(notif_id)
+        safe_title = title if not title.startswith("http") else ""
+        _msg = f"{safe_title}\n{detail}".strip() if safe_title else detail
+        self.notification_manager.show(
             title="Stream Unavailable",
-            message=f"{title}\n{detail}",
+            message=_msg,
             type="error",
             dismissible=True,
-            auto_dismiss_seconds=12,
+            auto_dismiss_seconds=None,
+            actions=[("Copy Error", lambda t=title, u=stream_url, d=detail:
+                QApplication.clipboard().setText(f"{t}\nURL: {u}\nError: {d}"))],
         )
+        self.status_bar.showMessage(f"Stream unavailable: {title}")
+        if stream_url and hasattr(self, "stream_retry_manager"):
+            # Use stream_url as a stable ID for the retry entry
+            self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
     def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes) -> None:
         """Actually launch mpv after a successful preflight check (called on main thread)."""
@@ -3357,17 +3477,24 @@ class MainWindow(QMainWindow):
             )
 
             if not final_url:
+                from PyQt6.QtWidgets import QApplication
                 logger.error(f"All stream URLs failed validation for {channel.name}")
                 self.status_bar.showMessage(f"Error: Stream unavailable for {channel.name}")
                 detail = stream_err if stream_err else "All URLs failed (possibly geo-blocked)"
-                self.notification_manager.update(
-                    notif_id,
+                self.notification_manager.dismiss(notif_id)
+                self.notification_manager.show(
                     title="Stream Unavailable",
                     message=f"{channel.name}\n{detail}",
                     type="error",
                     dismissible=True,
-                    auto_dismiss_seconds=10
+                    auto_dismiss_seconds=None,
+                    actions=[("Copy Error", lambda n=channel.name, u=final_url, d=detail:
+                        QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))],
                 )
+                if hasattr(self, "stream_retry_manager"):
+                    self.stream_retry_manager.add_failure(
+                        channel.id, channel.name, channel.stream_url, detail
+                    )
                 self.loading_channels.discard(channel_id)
                 return
             

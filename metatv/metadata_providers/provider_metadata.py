@@ -80,8 +80,12 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                 
                 if not info:
                     # Maybe raw_data IS the info (flat structure)
-                    info = channel.raw_data
+                    info = dict(channel.raw_data)   # shallow copy — don't mutate stored raw_data
                     logger.debug(f"Using flat raw_data structure for {channel.name}")
+                    # Xtream top-level 'rating'/'rating_5based' are stream-API placeholders
+                    # (always '10'/'5') — not real content ratings from TMDb/IMDb.
+                    info.pop('rating', None)
+                    info.pop('rating_5based', None)
                 else:
                     logger.debug(f"Using nested 'info' structure for {channel.name}")
                 
@@ -156,20 +160,12 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
         return [{"name": name, "character": None, "photo_url": None} for name in names]
     
     def _parse_genres(self, genre_str: str) -> List[str]:
-        """Parse comma-separated genre string
-        
-        Args:
-            genre_str: "Action, Drama, Sci-Fi" format
-        
-        Returns:
-            List of genre strings
-        """
         if not genre_str:
             return []
-        
-        # Split by comma and clean
-        genres = [genre.strip() for genre in genre_str.split(',') if genre.strip()]
-        return genres
+        # Some providers use " / " (Xtream/TREX style), others use "," — handle both.
+        # Do NOT split on "&" since "Action & Adventure" is a single genre.
+        import re as _re
+        return [g.strip() for g in _re.split(r'\s*/\s*|,\s*', genre_str) if g.strip()]
     
     def _parse_rating(self, rating_value) -> Optional[float]:
         """Parse rating value from various formats

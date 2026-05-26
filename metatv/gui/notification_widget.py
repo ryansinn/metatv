@@ -26,8 +26,7 @@ class NotificationCard(QFrame):
         self.setMinimumWidth(350)
         self.setMaximumWidth(400)
         
-        # Prevent notification from being compressed vertically
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         
         # Style based on type
         if self.notification.type == NotificationType.ERROR:
@@ -102,7 +101,6 @@ class NotificationCard(QFrame):
         if self.notification.message:
             self.message_label = QLabel(self.notification.message)
             self.message_label.setWordWrap(True)
-            self.message_label.setMinimumHeight(20)
             layout.addWidget(self.message_label)
         
         # Action buttons (e.g. "Undo")
@@ -139,13 +137,8 @@ class NotificationCard(QFrame):
             self.progress_label.setVisible(False)
             layout.addWidget(self.progress_label)
         
-        # Force layout update and proper sizing
-        self.updateGeometry()
-        self.adjustSize()
-        
-        # Set fixed height based on content to prevent compression
-        content_height = self.sizeHint().height()
-        self.setFixedHeight(content_height)
+        # Record the type used to style this card — used to detect changes in update_notifications
+        self._notification_type = self.notification.type
     
     def update_notification(self, notification: Notification):
         """Update notification display"""
@@ -178,11 +171,8 @@ class NotificationCard(QFrame):
                 if not self.progress_label.isVisible():
                     self.progress_label.setVisible(True)
         
-        # Recalculate height after content update
         self.updateGeometry()
         self.adjustSize()
-        content_height = self.sizeHint().height()
-        self.setFixedHeight(content_height)
     
     def dismiss(self):
         """Dismiss this notification"""
@@ -230,8 +220,11 @@ class NotificationWidget(QWidget):
             for i in range(self.layout.count()):
                 widget = self.layout.itemAt(i).widget()
                 if widget and widget.isVisible():
-                    total_height += widget.height()
-                    if i > 0:  # Add spacing between cards
+                    if widget.hasHeightForWidth():
+                        total_height += widget.heightForWidth(self.width())
+                    else:
+                        total_height += widget.sizeHint().height()
+                    if i > 0:
                         total_height += self.layout.spacing()
             
             # Ensure we don't exceed parent height
@@ -257,17 +250,25 @@ class NotificationWidget(QWidget):
         # Update or add notifications
         for notification in notifications:
             if notification.id in self.notification_cards:
-                # Update existing card
-                self.notification_cards[notification.id].update_notification(notification)
-            else:
-                # Add new card
-                card = NotificationCard(notification, self.config, self)
-                self.notification_cards[notification.id] = card
-                # Insert before stretch
-                self.layout.insertWidget(self.layout.count() - 1, card)
-                # Force card to update its size
-                card.adjustSize()
-                card.updateGeometry()
+                card = self.notification_cards[notification.id]
+                if card._notification_type != notification.type:
+                    # Type changed (e.g. INFO → ERROR) — tear down and rebuild so
+                    # the stylesheet and action buttons reflect the new type.
+                    self.layout.removeWidget(card)
+                    card.deleteLater()
+                    del self.notification_cards[notification.id]
+                    # Fall through to create a fresh card below.
+                else:
+                    card.update_notification(notification)
+                    continue
+
+            # Add new card (or replacement after type change)
+            card = NotificationCard(notification, self.config, self)
+            self.notification_cards[notification.id] = card
+            # Insert before stretch
+            self.layout.insertWidget(self.layout.count() - 1, card)
+            card.adjustSize()
+            card.updateGeometry()
         
         # Show/hide widget
         if notifications:

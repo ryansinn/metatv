@@ -404,14 +404,18 @@ class SourcesSection(CollapsibleSection):
 
 
 class WatchAlertsSection(CollapsibleSection):
-    """Watch alerts section"""
+    """Alerts section — EPG watch alerts + stream retry monitoring."""
 
-    alertClicked = pyqtSignal(str)                    # channel_db_id — double-click to play
-    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_db_id, global_x, global_y
+    alertClicked = pyqtSignal(str)                         # channel_db_id — double-click to play
+    channelContextMenuRequested = pyqtSignal(str, int, int) # channel_db_id, global_x, global_y
+    retryRemoveRequested = pyqtSignal(str)                  # entry_id
+    retryClearAllRequested = pyqtSignal()
+    retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name
+    retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Watch Alerts", config.watch_alerts_icon, config, parent)
+        super().__init__("Alerts", config.watch_alerts_icon, config, parent)
 
     def get_section_id(self):
         return "alerts"
@@ -443,6 +447,37 @@ class WatchAlertsSection(CollapsibleSection):
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
         self.content_layout.addWidget(self.alerts_tree)
+
+        # Stream retry sub-section header row with info tooltip
+        retry_hdr_row = QHBoxLayout()
+        retry_hdr_row.setContentsMargins(0, 4, 0, 2)
+        retry_hdr_row.setSpacing(4)
+        self._retry_header = QLabel("Stream Monitoring")
+        self._retry_header.setStyleSheet("color: #888; font-size: 11px; font-weight: bold;")
+        retry_hdr_row.addWidget(self._retry_header)
+        _info_lbl = QLabel(self.config.info_icon)
+        _info_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        _info_lbl.setToolTip(
+            "Stream Monitoring periodically re-checks streams that previously\n"
+            "failed to play. When a stream becomes available again you'll\n"
+            "receive a notification. Double-click an entry to retry immediately."
+        )
+        retry_hdr_row.addWidget(_info_lbl)
+        retry_hdr_row.addStretch()
+        self._retry_hdr_container = QWidget()
+        self._retry_hdr_container.setLayout(retry_hdr_row)
+        self._retry_hdr_container.hide()
+        self.content_layout.addWidget(self._retry_hdr_container)
+
+        self._retry_list = QListWidget()
+        self._retry_list.setMaximumHeight(150)
+        self._retry_list.setStyleSheet("QListWidget { font-size: 11px; }")
+        self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
+        self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
+        self._retry_list.hide()
+        self.content_layout.addWidget(self._retry_list)
+
         self.set_empty(True)
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
@@ -549,6 +584,64 @@ class WatchAlertsSection(CollapsibleSection):
             self.set_empty(True)
         finally:
             session.close()
+
+    def refresh_retry(self, entries: list) -> None:
+        """Populate the stream retry sub-list from StreamRetryDB entries."""
+        self._retry_list.clear()
+        if not entries:
+            self._retry_hdr_container.hide()
+            self._retry_list.hide()
+            return
+
+        from datetime import datetime, timezone
+        now = datetime.utcnow()
+
+        for entry in entries:
+            icon = self.config.stream_retry_online_icon if entry.status == "online" \
+                else self.config.stream_retry_pending_icon
+            item = QListWidgetItem(f"{icon}  {entry.channel_name}")
+            item.setData(Qt.ItemDataRole.UserRole,     entry.id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, entry.channel_id)
+            item.setData(Qt.ItemDataRole.UserRole + 2, entry.stream_url)
+            item.setData(Qt.ItemDataRole.UserRole + 3, entry.channel_name)
+
+            # Tooltip
+            attempts = entry.attempt_count or 0
+            error_line = f"Error: {entry.last_error}" if entry.last_error else "No error detail"
+            if entry.next_check_at and entry.status == "pending":
+                delta = entry.next_check_at - now
+                secs = max(0, int(delta.total_seconds()))
+                if secs < 3600:
+                    next_check = f"{secs // 60}m"
+                else:
+                    next_check = f"{secs // 3600}h {(secs % 3600) // 60}m"
+                timing = f"Next check in {next_check}"
+            else:
+                timing = "Back online!" if entry.status == "online" else ""
+
+            item.setToolTip(
+                f"{entry.channel_name}\n{error_line}\nAttempts: {attempts}\n{timing}"
+            )
+            self._retry_list.addItem(item)
+
+        self._retry_hdr_container.show()
+        self._retry_list.show()
+
+    def _on_retry_double_clicked(self, item: "QListWidgetItem") -> None:
+        channel_id   = item.data(Qt.ItemDataRole.UserRole + 1)
+        stream_url   = item.data(Qt.ItemDataRole.UserRole + 2)
+        channel_name = item.data(Qt.ItemDataRole.UserRole + 3) or ""
+        if channel_id and stream_url:
+            self.retryPlayRequested.emit(channel_id, stream_url, channel_name)
+
+    def _on_retry_context_menu(self, pos) -> None:
+        item = self._retry_list.itemAt(pos)
+        if not item:
+            return
+        entry_id   = item.data(Qt.ItemDataRole.UserRole)
+        channel_id = item.data(Qt.ItemDataRole.UserRole + 1)
+        gp = self._retry_list.viewport().mapToGlobal(pos)
+        self.retryContextMenuRequested.emit(entry_id, channel_id or "", gp.x(), gp.y())
 
     def _apply_expansion(self) -> None:
         """Expand all items if they all fit in the visible tree height; otherwise expand none."""
@@ -854,9 +947,11 @@ class RecommendedSection(CollapsibleSection):
 
     def refresh(self):
         from metatv.core.preference_engine import compute_weights, score_candidates
+        from metatv.core.filter_utils import get_active_category_filter
         from metatv.core.models import MediaType
 
         self._list.clear()
+        included_prefixes, include_uncategorized = get_active_category_filter(self.config)
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
@@ -870,6 +965,8 @@ class RecommendedSection(CollapsibleSection):
                 session, weights, limit=20,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
                 dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
+                included_prefixes=included_prefixes,
+                include_uncategorized=include_uncategorized,
             )
         finally:
             session.close()

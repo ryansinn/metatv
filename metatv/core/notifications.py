@@ -126,7 +126,10 @@ class NotificationManager:
                 notif_type = NotificationType(notif_type)
             
             auto_dismiss_ms = kwargs.get('auto_dismiss_ms')
-            auto_dismiss_seconds = auto_dismiss_ms / 1000 if auto_dismiss_ms else None
+            if 'auto_dismiss_seconds' in kwargs:
+                auto_dismiss_seconds = kwargs['auto_dismiss_seconds']
+            else:
+                auto_dismiss_seconds = auto_dismiss_ms / 1000 if auto_dismiss_ms else None
             
             notification = Notification(
                 title=kwargs.get('title', ''),
@@ -150,17 +153,24 @@ class NotificationManager:
         """Update an existing notification"""
         for notif in self.notifications:
             if notif.id == notification_id:
-                # Check if auto_dismiss_seconds is being updated
                 auto_dismiss_changed = 'auto_dismiss_seconds' in kwargs
-                
+
+                # Convert string type to enum before setting attributes
+                if 'type' in kwargs and isinstance(kwargs['type'], str):
+                    kwargs['type'] = NotificationType(kwargs['type'])
+
                 for key, value in kwargs.items():
                     if hasattr(notif, key):
                         setattr(notif, key, value)
-                
-                # Set up/update auto-dismiss timer if needed
-                if auto_dismiss_changed and notif.auto_dismiss_seconds and notif.auto_dismiss_seconds > 0:
-                    self._setup_auto_dismiss(notif.id, notif.auto_dismiss_seconds)
-                
+
+                if auto_dismiss_changed:
+                    if notif.auto_dismiss_seconds and notif.auto_dismiss_seconds > 0:
+                        self._setup_auto_dismiss(notif.id, notif.auto_dismiss_seconds)
+                    elif notification_id in self.auto_dismiss_timers:
+                        # Switching to persistent — cancel the existing timer
+                        self.auto_dismiss_timers[notification_id].stop()
+                        del self.auto_dismiss_timers[notification_id]
+
                 self._notify_listeners()
                 break
     
