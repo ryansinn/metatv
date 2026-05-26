@@ -168,37 +168,50 @@ class Config(BaseModel):
     filter_media_types: list = Field(default_factory=lambda: ["live", "movies", "series"])  # Which media types to show
     filter_enabled_media_types: list = Field(default_factory=lambda: ["live", "movie", "series"])  # User's current selection
     filter_language_groups: dict = Field(default_factory=lambda: {
-        "English": ["EN", "UK", "US", "AU", "CA", "NZ", "IE"],
-        "Arabic": ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS"],
-        "Spanish": ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"],
-        "French": ["FR", "BE", "CH", "CA", "LU", "MC"],
-        "German": ["DE", "AT", "CH", "LI"],
-        "Italian": ["IT", "CH", "SM", "VA"],
-        "Portuguese": ["PT", "BR"],
-        "Turkish": ["TR", "CY"],
-        "Russian": ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ"],
-        "Indian": ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA"],
-        "Chinese": ["CN", "HK", "TW", "SG"],
-        "Japanese": ["JP"],
-        "Korean": ["KR"],
-        "Greek": ["GR", "CY"],
-        "Dutch": ["NL", "BE"],
-        "Polish": ["PL"],
-        "Swedish": ["SE"],
-        "Norwegian": ["NO"],
-        "Danish": ["DK"],
-        "Finnish": ["FI"],
-        "Czech": ["CZ"],
-        "Romanian": ["RO"],
-        "Hungarian": ["HU"],
-        "Thai": ["TH"],
-        "Vietnamese": ["VN"],
-        "Indonesian": ["ID"],
-        "Filipino": ["PH"],
-        "Persian/Iranian": ["IR", "FA"],
-        "Albanian": ["AL", "ALB"],
-        "Latin American": ["LAT", "LATS"],
-        "Streaming": ["NF", "SC", "TM"],
+        "Albanian":         ["AL", "ALB"],
+        "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD"],
+        "Argentine":        ["ARG", "ARGENTINA"],
+        "Armenian":         ["AM", "ARM"],
+        "Azerbaijani":      ["AZ"],
+        "Bulgarian":        ["BG"],
+        "Chinese":          ["CN", "HK", "TW", "SG"],
+        "Czech":            ["CZ"],
+        "Danish":           ["DK"],
+        "Dutch":            ["NL", "BE"],
+        "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH", "ZA", "ZM", "ZW", "NG"],
+        "Filipino":         ["PH"],
+        "Finnish":          ["FI"],
+        "French":           ["FR", "BE", "CH", "CA", "LU", "MC"],
+        "Georgian":         ["GE"],
+        "German":           ["DE", "AT", "CH", "LI"],
+        "Greek":            ["GR", "CY"],
+        "Hebrew":           ["IL", "ISR"],
+        "Hungarian":        ["HU"],
+        "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA"],
+        "Indonesian":       ["ID"],
+        "Italian":          ["IT", "CH", "SM", "VA"],
+        "Japanese":         ["JP"],
+        "Korean":           ["KR"],
+        "Kurdish":          ["KU"],
+        "Latvian":          ["LV"],
+        "Lithuanian":       ["LT"],
+        "Malay":            ["MY"],
+        "Norwegian":        ["NO"],
+        "Persian/Iranian":  ["IR", "FA"],
+        "Polish":           ["PL"],
+        "Portuguese":       ["PT", "BR", "CV"],
+        "Romanian":         ["RO"],
+        "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ"],
+        "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR"],
+        "Slovak":           ["SK"],
+        "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"],
+        "Swahili":          ["TZ"],
+        "Swedish":          ["SE"],
+        "Thai":             ["TH"],
+        "Turkish":          ["TR", "CY"],
+        "Ukrainian":        ["UA"],
+        "Urdu/Pakistani":   ["PK", "UR"],
+        "Vietnamese":       ["VN"],
     })
     filter_quality_groups: dict = Field(default_factory=lambda: {
         "4K / UHD": ["4K", "UHD", "8K", "2160P"],
@@ -309,12 +322,12 @@ class Config(BaseModel):
     category_name_overrides: dict = Field(default_factory=dict)
     
     def _inject_new_sections(self) -> None:
-        """Insert newly added sidebar sections into existing configs that predate them."""
-        new_sections = ["queue", "recommended"]
+        """Insert newly added sidebar sections and merge new default prefix groups into existing configs."""
         changed = False
+
+        new_sections = ["queue", "recommended"]
         for sid in new_sections:
             if sid not in self.sidebar_sections:
-                # Insert after "alerts" if present, otherwise at index 0
                 idx = self.sidebar_sections.index("alerts") + 1 if "alerts" in self.sidebar_sections else 0
                 self.sidebar_sections.insert(idx, sid)
                 changed = True
@@ -322,6 +335,27 @@ class Config(BaseModel):
                 idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
                 self.sidebar_visible_sections.insert(idx, sid)
                 changed = True
+
+        # Merge any new default filter_language_groups entries into existing saved configs.
+        # Handles both entirely new groups and new codes added to existing groups.
+        default_groups = Config.model_fields["filter_language_groups"].default_factory()
+        for group_name, default_codes in default_groups.items():
+            if group_name not in self.filter_language_groups:
+                self.filter_language_groups[group_name] = list(default_codes)
+                changed = True
+            else:
+                existing = set(self.filter_language_groups[group_name])
+                new_codes = [p for p in default_codes if p not in existing]
+                if new_codes:
+                    self.filter_language_groups[group_name].extend(new_codes)
+                    changed = True
+
+        # Remove stale groups that no longer exist in defaults (e.g. "Latin American", "Streaming").
+        stale = [g for g in self.filter_language_groups if g not in default_groups]
+        for g in stale:
+            del self.filter_language_groups[g]
+            changed = True
+
         if changed:
             self.save()
 

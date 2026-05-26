@@ -294,9 +294,6 @@ class GlobalFilterDialog(QDialog):
         self._db = db
         self._config = config
         self._sections: list[_GroupSection] = []
-        self._other_prefixes: list[tuple[str, int]] = []
-        self._other_cb: QCheckBox | None = None
-        self._other_row: QWidget | None = None
         self._inner_vl: QVBoxLayout | None = None
         self._rescan_thread: _RescanThread | None = None
         # Content-type section: list of (group_name, checkbox, row_widget)
@@ -466,34 +463,13 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.addWidget(section)
             self._sections.append(section)
 
-        # "Other" → simple on/off checkbox, no per-prefix rows
-        self._other_prefixes = other_entries
+        # "Other" → expandable _GroupSection, same UX as named groups
         if other_entries:
-            other_channel_count = sum(c for _, c in other_entries)
-            other_include = all_shown or self._config.global_filter_include_other_prefixes
-
-            self._other_row = QWidget()
-            rl = QHBoxLayout(self._other_row)
-            rl.setContentsMargins(2, 4, 2, 4)
-            rl.setSpacing(8)
-
-            self._other_cb = QCheckBox("Other (unrecognized categories)")
-            self._other_cb.setChecked(other_include)
-            self._other_cb.setStyleSheet("font-size: 12px; color: #aaa;")
-            self._other_cb.setToolTip(
-                f"{len(other_entries):,} unrecognized prefix codes "
-                f"({other_channel_count:,} channels).\n"
-                "These don't match any named language or region group.\n"
-                "Uncheck to hide all of them from Discovery and Recommendations."
-            )
-            rl.addWidget(self._other_cb)
-
-            count_lbl = QLabel(f"({other_channel_count:,} channels)")
-            count_lbl.setStyleSheet("color: #555; font-size: 11px;")
-            rl.addWidget(count_lbl)
-            rl.addStretch()
-
-            self._inner_vl.addWidget(self._other_row)
+            other_prefix_set = {p for p, _ in other_entries}
+            other_initial = other_prefix_set if all_shown else (selected & other_prefix_set)
+            other_section = _GroupSection("Other", other_entries, other_initial)
+            self._inner_vl.addWidget(other_section)
+            self._sections.append(other_section)
 
         self._populate_content_types()
 
@@ -599,13 +575,6 @@ class GlobalFilterDialog(QDialog):
             section.deleteLater()
         self._sections.clear()
 
-        if self._other_row is not None:
-            self._inner_vl.removeWidget(self._other_row)
-            self._other_row.deleteLater()
-            self._other_row = None
-            self._other_cb = None
-        self._other_prefixes = []
-
         for _name, _cb, row in self._content_type_rows:
             self._inner_vl.removeWidget(row)
             row.deleteLater()
@@ -643,26 +612,17 @@ class GlobalFilterDialog(QDialog):
     def _select_all(self, checked: bool) -> None:
         for section in self._sections:
             section.set_all(checked)
-        if self._other_cb is not None:
-            self._other_cb.setChecked(checked)
         for _name, cb, _row in self._content_type_rows:
             cb.setChecked(checked)
 
     def _save_and_accept(self) -> None:
-        named_all = [p for s in self._sections for p in s.all_prefixes()]
-        named_checked = [p for s in self._sections for p in s.checked_prefixes()]
-        other_prefixes = [p for p, _ in self._other_prefixes]
-        other_included = self._other_cb.isChecked() if self._other_cb is not None else True
+        all_prefixes = [p for s in self._sections for p in s.all_prefixes()]
+        checked_prefixes = [p for s in self._sections for p in s.checked_prefixes()]
 
-        self._config.global_filter_include_other_prefixes = other_included
-
-        effective = named_checked + (other_prefixes if other_included else [])
-        all_total = named_all + other_prefixes
-
-        if set(effective) == set(all_total):
+        if set(checked_prefixes) == set(all_prefixes):
             self._config.global_filter_included_categories = []
         else:
-            self._config.global_filter_included_categories = effective
+            self._config.global_filter_included_categories = checked_prefixes
 
         self._config.global_filter_include_uncategorized = self._uncat_cb.isChecked()
 
@@ -674,8 +634,8 @@ class GlobalFilterDialog(QDialog):
         else:
             self._config.global_filter_included_content_types = checked_types
 
-        # Best-effort sync to search-local group filter
-        checked_upper = {p.upper() for p in named_checked}
+        # Sync to search-local group filter
+        checked_upper = {p.upper() for p in checked_prefixes}
         included_groups = [
             g for g, members in self._config.filter_language_groups.items()
             if any(m.upper() in checked_upper for m in members)
