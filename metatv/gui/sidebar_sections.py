@@ -1,5 +1,7 @@
 """Modular collapsible sidebar sections"""
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QSizePolicy, QTreeWidget,
@@ -906,10 +908,13 @@ class RecommendedSection(CollapsibleSection):
     itemSelected              = pyqtSignal(str, str)  # channel_id, reason
     itemDoubleClicked         = pyqtSignal(str)        # channel_id
     channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
+    _rec_data_ready           = pyqtSignal(object)     # list[ScoredCandidate] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("Recommended", config.preferences_icon, config, parent)
+        self._rec_data_ready.connect(self._on_rec_data_ready)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
@@ -948,20 +953,20 @@ class RecommendedSection(CollapsibleSection):
         self.set_empty(True)
 
     def refresh(self):
-        from metatv.core.preference_engine import compute_weights, score_candidates
-        from metatv.core.filter_utils import get_active_category_filter
-        from metatv.core.models import MediaType
-
         self._list.clear()
+        self._executor.submit(self._bg_refresh)
+
+    def _bg_refresh(self) -> None:
+        from metatv.core.preference_engine import (
+            compute_weights, score_candidates, record_impressions,
+        )
+        from metatv.core.filter_utils import get_active_category_filter
         included_prefixes, include_uncategorized = get_active_category_filter(self.config)
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
             if weights.is_empty():
-                item = QListWidgetItem("Rate movies/series to get recommendations")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self._list.addItem(item)
-                self.set_empty(True)
+                self._rec_data_ready.emit(None)
                 return
             recs = score_candidates(
                 session, weights, limit=20,
@@ -970,16 +975,29 @@ class RecommendedSection(CollapsibleSection):
                 included_prefixes=included_prefixes,
                 include_uncategorized=include_uncategorized,
             )
+            if recs:
+                record_impressions(session, [sc.channel_id for sc in recs])
+        except Exception:
+            logger.exception("RecommendedSection bg refresh error")
+            return
         finally:
             session.close()
+        self._rec_data_ready.emit(recs)
 
+    def _on_rec_data_ready(self, recs) -> None:
+        self._list.clear()
+        if recs is None:
+            item = QListWidgetItem("Rate movies/series to get recommendations")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(item)
+            self.set_empty(True)
+            return
         if not recs:
             item = QListWidgetItem("No recommendations yet — rate more content")
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(item)
             self.set_empty(True)
             return
-
         for sc in recs:
             media_icon = (
                 self.config.movie_icon if sc.media_type == "movie"
@@ -990,7 +1008,7 @@ class RecommendedSection(CollapsibleSection):
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
-            rating_tip = f"  ★{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
+            rating_tip = f"  {self.config.rating_star_icon}{sc.metadata_rating:.1f}/10" if sc.metadata_rating else ""
             shown_tip = f"\nShown {sc.rec_shown_count}×" if sc.rec_shown_count else ""
             variant_tip = f"\n{sc.variant_count} versions grouped" if sc.variant_count > 1 else ""
             item.setToolTip(
@@ -998,15 +1016,6 @@ class RecommendedSection(CollapsibleSection):
                 f"Genres: {', '.join(sc.matching_genres) or '—'}"
             )
             self._list.addItem(item)
-
-        # Record impressions after rendering — open a fresh session (prior one is closed)
-        imp_session = self.db.get_session()
-        try:
-            from metatv.core.preference_engine import record_impressions
-            record_impressions(imp_session, [sc.channel_id for sc in recs])
-        finally:
-            imp_session.close()
-
         self.set_empty(False)
 
     def _on_double_click(self, item: QListWidgetItem) -> None:

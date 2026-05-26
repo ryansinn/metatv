@@ -128,32 +128,30 @@ class ChannelRepository:
 
         return query.all()
     
+    def _apply_adult_filter(self, q, adult_mode: str,
+                            force_adult_provider_ids: Optional[List[str]] = None):
+        """Apply adult content filter to a query. No-op when adult_mode == 'all'."""
+        if adult_mode == "all":
+            return q
+        force_ids = force_adult_provider_ids or []
+        is_adult_expr = (
+            or_(ChannelDB.is_adult == True, ChannelDB.provider_id.in_(force_ids))  # noqa: E712
+            if force_ids else (ChannelDB.is_adult == True)  # noqa: E712
+        )
+        return q.filter(~is_adult_expr) if adult_mode == "hide" else q.filter(is_adult_expr)
+
     def get_favorites(self, adult_mode: str = "all",
                       force_adult_provider_ids: Optional[List[str]] = None) -> List[ChannelDB]:
         """Get all favorite channels."""
         q = self.session.query(ChannelDB).filter_by(is_favorite=True, is_hidden=False)
-        if adult_mode != "all":
-            force_ids = force_adult_provider_ids or []
-            if force_ids:
-                is_adult_expr = or_(ChannelDB.is_adult == True,  # noqa: E712
-                                    ChannelDB.provider_id.in_(force_ids))
-            else:
-                is_adult_expr = (ChannelDB.is_adult == True)  # noqa: E712
-            q = q.filter(~is_adult_expr) if adult_mode == "hide" else q.filter(is_adult_expr)
+        q = self._apply_adult_filter(q, adult_mode, force_adult_provider_ids)
         return q.order_by(ChannelDB.name).all()
 
     def get_recent_history(self, limit: int = 30, adult_mode: str = "all",
                            force_adult_provider_ids: Optional[List[str]] = None) -> List[ChannelDB]:
         """Get recently played channels."""
         q = self.session.query(ChannelDB).filter(ChannelDB.last_played.isnot(None))
-        if adult_mode != "all":
-            force_ids = force_adult_provider_ids or []
-            if force_ids:
-                is_adult_expr = or_(ChannelDB.is_adult == True,  # noqa: E712
-                                    ChannelDB.provider_id.in_(force_ids))
-            else:
-                is_adult_expr = (ChannelDB.is_adult == True)  # noqa: E712
-            q = q.filter(~is_adult_expr) if adult_mode == "hide" else q.filter(is_adult_expr)
+        q = self._apply_adult_filter(q, adult_mode, force_adult_provider_ids)
         return q.order_by(ChannelDB.last_played.desc()).limit(limit).all()
     
     def toggle_favorite(self, channel_id: str) -> bool:

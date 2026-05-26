@@ -118,7 +118,7 @@ class _ContentCard(QWidget):
 
         # Rating badge (bottom-left overlay)
         if card.rating:
-            rating_lbl = QLabel(f"★ {card.rating:.1f}", self._poster_frame)
+            rating_lbl = QLabel(f"{config.rating_star_icon} {card.rating:.1f}", self._poster_frame)
             rating_lbl.setGeometry(4, _POSTER_H - 22, 60, 18)
             rating_lbl.setStyleSheet(
                 "background: rgba(0,0,0,0.65); color: #ffd700; font-size: 10px; "

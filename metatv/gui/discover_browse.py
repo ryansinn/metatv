@@ -81,7 +81,7 @@ class _BrowseView(QWidget):
         self._search_box.textChanged.connect(self._apply_filter)
         top.addWidget(self._search_box)
 
-        self._toggle_btn = QPushButton("☰ List")
+        self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
         self._toggle_btn.setFlat(True)
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.setStyleSheet(
@@ -186,10 +186,10 @@ class _BrowseView(QWidget):
         self._grid_mode = not self._grid_mode
         if self._grid_mode:
             self._stack.setCurrentIndex(0)
-            self._toggle_btn.setText("☰ List")
+            self._toggle_btn.setText(f"{self._config.list_view_icon} List")
         else:
             self._stack.setCurrentIndex(1)
-            self._toggle_btn.setText("⊞ Grid")
+            self._toggle_btn.setText(f"{self._config.grid_view_icon} Grid")
 
     def _on_list_select(self, current, _prev) -> None:
         if current:

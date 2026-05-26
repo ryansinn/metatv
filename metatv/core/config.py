@@ -67,6 +67,12 @@ class Config(BaseModel):
     queue_icon: str = "📋"             # Watch Queue section / action
     pin_icon: str = "📌"               # Pin shelf to top in Discover
     manage_icon: str = "⚙"            # Manage / settings button
+    watchlist_on_icon: str = "🔔"      # EPG watchlist — alert active
+    watchlist_off_icon: str = "🔕"     # EPG watchlist — alert inactive
+    prev_icon: str = "◀"              # Previous (lightbox / pagination)
+    next_icon: str = "▶"              # Next (lightbox / pagination)
+    list_view_icon: str = "☰"         # Toggle to list view
+    grid_view_icon: str = "⊞"         # Toggle to grid view
 
     # Global content category filter (applies to discovery + recommendations)
     # Category group names from filter_language_groups (e.g. ["English", "French"])

@@ -148,7 +148,7 @@ class _Shelf(QWidget):
         self._see_all_btn.setVisible(not self._collapsed)
 
         if self._collapsed:
-            self._collapse_btn.setText("▶")
+            self._collapse_btn.setText(self._config.expand_icon)
             self._collapse_btn.setToolTip("Expand")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
@@ -160,7 +160,7 @@ class _Shelf(QWidget):
             self._title_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
             self.setStyleSheet("")
         else:
-            self._collapse_btn.setText("▼")
+            self._collapse_btn.setText(self._config.collapse_icon)
             self._collapse_btn.setToolTip("Collapse")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "

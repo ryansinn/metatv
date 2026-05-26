@@ -157,7 +157,7 @@ class SimilarTitleLightbox(QWidget):
         nav_row.setContentsMargins(0, 0, 0, 0)
         nav_row.setSpacing(0)
 
-        self._prev_btn = QPushButton("◀")
+        self._prev_btn = QPushButton(self._config.prev_icon)
         self._prev_btn.setFixedWidth(36)
         self._prev_btn.setFlat(True)
         self._prev_btn.setStyleSheet(
@@ -185,7 +185,7 @@ class SimilarTitleLightbox(QWidget):
         scroll.setWidget(self._content_widget)
         nav_row.addWidget(scroll, 1)
 
-        self._next_btn = QPushButton("▶")
+        self._next_btn = QPushButton(self._config.next_icon)
         self._next_btn.setFixedWidth(36)
         self._next_btn.setFlat(True)
         self._next_btn.setStyleSheet(
@@ -478,7 +478,7 @@ class SimilarTitleLightbox(QWidget):
 
         meta_parts = []
         if data.get("year"):   meta_parts.append(str(data["year"]))
-        if data.get("rating"): meta_parts.append(f"⭐ {data['rating']}")
+        if data.get("rating"): meta_parts.append(f"{self._config.rating_star_icon} {data['rating']}")
         self._meta_lbl.setText("  ·  ".join(meta_parts))
 
         if data.get("provider_name"):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PyQt6.QtCore import QSize, pyqtSignal, Qt
 from PyQt6.QtGui import QContextMenuEvent, QColor, QPalette
 from PyQt6.QtWidgets import (
@@ -187,6 +189,7 @@ class _RecRow(QWidget):
 
 
 class PreferencesView(QWidget):
+    _pref_data_ready = pyqtSignal(object, object)  # (AttributeWeights, list[ScoredChannel])
     """Dashboard: rated-item attribute weights + ranked recommendations."""
 
     playRequested               = pyqtSignal(str)       # channel_id
@@ -199,6 +202,8 @@ class PreferencesView(QWidget):
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._pref_data_ready.connect(self._on_pref_data_ready)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -486,11 +491,12 @@ class PreferencesView(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        self._executor.submit(self._bg_refresh)
+
+    def _bg_refresh(self) -> None:
         from metatv.core.preference_engine import compute_weights, score_candidates
         from metatv.core.filter_utils import get_active_category_filter
-
         included_prefixes, include_uncategorized = get_active_category_filter(self.config)
-
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
@@ -501,9 +507,14 @@ class PreferencesView(QWidget):
                 included_prefixes=included_prefixes,
                 include_uncategorized=include_uncategorized,
             )
+        except Exception:
+            logger.exception("PreferencesView bg refresh error")
+            return
         finally:
             session.close()
+        self._pref_data_ready.emit(weights, recs)
 
+    def _on_pref_data_ready(self, weights, recs) -> None:
         self._render(weights, recs)
 
     def _render(self, weights: AttributeWeights, recs: list[ScoredChannel]) -> None:

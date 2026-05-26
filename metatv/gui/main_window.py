@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     _episode_ready  = pyqtSignal(str, str, str, object)  # notif_id, url, title, queue_episodes
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
+    # Context menu async fetch: (channel, in_queue, rating, gx, gy, variant)
+    _ctx_data_ready = pyqtSignal(object, bool, object, int, int, str)
     
     def __init__(self, config: Config):
         super().__init__()
@@ -247,6 +249,7 @@ class MainWindow(QMainWindow):
         self._channels_loaded.connect(self._on_channels_loaded)
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
+        self._ctx_data_ready.connect(self._on_ctx_data_ready)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
@@ -2014,88 +2017,117 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
     
+    # ---- Context menu shared infrastructure ------------------------------------
+
+    def _show_context_menu_for(self, channel_id: str, gx: int, gy: int,
+                               variant: str) -> None:
+        """Fetch context data in background and show the menu on the main thread."""
+        self.executor.submit(self._bg_fetch_ctx_data, channel_id, gx, gy, variant)
+
+    def _bg_fetch_ctx_data(self, channel_id: str, gx: int, gy: int,
+                           variant: str) -> None:
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return
+            in_queue = repos.queue.is_queued(channel_id)
+            rating = repos.ratings.get(channel.id)
+        finally:
+            session.close()
+        self._ctx_data_ready.emit(channel, in_queue, rating, gx, gy, variant)
+
+    def _on_ctx_data_ready(self, channel, in_queue: bool, rating,
+                           gx: int, gy: int, variant: str) -> None:
+        from PyQt6.QtCore import QPoint
+        menu = self._build_channel_menu(channel, in_queue, rating, variant)
+        menu.exec(QPoint(gx, gy))
+
+    def _build_channel_menu(self, channel, in_queue: bool, rating, variant: str):
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        channel_id = channel.id
+        menu = QMenu(self)
+
+        play_act = QAction("Play", self)
+        if variant == "history":
+            play_act.triggered.connect(lambda: self.play_from_history_id(channel_id))
+        elif variant == "favorites":
+            play_act.triggered.connect(lambda: self.play_favorite_id(channel_id))
+        else:
+            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
+        menu.addAction(play_act)
+
+        menu.addSeparator()
+
+        if channel.is_favorite:
+            fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
+            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
+        else:
+            fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
+            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
+        menu.addAction(fav_act)
+
+        queue_act = QAction(
+            f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+        )
+        queue_act.triggered.connect(
+            lambda: self._remove_from_queue(channel_id) if in_queue
+            else self._add_to_queue(channel_id)
+        )
+        menu.addAction(queue_act)
+
+        if variant == "history":
+            menu.addSeparator()
+            remove_act = QAction(f"Remove from History ({self.delete_icon})", self)
+            remove_act.triggered.connect(lambda: self.remove_from_history(channel_id))
+            menu.addAction(remove_act)
+            hide_act = QAction(f"{self.hide_icon} Hide channel", self)
+            hide_act.triggered.connect(lambda: self._hide_channel_from_history(channel_id))
+            menu.addAction(hide_act)
+        elif variant == "channel":
+            menu.addSeparator()
+            if channel.id in self.config.epg_watchlist_channels:
+                watch_act = QAction("Stop watching this channel", self)
+                watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel.id))
+            else:
+                watch_act = QAction("Watch this channel (EPG alerts)", self)
+                watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel.id))
+            menu.addAction(watch_act)
+            track_act = QAction("Track keyword…", self)
+            track_act.triggered.connect(lambda: self._prompt_track_from_list(channel.name))
+            menu.addAction(track_act)
+
+        if channel.media_type in ("movie", "series"):
+            menu.addSeparator()
+            like_act = QAction(f"{self.config.like_icon} Like", self)
+            like_act.setCheckable(True)
+            like_act.setChecked(rating == 1)
+            like_act.triggered.connect(lambda checked, cid=channel_id: self._toggle_rating(cid, 1))
+            menu.addAction(like_act)
+            dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+            dislike_act.setCheckable(True)
+            dislike_act.setChecked(rating == -1)
+            dislike_act.triggered.connect(lambda checked, cid=channel_id: self._toggle_rating(cid, -1))
+            menu.addAction(dislike_act)
+
+        return menu
+
+    # ---- Context menu entry points ------------------------------------------
+
     def show_history_context_menu(self, position, list_widget=None):
-        """Show context menu for history list"""
-        # Use provided list widget or try to get from modular section
         if list_widget is None:
             if "history" in self.sidebar_sections:
                 list_widget = self.sidebar_sections["history"].history_list
             else:
                 return
-        
         item = list_widget.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
-        
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        
-        session = self.db.get_session()
-        try:
-            from PyQt6.QtWidgets import QMenu
-            from PyQt6.QtGui import QAction
-            
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-            
-            menu = QMenu()
-            
-            # Add/Remove favorite
-            if channel.is_favorite:
-                fav_action = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-            else:
-                fav_action = QAction(f"Add to Favorites ({self.favorite_icon})", self)
-            fav_action.triggered.connect(lambda: self.toggle_favorite(item))
-            menu.addAction(fav_action)
-            
-            menu.addSeparator()
-            
-            # Remove from history
-            remove_action = QAction(f"Remove from History ({self.delete_icon})", self)
-            remove_action.triggered.connect(lambda: self.remove_from_history(channel_id))
-            menu.addAction(remove_action)
-            
-            menu.addSeparator()
-
-            play_action = QAction("Play", self)
-            play_action.triggered.connect(lambda: self.play_from_history(item))
-            menu.addAction(play_action)
-
-            in_queue = repos.queue.is_queued(channel_id)
-            queue_act = QAction(
-                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
-            )
-            queue_act.triggered.connect(
-                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
-            )
-            menu.addAction(queue_act)
-
-            menu.addSeparator()
-
-            hide_action = QAction(f"{self.hide_icon} Hide channel", self)
-            hide_action.triggered.connect(lambda: self._hide_channel_from_history(channel_id))
-            menu.addAction(hide_action)
-
-            if channel.media_type in ("movie", "series"):
-                menu.addSeparator()
-                current_rating = repos.ratings.get(channel.id)
-
-                like_act = QAction(f"{self.config.like_icon} Like", self)
-                like_act.setCheckable(True)
-                like_act.setChecked(current_rating == 1)
-                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
-                menu.addAction(like_act)
-
-                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-                dislike_act.setCheckable(True)
-                dislike_act.setChecked(current_rating == -1)
-                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
-                menu.addAction(dislike_act)
-
-            menu.exec(list_widget.mapToGlobal(position))
-        finally:
-            session.close()
+        gp = list_widget.mapToGlobal(position)
+        self._show_context_menu_for(channel_id, gp.x(), gp.y(), "history")
 
     def _hide_channel_from_history(self, channel_id: str) -> None:
         session = self.db.get_session()
@@ -2118,29 +2150,27 @@ class MainWindow(QMainWindow):
     
     def play_from_history_id(self, channel_id: str):
         """Play a channel from history by ID"""
-        with self.db.get_session() as session:
-            from metatv.core.models import MediaType
-            
+        from metatv.core.models import MediaType
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                # Check if series
                 if channel.media_type == MediaType.SERIES:
-                    # Find last played episode and play it
                     last_episode = repos.episodes.get_last_played(
                         series_id=channel.source_id,
                         provider_id=channel.provider_id
                     )
-                    
                     if last_episode:
                         logger.info(f"Playing last watched episode from history: {last_episode.title}")
                         self.play_episode(last_episode)
                     else:
-                        # No episode history, open series view
                         logger.info("No episode history found, opening series view")
                         self.drill_into_series(channel)
                 else:
                     self.play_media(channel)
+        finally:
+            session.close()
     
     def remove_from_history(self, channel_id: str):
         """Remove a single channel from history"""
@@ -2192,152 +2222,25 @@ class MainWindow(QMainWindow):
                 session.close()
     
     def show_favorites_context_menu(self, position, list_widget=None):
-        """Show context menu for favorites list"""
-        # Use provided list widget or fallback to legacy self.favorites_list
         if list_widget is None:
             if hasattr(self, 'favorites_list'):
                 list_widget = self.favorites_list
             else:
                 return
-
         item = list_widget.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
-
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-
-            menu = QMenu()
-
-            remove_action = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-            remove_action.triggered.connect(lambda: self.toggle_favorite(item))
-            menu.addAction(remove_action)
-
-            play_action = QAction("Play", self)
-            play_action.triggered.connect(lambda: self.play_favorite(item))
-            menu.addAction(play_action)
-
-            in_queue = repos.queue.is_queued(channel_id)
-            queue_act = QAction(
-                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
-            )
-            queue_act.triggered.connect(
-                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
-            )
-            menu.addAction(queue_act)
-
-            if channel.media_type in ("movie", "series"):
-                menu.addSeparator()
-                current_rating = repos.ratings.get(channel.id)
-
-                like_act = QAction(f"{self.config.like_icon} Like", self)
-                like_act.setCheckable(True)
-                like_act.setChecked(current_rating == 1)
-                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
-                menu.addAction(like_act)
-
-                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-                dislike_act.setCheckable(True)
-                dislike_act.setChecked(current_rating == -1)
-                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
-                menu.addAction(dislike_act)
-
-            menu.exec(list_widget.mapToGlobal(position))
-        finally:
-            session.close()
+        gp = list_widget.mapToGlobal(position)
+        self._show_context_menu_for(channel_id, gp.x(), gp.y(), "favorites")
 
     def show_channel_context_menu(self, position):
-        """Show context menu for channel list"""
         item = self.channels_list.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
-        
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        
-        session = self.db.get_session()
-        try:
-            from PyQt6.QtWidgets import QMenu
-            from PyQt6.QtGui import QAction
-            
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-            
-            menu = QMenu()
-            
-            # Add/Remove favorite
-            if channel.is_favorite:
-                fav_action = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-            else:
-                fav_action = QAction(f"Add to Favorites ({self.favorite_icon})", self)
-            fav_action.triggered.connect(lambda: self.toggle_favorite(item))
-            menu.addAction(fav_action)
-            
-            menu.addSeparator()
-
-            play_action = QAction("Play", self)
-            play_action.triggered.connect(lambda: self.play_channel(item))
-            menu.addAction(play_action)
-
-            in_queue = repos.queue.is_queued(channel_id)
-            queue_act = QAction(
-                f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
-            )
-            queue_act.triggered.connect(
-                lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
-            )
-            menu.addAction(queue_act)
-
-            menu.addSeparator()
-
-            if channel.id in self.config.epg_watchlist_channels:
-                unwatch_act = QAction("Stop watching this channel", self)
-                unwatch_act.triggered.connect(
-                    lambda: self._unwatch_channel_from_list(channel.id)
-                )
-                menu.addAction(unwatch_act)
-            else:
-                watch_act = QAction("Watch this channel (EPG alerts)", self)
-                watch_act.triggered.connect(
-                    lambda: self._watch_channel_from_list(channel.id)
-                )
-                menu.addAction(watch_act)
-
-            track_act = QAction("Track keyword…", self)
-            track_act.triggered.connect(
-                lambda: self._prompt_track_from_list(channel.name)
-            )
-            menu.addAction(track_act)
-
-            if channel.media_type in ("movie", "series"):
-                menu.addSeparator()
-                current_rating = repos.ratings.get(channel.id)
-
-                like_act = QAction(f"{self.config.like_icon} Like", self)
-                like_act.setCheckable(True)
-                like_act.setChecked(current_rating == 1)
-                like_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, 1))
-                menu.addAction(like_act)
-
-                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-                dislike_act.setCheckable(True)
-                dislike_act.setChecked(current_rating == -1)
-                dislike_act.triggered.connect(lambda checked, cid=channel.id: self._toggle_rating(cid, -1))
-                menu.addAction(dislike_act)
-
-            menu.exec(self.channels_list.mapToGlobal(position))
-        finally:
-            session.close()
+        gp = self.channels_list.mapToGlobal(position)
+        self._show_context_menu_for(channel_id, gp.x(), gp.y(), "channel")
     
     def play_favorite(self, item):
         """Play a favorite channel"""
@@ -2350,17 +2253,18 @@ class MainWindow(QMainWindow):
     
     def play_favorite_id(self, channel_id: str):
         """Play a favorite channel by ID"""
-        with self.db.get_session() as session:
-            from metatv.core.models import MediaType
-            
+        from metatv.core.models import MediaType
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                # Check if series
                 if channel.media_type == MediaType.SERIES:
                     self.drill_into_series(channel)
                 else:
                     self.play_media(channel)
+        finally:
+            session.close()
     
     def toggle_favorite(self, item):
         """Toggle favorite status of a channel"""
@@ -2951,7 +2855,8 @@ class MainWindow(QMainWindow):
         
         # Get seasons and episodes from database
         # Note: series_id in SeasonDB is the provider's source_id, not the database UUID
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             seasons = repos.seasons.get_by_series(
                 series_id=self.current_series.source_id,
@@ -3026,7 +2931,9 @@ class MainWindow(QMainWindow):
                 season_word = "item" if len(seasons) == 1 else "items"
                 episode_word = "episode" if total_episodes == 1 else "episodes"
                 self.stats_label.setText(f"Showing {len(seasons)} {season_word} · {total_episodes} {episode_word}")
-    
+        finally:
+            session.close()
+
     def on_tree_item_expanded(self, item):
         """Handle tree item expanded (no-op, using native arrows)"""
         pass
@@ -3068,47 +2975,41 @@ class MainWindow(QMainWindow):
         
         # Record playback
         from datetime import datetime
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
-            
-            # Update episode playback
+
             repos.episodes.mark_played(episode.id)
-            
+
             logger.info(f"Episode playback recorded: {episode.title}")
             logger.info(f"  Episode series_id: {episode.series_id}")
             logger.info(f"  Episode provider_id: {episode.provider_id}")
-            
-            # Also update the parent series channel for history tracking
+
             parent_channel = repos.channels.get_by_source_id(
                 provider_id=episode.provider_id,
                 source_id=episode.series_id
             )
-            
+
             if parent_channel:
                 repos.channels.mark_played(parent_channel.id)
                 logger.info(f"Updated parent series playback: {parent_channel.name} (play count: {parent_channel.play_count})")
             else:
                 logger.warning(f"Could not find parent channel for episode. series_id={episode.series_id}, provider_id={episode.provider_id}")
-            
-            # Get subsequent episodes to queue if auto-queue is enabled
+
             episodes_to_queue = []
             if self.config.autoplay_season_episodes and episode.season_id:
-                # Get all episodes in this season
                 all_episodes = repos.episodes.get_by_season(season_id=episode.season_id)
-                
-                # Filter for episodes that come after the current one
                 episodes_to_queue = [
-                    ep for ep in all_episodes 
+                    ep for ep in all_episodes
                     if ep.episode_num > episode.episode_num
                 ]
-                
-                # Sort by episode number
                 episodes_to_queue.sort(key=lambda ep: ep.episode_num)
-                
                 if episodes_to_queue:
                     episode_range = f"E{episodes_to_queue[0].episode_num}-E{episodes_to_queue[-1].episode_num}"
                     logger.info(f"Will queue {len(episodes_to_queue)} subsequent episodes: {episode_range}")
                     logger.debug(f"Queue list: {[f'E{ep.episode_num}: {ep.title}' for ep in episodes_to_queue]}")
+        finally:
+            session.close()
         
         # Update UI lists in real-time
         self.load_history()
@@ -3261,10 +3162,13 @@ class MainWindow(QMainWindow):
     
     def toggle_episode_watched(self, episode):
         """Toggle episode watched status"""
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             repos = RepositoryFactory(session)
             repos.episodes.mark_watched(episode.id, not episode.is_watched)
             logger.info(f"Toggled watched status for episode: {episode.title}")
+        finally:
+            session.close()
         
         # Refresh the tree to update display
         self.populate_series_tree()

@@ -210,7 +210,7 @@ class EpgAgendaWidget(QWidget):
         if self._config is not None:
             patterns = self._config.epg_watchlist_patterns or []
             in_wl = prog.title in patterns
-            bell_btn = QPushButton("🔔" if in_wl else "🔕")
+            bell_btn = QPushButton(self._config.watchlist_on_icon if in_wl else self._config.watchlist_off_icon)
             bell_btn.setFixedWidth(26)
             bell_btn.setCheckable(True)
             bell_btn.setChecked(in_wl)
@@ -233,7 +233,7 @@ class EpgAgendaWidget(QWidget):
             patterns.remove(title)
         self._config.epg_watchlist_patterns = patterns
         self._config.save()
-        btn.setText("🔔" if add else "🔕")
+        btn.setText(self._config.watchlist_on_icon if add else self._config.watchlist_off_icon)
         btn.setToolTip("Remove from watchlist" if add else "Add to watchlist")
 
 

@@ -224,7 +224,7 @@ class DiscoverView(QWidget):
         if not visible:
             self._collapsed_zone.setVisible(False)
             return
-        arrow = "▼" if self._more_expanded else "▶"
+        arrow = self._config.collapse_icon if self._more_expanded else self._config.expand_icon
         self._more_btn.setText(f"{arrow}  More Categories  ({count})")
         self._collapsed_zone.setVisible(self._more_expanded)
 

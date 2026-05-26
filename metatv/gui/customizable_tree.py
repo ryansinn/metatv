@@ -266,9 +266,10 @@ class SeriesTreeWidget(CustomizableTreeWidget):
     like proper data handling and refresh logic.
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, config=None):
         super().__init__(parent)
-        
+        self._config = config
+
         # Define series-specific columns
         self.setup_columns([
             ColumnConfig("title", "Title", 400, True),
@@ -298,8 +299,9 @@ class SeriesTreeWidget(CustomizableTreeWidget):
         if season_data.raw_data and isinstance(season_data.raw_data, dict):
             rating = season_data.raw_data.get("rating", "")
             if rating:
-                data["rating"] = f"★ {rating}"
-        
+                star = self._config.rating_star_icon if self._config else "★"
+                data["rating"] = f"{star} {rating}"
+
         self.set_column_data(season_item, data)
         season_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "season", "data": season_data})
     
@@ -314,19 +316,20 @@ class SeriesTreeWidget(CustomizableTreeWidget):
         """
         watched_indicator = "✓ " if episode_data.is_watched else ""
         
+        ep_icon = self._config.episode_icon if self._config else "▶"
         data = {
-            "title": f"  ▶ {watched_indicator}{episode_data.title}",
+            "title": f"  {ep_icon} {watched_indicator}{episode_data.title}",
             "episode": f"E{episode_data.episode_num}",
             "runtime": episode_data.duration or "",
         }
-        
-        # Extract rating from episode raw_data
+
         if episode_data.raw_data and isinstance(episode_data.raw_data, dict):
             info = episode_data.raw_data.get("info", {})
             if isinstance(info, dict):
                 rating = info.get("rating", "")
                 if rating:
-                    data["rating"] = f"★ {rating}"
+                    star = self._config.rating_star_icon if self._config else "★"
+                    data["rating"] = f"{star} {rating}"
         
         self.set_column_data(episode_item, data)
         episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode_data})
