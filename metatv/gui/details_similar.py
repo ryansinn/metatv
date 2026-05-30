@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
+from metatv.core.prefix_detector import strip_prefix
 from metatv.gui.details_versions import ChannelVersion
 
 
@@ -93,19 +94,41 @@ class _SimilarSection(QWidget):
         )
 
     def _make_row(self, v: ChannelVersion) -> QWidget:
+        prefix = v.detected_prefix
+        clean_title = strip_prefix(v.name, prefix) if prefix else v.name
+
         row_w = QWidget()
         row = QHBoxLayout(row_w)
         row.setContentsMargins(0, 1, 0, 1)
         row.setSpacing(4)
 
+        # Play button — leftmost, always visible
+        _BTN = (
+            "QPushButton { border: none; font-size: 13px; padding: 0px;"
+            " background: transparent; }"
+            "QPushButton:hover { color: #fff; }"
+        )
         play_btn = QPushButton(self.config.play_icon)
-        play_btn.setFixedSize(24, 20)
+        play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
+        play_btn.setStyleSheet(f"QPushButton {{ color: #666; }} {_BTN}")
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
 
-        name_btn = QPushButton(v.name)
+        # Prefix chip — matches category chip style from _VersionSection
+        if prefix:
+            chip = QLabel(prefix)
+            chip.setStyleSheet(
+                "QLabel { font-size: 10px; color: #aaa; border: 1px solid #444;"
+                " border-radius: 4px; padding: 1px 6px; }"
+            )
+            chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            chip.setFixedHeight(18)
+            row.addWidget(chip)
+
+        # Clean title — clickable, takes all remaining space
+        name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
         name_btn.setStyleSheet(
             "QPushButton { text-align: left; color: #ccc; font-size: 11px; border: none; }"
@@ -122,28 +145,29 @@ class _SimilarSection(QWidget):
         )
         row.addWidget(name_btn, 1)
 
-        status_parts = []
-        if v.is_favorite: status_parts.append(self.config.favorite_icon)
-        if v.in_history:  status_parts.append(self.config.history_icon)
-        if v.in_queue:    status_parts.append(self.config.queue_icon)
-        if status_parts:
-            status_lbl = QLabel(" ".join(status_parts))
-            status_lbl.setStyleSheet("font-size: 10px; color: #666;")
-            row.addWidget(status_lbl)
+        # History indicator — read-only, shown only if previously watched
+        if v.in_history:
+            hist = QLabel(self.config.history_icon)
+            hist.setStyleSheet("font-size: 11px; color: #555;")
+            hist.setToolTip("Previously watched")
+            row.addWidget(hist)
 
-        fav_btn = QPushButton(
-            self.config.favorite_icon if v.is_favorite else self.config.unfavorite_icon
-        )
-        fav_btn.setFixedSize(24, 20)
+        # Favorite toggle — gold when active, dim when not
+        fav_color = "#f0c040" if v.is_favorite else "#444"
+        fav_btn = QPushButton(self.config.favorite_icon)
+        fav_btn.setFixedSize(22, 20)
         fav_btn.setFlat(True)
+        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_BTN}")
         fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
         row.addWidget(fav_btn)
 
-        queue_icon = self.config.watched_icon if v.in_queue else self.config.queue_icon
-        queue_btn = QPushButton(queue_icon)
-        queue_btn.setFixedSize(24, 20)
+        # Queue toggle — blue when active, dim when not
+        queue_color = "#4a9eff" if v.in_queue else "#444"
+        queue_btn = QPushButton(self.config.queue_icon)
+        queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
+        queue_btn.setStyleSheet(f"QPushButton {{ color: {queue_color}; }} {_BTN}")
         queue_btn.setToolTip("Remove from Queue" if v.in_queue else "Add to Queue")
         queue_btn.clicked.connect(lambda _, cid=v.channel_id: self.queue_toggled.emit(cid))
         row.addWidget(queue_btn)

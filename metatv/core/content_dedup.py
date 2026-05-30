@@ -65,12 +65,8 @@ def normalize_title(name: str, prefix: str | None = None) -> str:
     """
     # 1. Strip the stored detected_prefix + its trailing delimiter
     if prefix:
-        stripped = re.sub(
-            rf"^{re.escape(prefix)}\s*[|:*\-–—●•★◉\xb7\s]\s*",
-            "", name, flags=re.IGNORECASE,
-        )
-        if stripped:
-            name = stripped
+        from metatv.core.prefix_detector import strip_prefix
+        name = strip_prefix(name, prefix)
 
     # 2. Regex-strip remaining prefix patterns (catches formats detect_prefix misses)
     name = _PREFIX_NOISE_RE.sub("", name)

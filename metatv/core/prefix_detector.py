@@ -5,6 +5,19 @@ from typing import List, Set, Dict, Optional
 from dataclasses import dataclass
 
 
+def strip_prefix(name: str, prefix: str) -> str:
+    """Return name with the leading prefix and its separator removed.
+
+    Handles all common IPTV separator variants: " - ", "★", "|", ":", "*", etc.
+    Falls back to the original name if the prefix isn't found at the start.
+    """
+    result = re.sub(
+        rf"^{re.escape(prefix)}\s*[|:*\-–—●•★◉\xb7\s]\s*",
+        "", name, flags=re.IGNORECASE,
+    )
+    return result if result else name
+
+
 @dataclass
 class PrefixMatch:
     """A detected prefix with metadata"""
