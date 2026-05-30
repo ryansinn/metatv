@@ -35,6 +35,8 @@ from metatv.gui.sidebar_sections import (
 from metatv.gui.filter_bar import FilterBar, ToggleChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
+from metatv.gui.details_actions import ChannelActionState
+from metatv.gui.details_versions import ChannelVersion
 from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
@@ -149,6 +151,7 @@ class MainWindow(QMainWindow):
     _channels_loaded = pyqtSignal(list, dict)        # (channels, params) — worker → main thread
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
+    _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     _episode_ready  = pyqtSignal(str, str, str, object)  # notif_id, url, title, queue_episodes
@@ -335,8 +338,10 @@ class MainWindow(QMainWindow):
         self.details_pane.manage_filters_requested.connect(self.manage_filters)
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
+        self.details_pane.action_state_requested.connect(self._on_action_state_requested)
         self._versions_loaded.connect(self._on_versions_loaded)
         self._similar_titles_loaded.connect(self._on_similar_titles_loaded)
+        self._action_state_loaded.connect(self._on_action_state_loaded)
         self.main_splitter.addWidget(self.details_pane)
 
         # Similar titles lightbox — overlay child widget, hidden by default
@@ -594,6 +599,34 @@ class MainWindow(QMainWindow):
     def _on_hide_from_details_pane(self, channel_id: str) -> None:
         self._hide_channel_from_recommendations(channel_id)
 
+    # --- Action state (async) ---
+
+    def _on_action_state_requested(self, channel_id: str) -> None:
+        self.executor.submit(self._bg_fetch_action_state, channel_id)
+
+    def _bg_fetch_action_state(self, channel_id: str) -> None:
+        session = self.db.get_session()
+        try:
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            state = ChannelActionState(
+                channel_id=channel_id,
+                in_queue=repos.queue.is_queued(channel_id),
+                rating=repos.ratings.get(channel_id) or 0,
+            )
+            ch = repos.channels.get_by_id(channel_id)
+            if ch:
+                state.is_suppressed = bool(ch.is_rec_suppressed)
+                state.is_hidden = bool(ch.is_hidden)
+            self._action_state_loaded.emit(state)
+        except Exception as e:
+            logger.error(f"Failed to fetch action state for {channel_id}: {e}")
+        finally:
+            session.close()
+
+    def _on_action_state_loaded(self, state) -> None:
+        self.details_pane.apply_action_state(state)
+
     # --- Other Versions / Other Sources ---
 
     def _fetch_channel_versions(self, channel_id: str) -> None:
@@ -602,7 +635,6 @@ class MainWindow(QMainWindow):
     def _bg_fetch_versions(self, channel_id: str) -> None:
         from metatv.core.database import ChannelDB, WatchQueueDB, ProviderDB
         from metatv.core.content_dedup import normalize_title
-        from metatv.gui.details_pane import ChannelVersion
 
         session = self.db.get_session()
         try:
@@ -770,7 +802,6 @@ class MainWindow(QMainWindow):
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
         from metatv.core.database import ChannelDB, WatchQueueDB
         from metatv.core.content_dedup import normalize_title, build_dedup_key
-        from metatv.gui.details_pane import ChannelVersion
 
         session = self.db.get_session()
         try:
