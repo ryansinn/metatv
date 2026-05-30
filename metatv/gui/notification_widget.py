@@ -51,7 +51,6 @@ class NotificationCard(QFrame):
                 background-color: {bg_color};
                 border: 2px solid {border_color};
                 border-radius: 6px;
-                padding: 8px;
             }}
             QLabel {{
                 color: {text_color};
@@ -139,7 +138,41 @@ class NotificationCard(QFrame):
         
         # Record the type used to style this card — used to detect changes in update_notifications
         self._notification_type = self.notification.type
-    
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        """Compute height at a given width, correctly propagating word-wrap from QLabels.
+
+        Qt's default sizeHint() for word-wrapped labels returns the unwrapped height
+        until the widget has been rendered. This method computes the correct height
+        analytically so reposition() works before the first paint event.
+        """
+        lyt = self.layout()
+        m = lyt.contentsMargins()
+        inner_w = max(0, width - m.left() - m.right())
+        heights = []
+        for i in range(lyt.count()):
+            item = lyt.itemAt(i)
+            if not item:
+                continue
+            w = item.widget()
+            sub = item.layout()
+            if w and w.isVisible():
+                if w.hasHeightForWidth():
+                    heights.append(w.heightForWidth(inner_w))
+                else:
+                    heights.append(w.sizeHint().height())
+            elif sub:
+                h = sub.sizeHint().height()
+                if h > 0:
+                    heights.append(h)
+        if not heights:
+            return m.top() + m.bottom()
+        total = m.top() + m.bottom() + sum(heights) + lyt.spacing() * (len(heights) - 1)
+        return total
+
     def update_notification(self, notification: Notification):
         """Update notification display"""
         self.notification = notification
@@ -216,16 +249,22 @@ class NotificationWidget(QWidget):
             self.updateGeometry()
             
             # Sum up heights of all cards plus margins and spacing
-            total_height = self.layout.contentsMargins().top() + self.layout.contentsMargins().bottom()
+            cm = self.layout.contentsMargins()
+            total_height = cm.top() + cm.bottom()
+            # Card width is the container width minus its own margins
+            card_w = self.width() - cm.left() - cm.right()
+            visible_cards = 0
             for i in range(self.layout.count()):
-                widget = self.layout.itemAt(i).widget()
+                item = self.layout.itemAt(i)
+                widget = item.widget() if item else None
                 if widget and widget.isVisible():
                     if widget.hasHeightForWidth():
-                        total_height += widget.heightForWidth(self.width())
+                        total_height += widget.heightForWidth(card_w)
                     else:
                         total_height += widget.sizeHint().height()
-                    if i > 0:
-                        total_height += self.layout.spacing()
+                    visible_cards += 1
+            if visible_cards > 1:
+                total_height += self.layout.spacing() * (visible_cards - 1)
             
             # Ensure we don't exceed parent height
             widget_height = min(total_height, parent_rect.height() - 100)
