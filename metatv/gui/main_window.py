@@ -2856,11 +2856,15 @@ class MainWindow(QMainWindow):
 
     def on_search_view_toggle(self) -> None:
         if self.search_chip.is_enabled():
-            # Already in search mode — no-op (can't deselect the active view)
-            pass
-        else:
+            # Chip was just activated (ToggleChip self-toggles before emitting clicked)
+            # → another view was active; switch to list view
             self.switch_to_list_view()
             self.load_channels()
+        else:
+            # User clicked Search while already in search mode — keep it active
+            self.search_chip.blockSignals(True)
+            self.search_chip.set_enabled(True)
+            self.search_chip.blockSignals(False)
 
     def on_hidden_view_toggle(self) -> None:
         if self.hidden_chip.is_enabled():
