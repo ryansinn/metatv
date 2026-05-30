@@ -1,6 +1,6 @@
 """Similar Titles collapsible section for the details pane."""
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
+    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSizePolicy,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -127,9 +127,11 @@ class _SimilarSection(QWidget):
             chip.setFixedHeight(18)
             row.addWidget(chip)
 
-        # Clean title — clickable, takes all remaining space
+        # Clean title — clickable, takes all remaining space; Ignored policy lets
+        # the layout shrink it below text width so long names don't push buttons off-screen
         name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
+        name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         name_btn.setStyleSheet(
             "QPushButton { text-align: left; color: #ccc; font-size: 11px; border: none; }"
             "QPushButton:hover { color: #fff; }"
@@ -162,9 +164,10 @@ class _SimilarSection(QWidget):
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
         row.addWidget(fav_btn)
 
-        # Queue toggle — blue when active, dim when not
+        # Queue toggle — ✓ + blue when in queue, 📋 + dim when not (shape + color)
+        queue_icon = self.config.watched_icon if v.in_queue else self.config.queue_icon
         queue_color = "#4a9eff" if v.in_queue else "#444"
-        queue_btn = QPushButton(self.config.queue_icon)
+        queue_btn = QPushButton(queue_icon)
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
         queue_btn.setStyleSheet(f"QPushButton {{ color: {queue_color}; }} {_BTN}")
