@@ -576,8 +576,10 @@ class ChannelRepository:
             query = query.filter_by(provider_id=provider_id)
         query = query.filter_by(is_hidden=False)
         if excluded_user_categories:
+            # Must explicitly allow NULL user_category — SQL NOT IN excludes NULLs
             query = query.filter(
-                ~ChannelDB.user_category.in_(excluded_user_categories)
+                or_(ChannelDB.user_category.is_(None),
+                    ~ChannelDB.user_category.in_(excluded_user_categories))
             )
 
         # Get unique prefixes with counts
@@ -587,7 +589,8 @@ class ChannelRepository:
         ).filter_by(is_hidden=False)
         if excluded_user_categories:
             prefix_query = prefix_query.filter(
-                ~ChannelDB.user_category.in_(excluded_user_categories)
+                or_(ChannelDB.user_category.is_(None),
+                    ~ChannelDB.user_category.in_(excluded_user_categories))
             )
         
         if provider_id:

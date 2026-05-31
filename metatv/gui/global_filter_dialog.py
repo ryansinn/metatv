@@ -60,7 +60,9 @@ def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None 
             )
         )
         if excluded_user_categories:
-            q = q.filter(~ChannelDB.user_category.in_(excluded_user_categories))
+            from sqlalchemy import or_ as _or
+            q = q.filter(_or(ChannelDB.user_category.is_(None),
+                             ~ChannelDB.user_category.in_(excluded_user_categories)))
         rows = (
             q.group_by(ChannelDB.detected_prefix)
             .order_by(ChannelDB.detected_prefix)
