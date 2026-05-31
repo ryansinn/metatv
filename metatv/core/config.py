@@ -655,6 +655,7 @@ class Config(BaseModel):
     # Extra separator strings the user has added beyond the built-in set.
     user_extra_separators: list = Field(default_factory=list)
     filter_included_languages: list = Field(default_factory=list)  # Empty = all included
+    filter_included_regions: list = Field(default_factory=list)    # Empty = all included
     filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
     filter_included_platforms: list = Field(default_factory=list)  # Empty = all included
     filter_include_untagged: bool = True   # Show channels with no detected_prefix

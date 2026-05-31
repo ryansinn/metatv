@@ -311,25 +311,48 @@ class FilterBar(QWidget):
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("Only Show:"))
 
-        self.language_dropdown = FilterDropdown("Category", {})
+        self.language_dropdown = FilterDropdown("Language", {})
         self.language_dropdown.setToolTip(
-            "Filter by language, region, or category prefix.\n"
+            "Filter by audio language.\n"
+            "\n"
+            "Selecting a language includes audio, dubbed, and subtitled variants for that\n"
+            "language — all content directed at that linguistic audience.\n"
             "\n"
             "Broad groups (English, Spanish, French…) match all variants of that language.\n"
             "Locale sub-groups (English (North America), French (Europe)…) match only channels\n"
-            "where the provider explicitly labeled them with a country/region prefix (US, CA, FR…).\n"
-            "Channels labeled with a generic language code (EN, ES, FR) appear in the broad group\n"
-            "only — their specific origin is unknown from the prefix alone.\n"
+            "where the provider explicitly labeled them with a country code (US, CA, FR…).\n"
+            "Channels with a generic code (EN, ES, FR) appear in the broad group only.\n"
             "\n"
-            "Select nothing = show all content."
+            "Language and Region both ADD to your results when combined — selecting either\n"
+            "or both grows the content pool, it never restricts it.\n"
+            "\n"
+            "Select nothing = no language filter (show all)."
         )
         self.language_dropdown.filter_changed.connect(self.on_filter_changed)
         filter_row.addWidget(self.language_dropdown)
 
+        self.region_dropdown = FilterDropdown("Region", {})
+        self.region_dropdown.setToolTip(
+            "Filter by geographic origin or audience target.\n"
+            "\n"
+            "Region filters use the explicit geographic labels the provider assigned —\n"
+            "e.g. MX/MEX channels are Mexican content, not just Spanish content.\n"
+            "This lets you find exactly your region's channels without browsing all of\n"
+            "a language group.\n"
+            "\n"
+            "Region and Language both ADD to your results when combined — selecting either\n"
+            "or both grows the content pool, it never restricts it.\n"
+            "\n"
+            "Select nothing = no region filter (show all)."
+        )
+        self.region_dropdown.filter_changed.connect(self.on_filter_changed)
+        self.region_dropdown.hide()  # shown only when regional data exists
+        filter_row.addWidget(self.region_dropdown)
+
         self.quality_dropdown = FilterDropdown("Quality", {})
         self.quality_dropdown.setToolTip(
-            "Filter by quality marker (HD, 4K, SD, etc.).\n"
-            "Exclusive: only channels explicitly tagged with the selected quality show.\n"
+            "Filter by quality tier (RAW, 4K, HD, SD, etc.).\n"
+            "Restrictive: only channels explicitly tagged with the selected quality show.\n"
             "Select nothing = show all quality levels."
         )
         self.quality_dropdown.filter_changed.connect(self.on_filter_changed)
@@ -338,9 +361,9 @@ class FilterBar(QWidget):
 
         self.platform_dropdown = FilterDropdown("Platform", {})
         self.platform_dropdown.setToolTip(
-            "Filter by streaming platform or network prefix (Netflix, Sky, etc.).\n"
-            "Exclusive: only channels from the selected platform show.\n"
-            "Select nothing = show all platforms."
+            "Filter by streaming service or platform (Netflix, EAR, VIX, etc.).\n"
+            "Platform selections ADD to your results alongside Language and Region.\n"
+            "Select nothing = no platform filter (show all)."
         )
         self.platform_dropdown.filter_changed.connect(self.on_filter_changed)
         self.platform_dropdown.hide()  # shown only when platform data exists
@@ -439,8 +462,9 @@ class FilterBar(QWidget):
 
     def update_filter_groups(self, language_groups: Dict[str, int],
                              quality_groups: Dict[str, int],
-                             platform_groups: Dict[str, int] | None = None):
-        """Update language, quality, and platform dropdowns; auto-hide when empty."""
+                             platform_groups: Dict[str, int] | None = None,
+                             region_groups: Dict[str, int] | None = None):
+        """Update all filter dropdowns; auto-hide when empty."""
         self.language_dropdown.update_groups(language_groups)
         self.quality_dropdown.update_groups(quality_groups)
         has_quality = any(v > 0 for v in quality_groups.values())
@@ -449,6 +473,10 @@ class FilterBar(QWidget):
             self.platform_dropdown.update_groups(platform_groups)
             has_platform = any(v > 0 for v in platform_groups.values())
             self.platform_dropdown.setVisible(has_platform)
+        if region_groups is not None:
+            self.region_dropdown.update_groups(region_groups)
+            has_region = any(v > 0 for v in region_groups.values())
+            self.region_dropdown.setVisible(has_region)
 
     # ── Filter state ──────────────────────────────────────────────────────────
 
@@ -459,6 +487,7 @@ class FilterBar(QWidget):
         return {
             'media_types': [],  # managed by MainWindow chips
             'language_groups': self.language_dropdown.get_selected(),
+            'region_groups': self.region_dropdown.get_selected(),
             'quality_groups': self.quality_dropdown.get_selected(),
             'platform_groups': self.platform_dropdown.get_selected(),
             'show_excluded': False,  # removed — use Global Exclusions for blacklisting
@@ -483,12 +512,15 @@ class FilterBar(QWidget):
                     chip.set_enabled(True)
 
         self.language_dropdown.blockSignals(True)
+        self.region_dropdown.blockSignals(True)
         self.quality_dropdown.blockSignals(True)
         self.platform_dropdown.blockSignals(True)
         self.language_dropdown.select_all()
+        self.region_dropdown.select_all()
         self.quality_dropdown.select_all()
         self.platform_dropdown.select_all()
         self.language_dropdown.blockSignals(False)
+        self.region_dropdown.blockSignals(False)
         self.quality_dropdown.blockSignals(False)
         self.platform_dropdown.blockSignals(False)
 
@@ -515,6 +547,7 @@ class FilterBar(QWidget):
 
             self.config.filter_enabled_media_types = state['media_types']
             self.config.filter_included_languages = state['language_groups']
+            self.config.filter_included_regions = state['region_groups']
             self.config.filter_included_qualities = state['quality_groups']
             self.config.filter_included_platforms = state['platform_groups']
             self.config.filter_include_untagged = state['include_untagged']
@@ -530,6 +563,10 @@ class FilterBar(QWidget):
             included_languages = getattr(self.config, 'filter_included_languages', [])
             if included_languages:
                 self.language_dropdown.selected_groups = set(included_languages)
+
+            included_regions = getattr(self.config, 'filter_included_regions', [])
+            if included_regions:
+                self.region_dropdown.selected_groups = set(included_regions)
 
             included_qualities = getattr(self.config, 'filter_included_qualities', [])
             if included_qualities:

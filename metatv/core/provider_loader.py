@@ -48,13 +48,17 @@ class ProviderLoadThread(QThread):
     def __init__(self, provider: Provider, db: Database,
                  separators: list[str] | None = None,
                  language_groups: dict | None = None,
-                 quality_groups: dict | None = None):
+                 quality_groups: dict | None = None,
+                 platform_groups: dict | None = None,
+                 regional_groups: dict | None = None):
         super().__init__()
         self.provider = provider
         self.db = db
         self._separators = separators
         self._language_groups = language_groups or {}
         self._quality_groups = quality_groups or {}
+        self._platform_groups = platform_groups or {}
+        self._regional_groups = regional_groups or {}
         self.prefix_stats: dict | None = None  # populated after run; read by main thread
     
     def run(self):
@@ -254,6 +258,8 @@ class ProviderLoadThread(QThread):
                 provider_id=None,
                 language_groups=self._language_groups,
                 quality_groups=self._quality_groups,
+                platform_groups=self._platform_groups,
+                regional_groups=self._regional_groups,
             )
         except Exception as e:
             logger.error(f"Prefix stats failed: {e}")

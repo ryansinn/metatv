@@ -1795,6 +1795,8 @@ class MainWindow(QMainWindow):
                 separators=self.config.prefix_separators,
                 language_groups=self.config.filter_language_groups,
                 quality_groups=self.config.filter_quality_groups,
+                platform_groups=self.config.filter_platform_groups,
+                regional_groups=self.config.filter_regional_groups,
             )
             load_thread.provider_id = provider.id  # Store for cleanup
             load_thread.progress.connect(
@@ -1839,6 +1841,7 @@ class MainWindow(QMainWindow):
                     language_groups=stats['language_groups'],
                     quality_groups=stats['quality_groups'],
                     platform_groups=stats.get('platform_groups', {}),
+                    region_groups=stats.get('region_groups', {}),
                 )
                 logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
 
@@ -2398,6 +2401,7 @@ class MainWindow(QMainWindow):
                 language_groups=self.config.filter_language_groups,
                 quality_groups=self.config.filter_quality_groups,
                 platform_groups=self.config.filter_platform_groups,
+                regional_groups=self.config.filter_regional_groups,
                 excluded_user_categories=set(self.config.global_filter_excluded_user_categories),
             )
 
@@ -2407,6 +2411,7 @@ class MainWindow(QMainWindow):
                 language_groups=stats['language_groups'],
                 quality_groups=stats['quality_groups'],
                 platform_groups=stats['platform_groups'],
+                region_groups=stats.get('region_groups', {}),
             )
 
             logger.info(f"Initialized filter stats: {stats['channels_with_prefix']} channels with prefixes")

@@ -553,6 +553,7 @@ class ChannelRepository:
                         language_groups: Optional[Dict[str, List[str]]] = None,
                         quality_groups: Optional[Dict[str, List[str]]] = None,
                         platform_groups: Optional[Dict[str, List[str]]] = None,
+                        regional_groups: Optional[Dict[str, List[str]]] = None,
                         excluded_user_categories: Optional[set] = None) -> Dict:
         """Get statistics about detected prefixes.
 
@@ -568,6 +569,7 @@ class ChannelRepository:
         language_groups = language_groups or {}
         quality_groups = quality_groups or {}
         platform_groups = platform_groups or {}
+        regional_groups = regional_groups or {}
         
         query = self.session.query(ChannelDB)
         if provider_id:
@@ -628,6 +630,14 @@ class ChannelRepository:
         platform_counts = {}
         unmapped_prefixes = set()
 
+        # Build reverse lookup: prefix → set of regional group names
+        region_prefix_to_groups: Dict[str, List[str]] = {}
+        for group_name, prefixes in regional_groups.items():
+            for p in prefixes:
+                region_prefix_to_groups.setdefault(p.upper(), []).append(group_name)
+
+        region_counts: Dict[str, int] = {}
+
         for prefix in all_prefixes:
             categories = categorize_prefix(prefix, language_groups, quality_groups, platform_groups)
             count = prefix_counts[prefix]
@@ -637,7 +647,8 @@ class ChannelRepository:
             if categories['quality']:
                 continue
 
-            if not (categories['language'] or categories['platform']):
+            in_region = prefix.upper() in region_prefix_to_groups
+            if not (categories['language'] or categories['platform'] or in_region):
                 unmapped_prefixes.add(prefix)
 
             if categories['language']:
@@ -648,7 +659,12 @@ class ChannelRepository:
                 plat = categories['platform']
                 platform_counts[plat] = platform_counts.get(plat, 0) + count
 
-        # Unmapped prefixes surface as "Other" in Language/Region dropdown.
+            # A prefix can belong to multiple regional groups (e.g. MX = both
+            # "North America" and "Latin America" and "Central America")
+            for rg in region_prefix_to_groups.get(prefix.upper(), []):
+                region_counts[rg] = region_counts.get(rg, 0) + count
+
+        # Unmapped prefixes surface as "Other" in the Language dropdown.
         # The individual prefix codes are also returned so the filter can pass them
         # to get_all() when the user selects "Other".
         unmapped_list = sorted(unmapped_prefixes)
@@ -664,6 +680,7 @@ class ChannelRepository:
             'language_groups': language_counts,
             'quality_groups': quality_counts,
             'platform_groups': platform_counts,
+            'region_groups': region_counts,
             'unmapped_prefixes': unmapped_list,
             'total_channels': total_channels,
             'channels_with_prefix': total_channels - no_prefix_count,
