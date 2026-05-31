@@ -970,23 +970,59 @@ class MainWindow(QMainWindow):
         """Build combined channel + Stream Monitoring context menu."""
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtCore import QPoint
-        from metatv.core.database import ChannelDB
+        from PyQt6.QtGui import QAction
+        from metatv.core.database import UserRatingDB
 
         session = self.db.get_session()
         try:
-            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id) if channel_id else None
+            if channel:
+                rating_row = session.get(UserRatingDB, channel_id)
+                current_rating = rating_row.rating if rating_row else 0
+            else:
+                current_rating = 0
         finally:
             session.close()
 
         menu = QMenu(self)
+
         if channel:
-            self._populate_channel_context_menu(menu, channel)
+            play_act = QAction(f"{self.config.play_icon} Play", self)
+            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
+            menu.addAction(play_act)
+
             menu.addSeparator()
 
-        remove_act = menu.addAction(f"{self.config.close_icon} Remove from Stream Monitoring")
+            if channel.is_favorite:
+                fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
+                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
+            else:
+                fav_act = QAction(f"{self.config.favorite_icon} Add to Favorites", self)
+                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
+            menu.addAction(fav_act)
+
+            if channel.media_type in ("movie", "series"):
+                menu.addSeparator()
+                like_act = QAction(f"{self.config.like_icon} Like", self)
+                like_act.setCheckable(True)
+                like_act.setChecked(current_rating == 1)
+                like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
+                menu.addAction(like_act)
+                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
+                dislike_act.setCheckable(True)
+                dislike_act.setChecked(current_rating == -1)
+                dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
+                menu.addAction(dislike_act)
+
+            menu.addSeparator()
+
+        remove_act = QAction(f"{self.config.close_icon} Remove from Stream Monitoring", self)
         remove_act.triggered.connect(lambda: self.stream_retry_manager.remove(entry_id))
-        clear_act = menu.addAction("Clear all from Stream Monitoring")
+        menu.addAction(remove_act)
+        clear_act = QAction("Clear all from Stream Monitoring", self)
         clear_act.triggered.connect(self.stream_retry_manager.clear_all)
+        menu.addAction(clear_act)
         menu.exec(QPoint(x, y))
 
     def _on_stream_back_online(self, channel_id: str, channel_name: str) -> None:
