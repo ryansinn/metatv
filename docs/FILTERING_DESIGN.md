@@ -8,66 +8,85 @@ We cannot know in advance what prefix groups, providers, or content categories w
 
 The correct mental model: **everything is shown unless the user explicitly hides it.** Filters are tools for narrowing or excluding, not for granting visibility.
 
-This applies to both filter systems described below.
+---
+
+## Excluded Content Remains Discoverable
+
+**Global Exclusions hide content from browse and discovery — they do not erase it.**
+
+When a user excludes "Indian" prefix channels, those channels disappear from the channel list, Discovery shelves, and Recommendations. But if the user navigates to a specific movie's details pane and that movie exists in an Indian-prefixed version, that version appears in the **Other Versions** panel — **grayed out** with an indicator that it's in an excluded category.
+
+**Why this matters**: content boundaries are messy. An Indian-labeled channel may carry English audio with Indian subtitles. A Nigerian-prefixed provider may carry British documentary content. A user who excluded Arabic may still want to know that an Arabic version of their favorite show exists — and might be the only version with certain audio tracks.
+
+The grayed-out display communicates:
+- "This version exists, but it's in a category you said you don't want in general."
+- "You can still play it if you want to."
+
+This makes Global Exclusions a **browsing preference**, not a hard block. The user's general preference is respected throughout the library; their ability to discover specific content is never fully removed.
+
+**Practical implication**: when implementing any new "Other Versions" or cross-source discovery UI, excluded versions must always appear (visually distinguished) rather than being silently hidden.
+
+---
+
+## Metadata Accuracy Limitation
+
+**Locale-specific filtering is only as good as what the provider labeled.**
+
+The filter system derives everything from the `detected_prefix` field — the token before the separator in each channel name. A US provider and a UK provider may both label channels "EN - Show Title". There is no way to distinguish their origins from the prefix alone.
+
+**Consequences:**
+- "English (North America)" matches only channels explicitly prefixed `US` or `CA`. It does not catch `EN`-prefixed channels from North American providers.
+- "French (Europe)" catches `FR`, `BE`, `CH`, `LU` prefixed channels. It does not catch `FR`-prefixed channels from Québécois or African providers.
+- Most providers use language-code prefixes (EN, ES, FR) regardless of country of origin.
+
+**The right user guidance**: if metadata doesn't indicate the specifics, filter broadly. An American user who wants to reduce non-English content should exclude **Indian**, **Vietnamese**, **Korean**, **Arabic**, **Chinese** (and other language groups) via Global Exclusions — not try to include "English (North America)" only. Global Exclusions at the language-group level is the correct tool for 90% of users.
+
+The locale sub-groups (English (North America), French (Europe), etc.) exist for edge cases where providers *do* use country-code prefixes, and for users who specifically want to drill into that level of precision.
 
 ---
 
 ## Two-Tier Filter System
 
-MetaTV has two filter systems with different scopes and mental models. They are not redundant — they serve different workflows.
+Two filter systems with different scopes and mental models.
 
-### Tier 1 — In-Session View Filters
+### Tier 1 — In-Session View Filters (Quick Filter Bar)
 
 **Scope**: Per-view. In-session. Resets are low-cost.
 
-Each major view has (or will have) its own in-session whitelist-style filter appropriate to that view's content:
-
-| View | Filter axes |
-|------|-------------|
-| **Channel Search** | Language/Region, Quality, Platform, Media Type |
-| **Discovery** | Genre, Decade, Platform, Media Type (planned) |
-| **EPG** | Channel group, Time range (planned) |
-
-These are all Tier 1 filters — they narrow what you see right now in that view. They do not persist as permanent exclusions. The Tier 2 Exclusions always apply underneath them.
-
-The key distinction: Tier 1 filters let the user explore and drill into content without touching their general preferences. Tier 2 exclusions are permanent preferences that apply everywhere. The two systems don't interfere — a Tier 1 filter never overrides a Tier 2 exclusion.
-
-**UX principle: these systems should be self-explanatory from the UI itself.** Labels, affordances, and placement should communicate the mental model without requiring documentation. A user should be able to reason: "this filter is for right now, that one is forever."
-
-#### Quick Filter Bar (Channel Search — current implementation)
-
 **Mental model**: "Show me only X right now."
 
-**Mental model**: "Show me only X right now."
+**Interaction**: "Only Show:" whitelist-style dropdowns. Selecting "English" narrows results to English channels. Nothing selected = show all.
 
-**Interaction**: Whitelist-style dropdowns. The user checks groups they want to *focus on* — selecting "English" narrows results to English channels. Nothing selected = show all.
+**Three orthogonal filter axes** (AND logic across axes):
 
-**Why whitelist here**: The use case is exploratory narrowing ("I want to browse HD English content"). This is the standard pattern in content browsers (Netflix genre filter, Amazon product filter, Spotify genre). Opt-in selection maps naturally to "show me only these."
+| Axis | Field | Behavior |
+|------|-------|----------|
+| **Language/Region (Category)** | `detected_prefix` IN selected OR `detected_region` IN selected | **Inclusive** — channels with no language tag also show (controlled by "Show untagged content" toggle) |
+| **Quality** | `detected_quality` IN selected | **Exclusive** — only explicitly-tagged channels match |
+| **Platform** | `detected_prefix` IN selected | **Exclusive** — only platform-prefixed channels match |
 
-**Three orthogonal filter axes** (selecting across axes is AND logic):
-- **Language/Region** — `EN`, `FR`, `DE`, `ES`, etc.
-- **Quality** — `4K`, `HD`, `FHD`, `SD`, etc.
-- **Platform** — `NF`, `EAR`, `D+`, `24/7`, etc. (provider/service prefixes that are NOT language identifiers)
+Keeping Platform separate is critical: selecting "English" in Language must never exclude NF, EAR, or D+ channels — those are platform prefixes on a different axis.
 
-Keeping Platform separate is critical: selecting "English" in Language should not exclude NF or EAR channels — those are platform prefixes on a different axis. Without a separate Platform axis, filtering by Language accidentally hides platform-prefixed content.
+**Locale sub-groups**: for languages with multiple regional variants, narrower groups exist alongside the aggregate:
+- "English" = all English (EN, UK, US, AU, CA, ZA…) — **use this for most cases**
+- "English (North America)" = US, CA only — catches country-code-prefixed channels only
+- Same pattern for French (Europe/Canada/Africa), Portuguese (Portugal/Brazil/Africa), Arabic (Gulf/Levant/North Africa), Spanish (Spain/Mexico/South America/Central America)
 
-**Unmapped prefixes**: Channels whose `detected_prefix` doesn't map to any group in any axis are always shown regardless of what's selected. Unmapped = unclassified, not excluded.
+### Tier 2 — Global Exclusions Modal
 
-### Tier 2 — Exclusions Modal (Global)
-
-**Scope**: All views — Discovery, Recommendations, EPG, channel list. Persistent across sessions.
+**Scope**: All views — Discovery, Recommendations, EPG, channel list. Persistent.
 
 **Mental model**: "Always hide X."
 
-**Interaction**: Blacklist-style checkboxes. The user checks groups/items they want to *permanently exclude*. Nothing checked = hide nothing.
+**Interaction**: Blacklist-style checkboxes. Checking a group **hides** all channels in that group everywhere. Nothing checked = hide nothing.
 
-**Why blacklist here**: The use case is permanent blocking ("I never want Arabic channels" / "hide all SD channels"). Opt-out selection maps naturally to "I'm choosing to remove this from my experience."
+**Primary use case**: language exclusion. An American user opens Exclusions, checks Indian, Vietnamese, Korean, Arabic, Chinese — those language groups disappear from everywhere. One decision, set once, applies across the entire app.
 
 **Two sections**:
-1. **Categories** — hide broad groups (Language/Region, Quality, Platform). Checking a group hides all channels in that group everywhere.
-2. **Hidden Content** — specific channels hidden individually (via the Hide button in the details pane). Equivalent to the current Hidden view. Users can review and unhide from here.
+1. **Language/Category prefix groups** — hide broad categories everywhere.
+2. **Content Types** — hide channel types by source category header (Sports, News, Kids, etc.).
 
-The Exclusions modal is a popup/dialog so the user doesn't lose their current view context.
+**Does not affect**: Other Versions panel in the details pane — excluded versions always appear there, grayed out. See "Excluded Content Remains Discoverable" above.
 
 ---
 
@@ -75,49 +94,61 @@ The Exclusions modal is a popup/dialog so the user doesn't lose their current vi
 
 Three distinct semantic types of channel prefixes:
 
-| Type | Examples | What it means |
-|------|----------|---------------|
-| **Language/Region** | `EN`, `FR`, `DE`, `ES`, `AR`, `TR` | The language or region of the content |
-| **Quality** | `4K`, `FHD`, `HD`, `SD`, `HQ`, `LQ` | Video quality/resolution of the stream |
-| **Platform/Service** | `NF`, `EAR`, `D+`, `24/7`, `PRIME` | The streaming service or channel format |
+| Type | Examples | Filter axis |
+|------|----------|------------|
+| **Language/Region** | `EN`, `FR`, `DE`, `ES`, `AR`, `TR`, `HI`, `TE` | Language/Category (Tier 1), Exclusions (Tier 2) |
+| **Quality** | `4K`, `FHD`, `HD`, `SD`, `HQ`, `LQ` | Quality (Tier 1) |
+| **Platform/Service** | `NF`, `EAR`, `D+`, `24/7`, `PRIME` | Platform (Tier 1) |
 
-These are orthogonal. A channel can have a platform prefix (NF) without any language prefix. Mixing them into one "Categories" bucket causes filters to behave unexpectedly — filtering on Language should never affect Platform-prefixed channels.
-
-Canonical prefix→group mappings live in `metatv/core/config.py` (`BASE_PREFIX_GROUPS`, `BASE_QUALITY_GROUPS`, `BASE_PLATFORM_GROUPS`). User overrides are applied on top. Never define these mappings elsewhere.
+Canonical prefix→group mappings live in `metatv/core/config.py`:
+- `BASE_PREFIX_GROUPS` — language/region groups + locale sub-groups
+- `BASE_REGIONAL_GROUPS` — geographic groups (Africa, Europe, Latin America, etc.) orthogonal to language groups
+- `BASE_QUALITY_GROUPS`, `BASE_PLATFORM_GROUPS`
 
 ---
 
 ## Filtering Logic Rules
 
-1. **No filter active = show all content.** An empty selection in either tier must never hide anything.
+1. **No filter active = show all content.** Empty selection in either tier hides nothing.
 
-2. **Unmapped prefixes are always visible.** A channel whose `detected_prefix` doesn't appear in any configured group is not excluded by any filter. Only channels whose prefix is explicitly in a *deselected* (Tier 1) or *checked* (Tier 2) group are affected.
+2. **Unmapped prefixes are always visible.** A channel whose `detected_prefix` doesn't appear in any configured group is not excluded by any filter. Unmapped = unclassified, not excluded.
 
-3. **Tier 2 exclusions apply everywhere; Tier 1 applies to channel search only.** The Exclusions modal affects Discovery, Recommendations, EPG, and the channel list. The Quick Filter Bar only narrows the channel search results.
+3. **Tier 2 exclusions apply everywhere; Tier 1 applies to channel search only.** The Exclusions modal affects Discovery, Recommendations, EPG, and the channel list. The Quick Filter Bar only narrows channel search results.
 
-4. **`detected_prefix IS NULL` channels** (no detectable prefix): controlled separately via "Hide untagged channels" (Tier 1) and "Hide content with no category label" (Tier 2). Off by default in both — untagged channels are visible unless explicitly hidden.
+4. **Untagged channels** (no detected_prefix): shown by default. "Show untagged content" toggle in Tier 1 controls whether they pass through the language filter. "Hide content with no category label" in Tier 2 is off by default.
 
-5. **Tier 2 exclusions take precedence.** A channel hidden globally stays hidden even if the Tier 1 filter would include it.
+5. **Tier 2 exclusions always take precedence** over Tier 1 whitelists. A globally excluded channel stays excluded even if Tier 1 would include it.
+
+6. **Excluded content is never fully hidden.** See the "Excluded Content Remains Discoverable" section above.
 
 ---
 
-## Current Implementation State
+## Implementation Status
 
 | Feature | Status |
 |---------|--------|
-| Tier 1 Quick Filter Bar | Implemented. Language + Quality dropdowns. **Missing: Platform dropdown.** |
-| Tier 1 whitelist model | Implemented with "all selected = no filter" fix for unmapped prefixes. |
-| Tier 2 Exclusions modal | Partially implemented as "Global Filter" dialog. Currently whitelist — **needs flip to blacklist.** |
-| Hidden Content tab in Exclusions | Not yet unified. Hidden view exists separately. |
-| Platform as separate Tier 1 axis | **Not yet implemented.** |
+| Tier 1 Quick Filter Bar | ✅ Language + Quality + Platform dropdowns |
+| Tier 1 whitelist model | ✅ "all selected = no filter" logic |
+| Tier 1 locale sub-groups | ✅ English/French/Portuguese/Arabic/Spanish regional variants |
+| Three independent SQL axes | ✅ Language inclusive, Quality/Platform exclusive |
+| Language suffix detection (EN, (US)) | ✅ `detected_region` column |
+| Quality anywhere in name | ✅ `detected_quality` column (prefix + suffix) |
+| Tier 2 Exclusions modal | ✅ Blacklist model, opt-out |
+| Global Exclusions applied to search | ✅ |
+| Prefix normalization | ✅ Full country/language names → standard codes on ingest |
+| Geographic regional groups | ✅ 18 continent/area groups in `BASE_REGIONAL_GROUPS` |
+| Grayed-out excluded versions in details pane | ✅ |
+| Debounced SQL search | ✅ 200ms, 5k page cap |
 
 ---
 
 ## Roadmap
 
-- [ ] **Flip Global Filter to blacklist** — checking a group hides it; nothing checked = hide nothing; rename to "Exclusions"
-- [ ] **Add Platform dropdown to Quick Filter Bar** — NF, EAR, D+, 24/7 get their own filter axis
-- [ ] **Unified Exclusions modal** — combine Global Filter categories + Hidden Content into one tabbed dialog
-- [ ] **Filter presets** — save named filter combos ("HD English", "Platform only", etc.)
-- [ ] **Search within excluded results** — for large filtered datasets (50k+)
-- [ ] **"Copy filters from…" across views** — apply another view's active Tier 1 filter to the current view (e.g. dial in a filter in Search then copy it to Discover). Surfaces as a small dropdown on each view's filter bar: "Copy from: Search · Discover · EPG"
+- [ ] **Filter bar hierarchy** — Language and Region as separate or tree-structured dropdowns; expandable group→prefix drill-down for "Other" prefix review
+- [ ] **Regional filter axis** — expose `BASE_REGIONAL_GROUPS` in the filter bar as a "Region" dropdown alongside "Category"
+- [ ] **Compound locale approach** — store `detected_language` and `detected_country` separately; enables EN-US / EN-CA as truly distinct queryable values (currently limited by prefix-only detection)
+- [ ] **User-defined prefix groups** — UI to assign "Other" prefixes to groups; backed by `user_prefix_overrides` in config
+- [ ] **"Copy filters from…" across views** — apply a dialed-in Tier 1 filter from one view (Search/Discover/EPG) to another
+- [ ] **"Promote to Global Exclusion"** — convert an active Tier 1 exclusion to a permanent Tier 2 exclusion (requires inversion: everything NOT selected becomes excluded)
+- [ ] **Discover shelves** respect Global Exclusions for shelf *visibility* — a shelf should not appear in Manage Discovery Shelves if all its content is globally excluded
+- [ ] **EPG On Now / Browse** — add Tier 1 filter bar consistent with the search model
