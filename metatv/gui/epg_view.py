@@ -936,8 +936,8 @@ class EpgView(ContentView):
                 ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
                 if ch:
                     name_map[p.channel_db_id] = ch.name
-                    if ch.quality and ch.quality != "unknown":
-                        quality_map[p.channel_db_id] = ch.quality.upper()
+                    if ch.detected_quality:
+                        quality_map[p.channel_db_id] = ch.detected_quality.upper()
         self._channel_quality_map.update(quality_map)
         return name_map
 

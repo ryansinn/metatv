@@ -376,12 +376,19 @@ class ChannelRepository:
 
             parsed = parse_channel_name(channel.name)
 
-            # detected_quality: suffix quality OR quality-as-prefix (e.g. "HD - Movie")
+            # detected_quality priority:
+            #   1. Name suffix  ("CNN HD" → "HD")
+            #   2. Quality-as-prefix  ("HD - Movie" → "HD")
+            #   3. API quality field  (channel.quality = "hd" → "HD")
             quality: str | None = None
             if parsed.quality:
                 quality = parsed.quality[0].upper()
             elif prefix and prefix.upper() in QUALITY_TOKENS:
                 quality = prefix.upper()
+            elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
+                api_q = channel.quality.upper()
+                if api_q in QUALITY_TOKENS:
+                    quality = api_q
 
             # detected_region: parenthetical lang/region suffix (e.g. "(US)" → "US")
             region: str | None = parsed.lang or None
