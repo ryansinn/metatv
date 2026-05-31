@@ -1286,7 +1286,14 @@ class EpgView(ContentView):
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
-        hidden_prefixes = set(self.config.epg_hidden_prefixes or [])
+        # Apply global content filter on top of EPG-specific hidden prefixes,
+        # unless the global filter is paused (user wants to see everything temporarily).
+        _global_excluded = (
+            set()
+            if getattr(self.config, 'global_filter_paused', False)
+            else set(self.config.global_filter_excluded_prefixes or [])
+        )
+        hidden_prefixes = set(self.config.epg_hidden_prefixes or []) | _global_excluded
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
 

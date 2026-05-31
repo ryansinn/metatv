@@ -32,7 +32,7 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
-from metatv.gui.filter_bar import FilterBar, ToggleChip
+from metatv.gui.filter_bar import FilterBar, ToggleChip, FilterChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
 from metatv.gui.details_actions import ChannelActionState
@@ -644,8 +644,9 @@ class MainWindow(QMainWindow):
 
             queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
             provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
-            allowed_prefixes = set(self.config.global_filter_included_categories)
-            blocked_prefixes = set(self.config.global_filter_excluded_prefixes)
+            _filter_paused = self.config.global_filter_paused
+            allowed_prefixes = set() if _filter_paused else set(self.config.global_filter_included_categories)
+            blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
 
             def _is_filtered(ch: ChannelDB) -> bool:
                 p = ch.detected_prefix
@@ -1302,18 +1303,18 @@ class MainWindow(QMainWindow):
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         media_layout.addWidget(self.discover_chip)
 
+        # Utility group — right-aligned, separated from primary nav chips
+        media_layout.addStretch()
+
         self.hidden_chip = ToggleChip(f"{self.config.hide_icon} Hidden", enabled=False)
         self.hidden_chip.setToolTip("Show channels you've hidden — right-click to unhide")
         self.hidden_chip.clicked.connect(self.on_hidden_view_toggle)
         media_layout.addWidget(self.hidden_chip)
 
-        # Global content filter button — text pill, right-aligned
-        media_layout.addStretch()
-        self._filter_btn = QPushButton("Filters")
-        self._filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._filter_btn.setToolTip("Content category filters")
-        self._filter_btn.clicked.connect(self._open_global_filter_dialog)
-        media_layout.addWidget(self._filter_btn)
+        self._filter_chip = FilterChip("Filters")
+        self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
+        self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
+        media_layout.addWidget(self._filter_chip)
         QTimer.singleShot(0, self._update_filter_btn_state)
 
         self.content_layout.addWidget(media_widget)
@@ -1866,6 +1867,7 @@ class MainWindow(QMainWindow):
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
         from metatv.core.filter_utils import get_excluded_prefixes
+        _filter_paused = self.config.global_filter_paused
         params = dict(
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
@@ -1875,11 +1877,12 @@ class MainWindow(QMainWindow):
             include_untagged=filter_state.get('include_untagged', True),
             adult_mode=filter_state.get('adult_mode', 'hide'),
             force_adult_ids=force_adult_ids,
-            source_categories=get_active_content_type_filter(self.config),
+            # Global filter — bypassed when paused so the user can see everything
+            source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
+            excluded_prefixes=set() if _filter_paused else get_excluded_prefixes(self.config),
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
             given_provider_id=provider_id,
-            excluded_prefixes=get_excluded_prefixes(self.config),
             hidden_only=self._hidden_mode,
         )
 
@@ -2812,35 +2815,35 @@ class MainWindow(QMainWindow):
             self.switch_to_list_view()
 
     def _update_filter_btn_state(self) -> None:
-        """Update the Filters pill button to reflect whether any content filters are active."""
+        """Sync FilterChip visual state with current filter config."""
         active = (
             bool(self.config.global_filter_included_categories)
             or bool(self.config.global_filter_included_content_types)
             or bool(self.config.global_filter_excluded_prefixes)
         )
-        if active:
-            self._filter_btn.setText("Filters\nACTIVE")
-            self._filter_btn.setStyleSheet(
-                "QPushButton { font-size: 11px; color: #4a9eff; border: 1px solid #4a9eff;"
-                " border-radius: 4px; padding: 2px 8px; background: rgba(74,158,255,0.08); }"
-                "QPushButton:hover { background: rgba(74,158,255,0.15); }"
-            )
-            self._filter_btn.setToolTip("Content filters are active — click to manage")
-        else:
-            self._filter_btn.setText("Filters")
-            self._filter_btn.setStyleSheet(
-                "QPushButton { font-size: 11px; color: #aaa; border: 1px solid #444;"
-                " border-radius: 4px; padding: 2px 8px; }"
-                "QPushButton:hover { border-color: #666; color: #ccc; }"
-            )
-            self._filter_btn.setToolTip("Content category filters")
+        self._filter_chip.set_filter_state(active, self.config.global_filter_paused)
+
+    def _on_filter_toggle(self, resume: bool) -> None:
+        """FilterChip clicked while filters are set: resume=True → unpause, False → pause."""
+        self.config.global_filter_paused = not resume
+        self.config.save()
+        self._update_filter_btn_state()
+        self.load_channels()
+        if hasattr(self, "discover_view"):
+            self.discover_view.reload()
+        if hasattr(self, "preferences_view"):
+            self.preferences_view.refresh()
+        self._refresh_recommended_section()
 
     def _open_global_filter_dialog(self) -> None:
         from metatv.gui.global_filter_dialog import GlobalFilterDialog
         dlg = GlobalFilterDialog(self.db, self.config, self)
         if dlg.exec() == GlobalFilterDialog.DialogCode.Accepted:
+            # If the user configured filters, ensure they're unpaused so they take effect
+            self.config.global_filter_paused = False
+            self.config.save()
             self._update_filter_btn_state()
-            # Reload all filter-aware surfaces with the new filter
+            self.load_channels()
             if hasattr(self, "discover_view"):
                 self.discover_view.reload()
             if hasattr(self, "preferences_view"):

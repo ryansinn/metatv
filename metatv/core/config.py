@@ -182,6 +182,9 @@ class Config(BaseModel):
     # Whether to show content whose prefix code didn't match any named language group.
     # True = include "Other" content; False = hide it. Controlled by the filter dialog.
     global_filter_include_other_prefixes: bool = True
+    # When True, all global filter settings are preserved but not applied anywhere.
+    # Lets the user temporarily see unfiltered content without losing their configuration.
+    global_filter_paused: bool = False
 
     # Discover view zone persistence
     # shelf keys: "recently_added", "top_movies", "top_series", "genre:Drama", "decade:1990", etc.

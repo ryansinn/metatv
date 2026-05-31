@@ -76,6 +76,80 @@ class ToggleChip(QPushButton):
         self.update_appearance()
 
 
+class FilterChip(ToggleChip):
+    """Three-state chip for the global content filter.
+
+    States:
+      no-filter  — gray ○, click opens dialog
+      active     — teal ●, click pauses, right-click opens dialog
+      paused     — amber ●, click resumes, right-click opens dialog
+
+    toggled_changed(bool):
+      True  = filter should be active (resume)
+      False = filter should be paused
+    open_dialog_requested = right-click or click-when-no-filters
+    """
+
+    open_dialog_requested = pyqtSignal()
+
+    _ACTIVE_STYLE = """
+        QPushButton {
+            background-color: #1a6b5e; color: #2a9d8f;
+            border: 1px solid #2a9d8f; border-radius: 12px;
+            padding: 6px 14px; font-weight: bold;
+        }
+        QPushButton:hover { background-color: #236b60; }
+    """
+    _PAUSED_STYLE = """
+        QPushButton {
+            background-color: #5c3d00; color: #f0a040;
+            border: 1px solid #f0a040; border-radius: 12px;
+            padding: 6px 14px; font-weight: bold;
+        }
+        QPushButton:hover { background-color: #6e4a00; }
+    """
+
+    def __init__(self, label: str):
+        super().__init__(label, enabled=False)
+        self._paused = False
+        self._has_filters = False
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(
+            lambda _: self.open_dialog_requested.emit()
+        )
+        self.setToolTip("Content category filters — click to configure")
+
+    def set_filter_state(self, has_filters: bool, paused: bool) -> None:
+        self._has_filters = has_filters
+        self._paused = paused
+        self.blockSignals(True)
+        self.set_enabled(has_filters)
+        self.blockSignals(False)
+        if has_filters and paused:
+            self.setText(f"{self.label} ●")
+            self.setStyleSheet(self._PAUSED_STYLE)
+            self.setToolTip("Filters paused — click to resume · right-click to edit")
+        elif has_filters:
+            self.setText(f"{self.label} ●")
+            self.setStyleSheet(self._ACTIVE_STYLE)
+            self.setToolTip("Filters active — click to pause · right-click to edit")
+        else:
+            self.update_appearance()   # standard gray ○
+            self.setToolTip("Content category filters — click to configure")
+
+    def on_clicked(self) -> None:
+        if self._has_filters:
+            # Toggle pause/resume — keep chip lit, don't flip _enabled
+            self.blockSignals(True)
+            self.set_enabled(True)
+            self.blockSignals(False)
+            # True = resume (un-pause), False = pause
+            self.toggled_changed.emit(self._paused)
+        else:
+            # No filters configured — open dialog
+            self.open_dialog_requested.emit()
+
+
 class FilterDropdown(QPushButton):
     """Dropdown button with multi-select checkboxes"""
 
