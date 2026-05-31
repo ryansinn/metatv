@@ -450,8 +450,9 @@ class MainWindow(QMainWindow):
             section.providerEditClicked.connect(self.enter_provider_edit_mode)
             section.providerToggleClicked.connect(self.toggle_provider_active)
             section.addProviderClicked.connect(self.add_provider)
+            section.refreshAllClicked.connect(self.refresh_all_providers)
             return section
-        
+
         elif section_id == "alerts":
             section = WatchAlertsSection(self.config, self.db, self)
             section.alertClicked.connect(self._on_alert_clicked)
@@ -1751,6 +1752,17 @@ class MainWindow(QMainWindow):
                 auto_dismiss_seconds=5
             )
     
+    def refresh_all_providers(self) -> None:
+        """Refresh channels from every active provider."""
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            provider_ids = [p.id for p in repos.providers.get_all(active_only=True)]
+        finally:
+            session.close()
+        for pid in provider_ids:
+            self.refresh_provider(pid)
+
     def on_provider_selected(self, item, column):
         """Handle provider selection in tree"""
         provider_id = item.data(0, Qt.ItemDataRole.UserRole)

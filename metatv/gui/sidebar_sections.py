@@ -305,6 +305,7 @@ class SourcesSection(CollapsibleSection):
     providerEditClicked = pyqtSignal(str)      # provider_id
     providerToggleClicked = pyqtSignal(str)    # provider_id
     addProviderClicked = pyqtSignal()
+    refreshAllClicked = pyqtSignal()
 
     def __init__(self, config, db, parent=None):
         self.db = db
@@ -329,14 +330,28 @@ class SourcesSection(CollapsibleSection):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
+        _btn_style = (
+            "QPushButton {{ font-size: {fs}px; font-weight: bold; border: 1px solid {c};"
+            " border-radius: 3px; color: {c}; background: {bg}; }}"
+            "QPushButton:hover {{ background: {hbg}; }}"
+        )
+        refresh_all_btn = QPushButton(self.config.refresh_icon)
+        refresh_all_btn.setFixedSize(22, 20)
+        refresh_all_btn.setToolTip("Refresh all sources")
+        refresh_all_btn.setStyleSheet(_btn_style.format(
+            fs=13, c="#aaa",
+            bg="rgba(255,255,255,0.05)", hbg="rgba(255,255,255,0.15)",
+        ))
+        refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)
+        header_layout.addWidget(refresh_all_btn)
+
         add_btn = QPushButton("+")
         add_btn.setFixedSize(22, 20)
         add_btn.setToolTip("Add Source…")
-        add_btn.setStyleSheet("""
-            QPushButton { font-size: 14px; font-weight: bold; border: 1px solid #4488ff;
-                          border-radius: 3px; color: #4488ff; background: rgba(68,136,255,0.1); }
-            QPushButton:hover { background: rgba(68,136,255,0.3); }
-        """)
+        add_btn.setStyleSheet(_btn_style.format(
+            fs=14, c="#4488ff",
+            bg="rgba(68,136,255,0.1)", hbg="rgba(68,136,255,0.3)",
+        ))
         add_btn.clicked.connect(self.addProviderClicked.emit)
         header_layout.addWidget(add_btn)
 
