@@ -16,9 +16,23 @@ This applies to both filter systems described below.
 
 MetaTV has two filter systems with different scopes and mental models. They are not redundant — they serve different workflows.
 
-### Tier 1 — Quick Filter Bar (Channel Search View)
+### Tier 1 — In-Session View Filters
 
-**Scope**: Channel list / search view only. In-session. Resets are low-cost.
+**Scope**: Per-view. In-session. Resets are low-cost.
+
+Each major view has (or will have) its own in-session whitelist-style filter appropriate to that view's content:
+
+| View | Filter axes |
+|------|-------------|
+| **Channel Search** | Language/Region, Quality, Platform, Media Type |
+| **Discovery** | Genre, Decade, Platform, Media Type (planned) |
+| **EPG** | Channel group, Time range (planned) |
+
+These are all Tier 1 filters — they narrow what you see right now in that view. They do not persist as permanent exclusions. The Tier 2 Exclusions always apply underneath them.
+
+#### Quick Filter Bar (Channel Search — current implementation)
+
+**Mental model**: "Show me only X right now."
 
 **Mental model**: "Show me only X right now."
 
