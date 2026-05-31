@@ -1053,6 +1053,8 @@ class EpgView(ContentView):
 
     def _make_watchlist_item(self, pattern: str, live: list[EpgProgramDB],
                               upcoming: list[EpgProgramDB]) -> QWidget:
+        from collections import defaultdict
+
         w = QWidget()
         w.setMinimumWidth(280)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1061,26 +1063,27 @@ class EpgView(ContentView):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
 
-        # Header row
+        # ── Header ──────────────────────────────────────────────────────── #
+        is_live = bool(live)
+        icon = "🔴" if is_live else "⏰"
+
+        # Group live programmes by show title (most channels = most popular first)
+        title_groups: dict[str, list] = defaultdict(list)
+        for prog in live:
+            title_groups[prog.title].append(prog)
+        title_groups = dict(sorted(title_groups.items(), key=lambda kv: -len(kv[1])))
+
         header = QHBoxLayout()
-        is_live_now = bool(live)
-        icon = "🔴" if is_live_now else "⏰"
-        title_lbl = QLabel(f"{icon}  {pattern}")
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
-        header.addWidget(title_lbl)
+        pattern_lbl = QLabel(f"{icon}  {pattern}")
+        pattern_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        header.addWidget(pattern_lbl)
         header.addStretch()
 
-        if is_live_now:
-            prog = live[0]
-            ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            play_btn = QPushButton(f"{self.config.play_icon} Play")
-            play_btn.setFixedWidth(70)
-            play_btn.setStyleSheet("background: #2a6; color: white; border-radius: 3px; padding: 2px 6px;")
-            play_btn.clicked.connect(lambda _=False, cid=prog.channel_db_id: self._play_channel(cid))
-            live_lbl = QLabel(f"ON NOW → {ch_name}")
+        if is_live:
+            n = len(live)
+            live_lbl = QLabel(f"ON NOW ({n})" if n > 1 else "ON NOW")
             live_lbl.setStyleSheet("color: #4a4; font-size: 12px;")
             header.addWidget(live_lbl)
-            header.addWidget(play_btn)
 
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
@@ -1090,13 +1093,62 @@ class EpgView(ContentView):
         header.addWidget(remove_btn)
         layout.addLayout(header)
 
-        # Upcoming airings (up to 3)
-        shown = live[:1] + upcoming  # live entry first if present
-        for prog in shown[:3]:
+        # ── Live title groups ────────────────────────────────────────────── #
+        _PLAY_STYLE = "background: #2a6; color: white; border-radius: 3px; padding: 2px 8px;"
+
+        for title, progs in title_groups.items():
+            # Show title
+            title_row = QLabel(title)
+            title_row.setWordWrap(True)
+            title_row.setStyleSheet(
+                "font-size: 11px; color: #ddd; font-weight: bold;"
+                " padding-left: 8px; padding-top: 4px;"
+            )
+            layout.addWidget(title_row)
+
+            # Time remaining + Play button
+            time_row = QHBoxLayout()
+            time_row.setContentsMargins(16, 0, 0, 0)
+            remaining = _remaining_str(progs[0].stop_time)
+            time_lbl = QLabel(f"▶  {remaining}")
+            time_lbl.setStyleSheet("color: #ccc; font-size: 11px;")
+            time_row.addWidget(time_lbl, 1)
+            play_btn = QPushButton(f"{self.config.play_icon} Play")
+            play_btn.setFixedHeight(22)
+            play_btn.setStyleSheet(_PLAY_STYLE)
+            first_cid = progs[0].channel_db_id
+            play_btn.clicked.connect(lambda _=False, cid=first_cid: self._play_channel(cid))
+            time_row.addWidget(play_btn)
+            layout.addLayout(time_row)
+
+            # Channel list (compact, one line, secondary)
+            ch_names = [
+                self._channel_name_map.get(p.channel_db_id or "", p.channel_epg_id)
+                for p in progs
+            ]
+            MAX_SHOWN = 3
+            if len(ch_names) > MAX_SHOWN:
+                display = " · ".join(ch_names[:MAX_SHOWN]) + f" · +{len(ch_names) - MAX_SHOWN} more"
+            else:
+                display = " · ".join(ch_names)
+            ch_lbl = QLabel(display)
+            ch_lbl.setStyleSheet("color: #666; font-size: 10px; padding-left: 16px;")
+            ch_lbl.setWordWrap(True)
+            layout.addWidget(ch_lbl)
+
+        # ── Separator + upcoming ─────────────────────────────────────────── #
+        if is_live and upcoming:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("background: #333; margin-top: 4px; margin-bottom: 2px;")
+            sep.setMaximumHeight(1)
+            layout.addWidget(sep)
+
+        for prog in upcoming[:3]:
             ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
             now = _now_utc()
             if prog.start_time <= now:
-                time_str = f"{_remaining_str(prog.stop_time)}"
+                time_str = _remaining_str(prog.stop_time)
                 prefix = "  ▶ "
             else:
                 mins = _minutes_away(prog.start_time)
@@ -1107,7 +1159,6 @@ class EpgView(ContentView):
                 else:
                     time_str = f"{prog.start_time.strftime('%a')} {_format_time(prog.start_time)}"
                 prefix = "  "
-
             row_lbl = QLabel(f"{prefix}{time_str}  ·  {ch_name}")
             row_lbl.setStyleSheet("color: #999; font-size: 11px; padding-left: 16px;")
             layout.addWidget(row_lbl)
