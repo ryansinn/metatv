@@ -16,53 +16,96 @@ from loguru import logger
 
 BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Albanian":         ["AL", "ALB"],
-    "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD"],
+    "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD",
+                         "ARA", "TAR", "OMAR"],  # full-word Arabic variants (QURAN moved to Religious platform)
     "Argentine":        ["ARG", "ARGENTINA"],
     "Armenian":         ["AM", "ARM"],
     "Azerbaijani":      ["AZ"],
     "Bulgarian":        ["BG"],
-    "Chinese":          ["CN", "HK", "TW", "SG"],
+    "Chinese":          ["CN", "HK", "TW", "SG", "CHN", "TWN", "HKG"],
     "Czech":            ["CZ"],
-    "Danish":           ["DK"],
-    "Dutch":            ["NL", "BE"],
-    "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH", "ZA", "ZM", "ZW", "NG"],
+    "Danish":           ["DK", "DNK"],
+    "Dutch":            ["NL", "BE", "OD"],   # OD = Dutch provider (NPO1/2/3, Viaplay NL)
+    "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH",
+                         "ZA", "ZM", "ZW", "NG", "AUS", "NA", "BS"],  # + Australia, Namibia, Bahamas
     "Filipino":         ["PH"],
-    "Finnish":          ["FI"],
-    "French":           ["FR", "BE", "CH", "CA", "LU", "MC"],
+    "Finnish":          ["FI", "FIN"],
+    "French":           ["FR", "BE", "CH", "CA", "LU", "MC",
+                         "QFR", "MQ", "GP", "MG", "HT"],  # + Quebec, Martinique, Guadeloupe, Madagascar, Haiti
     "Georgian":         ["GE"],
-    "German":           ["DE", "AT", "CH", "LI"],
+    "German":           ["DE", "AT", "CH", "LI", "SW"],   # SW = Swiss channels (SWISS 1, 3+, 4+)
     "Greek":            ["GR", "CY"],
-    "Hebrew":           ["IL", "ISR"],
+    "Hebrew":           ["IL", "ISR", "IS"],  # IS = Israeli provider prefix (YES ONE, YES 12 etc.)
     "Hungarian":        ["HU"],
-    "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA"],
+    "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
+                         # Full language names & alternate abbreviations confirmed from channel data:
+                         "HINDI", "IND",
+                         "TEL", "TELUGU", "TELEGU",         # Telugu (TELEGU = common typo)
+                         "TAM", "TAMIL",                     # Tamil
+                         "KAN", "KANNADA",                   # Kannada
+                         "MAL", "MALAYALAM",                 # Malayalam
+                         "MARATHI",                          # Marathi
+                         "PUN", "PUNJABI", "PB",             # Punjabi
+                         "GUJ", "GUJARATI",                  # Gujarati
+                         "BAN", "BENGALI", "BANGALI", "BENGLAI",  # Bengali (BENGLAI = typo)
+                         "ODIA",                             # Odia
+                         "BHOJPURI",                         # Bhojpuri
+                         "ASSAM",                            # Assamese
+                         "SRI",                              # Sri Lankan (Tamil/Sinhala)
+                         "NP",                               # Nepali
+                         # Regional sub-prefixes confirmed from channel names (South Indian content):
+                         "STH", "TG", "TL", "BL", "KD"],
     "Indonesian":       ["ID"],
     "Italian":          ["IT", "CH", "SM", "VA"],
     "Japanese":         ["JP"],
-    "Korean":           ["KR"],
+    "Cambodian":        ["KH"],          # KH confirmed: Cambodia TV HD, BTV News
+    "Korean":           ["KR", "KO"],   # KO confirmed as Korean (dramas: My Holo Love, etc.)
     "Kurdish":          ["KU"],
     "Latvian":          ["LV"],
     "Lithuanian":       ["LT"],
     "Malay":            ["MY"],
-    "Norwegian":        ["NO"],
-    "Persian/Iranian":  ["IR", "FA"],
+    "Norwegian":        ["NO", "NOR"],
+    "Persian/Iranian":  ["IR", "FA", "PER", "AFG"],  # PER = Persian content; AFG = Dari/Afghan (BBC Farsi, Afghan TV)
     "Polish":           ["PL"],
-    "Portuguese":       ["PT", "BR", "CV"],
+    "Portuguese":       ["PT", "BR", "CV",
+                         "ANG", "ANGOLA", "MOZ", "MOZAMBIQUE", "CABO", "CAPEVERDE"],  # Portuguese-speaking Africa
     "Romanian":         ["RO"],
-    "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ"],
-    "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR"],
+    "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ", "RUS"],
+    "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR",
+                         "EXYU", "BIH", "BS", "SLO", "SLN", "MNG"],  # MNG=Montenegro (RTCG SAT confirmed)
     "Slovak":           ["SK"],
-    "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"],
-    "Swahili":          ["TZ"],
-    "Swedish":          ["SE"],
+    "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY",
+                         # Full country names and regional variants seen in provider data:
+                         "LAT", "LATIN", "MXC",              # Latin/LatAm general + Mexico variant
+                         "URUGUAY", "COLOMBIA", "CHILE", "CHL",
+                         "PERU", "DOMINICAN", "RDOM",
+                         "VENEZUELA", "VZ",
+                         "HONDURAS", "GUATEMALA", "ECUADOR", "PANAMA", "CUBA",
+                         "PR"],  # PR = Peru (Canal N, America TV confirmed)
+    "Swahili":          ["TZ"],          # SW reassigned to German (confirmed Swiss channels)
+    "Swedish":          ["SE", "SWE"],
     "Thai":             ["TH"],
     "Turkish":          ["TR", "CY"],
     "Ukrainian":        ["UA"],
     "Urdu/Pakistani":   ["PK", "UR"],
     "Vietnamese":       ["VN"],
+    "Maltese":          ["MT"],   # MT confirmed: TVM 1, TVM NEWS+
+    # New groups from provider data:
+    "African":          ["AF", "AFR",
+                         "NIG", "NIGERIA", "GHA", "GHANA", "SEN", "SENEGAL",
+                         "CAMEROON", "KENYA", "UGA", "UGANDA", "MALI",
+                         "CONGO", "TOG", "TOGO", "GAM", "GAMBIA", "GABON",
+                         "ERI", "ERITREA", "ETH", "ETHO", "ETHIOPIA", "ETR",
+                         "SOM", "SOMALIA", "DJIBOUTI",
+                         "NAMIBIA", "TANZANIA",
+                         "GUINEA", "GUINEE", "GUI",
+                         "RWANDA", "ROWANDA", "RWA",
+                         "BENIN", "BKF", "CAF",
+                         "GENERAL"],  # GENERAL confirmed as African content (AFRICA TV1/2/3)
 }
 
 BASE_QUALITY_GROUPS: dict[str, list[str]] = {
-    "4K / UHD":        ["4K", "UHD", "8K", "2160P"],
+    "4K / UHD":        ["4K", "UHD", "8K", "2160P", "PL4K"],
     "HD":              ["HD", "FHD", "1080P", "720P", "HDR", "HDR10", "HDR10+"],
     "HQ":              ["HQ"],
     "SD":              ["SD", "480P", "360P"],
@@ -71,10 +114,41 @@ BASE_QUALITY_GROUPS: dict[str, list[str]] = {
 }
 
 BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
-    "Streaming": ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME", "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+"],
-    "Sports":    ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS"],
-    "News":      ["CNN", "BBC", "FOX", "NBC", "CBS", "ABC", "MSNBC", "SKY NEWS", "AL JAZEERA", "FRANCE24"],
-    "Kids":      ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS"],
+    # Major streaming services — short codes used by IPTV providers:
+    "Streaming":  ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME",
+                   "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
+                   "NF",           # Netflix (confirmed)
+                   "EAR",          # EAR streaming library (11k+ channels)
+                   "TUBI",         # Tubi
+                   "VIX",          # ViX (Spanish/Latin streaming — telenovelas confirmed)
+                   "JOYN",         # Joyn (German streaming — ARD/3sat confirmed)
+                   "SHAHID",       # Shahid (Arabic/Middle East streaming confirmed)
+                   "WOW",          # WOW (German Sky streaming — Sky Cinema confirmed)
+                   "GOLD",         # GOLD streaming (BBC Nordic DK, etc. confirmed)
+                   "VIP",          # VIP tier (French 4K: TF1 4K, M6 4K, France 2 4K confirmed)
+                   ],  # EX (6,999) and SC (4,269) left in Other — need user review
+    "Sports":     ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS",
+                   "SPT", "SPORT", "SPORTS",         # generic sports prefixes
+                   "SP",                              # SP confirmed: beIN Sports 1/2/3
+                   "UEFA", "F1",                      # competitions
+                   "EPL", "EFL", "SPFL",              # UK football leagues
+                   "MLS", "LIGA", "CAF",              # other leagues
+                   "WC", "CHAMP", "L1", "L2", "L21", "FL",  # cups/leagues
+                   "LIVE", "NEXT",                    # live/upcoming PPV events
+                   "DIRTVISION",                      # motorsports streaming
+                   "TRILLERTV"],                      # combat sports/entertainment
+    "Pay TV":     ["DSTV",    # MultiChoice/DStv Africa (confirmed: SABC, CNBC Africa)
+                   "OSN",     # OSN Middle East (confirmed: Movies Premier, Hollywood)
+                   "SKY",     # Sky UK/DE/IT (confirmed pay TV provider)
+                   "STC",     # Saudi Telecom Company TV (confirmed: STC TV Sports)
+                   "MYHD",    # MyHD pay TV
+                   "GOBX",    # GOtv Box
+                   "DIGI"],   # Digi (Romanian/Hungarian telecom TV)
+    "News":       ["CNN", "BBC", "FOX", "NBC", "CBS", "ABC", "MSNBC", "SKY NEWS", "AL JAZEERA", "FRANCE24"],
+    "Kids":       ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS"],
+    "Music":      ["MU", "MUSIC"],  # MU = music channels (4 MUSIC, BOX HITS confirmed); MUSIC = Trace Africa etc.
+    "Religious":  ["RELIGIOUS", "QURAN"],  # RELIGIOUS confirmed (Aastha TV etc.); QURAN = Arabic religious
+    "24/7":       ["24/7"],   # 24/7 loop channels (classic TV reruns confirmed)
 }
 
 BASE_PREFIX_SEPARATORS: list[str] = [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
