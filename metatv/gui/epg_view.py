@@ -1094,47 +1094,81 @@ class EpgView(ContentView):
         layout.addLayout(header)
 
         # ── Live title groups ────────────────────────────────────────────── #
-        _PLAY_STYLE = "background: #2a6; color: white; border-radius: 3px; padding: 2px 8px;"
+        _PLAY_BTN_STYLE = (
+            "QPushButton { background: transparent; border: none; color: #4af;"
+            " font-size: 13px; padding: 0 2px; }"
+            "QPushButton:hover { color: #7cf; }"
+        )
+        _MAX_VISIBLE = 3
 
         for title, progs in title_groups.items():
             # Show title
-            title_row = QLabel(title)
-            title_row.setWordWrap(True)
-            title_row.setStyleSheet(
+            title_lbl = QLabel(title)
+            title_lbl.setWordWrap(True)
+            title_lbl.setStyleSheet(
                 "font-size: 11px; color: #ddd; font-weight: bold;"
                 " padding-left: 8px; padding-top: 4px;"
             )
-            layout.addWidget(title_row)
+            layout.addWidget(title_lbl)
 
-            # Time remaining + Play button
-            time_row = QHBoxLayout()
-            time_row.setContentsMargins(16, 0, 0, 0)
             remaining = _remaining_str(progs[0].stop_time)
-            time_lbl = QLabel(f"▶  {remaining}")
-            time_lbl.setStyleSheet("color: #ccc; font-size: 11px;")
-            time_row.addWidget(time_lbl, 1)
-            play_btn = QPushButton(f"{self.config.play_icon} Play")
-            play_btn.setFixedHeight(22)
-            play_btn.setStyleSheet(_PLAY_STYLE)
-            first_cid = progs[0].channel_db_id
-            play_btn.clicked.connect(lambda _=False, cid=first_cid: self._play_channel(cid))
-            time_row.addWidget(play_btn)
-            layout.addLayout(time_row)
 
-            # Channel list (compact, one line, secondary)
-            ch_names = [
-                self._channel_name_map.get(p.channel_db_id or "", p.channel_epg_id)
-                for p in progs
-            ]
-            MAX_SHOWN = 3
-            if len(ch_names) > MAX_SHOWN:
-                display = " · ".join(ch_names[:MAX_SHOWN]) + f" · +{len(ch_names) - MAX_SHOWN} more"
-            else:
-                display = " · ".join(ch_names)
-            ch_lbl = QLabel(display)
-            ch_lbl.setStyleSheet("color: #666; font-size: 10px; padding-left: 16px;")
-            ch_lbl.setWordWrap(True)
-            layout.addWidget(ch_lbl)
+            def _ch_row(prog, rem=remaining):
+                """Build one channel row: ▶ Xm left · Channel  [▶]"""
+                ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+                row_w = QWidget()
+                row = QHBoxLayout(row_w)
+                row.setContentsMargins(16, 0, 4, 0)
+                row.setSpacing(4)
+                lbl = QLabel(f"▶  {rem}  ·  {ch_name}")
+                lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+                row.addWidget(lbl, 1)
+                pb = QPushButton(self.config.play_icon)
+                pb.setFixedSize(22, 20)
+                pb.setFlat(True)
+                pb.setToolTip(f"Play: {ch_name}")
+                pb.setStyleSheet(_PLAY_BTN_STYLE)
+                cid = prog.channel_db_id
+                pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
+                row.addWidget(pb)
+                return row_w
+
+            # Show first _MAX_VISIBLE channels immediately
+            for prog in progs[:_MAX_VISIBLE]:
+                layout.addWidget(_ch_row(prog))
+
+            # If more, add a hidden container + expand toggle
+            if len(progs) > _MAX_VISIBLE:
+                extra = progs[_MAX_VISIBLE:]
+                n_more = len(extra)
+
+                extra_container = QWidget()
+                extra_layout = QVBoxLayout(extra_container)
+                extra_layout.setContentsMargins(0, 0, 0, 0)
+                extra_layout.setSpacing(2)
+                for ep in extra:
+                    extra_layout.addWidget(_ch_row(ep))
+                extra_container.hide()
+
+                expand_btn = QPushButton(f"▼  {n_more} more channels")
+                expand_btn.setFlat(True)
+                expand_btn.setStyleSheet(
+                    "QPushButton { color: #666; font-size: 10px; border: none;"
+                    " text-align: left; padding-left: 16px; }"
+                    "QPushButton:hover { color: #999; }"
+                )
+
+                def _toggle(checked=False, btn=expand_btn, cont=extra_container, n=n_more):
+                    if cont.isHidden():
+                        cont.show()
+                        btn.setText("▲  fewer channels")
+                    else:
+                        cont.hide()
+                        btn.setText(f"▼  {n} more channels")
+
+                expand_btn.clicked.connect(_toggle)
+                layout.addWidget(expand_btn)
+                layout.addWidget(extra_container)
 
         # ── Separator + upcoming ─────────────────────────────────────────── #
         if is_live and upcoming:
