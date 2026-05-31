@@ -463,6 +463,8 @@ class GlobalFilterDialog(QDialog):
         self._content_type_other_section: _ContentTypeSection | None = None
         # Separator / header widgets for the content-type section
         self._content_type_header_widgets: list[QWidget] = []
+        # User-defined category rows: list of (category_name, checkbox, row_widget)
+        self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
 
         self.setWindowTitle("Exclusions")
         self.setMinimumSize(420, 540)
@@ -643,6 +645,63 @@ class GlobalFilterDialog(QDialog):
             self._sections.append(other_section)
 
         self._populate_content_types()
+        self._populate_user_categories()
+
+    def _populate_user_categories(self) -> None:
+        """Build the User Categories section at the bottom of the filter list."""
+        from metatv.core.repositories import RepositoryFactory
+        session = self._db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            all_cats = repos.channels.get_all_user_categories()
+        finally:
+            session.close()
+
+        if not all_cats:
+            return
+
+        excluded = set(getattr(self._config, "global_filter_excluded_user_categories", []))
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #444; margin-top: 4px; margin-bottom: 4px;")
+        self._inner_vl.addWidget(sep)
+        self._content_type_header_widgets.append(sep)
+
+        hdr_row = QHBoxLayout()
+        hdr = QLabel("User Categories")
+        hdr.setStyleSheet("font-size: 12px; font-weight: bold; padding-top: 4px;")
+        hdr_row.addWidget(hdr)
+        info = QLabel("ⓘ")
+        info.setStyleSheet("color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;")
+        info.setToolTip(
+            "Categories you've created via right-click → Assign Category.\n"
+            "Check a category to hide its channels everywhere (Global Exclusion)."
+        )
+        hdr_row.addWidget(info)
+        hdr_row.addStretch()
+        hdr_w = QWidget()
+        hdr_w.setLayout(hdr_row)
+        self._inner_vl.addWidget(hdr_w)
+        self._content_type_header_widgets.append(hdr_w)
+
+        for cat in all_cats:
+            name  = cat["name"]
+            count = cat["count"]
+            row   = QWidget()
+            rl    = QHBoxLayout(row)
+            rl.setContentsMargins(2, 2, 2, 2)
+            rl.setSpacing(8)
+            cb = QCheckBox(name)
+            cb.setChecked(name in excluded)
+            cb.setStyleSheet("font-size: 12px;")
+            rl.addWidget(cb)
+            count_lbl = QLabel(f"({count:,} channels)")
+            count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            rl.addWidget(count_lbl)
+            rl.addStretch()
+            self._inner_vl.addWidget(row)
+            self._user_category_rows.append((name, cb, row))
 
     def _populate_content_types(self) -> None:
         """Build the Content Types section below the prefix groups."""
@@ -809,6 +868,11 @@ class GlobalFilterDialog(QDialog):
         else:
             excluded_raw = list(getattr(self._config, "global_filter_excluded_source_categories", []))
         self._config.global_filter_excluded_source_categories = excluded_raw
+
+        # User-defined category exclusions
+        self._config.global_filter_excluded_user_categories = [
+            name for name, cb, _row in self._user_category_rows if cb.isChecked()
+        ]
 
         self._config.save()
         self.accept()

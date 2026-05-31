@@ -472,6 +472,43 @@ class ChannelRepository:
         self.session.commit()
         return updated
 
+    def get_by_user_category(self, category: str) -> list[ChannelDB]:
+        """Return all channels assigned to a user category, sorted by name."""
+        return (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.user_category == category)
+            .order_by(ChannelDB.name)
+            .all()
+        )
+
+    def get_hidden_channels(
+        self,
+        excluded_user_categories: set[str] | None = None,
+        search_query: str | None = None,
+        provider_id=None,
+    ) -> list[ChannelDB]:
+        """Return is_hidden=True channels and channels in excluded user categories."""
+        if excluded_user_categories:
+            q = self.session.query(ChannelDB).filter(
+                or_(
+                    ChannelDB.is_hidden == True,  # noqa: E712
+                    ChannelDB.user_category.in_(excluded_user_categories),
+                )
+            )
+        else:
+            q = self.session.query(ChannelDB).filter(ChannelDB.is_hidden == True)  # noqa: E712
+
+        if isinstance(provider_id, list):
+            if provider_id:
+                q = q.filter(ChannelDB.provider_id.in_(provider_id))
+        elif provider_id:
+            q = q.filter(ChannelDB.provider_id == provider_id)
+
+        if search_query:
+            q = q.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+
+        return q.order_by(ChannelDB.name).all()
+
     def update_category_mood(self, category: str, mood: str | None) -> int:
         """Update the mood for all channels in a user category."""
         updated = (

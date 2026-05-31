@@ -164,6 +164,39 @@ class CategoryPickerDialog(QDialog):
         header.setStyleSheet("font-size: 12px;")
         vl.addWidget(header)
 
+        # ── Quick-pick shortcuts ───────────────────────────────────────────────
+        quick_row = QHBoxLayout()
+        quick_lbl = QLabel("Quick:")
+        quick_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        quick_row.addWidget(quick_lbl)
+
+        _quick_picks = [
+            ("🗑 Trash",       "Trash",       MOOD_DISLIKE,    True,  "#5a1a1a", "#ff8888"),
+            ("👀 Watch Later", "Watch Later", MOOD_NONE,       False, "#1a3a5a", "#88aaff"),
+            ("❓ Explore",     "Explore",     MOOD_CURIOUS,    False, "#1a3a1a", "#88cc88"),
+        ]
+        for label, name, mood, exclude, bg, fg in _quick_picks:
+            btn = QPushButton(label)
+            btn.setFlat(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {fg}44;"
+                f" border-radius: 10px; padding: 3px 10px; font-size: 11px; }}"
+                f"QPushButton:hover {{ background: {bg}cc; }}"
+            )
+            _tips = {
+                "Trash":       "Trash — Dislike mood + Global Exclusions (hide everywhere)",
+                "Watch Later": "Watch Later — Neutral mood, no recommendation effect",
+                "Explore":     "Explore — Curious mood, surfaces more like this",
+            }
+            btn.setToolTip(_tips.get(name, f'Create or use "{name}" category'))
+            btn.clicked.connect(
+                lambda _, n=name, m=mood, ex=exclude: self._apply_quick_pick(n, m, ex)
+            )
+            quick_row.addWidget(btn)
+        quick_row.addStretch()
+        vl.addLayout(quick_row)
+
         # ── Search / type box ──────────────────────────────────────────────────
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search or type new category name…")
@@ -326,6 +359,14 @@ class CategoryPickerDialog(QDialog):
             self._excl_cb.setText(
                 f"Add “{name}” to Global Exclusions (hide everywhere)"
             )
+
+    def _apply_quick_pick(self, name: str, mood: str | None, exclude: bool) -> None:
+        """Pre-fill name, mood, and exclusion from a quick-pick shortcut."""
+        self._search.setText(name)       # fires _on_text_changed → auto-selects list item
+        self._mood_bar.set_mood(mood)    # override (set_mood doesn't emit mood_changed)
+        self._update_excl_visibility()
+        if mood == MOOD_DISLIKE or exclude:
+            self._excl_cb.setChecked(True)
 
     def _try_accept(self) -> None:
         if self._selected_category:

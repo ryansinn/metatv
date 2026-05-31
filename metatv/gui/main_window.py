@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
     # Signal for thread-safe metadata updates (channel_id, metadata)
     metadata_loaded = pyqtSignal(object, object)
     _channels_loaded = pyqtSignal(list, dict)        # (channels, params) — worker → main thread
+    _category_assigned = pyqtSignal()               # emitted from worker after category DB write commits
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
     _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
@@ -243,6 +244,7 @@ class MainWindow(QMainWindow):
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
         self._channels_loaded.connect(self._on_channels_loaded)
+        self._category_assigned.connect(self.load_channels)
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
         self._ctx_data_ready.connect(self._on_ctx_data_ready)
@@ -1318,11 +1320,6 @@ class MainWindow(QMainWindow):
         # Utility group — right-aligned, separated from primary nav chips
         media_layout.addStretch()
 
-        self.hidden_chip = ToggleChip(f"{self.config.hide_icon} Hidden", enabled=False)
-        self.hidden_chip.setToolTip("Show channels you've hidden — right-click to unhide")
-        self.hidden_chip.clicked.connect(self.on_hidden_view_toggle)
-        media_layout.addWidget(self.hidden_chip)
-
         self._filter_chip = FilterChip("Exclusions")
         self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
         self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
@@ -1337,6 +1334,37 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self._media_type_widget)
         controls_layout.addWidget(QLabel("Search:"))
         
+        # All / Hidden tab toggle
+        _tab_style = (
+            "QPushButton { font-size: 11px; padding: 3px 10px;"
+            " border: 1px solid #444; background: #2a2a2a; color: #777; }"
+            "QPushButton:checked { background: #444; color: #fff; font-weight: bold; }"
+            "QPushButton:hover:!checked { background: #333; }"
+        )
+        self._tab_all_btn = QPushButton("All")
+        self._tab_all_btn.setCheckable(True)
+        self._tab_all_btn.setChecked(True)
+        self._tab_all_btn.setStyleSheet(
+            _tab_style + "QPushButton { border-right: none;"
+            " border-top-left-radius: 4px; border-bottom-left-radius: 4px; }"
+        )
+        self._tab_all_btn.setToolTip("Show all channels")
+        self._tab_all_btn.clicked.connect(lambda: self._set_search_tab(False))
+        controls_layout.addWidget(self._tab_all_btn)
+
+        self._tab_hidden_btn = QPushButton(f"{self.config.hide_icon} Hidden")
+        self._tab_hidden_btn.setCheckable(True)
+        self._tab_hidden_btn.setChecked(False)
+        self._tab_hidden_btn.setStyleSheet(
+            _tab_style + "QPushButton { border-top-right-radius: 4px;"
+            " border-bottom-right-radius: 4px; }"
+        )
+        self._tab_hidden_btn.setToolTip(
+            "Show channels hidden via right-click or assigned to an excluded category"
+        )
+        self._tab_hidden_btn.clicked.connect(lambda: self._set_search_tab(True))
+        controls_layout.addWidget(self._tab_hidden_btn)
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter channels by name, category...")
         self.search_input.textChanged.connect(self._on_search_text_changed)
@@ -1376,15 +1404,31 @@ class MainWindow(QMainWindow):
         
         self.content_layout.addWidget(self.filter_bar)
 
-        # Hidden-mode banner (shown only when Hidden chip is active)
-        self._hidden_banner = QLabel(
-            f"{self.config.hide_icon}  Showing hidden channels — right-click to unhide"
+        # Hidden-mode banner (shown when Hidden tab is active)
+        self._hidden_banner = QWidget()
+        _hb_layout = QHBoxLayout(self._hidden_banner)
+        _hb_layout.setContentsMargins(8, 4, 8, 4)
+        _hb_layout.setSpacing(8)
+        _hb_lbl = QLabel(
+            f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
         )
+        _hb_lbl.setStyleSheet("color: #cc8800; font-size: 11px;")
+        _hb_layout.addWidget(_hb_lbl)
+        _hb_layout.addStretch()
+        self._manage_cats_btn = QPushButton("📁 Manage Categories")
+        self._manage_cats_btn.setFlat(True)
+        self._manage_cats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manage_cats_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; color: #4488ff; padding: 2px 8px;"
+            " border: 1px solid #4488ff44; border-radius: 4px; }"
+            "QPushButton:hover { color: #88aaff; border-color: #88aaff44; }"
+        )
+        self._manage_cats_btn.setToolTip("Browse and manage your user-defined categories")
+        self._manage_cats_btn.clicked.connect(self._open_categories_dialog)
+        _hb_layout.addWidget(self._manage_cats_btn)
         self._hidden_banner.setStyleSheet(
-            "color: #cc8800; font-size: 11px; padding: 4px 8px;"
-            " background: rgba(204,136,0,0.10); border-radius: 4px;"
+            "background: rgba(204,136,0,0.08); border-radius: 4px;"
         )
-        self._hidden_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hidden_banner.hide()
         self.content_layout.addWidget(self._hidden_banner)
 
@@ -1568,6 +1612,9 @@ class MainWindow(QMainWindow):
         self._media_type_widget.setVisible(False)
         self._hidden_banner.setVisible(False)
         self._hidden_mode = False
+        if hasattr(self, "_tab_all_btn"):
+            self._tab_all_btn.setChecked(True)
+            self._tab_hidden_btn.setChecked(False)
         self.back_button.setVisible(False)
         self.breadcrumb_label.setText("")
 
@@ -1963,6 +2010,7 @@ class MainWindow(QMainWindow):
             # Global filter — bypassed when paused so the user can see everything
             source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
             excluded_prefixes=_global_excluded_prefixes,
+            excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
             search_query=_search_text or None,
             page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
@@ -1987,23 +2035,30 @@ class MainWindow(QMainWindow):
             force_adult_ids = params['force_adult_ids']
             hidden_only = params.get('hidden_only', False)
             _page_size = params.get('page_size', 5_000)
-            channels = repos.channels.get_all(
-                provider_id=params['provider_id'],
-                media_types=params['media_types'] if not hidden_only else None,
-                language_prefixes=params['language_prefixes'] if not hidden_only else None,
-                quality_prefixes=params['quality_prefixes'] if not hidden_only else None,
-                platform_prefixes=params.get('platform_prefixes') if not hidden_only else None,
-                invert_prefix_filters=params['invert_prefix_filters'] if not hidden_only else False,
-                include_untagged=params['include_untagged'] if not hidden_only else True,
-                adult_mode=params['adult_mode'] if not hidden_only else 'all',
-                force_adult_provider_ids=force_adult_ids or None if not hidden_only else None,
-                source_categories=params['source_categories'] if not hidden_only else None,
-                include_uncategorized_content_types=True,
-                hidden_only=hidden_only,
-                include_hidden=hidden_only,
-                search_query=params.get('search_query'),
-                limit=_page_size,
-            )
+            if hidden_only:
+                channels = repos.channels.get_hidden_channels(
+                    excluded_user_categories=params.get('excluded_user_categories'),
+                    search_query=params.get('search_query'),
+                    provider_id=params['provider_id'],
+                )
+            else:
+                channels = repos.channels.get_all(
+                    provider_id=params['provider_id'],
+                    media_types=params['media_types'],
+                    language_prefixes=params['language_prefixes'],
+                    quality_prefixes=params['quality_prefixes'],
+                    platform_prefixes=params.get('platform_prefixes'),
+                    invert_prefix_filters=params['invert_prefix_filters'],
+                    include_untagged=params['include_untagged'],
+                    adult_mode=params['adult_mode'],
+                    force_adult_provider_ids=force_adult_ids or None,
+                    source_categories=params['source_categories'],
+                    include_uncategorized_content_types=True,
+                    hidden_only=False,
+                    include_hidden=False,
+                    search_query=params.get('search_query'),
+                    limit=_page_size,
+                )
             total = repos.channels.count(provider_id=params['provider_id'])
             has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
                 ChannelDB.is_adult == True
@@ -2015,6 +2070,12 @@ class MainWindow(QMainWindow):
                         c for c in channels
                         if c.detected_prefix not in excluded_prefixes
                         and c.detected_region not in excluded_prefixes
+                    ]
+                excluded_user_cats = params.get('excluded_user_categories', set())
+                if excluded_user_cats:
+                    channels = [
+                        c for c in channels
+                        if c.user_category not in excluded_user_cats
                     ]
 
             # When zero results + Tier 1 filters active, count what exists without
@@ -2225,7 +2286,14 @@ class MainWindow(QMainWindow):
         if not category:
             return
 
-        # Assign in background — DB write, then trigger Discover reload
+        # Global Exclusions — update config on main thread before submitting the worker
+        # so the signal-triggered reload sees the updated exclusion set.
+        if exclude and category not in self.config.global_filter_excluded_user_categories:
+            self.config.global_filter_excluded_user_categories.append(category)
+            self.config.save()
+            self._update_filter_btn_state()
+
+        # Assign in background — emit signal after commit so reload is guaranteed post-write
         def _do_assign():
             session = self.db.get_session()
             try:
@@ -2233,26 +2301,20 @@ class MainWindow(QMainWindow):
                 updated = repos.channels.assign_user_category(channel_ids, category, mood)
                 logger.info(
                     f"Assigned {updated} channels to category {category!r} mood={mood!r}"
-                )
+                )  # noqa
             finally:
                 session.close()
+            self._category_assigned.emit()
 
         self.executor.submit(_do_assign)
-
-        # Global Exclusions
-        if exclude and category not in self.config.global_filter_excluded_user_categories:
-            self.config.global_filter_excluded_user_categories.append(category)
-            self.config.save()
-            self._update_filter_btn_state()
 
         # Notify the user
         n = len(channel_ids)
         excl_note = " (added to Global Exclusions)" if exclude else ""
         self.status_bar.showMessage(
-            f"{n:,} channel{'s' if n != 1 else ''} → “{category}”{excl_note}"
+            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}"
         )
 
-        # Reload Discover so the new shelf appears
         if hasattr(self, "discover_view"):
             QTimer.singleShot(500, self.discover_view.reload)
 
@@ -2571,11 +2633,68 @@ class MainWindow(QMainWindow):
         else:
             self._show_context_menu_for(channel_id, gp.x(), gp.y(), "channel")
 
+    def _quick_assign_category(
+        self,
+        channel_ids: list[str],
+        category: str,
+        mood: str | None,
+        exclude: bool,
+    ) -> None:
+        """Assign channel_ids to category immediately, no dialog."""
+        # Update config on main thread first so the signal-triggered reload sees the exclusion.
+        if exclude and category not in self.config.global_filter_excluded_user_categories:
+            self.config.global_filter_excluded_user_categories.append(category)
+            self.config.save()
+            self._update_filter_btn_state()
+
+        def _do_assign():
+            session = self.db.get_session()
+            try:
+                repos = RepositoryFactory(session)
+                repos.channels.assign_user_category(channel_ids, category, mood)
+            finally:
+                session.close()
+            self._category_assigned.emit()
+
+        self.executor.submit(_do_assign)
+
+        n = len(channel_ids)
+        excl_note = " (added to Global Exclusions)" if exclude else ""
+        self.status_bar.showMessage(
+            f"{n:,} channel{'s' if n != 1 else ''} → \"{category}\"{excl_note}"
+        )
+
+        if hasattr(self, "discover_view"):
+            QTimer.singleShot(500, self.discover_view.reload)
+
+    def _add_quick_pick_actions(self, menu, channel_ids: list[str]) -> None:
+        """Add Trash / Watch Later / Explore quick-assign actions to menu."""
+        from PyQt6.QtGui import QAction
+        _picks = [
+            ("🗑 Trash",       "Trash",       "dislike", True,
+             "Assign to Trash — Dislike mood, added to Global Exclusions"),
+            ("👀 Watch Later", "Watch Later", None,      False,
+             "Assign to Watch Later — Neutral mood"),
+            ("❓ Explore",     "Explore",     "curious", False,
+             "Assign to Explore — Curious mood, surfaces more like this"),
+        ]
+        for label, name, mood, exclude, tip in _picks:
+            act = QAction(label, self)
+            act.setToolTip(tip)
+            act.triggered.connect(
+                lambda _, n=name, m=mood, ex=exclude:
+                    self._quick_assign_category(channel_ids, n, m, ex)
+            )
+            menu.addAction(act)
+
     def _show_multi_select_context_menu(self, channel_ids: list[str], gp) -> None:
         """Context menu shown when multiple channels are selected."""
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         n = len(channel_ids)
+
+        self._add_quick_pick_actions(menu, channel_ids)
+        menu.addSeparator()
 
         cat_action = menu.addAction(
             f"{self.config.queue_icon} Add {n:,} selected channel{'s' if n != 1 else ''} to Category…"
@@ -3117,20 +3236,35 @@ class MainWindow(QMainWindow):
             self.search_chip.set_enabled(True)
             self.search_chip.blockSignals(False)
 
-    def on_hidden_view_toggle(self) -> None:
-        if self.hidden_chip.is_enabled():
-            self._deactivate_view_chips(self.hidden_chip)
-            self._hide_all_content_views()
-            self._hidden_mode = True
+    def _set_search_tab(self, hidden: bool) -> None:
+        """Switch the channel list between All and Hidden tabs."""
+        self._tab_all_btn.setChecked(not hidden)
+        self._tab_hidden_btn.setChecked(hidden)
+        self._hidden_mode = hidden
+        if hidden:
             self.view_mode = "hidden"
-            self.channels_list.setVisible(True)
-            self.search_controls.setVisible(True)
             self._hidden_banner.setVisible(True)
             self.stats_label.setText("Hidden channels")
-            self.load_channels()
+            # Make sure the channel list view is active
+            if self.view_mode not in ("hidden", "list"):
+                self._hide_all_content_views()
+                self.channels_list.setVisible(True)
+                self.search_controls.setVisible(True)
         else:
-            self.switch_to_list_view()
-            self.load_channels()
+            self.view_mode = "list"
+            self._hidden_banner.setVisible(False)
+        self.load_channels()
+
+    def _open_categories_dialog(self) -> None:
+        from metatv.gui.categories_dialog import CategoriesDialog
+        dlg = CategoriesDialog(self.db, self.config, self)
+        dlg.exec()
+        # Refresh channel list in case any removals/reassignments happened
+        self.load_channels()
+
+    def on_hidden_view_toggle(self) -> None:
+        # Legacy — kept for any callers; delegates to the new tab mechanism
+        self._set_search_tab(True)
 
     def switch_to_preferences_view(self) -> None:
         """Switch content area to the Taste / Preferences dashboard."""
