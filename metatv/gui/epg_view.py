@@ -1102,14 +1102,16 @@ class EpgView(ContentView):
         _MAX_VISIBLE = 3
 
         for title, progs in title_groups.items():
-            # Show title
-            title_lbl = QLabel(title)
-            title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet(
-                "font-size: 11px; color: #ddd; font-weight: bold;"
-                " padding-left: 8px; padding-top: 4px;"
-            )
-            layout.addWidget(title_lbl)
+            # Show title only when it adds information beyond the pattern keyword.
+            # Skip when it's an exact case-insensitive match — the card header already shows it.
+            if title.casefold() != pattern.casefold():
+                title_lbl = QLabel(title)
+                title_lbl.setWordWrap(True)
+                title_lbl.setStyleSheet(
+                    "font-size: 11px; color: #ddd; font-weight: bold;"
+                    " padding-left: 8px; padding-top: 4px;"
+                )
+                layout.addWidget(title_lbl)
 
             remaining = _remaining_str(progs[0].stop_time)
 
