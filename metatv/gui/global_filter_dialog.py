@@ -276,6 +276,154 @@ class _GroupSection(QWidget):
         self._update_group_state()
 
 
+class _ContentTypeSection(QWidget):
+    """Collapsible section for unmapped source_category labels inside 'Other'.
+
+    Identical collapse/expand and lazy-body pattern to _GroupSection but for
+    raw source_category strings (which can be long provider labels, not codes).
+    """
+
+    def __init__(
+        self,
+        items: list[tuple[str, int]],       # [(source_category_label, count)]
+        initially_checked: set[str],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._items = items
+        self._initial_checked = {s for s in initially_checked}
+        self._checkboxes: dict[str, QCheckBox] = {}
+        self._body_built = False
+        self._expanded = False
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 4)
+
+        # ── Header ────────────────────────────────────────────────────────────
+        header = QWidget()
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(0, 2, 0, 2)
+        hl.setSpacing(6)
+
+        self._group_cb = QCheckBox()
+        self._group_cb.setTristate(True)
+        self._group_cb.setStyleSheet("font-size: 12px;")
+        hl.addWidget(self._group_cb)
+
+        self._expand_lbl = QLabel("▶")
+        self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
+        self._expand_lbl.setFixedWidth(12)
+        hl.addWidget(self._expand_lbl)
+
+        name_lbl = QLabel("Other (unmapped types)")
+        name_lbl.setStyleSheet("font-size: 12px; font-weight: bold; color: #aaa;")
+        name_lbl.setToolTip(
+            "Live channels whose source_category header from the provider\n"
+            "didn't match any configured Content Type group.\n"
+            "Expand to see individual category labels and exclude specific ones."
+        )
+        hl.addWidget(name_lbl)
+        hl.addStretch()
+
+        self._count_lbl = QLabel()
+        self._count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        hl.addWidget(self._count_lbl)
+
+        layout.addWidget(header)
+
+        self._body = QWidget()
+        self._body.setVisible(False)
+        layout.addWidget(self._body)
+
+        self._group_cb.clicked.connect(self._on_group_clicked)
+        header.mousePressEvent = self._toggle_expand  # type: ignore[assignment]
+
+        self._update_state()
+
+    def _build_body(self) -> None:
+        body_vl = QVBoxLayout(self._body)
+        body_vl.setSpacing(2)
+        body_vl.setContentsMargins(28, 2, 0, 4)
+
+        for label, count in sorted(self._items, key=lambda x: -x[1]):
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(8)
+
+            cb = QCheckBox(label)
+            cb.setChecked(label in self._initial_checked)
+            cb.setStyleSheet("font-size: 11px; font-family: monospace;")
+            cb.stateChanged.connect(self._on_item_changed)
+            rl.addWidget(cb)
+
+            cnt_lbl = QLabel(f"({count:,})")
+            cnt_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            rl.addWidget(cnt_lbl)
+            rl.addStretch()
+
+            body_vl.addWidget(row)
+            self._checkboxes[label] = cb
+
+        self._body_built = True
+
+    def checked_labels(self) -> list[str]:
+        """Return list of individually checked source_category labels."""
+        if self._body_built:
+            return [lbl for lbl, cb in self._checkboxes.items() if cb.isChecked()]
+        return [lbl for lbl, _ in self._items if lbl in self._initial_checked]
+
+    def all_checked(self) -> bool:
+        """True when every item in this section is checked."""
+        checked = len(self.checked_labels())
+        return checked == len(self._items)
+
+    def set_all(self, checked: bool) -> None:
+        if self._body_built:
+            for cb in self._checkboxes.values():
+                cb.blockSignals(True)
+                cb.setChecked(checked)
+                cb.blockSignals(False)
+        else:
+            self._initial_checked = {lbl for lbl, _ in self._items} if checked else set()
+        self._update_state()
+
+    def _toggle_expand(self, _event=None) -> None:
+        self._expanded = not self._expanded
+        if self._expanded and not self._body_built:
+            self._build_body()
+        self._body.setVisible(self._expanded)
+        self._expand_lbl.setText("▼" if self._expanded else "▶")
+
+    def _update_state(self) -> None:
+        total = len(self._items)
+        checked = len(self.checked_labels())
+        self._count_lbl.setText(f"[{checked} of {total}]")
+
+        self._group_cb.blockSignals(True)
+        if checked == 0:
+            self._group_cb.setCheckState(Qt.CheckState.Unchecked)
+        elif checked == total:
+            self._group_cb.setCheckState(Qt.CheckState.Checked)
+        else:
+            self._group_cb.setCheckState(Qt.CheckState.PartiallyChecked)
+        self._group_cb.blockSignals(False)
+
+    def _on_item_changed(self) -> None:
+        self._update_state()
+
+    def _on_group_clicked(self) -> None:
+        state = self._group_cb.checkState()
+        if state == Qt.CheckState.PartiallyChecked:
+            self._group_cb.blockSignals(True)
+            self._group_cb.setCheckState(Qt.CheckState.Checked)
+            self._group_cb.blockSignals(False)
+            state = Qt.CheckState.Checked
+        self.set_all(state == Qt.CheckState.Checked)
+
+
 class _RescanThread(QThread):
     """Background thread that re-runs prefix detection on all channels."""
     done = pyqtSignal(int)
@@ -311,6 +459,8 @@ class GlobalFilterDialog(QDialog):
         self._rescan_thread: _RescanThread | None = None
         # Content-type section: list of (group_name, checkbox, row_widget)
         self._content_type_rows: list[tuple[str, QCheckBox, QWidget]] = []
+        # Expandable "Other" section for unmapped source_category labels
+        self._content_type_other_section: _ContentTypeSection | None = None
         # Separator / header widgets for the content-type section
         self._content_type_header_widgets: list[QWidget] = []
 
@@ -511,9 +661,9 @@ class GlobalFilterDialog(QDialog):
                 group_counts[group_name] = total
                 matched_labels.update(lbl for lbl, _ in cat_counts if lbl.upper() in raw_upper)
 
-        other_count = sum(c for lbl, c in cat_counts if lbl not in matched_labels)
+        other_items = [(lbl, c) for lbl, c in cat_counts if lbl not in matched_labels]
 
-        if not group_counts and not other_count:
+        if not group_counts and not other_items:
             return
 
         # ── Separator ────────────────────────────────────────────────────────────
@@ -533,7 +683,7 @@ class GlobalFilterDialog(QDialog):
         info_lbl.setToolTip(
             "Content types are derived from category headers in the provider's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
-            "Uncheck a type to hide all matching live channels from Discovery."
+            "Check a type to hide all matching live channels from Discovery."
         )
         hdr_row.addWidget(info_lbl)
         hdr_row.addStretch()
@@ -545,6 +695,8 @@ class GlobalFilterDialog(QDialog):
 
         # Blacklist model: checked = excluded; start unchecked unless currently excluded.
         excluded_types = set(self._config.global_filter_excluded_content_types)
+        # Individually excluded source_category labels (from the expandable Other section)
+        excluded_raw = set(getattr(self._config, "global_filter_excluded_source_categories", []))
 
         for group_name in sorted(group_counts):
             count = group_counts[group_name]
@@ -566,28 +718,15 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.addWidget(row)
             self._content_type_rows.append((group_name, cb, row))
 
-        if other_count:
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(2, 2, 2, 2)
-            rl.setSpacing(8)
-
-            cb = QCheckBox("Other (unmapped types)")
-            cb.setChecked("_other_" in excluded_types)
-            cb.setStyleSheet("font-size: 12px; color: #aaa;")
-            cb.setToolTip(
-                "Live channels whose category header didn't match any\n"
-                "configured Content Type group."
+        if other_items:
+            # Expandable section — shows individual source_category labels with counts.
+            # Sorted by channel count descending so the most common categories are visible first.
+            self._content_type_other_section = _ContentTypeSection(
+                items=sorted(other_items, key=lambda x: -x[1]),
+                initially_checked=excluded_raw,
             )
-            rl.addWidget(cb)
-
-            count_lbl = QLabel(f"({other_count:,} channels)")
-            count_lbl.setStyleSheet("color: #666; font-size: 11px;")
-            rl.addWidget(count_lbl)
-            rl.addStretch()
-
-            self._inner_vl.addWidget(row)
-            self._content_type_rows.append(("_other_", cb, row))
+            self._inner_vl.addWidget(self._content_type_other_section)
+            self._content_type_header_widgets.append(self._content_type_other_section)
 
     def _clear_groups(self) -> None:
         """Remove all group widgets (before a re-populate)."""
@@ -600,6 +739,9 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.removeWidget(row)
             row.deleteLater()
         self._content_type_rows.clear()
+
+        if self._content_type_other_section is not None:
+            self._content_type_other_section = None  # already in header_widgets, will be deleted below
 
         for w in self._content_type_header_widgets:
             self._inner_vl.removeWidget(w)
@@ -646,6 +788,8 @@ class GlobalFilterDialog(QDialog):
             section.set_all(checked)
         for _name, cb, _row in self._content_type_rows:
             cb.setChecked(checked)
+        if self._content_type_other_section:
+            self._content_type_other_section.set_all(checked)
 
     def _save_and_accept(self) -> None:
         # Blacklist model: save checked prefixes as excluded (checked = hidden).
@@ -655,9 +799,16 @@ class GlobalFilterDialog(QDialog):
         # "Hide untagged" checkbox: checked = hide = include_uncategorized False
         self._config.global_filter_include_uncategorized = not self._uncat_cb.isChecked()
 
-        # Content type exclusions: checked = excluded
+        # Named content-type group exclusions
         excluded_types = [name for name, cb, _row in self._content_type_rows if cb.isChecked()]
         self._config.global_filter_excluded_content_types = excluded_types
+
+        # Individually excluded source_category labels from the expandable Other section
+        if self._content_type_other_section:
+            excluded_raw = self._content_type_other_section.checked_labels()
+        else:
+            excluded_raw = list(getattr(self._config, "global_filter_excluded_source_categories", []))
+        self._config.global_filter_excluded_source_categories = excluded_raw
 
         self._config.save()
         self.accept()

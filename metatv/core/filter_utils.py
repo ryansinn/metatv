@@ -209,26 +209,33 @@ def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
 
 
 def get_active_content_type_filter(config) -> list[str] | None:
-    """Resolve global_filter_excluded_content_types → raw source_category labels to exclude.
+    """Resolve excluded content types → raw source_category labels to hide.
 
-    Returns a list of raw labels to hide (e.g. ["SPORTS NETWORK", "NBA LIVE EVENTS"]),
-    or None when no content-type exclusions are active (show everything).
-    The sentinel "_other_" means channels with unmapped source_category — callers handle it.
+    Combines:
+    1. Named group exclusions (global_filter_excluded_content_types) — group name → raw labels
+    2. Individual raw label exclusions (global_filter_excluded_source_categories) — the
+       "Other" expandable section in the Exclusions dialog
+
+    Returns a list of raw source_category labels to hide, or None if nothing active.
+    The sentinel "_other_" in excluded_content_types means hide ALL unmapped — callers handle it.
     """
     if getattr(config, "global_filter_paused", False):
         return None
+
     excluded_types: list[str] = list(getattr(config, "global_filter_excluded_content_types", []))
-    if not excluded_types:
-        return None  # no exclusions active
+    excluded_raw:   list[str] = list(getattr(config, "global_filter_excluded_source_categories", []))
+
+    if not excluded_types and not excluded_raw:
+        return None
 
     groups: dict = getattr(config, "content_category_groups", {})
-    raw_labels: list[str] = []
+    raw_labels: list[str] = list(excluded_raw)  # start with individually excluded labels
     for type_name in excluded_types:
         if type_name == "_other_":
             continue  # handled separately by callers
         for lbl in groups.get(type_name, []):
             raw_labels.append(lbl)
-    return raw_labels
+    return raw_labels if raw_labels else None
 
 
 def matches_filter(

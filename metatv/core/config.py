@@ -687,6 +687,10 @@ class Config(BaseModel):
     # Content type exclusions — empty = hide nothing. Legacy included list kept for migration.
     global_filter_excluded_content_types: list = Field(default_factory=list)
     global_filter_included_content_types: list = Field(default_factory=list)  # legacy
+    # Individually excluded source_category labels from the "Other" section of the
+    # Content Types expander — raw labels (e.g. "QURAN CHANNEL - NOREEN SADIQ") rather
+    # than named groups. Applied in addition to global_filter_excluded_content_types.
+    global_filter_excluded_source_categories: list = Field(default_factory=list)
 
     # Sports / Events view filter state persistence
     # Keyword definitions (sport_keywords, league_keywords) live in:
