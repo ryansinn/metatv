@@ -102,7 +102,8 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Romanian":         ["RO"],
     "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ", "RUS"],
     "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR",
-                         "EXYU", "BIH", "BS", "SLO", "SLN", "MNG"],  # MNG=Montenegro (RTCG SAT confirmed)
+                         "EXYU", "EX",   # EX confirmed Ex-Yugoslav content (Croatian sinhronizirano dubs + EXYU productions)
+                         "BIH", "BS", "SLO", "SLN", "MNG"],  # MNG=Montenegro (RTCG SAT confirmed)
     "Slovak":           ["SK"],
     # ── Spanish locale sub-groups ─────────────────────────────────────────────
     # "Spanish" = all Spanish-speaking regions (aggregate).
@@ -181,6 +182,7 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "Shahid":        ["SHAHID"],        # Arabic/Middle East streaming confirmed
     # Less common full-name variants (low channel counts, catch-all):
     "Apple TV+":     ["A+", "APPLE", "APPLETV"],  # A+ confirmed Apple TV+ content
+    "SC":            ["SC"],    # SC — mixed multi-language VOD library (English/Turkish/Indian; origin TBD)
     "Other Streaming": ["HBO", "HULU", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
                         "PLAY", "PLAY+"],  # PLAY/PLAY+ = Belgian streaming (PLAY ACTIE, PLAY CRIME etc.)
     # ── Broadcast / Pay TV ────────────────────────────────────────────────────
