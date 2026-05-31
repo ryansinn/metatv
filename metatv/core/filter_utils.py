@@ -11,7 +11,8 @@ _BRACKET_RE = re.compile(r'^\[([A-Z0-9]{1,8})\]\s*')
 
 # Valid prefix: starts with uppercase letter or digit, only [A-Z0-9/], max 10 chars.
 # Rejects anything with spaces, lowercase, ★, or other separators embedded in it.
-_VALID_PREFIX = re.compile(r'^[A-Z0-9][A-Z0-9/]{0,9}$')
+# + is allowed for streaming brands: D+, DISNEY+, PARAMOUNT+
+_VALID_PREFIX = re.compile(r'^[A-Z0-9][A-Z0-9/+]{0,9}$')
 
 # Default separator search order — longer/more-specific patterns first to avoid
 # partial matches (e.g. " ★ " before bare "★").
