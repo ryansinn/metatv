@@ -1095,9 +1095,9 @@ class EpgView(ContentView):
 
         # ── Live title groups ────────────────────────────────────────────── #
         _PLAY_BTN_STYLE = (
-            "QPushButton { background: transparent; border: none; color: #4af;"
+            "QPushButton { background: transparent; border: none; color: #2288dd;"
             " font-size: 13px; padding: 0 2px; }"
-            "QPushButton:hover { color: #7cf; }"
+            "QPushButton:hover { color: #55aaff; }"
         )
         _MAX_VISIBLE = 3
 
@@ -1122,7 +1122,7 @@ class EpgView(ContentView):
                 row = QHBoxLayout(row_w)
                 row.setContentsMargins(16, 0, 4, 0)
                 row.setSpacing(4)
-                lbl = QLabel(f"▶  {rem}  ·  {ch_name}")
+                lbl = QLabel(f"{rem}  ·  {ch_name}")
                 lbl.setStyleSheet("color: #aaa; font-size: 11px;")
                 row.addWidget(lbl, 1)
                 pb = QPushButton(self.config.play_icon)
