@@ -1367,7 +1367,8 @@ class MainWindow(QMainWindow):
         # Search and filter controls
         self.search_controls = QWidget()
         controls_layout = QHBoxLayout(self.search_controls)
-        controls_layout.addWidget(self._media_type_widget)
+        # Media type widget moved to filter panel — hide it here
+        self._media_type_widget.hide()
         controls_layout.addWidget(QLabel("Search:"))
         
         # All / Hidden tab toggle
@@ -1413,34 +1414,22 @@ class MainWindow(QMainWindow):
         clear_btn.clicked.connect(lambda: self.search_input.clear())
         controls_layout.addWidget(clear_btn)
         
-        # Toggle filters button
-        self.toggle_filters_btn = QPushButton(f"{self.settings_icon} Filters {self.config.collapse_icon}")
-        self.toggle_filters_btn.setFixedWidth(100)
-        self.toggle_filters_btn.setToolTip("Show/hide filters")
-        self.toggle_filters_btn.clicked.connect(self.toggle_filters)
-        controls_layout.addWidget(self.toggle_filters_btn)
-
-        # Settings button
-        settings_btn = QPushButton(f"{self.settings_icon} Settings")
-        settings_btn.setToolTip("Open settings (Ctrl+,)")
-        settings_btn.clicked.connect(self.open_settings)
-        controls_layout.addWidget(settings_btn)
-
         self.content_layout.addWidget(self.search_controls)
 
-        # Collapsible filter bar
-        self.filter_bar = FilterBar(self.config)
-        self.filter_bar.filter_changed.connect(self.on_filter_changed)
-        self._filter_unmapped_prefixes: list[str] = []  # prefixes not in any group — "Other"
-        
-        # Restore filter section visibility from config
-        self.filters_visible = getattr(self.config, 'filter_section_visible', True)
-        self.filter_bar.setVisible(self.filters_visible)
-        self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}" if self.filters_visible else f"{self.settings_icon} Filters {self.config.expand_icon}")
-        
-        self.content_layout.addWidget(self.filter_bar)
+        # ── Filter panel + inner splitter ─────────────────────────────────────
+        from metatv.gui.filter_panel import FilterPanel
+        self.filter_panel = FilterPanel(self.config)
+        self.filter_panel.filter_changed.connect(self.on_filter_changed)
+        self.filter_panel.settings_requested.connect(self.open_settings)
+        self._filter_unmapped_prefixes: list[str] = []
 
-        # Hidden-mode banner (shown when Hidden tab is active)
+        # list_area: holds banner + all content views (right side of inner splitter)
+        list_area = QWidget()
+        self._list_layout = QVBoxLayout(list_area)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+
+        # Hidden-mode banner
         self._hidden_banner = QWidget()
         _hb_layout = QHBoxLayout(self._hidden_banner)
         _hb_layout.setContentsMargins(8, 4, 8, 4)
@@ -1466,13 +1455,10 @@ class MainWindow(QMainWindow):
             "background: rgba(204,136,0,0.08); border-radius: 4px;"
         )
         self._hidden_banner.hide()
-        self.content_layout.addWidget(self._hidden_banner)
+        self._list_layout.addWidget(self._hidden_banner)
 
-        # Channels list (default view)
+        # Channels list
         self.channels_list = QListWidget()
-        # Extended selection: Ctrl+click, Shift+click, and click-drag multi-select.
-        # currentItemChanged still fires for the "current" item — details pane shows
-        # single-channel details when only one is selected.
         from PyQt6.QtWidgets import QAbstractItemView
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
@@ -1481,8 +1467,8 @@ class MainWindow(QMainWindow):
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
         self.channels_list.itemDoubleClicked.connect(self.play_channel)
         self.channels_list.currentItemChanged.connect(self.on_channel_selection_changed)
-        self.content_layout.addWidget(self.channels_list)
-        
+        self._list_layout.addWidget(self.channels_list)
+
         # Series tree view (hidden by default)
         self.series_tree = QTreeWidget()
         self.series_tree.setHeaderLabels(["Title", "Episode", "Runtime", "Rating"])
@@ -1490,15 +1476,13 @@ class MainWindow(QMainWindow):
         self.series_tree.setColumnWidth(1, 80)
         self.series_tree.setColumnWidth(2, 80)
         self.series_tree.setColumnWidth(3, 80)
-        # Disable Qt's default double-click expansion behavior (it defaults to True in Qt6)
-        # We handle expansion manually in play_series_item() to differentiate seasons vs episodes
         self.series_tree.setExpandsOnDoubleClick(False)
         self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
         self.series_tree.itemDoubleClicked.connect(self.play_series_item)
         self.series_tree.setVisible(False)
-        self.content_layout.addWidget(self.series_tree)
-        
+        self._list_layout.addWidget(self.series_tree)
+
         # EPG manager + view (hidden by default)
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
@@ -1507,9 +1491,9 @@ class MainWindow(QMainWindow):
         self.epg_view.channel_selected.connect(self._on_view_channel_selected)
         self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
         self.epg_view.setVisible(False)
-        self.content_layout.addWidget(self.epg_view)
+        self._list_layout.addWidget(self.epg_view)
 
-        # Preferences / Taste view (hidden by default)
+        # Preferences view (hidden by default)
         self.preferences_view = PreferencesView(self.db, self.config, self)
         self.preferences_view.playRequested.connect(self.play_channel_by_id)
         self.preferences_view.channelSelected.connect(self.show_channel_details_by_id)
@@ -1517,40 +1501,50 @@ class MainWindow(QMainWindow):
         self.preferences_view.notInterestedRequested.connect(self._not_interested)
         self.preferences_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.preferences_view.setVisible(False)
-        self.content_layout.addWidget(self.preferences_view)
+        self._list_layout.addWidget(self.preferences_view)
 
+        # Discover view (hidden by default)
         self.discover_view = DiscoverView(self.db, self.config, self.image_cache, self)
         self.discover_view.playRequested.connect(self.play_channel_by_id)
         self.discover_view.channelSelected.connect(self.show_channel_details_by_id)
         self.discover_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.discover_view.setVisible(False)
-        self.content_layout.addWidget(self.discover_view)
+        self._list_layout.addWidget(self.discover_view)
 
         self.epg_manager.start_notification_timer()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
         self._refresh_watch_alerts()
 
-        # Provider editor (hidden by default; replaces center panel in edit mode)
+        # Provider editor (hidden by default)
         self.provider_editor = ProviderEditorView(self.db, self.config, self)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
         self.provider_editor.setVisible(False)
-        self.content_layout.addWidget(self.provider_editor)
+        self._list_layout.addWidget(self.provider_editor)
 
-        # Stats label below all views
+        # Inner splitter: filter panel (left) | list area (right)
+        self._inner_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)
+        self._inner_splitter.addWidget(self.filter_panel)
+        self._inner_splitter.addWidget(list_area)
+        self._inner_splitter.setStretchFactor(0, 0)  # filter panel: fixed width
+        self._inner_splitter.setStretchFactor(1, 1)  # list area: takes remaining space
+        panel_w = getattr(self.config, 'filter_panel_width', 220)
+        self._inner_splitter.setSizes([panel_w, max(300, 800 - panel_w)])
+        self._inner_splitter.splitterMoved.connect(self._save_filter_panel_width)
+        self.content_layout.addWidget(self._inner_splitter)
+
+        # Stats label below the splitter
         stats_container = QWidget()
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setContentsMargins(10, 5, 10, 5)
-        
         self.stats_label = QLabel("Showing 0 of 0 channels")
         self.stats_label.setStyleSheet("color: #666666; font-size: 12px;")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
-        
         self.content_layout.addWidget(stats_container)
-        
+
         return content
     
     def get_media_type_icon(self, media_type: str) -> str:
@@ -1837,12 +1831,8 @@ class MainWindow(QMainWindow):
             stats = getattr(thread, 'prefix_stats', None)
             if stats:
                 self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
-                self.filter_bar.update_filter_groups(
-                    language_groups=stats['language_groups'],
-                    quality_groups=stats['quality_groups'],
-                    platform_groups=stats.get('platform_groups', {}),
-                    region_groups=stats.get('region_groups', {}),
-                )
+                if hasattr(self, 'filter_panel'):
+                    self.filter_panel.update_data(stats)
                 logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
 
             # Reload sidebar and channels
@@ -1954,51 +1944,55 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Loading channels…")
 
         # --- All UI-state reads must happen here on the main thread ---
-        filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
-
-        _all_lang_groups  = set(self.config.filter_language_groups.keys()) | (
-            {"Other"} if self._filter_unmapped_prefixes else set()
+        filter_state = self.current_filter_state or (
+            self.filter_panel.get_filter_state()
+            if hasattr(self, 'filter_panel')
+            else self.filter_bar.get_filter_state()
         )
-        _sel_lang_groups  = set(filter_state.get('language_groups', []))
-        # When every language group is selected the user intends "show all" — don't
-        # build a prefix whitelist, because provider/service prefixes (NF, EAR, 24/7,
-        # etc.) are not mapped to any language group and would be silently excluded.
-        if _all_lang_groups and _sel_lang_groups >= _all_lang_groups:
-            language_prefixes = []   # → passed as None → no prefix filter
-        else:
-            language_prefixes = []
-            for group_name in _sel_lang_groups:
-                if group_name == "Other":
-                    language_prefixes.extend(self._filter_unmapped_prefixes)
-                else:
-                    language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
 
-        _all_qual_groups = set(self.config.filter_quality_groups.keys())
-        _sel_qual_groups = set(filter_state.get('quality_groups', []))
-        if _all_qual_groups and _sel_qual_groups >= _all_qual_groups:
-            quality_prefixes = []
+        # Filter panel provides pre-resolved prefix lists — use them directly.
+        # Falls back to old group-resolution logic when filter_panel is unavailable.
+        if '_language_prefixes' in filter_state:
+            language_prefixes = filter_state['_language_prefixes'] or []
+            region_prefixes   = filter_state['_region_prefixes']   or []
+            platform_prefixes = filter_state['_platform_prefixes'] or []
+            quality_prefixes  = filter_state['_quality_prefixes']  or []
         else:
-            quality_prefixes = []
-            for group_name in _sel_qual_groups:
-                quality_prefixes.extend(self.config.filter_quality_groups.get(group_name, []))
+            _all_lang_groups  = set(self.config.filter_language_groups.keys()) | (
+                {"Other"} if self._filter_unmapped_prefixes else set()
+            )
+            _sel_lang_groups  = set(filter_state.get('language_groups', []))
+            if _all_lang_groups and _sel_lang_groups >= _all_lang_groups:
+                language_prefixes = []
+            else:
+                language_prefixes = []
+                for group_name in _sel_lang_groups:
+                    if group_name == "Other":
+                        language_prefixes.extend(self._filter_unmapped_prefixes)
+                    else:
+                        language_prefixes.extend(
+                            self.config.filter_language_groups.get(group_name, []))
 
-        _all_plat_groups = set(self.config.filter_platform_groups.keys())
-        _sel_plat_groups = set(filter_state.get('platform_groups', []))
-        if _all_plat_groups and _sel_plat_groups >= _all_plat_groups:
-            platform_prefixes = []
-        else:
-            platform_prefixes = []
-            for group_name in _sel_plat_groups:
-                platform_prefixes.extend(self.config.filter_platform_groups.get(group_name, []))
+            _all_qual_groups = set(self.config.filter_quality_groups.keys())
+            _sel_qual_groups = set(filter_state.get('quality_groups', []))
+            quality_prefixes = [] if _all_qual_groups and _sel_qual_groups >= _all_qual_groups else [
+                p for g in _sel_qual_groups
+                for p in self.config.filter_quality_groups.get(g, [])
+            ]
 
-        _all_region_groups = set(self.config.filter_regional_groups.keys())
-        _sel_region_groups = set(filter_state.get('region_groups', []))
-        if _all_region_groups and _sel_region_groups >= _all_region_groups:
-            region_prefixes = []
-        else:
-            region_prefixes = []
-            for group_name in _sel_region_groups:
-                region_prefixes.extend(self.config.filter_regional_groups.get(group_name, []))
+            _all_plat_groups = set(self.config.filter_platform_groups.keys())
+            _sel_plat_groups = set(filter_state.get('platform_groups', []))
+            platform_prefixes = [] if _all_plat_groups and _sel_plat_groups >= _all_plat_groups else [
+                p for g in _sel_plat_groups
+                for p in self.config.filter_platform_groups.get(g, [])
+            ]
+
+            _all_region_groups = set(self.config.filter_regional_groups.keys())
+            _sel_region_groups = set(filter_state.get('region_groups', []))
+            region_prefixes = [] if _all_region_groups and _sel_region_groups >= _all_region_groups else [
+                p for g in _sel_region_groups
+                for p in self.config.filter_regional_groups.get(g, [])
+            ]
 
         # Resolve provider filter on main thread (tiny queries)
         session = self.db.get_session()
@@ -2008,8 +2002,6 @@ class MainWindow(QMainWindow):
             all_providers   = repos.providers.get_all()
         finally:
             session.close()
-
-        self.filter_bar.update_source_chips(active_providers)
 
         active_provider_ids = [p.id for p in active_providers]
         force_adult_ids     = [p.id for p in all_providers if getattr(p, 'force_adult', False)]
@@ -2313,7 +2305,10 @@ class MainWindow(QMainWindow):
         self.channels_list.setUpdatesEnabled(True)
     
     def get_enabled_media_types(self) -> list:
-        """Get list of enabled media types from chips"""
+        """Get list of enabled media types — from filter panel when available."""
+        if hasattr(self, 'filter_panel'):
+            return self.filter_panel.get_filter_state().get(
+                'media_types', ['live', 'movie', 'series'])
         types = []
         if self.live_chip.is_enabled():
             types.append("live")
@@ -2406,15 +2401,11 @@ class MainWindow(QMainWindow):
             )
 
             self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
-            # Update filter bar with current counts
-            self.filter_bar.update_filter_groups(
-                language_groups=stats['language_groups'],
-                quality_groups=stats['quality_groups'],
-                platform_groups=stats['platform_groups'],
-                region_groups=stats.get('region_groups', {}),
-            )
+            # Populate the filter panel with live counts
+            if hasattr(self, 'filter_panel'):
+                self.filter_panel.update_data(stats)
 
-            logger.info(f"Initialized filter stats: {stats['channels_with_prefix']} channels with prefixes")
+            logger.info(f"Initialized filter stats: {stats['channels_with_prefix']:,} channels with prefixes")
             
         except Exception as e:
             logger.error(f"Failed to initialize filter stats: {e}")
@@ -4115,6 +4106,16 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         logger.info("Show about")
     
+    def _save_filter_panel_width(self):
+        """Persist filter panel width when inner splitter is moved."""
+        try:
+            sizes = self._inner_splitter.sizes()
+            if sizes and sizes[0] > 0:
+                self.config.filter_panel_width = sizes[0]
+                self.config.save()
+        except Exception:
+            pass
+
     def save_splitter_sizes(self):
         """Save all splitter panel sizes to config"""
         try:
@@ -4122,13 +4123,13 @@ class MainWindow(QMainWindow):
             if sizes and len(sizes) >= 3:
                 sidebar_width = sizes[0]
                 details_width = sizes[2]
-                
+
                 self.config.sidebar_width = sidebar_width
                 self.config.details_pane_width = details_width
-                
+
                 # Track if details pane is visible
                 self.config.details_pane_visible = (details_width > 0)
-                
+
                 self.config.save()
                 logger.debug(f"Saved splitter sizes: sidebar={sidebar_width}px, details={details_width}px")
         except Exception as e:
