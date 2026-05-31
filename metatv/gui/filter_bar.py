@@ -283,7 +283,6 @@ class FilterBar(QWidget):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.show_excluded_mode = False
         self._restoring_state = False
         self._source_chips: Dict[str, ToggleChip] = {}  # provider_id → chip
 
@@ -310,29 +309,46 @@ class FilterBar(QWidget):
 
         # Row 1: filter dropdowns + untagged checkbox
         filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Filters:"))
+        filter_row.addWidget(QLabel("Only Show:"))
 
-        self.language_dropdown = FilterDropdown("Language", {})
+        self.language_dropdown = FilterDropdown("Category", {})
+        self.language_dropdown.setToolTip(
+            "Filter by language / region / category prefix.\n"
+            "Inclusive: content with no category tag also shows (unless 'Show untagged' is off).\n"
+            "Select nothing = show all categories."
+        )
         self.language_dropdown.filter_changed.connect(self.on_filter_changed)
         filter_row.addWidget(self.language_dropdown)
 
         self.quality_dropdown = FilterDropdown("Quality", {})
+        self.quality_dropdown.setToolTip(
+            "Filter by quality marker (HD, 4K, SD, etc.).\n"
+            "Exclusive: only channels explicitly tagged with the selected quality show.\n"
+            "Select nothing = show all quality levels."
+        )
         self.quality_dropdown.filter_changed.connect(self.on_filter_changed)
         self.quality_dropdown.hide()  # shown only when quality data exists
         filter_row.addWidget(self.quality_dropdown)
 
         self.platform_dropdown = FilterDropdown("Platform", {})
+        self.platform_dropdown.setToolTip(
+            "Filter by streaming platform or network prefix (Netflix, Sky, etc.).\n"
+            "Exclusive: only channels from the selected platform show.\n"
+            "Select nothing = show all platforms."
+        )
         self.platform_dropdown.filter_changed.connect(self.on_filter_changed)
         self.platform_dropdown.hide()  # shown only when platform data exists
         filter_row.addWidget(self.platform_dropdown)
 
         filter_row.addSpacing(12)
 
-        self.include_untagged_check = QCheckBox("Include untagged channels")
+        self.include_untagged_check = QCheckBox("Show untagged content")
         self.include_untagged_check.setChecked(True)
         self.include_untagged_check.setToolTip(
-            "When unchecked, channels with no language prefix are hidden.\n"
-            "Useful in multi-source setups where one provider uses prefixes and another does not."
+            "Applies to the Category filter only.\n"
+            "When checked: content with no category tag shows alongside matching categories.\n"
+            "When unchecked: only content explicitly tagged with a selected category shows.\n"
+            "Has no effect when no Category filter is active."
         )
         self.include_untagged_check.stateChanged.connect(self.on_filter_changed)
         filter_row.addWidget(self.include_untagged_check)
@@ -344,12 +360,12 @@ class FilterBar(QWidget):
         adult_row = QHBoxLayout(self._adult_filter_widget)
         adult_row.setContentsMargins(0, 0, 0, 0)
         adult_row.setSpacing(4)
-        adult_row.addWidget(QLabel("Adult content:"))
+        adult_row.addWidget(QLabel("Adult:"))
         self.adult_mode_combo = QComboBox()
         self.adult_mode_combo.addItems(["All", "Hide adult", "Adult only"])
         self.adult_mode_combo.setCurrentIndex(1)  # default: Hide adult
         self.adult_mode_combo.setToolTip(
-            "All — show all channels including adult\n"
+            "All — show all channels including adult-flagged\n"
             "Hide adult — hide channels marked as adult (default)\n"
             "Adult only — show only adult-flagged channels"
         )
@@ -358,24 +374,8 @@ class FilterBar(QWidget):
         self._adult_filter_widget.setVisible(False)  # hidden until adult content exists
         filter_row.addWidget(self._adult_filter_widget)
 
-        filter_row.addStretch()
-        layout.addLayout(filter_row)
-
-        # Row 2: action buttons
-        button_row = QHBoxLayout()
-
-        self.show_excluded_btn = QPushButton("Show Excluded")
-        self.show_excluded_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ff8844; color: white;
-                border: none; border-radius: 4px; padding: 6px 12px;
-            }
-            QPushButton:hover { background-color: #ff9955; }
-        """)
-        self.show_excluded_btn.clicked.connect(self.toggle_show_excluded)
-        button_row.addWidget(self.show_excluded_btn)
-
-        self.clear_filters_btn = QPushButton("Clear Filters")
+        self.clear_filters_btn = QPushButton("Clear")
+        self.clear_filters_btn.setToolTip("Reset all filters — show everything")
         self.clear_filters_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e0e0e0; color: #333333;
@@ -384,10 +384,10 @@ class FilterBar(QWidget):
             QPushButton:hover { background-color: #d0d0d0; color: #333333; }
         """)
         self.clear_filters_btn.clicked.connect(self.clear_filters)
-        button_row.addWidget(self.clear_filters_btn)
+        filter_row.addWidget(self.clear_filters_btn)
 
-        button_row.addStretch()
-        layout.addLayout(button_row)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
 
         self.stats_label = QLabel("Showing 0 of 0 channels")
         self.stats_label.setStyleSheet("color: #666666; font-size: 12px;")
@@ -455,7 +455,7 @@ class FilterBar(QWidget):
             'language_groups': self.language_dropdown.get_selected(),
             'quality_groups': self.quality_dropdown.get_selected(),
             'platform_groups': self.platform_dropdown.get_selected(),
-            'show_excluded': self.show_excluded_mode,
+            'show_excluded': False,  # removed — use Global Exclusions for blacklisting
             'include_untagged': self.include_untagged_check.isChecked(),
             'adult_mode': ['all', 'hide', 'only'][self.adult_mode_combo.currentIndex()],
             'excluded_provider_ids': self.get_excluded_provider_ids(),
@@ -465,29 +465,6 @@ class FilterBar(QWidget):
         logger.debug(f"Filter changed: {self.get_filter_state()}")
         if not self._restoring_state:
             self.save_state()
-        self.filter_changed.emit()
-
-    def toggle_show_excluded(self):
-        self.show_excluded_mode = not self.show_excluded_mode
-        if self.show_excluded_mode:
-            self.show_excluded_btn.setText("Hide Excluded")
-            self.show_excluded_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #44ff88; color: black;
-                    border: none; border-radius: 4px; padding: 6px 12px; font-weight: bold;
-                }
-                QPushButton:hover { background-color: #55ff99; }
-            """)
-        else:
-            self.show_excluded_btn.setText("Show Excluded")
-            self.show_excluded_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #ff8844; color: white;
-                    border: none; border-radius: 4px; padding: 6px 12px;
-                }
-                QPushButton:hover { background-color: #ff9955; }
-            """)
-        logger.info(f"Show excluded mode: {self.show_excluded_mode}")
         self.filter_changed.emit()
 
     def clear_filters(self):
@@ -519,9 +496,6 @@ class FilterBar(QWidget):
 
         for chip in self._source_chips.values():
             chip.set_enabled(True)
-
-        if self.show_excluded_mode:
-            self.toggle_show_excluded()
 
         logger.info("Filters cleared — all enabled")
         self.save_state()
