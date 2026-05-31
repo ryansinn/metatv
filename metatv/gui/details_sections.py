@@ -8,10 +8,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from metatv.gui.details_versions import (
-    _CHANNEL_PREFIX_RE, _COUNTRY_ABBREV_DP, _CATEGORY_FULL_NAMES_DP,
-    resolve_category_name,
-)
+from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
 from metatv.metadata_providers.base import MetadataResult
 
 
@@ -133,8 +131,8 @@ class _PosterSection(QWidget):
             return
         raw = m.group(1)
         delimiter = "★" if m.group(2) == "★" else "|"
-        code = _COUNTRY_ABBREV_DP.get(raw, raw)
-        full = _CATEGORY_FULL_NAMES_DP.get(code, "")
+        code = normalize_region_code(raw)
+        full = REGION_FULL_NAMES.get(code, "")
         text = (
             f"Category: {full} ({code})  ·  via {delimiter} prefix"
             if full
@@ -293,7 +291,14 @@ class _MetadataSection(QWidget):
             h, m = divmod(metadata.runtime, 60)
             self.runtime_label.setText(f"{h}h {m}m" if h else f"{m}m")
         if metadata.genres:
-            self.genres_label.setText(" • ".join(metadata.genres))
+            import re as _re
+            genres: list[str] = []
+            for g in metadata.genres:
+                if isinstance(g, str) and _re.search(r'\s*/\s*', g):
+                    genres.extend(p.strip() for p in g.split('/') if p.strip())
+                else:
+                    genres.append(g)
+            self.genres_label.setText(" • ".join(genres))
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:

@@ -367,10 +367,8 @@ class MetadataManager:
             metadata.cast = json.dumps(result.cast) if result.cast else json.dumps([])
             metadata.crew = json.dumps(result.crew) if result.crew else json.dumps([])
             metadata.genres = json.dumps(result.genres) if result.genres else json.dumps([])
-            
+
             metadata.director = result.director
-            
-            metadata.genres = result.genres
             metadata.content_rating = result.content_rating
             
             metadata.rating = result.rating

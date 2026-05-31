@@ -44,6 +44,7 @@ from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.content_view import ContentView
+from metatv.gui import theme as _theme
 
 _SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
 _PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
@@ -96,35 +97,13 @@ class _EpgTreeItem(QTreeWidgetItem):
         return super().__lt__(other)
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _format_time(dt: datetime) -> str:
-    """Convert UTC-naive EPG datetime to local time for display."""
-    local = dt.replace(tzinfo=timezone.utc).astimezone()
-    return local.strftime("%-I:%M %p").lstrip("0") or "12:00 AM"
-
-
-def _minutes_away(dt: datetime) -> int:
-    return max(0, int((dt - _now_utc()).total_seconds() / 60))
-
-
-def _duration_str(start: datetime, stop: datetime) -> str:
-    secs = max(0, int((stop - start).total_seconds()))
-    mins = secs // 60
-    if mins >= 60:
-        return f"{mins // 60}h {mins % 60}m"
-    return f"{mins}m"
-
-
-def _remaining_str(stop: datetime) -> str:
-    mins = max(0, int((stop - _now_utc()).total_seconds() / 60))
-    if mins == 0:
-        return "ending"
-    if mins >= 60:
-        return f"{mins // 60}h {mins % 60}m left"
-    return f"{mins}m left"
+from metatv.core.epg_utils import (
+    now_utc as _now_utc,
+    fmt_time as _format_time,
+    fmt_duration as _duration_str,
+    minutes_away as _minutes_away,
+    remaining_str as _remaining_str,
+)
 
 
 def _progress_bar(start: datetime, stop: datetime, width: int = 20) -> str:
@@ -267,16 +246,8 @@ class EpgView(ContentView):
         self.watchlist_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.watchlist_content = QWidget()
-        self.watchlist_layout = FlowLayout(self.watchlist_content, spacing=8)
-        self.watchlist_scroll.setWidget(self.watchlist_content)
+        self.watchlist_scroll.setWidget(QWidget())  # placeholder; fully rebuilt each render
         layout.addWidget(self.watchlist_scroll, 1)
-
-        self.wl_empty_label = QLabel(
-            "No watchlist items yet.\nAdd a show or keyword above to get started."
-        )
-        self.wl_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.wl_empty_label.setStyleSheet("color: #666; font-size: 13px; padding: 20px;")
 
         self.stack.addWidget(page)
 
@@ -996,40 +967,70 @@ class EpgView(ContentView):
                           recommendations: list, dismissed: set,
                           channel_now: dict | None = None,
                           channel_names: dict | None = None) -> None:
-        # Clear watchlist widgets — detach sentinels without deleting (reused next render)
-        while self.watchlist_layout.count():
-            child = self.watchlist_layout.takeAt(0)
-            w = child.widget()
-            if w:
-                if w is self.wl_empty_label:
-                    w.setParent(None)
-                else:
-                    w.deleteLater()
+        from metatv.gui.flow_layout import FlowLayout
+
+        old_wl = self.watchlist_scroll.takeWidget()
+        if old_wl:
+            old_wl.deleteLater()
+
+        wl_content = QWidget()
+        wl_outer = QVBoxLayout(wl_content)
+        wl_outer.setContentsMargins(0, 4, 0, 8)
+        wl_outer.setSpacing(0)
 
         patterns = self.config.epg_watchlist_patterns
 
         if not patterns:
-            self.watchlist_layout.addWidget(self.wl_empty_label)
+            empty = QLabel("No watchlist items yet.\nAdd a show or keyword above to get started.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet("color: #666; font-size: 13px; padding: 20px;")
+            wl_outer.addWidget(empty)
+            wl_outer.addStretch()
         else:
-            active_patterns: list[tuple] = []
-            inactive_patterns: list[str] = []
+            on_now: list[tuple] = []
+            upcoming_only: list[tuple] = []
+            off_air: list[str] = []
+
             for pattern in patterns:
                 live_progs = live_data.get(pattern, [])
-                upcoming   = watchlist_data.get(pattern, [])
-                if live_progs or upcoming:
-                    active_patterns.append((pattern, live_progs, upcoming))
+                upc = watchlist_data.get(pattern, [])
+                if live_progs:
+                    on_now.append((pattern, live_progs, upc))
+                elif upc:
+                    upcoming_only.append((pattern, upc))
                 else:
-                    inactive_patterns.append(pattern)
+                    off_air.append(pattern)
 
-            for pattern, live_progs, upcoming in active_patterns:
-                self.watchlist_layout.addWidget(
-                    self._make_watchlist_item(pattern, live_progs, upcoming[:3])
-                )
+            def _section_hdr(text: str) -> QLabel:
+                lbl = QLabel(text)
+                lbl.setStyleSheet(_theme.SECTION_HDR)
+                return lbl
 
-            if inactive_patterns:
-                self.watchlist_layout.addWidget(
-                    self._make_quiet_section(inactive_patterns)
-                )
+            def _flow_row(cards: list) -> QWidget:
+                w = QWidget()
+                fl = FlowLayout(w, spacing=8)
+                for card in cards:
+                    fl.addWidget(card)
+                return w
+
+            if on_now:
+                wl_outer.addWidget(_section_hdr(f"ON NOW  ·  {len(on_now)}"))
+                wl_outer.addWidget(_flow_row([
+                    self._make_watchlist_item(p, l, u[:3]) for p, l, u in on_now
+                ]))
+
+            if upcoming_only:
+                wl_outer.addWidget(_section_hdr(f"UPCOMING  ·  {len(upcoming_only)}"))
+                wl_outer.addWidget(_flow_row([
+                    self._make_watchlist_item(p, [], u[:3]) for p, u in upcoming_only
+                ]))
+
+            if off_air:
+                wl_outer.addWidget(self._make_quiet_section(off_air))
+
+            wl_outer.addStretch()
+
+        self.watchlist_scroll.setWidget(wl_content)
 
         # MY CHANNELS
         while self.channels_layout.count():
@@ -1076,9 +1077,9 @@ class EpgView(ContentView):
         from collections import defaultdict
 
         w = QWidget()
-        w.setMinimumWidth(280)
+        w.setMinimumWidth(320)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        w.setStyleSheet("QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }")
+        w.setStyleSheet(_theme.CARD_BG)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
@@ -1114,11 +1115,6 @@ class EpgView(ContentView):
         layout.addLayout(header)
 
         # ── Live title groups ────────────────────────────────────────────── #
-        _PLAY_BTN_STYLE = (
-            "QPushButton { background: transparent; border: none; color: #2288dd;"
-            " font-size: 13px; padding: 0 2px; }"
-            "QPushButton:hover { color: #55aaff; }"
-        )
         _MAX_VISIBLE = 3
 
         for title, progs in title_groups.items():
@@ -1142,12 +1138,17 @@ class EpgView(ContentView):
                 display_quality = db_quality or (p.quality[0] if p.quality else "")
 
                 row_w = QWidget()
+                cid = prog.channel_db_id
+                row_w.setCursor(Qt.CursorShape.PointingHandCursor)
+                row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
                 row = QHBoxLayout(row_w)
                 row.setContentsMargins(16, 0, 4, 0)
                 row.setSpacing(4)
 
                 time_lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·")
-                time_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+                time_lbl.setFixedWidth(90)
+                time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                time_lbl.setStyleSheet(_theme.TIME_LABEL)
                 row.addWidget(time_lbl)
 
                 if p.region:
@@ -1158,7 +1159,7 @@ class EpgView(ContentView):
                     row.addWidget(make_region_chip(p.lang, row_w))
 
                 name_lbl = QLabel(p.bare_name or raw_name)
-                name_lbl.setStyleSheet("color: #ccc; font-size: 11px;")
+                name_lbl.setStyleSheet(_theme.CHANNEL_NAME_LIVE)
                 row.addWidget(name_lbl, 1)
 
                 if display_quality:
@@ -1170,7 +1171,7 @@ class EpgView(ContentView):
                 pb.setFixedSize(22, 20)
                 pb.setFlat(True)
                 pb.setToolTip(f"Play: {p.bare_name or raw_name}")
-                pb.setStyleSheet(_PLAY_BTN_STYLE)
+                pb.setStyleSheet(_theme.PLAY_BTN)
                 cid = prog.channel_db_id
                 pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
                 row.addWidget(pb)
@@ -1221,7 +1222,16 @@ class EpgView(ContentView):
             sep.setMaximumHeight(1)
             layout.addWidget(sep)
 
-        for prog in upcoming[:3]:
+        # Group upcoming by title (up to 3 title groups, up to 2 channels each)
+        up_title_groups: dict[str, list] = defaultdict(list)
+        for prog in upcoming:
+            up_title_groups[prog.title].append(prog)
+        # Sort by earliest start time per group
+        up_title_groups = dict(
+            sorted(up_title_groups.items(), key=lambda kv: kv[1][0].start_time)
+        )
+
+        def _up_row(prog):
             raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
             p = parse_channel_name(raw_name)
             db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
@@ -1230,7 +1240,6 @@ class EpgView(ContentView):
             now = _now_utc()
             if prog.start_time <= now:
                 time_str = _remaining_str(prog.stop_time)
-                prefix_icon = self.config.episode_icon + " "
             else:
                 mins = _minutes_away(prog.start_time)
                 if mins < 120:
@@ -1239,14 +1248,18 @@ class EpgView(ContentView):
                     time_str = f"Today {_format_time(prog.start_time)}"
                 else:
                     time_str = f"{prog.start_time.strftime('%a')} {_format_time(prog.start_time)}"
-                prefix_icon = ""
 
             row_w = QWidget()
+            cid = prog.channel_db_id
+            row_w.setCursor(Qt.CursorShape.PointingHandCursor)
+            row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
             row = QHBoxLayout(row_w)
             row.setContentsMargins(16, 0, 4, 0)
             row.setSpacing(4)
-            time_lbl = QLabel(f"{prefix_icon}{time_str}  ·")
-            time_lbl.setStyleSheet("color: #777; font-size: 11px;")
+            time_lbl = QLabel(f"{time_str}  ·")
+            time_lbl.setFixedWidth(90)
+            time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            time_lbl.setStyleSheet(_theme.TIME_LABEL_UPCOMING)
             row.addWidget(time_lbl)
             if p.region:
                 row.addWidget(make_region_chip(p.region, row_w))
@@ -1255,13 +1268,24 @@ class EpgView(ContentView):
             if p.lang:
                 row.addWidget(make_region_chip(p.lang, row_w))
             name_lbl = QLabel(p.bare_name or raw_name)
-            name_lbl.setStyleSheet("color: #999; font-size: 11px;")
+            name_lbl.setStyleSheet(_theme.CHANNEL_NAME_UPCOMING)
             row.addWidget(name_lbl, 1)
             if display_quality:
                 row.addWidget(make_quality_chip(display_quality, row_w))
             if p.year:
                 row.addWidget(make_year_chip(p.year, row_w))
-            layout.addWidget(row_w)
+            return row_w
+
+        for title, progs in list(up_title_groups.items())[:3]:
+            if title.casefold() != pattern.casefold():
+                title_lbl = QLabel(title)
+                title_lbl.setWordWrap(True)
+                title_lbl.setStyleSheet(
+                    "font-size: 11px; color: #bbb; font-style: italic; padding-left: 8px;"
+                )
+                layout.addWidget(title_lbl)
+            for prog in progs[:2]:
+                layout.addWidget(_up_row(prog))
 
         return w
 
@@ -1294,7 +1318,7 @@ class EpgView(ContentView):
 
         def _update_label():
             arrow = self.config.move_down_icon if cards_container.isHidden() else self.config.move_up_icon
-            toggle_btn.setText(f"{arrow}  {n} quiet  —  nothing on now")
+            toggle_btn.setText(f"{arrow}  OFF AIR  ·  {n}")
 
         def _toggle(checked=False):
             if cards_container.isHidden():
@@ -1321,7 +1345,7 @@ class EpgView(ContentView):
         w = QWidget()
         w.setMinimumWidth(280)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        w.setStyleSheet("QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }")
+        w.setStyleSheet(_theme.CARD_BG)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)

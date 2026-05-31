@@ -23,8 +23,8 @@ class NotificationCard(QFrame):
     def setup_ui(self):
         """Set up notification UI"""
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
-        self.setMinimumWidth(350)
-        self.setMaximumWidth(400)
+        self.setMinimumWidth(380)
+        self.setMaximumWidth(440)
         
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         
@@ -237,7 +237,7 @@ class NotificationWidget(QWidget):
         self.layout.addStretch()
         
         # Set fixed width
-        self.setFixedWidth(370)
+        self.setFixedWidth(420)
         
         # Position in bottom-right
         self.reposition()

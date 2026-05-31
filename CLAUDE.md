@@ -64,6 +64,29 @@ metatv/
 
 ## Critical Rules
 
+### EPG time utilities — always from `epg_utils.py`
+All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`.
+
+### Collapse/expand buttons — always `expand_icon` / `collapse_icon`, never other arrow icons
+Any button that toggles a collapsible section must use `config.expand_icon` (collapsed state) and `config.collapse_icon` (expanded state). Never use `move_up_icon` / `move_down_icon` for this — those are list-ordering arrows with different semantics.
+
+For top-level collapsibles, subclass `CollapsibleSection` (in `sidebar_sections.py`) — it handles the button, state, and persistence automatically. For inner/nested collapsibles (e.g. Stream Monitoring sub-section), follow the same button convention:
+```python
+btn = QPushButton(self.config.collapse_icon)  # start expanded
+btn.setFixedSize(20, 20)
+btn.setFlat(True)
+# on toggle:
+btn.setText(self.config.expand_icon if collapsed else self.config.collapse_icon)
+```
+
+### Styles — use `theme.py`, never inline duplicates
+All Qt stylesheet strings shared across more than one widget must live in `metatv/gui/theme.py` as named constants. Import with `from metatv.gui import theme as _theme` and reference by name (`_theme.PLAY_BTN`, `_theme.CARD_BG`, etc.). Never copy-paste a stylesheet string between files. If you need a variant, add a new constant to `theme.py`.
+
+### Lookup tables — single source of truth, no duplicates
+Region/country codes, quality tokens, audio format maps, and similar lookup data must live in exactly one place. The canonical location for channel-name parsing data is `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, etc.). All other modules (GUI, details pane, sidebar) must import from there — never define their own parallel dicts.
+
+If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
+
 ### Icons — always from Config, never hardcoded
 Every icon, emoji, or symbol displayed in the UI must be defined as a field on `Config` (`metatv/core/config.py`) and referenced through it. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything. Never write a literal emoji or symbol string directly in widget or layout code.
 
@@ -224,6 +247,18 @@ Providers tried in priority order until sufficient data found:
 3. `OMDbProvider` — not yet implemented
 
 `MetadataResult.merge()` uses confidence scores (0.0–1.0) to prefer higher-quality data per field.
+
+## Content Dedup — Known Compromises
+
+`content_dedup.py` uses a `(norm_title, media_type, year, director)` fingerprint to group same-production channels across providers. This is a **heuristic stopgap** until TMDb/IMDb canonical IDs are wired up. Known trade-offs baked in by deliberate choice:
+
+- **Director excluded for series.** TV series have many episode directors; metadata providers attribute the same show to different people (creator, showrunner, first-episode director). Including director caused false splits (same show appearing twice in recommendations). Movies keep director because a single director is reliably credited and helps distinguish remakes.
+
+- **Null-year absorption.** When a candidate has no year in either the channel name or MetadataDB, it is suppressed if a year-bearing engaged variant with the same `(norm, media_type)` exists. This fixes cases like `EAR ★ Rick and Morty` (no year) appearing in recommendations when `EN - Rick And Morty (2013)` is already queued. Risk: a genuinely different series with the same name and no year metadata could be incorrectly suppressed — acceptable given the rarity of that combination.
+
+- **These compromises mean the recommendations list may occasionally hide a legitimate alternative or surface an unexpected variant.** The long-term fix is `tmdb_id`/`imdb_id` as the primary key (ROADMAP). A "dedup transparency toggle" for advanced/debug use is also tracked in ROADMAP.
+
+Do not tighten these heuristics without first checking that the specific failing case isn't better fixed by improving metadata completeness (year in channel name, consistent director field).
 
 ## Image Cache
 

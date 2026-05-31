@@ -9,43 +9,12 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolic
 from loguru import logger
 
 from metatv.core.database import Database
+from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
 from metatv.core.repositories.epg import EpgRepository
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _fmt_time(dt: datetime) -> str:
-    """UTC-naive EPG datetime → local time string like '5:30 PM'."""
-    return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p")
-
-
-def _fmt_duration(start: datetime, stop: datetime) -> str:
-    mins = max(0, int((stop - start).total_seconds() / 60))
-    if mins >= 60:
-        h, m = divmod(mins, 60)
-        return f"{h}h {m}m" if m else f"{h}h"
-    return f"{mins}m"
-
-
-def _progress_pct(start: datetime, stop: datetime, now: datetime) -> int:
-    total = (stop - start).total_seconds()
-    if total <= 0:
-        return 100
-    elapsed = (now - start).total_seconds()
-    return max(0, min(100, int(elapsed / total * 100)))
-
-
 def _remaining_str(stop: datetime, now: datetime) -> str:
-    secs = (stop - now).total_seconds()
-    if secs <= 60:
-        return "ending"
-    mins = int(secs / 60)
-    if mins >= 60:
-        h, m = divmod(mins, 60)
-        return f"{h}h {m}m left" if m else f"{h}h left"
-    return f"{mins}m left"
+    return _remaining_str_base(stop, now)
 
 
 class EpgAgendaWidget(QWidget):

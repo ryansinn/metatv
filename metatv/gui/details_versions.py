@@ -10,63 +10,13 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 
 from loguru import logger
 
+from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+
 # ---------------------------------------------------------------------------
 # Lookup tables
 # ---------------------------------------------------------------------------
 
 _CHANNEL_PREFIX_RE = _re.compile(r'^([A-Z][A-Z0-9\-]{1,11})\s*([★|])\s*(.+)$')
-
-_COUNTRY_ABBREV_DP: dict[str, str] = {
-    "ARGENTINA": "ARG", "AUSTRALIA": "AUS", "AUSTRIA": "AUT",
-    "BELGIUM": "BEL", "BOLIVIA": "BOL", "BRAZIL": "BRA",
-    "CANADA": "CAN", "CHILE": "CHL", "COLOMBIA": "COL",
-    "CROATIA": "HRV", "DENMARK": "DEN", "ECUADOR": "ECU",
-    "FINLAND": "FIN", "FRANCE": "FRA", "GERMANY": "GER",
-    "GREECE": "GRE", "HUNGARY": "HUN", "IRELAND": "IRL",
-    "ITALY": "ITA", "MEXICO": "MEX", "NETHERLANDS": "NED",
-    "NORWAY": "NOR", "PARAGUAY": "PAR", "PERU": "PER",
-    "POLAND": "POL", "PORTUGAL": "POR", "ROMANIA": "ROU",
-    "RUSSIA": "RUS", "SPAIN": "ESP", "SWEDEN": "SWE",
-    "SWITZERLAND": "SUI", "TURKEY": "TUR", "UKRAINE": "UKR",
-    "URUGUAY": "URY", "VENEZUELA": "VEN",
-}
-
-_CATEGORY_FULL_NAMES_DP: dict[str, str] = {
-    "US": "United States", "UK": "United Kingdom", "GB": "United Kingdom",
-    "BE": "Belgium", "FR": "France", "DE": "Germany", "ES": "Spain",
-    "IT": "Italy", "PT": "Portugal", "NL": "Netherlands", "SE": "Sweden",
-    "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
-    "RO": "Romania", "HU": "Hungary", "CZ": "Czech Republic", "GR": "Greece",
-    "TR": "Turkey", "RU": "Russia", "UA": "Ukraine", "BR": "Brazil",
-    "MX": "Mexico", "CA": "Canada", "AU": "Australia", "NZ": "New Zealand",
-    "JP": "Japan", "KR": "South Korea", "CN": "China", "IN": "India",
-    "AR": "Argentina", "CL": "Chile", "CO": "Colombia", "PE": "Peru",
-    "VE": "Venezuela", "IR": "Iran", "SA": "Saudi Arabia", "AE": "UAE",
-    "EG": "Egypt", "MA": "Morocco", "IL": "Israel", "ZA": "South Africa",
-    "AT": "Austria", "CH": "Switzerland", "IE": "Ireland", "HR": "Croatia",
-    "SK": "Slovakia", "SI": "Slovenia", "BG": "Bulgaria", "RS": "Serbia",
-    "ARG": "Argentina", "AUS": "Australia", "AUT": "Austria", "BEL": "Belgium",
-    "BOL": "Bolivia", "BRA": "Brazil", "CAN": "Canada", "CHL": "Chile",
-    "COL": "Colombia", "HRV": "Croatia", "DEN": "Denmark", "ECU": "Ecuador",
-    "FIN": "Finland", "FRA": "France", "GER": "Germany", "GRE": "Greece",
-    "HUN": "Hungary", "IRL": "Ireland", "ITA": "Italy", "MEX": "Mexico",
-    "NED": "Netherlands", "NOR": "Norway", "PAR": "Paraguay", "PER": "Peru",
-    "POL": "Poland", "POR": "Portugal", "ROU": "Romania", "RUS": "Russia",
-    "ESP": "Spain", "SWE": "Sweden", "SUI": "Switzerland", "TUR": "Turkey",
-    "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela",
-    "EPL": "English Premier League", "EFL": "English Football League",
-    "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
-    "NHL": "NHL Hockey", "UFC": "UFC / MMA",
-    "EN": "English", "AL": "Albania", "ALB": "Albania",
-    "KU": "Kurdish", "KR": "Korean", "FA": "Farsi / Persian",
-    "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
-    "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali",
-    "MR": "Marathi", "GU": "Gujarati", "PA": "Punjabi",
-    "TH": "Thai", "VN": "Vietnamese", "ID": "Indonesian", "PH": "Filipino",
-    "LAT": "Latin America", "LATS": "Latin America (Spanish)",
-    "NF": "Netflix", "SC": "Starz / Cinemax", "TM": "TMDB Streaming",
-    "EAR": "Early Release",
-}
 
 
 def resolve_category_name(prefix: str, config=None) -> str:
@@ -75,8 +25,8 @@ def resolve_category_name(prefix: str, config=None) -> str:
         overrides = getattr(config, "category_name_overrides", {})
         if prefix in overrides:
             return overrides[prefix]
-    abbrev = _COUNTRY_ABBREV_DP.get(prefix, prefix)
-    return _CATEGORY_FULL_NAMES_DP.get(abbrev, _CATEGORY_FULL_NAMES_DP.get(prefix, ""))
+    code = normalize_region_code(prefix)
+    return REGION_FULL_NAMES.get(code, REGION_FULL_NAMES.get(prefix, ""))
 
 
 # ---------------------------------------------------------------------------

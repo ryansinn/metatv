@@ -51,8 +51,12 @@ _BRACKET_SUFFIX_RE = re.compile(r'\s*\[([^\]]+)\]\s*$')
 # Explicit lang/region qualifier in parens at end: (EN), (JP) — 2-3 uppercase letters only
 _LANG_QUALIFIER_RE = re.compile(r'\s*\(([A-Z]{2,3})\)\s*$', re.IGNORECASE)
 
-# Year or year-range in parens at end: (2020), (1993-2002), (1993–2002)
-_YEAR_RE = re.compile(r'\s*\((\d{4}(?:[-–]\d{4})?)\)\s*$')
+# Year at end: (2020), (1993-2002), (1993–2002), or provider suffix " - 2025"
+_YEAR_RE = re.compile(
+    r'(?:\s*\((\d{4}(?:[-–]\d{4})?)\)'   # group 1: (2025) or (1993-2002)
+    r'|\s+-\s+(\d{4}))'                   # group 2: - 2025
+    r'\s*$'
+)
 
 # ── Audio format normalization ───────────────────────────────────────────────── #
 
@@ -131,7 +135,11 @@ REGION_FULL_NAMES: dict[str, str] = {
     "CN": "China", "IN": "India", "AR": "Argentina", "CL": "Chile",
     "CO": "Colombia", "PE": "Peru", "VE": "Venezuela", "IR": "Iran",
     "SA": "Saudi Arabia", "AE": "UAE", "EG": "Egypt", "MA": "Morocco",
-    "IL": "Israel", "ZA": "South Africa", "NG": "Nigeria", "PK": "Pakistan",
+    "IL": "Israel", "ZA": "South Africa", "ZW": "Zimbabwe", "KE": "Kenya",
+    "GH": "Ghana", "TZ": "Tanzania", "UG": "Uganda", "ET": "Ethiopia",
+    "ZM": "Zambia", "CM": "Cameroon", "SN": "Senegal", "TN": "Tunisia",
+    "DZ": "Algeria", "LY": "Libya", "CI": "Ivory Coast", "AO": "Angola",
+    "MZ": "Mozambique", "NG": "Nigeria", "PK": "Pakistan",
     "TH": "Thailand", "VN": "Vietnam", "ID": "Indonesia", "PH": "Philippines",
     "AT": "Austria", "CH": "Switzerland", "IE": "Ireland", "HR": "Croatia",
     "SK": "Slovakia", "SI": "Slovenia", "BG": "Bulgaria", "RS": "Serbia",
@@ -148,7 +156,12 @@ REGION_FULL_NAMES: dict[str, str] = {
     "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela", "JPN": "Japan",
     "CHN": "China", "IND": "India",
     # Regional groupings
-    "LAT": "Latin America",
+    "LAT": "Latin America", "LATS": "Latin America (Spanish)",
+    "AL": "Albania", "ALB": "Albania",
+    # Language codes (used as channel prefixes on some providers)
+    "EN": "English", "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
+    "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali", "MR": "Marathi",
+    "GU": "Gujarati", "PA": "Punjabi", "FA": "Farsi / Persian", "KU": "Kurdish",
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
@@ -241,7 +254,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
     year = ""
     ym = _YEAR_RE.search(bare)
     if ym:
-        year = ym.group(1)
+        year = ym.group(1) or ym.group(2)  # group 1 = paren form, group 2 = dash form
         bare = bare[: ym.start()].strip()
 
     # 6. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year

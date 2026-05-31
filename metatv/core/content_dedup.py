@@ -32,20 +32,30 @@ from loguru import logger
 # ---------------------------------------------------------------------------
 
 _PREFIX_NOISE_RE = re.compile(
-    r"^(?:(?:[A-Z]{2,5}(?:/[A-Z]{2,5})?)\s*[|:*\-–—●•★◉\xb7]\s*)+"
+    r"^(?:(?:[A-Z][A-Z0-9\-+]{1,11}(?:/[A-Z]{2,5})?)\s*[|:*\-–—●•★◉\xb7]\s*)+"
 )
-"""Strip provider prefix noise like 'EN|', 'EN * ', 'UK/US: ', '4K●'."""
+"""Strip provider prefix noise like 'EN|', 'EN * ', 'UK/US: ', '4K●', 'D+●'."""
 
-_YEAR_SUFFIX_RE = re.compile(r"\s*[\(\[]\d{4}[\)\]]$|\s+\d{4}$")
-"""Strip trailing year markers: ' (2024)', ' [2024]', ' 2024'."""
+_BRACKET_PREFIX_RE = re.compile(r"^\[[A-Z][A-Z0-9\-+]{0,11}\]\s*")
+"""Strip bracket-format prefixes: [SE], [EN], [NF], [D+]. Applied repeatedly for doubles like '[SE] [SE]'."""
+
+_YEAR_SUFFIX_RE = re.compile(
+    r"\s*[\(\[]\d{4}[\)\]]$"  # (2024) or [2024]
+    r"|\s+\d{4}$"             # bare 2024
+    r"|\s+-\s+\d{4}$"         # - 2024  (common provider suffix)
+)
+"""Strip trailing year markers: ' (2024)', ' [2024]', ' 2024', ' - 2024'."""
 
 _YEAR_EXTRACT_RE = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
 """Extract a plausible production year (1950–2029) from a channel name."""
 
 _QUALITY_SUFFIX_RE = re.compile(
-    r"\b(4K|8K|UHD|FHD|HD|SDR|HDR10?\+?|SD|HEVC|H\.?265)\b", re.IGNORECASE
+    r"\b(4K|8K|UHD|FHD|HD|SDR|HDR10?\+?|SD|HQ|LQ|RAW|HEVC|H\.?265)\b", re.IGNORECASE
 )
 """Strip quality markers that don't distinguish productions."""
+
+_PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z]{1,20}\)\s*$")
+"""Strip trailing alpha-only parentheticals: (US), (EN), (HQ), (LQ), (Dubbed)."""
 
 
 
@@ -70,12 +80,23 @@ def normalize_title(name: str, prefix: str | None = None) -> str:
 
     # 2. Regex-strip remaining prefix patterns (catches formats detect_prefix misses)
     name = _PREFIX_NOISE_RE.sub("", name)
+    # Also strip bracket-format prefixes: [SE], [EN], [NF], [SE] [SE] (doubled)
+    while _BRACKET_PREFIX_RE.match(name):
+        name = _BRACKET_PREFIX_RE.sub("", name, count=1)
 
-    # 3. Strip year and quality suffixes
-    name = _YEAR_SUFFIX_RE.sub("", name)
+    # 3. Alternately strip trailing year markers and alpha qualifiers until stable.
+    #    "Show (HQ) (2025)": pass1 strips year→"Show (HQ)", then (HQ)→"Show". Done.
+    #    "Show (2024) (US)": pass1 strips (US)→"Show (2024)", pass2 strips year→"Show". Done.
+    prev = None
+    while prev != name:
+        prev = name
+        name = _YEAR_SUFFIX_RE.sub("", name)
+        name = _PAREN_QUALIFIER_RE.sub("", name)
+
+    # 4. Strip quality markers (4K, HD, HQ, LQ, etc.)
     name = _QUALITY_SUFFIX_RE.sub("", name)
 
-    # 4. Lowercase, collapse whitespace, drop non-word characters
+    # 5. Lowercase, collapse whitespace, drop non-word characters
     name = re.sub(r"[^\w\s]", " ", name.lower())
     return " ".join(name.split()).strip()
 
@@ -125,17 +146,24 @@ def build_dedup_key(channel, meta) -> tuple:
     Reboots with the same title but a different year or director get
     different keys and appear as separate recommendations.
 
+    Director is excluded for series because TV shows have many episode
+    directors and metadata providers attribute the series to different
+    people (creator, showrunner, first-episode director, etc.), producing
+    false splits for the same show. For movies, director is reliable.
+
     Falls back to ``(channel.id, '', None, None)`` when normalization
     produces nothing, so the channel still participates in scoring.
     """
     norm = normalize_title(channel.name, getattr(channel, "detected_prefix", None))
     if not norm:
         return (channel.id, "", None, None)
+    media_type = channel.media_type or ""
+    dir_k = director_key(meta) if media_type != "series" else None
     return (
         norm,
-        channel.media_type or "",
+        media_type,
         extract_year(channel.name, meta),
-        director_key(meta),
+        dir_k,
     )
 
 

@@ -94,29 +94,7 @@ def _format_episode_duration(raw: str) -> str:
     return raw
 
 
-def _version_score(channel, config) -> int:
-    """Score a channel version against the user's version preferences.
-
-    Higher score = better match. Used to identify the preferred version
-    and sort the Other Versions list in the details pane.
-    """
-    score = 0
-    if config.preferred_version_prefixes and channel.detected_prefix:
-        try:
-            idx = config.preferred_version_prefixes.index(channel.detected_prefix)
-            score += max(0, 10 - idx)
-        except ValueError:
-            pass
-    if config.preferred_version_provider_ids and channel.provider_id in config.preferred_version_provider_ids:
-        try:
-            idx = config.preferred_version_provider_ids.index(channel.provider_id)
-            score += max(0, 5 - idx)
-        except ValueError:
-            pass
-    if config.preferred_version_quality:
-        if config.preferred_version_quality.upper() in channel.name.upper():
-            score += 5
-    return score
+from metatv.core.preference_engine import version_score as _version_score
 
 
 from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
@@ -457,6 +435,7 @@ class MainWindow(QMainWindow):
         elif section_id == "alerts":
             section = WatchAlertsSection(self.config, self.db, self)
             section.alertClicked.connect(self._on_alert_clicked)
+            section.channel_selected.connect(self._on_alert_channel_details)
             section.channelContextMenuRequested.connect(self._on_alert_channel_context_menu)
             section.retryRemoveRequested.connect(self.stream_retry_manager.remove)
             section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
@@ -803,8 +782,10 @@ class MainWindow(QMainWindow):
         self.executor.submit(self._bg_fetch_similar_titles, channel_id)
 
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
+        import re as _re
         from metatv.core.database import ChannelDB, WatchQueueDB
         from metatv.core.content_dedup import normalize_title, build_dedup_key
+        _non_ascii = _re.compile(r'[^\x00-\x7F]+')
 
         session = self.db.get_session()
         try:
@@ -844,7 +825,10 @@ class MainWindow(QMainWindow):
             results: list[ChannelDB] = []
             for ch in candidates:
                 ch_norm = normalize_title(ch.name, ch.detected_prefix)
-                ch_words = {w for w in ch_norm.split() if len(w) >= 4}
+                # Use ASCII-only projection for word matching so bilingual titles
+                # like "Nobody Wants This هیچکس..." match on their Latin portion.
+                ch_norm_ascii = _non_ascii.sub(" ", ch_norm).strip()
+                ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
                 overlap = sum(1 for w in words if w in ch_words)
                 if overlap >= threshold and ch_norm != norm and ch_norm not in seen_norms:
                     # Skip exact dedup matches (other versions of same content)
@@ -932,6 +916,7 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
         self._refresh_queue_section()
+        self._refresh_recommended_section()
 
     def _remove_from_queue(self, channel_id: str) -> None:
         session = self.db.get_session()
@@ -942,6 +927,7 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
         self._refresh_queue_section()
+        self._refresh_recommended_section()
 
     def _refresh_queue_section(self) -> None:
         section = self.sidebar_sections.get("queue")
@@ -1224,6 +1210,20 @@ class MainWindow(QMainWindow):
         """Play the channel immediately when a sidebar watch alert is double-clicked."""
         if channel_db_id:
             self.play_channel_by_id(channel_db_id)
+
+    def _on_alert_channel_details(self, channel_db_id: str) -> None:
+        """Show channel details in the right pane when a watch alert row is single-clicked."""
+        if not channel_db_id:
+            return
+        session = self.db.get_session()
+        try:
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_db_id)
+            if channel:
+                self.details_pane.show_channel(channel)
+        finally:
+            session.close()
 
     def create_content_area(self) -> QWidget:
         """Create main content area"""
@@ -1842,12 +1842,26 @@ class MainWindow(QMainWindow):
         # --- All UI-state reads must happen here on the main thread ---
         filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
 
-        language_prefixes = []
-        for group_name in filter_state.get('language_groups', []):
-            language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
-        quality_prefixes = []
-        for group_name in filter_state.get('quality_groups', []):
-            quality_prefixes.extend(self.config.filter_quality_groups.get(group_name, []))
+        _all_lang_groups  = set(self.config.filter_language_groups.keys())
+        _sel_lang_groups  = set(filter_state.get('language_groups', []))
+        # When every language group is selected the user intends "show all" — don't
+        # build a prefix whitelist, because provider/service prefixes (NF, EAR, 24/7,
+        # etc.) are not mapped to any language group and would be silently excluded.
+        if _all_lang_groups and _sel_lang_groups >= _all_lang_groups:
+            language_prefixes = []   # → passed as None → no prefix filter
+        else:
+            language_prefixes = []
+            for group_name in _sel_lang_groups:
+                language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
+
+        _all_qual_groups = set(self.config.filter_quality_groups.keys())
+        _sel_qual_groups = set(filter_state.get('quality_groups', []))
+        if _all_qual_groups and _sel_qual_groups >= _all_qual_groups:
+            quality_prefixes = []
+        else:
+            quality_prefixes = []
+            for group_name in _sel_qual_groups:
+                quality_prefixes.extend(self.config.filter_quality_groups.get(group_name, []))
 
         # Resolve provider filter on main thread (tiny queries)
         session = self.db.get_session()
@@ -3141,9 +3155,14 @@ class MainWindow(QMainWindow):
 
     def _on_episode_stream_unavailable(self, notif_id: str, title: str, detail: str, stream_url: str = "") -> None:
         from PyQt6.QtWidgets import QApplication
+        from metatv.core.channel_name_utils import parse_channel_name
         # Dismiss the old "Checking stream" notif — safe even if it already auto-dismissed
         self.notification_manager.dismiss(notif_id)
-        safe_title = title if not title.startswith("http") else ""
+        if title and not title.startswith("http"):
+            p = parse_channel_name(title)
+            safe_title = p.bare_name or title
+        else:
+            safe_title = ""
         _msg = f"{safe_title}\n{detail}".strip() if safe_title else detail
         self.notification_manager.show(
             title="Stream Unavailable",
@@ -3464,9 +3483,12 @@ class MainWindow(QMainWindow):
                 self.status_bar.showMessage(f"Error: Stream unavailable for {channel.name}")
                 detail = stream_err if stream_err else "All URLs failed (possibly geo-blocked)"
                 self.notification_manager.dismiss(notif_id)
+                from metatv.core.channel_name_utils import parse_channel_name as _pcn
+                _p = _pcn(channel.name)
+                _display = _p.bare_name or channel.name
                 self.notification_manager.show(
                     title="Stream Unavailable",
-                    message=f"{channel.name}\n{detail}",
+                    message=f"{_display}\n{detail}",
                     type="error",
                     dismissible=True,
                     auto_dismiss_seconds=None,

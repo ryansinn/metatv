@@ -10,10 +10,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from metatv.core.database import EpgProgramDB, ChannelDB
-
-
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from metatv.core.epg_utils import now_utc as _now_utc
 
 
 class EpgRepository:
@@ -305,6 +302,7 @@ class EpgRepository:
                 EpgProgramDB.start_time <= now,
                 EpgProgramDB.stop_time > now,
             )
+            .order_by(EpgProgramDB.start_time.desc())  # most recently started wins if overlap
             .first()
         )
 

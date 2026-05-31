@@ -106,6 +106,31 @@ class ScoredChannel:
     variant_count:     int = 0       # how many source/language copies collapsed into this entry
 
 
+def version_score(channel, config) -> int:
+    """Score a channel against the user's version preferences (prefix/provider/quality).
+
+    Higher score = better match. Used to pick the preferred variant when multiple
+    language/region copies of the same production are candidates.
+    """
+    score = 0
+    if config.preferred_version_prefixes and channel.detected_prefix:
+        try:
+            idx = config.preferred_version_prefixes.index(channel.detected_prefix)
+            score += max(0, 10 - idx)
+        except ValueError:
+            pass
+    if config.preferred_version_provider_ids and channel.provider_id in config.preferred_version_provider_ids:
+        try:
+            idx = config.preferred_version_provider_ids.index(channel.provider_id)
+            score += max(0, 5 - idx)
+        except ValueError:
+            pass
+    if config.preferred_version_quality:
+        if config.preferred_version_quality.upper() in channel.name.upper():
+            score += 5
+    return score
+
+
 def extract_keywords(plot: str) -> list[str]:
     """Return content words from a plot string (lowercased, stop-word filtered)."""
     words = re.findall(r"\b[a-z]{4,}\b", plot.lower())
@@ -212,7 +237,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      muted_attrs: dict | None = None,
                      dedupe_overrides: set[str] | None = None,
                      included_prefixes: list[str] | None = None,
-                     include_uncategorized: bool = True) -> list[ScoredChannel]:
+                     include_uncategorized: bool = True,
+                     version_scorer=None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
@@ -258,6 +284,28 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     all_engaged_ids = disliked_ids | favorite_ids | queued_ids | set(liked_map.keys())
     engaged_normalized = build_engaged_normalized(session, all_engaged_ids, _overrides)
 
+    # For series, director is excluded from the dedup key (see content_dedup.py), so
+    # year is the only differentiator.  We build two sets to handle both null-year
+    # directions without suppressing genuine reboots (where both sides have a year):
+    #
+    #   engaged_series_with_year  → (norm, "series") for engaged entries that DO have
+    #     a year.  Suppresses null-year candidates: "EAR ★ Rick and Morty" (year=None)
+    #     when "EN - Rick And Morty (2013)" (year=2013) is queued.
+    #
+    #   engaged_series_null_year  → (norm, "series") for engaged entries that have NO
+    #     year.  Suppresses year-bearing candidates: "EN - BoJack Horseman (2014)"
+    #     (year=2014) when "EN ★ BoJack Horseman" (year=None) is favorited.
+    #
+    # Only one side needs year=None to trigger — if both sides have a year and they
+    # differ, neither set matches and the exact-key check handles them as separate
+    # productions (reboots).
+    engaged_series_with_year: set[tuple] = {
+        (k[0], k[1]) for k in engaged_normalized if k[1] == "series" and k[2] is not None
+    }
+    engaged_series_null_year: set[tuple] = {
+        (k[0], k[1]) for k in engaged_normalized if k[1] == "series" and k[2] is None
+    }
+
     from metatv.core.discovery_engine import _apply_prefix_filter
     candidates_q = (
         session.query(ChannelDB)
@@ -273,6 +321,11 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
 
     best_per_title: dict[tuple, ScoredChannel] = {}
     variant_counts: dict[tuple, int] = {}
+    vscore_by_id: dict[str, int] = {}   # channel_id → version_score for tiebreaking
+    # (norm, mt) → first year-bearing dedup_key seen; used for null-year absorption
+    # within the recommendation list so the same show doesn't appear twice.
+    null_year_map: dict[tuple, tuple] = {}
+
     for channel in candidates:
         if channel.id in disliked_ids:
             continue
@@ -289,6 +342,33 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         dedup_key = build_dedup_key(channel, meta)
         if channel.id not in _overrides and dedup_key in engaged_normalized:
             continue
+
+        # Bidirectional null-year suppression for series.
+        # Applied only when one side has year=None; both-year mismatches are reboots.
+        norm_mt = (dedup_key[0], dedup_key[1])
+        if channel.id not in _overrides and channel.media_type == "series":
+            if dedup_key[2] is None and norm_mt in engaged_series_with_year:
+                continue  # null-year candidate, year-bearing engaged variant
+            if dedup_key[2] is not None and norm_mt in engaged_series_null_year:
+                continue  # year-bearing candidate, null-year engaged variant
+
+        # Null-year absorption within the recommendation list:
+        # If a year-bearing entry for this (norm, mt) already exists, absorb this
+        # null-year variant into it so the same show doesn't appear twice.
+        if dedup_key[2] is None:
+            canonical = null_year_map.get(norm_mt)
+            if canonical is not None:
+                dedup_key = canonical   # merge into the year-bearing entry
+        else:
+            existing = null_year_map.get(norm_mt)
+            if existing is None:
+                null_year_map[norm_mt] = dedup_key
+            elif existing[2] is None:
+                # Upgrade the null-year key to this year-bearing key
+                if existing in best_per_title:
+                    best_per_title[dedup_key] = best_per_title.pop(existing)
+                    variant_counts[dedup_key] = variant_counts.pop(existing, 0)
+                null_year_map[norm_mt] = dedup_key
 
         genres = _split_genres(_loads(meta.genres) or [])
         cast   = _loads(meta.cast)   or []
@@ -346,9 +426,20 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             metadata_rating=meta.rating,
             rec_shown_count=getattr(channel, 'rec_shown_count', 0) or 0,
         )
+        if version_scorer is not None:
+            vscore_by_id[channel.id] = version_scorer(channel)
+
         variant_counts[dedup_key] = variant_counts.get(dedup_key, 0) + 1
         existing = best_per_title.get(dedup_key)
-        if existing is None or total > existing.score:
+        if existing is None:
+            best_per_title[dedup_key] = sc
+        elif version_scorer is not None:
+            # Preferred version wins; break ties with preference score.
+            new_vs = vscore_by_id.get(channel.id, 0)
+            old_vs = vscore_by_id.get(existing.channel_id, 0)
+            if new_vs > old_vs or (new_vs == old_vs and total > existing.score):
+                best_per_title[dedup_key] = sc
+        elif total > existing.score:
             best_per_title[dedup_key] = sc
 
     for key, sc in best_per_title.items():

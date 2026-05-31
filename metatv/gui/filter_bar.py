@@ -459,7 +459,7 @@ class FilterBar(QWidget):
     def toggle_show_excluded(self):
         self.show_excluded_mode = not self.show_excluded_mode
         if self.show_excluded_mode:
-            self.show_excluded_btn.setText("Show Included")
+            self.show_excluded_btn.setText("Hide Excluded")
             self.show_excluded_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #44ff88; color: black;
