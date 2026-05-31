@@ -30,6 +30,10 @@ Each major view has (or will have) its own in-session whitelist-style filter app
 
 These are all Tier 1 filters — they narrow what you see right now in that view. They do not persist as permanent exclusions. The Tier 2 Exclusions always apply underneath them.
 
+The key distinction: Tier 1 filters let the user explore and drill into content without touching their general preferences. Tier 2 exclusions are permanent preferences that apply everywhere. The two systems don't interfere — a Tier 1 filter never overrides a Tier 2 exclusion.
+
+**UX principle: these systems should be self-explanatory from the UI itself.** Labels, affordances, and placement should communicate the mental model without requiring documentation. A user should be able to reason: "this filter is for right now, that one is forever."
+
 #### Quick Filter Bar (Channel Search — current implementation)
 
 **Mental model**: "Show me only X right now."
@@ -116,3 +120,4 @@ Canonical prefix→group mappings live in `metatv/core/config.py` (`BASE_PREFIX_
 - [ ] **Unified Exclusions modal** — combine Global Filter categories + Hidden Content into one tabbed dialog
 - [ ] **Filter presets** — save named filter combos ("HD English", "Platform only", etc.)
 - [ ] **Search within excluded results** — for large filtered datasets (50k+)
+- [ ] **"Copy filters from…" across views** — apply another view's active Tier 1 filter to the current view (e.g. dial in a filter in Search then copy it to Discover). Surfaces as a small dropdown on each view's filter bar: "Copy from: Search · Discover · EPG"

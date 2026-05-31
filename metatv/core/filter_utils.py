@@ -192,35 +192,38 @@ def get_excluded_prefixes(config) -> set[str]:
 
 
 def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
-    """Return stored prefix codes as the active category filter.
+    """Return prefix codes to EXCLUDE from the global category blacklist.
 
-    config.global_filter_included_categories stores actual prefix codes
-    (e.g. ["EN", "KU"]), not group names. Empty list = no filter (show all).
+    config.global_filter_excluded_categories stores prefix codes to hide
+    (e.g. ["AR", "KU"]). Empty list = hide nothing (show everything).
 
     Returns:
-        (included_prefixes_or_None, include_uncategorized)
-        included_prefixes is None when no filter is active (show everything).
+        (excluded_prefixes_or_None, include_uncategorized)
+        excluded_prefixes is None when no exclusions are active.
     """
-    prefixes = list(getattr(config, "global_filter_included_categories", []))
+    if getattr(config, "global_filter_paused", False):
+        return None, True
+    prefixes = list(getattr(config, "global_filter_excluded_categories", []))
     include_uncategorized = getattr(config, "global_filter_include_uncategorized", True)
     return (prefixes if prefixes else None), include_uncategorized
 
 
 def get_active_content_type_filter(config) -> list[str] | None:
-    """Resolve global_filter_included_content_types → raw source_category labels.
+    """Resolve global_filter_excluded_content_types → raw source_category labels to exclude.
 
-    Returns a list of raw labels to include (e.g. ["SPORTS NETWORK", "NBA LIVE EVENTS"]),
-    or None when no content-type filter is active (show everything).
-    The sentinel "_other_" in the stored list means "channels with unmapped source_category"
-    — callers must handle that specially.
+    Returns a list of raw labels to hide (e.g. ["SPORTS NETWORK", "NBA LIVE EVENTS"]),
+    or None when no content-type exclusions are active (show everything).
+    The sentinel "_other_" means channels with unmapped source_category — callers handle it.
     """
-    included_types: list[str] = list(getattr(config, "global_filter_included_content_types", []))
-    if not included_types:
-        return None  # no filter active
+    if getattr(config, "global_filter_paused", False):
+        return None
+    excluded_types: list[str] = list(getattr(config, "global_filter_excluded_content_types", []))
+    if not excluded_types:
+        return None  # no exclusions active
 
     groups: dict = getattr(config, "content_category_groups", {})
     raw_labels: list[str] = []
-    for type_name in included_types:
+    for type_name in excluded_types:
         if type_name == "_other_":
             continue  # handled separately by callers
         for lbl in groups.get(type_name, []):

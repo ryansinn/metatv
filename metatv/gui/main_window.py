@@ -626,16 +626,13 @@ class MainWindow(QMainWindow):
             queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
             provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
             _filter_paused = self.config.global_filter_paused
-            allowed_prefixes = set() if _filter_paused else set(self.config.global_filter_included_categories)
+            excluded_cats = set() if _filter_paused else set(self.config.global_filter_excluded_categories)
             blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
+            all_excluded = excluded_cats | blocked_prefixes
 
             def _is_filtered(ch: ChannelDB) -> bool:
                 p = ch.detected_prefix
-                if p and p in blocked_prefixes:
-                    return True
-                if allowed_prefixes and p not in allowed_prefixes:
-                    return True
-                return False
+                return bool(p and p in all_excluded)
 
             def _is_hidden_category(ch: ChannelDB) -> bool:
                 return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)
@@ -1313,7 +1310,7 @@ class MainWindow(QMainWindow):
         self.hidden_chip.clicked.connect(self.on_hidden_view_toggle)
         media_layout.addWidget(self.hidden_chip)
 
-        self._filter_chip = FilterChip("Filters")
+        self._filter_chip = FilterChip("Exclusions")
         self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
         self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
         media_layout.addWidget(self._filter_chip)
@@ -2850,8 +2847,8 @@ class MainWindow(QMainWindow):
     def _update_filter_btn_state(self) -> None:
         """Sync FilterChip visual state with current filter config."""
         active = (
-            bool(self.config.global_filter_included_categories)
-            or bool(self.config.global_filter_included_content_types)
+            bool(self.config.global_filter_excluded_categories)
+            or bool(self.config.global_filter_excluded_content_types)
             or bool(self.config.global_filter_excluded_prefixes)
         )
         self._filter_chip.set_filter_state(active, self.config.global_filter_paused)

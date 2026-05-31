@@ -43,10 +43,11 @@ class _SeeAllWorker(QObject):
         session = self._db.get_session()
         try:
             ss = build_status_sets(session)
-            included_prefixes, include_uncategorized = get_active_category_filter(self._config)
-            fk = dict(included_prefixes=included_prefixes,
+            cat_excluded, include_uncategorized = get_active_category_filter(self._config)
+            per_prefix = get_excluded_prefixes(self._config)
+            all_excl = list(set(cat_excluded or []) | per_prefix)
+            fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized)
-            excluded_prefixes = get_excluded_prefixes(self._config)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
@@ -68,8 +69,6 @@ class _SeeAllWorker(QObject):
                 cards = get_by_actor(session, key[6:], limit=limit, **sk, **fk, **af)
             else:
                 cards = []
-            if excluded_prefixes:
-                cards = [c for c in cards if c.detected_prefix not in excluded_prefixes]
         except Exception:
             logger.exception("SeeAllWorker error for %s", self._shelf_key)
             cards = []
@@ -100,10 +99,11 @@ class _LoaderWorker(QObject):
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
 
-            included_prefixes, include_uncategorized = get_active_category_filter(self._config)
-            fk = dict(included_prefixes=included_prefixes,
+            cat_excluded, include_uncategorized = get_active_category_filter(self._config)
+            per_prefix = get_excluded_prefixes(self._config)
+            all_excl = list(set(cat_excluded or []) | per_prefix)
+            fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized)
-            excluded_prefixes = get_excluded_prefixes(self._config)
 
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
@@ -115,12 +115,7 @@ class _LoaderWorker(QObject):
                     return
                 if not data.cards:
                     return
-                cards = data.cards
-                if excluded_prefixes:
-                    cards = [c for c in cards if c.detected_prefix not in excluded_prefixes]
-                if not cards:
-                    return
-                self.shelfReady.emit(_ShelfData(data.title, data.shelf_key, cards))
+                self.shelfReady.emit(_ShelfData(data.title, data.shelf_key, data.cards))
 
             # Fixed shelves
             emit(_ShelfData(

@@ -496,7 +496,7 @@ class PreferencesView(QWidget):
     def _bg_refresh(self) -> None:
         from metatv.core.preference_engine import compute_weights, score_candidates
         from metatv.core.filter_utils import get_active_category_filter
-        included_prefixes, include_uncategorized = get_active_category_filter(self.config)
+        excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
@@ -504,7 +504,7 @@ class PreferencesView(QWidget):
                 session, weights,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
                 dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
-                included_prefixes=included_prefixes,
+                excluded_prefixes=excluded_prefixes,
                 include_uncategorized=include_uncategorized,
             )
         except Exception:

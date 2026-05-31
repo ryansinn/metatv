@@ -51,6 +51,8 @@ What's left to build. Completed features live in git history.
 
 - [ ] **Settings page architecture** — Settings mode using the three-panel layout (left nav / center controls / right contextual help); sections: General, Providers, Players, Metadata, EPG, Filters, Display, Keyboard, Notifications, Advanced
 - [ ] **Filter system improvements** — search within excluded results for 50k+ filtered datasets; provider-level filtering when multiple providers active
+- [ ] **"Copy filters from…" across views** — apply a Tier 1 filter from one view (Search/Discover/EPG) to another; small dropdown on each filter bar
+- [ ] **"Promote to global exclusion"** — convert a dialed-in Tier 1 view filter into a Global Exclusion (requires inversion: everything NOT selected becomes excluded); useful when you've found a good filter config and want to make it permanent
 - [ ] **Grid view** for channel list
 - [ ] **Keyboard shortcuts** — Ctrl+F focus search, arrow key nav, Esc clear search
 - [ ] **Dark mode / theme selection**

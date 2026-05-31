@@ -149,17 +149,28 @@ def _dedup_cards(cards: list[ContentCard]) -> list[ContentCard]:
     return list(seen.values())
 
 
-def _apply_prefix_filter(query, included_prefixes, include_uncategorized):
-    """Apply global category filter to a SQLAlchemy query on ChannelDB."""
+def _apply_prefix_filter(query, excluded_prefixes, include_uncategorized):
+    """Apply global category exclusion filter to a SQLAlchemy query on ChannelDB.
+
+    Blacklist model: excluded_prefixes = prefixes to HIDE. Empty = hide nothing.
+    NULL (no detected_prefix) is always shown unless include_uncategorized=False.
+    """
     from metatv.core.database import ChannelDB
     from sqlalchemy import or_
-    if included_prefixes:
-        cond = ChannelDB.detected_prefix.in_(included_prefixes)
+    if excluded_prefixes:
         if include_uncategorized:
-            cond = or_(cond, ChannelDB.detected_prefix.is_(None))
-        return query.filter(cond)
+            # Exclude listed prefixes; NULL (untagged) is always visible
+            query = query.filter(
+                or_(
+                    ChannelDB.detected_prefix.notin_(excluded_prefixes),
+                    ChannelDB.detected_prefix.is_(None),
+                )
+            )
+        else:
+            # Exclude listed prefixes AND untagged channels (notin_ drops NULL too)
+            query = query.filter(ChannelDB.detected_prefix.notin_(excluded_prefixes))
     elif not include_uncategorized:
-        return query.filter(ChannelDB.detected_prefix.isnot(None))
+        query = query.filter(ChannelDB.detected_prefix.isnot(None))
     return query
 
 
@@ -219,7 +230,7 @@ def build_status_sets(session) -> StatusSets:
 
 def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
                        watched_ids=None, liked_ids=None,
-                       included_prefixes=None, include_uncategorized: bool = True,
+                       excluded_prefixes=None, include_uncategorized: bool = True,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        ) -> list[ContentCard]:
     """Movies and series sorted by provider-added timestamp, newest first."""
@@ -233,7 +244,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
             ChannelDB.raw_data.isnot(None),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.added') AS REAL) DESC")
@@ -246,7 +257,7 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
 def get_top_rated(session, media_type: str = "movie", limit: int = 30,
                   min_rating: float = 5.0, fav_ids=None, queue_ids=None,
                   watched_ids=None, liked_ids=None,
-                  included_prefixes=None, include_uncategorized: bool = True,
+                  excluded_prefixes=None, include_uncategorized: bool = True,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   ) -> list[ContentCard]:
     """Top-rated content of the given media_type by provider rating."""
@@ -262,7 +273,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
             text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
@@ -274,7 +285,7 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
 
 def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None,
-                 included_prefixes=None, include_uncategorized: bool = True,
+                 excluded_prefixes=None, include_uncategorized: bool = True,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
     """Content matching a genre string (partial match), sorted by rating."""
@@ -291,7 +302,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
             ),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
@@ -303,7 +314,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
 
 def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
                   queue_ids=None, watched_ids=None, liked_ids=None,
-                  included_prefixes=None, include_uncategorized: bool = True,
+                  excluded_prefixes=None, include_uncategorized: bool = True,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   ) -> list[ContentCard]:
     """Movies and series from a decade (e.g. decade=1990 → 1990–1999)."""
@@ -320,7 +331,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
             text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) < 10"),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     results: list[ContentCard] = []
     for ch, meta in q.all():
@@ -334,7 +345,7 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
 
 def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                        watched_ids=None, liked_ids=None,
-                       included_prefixes=None, include_uncategorized: bool = True,
+                       excluded_prefixes=None, include_uncategorized: bool = True,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        ) -> tuple[str, list[ContentCard]]:
     """Return (actor_name, cards) for a Featured Actor shelf."""
@@ -357,7 +368,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
                 text("CAST(json_extract(raw_data, '$.rating') AS REAL) >= 7.5"),
             )
         )
-        q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+        q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
         q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
         counter: Counter = Counter()
         for ch in q.all():
@@ -373,7 +384,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
     cards = get_by_actor(session, actor, limit=30,
                          fav_ids=fav_ids, queue_ids=queue_ids,
                          watched_ids=watched_ids, liked_ids=liked_ids,
-                         included_prefixes=included_prefixes,
+                         excluded_prefixes=excluded_prefixes,
                          include_uncategorized=include_uncategorized,
                          adult_mode=adult_mode,
                          force_adult_provider_ids=force_adult_provider_ids)
@@ -383,7 +394,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
 
 def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None,
-                 included_prefixes=None, include_uncategorized: bool = True,
+                 excluded_prefixes=None, include_uncategorized: bool = True,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
     """Series featuring a named actor (partial match on cast string)."""
@@ -400,7 +411,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
             ),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
@@ -411,7 +422,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
 
 
 def get_all_genres(session, min_count: int = 10,
-                   included_prefixes=None, include_uncategorized: bool = True,
+                   excluded_prefixes=None, include_uncategorized: bool = True,
                    adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                    ) -> list[str]:
     """Return individual genre names that have ≥ min_count entries.
@@ -432,7 +443,7 @@ def get_all_genres(session, min_count: int = 10,
             text("json_extract(raw_data, '$.genre') != ''"),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     counter: Counter = Counter()
     for ch in q.all():
@@ -445,7 +456,7 @@ def get_all_genres(session, min_count: int = 10,
 
 
 def get_all_decades(session,
-                    included_prefixes=None, include_uncategorized: bool = True,
+                    excluded_prefixes=None, include_uncategorized: bool = True,
                     adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                     ) -> list[int]:
     """Return decades (as start year) that have ≥ 5 entries with a known year."""
@@ -458,7 +469,7 @@ def get_all_decades(session,
             ChannelDB.raw_data.isnot(None),
         )
     )
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     decade_counts: Counter = Counter()
     for ch in q.all():
@@ -473,7 +484,7 @@ def get_all_decades(session,
 
 def _rank_genres_by_preference(genres: list[str], liked_ids: set,
                                 session,
-                                included_prefixes=None,
+                                excluded_prefixes=None,
                                 include_uncategorized: bool = True,
                                 ) -> list[str]:
     """Sort genres so those with more liked content appear first."""
@@ -482,7 +493,7 @@ def _rank_genres_by_preference(genres: list[str], liked_ids: set,
     from metatv.core.database import ChannelDB
     genre_score: dict[str, int] = {g: 0 for g in genres}
     q = session.query(ChannelDB).filter(ChannelDB.id.in_(liked_ids))
-    q = _apply_prefix_filter(q, included_prefixes, include_uncategorized)
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     for ch in q.all():
         genre_str = (ch.raw_data or {}).get("genre") or ""
         for g in _GENRE_SEP_RE.split(genre_str):

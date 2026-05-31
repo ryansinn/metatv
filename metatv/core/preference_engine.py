@@ -236,7 +236,7 @@ def compute_weights(session) -> AttributeWeights:
 def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      muted_attrs: dict | None = None,
                      dedupe_overrides: set[str] | None = None,
-                     included_prefixes: list[str] | None = None,
+                     excluded_prefixes: list[str] | None = None,
                      include_uncategorized: bool = True,
                      version_scorer=None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
@@ -316,7 +316,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             ChannelDB.metadata_id.isnot(None),
         )
     )
-    candidates_q = _apply_prefix_filter(candidates_q, included_prefixes, include_uncategorized)
+    candidates_q = _apply_prefix_filter(candidates_q, excluded_prefixes, include_uncategorized)
     candidates = candidates_q.all()
 
     best_per_title: dict[tuple, ScoredChannel] = {}

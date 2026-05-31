@@ -1163,7 +1163,7 @@ class RecommendedSection(CollapsibleSection):
         )
         from metatv.core.filter_utils import get_active_category_filter
         from metatv.core.database import MetadataDB
-        included_prefixes, include_uncategorized = get_active_category_filter(self.config)
+        excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
         _config = self.config
         session = self.db.get_session()
         try:
@@ -1175,7 +1175,7 @@ class RecommendedSection(CollapsibleSection):
                 session, weights, limit=20,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
                 dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
-                included_prefixes=included_prefixes,
+                excluded_prefixes=excluded_prefixes,
                 include_uncategorized=include_uncategorized,
                 version_scorer=lambda ch: version_score(ch, _config),
             )

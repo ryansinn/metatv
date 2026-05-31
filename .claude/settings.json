@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3 ~/.local/share/metatv/metatv.db \".mode column\" \"SELECT name, media_type, category, detected_prefix, stream_url FROM channels WHERE name LIKE '#%' LIMIT 30;\")",
+      "Bash(sqlite3 ~/.local/share/metatv/metatv.db \"SELECT COUNT\\(*\\) FROM channels c1 WHERE c1.name LIKE '#%' AND EXISTS \\(SELECT 1 FROM channels c2 WHERE c2.stream_url = c1.stream_url AND c2.name NOT LIKE '#%'\\);\")"
+    ]
+  }
+}

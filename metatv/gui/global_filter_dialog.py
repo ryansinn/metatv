@@ -1,13 +1,16 @@
-"""Global content category filter dialog.
+"""Global Exclusions dialog.
 
 Shows every prefix detected in the DB with its channel count. Prefixes are
 grouped under language-group headings as a visual hint (not a truth). Groups
 start collapsed; prefix checkboxes are built lazily on first expand so the
 dialog opens instantly regardless of how many prefixes exist in the DB.
 
-Settings persist to config.global_filter_included_categories (list of prefix
-codes, e.g. ["EN", "KU"]) and apply to Discovery shelves and Recommendations.
-Empty list = no filter (all prefixes shown).
+Opt-out blacklist model: checkboxes start unchecked (nothing excluded).
+Checking a group/prefix HIDES it from Discovery, Recommendations, and all
+other views. Empty exclusion list = show everything (the default).
+
+Settings persist to config.global_filter_excluded_categories (list of
+excluded prefix codes, e.g. ["AR", "KU"]).
 """
 
 from __future__ import annotations
@@ -301,7 +304,7 @@ class GlobalFilterDialog(QDialog):
         # Separator / header widgets for the content-type section
         self._content_type_header_widgets: list[QWidget] = []
 
-        self.setWindowTitle("Content Filters")
+        self.setWindowTitle("Exclusions")
         self.setMinimumSize(420, 540)
         self._setup_ui()
 
@@ -311,7 +314,7 @@ class GlobalFilterDialog(QDialog):
 
         # ── Header ────────────────────────────────────────────────────────────
         header_row = QHBoxLayout()
-        header_lbl = QLabel("Content Categories")
+        header_lbl = QLabel("Global Exclusions")
         header_lbl.setStyleSheet("font-size: 13px; font-weight: bold;")
         header_row.addWidget(header_lbl)
 
@@ -319,7 +322,7 @@ class GlobalFilterDialog(QDialog):
         info_lbl.setStyleSheet("color: #888; font-size: 12px; padding-left: 4px;")
         info_lbl.setToolTip(
             "Categories are detected from the prefix in each title\n"
-            "(e.g. 'KU Drama', 'DE Movies'). Group headings are\n"
+            "(e.g. 'AR Drama', 'DE Movies'). Group headings are\n"
             "best-guess language/region hints — not guaranteed to be correct.\n"
             "Expand a group to see and control individual prefix codes."
         )
@@ -328,8 +331,8 @@ class GlobalFilterDialog(QDialog):
         vl.addLayout(header_row)
 
         hint = QLabel(
-            "Uncheck categories you don't want in Discovery or Recommendations.\n"
-            "Expand a group to control individual prefixes. Empty selection = show all."
+            "Check categories to hide them everywhere — Discovery, Recommendations, and search.\n"
+            "Nothing checked = show all content. Expand a group to control individual prefixes."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
@@ -353,12 +356,13 @@ class GlobalFilterDialog(QDialog):
         vl.addWidget(scroll)
 
         # ── Include uncategorized ──────────────────────────────────────────────
-        self._uncat_cb = QCheckBox("Include content with no category label")
-        self._uncat_cb.setChecked(self._config.global_filter_include_uncategorized)
+        self._uncat_cb = QCheckBox("Hide content with no category label")
+        # Blacklist semantics: checked = hide untagged (include_uncategorized = False)
+        self._uncat_cb.setChecked(not self._config.global_filter_include_uncategorized)
         self._uncat_cb.setStyleSheet("font-size: 12px; color: #aaa; padding-top: 4px;")
         self._uncat_cb.setToolTip(
-            "Content with no category prefix is usually general/English-language.\n"
-            "Keep this ON to avoid accidentally hiding it."
+            "Content with no detected category prefix is usually general/English-language.\n"
+            "Leave unchecked to keep it visible (the safe default)."
         )
         vl.addWidget(self._uncat_cb)
 
@@ -453,8 +457,8 @@ class GlobalFilterDialog(QDialog):
 
     def _populate_groups(self) -> None:
         """Build group section widgets from current DB prefix data."""
-        selected = set(self._config.global_filter_included_categories)
-        all_shown = len(selected) == 0
+        # Blacklist model: currently excluded prefixes start checked; everything else unchecked.
+        excluded = set(self._config.global_filter_excluded_categories)
 
         prefix_counts = _load_prefix_counts(self._db)
         all_groups = _group_prefixes(prefix_counts, self._config.filter_language_groups)
@@ -465,20 +469,16 @@ class GlobalFilterDialog(QDialog):
         named_groups = [(n, p) for n, p in all_groups if n != "Other"]
         other_entries = next((p for n, p in all_groups if n == "Other"), [])
 
-        # Initial checked set for named groups only
-        named_prefix_set = {p for _, grp in named_groups for p, _ in grp}
-        initial = named_prefix_set if all_shown else (selected & named_prefix_set)
-
         for group_name, prefixes in named_groups:
+            # Only pre-check prefixes that are currently excluded
+            initial = excluded & {p for p, _ in prefixes}
             section = _GroupSection(group_name, prefixes, initial)
             self._inner_vl.addWidget(section)
             self._sections.append(section)
 
-        # "Other" → expandable _GroupSection, same UX as named groups
         if other_entries:
-            other_prefix_set = {p for p, _ in other_entries}
-            other_initial = other_prefix_set if all_shown else (selected & other_prefix_set)
-            other_section = _GroupSection("Other", other_entries, other_initial)
+            initial = excluded & {p for p, _ in other_entries}
+            other_section = _GroupSection("Other", other_entries, initial)
             self._inner_vl.addWidget(other_section)
             self._sections.append(other_section)
 
@@ -533,8 +533,8 @@ class GlobalFilterDialog(QDialog):
         self._inner_vl.addWidget(hdr_container)
         self._content_type_header_widgets.append(hdr_container)
 
-        included = set(self._config.global_filter_included_content_types)
-        all_shown = len(included) == 0
+        # Blacklist model: checked = excluded; start unchecked unless currently excluded.
+        excluded_types = set(self._config.global_filter_excluded_content_types)
 
         for group_name in sorted(group_counts):
             count = group_counts[group_name]
@@ -544,7 +544,7 @@ class GlobalFilterDialog(QDialog):
             rl.setSpacing(8)
 
             cb = QCheckBox(group_name)
-            cb.setChecked(all_shown or group_name in included)
+            cb.setChecked(group_name in excluded_types)
             cb.setStyleSheet("font-size: 12px;")
             rl.addWidget(cb)
 
@@ -563,7 +563,7 @@ class GlobalFilterDialog(QDialog):
             rl.setSpacing(8)
 
             cb = QCheckBox("Other (unmapped types)")
-            cb.setChecked(all_shown or "_other_" in included)
+            cb.setChecked("_other_" in excluded_types)
             cb.setStyleSheet("font-size: 12px; color: #aaa;")
             cb.setToolTip(
                 "Live channels whose category header didn't match any\n"
@@ -638,32 +638,16 @@ class GlobalFilterDialog(QDialog):
             cb.setChecked(checked)
 
     def _save_and_accept(self) -> None:
-        all_prefixes = [p for s in self._sections for p in s.all_prefixes()]
-        checked_prefixes = [p for s in self._sections for p in s.checked_prefixes()]
+        # Blacklist model: save checked prefixes as excluded (checked = hidden).
+        excluded_prefixes = [p for s in self._sections for p in s.checked_prefixes()]
+        self._config.global_filter_excluded_categories = excluded_prefixes
 
-        if set(checked_prefixes) == set(all_prefixes):
-            self._config.global_filter_included_categories = []
-        else:
-            self._config.global_filter_included_categories = checked_prefixes
+        # "Hide untagged" checkbox: checked = hide = include_uncategorized False
+        self._config.global_filter_include_uncategorized = not self._uncat_cb.isChecked()
 
-        self._config.global_filter_include_uncategorized = self._uncat_cb.isChecked()
-
-        # Content type selections
-        all_type_names = [name for name, _cb, _row in self._content_type_rows]
-        checked_types = [name for name, cb, _row in self._content_type_rows if cb.isChecked()]
-        if not all_type_names or set(checked_types) == set(all_type_names):
-            self._config.global_filter_included_content_types = []
-        else:
-            self._config.global_filter_included_content_types = checked_types
-
-        # Sync to search-local group filter
-        checked_upper = {p.upper() for p in checked_prefixes}
-        included_groups = [
-            g for g, members in self._config.filter_language_groups.items()
-            if any(m.upper() in checked_upper for m in members)
-        ]
-        self._config.filter_included_languages = included_groups
-        self._config.filter_include_untagged = self._config.global_filter_include_uncategorized
+        # Content type exclusions: checked = excluded
+        excluded_types = [name for name, cb, _row in self._content_type_rows if cb.isChecked()]
+        self._config.global_filter_excluded_content_types = excluded_types
 
         self._config.save()
         self.accept()

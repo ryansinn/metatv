@@ -164,15 +164,17 @@ class Config(BaseModel):
     list_view_icon: str = "☰"         # Toggle to list view
     grid_view_icon: str = "⊞"         # Toggle to grid view
 
-    # Global content category filter (applies to discovery + recommendations)
-    # Category group names from filter_language_groups (e.g. ["English", "French"])
-    # Empty list = no filter (all categories shown)
-    global_filter_included_categories: list = Field(default_factory=list)
-    global_filter_include_uncategorized: bool = True  # show content with no detected_prefix
+    # Global Exclusions — opt-out blacklist (applies to discovery + recommendations everywhere)
+    # Prefix codes to HIDE. Empty list = hide nothing (show all). Opt-out model: new prefixes
+    # are always visible until the user explicitly excludes them.
+    global_filter_excluded_categories: list = Field(default_factory=list)
+    global_filter_include_uncategorized: bool = True  # True = show content with no detected_prefix
     global_filter_icon: str = "fa5s.filter"  # qtawesome key — resolved via icon_utils.resolve_icon()
-    # Explicit prefix blocklist — always hidden everywhere, regardless of the allowlist above.
+    # Per-prefix blocklist — individual prefixes always hidden everywhere.
     # Written by the "Block [PREFIX]" quick action in the Other Versions panel.
     global_filter_excluded_prefixes: list = Field(default_factory=list)
+    # Legacy field — was a whitelist; migrated to excluded_categories on first save.
+    global_filter_included_categories: list = Field(default_factory=list)
 
     # Prefix detection settings
     prefix_bracket_enabled: bool = True  # extract [XX] bracket format
@@ -311,8 +313,9 @@ class Config(BaseModel):
         "Religious":     ["BIBLICAL/RELIGIOUS"],
         "Relaxation":    ["RELAX", "RELAX 4K", "RELAX UHD"],
     })
-    # Which content types to include (empty = all shown; mirrors global_filter_included_categories)
-    global_filter_included_content_types: list = Field(default_factory=list)
+    # Content type exclusions — empty = hide nothing. Legacy included list kept for migration.
+    global_filter_excluded_content_types: list = Field(default_factory=list)
+    global_filter_included_content_types: list = Field(default_factory=list)  # legacy
 
     # Sports / Events view filter state persistence
     # Keyword definitions (sport_keywords, league_keywords) live in:
