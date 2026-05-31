@@ -94,19 +94,25 @@ class FilterChip(ToggleChip):
 
     _ACTIVE_STYLE = """
         QPushButton {
-            background-color: #1a6b5e; color: #2a9d8f;
-            border: 1px solid #2a9d8f; border-radius: 12px;
-            padding: 6px 14px; font-weight: bold;
+            background-color: rgba(42, 157, 143, 0.10);
+            color: #2a9d8f;
+            border: 1px solid #2a9d8f;
+            border-radius: 12px;
+            padding: 6px 14px;
+            font-weight: bold;
         }
-        QPushButton:hover { background-color: #236b60; }
+        QPushButton:hover { background-color: rgba(42, 157, 143, 0.18); }
     """
     _PAUSED_STYLE = """
         QPushButton {
-            background-color: #5c3d00; color: #f0a040;
-            border: 1px solid #f0a040; border-radius: 12px;
-            padding: 6px 14px; font-weight: bold;
+            background-color: rgba(240, 160, 64, 0.10);
+            color: #f0a040;
+            border: 1px solid #f0a040;
+            border-radius: 12px;
+            padding: 6px 14px;
+            font-weight: bold;
         }
-        QPushButton:hover { background-color: #6e4a00; }
+        QPushButton:hover { background-color: rgba(240, 160, 64, 0.18); }
     """
 
     def __init__(self, label: str):
