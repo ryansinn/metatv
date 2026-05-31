@@ -32,6 +32,7 @@ class ChannelRepository:
                 media_type: Optional[str] = None,
                 media_types: Optional[List[str]] = None,
                 language_prefixes: Optional[List[str]] = None,
+                region_prefixes: Optional[List[str]] = None,
                 quality_prefixes: Optional[List[str]] = None,
                 platform_prefixes: Optional[List[str]] = None,
                 include_hidden: bool = False,
@@ -50,11 +51,12 @@ class ChannelRepository:
             provider_id: Filter by provider — str for one provider, List[str] for multiple.
             media_type: Filter by single media type (deprecated, use media_types).
             media_types: Filter by list of media types (e.g. ['live', 'movies']).
-            language_prefixes: List of language prefixes to include (e.g. ['EN', 'UK']).
-            quality_prefixes: List of quality prefixes to include (e.g. ['4K', 'UHD']).
+            language_prefixes: Language axis — detected_prefix IN list (OR detected_region).
+            region_prefixes: Region axis — detected_prefix IN list (geographic hierarchy).
+            quality_prefixes: Quality axis — restrictive AND filter on detected_quality.
             include_hidden: Include hidden channels (visible + hidden).
             hidden_only: Show only hidden channels (overrides include_hidden).
-            invert_prefix_filters: If True, show only items NOT matching prefix filters.
+            invert_prefix_filters: If True, show only items NOT matching the identity pool.
             include_untagged: When False, exclude channels with no detected_prefix.
             source_categories: Raw source_category labels to include (live channels only).
                 None = no filter (show all). Only meaningful when querying live channels.
@@ -63,6 +65,12 @@ class ChannelRepository:
 
         Returns:
             List of channels matching all filters.
+
+        Filter logic:
+            identity_pool = (language_prefixes OR region_prefixes OR platform_prefixes)
+            result        = identity_pool AND quality_prefixes
+            Language, Region, Platform all OR together — selecting more always grows the
+            result set. Quality is the only restrictive axis (AND).
         """
         query = self.session.query(ChannelDB)
 
@@ -100,53 +108,64 @@ class ChannelRepository:
             elif adult_mode == "only":
                 query = query.filter(is_adult_expr)
 
-        # Prefix filtering — three independent axes, each with its own SQL condition.
-        # When include_untagged=True (default), channels with no data for an axis pass through.
-        # When invert_prefix_filters=True, the language filter is inverted (Show Excluded mode).
-        any_filter_active = bool(language_prefixes or quality_prefixes or platform_prefixes)
+        # ── Identity pool: Language OR Region OR Platform (all grow the result set) ──
+        # Selecting more always expands results. Quality is the only restrictive axis.
+        # When invert_prefix_filters=True, show channels NOT in the identity pool.
+        identity_active = bool(language_prefixes or region_prefixes or platform_prefixes)
 
-        if any_filter_active:
+        if identity_active:
             from sqlalchemy import or_ as _or, and_ as _and
 
-            # ── Language axis: detected_prefix OR detected_region ──
+            # Build per-axis conditions, then OR them into one identity pool
+            axis_conditions = []
+
             if language_prefixes:
-                lang_cond = _or(
+                # Language matches on detected_prefix OR parenthetical detected_region suffix
+                axis_conditions.append(_or(
                     ChannelDB.detected_prefix.in_(language_prefixes),
                     ChannelDB.detected_region.in_(language_prefixes),
+                ))
+
+            if region_prefixes:
+                axis_conditions.append(
+                    ChannelDB.detected_prefix.in_(region_prefixes)
                 )
-                if invert_prefix_filters:
-                    # Show channels that do NOT match any selected language (and have a tag)
-                    query = query.filter(
-                        ~lang_cond,
-                        ChannelDB.detected_prefix.isnot(None),
-                    )
-                elif include_untagged:
-                    # Include matching OR channels with no language tag at all
-                    query = query.filter(
-                        _or(
-                            lang_cond,
-                            _and(
-                                ChannelDB.detected_prefix.is_(None),
-                                ChannelDB.detected_region.is_(None),
-                            ),
-                        )
-                    )
-                else:
-                    query = query.filter(lang_cond)
 
-            # ── Quality axis: detected_quality — exclusive (no untagged pass-through) ──
-            # If quality filter is active, only show channels explicitly tagged with
-            # a matching quality marker. Untagged channels do not pass through.
-            if quality_prefixes:
-                query = query.filter(ChannelDB.detected_quality.in_(quality_prefixes))
-
-            # ── Platform axis: detected_prefix — exclusive (no untagged pass-through) ──
-            # If platform filter is active, only show channels with a matching platform prefix.
             if platform_prefixes:
-                query = query.filter(ChannelDB.detected_prefix.in_(platform_prefixes))
+                axis_conditions.append(
+                    ChannelDB.detected_prefix.in_(platform_prefixes)
+                )
+
+            identity_cond = _or(*axis_conditions)
+
+            if invert_prefix_filters:
+                # Show channels NOT in the identity pool (must have a tag to be meaningful)
+                query = query.filter(
+                    ~identity_cond,
+                    ChannelDB.detected_prefix.isnot(None),
+                )
+            elif include_untagged:
+                # Include identity matches OR channels with no prefix/region at all
+                query = query.filter(
+                    _or(
+                        identity_cond,
+                        _and(
+                            ChannelDB.detected_prefix.is_(None),
+                            ChannelDB.detected_region.is_(None),
+                        ),
+                    )
+                )
+            else:
+                query = query.filter(identity_cond)
+
         elif not include_untagged:
-            # No filter active but caller wants to hide channels with no prefix
+            # No identity filter active but caller wants to hide channels with no prefix
             query = query.filter(ChannelDB.detected_prefix.isnot(None))
+
+        # ── Quality axis: AND/restrictive — narrows the identity pool ──
+        # Only channels explicitly tagged with a matching quality marker pass through.
+        if quality_prefixes:
+            query = query.filter(ChannelDB.detected_quality.in_(quality_prefixes))
 
         # Content-type filter (source_category — live channels only)
         if source_categories is not None:

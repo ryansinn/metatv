@@ -1988,6 +1988,15 @@ class MainWindow(QMainWindow):
             for group_name in _sel_plat_groups:
                 platform_prefixes.extend(self.config.filter_platform_groups.get(group_name, []))
 
+        _all_region_groups = set(self.config.filter_regional_groups.keys())
+        _sel_region_groups = set(filter_state.get('region_groups', []))
+        if _all_region_groups and _sel_region_groups >= _all_region_groups:
+            region_prefixes = []
+        else:
+            region_prefixes = []
+            for group_name in _sel_region_groups:
+                region_prefixes.extend(self.config.filter_regional_groups.get(group_name, []))
+
         # Resolve provider filter on main thread (tiny queries)
         session = self.db.get_session()
         try:
@@ -2037,6 +2046,7 @@ class MainWindow(QMainWindow):
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
             language_prefixes=None if _bypassing else (language_prefixes or None),
+            region_prefixes=None if _bypassing else (region_prefixes or None),
             quality_prefixes=None if _bypassing else (quality_prefixes or None),
             platform_prefixes=None if _bypassing else (platform_prefixes or None),
             invert_prefix_filters=False,
@@ -2082,6 +2092,7 @@ class MainWindow(QMainWindow):
                     provider_id=params['provider_id'],
                     media_types=params['media_types'],
                     language_prefixes=params['language_prefixes'],
+                    region_prefixes=params.get('region_prefixes'),
                     quality_prefixes=params['quality_prefixes'],
                     platform_prefixes=params.get('platform_prefixes'),
                     invert_prefix_filters=params['invert_prefix_filters'],
@@ -2119,6 +2130,7 @@ class MainWindow(QMainWindow):
             filtered_out_count = 0
             tier1_active = any([
                 params.get('language_prefixes'),
+                params.get('region_prefixes'),
                 params.get('quality_prefixes'),
                 params.get('platform_prefixes'),
             ])
