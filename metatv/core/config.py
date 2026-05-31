@@ -151,6 +151,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
 }
 
 BASE_QUALITY_GROUPS: dict[str, list[str]] = {
+    "RAW":             ["RAW"],          # Uncompressed/minimally processed — highest tier, often 4K+
     "4K / UHD":        ["4K", "UHD", "8K", "2160P", "PL4K"],
     "HD":              ["HD", "FHD", "1080P", "720P", "HDR", "HDR10", "HDR10+"],
     "HQ":              ["HQ"],
@@ -160,19 +161,25 @@ BASE_QUALITY_GROUPS: dict[str, list[str]] = {
 }
 
 BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
-    # Major streaming services — short codes used by IPTV providers:
-    "Streaming":  ["NETFLIX", "HBO", "HULU", "DISNEY", "DISNEY+", "AMAZON", "PRIME",
-                   "APPLE", "APPLETV", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
-                   "NF",           # Netflix (confirmed)
-                   "EAR",          # EAR streaming library (11k+ channels)
-                   "TUBI",         # Tubi
-                   "VIX",          # ViX (Spanish/Latin streaming — telenovelas confirmed)
-                   "JOYN",         # Joyn (German streaming — ARD/3sat confirmed)
-                   "SHAHID",       # Shahid (Arabic/Middle East streaming confirmed)
-                   "WOW",          # WOW (German Sky streaming — Sky Cinema confirmed)
-                   "GOLD",         # GOLD streaming (BBC Nordic DK, etc. confirmed)
-                   "VIP",          # VIP tier (French 4K: TF1 4K, M6 4K, France 2 4K confirmed)
-                   ],  # EX (6,999) and SC (4,269) left in Other — need user review
+    # ── Individual streaming brands (each selectable independently) ────────────
+    # EAR: Arabic-subtitled foreign content library — foreign films/series (English,
+    # French, Brazilian etc.) with Arabic subtitles added. NOT Arabic-language content.
+    # Value target: Arabic-speaking audience. Also appears in Multi/Subtitle group.
+    "EAR":           ["EAR"],
+    "Netflix":       ["NF", "NETFLIX"],
+    "Amazon Prime":  ["PRIME", "AMAZON"],
+    "D+":            ["D+", "DISNEY+", "DISNEY"],
+    "VIX":           ["VIX"],           # Spanish/Latin streaming (telenovelas confirmed)
+    "Joyn":          ["JOYN"],          # German streaming (ARD/3sat confirmed)
+    "Tubi":          ["TUBI"],
+    "WOW":           ["WOW"],           # German Sky streaming (Sky Cinema confirmed)
+    "GOLD":          ["GOLD"],          # BBC Nordic DK etc. confirmed
+    "VIP":           ["VIP"],           # French 4K tier (TF1 4K, M6 4K, France 2 4K confirmed)
+    "Shahid":        ["SHAHID"],        # Arabic/Middle East streaming confirmed
+    # Less common full-name variants (low channel counts, catch-all):
+    "Other Streaming": ["HBO", "HULU", "APPLE", "APPLETV", "PEACOCK",
+                        "PARAMOUNT", "PARAMOUNT+"],
+    # ── Broadcast / Pay TV ────────────────────────────────────────────────────
     "Sports":     ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS",
                    "SPT", "SPORT", "SPORTS",         # generic sports prefixes
                    "SP",                              # SP confirmed: beIN Sports 1/2/3
@@ -183,7 +190,7 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
                    "LIVE", "NEXT",                    # live/upcoming PPV events
                    "DIRTVISION",                      # motorsports streaming
                    "TRILLERTV"],                      # combat sports/entertainment
-    "Pay TV":     ["DSTV",    # MultiChoice/DStv Africa (confirmed: SABC, CNBC Africa)
+    "Pay TV":     ["DSTV",    # MultiChoice/DStv Sub-Saharan Africa (confirmed: SABC, eNCA, Cape Town TV, SuperSport, MOJALOVE — South African satellite pay-TV platform)
                    "OSN",     # OSN Middle East (confirmed: Movies Premier, Hollywood)
                    "SKY",     # Sky UK/DE/IT (confirmed pay TV provider)
                    "STC",     # Saudi Telecom Company TV (confirmed: STC TV Sports)
@@ -427,8 +434,9 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
     ],
     "Asia": [
         # Full Asia aggregate
+        "AS",                           # Broad Asian content (Korean, Japanese, Chinese, South Asian, SE Asian)
         "JP", "JPN", "KR", "KO", "CN", "CHN", "TW", "TWN", "HK", "HKG", "MO",
-        "TH", "VN", "ID", "PH", "MY", "SG", "MM", "KH", "KH", "LA",
+        "TH", "VN", "ID", "PH", "MY", "SG", "MM", "KH", "LA",
         "IN", "IND", "PK", "PAK", "BD", "LK", "SRI", "NP", "BT", "AF", "AFG",
         "KZ", "KG", "UZ", "TJ", "TM", "MN",
         "HI", "TA", "TE", "ML", "KN", "MR", "GU",
@@ -740,7 +748,7 @@ class Config(BaseModel):
     preferred_version_provider_ids: list = Field(default_factory=list)
     # Ordered provider UUIDs — prefer content from this provider (+5 per rank position)
 
-    # User-defined human-readable names for prefix codes (e.g. {"KU": "Kurdish", "EAR": "Early Release"})
+    # User-defined human-readable names for prefix codes (e.g. {"KU": "Kurdish", "EAR": "Arabic Subtitled"})
     # Checked first in _resolve_category_name(), before the built-in lookup tables.
     category_name_overrides: dict = Field(default_factory=dict)
     
