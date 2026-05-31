@@ -569,9 +569,27 @@ class ChannelRepository:
             else:
                 no_prefix_count = count
         
-        # Categorize prefixes into groups
+        # Quality counts — use detected_quality directly (matches what the SQL filter uses).
+        # Channels like "NF - Movie 4K" have detected_prefix=NF but detected_quality=4K;
+        # counting by prefix alone would miss them and produce wildly wrong counts.
+        quality_counts: dict[str, int] = {}
+        dq_rows = (
+            self.session.query(ChannelDB.detected_quality, func.count(ChannelDB.id))
+            .filter(ChannelDB.is_hidden == False,  # noqa: E712
+                    ChannelDB.detected_quality.isnot(None))
+        )
+        if provider_id:
+            dq_rows = dq_rows.filter(ChannelDB.provider_id == provider_id)
+        dq_rows = dq_rows.group_by(ChannelDB.detected_quality).all()
+        dq_counts = {dq: cnt for dq, cnt in dq_rows}
+
+        for group_name, tokens in quality_groups.items():
+            total = sum(dq_counts.get(t.upper(), 0) for t in tokens)
+            if total:
+                quality_counts[group_name] = total
+
+        # Categorize prefixes into language / platform groups
         language_counts = {}
-        quality_counts = {}
         platform_counts = {}
         unmapped_prefixes = set()
 
@@ -579,16 +597,17 @@ class ChannelRepository:
             categories = categorize_prefix(prefix, language_groups, quality_groups, platform_groups)
             count = prefix_counts[prefix]
 
-            if not any(categories.values()):
+            # A prefix that is itself a quality token (e.g. "4K - Movie") is already
+            # counted via detected_quality above — don't double-count under language.
+            if categories['quality']:
+                continue
+
+            if not (categories['language'] or categories['platform']):
                 unmapped_prefixes.add(prefix)
 
             if categories['language']:
                 lang = categories['language']
                 language_counts[lang] = language_counts.get(lang, 0) + count
-
-            if categories['quality']:
-                qual = categories['quality']
-                quality_counts[qual] = quality_counts.get(qual, 0) + count
 
             if categories['platform']:
                 plat = categories['platform']
