@@ -396,35 +396,43 @@ class ChannelRepository:
         quality_counts = {}
         platform_counts = {}
         unmapped_prefixes = set()
-        
+
         for prefix in all_prefixes:
             categories = categorize_prefix(prefix, language_groups, quality_groups, platform_groups)
             count = prefix_counts[prefix]
-            
+
             if not any(categories.values()):
                 unmapped_prefixes.add(prefix)
-            
+
             if categories['language']:
                 lang = categories['language']
                 language_counts[lang] = language_counts.get(lang, 0) + count
-            
+
             if categories['quality']:
                 qual = categories['quality']
                 quality_counts[qual] = quality_counts.get(qual, 0) + count
-            
+
             if categories['platform']:
                 plat = categories['platform']
                 platform_counts[plat] = platform_counts.get(plat, 0) + count
-        
+
+        # Unmapped prefixes surface as "Other" in Language/Region dropdown.
+        # The individual prefix codes are also returned so the filter can pass them
+        # to get_all() when the user selects "Other".
+        unmapped_list = sorted(unmapped_prefixes)
+        other_count = sum(prefix_counts[p] for p in unmapped_list)
+        if unmapped_list:
+            language_counts["Other"] = other_count
+
         total_channels = query.count()
-        
+
         return {
             'all_prefixes': list(all_prefixes),
             'prefix_counts': prefix_counts,
             'language_groups': language_counts,
             'quality_groups': quality_counts,
             'platform_groups': platform_counts,
-            'unmapped_prefixes': list(unmapped_prefixes),
+            'unmapped_prefixes': unmapped_list,
             'total_channels': total_channels,
             'channels_with_prefix': total_channels - no_prefix_count,
             'channels_without_prefix': no_prefix_count

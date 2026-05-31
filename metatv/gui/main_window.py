@@ -1354,6 +1354,7 @@ class MainWindow(QMainWindow):
         # Collapsible filter bar
         self.filter_bar = FilterBar(self.config)
         self.filter_bar.filter_changed.connect(self.on_filter_changed)
+        self._filter_unmapped_prefixes: list[str] = []  # prefixes not in any group — "Other"
         
         # Restore filter section visibility from config
         self.filters_visible = getattr(self.config, 'filter_section_visible', True)
@@ -1730,6 +1731,7 @@ class MainWindow(QMainWindow):
             # Prefix stats were computed in the worker thread — just apply them
             stats = getattr(thread, 'prefix_stats', None)
             if stats:
+                self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
                 self.filter_bar.update_filter_groups(
                     language_groups=stats['language_groups'],
                     quality_groups=stats['quality_groups'],
@@ -1840,7 +1842,9 @@ class MainWindow(QMainWindow):
         # --- All UI-state reads must happen here on the main thread ---
         filter_state = self.current_filter_state or self.filter_bar.get_filter_state()
 
-        _all_lang_groups  = set(self.config.filter_language_groups.keys())
+        _all_lang_groups  = set(self.config.filter_language_groups.keys()) | (
+            {"Other"} if self._filter_unmapped_prefixes else set()
+        )
         _sel_lang_groups  = set(filter_state.get('language_groups', []))
         # When every language group is selected the user intends "show all" — don't
         # build a prefix whitelist, because provider/service prefixes (NF, EAR, 24/7,
@@ -1850,7 +1854,10 @@ class MainWindow(QMainWindow):
         else:
             language_prefixes = []
             for group_name in _sel_lang_groups:
-                language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
+                if group_name == "Other":
+                    language_prefixes.extend(self._filter_unmapped_prefixes)
+                else:
+                    language_prefixes.extend(self.config.filter_language_groups.get(group_name, []))
 
         _all_qual_groups = set(self.config.filter_quality_groups.keys())
         _sel_qual_groups = set(filter_state.get('quality_groups', []))
@@ -2134,6 +2141,7 @@ class MainWindow(QMainWindow):
                 platform_groups=self.config.filter_platform_groups,
             )
 
+            self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
             # Update filter bar with current counts
             self.filter_bar.update_filter_groups(
                 language_groups=stats['language_groups'],
