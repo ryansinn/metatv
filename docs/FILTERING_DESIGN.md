@@ -45,6 +45,29 @@ The locale sub-groups (English (North America), French (Europe), etc.) exist for
 
 ---
 
+## Why There Is No Per-Item Filter Exemption
+
+Users sometimes want a specific channel or title to always appear even when its category is globally excluded. It might seem natural to add an "exempt this from filters" action — but we deliberately don't.
+
+**The existing tools already solve this:**
+
+1. Pause Global Exclusions (the Exclusions chip) — the entire library becomes visible.
+2. Find the content and add it to Watchlist, Favorites, or Watch Queue.
+3. Resume exclusions.
+
+Once content is in a curated collection, it is permanently accessible regardless of what filters are active. The Watchlist, Favorites, and Watch Queue all show their contents without applying Global Exclusions — that's intentional. These are things the user has explicitly said they want, and filters are about reducing noise in general browsing, not about removing known-good content from a personal list.
+
+**Why exemptions would be worse UX:**
+
+- Per-item exemptions accumulate silently. A user who exempts 30 channels over a year has no easy way to see what's exempted or why.
+- They introduce a third bypass layer (after pause and per-session bypass) that would be confusing to reason about: "is this channel showing because of my filter, or because it's exempted?"
+- They require a management UI (view all exemptions, remove them) that adds complexity for an edge case.
+- The watchlist/favorites pattern is *better* for the underlying need: it's not "this item should bypass my filter" but "I have decided I want this." Those are different semantics.
+
+**The rule:** if a user wants something to always be accessible, they add it to a curated collection. Filters are for browsing. Collections are for things you've decided on. These should not overlap.
+
+---
+
 ## Two-Tier Filter System
 
 Two filter systems with different scopes and mental models.
