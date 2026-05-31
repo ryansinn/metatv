@@ -16,8 +16,15 @@ from loguru import logger
 
 BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Albanian":         ["AL", "ALB"],
-    "Arabic":           ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ", "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD",
-                         "ARA", "TAR", "OMAR"],  # full-word Arabic variants (QURAN moved to Religious platform)
+    # ── Arabic locale sub-groups ──────────────────────────────────────────────
+    # "Arabic" = all Arabic-speaking regions (aggregate).
+    "Arabic":               ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ",
+                              "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD",
+                              "ARA", "TAR", "OMAR"],
+    "Arabic (Gulf)":        ["AE", "SA", "KW", "QA", "BH", "OM"],  # Gulf states
+    "Arabic (Levant)":      ["LB", "SY", "JO", "PS", "IQ"],        # Levant / Mesopotamia
+    "Arabic (North Africa)": ["EG", "MA", "TN", "DZ", "LY", "SD"], # North Africa / Maghreb
+    # ── end Arabic ────────────────────────────────────────────────────────────
     "Argentine":        ["ARG", "ARGENTINA"],
     "Armenian":         ["AM", "ARM"],
     "Azerbaijani":      ["AZ"],
@@ -26,12 +33,26 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Czech":            ["CZ"],
     "Danish":           ["DK", "DNK"],
     "Dutch":            ["NL", "BE", "OD"],   # OD = Dutch provider (NPO1/2/3, Viaplay NL)
-    "English":          ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH",
-                         "ZA", "ZM", "ZW", "NG", "AUS", "NA", "BS"],  # + Australia, Namibia, Bahamas
+    # ── English locale sub-groups ─────────────────────────────────────────────
+    # "English" = all English content (backward-compatible aggregate).
+    # Sub-groups allow narrowing to a specific English-speaking region.
+    "English":            ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH",
+                           "ZA", "ZM", "ZW", "NG", "AUS", "NA", "BS"],
+    "English (North America)":  ["US", "CA"],           # US + Canada only
+    "English (UK / Ireland)":   ["UK", "IE", "GB"],     # British & Irish
+    "English (Oceania)":        ["AU", "AUS", "NZ"],    # Australian / NZ
+    "English (Africa)":         ["ZA", "ZW", "ZM", "NG", "NA"],  # South/East African English
+    # ── end English ───────────────────────────────────────────────────────────
     "Filipino":         ["PH"],
     "Finnish":          ["FI", "FIN"],
-    "French":           ["FR", "BE", "CH", "CA", "LU", "MC",
-                         "QFR", "MQ", "GP", "MG", "HT"],  # + Quebec, Martinique, Guadeloupe, Madagascar, Haiti
+    # ── French locale sub-groups ──────────────────────────────────────────────
+    # "French" = all French content (aggregate). Sub-groups for regional preference.
+    "French":                   ["FR", "BE", "CH", "CA", "LU", "MC",
+                                  "QFR", "MQ", "GP", "MG", "HT"],
+    "French (Europe)":          ["FR", "BE", "CH", "LU", "MC"],  # European French
+    "French (Canada)":          ["CA", "QFR"],                    # Quebec / Canadian French
+    "French (Africa/Caribbean)": ["MG", "HT", "MQ", "GP", "CI", "SN", "CM"],  # Francophone Africa + Caribbean
+    # ── end French ────────────────────────────────────────────────────────────
     "Georgian":         ["GE"],
     "German":           ["DE", "AT", "CH", "LI", "SW"],   # SW = Swiss channels (SWISS 1, 3+, 4+)
     "Greek":            ["GR", "CY"],
@@ -68,23 +89,38 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Norwegian":        ["NO", "NOR"],
     "Persian/Iranian":  ["IR", "FA", "PER", "AFG"],  # PER = Persian content; AFG = Dari/Afghan (BBC Farsi, Afghan TV)
     "Polish":           ["PL"],
-    "Portuguese":       ["PT", "BR", "CV",
-                         "ANG", "ANGOLA", "MOZ", "MOZAMBIQUE", "CABO", "CAPEVERDE"],  # Portuguese-speaking Africa
+    # ── Portuguese locale sub-groups ─────────────────────────────────────────
+    "Portuguese":            ["PT", "BR", "BRA", "CV",
+                               "ANG", "ANGOLA", "MOZ", "MOZAMBIQUE", "CABO", "CAPEVERDE"],
+    "Portuguese (Portugal)": ["PT", "POR"],             # European Portuguese
+    "Portuguese (Brazil)":   ["BR", "BRA"],             # Brazilian Portuguese
+    "Portuguese (Africa)":   ["MZ", "MOZ", "AO", "CV", "ANGOLA", "MOZAMBIQUE", "CABO", "CAPEVERDE"],
+    # ── end Portuguese ────────────────────────────────────────────────────────
     "Romanian":         ["RO"],
     "Russian":          ["RU", "BY", "KZ", "KG", "TJ", "TM", "UZ", "RUS"],
     "Serbian/Croatian": ["RS", "HR", "BA", "ME", "SI", "MK", "SR",
                          "EXYU", "BIH", "BS", "SLO", "SLN", "MNG"],  # MNG=Montenegro (RTCG SAT confirmed)
     "Slovak":           ["SK"],
+    # ── Spanish locale sub-groups ─────────────────────────────────────────────
+    # "Spanish" = all Spanish-speaking regions (aggregate).
     "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY",
-                         # Normalized 3-letter codes (produced after prefix normalization):
                          "ARG", "COL", "VEN", "URY", "DOM",
-                         # Full country names and regional variants seen in provider data:
-                         "LAT", "LATIN", "MXC",              # Latin/LatAm general + Mexico variant
+                         "LAT", "LATIN", "MXC",
                          "URUGUAY", "COLOMBIA", "CHILE", "CHL",
                          "PERU", "DOMINICAN", "RDOM",
                          "VENEZUELA", "VZ",
                          "HONDURAS", "GUATEMALA", "ECUADOR", "PANAMA", "CUBA",
-                         "PR"],  # PR = Peru (Canal N, America TV confirmed)
+                         "PR"],
+    "Spanish (Spain)":  ["ES", "ESP"],                                  # Spain
+    "Spanish (Mexico)": ["MX", "MEX", "MXC"],                          # Mexico
+    "Spanish (South America)": ["AR", "ARG", "BO", "CL", "CHL", "CO", "COL",
+                                 "EC", "PE", "PY", "PAR", "UY", "URY", "VE", "VEN",
+                                 "ARGENTINA", "COLOMBIA", "CHILE", "URUGUAY", "VENEZUELA", "VZ"],
+    "Spanish (Central America)": ["GT", "GTM", "SV", "HN", "HND", "NI", "CR", "PA",
+                                   "GUATEMALA", "HONDURAS", "PANAMA",
+                                   "DO", "DOM", "CU", "CUB", "PR", "LAT", "LATIN",
+                                   "DOMINICAN", "RDOM", "CUBA"],
+    # ── end Spanish ───────────────────────────────────────────────────────────
     "Swahili":          ["TZ", "TZA"],   # SW reassigned to German (confirmed Swiss channels)
     "Swedish":          ["SE", "SWE"],
     "Thai":             ["TH"],
