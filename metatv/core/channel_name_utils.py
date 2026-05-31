@@ -96,6 +96,7 @@ QUALITY_TOKENS: frozenset[str] = frozenset({
 })
 
 _FULL_NAME_TO_CODE: dict[str, str] = {
+    # Europe
     "ARGENTINA": "ARG", "AUSTRALIA": "AUS", "AUSTRIA": "AUT",
     "BELGIUM": "BEL", "BOLIVIA": "BOL", "BRAZIL": "BRA",
     "CANADA": "CAN", "CHILE": "CHL", "COLOMBIA": "COL",
@@ -103,7 +104,8 @@ _FULL_NAME_TO_CODE: dict[str, str] = {
     "FINLAND": "FIN", "FRANCE": "FRA", "GERMANY": "GER",
     "GREECE": "GRE", "HUNGARY": "HUN", "IRELAND": "IRL",
     "ITALY": "ITA", "MEXICO": "MEX", "NETHERLANDS": "NED",
-    "NORWAY": "NOR", "PARAGUAY": "PAR", "PERU": "PER",
+    "NORWAY": "NOR", "PARAGUAY": "PAR",
+    "PERU": "PE",    # PE (not PER — PER is used for Persian in this codebase)
     "POLAND": "POL", "PORTUGAL": "POR", "ROMANIA": "ROU",
     "RUSSIA": "RUS", "SPAIN": "ESP", "SWEDEN": "SWE",
     "SWITZERLAND": "SUI", "TURKEY": "TUR", "UKRAINE": "UKR",
@@ -111,13 +113,22 @@ _FULL_NAME_TO_CODE: dict[str, str] = {
     "CHINA": "CHN", "INDIA": "IND", "PAKISTAN": "PAK",
     "ISRAEL": "ISR", "MOROCCO": "MAR", "NIGERIA": "NGA",
     "EGYPT": "EGY", "SOUTH AFRICA": "ZAF",
+    # Latin America — full names seen as channel prefixes
+    "DOMINICAN": "DO", "HONDURAS": "HN", "GUATEMALA": "GT",
+    "CUBA": "CU",     "PANAMA": "PA",   "VENEZUELA": "VEN",
+    # Africa — full names seen as channel prefixes
+    "SENEGAL": "SEN",  "SOMALIA": "SOM",  "UGANDA": "UGA",
+    "CAMEROON": "CM",  "GHANA": "GHA",    "KENYA": "KE",
+    "ETHIOPIA": "ETH", "TOGO": "TGO",     "GABON": "GAB",
+    "GAMBIA": "GM",    "TANZANIA": "TZ",  "MALI": "MLI",
+    "GUINEA": "GIN",   "MOZAMBIQUE": "MZ",
 }
 
 _ALIAS_MAP: dict[str, str] = {
     "GB": "UK",
     "LATIN": "LAT", "LATAM": "LAT", "LATINAM": "LAT",
     "LATINAMERICA": "LAT", "LATIN AMERICA": "LAT",
-    "ENG": "UK",
+    "ENG": "EN",   # "ENG" prefix = English, not UK
     "USA": "US",
     "BRASIL": "BRA",
     "ESPANA": "ESP",
@@ -125,6 +136,23 @@ _ALIAS_MAP: dict[str, str] = {
     "NETFLIX": "NF",
     "DISNEY+": "D+", "DISNEY": "D+", "DPLUS": "D+", "DISNEYPLUS": "D+",
     "AMAZON": "PRIME", "AMAZONPRIME": "PRIME",
+    # Language full names used as channel prefixes
+    "ENGLISH": "EN",
+    "HINDI": "HI",
+    "TAMIL": "TA",
+    "TELUGU": "TE",  "TELEGU": "TE",       # TELEGU = common provider typo
+    "KANNADA": "KN",
+    "MALAYALAM": "ML",
+    "GUJARATI": "GU",
+    "PUNJABI": "PA",
+    "MARATHI": "MR",
+    "BENGALI": "BN", "BANGALI": "BN",       # BANGALI = common provider variant
+    "ODIA": "OR",
+    "BHOJPURI": "BHO",
+    # African alternate forms
+    "ETHO": "ETH",          # Ethiopia short form seen in provider data
+    "GUINEE": "GIN",        # French spelling of Guinea
+    "RDOM": "DO",           # República Dominicana abbreviation
 }
 
 REGION_FULL_NAMES: dict[str, str] = {
@@ -162,13 +190,25 @@ REGION_FULL_NAMES: dict[str, str] = {
     "ESP": "Spain", "SWE": "Sweden", "SUI": "Switzerland", "TUR": "Turkey",
     "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela", "JPN": "Japan",
     "CHN": "China", "IND": "India",
+    # Additional 2-letter codes not already in the ISO block above
+    "GM": "Gambia", "GN": "Guinea",
+    # Additional 3-letter codes for African countries
+    "NGA": "Nigeria",   "GHA": "Ghana",   "SEN": "Senegal",  "UGA": "Uganda",
+    "CMR": "Cameroon",  "KEN": "Kenya",   "ETH": "Ethiopia", "SOM": "Somalia",
+    "TZA": "Tanzania",  "MLI": "Mali",    "GIN": "Guinea",   "GAB": "Gabon",
+    "GMB": "Gambia",    "TGO": "Togo",
+    # Additional LatAm 3-letter codes
+    "ARG": "Argentina", "VEN": "Venezuela", "COL": "Colombia",
+    "URY": "Uruguay",   "DOM": "Dominican Republic",
     # Regional groupings
     "LAT": "Latin America", "LATS": "Latin America (Spanish)",
+    "EXYU": "Ex-Yugoslavia",
     "AL": "Albania", "ALB": "Albania",
     # Language codes (used as channel prefixes on some providers)
     "EN": "English", "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
     "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali", "MR": "Marathi",
     "GU": "Gujarati", "PA": "Punjabi", "FA": "Farsi / Persian", "KU": "Kurdish",
+    "OR": "Odia", "BHO": "Bhojpuri",
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",

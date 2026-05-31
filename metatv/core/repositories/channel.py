@@ -8,7 +8,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
-from metatv.core.channel_name_utils import parse_channel_name, QUALITY_TOKENS
+from metatv.core.channel_name_utils import parse_channel_name, normalize_region_code, QUALITY_TOKENS
 
 
 class ChannelRepository:
@@ -369,7 +369,11 @@ class ChannelRepository:
         updated = 0
 
         for channel in channels:
-            prefix = extract_prefix(channel.name, separators=separators)
+            raw_prefix = extract_prefix(channel.name, separators=separators)
+            # Normalize full country/language names to standard codes:
+            # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
+            prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
+
             parsed = parse_channel_name(channel.name)
 
             # detected_quality: suffix quality OR quality-as-prefix (e.g. "HD - Movie")

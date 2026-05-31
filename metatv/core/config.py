@@ -38,6 +38,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Hebrew":           ["IL", "ISR", "IS"],  # IS = Israeli provider prefix (YES ONE, YES 12 etc.)
     "Hungarian":        ["HU"],
     "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
+                         "OR", "BHO",                        # Odia, Bhojpuri (normalized codes)
                          # Full language names & alternate abbreviations confirmed from channel data:
                          "HINDI", "IND",
                          "TEL", "TELUGU", "TELEGU",         # Telugu (TELEGU = common typo)
@@ -75,6 +76,8 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
                          "EXYU", "BIH", "BS", "SLO", "SLN", "MNG"],  # MNG=Montenegro (RTCG SAT confirmed)
     "Slovak":           ["SK"],
     "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY",
+                         # Normalized 3-letter codes (produced after prefix normalization):
+                         "ARG", "COL", "VEN", "URY", "DOM",
                          # Full country names and regional variants seen in provider data:
                          "LAT", "LATIN", "MXC",              # Latin/LatAm general + Mexico variant
                          "URUGUAY", "COLOMBIA", "CHILE", "CHL",
@@ -82,7 +85,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
                          "VENEZUELA", "VZ",
                          "HONDURAS", "GUATEMALA", "ECUADOR", "PANAMA", "CUBA",
                          "PR"],  # PR = Peru (Canal N, America TV confirmed)
-    "Swahili":          ["TZ"],          # SW reassigned to German (confirmed Swiss channels)
+    "Swahili":          ["TZ", "TZA"],   # SW reassigned to German (confirmed Swiss channels)
     "Swedish":          ["SE", "SWE"],
     "Thai":             ["TH"],
     "Turkish":          ["TR", "CY"],
@@ -92,11 +95,18 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Maltese":          ["MT"],   # MT confirmed: TVM 1, TVM NEWS+
     # New groups from provider data:
     "African":          ["AF", "AFR",
-                         "NIG", "NIGERIA", "GHA", "GHANA", "SEN", "SENEGAL",
-                         "CAMEROON", "KENYA", "UGA", "UGANDA", "MALI",
+                         # Normalized short codes (produced after prefix normalization):
+                         "NG", "NGA",  "GH", "GHA",  "SN", "SEN",
+                         "UG", "UGA",  "CM", "CMR",  "KE", "KEN",
+                         "ET", "ETH",  "SO", "SOM",  "TGO",
+                         "GM", "GMB",  "GA", "GAB",  "TZ", "TZA",  "MLI",
+                         "GN", "GIN",  "MZ", "MOZ",
+                         # Full names kept for backward compatibility:
+                         "NIG", "NIGERIA", "GHANA", "SENEGAL",
+                         "CAMEROON", "KENYA", "UGANDA", "MALI",
                          "CONGO", "TOG", "TOGO", "GAM", "GAMBIA", "GABON",
-                         "ERI", "ERITREA", "ETH", "ETHO", "ETHIOPIA", "ETR",
-                         "SOM", "SOMALIA", "DJIBOUTI",
+                         "ERI", "ERITREA", "ETHO", "ETHIOPIA", "ETR",
+                         "SOMALIA", "DJIBOUTI",
                          "NAMIBIA", "TANZANIA",
                          "GUINEA", "GUINEE", "GUI",
                          "RWANDA", "ROWANDA", "RWA",
