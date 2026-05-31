@@ -167,9 +167,23 @@ class NotificationCard(QFrame):
                 else:
                     heights.append(w.sizeHint().height())
             elif sub:
-                h = sub.sizeHint().height()
-                if h > 0:
-                    heights.append(h)
+                # sub.sizeHint() returns -1 before first render for unactivated layouts.
+                # For HBox rows (header, progress), use max child height instead.
+                sub_h = 0
+                for j in range(sub.count()):
+                    si = sub.itemAt(j)
+                    if not si:
+                        continue
+                    sw = si.widget()
+                    if sw and sw.isVisible():
+                        sh = sw.sizeHint().height()
+                        if sh > sub_h:
+                            sub_h = sh
+                if sub_h <= 0:
+                    # last resort: try the layout sizeHint directly
+                    sub_h = max(sub.sizeHint().height(), 0)
+                if sub_h > 0:
+                    heights.append(sub_h)
         if not heights:
             return m.top() + m.bottom()
         total = m.top() + m.bottom() + sum(heights) + lyt.spacing() * (len(heights) - 1)
