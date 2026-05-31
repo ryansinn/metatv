@@ -1390,6 +1390,13 @@ class MainWindow(QMainWindow):
 
         # Channels list (default view)
         self.channels_list = QListWidget()
+        # Extended selection: Ctrl+click, Shift+click, and click-drag multi-select.
+        # currentItemChanged still fires for the "current" item — details pane shows
+        # single-channel details when only one is selected.
+        from PyQt6.QtWidgets import QAbstractItemView
+        self.channels_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
         self.channels_list.itemDoubleClicked.connect(self.play_channel)
@@ -2204,6 +2211,51 @@ class MainWindow(QMainWindow):
             types.append("series")
         return types
     
+    def _open_category_picker(self, channel_ids: list[str]) -> None:
+        """Open the CategoryPickerDialog and assign the selected category to channel_ids."""
+        from metatv.gui.category_picker_dialog import CategoryPickerDialog
+        dlg = CategoryPickerDialog(self.db, self.config, len(channel_ids), self)
+        if dlg.exec() != CategoryPickerDialog.DialogCode.Accepted:
+            return
+
+        category = dlg.selected_category()
+        mood     = dlg.selected_mood()
+        exclude  = dlg.add_to_exclusions()
+
+        if not category:
+            return
+
+        # Assign in background — DB write, then trigger Discover reload
+        def _do_assign():
+            session = self.db.get_session()
+            try:
+                repos = RepositoryFactory(session)
+                updated = repos.channels.assign_user_category(channel_ids, category, mood)
+                logger.info(
+                    f"Assigned {updated} channels to category {category!r} mood={mood!r}"
+                )
+            finally:
+                session.close()
+
+        self.executor.submit(_do_assign)
+
+        # Global Exclusions
+        if exclude and category not in self.config.global_filter_excluded_user_categories:
+            self.config.global_filter_excluded_user_categories.append(category)
+            self.config.save()
+            self._update_filter_btn_state()
+
+        # Notify the user
+        n = len(channel_ids)
+        excl_note = " (added to Global Exclusions)" if exclude else ""
+        self.status_bar.showMessage(
+            f"{n:,} channel{'s' if n != 1 else ''} → “{category}”{excl_note}"
+        )
+
+        # Reload Discover so the new shelf appears
+        if hasattr(self, "discover_view"):
+            QTimer.singleShot(500, self.discover_view.reload)
+
     def _show_filtered_results(self) -> None:
         """Temporarily bypass Tier 1 filters to show what's being hidden.
 
@@ -2356,6 +2408,24 @@ class MainWindow(QMainWindow):
             dislike_act.triggered.connect(lambda checked, cid=channel_id: self._toggle_rating(cid, -1))
             menu.addAction(dislike_act)
 
+        # Category assignment — always available
+        menu.addSeparator()
+        cat_label = channel.user_category
+        if cat_label:
+            cat_act = QAction(
+                f"{self.config.queue_icon} Category: {cat_label}  (change…)", self
+            )
+        else:
+            cat_act = QAction(
+                f"{self.config.queue_icon} Add to Category…", self
+            )
+        cat_act.setToolTip(
+            "Assign this channel to a user-defined category.\n"
+            "Categories appear as shelves in the Discover view."
+        )
+        cat_act.triggered.connect(lambda: self._open_category_picker([channel_id]))
+        menu.addAction(cat_act)
+
         return menu
 
     # ---- Context menu entry points ------------------------------------------
@@ -2482,9 +2552,38 @@ class MainWindow(QMainWindow):
         item = self.channels_list.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
             return
+
+        # Collect all selected channel IDs (multi-select aware)
+        selected_ids = [
+            i.data(Qt.ItemDataRole.UserRole)
+            for i in self.channels_list.selectedItems()
+            if i.data(Qt.ItemDataRole.UserRole)
+        ]
+        if not selected_ids:
+            selected_ids = [item.data(Qt.ItemDataRole.UserRole)]
+
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         gp = self.channels_list.mapToGlobal(position)
-        self._show_context_menu_for(channel_id, gp.x(), gp.y(), "channel")
+
+        if len(selected_ids) > 1:
+            # Multi-select context menu — only show bulk actions
+            self._show_multi_select_context_menu(selected_ids, gp)
+        else:
+            self._show_context_menu_for(channel_id, gp.x(), gp.y(), "channel")
+
+    def _show_multi_select_context_menu(self, channel_ids: list[str], gp) -> None:
+        """Context menu shown when multiple channels are selected."""
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        n = len(channel_ids)
+
+        cat_action = menu.addAction(
+            f"{self.config.queue_icon} Add {n:,} selected channel{'s' if n != 1 else ''} to Category…"
+        )
+        cat_action.triggered.connect(lambda: self._open_category_picker(channel_ids))
+        cat_action.setToolTip("Assign a user-defined category to the selected channels")
+
+        menu.exec(gp)
     
     def play_favorite(self, item):
         """Play a favorite channel"""

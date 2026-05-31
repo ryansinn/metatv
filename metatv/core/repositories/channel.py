@@ -3,7 +3,7 @@
 from typing import Optional, List, Dict, Set
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from loguru import logger
 
 from metatv.core.database import ChannelDB
@@ -401,7 +401,90 @@ class ChannelRepository:
         self.session.commit()
         logger.info(f"Updated parsed name fields for {updated} of {len(channels)} channels")
         return updated
-    
+
+    # ── User category methods ──────────────────────────────────────────────────
+
+    def get_all_user_categories(self) -> list[dict]:
+        """Return all user-defined categories with channel counts and mood.
+
+        Returns list of dicts sorted by channel count descending:
+            [{"name": str, "count": int, "mood": str | None}, ...]
+        """
+        rows = (
+            self.session.query(
+                ChannelDB.user_category,
+                ChannelDB.category_mood,
+                func.count().label("cnt"),
+            )
+            .filter(ChannelDB.user_category.isnot(None))
+            .group_by(ChannelDB.user_category, ChannelDB.category_mood)
+            .order_by(func.count().desc())
+            .all()
+        )
+        seen: dict[str, dict] = {}
+        for name, mood, cnt in rows:
+            if name not in seen:
+                seen[name] = {"name": name, "count": cnt, "mood": mood}
+            else:
+                seen[name]["count"] += cnt
+        return sorted(seen.values(), key=lambda x: -x["count"])
+
+    def assign_user_category(
+        self,
+        channel_ids: list[str],
+        category: str,
+        mood: str | None = None,
+    ) -> int:
+        """Assign user_category (and optional mood) to a list of channels.
+
+        Returns the number of channels updated.
+        """
+        if not channel_ids:
+            return 0
+        updated = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.id.in_(channel_ids))
+            .update(
+                {"user_category": category, "category_mood": mood,
+                 "updated_at": datetime.now()},
+                synchronize_session="fetch",
+            )
+        )
+        self.session.commit()
+        logger.info(
+            f"Assigned {updated} channels to user category {category!r} (mood={mood!r})"
+        )
+        return updated
+
+    def remove_user_category(self, channel_ids: list[str]) -> int:
+        """Clear user_category and category_mood from a list of channels."""
+        if not channel_ids:
+            return 0
+        updated = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.id.in_(channel_ids))
+            .update(
+                {"user_category": None, "category_mood": None,
+                 "updated_at": datetime.now()},
+                synchronize_session="fetch",
+            )
+        )
+        self.session.commit()
+        return updated
+
+    def update_category_mood(self, category: str, mood: str | None) -> int:
+        """Update the mood for all channels in a user category."""
+        updated = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.user_category == category)
+            .update(
+                {"category_mood": mood, "updated_at": datetime.now()},
+                synchronize_session="fetch",
+            )
+        )
+        self.session.commit()
+        return updated
+
     def get_prefix_stats(self,
                         provider_id: Optional[str] = None,
                         language_groups: Optional[Dict[str, List[str]]] = None,

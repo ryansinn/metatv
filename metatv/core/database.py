@@ -64,6 +64,12 @@ class ChannelDB(Base):
     source_category      = Column(String,  index=True)
     source_quality_flags = Column(String)
 
+    # User-defined category — assigned via "Add to Category" right-click action.
+    # Appears as a custom Discovery shelf; influences recommendations via category_mood.
+    # category_mood: "like" | "curious" | "not_interested" | "dislike" | None (neutral)
+    user_category = Column(String, index=True)
+    category_mood = Column(String)
+
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -372,6 +378,8 @@ class Database:
             ("channels",     "source_quality_flags",      "TEXT"),
             ("channels",     "detected_quality",           "TEXT"),
             ("channels",     "detected_region",            "TEXT"),
+            ("channels",     "user_category",              "TEXT"),
+            ("channels",     "category_mood",              "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

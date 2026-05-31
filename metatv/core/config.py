@@ -521,6 +521,7 @@ class Config(BaseModel):
     like_icon: str = "👍"              # Like / positive rating
     dislike_icon: str = "👎"           # Dislike / negative rating
     not_interested_icon: str = "🙅"    # Not Interested — suppress from recommendations only
+    curious_icon: str = "❓"           # Curious / exploring — mild positive, gather discovery data
     hide_icon: str = "🚫"              # Hide channel from all views
     preferences_icon: str = "🎯"       # Preferences / Recommended dashboard
     preferred_version_icon: str = "🎯" # Best-match version indicator (distinct semantic from favorites ★)
@@ -691,6 +692,11 @@ class Config(BaseModel):
     # Content Types expander — raw labels (e.g. "QURAN CHANNEL - NOREEN SADIQ") rather
     # than named groups. Applied in addition to global_filter_excluded_content_types.
     global_filter_excluded_source_categories: list = Field(default_factory=list)
+
+    # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
+    # in the CategoryPickerDialog when creating or editing a user category).
+    # Channels with user_category matching any of these names are hidden everywhere.
+    global_filter_excluded_user_categories: list = Field(default_factory=list)
 
     # Sports / Events view filter state persistence
     # Keyword definitions (sport_keywords, league_keywords) live in:

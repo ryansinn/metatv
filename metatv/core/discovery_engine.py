@@ -174,6 +174,20 @@ def _apply_prefix_filter(query, excluded_prefixes, include_uncategorized):
     return query
 
 
+def _apply_user_category_exclusion(query, excluded_user_categories: list[str] | None):
+    """Exclude channels whose user_category is in the global exclusion list."""
+    from metatv.core.database import ChannelDB
+    from sqlalchemy import or_
+    if excluded_user_categories:
+        query = query.filter(
+            or_(
+                ChannelDB.user_category.notin_(excluded_user_categories),
+                ChannelDB.user_category.is_(None),
+            )
+        )
+    return query
+
+
 def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[str] | None):
     """Apply adult content filter to a SQLAlchemy query on ChannelDB."""
     if adult_mode == "all":
@@ -501,3 +515,63 @@ def _rank_genres_by_preference(genres: list[str], liked_ids: set,
             if g in genre_score:
                 genre_score[g] += 1
     return sorted(genres, key=lambda g: genre_score[g], reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# User-category shelves
+# ---------------------------------------------------------------------------
+
+def get_all_user_categories(session, excluded_user_categories: list[str] | None = None,
+                             ) -> list[dict]:
+    """Return all user-defined categories with channel counts, sorted by count descending.
+
+    Excludes categories that are in the global exclusion list.
+    Returns [{"name": str, "count": int, "mood": str | None}, ...]
+    """
+    from metatv.core.database import ChannelDB
+    from sqlalchemy import func
+    rows = (
+        session.query(
+            ChannelDB.user_category,
+            ChannelDB.category_mood,
+            func.count().label("cnt"),
+        )
+        .filter(ChannelDB.user_category.isnot(None))
+        .group_by(ChannelDB.user_category, ChannelDB.category_mood)
+        .all()
+    )
+    seen: dict[str, dict] = {}
+    excl = set(excluded_user_categories or [])
+    for name, mood, cnt in rows:
+        if name in excl:
+            continue
+        if name not in seen:
+            seen[name] = {"name": name, "count": cnt, "mood": mood}
+        else:
+            seen[name]["count"] += cnt
+    return sorted(seen.values(), key=lambda x: -x["count"])
+
+
+def get_by_user_category(session, category: str, limit: int = 30,
+                          fav_ids=None, queue_ids=None, watched_ids=None, liked_ids=None,
+                          excluded_prefixes=None, include_uncategorized: bool = True,
+                          adult_mode: str = "all",
+                          force_adult_provider_ids: list[str] | None = None,
+                          ) -> list[ContentCard]:
+    """Return ContentCards for all channels in a user-defined category."""
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        .filter(
+            ChannelDB.user_category == category,
+            ChannelDB.is_hidden == False,  # noqa: E712
+        )
+    )
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
+    rows = q.order_by(ChannelDB.name).limit(limit).all()
+    return [
+        _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+        for ch, meta in rows
+    ]

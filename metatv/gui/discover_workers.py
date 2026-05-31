@@ -13,14 +13,16 @@ _SEE_ALL_LIMIT = 500  # max cards fetched for the "See All" browse grid
 
 
 class _ShelfData:
-    __slots__ = ("title", "shelf_key", "cards", "is_featured_actor")
+    __slots__ = ("title", "shelf_key", "cards", "is_featured_actor", "is_user_category")
 
     def __init__(self, title: str, shelf_key: str, cards: list[ContentCard],
-                 is_featured_actor: bool = False) -> None:
+                 is_featured_actor: bool = False,
+                 is_user_category: bool = False) -> None:
         self.title = title
         self.shelf_key = shelf_key
         self.cards = cards
         self.is_featured_actor = is_featured_actor
+        self.is_user_category = is_user_category
 
 
 class _SeeAllWorker(QObject):
@@ -90,6 +92,7 @@ class _LoaderWorker(QObject):
         from metatv.core.discovery_engine import (
             get_recently_added, get_top_rated, get_by_genre,
             get_by_decade, get_featured_actor, get_all_genres, get_all_decades,
+            get_all_user_categories, get_by_user_category,
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
         from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes
@@ -108,6 +111,9 @@ class _LoaderWorker(QObject):
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
 
+            excluded_user_cats = list(getattr(
+                self._config, "global_filter_excluded_user_categories", []
+            ))
             hidden = set(self._config.discover_hidden_shelves)
 
             def emit(data: _ShelfData) -> None:
@@ -116,6 +122,18 @@ class _LoaderWorker(QObject):
                 if not data.cards:
                     return
                 self.shelfReady.emit(_ShelfData(data.title, data.shelf_key, data.cards))
+
+            # ── User-defined category shelves — shown FIRST (user curated) ──────
+            user_cats = get_all_user_categories(
+                session, excluded_user_categories=excluded_user_cats
+            )
+            for cat in user_cats:
+                key = f"user_cat:{cat['name']}"
+                if key not in hidden:
+                    cards = get_by_user_category(
+                        session, cat["name"], limit=30, **sk, **fk, **af
+                    )
+                    emit(_ShelfData(cat["name"], key, cards, is_user_category=True))
 
             # Fixed shelves
             emit(_ShelfData(
