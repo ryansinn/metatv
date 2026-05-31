@@ -184,6 +184,12 @@ class MainWindow(QMainWindow):
         self.max_display_limit = 10000  # Max QListWidgetItems to render at once
         self._search_page_size = 5_000   # Max rows returned by get_all() per load
 
+        # When True, Tier 1 filters (language/quality/platform) are bypassed for one
+        # load — so the user can see what exists in filtered categories without having
+        # to open the filter bar and change settings. Cleared on next filter change.
+        self._bypass_tier1_filters: bool = False
+        self._currently_bypassing: bool = False  # set after load completes, read by filter_channels
+
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
@@ -1838,6 +1844,7 @@ class MainWindow(QMainWindow):
     
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
+        self._bypass_tier1_filters = False  # new search term — cancel any bypass
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
 
     def load_channels(self, provider_id=None):
@@ -1933,13 +1940,16 @@ class MainWindow(QMainWindow):
             _global_excluded_prefixes = set(_cat_excluded or []) | get_excluded_prefixes(self.config)
         _search_text = (self.search_input.text().strip()
                         if hasattr(self, 'search_input') else "")
+        # _bypass_tier1_filters: set when user clicks "Show filtered results" in the
+        # zero-results state. Allows them to see what's hidden without changing settings.
+        _bypassing = self._bypass_tier1_filters
         params = dict(
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
-            language_prefixes=language_prefixes or None,
-            quality_prefixes=quality_prefixes or None,
-            platform_prefixes=platform_prefixes or None,
-            invert_prefix_filters=filter_state.get('show_excluded', False),
+            language_prefixes=None if _bypassing else (language_prefixes or None),
+            quality_prefixes=None if _bypassing else (quality_prefixes or None),
+            platform_prefixes=None if _bypassing else (platform_prefixes or None),
+            invert_prefix_filters=False,
             include_untagged=filter_state.get('include_untagged', True),
             adult_mode=filter_state.get('adult_mode', 'hide'),
             force_adult_ids=force_adult_ids,
@@ -1952,6 +1962,7 @@ class MainWindow(QMainWindow):
             provider_icon_map=provider_icon_map,
             given_provider_id=provider_id,
             hidden_only=self._hidden_mode,
+            bypassing_tier1=_bypassing,
         )
 
         # Stamp a token so stale results from a previous query are discarded
@@ -1998,10 +2009,39 @@ class MainWindow(QMainWindow):
                         if c.detected_prefix not in excluded_prefixes
                         and c.detected_region not in excluded_prefixes
                     ]
+
+            # When zero results + Tier 1 filters active, count what exists without
+            # those filters so we can tell the user "X results are filtered out".
+            filtered_out_count = 0
+            tier1_active = any([
+                params.get('language_prefixes'),
+                params.get('quality_prefixes'),
+                params.get('platform_prefixes'),
+            ])
+            if not hidden_only and len(channels) == 0 and tier1_active:
+                unfiltered = repos.channels.get_all(
+                    provider_id=params['provider_id'],
+                    media_types=params.get('media_types'),
+                    adult_mode=params.get('adult_mode', 'all'),
+                    force_adult_provider_ids=force_adult_ids or None,
+                    source_categories=params.get('source_categories'),
+                    search_query=params.get('search_query'),
+                    limit=_page_size,
+                )
+                # Apply global exclusions to the unfiltered set too
+                if excluded_prefixes:
+                    unfiltered = [
+                        c for c in unfiltered
+                        if c.detected_prefix not in excluded_prefixes
+                        and c.detected_region not in excluded_prefixes
+                    ]
+                filtered_out_count = len(unfiltered)
+
             # get_all() now returns results sorted and limited — no extra sort needed
-            params['total_channels'] = total
-            params['has_adult']      = has_adult
-            params['token']          = token
+            params['total_channels']    = total
+            params['has_adult']         = has_adult
+            params['token']             = token
+            params['filtered_out_count'] = filtered_out_count
             self._channels_loaded.emit(channels, params)
         except Exception as e:
             logger.error(f"Channel query failed: {e}")
@@ -2030,9 +2070,41 @@ class MainWindow(QMainWindow):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
             else:
-                self.status_bar.showMessage("No channels match filters - try adjusting filter settings")
-                self.stats_label.setText(f"Showing 0 of {total_channels:,} · {total_channels:,} filtered out")
+                filtered_out = params.get('filtered_out_count', 0)
+                if filtered_out > 0:
+                    # Results exist but are hidden by Tier 1 filters — show an
+                    # actionable button so the user can expose them without touching settings.
+                    from PyQt6.QtWidgets import QListWidgetItem, QPushButton, QWidget, QHBoxLayout
+                    btn_item = QListWidgetItem()
+                    btn_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                    btn_widget = QPushButton(
+                        f"{filtered_out:,} result{'s' if filtered_out != 1 else ''} filtered  —  click to show"
+                    )
+                    btn_widget.setToolTip(
+                        "Your current Category / Quality / Platform filters are hiding these results.\n"
+                        "Click to temporarily show them. Filters are not changed.\n"
+                        "Changing filters or searching again restores normal filtered view."
+                    )
+                    btn_widget.setStyleSheet(
+                        "QPushButton { background: #3a3a1a; color: #e8d44d; border: 1px solid #7a7a30;"
+                        " border-radius: 4px; padding: 8px 16px; font-size: 12px; }"
+                        "QPushButton:hover { background: #4a4a22; border-color: #aaaa50; }"
+                    )
+                    btn_widget.clicked.connect(self._show_filtered_results)
+                    self.channels_list.addItem(btn_item)
+                    self.channels_list.setItemWidget(btn_item, btn_widget)
+                    btn_item.setSizeHint(btn_widget.sizeHint())
+                    self.status_bar.showMessage(
+                        f"No results — {filtered_out:,} match{'es' if filtered_out == 1 else ''} hidden by current filters"
+                    )
+                    self.stats_label.setText(f"0 shown · {filtered_out:,} filtered")
+                else:
+                    self.status_bar.showMessage("No channels match — try a different search or check filter settings")
+                    self.stats_label.setText(f"Showing 0 of {total_channels:,}")
             return
+
+        # Track bypass state so filter_channels() can show the banner
+        self._currently_bypassing = params.get('bypassing_tier1', False)
 
         for channel in channels:
             media_icon = self.get_media_type_icon(channel.media_type)
@@ -2074,6 +2146,17 @@ class MainWindow(QMainWindow):
         """
         self.channels_list.setUpdatesEnabled(False)
         self.channels_list.clear()
+
+        # If this is a bypass load, show a sticky banner at the top so the user
+        # knows their normal filters are suspended for this result set.
+        if self._currently_bypassing:
+            from PyQt6.QtWidgets import QListWidgetItem as _LI
+            banner = _LI("⚠  Showing results from filtered categories — filters suspended. Change search or filters to restore.")
+            banner.setFlags(Qt.ItemFlag.NoItemFlags)
+            banner.setForeground(self.channels_list.palette().color(
+                self.channels_list.palette().ColorRole.Mid
+            ))
+            self.channels_list.addItem(banner)
 
         total = len(self.all_channels)
         shown = min(total, self.max_display_limit)
@@ -2121,9 +2204,19 @@ class MainWindow(QMainWindow):
             types.append("series")
         return types
     
+    def _show_filtered_results(self) -> None:
+        """Temporarily bypass Tier 1 filters to show what's being hidden.
+
+        Called when the user clicks the "N results filtered" button in the zero-results
+        state. Filters are not changed — next search or filter change restores normal view.
+        """
+        self._bypass_tier1_filters = True
+        self.load_channels()
+
     def on_filter_changed(self):
         """Handle filter changes from FilterBar or media chips"""
         logger.info("Filter changed, reloading channels...")
+        self._bypass_tier1_filters = False  # user changed filters — cancel any bypass
         # Get filter state from FilterBar and add media types from chips
         self.current_filter_state = self.filter_bar.get_filter_state()
         self.current_filter_state['media_types'] = self.get_enabled_media_types()
