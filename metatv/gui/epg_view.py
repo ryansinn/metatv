@@ -39,8 +39,10 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.repositories.epg import EpgRepository
+from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.content_view import ContentView
 
 _SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
@@ -149,7 +151,8 @@ class EpgView(ContentView):
         self.epg_manager = epg_manager
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="EpgView")
         self._provider_ids: list[str] = []
-        self._channel_name_map: dict[str, str] = {}  # channel_db_id → name
+        self._channel_name_map: dict[str, str] = {}    # channel_db_id → name
+        self._channel_quality_map: dict[str, str] = {}  # channel_db_id → quality (e.g. "hd")
 
         # Cached data for tabs
         self._on_now_programs: list[EpgProgramDB] = []
@@ -951,6 +954,7 @@ class EpgView(ContentView):
 
     def _build_name_map(self, session, watchlist_data, live_data) -> dict[str, str]:
         name_map: dict[str, str] = {}
+        quality_map: dict[str, str] = {}
         all_progs: list[EpgProgramDB] = []
         for progs in watchlist_data.values():
             all_progs.extend(progs)
@@ -961,6 +965,9 @@ class EpgView(ContentView):
                 ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
                 if ch:
                     name_map[p.channel_db_id] = ch.name
+                    if ch.quality and ch.quality != "unknown":
+                        quality_map[p.channel_db_id] = ch.quality.upper()
+        self._channel_quality_map.update(quality_map)
         return name_map
 
     # ------------------------------------------------------------------
@@ -1004,11 +1011,24 @@ class EpgView(ContentView):
         if not patterns:
             self.watchlist_layout.addWidget(self.wl_empty_label)
         else:
+            active_patterns: list[tuple] = []
+            inactive_patterns: list[str] = []
             for pattern in patterns:
                 live_progs = live_data.get(pattern, [])
                 upcoming   = watchlist_data.get(pattern, [])
+                if live_progs or upcoming:
+                    active_patterns.append((pattern, live_progs, upcoming))
+                else:
+                    inactive_patterns.append(pattern)
+
+            for pattern, live_progs, upcoming in active_patterns:
                 self.watchlist_layout.addWidget(
                     self._make_watchlist_item(pattern, live_progs, upcoming[:3])
+                )
+
+            if inactive_patterns:
+                self.watchlist_layout.addWidget(
+                    self._make_quiet_section(inactive_patterns)
                 )
 
         # MY CHANNELS
@@ -1114,19 +1134,42 @@ class EpgView(ContentView):
                 layout.addWidget(title_lbl)
 
             def _ch_row(prog):
-                """Build one channel row: Xm left · Channel  [▶]"""
-                ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+                """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]"""
+                raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+                p = parse_channel_name(raw_name)
+
+                db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
+                display_quality = db_quality or (p.quality[0] if p.quality else "")
+
                 row_w = QWidget()
                 row = QHBoxLayout(row_w)
                 row.setContentsMargins(16, 0, 4, 0)
                 row.setSpacing(4)
-                lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·  {ch_name}")
-                lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-                row.addWidget(lbl, 1)
+
+                time_lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·")
+                time_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+                row.addWidget(time_lbl)
+
+                if p.region:
+                    row.addWidget(make_region_chip(p.region, row_w))
+                if p.audio:
+                    row.addWidget(make_audio_chip(p.audio, row_w))
+                if p.lang:
+                    row.addWidget(make_region_chip(p.lang, row_w))
+
+                name_lbl = QLabel(p.bare_name or raw_name)
+                name_lbl.setStyleSheet("color: #ccc; font-size: 11px;")
+                row.addWidget(name_lbl, 1)
+
+                if display_quality:
+                    row.addWidget(make_quality_chip(display_quality, row_w))
+                if p.year:
+                    row.addWidget(make_year_chip(p.year, row_w))
+
                 pb = QPushButton(self.config.play_icon)
                 pb.setFixedSize(22, 20)
                 pb.setFlat(True)
-                pb.setToolTip(f"Play: {ch_name}")
+                pb.setToolTip(f"Play: {p.bare_name or raw_name}")
                 pb.setStyleSheet(_PLAY_BTN_STYLE)
                 cid = prog.channel_db_id
                 pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
@@ -1179,11 +1222,15 @@ class EpgView(ContentView):
             layout.addWidget(sep)
 
         for prog in upcoming[:3]:
-            ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+            raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+            p = parse_channel_name(raw_name)
+            db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
+            display_quality = db_quality or (p.quality[0] if p.quality else "")
+
             now = _now_utc()
             if prog.start_time <= now:
                 time_str = _remaining_str(prog.stop_time)
-                prefix = "  ▶ "
+                prefix_icon = self.config.episode_icon + " "
             else:
                 mins = _minutes_away(prog.start_time)
                 if mins < 120:
@@ -1192,10 +1239,80 @@ class EpgView(ContentView):
                     time_str = f"Today {_format_time(prog.start_time)}"
                 else:
                     time_str = f"{prog.start_time.strftime('%a')} {_format_time(prog.start_time)}"
-                prefix = "  "
-            row_lbl = QLabel(f"{prefix}{time_str}  ·  {ch_name}")
-            row_lbl.setStyleSheet("color: #999; font-size: 11px; padding-left: 16px;")
-            layout.addWidget(row_lbl)
+                prefix_icon = ""
+
+            row_w = QWidget()
+            row = QHBoxLayout(row_w)
+            row.setContentsMargins(16, 0, 4, 0)
+            row.setSpacing(4)
+            time_lbl = QLabel(f"{prefix_icon}{time_str}  ·")
+            time_lbl.setStyleSheet("color: #777; font-size: 11px;")
+            row.addWidget(time_lbl)
+            if p.region:
+                row.addWidget(make_region_chip(p.region, row_w))
+            if p.audio:
+                row.addWidget(make_audio_chip(p.audio, row_w))
+            if p.lang:
+                row.addWidget(make_region_chip(p.lang, row_w))
+            name_lbl = QLabel(p.bare_name or raw_name)
+            name_lbl.setStyleSheet("color: #999; font-size: 11px;")
+            row.addWidget(name_lbl, 1)
+            if display_quality:
+                row.addWidget(make_quality_chip(display_quality, row_w))
+            if p.year:
+                row.addWidget(make_year_chip(p.year, row_w))
+            layout.addWidget(row_w)
+
+        return w
+
+    def _make_quiet_section(self, patterns: list[str]) -> QWidget:
+        """Collapsible section for watchlist patterns that have no current or upcoming matches."""
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(0, 4, 0, 0)
+        outer.setSpacing(4)
+
+        collapsed = self.config.epg_watchlist_quiet_collapsed
+        n = len(patterns)
+
+        toggle_btn = QPushButton()
+        toggle_btn.setFlat(True)
+        toggle_btn.setStyleSheet(
+            "QPushButton { color: #555; font-size: 11px; border: none;"
+            " text-align: left; padding: 2px 4px; }"
+            "QPushButton:hover { color: #888; }"
+        )
+
+        cards_container = QWidget()
+        cards_layout = QVBoxLayout(cards_container)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(6)
+        for pattern in patterns:
+            card = self._make_watchlist_item(pattern, [], [])
+            card.setStyleSheet(card.styleSheet() + " opacity: 0.55;")
+            cards_layout.addWidget(card)
+
+        def _update_label():
+            arrow = self.config.move_down_icon if cards_container.isHidden() else self.config.move_up_icon
+            toggle_btn.setText(f"{arrow}  {n} quiet  —  nothing on now")
+
+        def _toggle(checked=False):
+            if cards_container.isHidden():
+                cards_container.show()
+                self.config.epg_watchlist_quiet_collapsed = False
+            else:
+                cards_container.hide()
+                self.config.epg_watchlist_quiet_collapsed = True
+            self.config.save()
+            _update_label()
+
+        toggle_btn.clicked.connect(_toggle)
+        outer.addWidget(toggle_btn)
+        outer.addWidget(cards_container)
+
+        if collapsed:
+            cards_container.hide()
+        _update_label()
 
         return w
 
@@ -1209,10 +1326,27 @@ class EpgView(ContentView):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
 
+        p = parse_channel_name(channel_name)
+        db_quality = self._channel_quality_map.get(channel_db_id, "")
+        display_quality = db_quality or (p.quality[0] if p.quality else "")
+
         header = QHBoxLayout()
-        name_lbl = QLabel(f"{self.config.series_icon}  {channel_name}")
-        name_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
-        header.addWidget(name_lbl)
+        icon_lbl = QLabel(f"{self.config.series_icon} ")
+        icon_lbl.setStyleSheet("font-size: 13px;")
+        header.addWidget(icon_lbl)
+        if p.region:
+            header.addWidget(make_region_chip(p.region, w))
+        if p.audio:
+            header.addWidget(make_audio_chip(p.audio, w))
+        if p.lang:
+            header.addWidget(make_region_chip(p.lang, w))
+        ch_lbl = QLabel(p.bare_name or channel_name)
+        ch_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        header.addWidget(ch_lbl)
+        if display_quality:
+            header.addWidget(make_quality_chip(display_quality, w))
+        if p.year:
+            header.addWidget(make_year_chip(p.year, w))
         header.addStretch()
 
         if prog:
@@ -1254,11 +1388,25 @@ class EpgView(ContentView):
         layout.setContentsMargins(10, 4, 10, 4)
         layout.setSpacing(8)
 
-        name_lbl = QLabel(f"{channel_name}")
+        p = parse_channel_name(channel_name)
+        db_quality = self._channel_quality_map.get(channel_db_id, "")
+        display_quality = db_quality or (p.quality[0] if p.quality else "")
+
+        if p.region:
+            layout.addWidget(make_region_chip(p.region, w))
+        if p.audio:
+            layout.addWidget(make_audio_chip(p.audio, w))
+        if p.lang:
+            layout.addWidget(make_region_chip(p.lang, w))
+        name_lbl = QLabel(p.bare_name or channel_name)
         name_lbl.setStyleSheet("font-size: 12px;")
+        layout.addWidget(name_lbl)
+        if display_quality:
+            layout.addWidget(make_quality_chip(display_quality, w))
+        if p.year:
+            layout.addWidget(make_year_chip(p.year, w))
         count_lbl = QLabel(f"{count} matches")
         count_lbl.setStyleSheet("color: #666; font-size: 11px;")
-        layout.addWidget(name_lbl)
         layout.addWidget(count_lbl)
         layout.addStretch()
 
@@ -1395,13 +1543,8 @@ class EpgView(ContentView):
                 category = override_cat
                 bare_name = ch_name
             else:
-                m = self._PREFIX_RE.match(ch_name)
-                if m:
-                    raw = m.group(1).upper()
-                    category = self._COUNTRY_ABBREV.get(raw, raw)
-                    bare_name = m.group(2).strip()
-                else:
-                    category, bare_name = "", ch_name
+                _p = parse_channel_name(ch_name)
+                category, bare_name = _p.region, _p.bare_name
 
             if category in hidden_prefixes:
                 continue

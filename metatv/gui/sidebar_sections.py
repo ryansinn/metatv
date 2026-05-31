@@ -11,7 +11,26 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QFont
 from loguru import logger
 
+from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.repositories import RepositoryFactory
+
+
+def _fmt_channel_name(name: str) -> str:
+    """Format a raw channel name for text-only lists: '[REGION] [AUDIO] bare_name [QUALITY] · year'."""
+    p = parse_channel_name(name)
+    parts = []
+    if p.region:
+        parts.append(f"[{p.region}]")
+    if p.audio:
+        parts.append(f"[{p.audio}]")
+    if p.lang:
+        parts.append(f"[{p.lang}]")
+    parts.append(p.bare_name or name)
+    if p.quality:
+        parts.append(f"[{p.quality[0]}]")
+    if p.year:
+        parts.append(f"· {p.year}")
+    return " ".join(parts)
 
 
 class ProviderItemWidget(QWidget):
@@ -548,15 +567,17 @@ class WatchAlertsSection(CollapsibleSection):
             for _pattern, progs in live.items():
                 for prog in progs:
                     ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    ch_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    ch_display = _fmt_channel_name(raw_name)
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
                     time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
-                    _add(prog.title, (0, self.config.live_indicator_icon, time_str, ch_name, prog.channel_db_id))
+                    _add(prog.title, (0, self.config.live_indicator_icon, time_str, ch_display, prog.channel_db_id))
 
             for _pattern, progs in upcoming.items():
                 for prog in progs:
                     ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    ch_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    ch_display = _fmt_channel_name(raw_name)
                     mins = int((prog.start_time - now).total_seconds() / 60)
                     if mins < 60:
                         time_str = f"in {mins}m"
@@ -566,7 +587,7 @@ class WatchAlertsSection(CollapsibleSection):
                     else:
                         local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
                         time_str = local.strftime("%a %-I:%M %p")
-                    _add(prog.title, (prog.start_time.timestamp(), self.config.watchlist_icon, time_str, ch_name, prog.channel_db_id))
+                    _add(prog.title, (prog.start_time.timestamp(), self.config.watchlist_icon, time_str, ch_display, prog.channel_db_id))
 
             if not by_key:
                 self.set_empty(True)
@@ -888,7 +909,7 @@ class FavoritesSection(CollapsibleSection):
         # Get media type icon
         media_icon = self.get_media_icon(channel.media_type)
         
-        item.setText(f"{media_icon} {channel.name}")
+        item.setText(f"{media_icon} {_fmt_channel_name(channel.name)}")
         item.setData(Qt.ItemDataRole.UserRole, channel.id)
     
     def get_media_icon(self, media_type):
@@ -1019,7 +1040,7 @@ class RecommendedSection(CollapsibleSection):
                 else self.config.series_icon
             )
             liked_prefix = f"{self.config.like_icon} " if sc.already_liked else ""
-            item = QListWidgetItem(f"{liked_prefix}{media_icon} {sc.channel_name}")
+            item = QListWidgetItem(f"{liked_prefix}{media_icon} {_fmt_channel_name(sc.channel_name)}")
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
@@ -1163,14 +1184,14 @@ class WatchQueueSection(CollapsibleSection):
         if continue_watching:
             self._add_header("Continue Watching")
             for e in continue_watching:
-                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {e.channel_name}")
+                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}")
                 item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
                 self._list.addItem(item)
 
         if never_watched:
             self._add_header("Never Watched")
             for e in never_watched:
-                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {e.channel_name}")
+                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}")
                 item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
                 self._list.addItem(item)
 

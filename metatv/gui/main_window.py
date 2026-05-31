@@ -18,6 +18,7 @@ import requests
 from urllib.parse import urlparse, urlunparse
 from datetime import datetime
 
+from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
@@ -1980,11 +1981,14 @@ class MainWindow(QMainWindow):
             if show_provider_icon and channel.provider_id in provider_icon_map:
                 src_badge = provider_icon_map[channel.provider_id] + " "
 
-            display_text = f"{src_badge}{media_icon}{fav_icon} {channel.name}"
+            _p = parse_channel_name(channel.name)
+            prefix_str = f"[{_p.region}] " if _p.region else ""
+            lang_str = f"[{_p.lang}] " if _p.lang else ""
+            quality_str = f" [{channel.quality.upper()}]" if channel.quality and channel.quality != "unknown" else ""
+            year_str = f" · {_p.year}" if _p.year else ""
+            display_text = f"{src_badge}{media_icon}{fav_icon} {prefix_str}{lang_str}{_p.bare_name}{quality_str}{year_str}"
             if channel.category:
                 display_text += f" [{channel.category}]"
-            if channel.quality and channel.quality != "unknown":
-                display_text += f" ({channel.quality})"
             self.all_channels.append((display_text, channel))
 
         shown    = len(channels)

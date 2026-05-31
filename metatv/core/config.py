@@ -140,7 +140,7 @@ class Config(BaseModel):
     stream_retry_online_icon:  str = "🟢"  # Stream retry — back online
     info_icon: str = "ℹ"
     watchlist_icon: str = "⏰"         # Watchlist tab
-    live_indicator_icon: str = "🔴"    # On Now / live indicator
+    live_indicator_icon: str = "🟢"    # On Now / live indicator
     calendar_icon: str = "📅"          # Browse / calendar tab
     discover_icon: str = "✨"          # Discover tab
     move_up_icon: str = "▲"            # Move item up in list
@@ -323,6 +323,7 @@ class Config(BaseModel):
 
     # EPG settings
     epg_watchlist_patterns: list = Field(default_factory=list)
+    epg_watchlist_quiet_collapsed: bool = True  # collapse "nothing on now" section by default
     # e.g. ["NHL", "Jeopardy!", "MasterChef Canada"]
     epg_watchlist_channels: list = Field(default_factory=list)
     # channel_db_ids pinned to watchlist (MY CHANNELS section)

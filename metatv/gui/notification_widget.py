@@ -83,7 +83,9 @@ class NotificationCard(QFrame):
         icon = icon_map.get(self.notification.type, "")
         
         self.title_label = QLabel(f"{icon} {self.notification.title}")
-        self.title_label.setStyleSheet("font-weight: bold;")
+        _bold = self.title_label.font()
+        _bold.setBold(True)
+        self.title_label.setFont(_bold)
         header_layout.addWidget(self.title_label)
         
         header_layout.addStretch()
