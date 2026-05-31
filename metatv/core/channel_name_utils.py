@@ -153,6 +153,8 @@ _ALIAS_MAP: dict[str, str] = {
     "ETHO": "ETH",          # Ethiopia short form seen in provider data
     "GUINEE": "GIN",        # French spelling of Guinea
     "RDOM": "DO",           # República Dominicana abbreviation
+    "TCHAD": "TCD",         # Chad (French name)
+    "TCH": "TCD",           # Chad short form
 }
 
 REGION_FULL_NAMES: dict[str, str] = {

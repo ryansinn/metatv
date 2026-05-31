@@ -20,7 +20,8 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     # "Arabic" = all Arabic-speaking regions (aggregate).
     "Arabic":               ["AR", "AE", "SA", "EG", "MA", "TN", "DZ", "LB", "JO", "IQ",
                               "KW", "QA", "BH", "OM", "YE", "PS", "SY", "LY", "SD",
-                              "ARA", "TAR", "OMAR"],
+                              "ARA", "TAR", "OMAR",
+                              "CLA"],  # CLA confirmed Arabic-language content (drama/series)
     "Arabic (Gulf)":        ["AE", "SA", "KW", "QA", "BH", "OM"],  # Gulf states
     "Arabic (Levant)":      ["LB", "SY", "JO", "PS", "IQ"],        # Levant / Mesopotamia
     "Arabic (North Africa)": ["EG", "MA", "TN", "DZ", "LY", "SD"], # North Africa / Maghreb
@@ -60,6 +61,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Hungarian":        ["HU"],
     "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
                          "OR", "BHO",                        # Odia, Bhojpuri (normalized codes)
+                         "YP",                               # YP confirmed Indian news channels (AAJTAK, Republic Bharat, India TV)
                          # Full language names & alternate abbreviations confirmed from channel data:
                          "HINDI", "IND",
                          "TEL", "TELUGU", "TELEGU",         # Telugu (TELEGU = common typo)
@@ -91,7 +93,8 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Polish":           ["PL"],
     # ── Portuguese locale sub-groups ─────────────────────────────────────────
     "Portuguese":            ["PT", "BR", "BRA", "CV",
-                               "ANG", "ANGOLA", "MOZ", "MOZAMBIQUE", "CABO", "CAPEVERDE"],
+                               "ANG", "ANGOLA", "MOZ", "MOZAMBIQUE", "CABO", "CAPEVERDE",
+                               "VO"],  # VO confirmed Portuguese (RTP 1/2/3 — Portuguese public broadcaster)
     "Portuguese (Portugal)": ["PT", "POR"],             # European Portuguese
     "Portuguese (Brazil)":   ["BR", "BRA"],             # Brazilian Portuguese
     "Portuguese (Africa)":   ["MZ", "MOZ", "AO", "CV", "ANGOLA", "MOZAMBIQUE", "CABO", "CAPEVERDE"],
@@ -177,8 +180,9 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "VIP":           ["VIP"],           # French 4K tier (TF1 4K, M6 4K, France 2 4K confirmed)
     "Shahid":        ["SHAHID"],        # Arabic/Middle East streaming confirmed
     # Less common full-name variants (low channel counts, catch-all):
-    "Other Streaming": ["HBO", "HULU", "APPLE", "APPLETV", "PEACOCK",
-                        "PARAMOUNT", "PARAMOUNT+"],
+    "Apple TV+":     ["A+", "APPLE", "APPLETV"],  # A+ confirmed Apple TV+ content
+    "Other Streaming": ["HBO", "HULU", "PEACOCK", "PARAMOUNT", "PARAMOUNT+",
+                        "PLAY", "PLAY+"],  # PLAY/PLAY+ = Belgian streaming (PLAY ACTIE, PLAY CRIME etc.)
     # ── Broadcast / Pay TV ────────────────────────────────────────────────────
     "Sports":     ["ESPN", "DAZN", "PPV", "NBA", "NFL", "MLB", "NHL", "UFC", "WWE", "BEIN", "SKY SPORTS",
                    "SPT", "SPORT", "SPORTS",         # generic sports prefixes
@@ -187,7 +191,7 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
                    "EPL", "EFL", "SPFL",              # UK football leagues
                    "MLS", "LIGA", "CAF",              # other leagues
                    "WC", "CHAMP", "L1", "L2", "L21", "FL",  # cups/leagues
-                   "LIVE", "NEXT",                    # live/upcoming PPV events
+                   "LIVE", "NEXT", "ENDED",           # live/upcoming/ended PPV event status tokens
                    "DIRTVISION",                      # motorsports streaming
                    "TRILLERTV"],                      # combat sports/entertainment
     "Pay TV":     ["DSTV",    # MultiChoice/DStv Sub-Saharan Africa (confirmed: SABC, eNCA, Cape Town TV, SuperSport, MOJALOVE — South African satellite pay-TV platform)
@@ -198,7 +202,8 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
                    "GOBX",    # GOtv Box
                    "DIGI"],   # Digi (Romanian/Hungarian telecom TV)
     "News":       ["CNN", "BBC", "FOX", "NBC", "CBS", "ABC", "MSNBC", "SKY NEWS", "AL JAZEERA", "FRANCE24"],
-    "Kids":       ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS"],
+    "Kids":       ["KIDS", "CARTOON", "DISNEY JUNIOR", "NICK", "NICKELODEON", "PBS KIDS",
+                   "ENF"],  # ENF confirmed kids/children (Baby TV, Disney Channel, Disney Junior — French "enfants")
     "Music":      ["MU", "MUSIC"],  # MU = music channels (4 MUSIC, BOX HITS confirmed); MUSIC = Trace Africa etc.
     "Religious":  ["RELIGIOUS", "QURAN"],  # RELIGIOUS confirmed (Aastha TV etc.); QURAN = Arabic religious
     "24/7":       ["24/7"],   # 24/7 loop channels (classic TV reruns confirmed)
@@ -219,6 +224,7 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
         "BB",           # Barbados
         "PR",           # Puerto Rico
         "LC", "GD", "VC", "AG", "DM", "KN",  # Lesser Antilles
+        "CAR",          # CAR confirmed Caribbean aggregator (T&T radio, Caribbean TV)
     ],
     "Central America": [
         "MX", "MEX",    # Mexico (also in North America)
@@ -352,6 +358,7 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
         "AF", "AFR",    # Africa generic prefixes
         "DSTV",         # DStv (major African pay TV)
         "GENERAL",      # confirmed African content (AFRICA TV1/2/3)
+        "TD", "TCD",    # Chad (TCHAD in French — normalized to TCD)
     ],
     "Africa": [
         # Aggregate: North + Sub-Saharan
@@ -362,6 +369,7 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
         "GN", "GIN", "MZ", "MOZ", "ZA", "ZAF", "ZW", "ZM",
         "AO", "CI", "NA", "BW", "RW", "RWA", "BJ",
         "AF", "AFR", "DSTV", "GENERAL",
+        "TD", "TCD",    # Chad
     ],
 
     # ── Middle East ───────────────────────────────────────────────────────────
