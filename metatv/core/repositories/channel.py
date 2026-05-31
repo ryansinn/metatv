@@ -533,7 +533,8 @@ class ChannelRepository:
                         provider_id: Optional[str] = None,
                         language_groups: Optional[Dict[str, List[str]]] = None,
                         quality_groups: Optional[Dict[str, List[str]]] = None,
-                        platform_groups: Optional[Dict[str, List[str]]] = None) -> Dict:
+                        platform_groups: Optional[Dict[str, List[str]]] = None,
+                        excluded_user_categories: Optional[set] = None) -> Dict:
         """Get statistics about detected prefixes.
 
         Args:
@@ -553,12 +554,20 @@ class ChannelRepository:
         if provider_id:
             query = query.filter_by(provider_id=provider_id)
         query = query.filter_by(is_hidden=False)
-        
+        if excluded_user_categories:
+            query = query.filter(
+                ~ChannelDB.user_category.in_(excluded_user_categories)
+            )
+
         # Get unique prefixes with counts
         prefix_query = self.session.query(
             ChannelDB.detected_prefix,
             func.count(ChannelDB.id)
         ).filter_by(is_hidden=False)
+        if excluded_user_categories:
+            prefix_query = prefix_query.filter(
+                ~ChannelDB.user_category.in_(excluded_user_categories)
+            )
         
         if provider_id:
             prefix_query = prefix_query.filter_by(provider_id=provider_id)

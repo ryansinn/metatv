@@ -2386,6 +2386,7 @@ class MainWindow(QMainWindow):
                 language_groups=self.config.filter_language_groups,
                 quality_groups=self.config.filter_quality_groups,
                 platform_groups=self.config.filter_platform_groups,
+                excluded_user_categories=set(self.config.global_filter_excluded_user_categories),
             )
 
             self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
