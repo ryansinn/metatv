@@ -3161,7 +3161,7 @@ class MainWindow(QMainWindow):
     def _deactivate_view_chips(self, *keep) -> None:
         """Deactivate all view chips except those in keep."""
         for chip in (self.search_chip, self.epg_chip, self.prefs_chip,
-                     self.discover_chip, self.hidden_chip):
+                     self.discover_chip):
             if chip not in keep:
                 chip.blockSignals(True)
                 chip.set_enabled(False)
