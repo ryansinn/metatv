@@ -46,19 +46,23 @@ def _load_source_category_counts(db: Database) -> list[tuple[str, int]]:
         session.close()
 
 
-def _load_prefix_counts(db: Database) -> list[tuple[str, int]]:
+def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None = None) -> list[tuple[str, int]]:
     """Return [(prefix, count)] for all prefixes in the DB, sorted alphabetically."""
     from sqlalchemy import func
     from metatv.core.database import ChannelDB
     session = db.get_session()
     try:
-        rows = (
+        q = (
             session.query(ChannelDB.detected_prefix, func.count())
             .filter(
                 ChannelDB.detected_prefix.isnot(None),
                 ChannelDB.media_type.in_(["movie", "series", "live"]),
             )
-            .group_by(ChannelDB.detected_prefix)
+        )
+        if excluded_user_categories:
+            q = q.filter(~ChannelDB.user_category.in_(excluded_user_categories))
+        rows = (
+            q.group_by(ChannelDB.detected_prefix)
             .order_by(ChannelDB.detected_prefix)
             .all()
         )
@@ -622,7 +626,10 @@ class GlobalFilterDialog(QDialog):
         # Blacklist model: currently excluded prefixes start checked; everything else unchecked.
         excluded = set(self._config.global_filter_excluded_categories)
 
-        prefix_counts = _load_prefix_counts(self._db)
+        prefix_counts = _load_prefix_counts(
+            self._db,
+            excluded_user_categories=set(self._config.global_filter_excluded_user_categories),
+        )
         all_groups = _group_prefixes(prefix_counts, self._config.filter_language_groups)
         logger.debug(
             f"GlobalFilterDialog: {len(prefix_counts)} prefixes in {len(all_groups)} groups"
