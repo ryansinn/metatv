@@ -20,9 +20,12 @@ class ImageCache(QObject):
     Cache size: ~300MB for ~30k unique images
     """
     
-    # Signals for async operations
+    # Public signals
     image_loaded = pyqtSignal(str, QPixmap)  # url, pixmap
-    image_failed = pyqtSignal(str, str)  # url, error_message
+    image_failed = pyqtSignal(str, str)       # url, error_message
+
+    # Private signal: worker emits (url, cache_path_str); main thread creates QPixmap
+    _image_ready = pyqtSignal(str, str)
     
     def __init__(self, cache_dir: str = "~/.cache/metatv/images", 
                  max_size_mb: int = 500):
@@ -36,7 +39,10 @@ class ImageCache(QObject):
         
         # Thread pool for async downloads
         self.executor = ThreadPoolExecutor(max_workers=4)
-        
+
+        # Marshal pixmap creation to the main thread
+        self._image_ready.connect(self._on_image_ready)
+
         logger.info(f"Image cache initialized: {self.cache_dir}")
     
     def get_image_sync(self, url: str) -> Optional[QPixmap]:
@@ -139,11 +145,10 @@ class ImageCache(QObject):
                 
                 # Update in-memory index
                 self.cache_index[url] = cache_path
-                
-                # Load and emit
-                pixmap = QPixmap(str(cache_path))
+
+                # Marshal pixmap creation to the main thread via _image_ready signal
                 logger.info(f"Cached image from {attempt_url} (key: {cache_key})")
-                self.image_loaded.emit(url, pixmap)
+                self._image_ready.emit(url, str(cache_path))
                 
                 # Check cache size and cleanup if needed
                 self._cleanup_if_needed()
@@ -163,6 +168,11 @@ class ImageCache(QObject):
         logger.warning(f"Failed to download image from all {len(urls_to_try)} URLs")
         self.image_failed.emit(url, last_error or "All download attempts failed")
     
+    def _on_image_ready(self, url: str, cache_path_str: str) -> None:
+        """Main-thread slot: create QPixmap and emit image_loaded."""
+        pixmap = QPixmap(cache_path_str)
+        self.image_loaded.emit(url, pixmap)
+
     def _url_to_cache_key(self, url: str) -> str:
         """Generate cache key from URL using MD5 hash"""
         return hashlib.md5(url.encode()).hexdigest()

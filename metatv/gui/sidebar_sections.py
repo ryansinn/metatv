@@ -326,7 +326,7 @@ class SourcesSection(CollapsibleSection):
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         header_layout.addWidget(self.toggle_btn)
 
-        self.title_label = QLabel(f"📡 <b>Sources</b>")
+        self.title_label = QLabel(f"{self.config.provider_icon} <b>Sources</b>")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
@@ -551,7 +551,7 @@ class WatchAlertsSection(CollapsibleSection):
                     ch_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
                     time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
-                    _add(prog.title, (0, "🔴", time_str, ch_name, prog.channel_db_id))
+                    _add(prog.title, (0, self.config.live_indicator_icon, time_str, ch_name, prog.channel_db_id))
 
             for _pattern, progs in upcoming.items():
                 for prog in progs:
@@ -566,7 +566,7 @@ class WatchAlertsSection(CollapsibleSection):
                     else:
                         local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
                         time_str = local.strftime("%a %-I:%M %p")
-                    _add(prog.title, (prog.start_time.timestamp(), "⏰", time_str, ch_name, prog.channel_db_id))
+                    _add(prog.title, (prog.start_time.timestamp(), self.config.watchlist_icon, time_str, ch_name, prog.channel_db_id))
 
             if not by_key:
                 self.set_empty(True)

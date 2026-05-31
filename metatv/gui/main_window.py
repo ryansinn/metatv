@@ -1536,6 +1536,8 @@ class MainWindow(QMainWindow):
     
     def _hide_all_content_views(self) -> None:
         """Blank-slate all views. Call before activating any single view."""
+        if self.epg_view.isVisible():
+            self.epg_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -1673,6 +1675,7 @@ class MainWindow(QMainWindow):
             db_provider = repos.providers.get_by_id(provider_id)
             if not db_provider:
                 logger.error(f"Provider not found: {provider_id}")
+                self.refreshing_providers.discard(provider_id)
                 return
             
             # Convert to model
@@ -3355,7 +3358,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['success_count'] = url_entry.get('success_count', 0) + 1
                         url_entry['last_success'] = datetime.now().isoformat()
-                        provider_db.urls = raw_urls
+                        provider_db.urls = _json.dumps(raw_urls)
                         repos.providers.update(provider_db)
                         session.commit()
                     return new_stream_url, None
@@ -3363,7 +3366,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
                         url_entry['last_failure'] = datetime.now().isoformat()
-                        provider_db.urls = raw_urls
+                        provider_db.urls = _json.dumps(raw_urls)
                         repos.providers.update(provider_db)
                         session.commit()
                     if alt_err:
@@ -3729,6 +3732,10 @@ class MainWindow(QMainWindow):
 
         # Cleanup player resources
         self.player_manager.cleanup()
+
+        # Stop retry manager background thread
+        if hasattr(self, "stream_retry_manager"):
+            self.stream_retry_manager.stop()
 
         # Close database
         self.db.close()

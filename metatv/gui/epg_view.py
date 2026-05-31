@@ -1065,7 +1065,7 @@ class EpgView(ContentView):
 
         # ── Header ──────────────────────────────────────────────────────── #
         is_live = bool(live)
-        icon = "🔴" if is_live else "⏰"
+        icon = self.config.live_indicator_icon if is_live else self.config.watchlist_icon
 
         # Group live programmes by show title (most channels = most popular first)
         title_groups: dict[str, list] = defaultdict(list)
@@ -1113,16 +1113,14 @@ class EpgView(ContentView):
                 )
                 layout.addWidget(title_lbl)
 
-            remaining = _remaining_str(progs[0].stop_time)
-
-            def _ch_row(prog, rem=remaining):
-                """Build one channel row: ▶ Xm left · Channel  [▶]"""
+            def _ch_row(prog):
+                """Build one channel row: Xm left · Channel  [▶]"""
                 ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
                 row_w = QWidget()
                 row = QHBoxLayout(row_w)
                 row.setContentsMargins(16, 0, 4, 0)
                 row.setSpacing(4)
-                lbl = QLabel(f"{rem}  ·  {ch_name}")
+                lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·  {ch_name}")
                 lbl.setStyleSheet("color: #aaa; font-size: 11px;")
                 row.addWidget(lbl, 1)
                 pb = QPushButton(self.config.play_icon)
@@ -1152,7 +1150,7 @@ class EpgView(ContentView):
                     extra_layout.addWidget(_ch_row(ep))
                 extra_container.hide()
 
-                expand_btn = QPushButton(f"▼  {n_more} more channels")
+                expand_btn = QPushButton(f"{self.config.move_down_icon}  {n_more} more channels")
                 expand_btn.setFlat(True)
                 expand_btn.setStyleSheet(
                     "QPushButton { color: #666; font-size: 10px; border: none;"
@@ -1163,10 +1161,10 @@ class EpgView(ContentView):
                 def _toggle(checked=False, btn=expand_btn, cont=extra_container, n=n_more):
                     if cont.isHidden():
                         cont.show()
-                        btn.setText("▲  fewer channels")
+                        btn.setText(f"{self.config.move_up_icon}  fewer channels")
                     else:
                         cont.hide()
-                        btn.setText(f"▼  {n} more channels")
+                        btn.setText(f"{self.config.move_down_icon}  {n} more channels")
 
                 expand_btn.clicked.connect(_toggle)
                 layout.addWidget(expand_btn)
@@ -1190,7 +1188,7 @@ class EpgView(ContentView):
                 mins = _minutes_away(prog.start_time)
                 if mins < 120:
                     time_str = f"in {mins} min"
-                elif prog.start_time.date() == date.today():
+                elif prog.start_time.replace(tzinfo=timezone.utc).astimezone().date() == date.today():
                     time_str = f"Today {_format_time(prog.start_time)}"
                 else:
                     time_str = f"{prog.start_time.strftime('%a')} {_format_time(prog.start_time)}"
@@ -1419,7 +1417,7 @@ class EpgView(ContentView):
             secs_remaining = max(0.0, (prog.stop_time - now).total_seconds())
 
             # Columns: Category | Channel | Show | Progress bar | 🚫
-            item = _EpgTreeItem([category, bare_name, title, "", "⊘"])
+            item = _EpgTreeItem([category, bare_name, title, "", self.config.hide_icon])
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
             item.setData(3, _SORT_ROLE, secs_remaining)

@@ -102,7 +102,7 @@ class ProviderLoadThread(QThread):
                             pu = url_map[key]
                             entry['success_count'] = pu.success_count
                             entry['failure_count'] = pu.failure_count
-                    db_prov.urls = raw
+                    db_prov.urls = _json.dumps(raw)
                     url_session.commit()
             except Exception as e:
                 logger.warning(f"Failed to persist URL stats: {e}")

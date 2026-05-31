@@ -102,6 +102,18 @@ metadata.cast = json.dumps(result.cast)   # saving
 cast = json.loads(metadata.cast) if metadata.cast else []  # loading
 ```
 
+This applies to **every assignment** to a JSON column — including after modifying a previously-deserialized list or dict in-place. If you read with `json.loads()`, you must write back with `json.dumps()`.
+
+```python
+# Wrong — assigning a Python object back without re-serializing
+raw = json.loads(db_obj.urls)
+raw[0]['count'] += 1
+db_obj.urls = raw          # ← BUG: stores a Python list, not JSON string
+
+# Correct
+db_obj.urls = json.dumps(raw)
+```
+
 ### Qt threading — signals only, never direct widget access from threads
 Qt widgets are NOT thread-safe. Worker threads must emit signals; only the main thread updates widgets.
 ```python
@@ -117,6 +129,20 @@ class MyWidget(QWidget):
 
     def _on_data_ready(self, result):  # runs on main thread — safe
         self.label.setText(result)
+```
+
+**QPixmap must be created on the main thread.** It is a GUI object and is not thread-safe. Never call `QPixmap(path)` inside a `ThreadPoolExecutor` or `QThread` worker. The pattern for async image loading:
+```python
+# Private signal carries the path string (safe cross-thread)
+_image_ready = pyqtSignal(str, str)   # url, cache_path
+
+def _worker(self, url):               # in thread pool
+    path = download_and_save(url)
+    self._image_ready.emit(url, path)  # emit path, NOT QPixmap
+
+def _on_image_ready(self, url, path): # on main thread — safe to create QPixmap
+    pixmap = QPixmap(path)
+    self.image_loaded.emit(url, pixmap)
 ```
 
 ### Signal blocking during UI state restoration
@@ -140,8 +166,52 @@ local = dt.replace(tzinfo=timezone.utc).astimezone()  # → machine local tz
 ```
 For arithmetic (remaining time, progress bars), compare UTC-naive against `_now_utc()` — no conversion needed.
 
+**Never compare `.date()` directly against `date.today()`.** `date.today()` returns the local calendar date; EPG datetimes are UTC-naive. For users outside UTC, this produces wrong Today/Tomorrow labels. Always convert first:
+```python
+# Wrong
+if prog.start_time.date() == date.today():  # UTC date vs local date — mismatch
+
+# Correct
+local_date = prog.start_time.replace(tzinfo=timezone.utc).astimezone().date()
+if local_date == date.today():
+```
+
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.
+
+### Early returns must clean up acquired state
+Any resource or set membership acquired before a guard check must be released on every early return path — not just the happy path.
+
+```python
+# Wrong — pid stays in the set forever if lookup fails
+self.refreshing_providers.add(pid)
+provider = repos.get(pid)
+if not provider:
+    return                             # ← BUG: pid never removed
+
+# Correct
+self.refreshing_providers.add(pid)
+provider = repos.get(pid)
+if not provider:
+    self.refreshing_providers.discard(pid)
+    return
+```
+
+Apply this to locks, sets, progress trackers, and any other state set before a validation check.
+
+### View lifecycle — on_activate / on_deactivate must be symmetric
+If a view has `on_activate()` (starts timers, loads data), it must also have `on_deactivate()` (stops timers, cancels pending work). Both must be called by the host (`main_window.py`) at view switch time — `on_deactivate` for the departing view, `on_activate` for the arriving one. The safest pattern: call `on_deactivate()` inside `_hide_all_content_views()` for any view that is currently visible.
+
+### Resource cleanup in closeEvent
+Any background manager with a `stop()` or `shutdown()` method must be called explicitly in `MainWindow.closeEvent`. Relying on garbage collection or QObject parent destruction is not sufficient for threads. Pattern:
+```python
+def closeEvent(self, event):
+    self.player_manager.cleanup()
+    if hasattr(self, "stream_retry_manager"):
+        self.stream_retry_manager.stop()
+    self.db.close()
+    event.accept()
+```
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.
