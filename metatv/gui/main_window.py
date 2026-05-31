@@ -1733,6 +1733,7 @@ class MainWindow(QMainWindow):
                 self.filter_bar.update_filter_groups(
                     language_groups=stats['language_groups'],
                     quality_groups=stats['quality_groups'],
+                    platform_groups=stats.get('platform_groups', {}),
                 )
                 logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
 
@@ -1860,6 +1861,15 @@ class MainWindow(QMainWindow):
             for group_name in _sel_qual_groups:
                 quality_prefixes.extend(self.config.filter_quality_groups.get(group_name, []))
 
+        _all_plat_groups = set(self.config.filter_platform_groups.keys())
+        _sel_plat_groups = set(filter_state.get('platform_groups', []))
+        if _all_plat_groups and _sel_plat_groups >= _all_plat_groups:
+            platform_prefixes = []
+        else:
+            platform_prefixes = []
+            for group_name in _sel_plat_groups:
+                platform_prefixes.extend(self.config.filter_platform_groups.get(group_name, []))
+
         # Resolve provider filter on main thread (tiny queries)
         session = self.db.get_session()
         try:
@@ -1900,6 +1910,7 @@ class MainWindow(QMainWindow):
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
             language_prefixes=language_prefixes or None,
             quality_prefixes=quality_prefixes or None,
+            platform_prefixes=platform_prefixes or None,
             invert_prefix_filters=filter_state.get('show_excluded', False),
             include_untagged=filter_state.get('include_untagged', True),
             adult_mode=filter_state.get('adult_mode', 'hide'),
@@ -1932,6 +1943,7 @@ class MainWindow(QMainWindow):
                 media_types=params['media_types'] if not hidden_only else None,
                 language_prefixes=params['language_prefixes'] if not hidden_only else None,
                 quality_prefixes=params['quality_prefixes'] if not hidden_only else None,
+                platform_prefixes=params.get('platform_prefixes') if not hidden_only else None,
                 invert_prefix_filters=params['invert_prefix_filters'] if not hidden_only else False,
                 include_untagged=params['include_untagged'] if not hidden_only else True,
                 adult_mode=params['adult_mode'] if not hidden_only else 'all',
@@ -2119,12 +2131,14 @@ class MainWindow(QMainWindow):
                 provider_id=None,
                 language_groups=self.config.filter_language_groups,
                 quality_groups=self.config.filter_quality_groups,
+                platform_groups=self.config.filter_platform_groups,
             )
 
             # Update filter bar with current counts
             self.filter_bar.update_filter_groups(
                 language_groups=stats['language_groups'],
                 quality_groups=stats['quality_groups'],
+                platform_groups=stats['platform_groups'],
             )
 
             logger.info(f"Initialized filter stats: {stats['channels_with_prefix']} channels with prefixes")

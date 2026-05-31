@@ -312,7 +312,7 @@ class FilterBar(QWidget):
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("Filters:"))
 
-        self.language_dropdown = FilterDropdown("Categories", {})
+        self.language_dropdown = FilterDropdown("Language", {})
         self.language_dropdown.filter_changed.connect(self.on_filter_changed)
         filter_row.addWidget(self.language_dropdown)
 
@@ -320,6 +320,11 @@ class FilterBar(QWidget):
         self.quality_dropdown.filter_changed.connect(self.on_filter_changed)
         self.quality_dropdown.hide()  # shown only when quality data exists
         filter_row.addWidget(self.quality_dropdown)
+
+        self.platform_dropdown = FilterDropdown("Platform", {})
+        self.platform_dropdown.filter_changed.connect(self.on_filter_changed)
+        self.platform_dropdown.hide()  # shown only when platform data exists
+        filter_row.addWidget(self.platform_dropdown)
 
         filter_row.addSpacing(12)
 
@@ -427,12 +432,17 @@ class FilterBar(QWidget):
     # ── Filter groups ─────────────────────────────────────────────────────────
 
     def update_filter_groups(self, language_groups: Dict[str, int],
-                             quality_groups: Dict[str, int]):
-        """Update language and quality dropdowns; auto-hide quality when empty."""
+                             quality_groups: Dict[str, int],
+                             platform_groups: Dict[str, int] | None = None):
+        """Update language, quality, and platform dropdowns; auto-hide when empty."""
         self.language_dropdown.update_groups(language_groups)
         self.quality_dropdown.update_groups(quality_groups)
         has_quality = any(v > 0 for v in quality_groups.values())
         self.quality_dropdown.setVisible(has_quality)
+        if platform_groups is not None:
+            self.platform_dropdown.update_groups(platform_groups)
+            has_platform = any(v > 0 for v in platform_groups.values())
+            self.platform_dropdown.setVisible(has_platform)
 
     # ── Filter state ──────────────────────────────────────────────────────────
 
@@ -444,6 +454,7 @@ class FilterBar(QWidget):
             'media_types': [],  # managed by MainWindow chips
             'language_groups': self.language_dropdown.get_selected(),
             'quality_groups': self.quality_dropdown.get_selected(),
+            'platform_groups': self.platform_dropdown.get_selected(),
             'show_excluded': self.show_excluded_mode,
             'include_untagged': self.include_untagged_check.isChecked(),
             'adult_mode': ['all', 'hide', 'only'][self.adult_mode_combo.currentIndex()],
@@ -490,10 +501,13 @@ class FilterBar(QWidget):
 
         self.language_dropdown.blockSignals(True)
         self.quality_dropdown.blockSignals(True)
+        self.platform_dropdown.blockSignals(True)
         self.language_dropdown.select_all()
         self.quality_dropdown.select_all()
+        self.platform_dropdown.select_all()
         self.language_dropdown.blockSignals(False)
         self.quality_dropdown.blockSignals(False)
+        self.platform_dropdown.blockSignals(False)
 
         self.include_untagged_check.blockSignals(True)
         self.include_untagged_check.setChecked(True)
@@ -522,6 +536,7 @@ class FilterBar(QWidget):
             self.config.filter_enabled_media_types = state['media_types']
             self.config.filter_included_languages = state['language_groups']
             self.config.filter_included_qualities = state['quality_groups']
+            self.config.filter_included_platforms = state['platform_groups']
             self.config.filter_include_untagged = state['include_untagged']
             self.config.filter_adult_mode = state['adult_mode']
             self.config.save()
@@ -539,6 +554,10 @@ class FilterBar(QWidget):
             included_qualities = getattr(self.config, 'filter_included_qualities', [])
             if included_qualities:
                 self.quality_dropdown.selected_groups = set(included_qualities)
+
+            included_platforms = getattr(self.config, 'filter_included_platforms', [])
+            if included_platforms:
+                self.platform_dropdown.selected_groups = set(included_platforms)
 
             include_untagged = getattr(self.config, 'filter_include_untagged', True)
             self.include_untagged_check.setChecked(include_untagged)

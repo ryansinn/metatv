@@ -32,6 +32,7 @@ class ChannelRepository:
                 media_types: Optional[List[str]] = None,
                 language_prefixes: Optional[List[str]] = None,
                 quality_prefixes: Optional[List[str]] = None,
+                platform_prefixes: Optional[List[str]] = None,
                 include_hidden: bool = False,
                 hidden_only: bool = False,
                 invert_prefix_filters: bool = False,
@@ -96,12 +97,14 @@ class ChannelRepository:
             elif adult_mode == "only":
                 query = query.filter(is_adult_expr)
 
-        # Prefix filtering (language + quality combined)
+        # Prefix filtering (language + quality + platform combined)
         prefix_filters = []
         if language_prefixes:
             prefix_filters.extend(language_prefixes)
         if quality_prefixes:
             prefix_filters.extend(quality_prefixes)
+        if platform_prefixes:
+            prefix_filters.extend(platform_prefixes)
 
         if prefix_filters:
             if invert_prefix_filters:
@@ -344,20 +347,22 @@ class ChannelRepository:
     def get_prefix_stats(self,
                         provider_id: Optional[str] = None,
                         language_groups: Optional[Dict[str, List[str]]] = None,
-                        quality_groups: Optional[Dict[str, List[str]]] = None) -> Dict:
+                        quality_groups: Optional[Dict[str, List[str]]] = None,
+                        platform_groups: Optional[Dict[str, List[str]]] = None) -> Dict:
         """Get statistics about detected prefixes.
 
         Args:
             provider_id: Only analyze channels for this provider.
             language_groups: Language group mappings from config.
             quality_groups: Quality group mappings from config.
+            platform_groups: Platform group mappings from config.
 
         Returns:
             Dict with statistics about prefix distribution.
         """
         language_groups = language_groups or {}
         quality_groups = quality_groups or {}
-        platform_groups: Dict[str, List[str]] = {}
+        platform_groups = platform_groups or {}
         
         query = self.session.query(ChannelDB)
         if provider_id:

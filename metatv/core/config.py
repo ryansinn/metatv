@@ -269,6 +269,7 @@ class Config(BaseModel):
     user_extra_separators: list = Field(default_factory=list)
     filter_included_languages: list = Field(default_factory=list)  # Empty = all included
     filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
+    filter_included_platforms: list = Field(default_factory=list)  # Empty = all included
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
     filter_adult_mode: str = "hide"        # "all", "hide", or "only"
     show_excluded_count: bool = True
