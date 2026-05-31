@@ -8,6 +8,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
+from metatv.core.channel_name_utils import parse_channel_name, QUALITY_TOKENS
 
 
 class ChannelRepository:
@@ -40,7 +41,9 @@ class ChannelRepository:
                 adult_mode: str = "all",
                 force_adult_provider_ids: Optional[List[str]] = None,
                 source_categories: Optional[List[str]] = None,
-                include_uncategorized_content_types: bool = True) -> List[ChannelDB]:
+                include_uncategorized_content_types: bool = True,
+                search_query: Optional[str] = None,
+                limit: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
         Args:
@@ -97,32 +100,52 @@ class ChannelRepository:
             elif adult_mode == "only":
                 query = query.filter(is_adult_expr)
 
-        # Prefix filtering (language + quality + platform combined)
-        prefix_filters = []
-        if language_prefixes:
-            prefix_filters.extend(language_prefixes)
-        if quality_prefixes:
-            prefix_filters.extend(quality_prefixes)
-        if platform_prefixes:
-            prefix_filters.extend(platform_prefixes)
+        # Prefix filtering — three independent axes, each with its own SQL condition.
+        # When include_untagged=True (default), channels with no data for an axis pass through.
+        # When invert_prefix_filters=True, the language filter is inverted (Show Excluded mode).
+        any_filter_active = bool(language_prefixes or quality_prefixes or platform_prefixes)
 
-        if prefix_filters:
-            if invert_prefix_filters:
-                query = query.filter(
-                    (ChannelDB.detected_prefix.notin_(prefix_filters)) |
-                    (ChannelDB.detected_prefix.is_(None))
+        if any_filter_active:
+            from sqlalchemy import or_ as _or, and_ as _and
+
+            # ── Language axis: detected_prefix OR detected_region ──
+            if language_prefixes:
+                lang_cond = _or(
+                    ChannelDB.detected_prefix.in_(language_prefixes),
+                    ChannelDB.detected_region.in_(language_prefixes),
                 )
-            elif include_untagged:
-                # Normal inclusive mode: matching prefixes OR untagged channels
-                query = query.filter(
-                    (ChannelDB.detected_prefix.in_(prefix_filters)) |
-                    (ChannelDB.detected_prefix.is_(None))
-                )
-            else:
-                # Strict mode: only channels with one of the selected prefixes
-                query = query.filter(ChannelDB.detected_prefix.in_(prefix_filters))
+                if invert_prefix_filters:
+                    # Show channels that do NOT match any selected language (and have a tag)
+                    query = query.filter(
+                        ~lang_cond,
+                        ChannelDB.detected_prefix.isnot(None),
+                    )
+                elif include_untagged:
+                    # Include matching OR channels with no language tag at all
+                    query = query.filter(
+                        _or(
+                            lang_cond,
+                            _and(
+                                ChannelDB.detected_prefix.is_(None),
+                                ChannelDB.detected_region.is_(None),
+                            ),
+                        )
+                    )
+                else:
+                    query = query.filter(lang_cond)
+
+            # ── Quality axis: detected_quality — exclusive (no untagged pass-through) ──
+            # If quality filter is active, only show channels explicitly tagged with
+            # a matching quality marker. Untagged channels do not pass through.
+            if quality_prefixes:
+                query = query.filter(ChannelDB.detected_quality.in_(quality_prefixes))
+
+            # ── Platform axis: detected_prefix — exclusive (no untagged pass-through) ──
+            # If platform filter is active, only show channels with a matching platform prefix.
+            if platform_prefixes:
+                query = query.filter(ChannelDB.detected_prefix.in_(platform_prefixes))
         elif not include_untagged:
-            # No prefix filter active, but user wants to hide untagged channels
+            # No filter active but caller wants to hide channels with no prefix
             query = query.filter(ChannelDB.detected_prefix.isnot(None))
 
         # Content-type filter (source_category — live channels only)
@@ -133,6 +156,14 @@ class ChannelRepository:
                 cond = or_(cond, ChannelDB.source_category.is_(None))
             query = query.filter(cond)
 
+        # SQL text search pushdown (case-insensitive LIKE on channel name)
+        if search_query:
+            query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+
+        query = query.order_by(ChannelDB.name)
+
+        if limit is not None:
+            return query.limit(limit).all()
         return query.all()
     
     def _apply_adult_filter(self, q, adult_mode: str,
@@ -319,7 +350,11 @@ class ChannelRepository:
         provider_id: Optional[str] = None,
         separators: list[str] | None = None,
     ):
-        """Update detected_prefix for all channels using prefix detection.
+        """Update detected_prefix, detected_quality, and detected_region for all channels.
+
+        - detected_prefix: raw separator-delimited prefix token (e.g. "EN", "4K")
+        - detected_quality: quality token found anywhere in the name (suffix or quality-prefix)
+        - detected_region: parenthetical lang/region qualifier at end of name (e.g. "(US)"→"US")
 
         Args:
             provider_id: Only update channels for this provider, or None for all.
@@ -334,14 +369,33 @@ class ChannelRepository:
         updated = 0
 
         for channel in channels:
-            detected = extract_prefix(channel.name, separators=separators)
-            if detected != channel.detected_prefix:
-                channel.detected_prefix = detected
+            prefix = extract_prefix(channel.name, separators=separators)
+            parsed = parse_channel_name(channel.name)
+
+            # detected_quality: suffix quality OR quality-as-prefix (e.g. "HD - Movie")
+            quality: str | None = None
+            if parsed.quality:
+                quality = parsed.quality[0].upper()
+            elif prefix and prefix.upper() in QUALITY_TOKENS:
+                quality = prefix.upper()
+
+            # detected_region: parenthetical lang/region suffix (e.g. "(US)" → "US")
+            region: str | None = parsed.lang or None
+
+            changed = (
+                prefix != channel.detected_prefix
+                or quality != channel.detected_quality
+                or region != channel.detected_region
+            )
+            if changed:
+                channel.detected_prefix = prefix
+                channel.detected_quality = quality
+                channel.detected_region = region
                 channel.updated_at = datetime.now()
                 updated += 1
 
         self.session.commit()
-        logger.info(f"Updated detected_prefix for {updated} of {len(channels)} channels")
+        logger.info(f"Updated parsed name fields for {updated} of {len(channels)} channels")
         return updated
     
     def get_prefix_stats(self,

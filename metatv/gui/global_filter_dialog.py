@@ -160,7 +160,7 @@ class _GroupSection(QWidget):
         sep.setStyleSheet("color: #333;")
         layout.addWidget(sep)
 
-        self._group_cb.stateChanged.connect(self._on_group_changed)
+        self._group_cb.clicked.connect(self._on_group_clicked)
         header.mousePressEvent = self._toggle_expand  # type: ignore[assignment]
 
         self._update_group_state()
@@ -248,11 +248,21 @@ class _GroupSection(QWidget):
     def _on_prefix_changed(self) -> None:
         self._update_group_state()
 
-    def _on_group_changed(self, state: int) -> None:
-        qt_state = Qt.CheckState(state)
-        if qt_state == Qt.CheckState.PartiallyChecked:
-            return
-        checked = qt_state == Qt.CheckState.Checked
+    def _on_group_clicked(self) -> None:
+        """Handle user click on group checkbox — always binary, never PartiallyChecked via click.
+
+        Tristate cycles Unchecked→Partial→Checked. We skip Partial: clicking an
+        empty or partial group always escalates to fully checked; clicking a fully
+        checked group unchecks all.
+        """
+        state = self._group_cb.checkState()
+        if state == Qt.CheckState.PartiallyChecked:
+            # Skip partial — escalate to fully checked
+            self._group_cb.blockSignals(True)
+            self._group_cb.setCheckState(Qt.CheckState.Checked)
+            self._group_cb.blockSignals(False)
+            state = Qt.CheckState.Checked
+        checked = (state == Qt.CheckState.Checked)
         if self._body_built:
             for cb in self._checkboxes.values():
                 cb.blockSignals(True)

@@ -24,7 +24,9 @@ class ChannelDB(Base):
     category_id = Column(String)
     
     language = Column(String, index=True)
-    detected_prefix = Column(String, index=True)  # Auto-detected prefix for filtering (e.g., "EN", "AR", "4K")
+    detected_prefix = Column(String, index=True)   # Separator-delimited prefix token (e.g. "EN", "NF", "4K")
+    detected_quality = Column(String, index=True)  # Quality token found anywhere in name (e.g. "HD", "4K", "UHD")
+    detected_region = Column(String, index=True)   # Parenthetical lang/region suffix (e.g. "(US)"→"US", "(JP)"→"JP")
     logo_url = Column(Text)  # Channel logo/icon
     cover_url = Column(Text)  # Series/Movie cover art (for future use)
     epg_channel_id = Column(String)
@@ -368,6 +370,8 @@ class Database:
             ("channels",     "source_num",                "INTEGER"),
             ("channels",     "source_category",           "TEXT"),
             ("channels",     "source_quality_flags",      "TEXT"),
+            ("channels",     "detected_quality",           "TEXT"),
+            ("channels",     "detected_region",            "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

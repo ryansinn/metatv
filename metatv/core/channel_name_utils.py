@@ -88,6 +88,13 @@ PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
 })
 
+# Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
+# Used to populate detected_quality when the prefix itself is a quality marker.
+QUALITY_TOKENS: frozenset[str] = frozenset({
+    "4K", "8K", "UHD", "FHD", "HDR10+", "HDR", "HEVC", "H265", "H264",
+    "HD", "SD", "HQ", "LQ", "RAW",
+})
+
 _FULL_NAME_TO_CODE: dict[str, str] = {
     "ARGENTINA": "ARG", "AUSTRALIA": "AUS", "AUSTRIA": "AUT",
     "BELGIUM": "BEL", "BOLIVIA": "BOL", "BRAZIL": "BRA",

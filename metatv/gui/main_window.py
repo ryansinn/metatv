@@ -179,9 +179,16 @@ class MainWindow(QMainWindow):
         self.selected_provider_id = None
         self._in_provider_edit_mode = False
         
-        # Store channel data for filtering
+        # Store channel data for display
         self.all_channels = []  # List of (display_text, channel_db_obj)
-        self.max_display_limit = 10000  # Max channels to display without search
+        self.max_display_limit = 10000  # Max QListWidgetItems to render at once
+        self._search_page_size = 5_000   # Max rows returned by get_all() per load
+
+        # Debounce timer for search input → avoids a DB query per keystroke
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(200)
+        self._search_debounce.timeout.connect(self.load_channels)
         
         # Filter state
         self.current_filter_state = None
@@ -1326,7 +1333,7 @@ class MainWindow(QMainWindow):
         
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter channels by name, category...")
-        self.search_input.textChanged.connect(self.filter_channels)
+        self.search_input.textChanged.connect(self._on_search_text_changed)
         controls_layout.addWidget(self.search_input)
         
         # Clear search button
@@ -1829,10 +1836,17 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
     
+    def _on_search_text_changed(self, text: str) -> None:
+        """Handle search input changes — debounce to avoid per-keystroke DB queries."""
+        self._search_debounce.start()  # restart the 200ms timer on each keystroke
+
     def load_channels(self, provider_id=None):
         """Load channels from database into the list (non-blocking)."""
         from metatv.core.database import ChannelDB
         from metatv.core.filter_utils import get_active_content_type_filter
+
+        # Stop any pending debounce timer so we don't queue a second load
+        self._search_debounce.stop()
 
         # Show loading state immediately so the user knows something is happening
         self.channels_list.clear()
@@ -1910,8 +1924,15 @@ class MainWindow(QMainWindow):
             for p in all_providers:
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
-        from metatv.core.filter_utils import get_excluded_prefixes
+        from metatv.core.filter_utils import get_excluded_prefixes, get_active_category_filter
         _filter_paused = self.config.global_filter_paused
+        if _filter_paused:
+            _global_excluded_prefixes: set = set()
+        else:
+            _cat_excluded, _ = get_active_category_filter(self.config)
+            _global_excluded_prefixes = set(_cat_excluded or []) | get_excluded_prefixes(self.config)
+        _search_text = (self.search_input.text().strip()
+                        if hasattr(self, 'search_input') else "")
         params = dict(
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
@@ -1924,7 +1945,9 @@ class MainWindow(QMainWindow):
             force_adult_ids=force_adult_ids,
             # Global filter — bypassed when paused so the user can see everything
             source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
-            excluded_prefixes=set() if _filter_paused else get_excluded_prefixes(self.config),
+            excluded_prefixes=_global_excluded_prefixes,
+            search_query=_search_text or None,
+            page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
             given_provider_id=provider_id,
@@ -1945,6 +1968,7 @@ class MainWindow(QMainWindow):
 
             force_adult_ids = params['force_adult_ids']
             hidden_only = params.get('hidden_only', False)
+            _page_size = params.get('page_size', 5_000)
             channels = repos.channels.get_all(
                 provider_id=params['provider_id'],
                 media_types=params['media_types'] if not hidden_only else None,
@@ -1959,6 +1983,8 @@ class MainWindow(QMainWindow):
                 include_uncategorized_content_types=True,
                 hidden_only=hidden_only,
                 include_hidden=hidden_only,
+                search_query=params.get('search_query'),
+                limit=_page_size,
             )
             total = repos.channels.count(provider_id=params['provider_id'])
             has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
@@ -1967,8 +1993,12 @@ class MainWindow(QMainWindow):
             if not hidden_only:
                 excluded_prefixes = params.get('excluded_prefixes', set())
                 if excluded_prefixes:
-                    channels = [c for c in channels if c.detected_prefix not in excluded_prefixes]
-            channels = sorted(channels, key=lambda c: c.name)
+                    channels = [
+                        c for c in channels
+                        if c.detected_prefix not in excluded_prefixes
+                        and c.detected_region not in excluded_prefixes
+                    ]
+            # get_all() now returns results sorted and limited — no extra sort needed
             params['total_channels'] = total
             params['has_adult']      = has_adult
             params['token']          = token
@@ -2033,77 +2063,51 @@ class MainWindow(QMainWindow):
             else:
                 self.status_bar.showMessage(f"{shown:,} channels from active providers")
 
-        self.filter_channels(self.search_input.text() if hasattr(self, 'search_input') else "")
+        self.filter_channels()
     
-    def filter_channels(self, search_text: str):
-        """Filter channels based on search text"""
-        # Disable updates while populating for better performance
+    def filter_channels(self, _unused: str = "") -> None:
+        """Render the currently-loaded channels into the list widget.
+
+        Search filtering is now pushed to SQL (in load_channels), so this method
+        only handles rendering. The _unused parameter is kept for any callers that
+        still pass a text argument.
+        """
         self.channels_list.setUpdatesEnabled(False)
         self.channels_list.clear()
-        
-        search_text = search_text.lower().strip()
+
         total = len(self.all_channels)
-        
-        logger.info(f"Filtering {total} channels with search: '{search_text}'")
-        
-        if not search_text:
-            # Show all channels (with limit)
-            if total > self.max_display_limit:
-                # Too many channels - show message
-                item = QListWidgetItem(f"⚠️  Too many channels ({total:,}) to display")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)  # Make it non-selectable
-                self.channels_list.addItem(item)
-                
-                item = QListWidgetItem(f"Use the search box above to filter channels")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self.channels_list.addItem(item)
-                
-                item = QListWidgetItem(f"")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self.channels_list.addItem(item)
-                
-                item = QListWidgetItem(f"Try searching for: channel name, category, quality (hd, 4k), etc.")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self.channels_list.addItem(item)
-                
-                self.status_bar.showMessage(f"{total:,} channels - use search to filter")
-            else:
-                # Show all channels
-                for display_text, channel in self.all_channels:
-                    item = QListWidgetItem(display_text)
-                    item.setData(Qt.ItemDataRole.UserRole, channel.id)
-                    self.channels_list.addItem(item)
-                
-                logger.info(f"Created {total} channel items (showing all)")
-                self.status_bar.showMessage(f"{total:,} channels loaded")
+        shown = min(total, self.max_display_limit)
+
+        for display_text, channel in self.all_channels[:shown]:
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, channel.id)
+            self.channels_list.addItem(item)
+
+        if shown < total:
+            notice = QListWidgetItem(
+                f"⚠  Showing first {shown:,} of {total:,} — refine search to see more"
+            )
+            notice.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.channels_list.addItem(notice)
+            self.status_bar.showMessage(
+                f"Showing {shown:,} of {total:,} channels — type to search"
+            )
+        elif total == self._search_page_size:
+            # We hit the SQL page cap — there may be more in the DB
+            notice = QListWidgetItem(
+                f"⚠  Showing {total:,} channels — use search to narrow results"
+            )
+            notice.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.channels_list.addItem(notice)
+            self.status_bar.showMessage(
+                f"{total:,} channels loaded (page cap reached — search to narrow)"
+            )
+        elif total == 0:
+            self.status_bar.showMessage("No channels match — try a different search or filter")
         else:
-            # Filter channels
-            filtered = []
-            for display_text, channel in self.all_channels:
-                # Search in display text (includes name, category, quality)
-                if search_text in display_text.lower():
-                    filtered.append((display_text, channel))
-                    # Limit filtered results too
-                    if len(filtered) >= self.max_display_limit:
-                        break
-            
-            for display_text, channel in filtered:
-                item = QListWidgetItem(display_text)
-                item.setData(Qt.ItemDataRole.UserRole, channel.id)
-                self.channels_list.addItem(item)
-            
-            logger.info(f"Created {len(filtered)} channel items with IDs")
-            
-            # Update status with filter results
-            shown = len(filtered)
-            if shown >= self.max_display_limit:
-                self.status_bar.showMessage(f"Showing first {shown:,} of {total:,} channels (refine search for more)")
-            elif shown > 0:
-                self.status_bar.showMessage(f"Showing {shown:,} of {total:,} channels")
-            else:
-                self.status_bar.showMessage(f"No channels match '{search_text}'")
-        
-        # Re-enable updates
+            self.status_bar.showMessage(f"{total:,} channels loaded")
+
+        logger.debug(f"filter_channels: rendered {shown} of {total} items")
         self.channels_list.setUpdatesEnabled(True)
     
     def get_enabled_media_types(self) -> list:
