@@ -313,9 +313,15 @@ class FilterBar(QWidget):
 
         self.language_dropdown = FilterDropdown("Category", {})
         self.language_dropdown.setToolTip(
-            "Filter by language / region / category prefix.\n"
-            "Inclusive: content with no category tag also shows (unless 'Show untagged' is off).\n"
-            "Select nothing = show all categories."
+            "Filter by language, region, or category prefix.\n"
+            "\n"
+            "Broad groups (English, Spanish, French…) match all variants of that language.\n"
+            "Locale sub-groups (English (North America), French (Europe)…) match only channels\n"
+            "where the provider explicitly labeled them with a country/region prefix (US, CA, FR…).\n"
+            "Channels labeled with a generic language code (EN, ES, FR) appear in the broad group\n"
+            "only — their specific origin is unknown from the prefix alone.\n"
+            "\n"
+            "Select nothing = show all content."
         )
         self.language_dropdown.filter_changed.connect(self.on_filter_changed)
         filter_row.addWidget(self.language_dropdown)
