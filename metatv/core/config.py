@@ -161,6 +161,256 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "24/7":       ["24/7"],   # 24/7 loop channels (classic TV reruns confirmed)
 }
 
+BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
+    # ── Americas ──────────────────────────────────────────────────────────────
+    "North America": [
+        "US", "CA",
+        "MX", "MEX",    # Mexico: geographically North America, culturally LatAm
+    ],
+    "Caribbean": [
+        "CU", "CUB",    # Cuba
+        "DO", "DOM",    # Dominican Republic
+        "JM",           # Jamaica
+        "HT",           # Haiti
+        "TT",           # Trinidad & Tobago
+        "BB",           # Barbados
+        "PR",           # Puerto Rico
+        "LC", "GD", "VC", "AG", "DM", "KN",  # Lesser Antilles
+    ],
+    "Central America": [
+        "MX", "MEX",    # Mexico (also in North America)
+        "GT", "GTM",    # Guatemala
+        "SV",           # El Salvador
+        "HN", "HND",    # Honduras
+        "NI",           # Nicaragua
+        "CR",           # Costa Rica
+        "PA",           # Panama (2-letter also = Punjabi, but geographic context wins here)
+    ],
+    "South America": [
+        "AR", "ARG",    # Argentina
+        "BO",           # Bolivia
+        "BR", "BRA",    # Brazil
+        "CL", "CHL",    # Chile
+        "CO", "COL",    # Colombia
+        "EC", "ECU",    # Ecuador
+        "PY", "PAR",    # Paraguay
+        "PE",           # Peru
+        "UY", "URY",    # Uruguay
+        "VE", "VEN",    # Venezuela
+        "GY",           # Guyana
+        "SR",           # Suriname
+    ],
+    "Latin America": [
+        # Aggregate: South America + Central America + Caribbean (excl. Brazil for language purity)
+        # Use this when you want all Spanish/Portuguese-speaking Americas at once.
+        "AR", "ARG", "BO", "BR", "BRA", "CL", "CHL", "CO", "COL",
+        "EC", "ECU", "PY", "PAR", "PE", "UY", "URY", "VE", "VEN",
+        "MX", "MEX", "GT", "GTM", "SV", "HN", "HND", "NI", "CR",
+        "PA",   # Panama
+        "CU", "CUB", "DO", "DOM", "PR",
+        "LAT", "LATIN", "VIX",  # regional/streaming codes
+    ],
+
+    # ── Europe ────────────────────────────────────────────────────────────────
+    "Western Europe": [
+        "UK", "EN",     # United Kingdom / English
+        "IE", "IRL",    # Ireland
+        "FR", "FRA",    # France
+        "DE", "GER",    # Germany
+        "AT", "AUT",    # Austria
+        "CH", "SUI",    # Switzerland
+        "NL", "NED",    # Netherlands
+        "BE", "BEL",    # Belgium
+        "LU",           # Luxembourg
+        "ES", "ESP",    # Spain
+        "PT", "POR",    # Portugal
+        "IT", "ITA",    # Italy
+        "SM", "VA",     # San Marino, Vatican
+        "MC",           # Monaco
+        "DK", "DNK",    # Denmark
+        "SE", "SWE",    # Sweden
+        "NO", "NOR",    # Norway
+        "FI", "FIN",    # Finland
+        "IS",           # Iceland
+        "MT",           # Malta
+    ],
+    "Eastern Europe": [
+        "PL", "POL",    # Poland
+        "CZ",           # Czech Republic
+        "SK",           # Slovakia
+        "HU", "HUN",    # Hungary
+        "RO", "ROU",    # Romania
+        "BG",           # Bulgaria
+        "HR", "HRV",    # Croatia
+        "RS",           # Serbia
+        "SI",           # Slovenia
+        "BA",           # Bosnia
+        "ME",           # Montenegro
+        "MK",           # North Macedonia
+        "AL", "ALB",    # Albania
+        "GR", "GRE",    # Greece
+        "CY",           # Cyprus
+        "RU", "RUS",    # Russia
+        "UA", "UKR",    # Ukraine
+        "BY",           # Belarus
+        "MD",           # Moldova
+        "EE",           # Estonia
+        "LV",           # Latvia
+        "LT",           # Lithuania
+        "EXYU",         # Ex-Yugoslavia aggregate
+    ],
+    "Europe": [
+        # Full Europe aggregate (Western + Eastern — use when language doesn't matter)
+        "UK", "EN", "IE", "IRL", "FR", "FRA", "DE", "GER", "AT", "AUT",
+        "CH", "SUI", "NL", "NED", "BE", "BEL", "LU", "ES", "ESP",
+        "PT", "POR", "IT", "ITA", "SM", "VA", "MC", "DK", "DNK",
+        "SE", "SWE", "NO", "NOR", "FI", "FIN", "IS", "MT",
+        "PL", "POL", "CZ", "SK", "HU", "HUN", "RO", "ROU", "BG",
+        "HR", "HRV", "RS", "SI", "BA", "ME", "MK", "AL", "ALB",
+        "GR", "GRE", "CY", "RU", "RUS", "UA", "UKR", "BY", "MD",
+        "EE", "LV", "LT", "EXYU",
+        "TR", "TUR",    # Turkey (geographically spans Europe/Asia)
+    ],
+
+    # ── Africa ────────────────────────────────────────────────────────────────
+    "North Africa": [
+        "EG", "EGY",    # Egypt
+        "MA", "MAR",    # Morocco
+        "TN",           # Tunisia
+        "DZ",           # Algeria
+        "LY",           # Libya
+        "SD",           # Sudan
+    ],
+    "Sub-Saharan Africa": [
+        "NG", "NGA",    # Nigeria
+        "GH", "GHA",    # Ghana
+        "SN", "SEN",    # Senegal
+        "UG", "UGA",    # Uganda
+        "CM", "CMR",    # Cameroon
+        "KE", "KEN",    # Kenya
+        "ET", "ETH",    # Ethiopia
+        "SO", "SOM",    # Somalia
+        "TGO",          # Togo (TG reserved for South Indian sub-prefix)
+        "GA", "GAB",    # Gabon
+        "GM", "GMB",    # Gambia
+        "TZ", "TZA",    # Tanzania
+        "MLI",          # Mali
+        "GN", "GIN",    # Guinea
+        "MZ", "MOZ",    # Mozambique
+        "ZA", "ZAF",    # South Africa
+        "ZW",           # Zimbabwe
+        "ZM",           # Zambia
+        "AO",           # Angola
+        "CI",           # Ivory Coast
+        "NA",           # Namibia
+        "BW",           # Botswana
+        "RW", "RWA",    # Rwanda
+        "BJ",           # Benin
+        "AF", "AFR",    # Africa generic prefixes
+        "DSTV",         # DStv (major African pay TV)
+        "GENERAL",      # confirmed African content (AFRICA TV1/2/3)
+    ],
+    "Africa": [
+        # Aggregate: North + Sub-Saharan
+        "EG", "EGY", "MA", "MAR", "TN", "DZ", "LY", "SD",
+        "NG", "NGA", "GH", "GHA", "SN", "SEN", "UG", "UGA",
+        "CM", "CMR", "KE", "KEN", "ET", "ETH", "SO", "SOM",
+        "TGO", "GA", "GAB", "GM", "GMB", "TZ", "TZA", "MLI",
+        "GN", "GIN", "MZ", "MOZ", "ZA", "ZAF", "ZW", "ZM",
+        "AO", "CI", "NA", "BW", "RW", "RWA", "BJ",
+        "AF", "AFR", "DSTV", "GENERAL",
+    ],
+
+    # ── Middle East ───────────────────────────────────────────────────────────
+    "Middle East": [
+        "AE",           # UAE
+        "SA",           # Saudi Arabia
+        "IQ",           # Iraq
+        "SY",           # Syria
+        "JO",           # Jordan
+        "KW",           # Kuwait
+        "QA",           # Qatar
+        "BH",           # Bahrain
+        "OM",           # Oman
+        "YE",           # Yemen
+        "PS",           # Palestine
+        "LB",           # Lebanon
+        "IR",           # Iran
+        "IL", "ISR",    # Israel
+        # North Africa often grouped with Middle East:
+        "EG", "EGY", "MA", "MAR", "TN", "DZ", "LY",
+        # Arabic language codes (common Middle East prefixes):
+        "AR", "ARA",
+        # Streaming services targeting the region:
+        "SHAHID", "OSN",
+    ],
+
+    # ── Asia ──────────────────────────────────────────────────────────────────
+    "East Asia": [
+        "JP", "JPN",    # Japan
+        "KR", "KO",     # South Korea
+        "CN", "CHN",    # China
+        "TW", "TWN",    # Taiwan
+        "HK", "HKG",    # Hong Kong
+        "MO",           # Macau
+    ],
+    "Southeast Asia": [
+        "TH",           # Thailand
+        "VN",           # Vietnam
+        "ID",           # Indonesia
+        "PH",           # Philippines
+        "MY",           # Malaysia
+        "SG",           # Singapore
+        "MM",           # Myanmar
+        "KH",           # Cambodia
+        "LA",           # Laos
+        "BN",           # Brunei (also = Bengali prefix — conflict, use carefully)
+    ],
+    "South Asia": [
+        "IN", "IND",    # India
+        "PK", "PAK",    # Pakistan
+        "BD",           # Bangladesh
+        "LK", "SRI",    # Sri Lanka
+        "NP",           # Nepal
+        "BT",           # Bhutan
+        "MV",           # Maldives
+        "AF", "AFG",    # Afghanistan
+        # Indian language codes (South Asia lingua franca group):
+        "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
+        "OR", "BHO", "IND",
+        # Abbreviated forms:
+        "TEL", "TAM", "KAN", "MAL", "GUJ", "PUN",
+    ],
+    "Central Asia": [
+        "KZ",           # Kazakhstan
+        "KG",           # Kyrgyzstan
+        "UZ",           # Uzbekistan
+        "TJ",           # Tajikistan
+        "TM",           # Turkmenistan
+        "MN",           # Mongolia
+    ],
+    "Asia": [
+        # Full Asia aggregate
+        "JP", "JPN", "KR", "KO", "CN", "CHN", "TW", "TWN", "HK", "HKG", "MO",
+        "TH", "VN", "ID", "PH", "MY", "SG", "MM", "KH", "KH", "LA",
+        "IN", "IND", "PK", "PAK", "BD", "LK", "SRI", "NP", "BT", "AF", "AFG",
+        "KZ", "KG", "UZ", "TJ", "TM", "MN",
+        "HI", "TA", "TE", "ML", "KN", "MR", "GU",
+    ],
+
+    # ── Oceania ───────────────────────────────────────────────────────────────
+    "Oceania": [
+        "AU", "AUS",    # Australia
+        "NZ",           # New Zealand
+        "FJ",           # Fiji
+        "PG",           # Papua New Guinea
+        "SB",           # Solomon Islands
+        "VU",           # Vanuatu
+        "TO",           # Tonga
+        "WS",           # Samoa
+    ],
+}
+
 BASE_PREFIX_SEPARATORS: list[str] = [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
 
 
@@ -466,6 +716,16 @@ class Config(BaseModel):
     def filter_platform_groups(self) -> dict[str, list[str]]:
         """Effective platform-code→group mapping: base + user overrides."""
         return _apply_overrides(BASE_PLATFORM_GROUPS, self.user_platform_overrides)
+
+    @property
+    def filter_regional_groups(self) -> dict[str, list[str]]:
+        """Geographic regional groups — continent/area aggregations of prefix codes.
+
+        Orthogonal to filter_language_groups: the same prefix code may appear in
+        both (e.g. FR is in 'French' language group AND 'Europe' regional group).
+        Use Language to filter by what you hear; use Region to filter by where it's from.
+        """
+        return BASE_REGIONAL_GROUPS
 
     @property
     def prefix_separators(self) -> list[str]:
