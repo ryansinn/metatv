@@ -114,9 +114,11 @@ class _GroupSection(QWidget):
         group_name: str,
         prefixes: list[tuple[str, int]],
         initially_checked: set[str],
+        config=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._config = config
         self._group_name = group_name
         self._prefix_data = prefixes                    # raw data, always present
         self._initial_checked = {s.upper() for s in initially_checked}
@@ -140,7 +142,8 @@ class _GroupSection(QWidget):
         self._group_cb.setStyleSheet("font-size: 12px;")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel("▶")
+        _init_expand = config.expand_icon if config else "▶"
+        self._expand_lbl = QLabel(_init_expand)
         self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -230,7 +233,11 @@ class _GroupSection(QWidget):
         if self._expanded and not self._body_built:
             self._build_body()
         self._body.setVisible(self._expanded)
-        self._expand_lbl.setText("▼" if self._expanded else "▶")
+        if self._config:
+            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
+        else:
+            glyph = "▼" if self._expanded else "▶"
+        self._expand_lbl.setText(glyph)
 
     def _update_group_state(self) -> None:
         total = len(self._prefix_data)
@@ -293,9 +300,11 @@ class _ContentTypeSection(QWidget):
         self,
         items: list[tuple[str, int]],       # [(source_category_label, count)]
         initially_checked: set[str],
+        config=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._config = config
         self._items = items
         self._initial_checked = {s for s in initially_checked}
         self._checkboxes: dict[str, QCheckBox] = {}
@@ -318,7 +327,8 @@ class _ContentTypeSection(QWidget):
         self._group_cb.setStyleSheet("font-size: 12px;")
         hl.addWidget(self._group_cb)
 
-        self._expand_lbl = QLabel("▶")
+        _init_expand = config.expand_icon if config else "▶"
+        self._expand_lbl = QLabel(_init_expand)
         self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -401,7 +411,11 @@ class _ContentTypeSection(QWidget):
         if self._expanded and not self._body_built:
             self._build_body()
         self._body.setVisible(self._expanded)
-        self._expand_lbl.setText("▼" if self._expanded else "▶")
+        if self._config:
+            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
+        else:
+            glyph = "▼" if self._expanded else "▶"
+        self._expand_lbl.setText(glyph)
 
     def _update_state(self) -> None:
         total = len(self._items)
@@ -643,13 +657,13 @@ class GlobalFilterDialog(QDialog):
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
             initial = excluded & {p for p, _ in prefixes}
-            section = _GroupSection(group_name, prefixes, initial)
+            section = _GroupSection(group_name, prefixes, initial, config=self._config)
             self._inner_vl.addWidget(section)
             self._sections.append(section)
 
         if other_entries:
             initial = excluded & {p for p, _ in other_entries}
-            other_section = _GroupSection("Other", other_entries, initial)
+            other_section = _GroupSection("Other", other_entries, initial, config=self._config)
             self._inner_vl.addWidget(other_section)
             self._sections.append(other_section)
 
@@ -792,6 +806,7 @@ class GlobalFilterDialog(QDialog):
             self._content_type_other_section = _ContentTypeSection(
                 items=sorted(other_items, key=lambda x: -x[1]),
                 initially_checked=excluded_raw,
+                config=self._config,
             )
             self._inner_vl.addWidget(self._content_type_other_section)
             self._content_type_header_widgets.append(self._content_type_other_section)

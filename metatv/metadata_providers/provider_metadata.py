@@ -164,8 +164,7 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
             return []
         # Some providers use " / " (Xtream/TREX style), others use "," — handle both.
         # Do NOT split on "&" since "Action & Adventure" is a single genre.
-        import re as _re
-        return [g.strip() for g in _re.split(r'\s*/\s*|,\s*', genre_str) if g.strip()]
+        return [g.strip() for g in re.split(r'\s*/\s*|,\s*', genre_str) if g.strip()]
     
     def _parse_rating(self, rating_value) -> Optional[float]:
         """Parse rating value from various formats

@@ -1,5 +1,15 @@
 """Main application window"""
 
+import asyncio
+import base64
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import time
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QSplitter,
@@ -10,9 +20,6 @@ from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from metatv.gui.icon_utils import resolve_icon
 from loguru import logger
-import re
-import subprocess
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from urllib.parse import urlparse, urlunparse
@@ -22,6 +29,7 @@ from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.notifications import NotificationManager
 from metatv.core.player_manager import PlayerManager
 from metatv.core.provider_loader import SeriesLoadThread
@@ -283,7 +291,6 @@ class MainWindow(QMainWindow):
         saved_geom = getattr(self.config, 'window_geometry', '')
         if saved_geom:
             try:
-                import base64
                 from PyQt6.QtCore import QByteArray
                 geom_bytes = QByteArray(base64.b64decode(saved_geom))
                 restored = self.restoreGeometry(geom_bytes)
@@ -814,10 +821,9 @@ class MainWindow(QMainWindow):
         self.executor.submit(self._bg_fetch_similar_titles, channel_id)
 
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
-        import re as _re
         from metatv.core.database import ChannelDB, WatchQueueDB
         from metatv.core.content_dedup import normalize_title, build_dedup_key
-        _non_ascii = _re.compile(r'[^\x00-\x7F]+')
+        _non_ascii = re.compile(r'[^\x00-\x7F]+')
 
         session = self.db.get_session()
         try:
@@ -1628,6 +1634,10 @@ class MainWindow(QMainWindow):
         """Blank-slate all views. Call before activating any single view."""
         if self.epg_view.isVisible():
             self.epg_view.on_deactivate()
+        if self.discover_view.isVisible():
+            self.discover_view.on_deactivate()
+        if self.preferences_view.isVisible():
+            self.preferences_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -2779,54 +2789,60 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
     
+    def _apply_favorite_toggle(self, channel_id: str):
+        """Toggle favorite in DB, show status bar message, refresh sidebar.
+
+        Returns (channel, new_status) on success, or None if channel not found.
+        """
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return None
+            new_status = repos.channels.toggle_favorite(channel_id)
+            channel.is_favorite = new_status
+        finally:
+            session.close()
+
+        status = "added to" if channel.is_favorite else "removed from"
+        self.status_bar.showMessage(f"{channel.name} {status} favorites")
+        logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
+        self.load_favorites()
+        return channel, new_status
+
     def toggle_favorite(self, item):
         """Toggle favorite status of a channel"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                # Toggle favorite status
-                new_status = repos.channels.toggle_favorite(channel_id)
-                channel.is_favorite = new_status
-                
-                status = "added to" if channel.is_favorite else "removed from"
-                self.status_bar.showMessage(f"{channel.name} {status} favorites")
-                logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
-                
-                # Update the icon on the current item only (fast, no database query)
-                current_text = item.text()
-                if channel.is_favorite:
-                    # Replace unfavorite icon with favorite icon
-                    updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-                else:
-                    # Replace favorite icon with unfavorite icon
-                    updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-                item.setText(updated_text)
-                
-                # Also update in all_channels cache for filtering
-                for i, (text, ch) in enumerate(self.all_channels):
-                    if ch.id == channel_id:
-                        ch.is_favorite = channel.is_favorite
-                        # Update cached display text
-                        media_icon = self.get_media_type_icon(ch.media_type)
-                        fav_icon = self.favorite_icon if ch.is_favorite else self.unfavorite_icon
-                        display_text = f"{media_icon}{fav_icon} {ch.name}"
-                        if ch.category:
-                            display_text += f" [{ch.category}]"
-                        if ch.quality and ch.quality != "unknown":
-                            display_text += f" ({ch.quality})"
-                        self.all_channels[i] = (display_text, ch)
-                        break
-                
-                # Only refresh favorites sidebar (fast, no full reload)
-                self.load_favorites()
-        finally:
-            session.close()
+
+        result = self._apply_favorite_toggle(channel_id)
+        if not result:
+            return
+        channel, _ = result
+
+        # Update the icon on the current item only (fast, no database query)
+        current_text = item.text()
+        if channel.is_favorite:
+            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
+        else:
+            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
+        item.setText(updated_text)
+
+        # Also update in all_channels cache for filtering
+        for i, (text, ch) in enumerate(self.all_channels):
+            if ch.id == channel_id:
+                ch.is_favorite = channel.is_favorite
+                media_icon = self.get_media_type_icon(ch.media_type)
+                fav_icon = self.favorite_icon if ch.is_favorite else self.unfavorite_icon
+                display_text = f"{media_icon}{fav_icon} {ch.name}"
+                if ch.category:
+                    display_text += f" [{ch.category}]"
+                if ch.quality and ch.quality != "unknown":
+                    display_text += f" ({ch.quality})"
+                self.all_channels[i] = (display_text, ch)
+                break
     
     def show_channel_details_by_id(self, channel_id: str):
         """Show channel details in details pane (for sidebar selections)"""
@@ -2860,9 +2876,7 @@ class MainWindow(QMainWindow):
     
     def update_details_pane_for_channel(self, channel):
         """Update details pane with channel metadata (async)"""
-        from concurrent.futures import ThreadPoolExecutor
         from metatv.core.models import MediaType
-        import asyncio
 
         # Live channels have no TMDb/OMDb metadata — show basic info and return.
         # EPG agenda and channel icon are handled directly by the details pane.
@@ -2878,8 +2892,7 @@ class MainWindow(QMainWindow):
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(channel.provider_id)
             if provider_db and provider_db.urls:
-                import json
-                urls_data = json.loads(provider_db.urls) if isinstance(provider_db.urls, str) else provider_db.urls
+                urls_data = parse_provider_urls(provider_db.urls)
                 provider_urls = [u.get('url') for u in urls_data if u.get('is_active', True) and u.get('url')]
             session.close()
             logger.debug(f"Provider URLs for failover: {provider_urls}")
@@ -2935,9 +2948,8 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Error in on_metadata_loaded: {e}", exc_info=True)
         
-        # Submit to thread pool
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(fetch_metadata)
+        # Reuse the long-lived executor — creating a per-call pool leaks threads
+        future = self.executor.submit(fetch_metadata)
         future.add_done_callback(on_metadata_loaded)
     
     def _update_details_with_metadata(self, channel, metadata):
@@ -2967,37 +2979,26 @@ class MainWindow(QMainWindow):
     
     def toggle_favorite_by_id(self, channel_id: str):
         """Toggle favorite by ID (for details pane Favorite button)"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                new_status = repos.channels.toggle_favorite(channel_id)
-                channel.is_favorite = new_status
-                
-                status = "added to" if channel.is_favorite else "removed from"
-                self.status_bar.showMessage(f"{channel.name} {status} favorites")
-                
-                # Update details pane — but not while the lightbox has focus (D6)
-                if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
-                    self.update_details_pane_for_channel(channel)
-                
-                # Refresh favorites sidebar
-                self.load_favorites()
-                
-                # Update channel list display if visible
-                for i in range(self.channels_list.count()):
-                    item = self.channels_list.item(i)
-                    if item.data(Qt.ItemDataRole.UserRole) == channel_id:
-                        current_text = item.text()
-                        if channel.is_favorite:
-                            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-                        else:
-                            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-                        item.setText(updated_text)
-                        break
-        finally:
-            session.close()
+        result = self._apply_favorite_toggle(channel_id)
+        if not result:
+            return
+        channel, _ = result
+
+        # Update details pane — but not while the lightbox has focus (D6)
+        if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
+            self.update_details_pane_for_channel(channel)
+
+        # Update channel list display if visible
+        for i in range(self.channels_list.count()):
+            item = self.channels_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == channel_id:
+                current_text = item.text()
+                if channel.is_favorite:
+                    updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
+                else:
+                    updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
+                item.setText(updated_text)
+                break
     
     def play_channel(self, item):
         """Play selected channel in external player or drill down into series"""
@@ -3765,10 +3766,7 @@ class MainWindow(QMainWindow):
 
             logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_db.name} (reliability order)")
 
-            raw_urls = provider_db.urls or []
-            if isinstance(raw_urls, str):
-                import json as _json
-                raw_urls = _json.loads(raw_urls)
+            raw_urls = parse_provider_urls(provider_db.urls)
 
             for alt_base in candidate_bases:
                 new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)
@@ -3946,8 +3944,6 @@ class MainWindow(QMainWindow):
     
     def ensure_single_mpv_running(self):
         """Ensure single mpv instance is running with IPC"""
-        import os
-        
         # Check if mpv is already running
         if self.mpv_process and self.mpv_process.poll() is None:
             logger.info("Single mpv instance already running")
@@ -3978,7 +3974,6 @@ class MainWindow(QMainWindow):
             logger.info(f"Started single mpv instance with PID {self.mpv_process.pid}")
             
             # Wait a moment for socket to be created
-            import time
             for i in range(10):
                 if os.path.exists(self.mpv_socket):
                     logger.info(f"mpv IPC socket ready: {self.mpv_socket}")
@@ -3993,10 +3988,6 @@ class MainWindow(QMainWindow):
     
     def play_in_single_mpv(self, url: str, title: str) -> bool:
         """Send URL to single mpv instance via IPC"""
-        import socket
-        import json
-        import os
-        
         # Ensure mpv is running
         if not self.ensure_single_mpv_running():
             return False
@@ -4156,7 +4147,6 @@ class MainWindow(QMainWindow):
         """Handle window close"""
         # Save window geometry so it restores on next launch
         try:
-            import base64
             self.config.window_geometry = base64.b64encode(
                 bytes(self.saveGeometry())
             ).decode("ascii")
@@ -4172,6 +4162,18 @@ class MainWindow(QMainWindow):
         # Stop retry manager background thread
         if hasattr(self, "stream_retry_manager"):
             self.stream_retry_manager.stop()
+
+        # Shut down EPG timer and its worker pool
+        if hasattr(self, "epg_manager"):
+            self.epg_manager.shutdown()
+
+        # Shut down image-fetch worker pool
+        if hasattr(self, "image_cache"):
+            self.image_cache.shutdown()
+
+        # Shut down the main-window executor pool
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=False)
 
         # Close database
         self.db.close()
