@@ -3,7 +3,7 @@
 from typing import Optional, List, Dict, Set
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, update
+from sqlalchemy import and_, func, or_, update
 from loguru import logger
 
 from metatv.core.database import ChannelDB
@@ -39,6 +39,7 @@ class ChannelRepository:
                 hidden_only: bool = False,
                 invert_prefix_filters: bool = False,
                 include_untagged: bool = True,
+                include_untagged_quality: bool = True,
                 adult_mode: str = "all",
                 force_adult_provider_ids: Optional[List[str]] = None,
                 source_categories: Optional[List[str]] = None,
@@ -95,7 +96,6 @@ class ChannelRepository:
             force_ids = force_adult_provider_ids or []
             # A channel is "adult" if is_adult=True OR its provider is force_adult
             if force_ids:
-                from sqlalchemy import or_
                 is_adult_expr = or_(
                     ChannelDB.is_adult == True,
                     ChannelDB.provider_id.in_(force_ids),
@@ -114,14 +114,12 @@ class ChannelRepository:
         identity_active = bool(language_prefixes or region_prefixes or platform_prefixes)
 
         if identity_active:
-            from sqlalchemy import or_ as _or, and_ as _and
-
             # Build per-axis conditions, then OR them into one identity pool
             axis_conditions = []
 
             if language_prefixes:
                 # Language matches on detected_prefix OR parenthetical detected_region suffix
-                axis_conditions.append(_or(
+                axis_conditions.append(or_(
                     ChannelDB.detected_prefix.in_(language_prefixes),
                     ChannelDB.detected_region.in_(language_prefixes),
                 ))
@@ -136,20 +134,31 @@ class ChannelRepository:
                     ChannelDB.detected_prefix.in_(platform_prefixes)
                 )
 
-            identity_cond = _or(*axis_conditions)
+            identity_cond = or_(*axis_conditions)
 
             if invert_prefix_filters:
-                # Show channels NOT in the identity pool (must have a tag to be meaningful)
+                # Show channels whose detected_prefix is NOT in the identity pool.
+                # Uses a flat NOT IN on detected_prefix only — the detected_region
+                # OR branch used in the forward direction returns NULL (not False)
+                # for null-region rows, and NOT NULL = NULL is falsy, incorrectly
+                # excluding unidentified channels from the inverted result.
+                pool_prefixes: list[str] = []
+                if language_prefixes:
+                    pool_prefixes.extend(language_prefixes)
+                if region_prefixes:
+                    pool_prefixes.extend(region_prefixes)
+                if platform_prefixes:
+                    pool_prefixes.extend(platform_prefixes)
                 query = query.filter(
-                    ~identity_cond,
+                    ~ChannelDB.detected_prefix.in_(pool_prefixes),
                     ChannelDB.detected_prefix.isnot(None),
                 )
             elif include_untagged:
                 # Include identity matches OR channels with no prefix/region at all
                 query = query.filter(
-                    _or(
+                    or_(
                         identity_cond,
-                        _and(
+                        and_(
                             ChannelDB.detected_prefix.is_(None),
                             ChannelDB.detected_region.is_(None),
                         ),
@@ -163,13 +172,20 @@ class ChannelRepository:
             query = query.filter(ChannelDB.detected_prefix.isnot(None))
 
         # ── Quality axis: AND/restrictive — narrows the identity pool ──
-        # Only channels explicitly tagged with a matching quality marker pass through.
+        # Excludes channels explicitly tagged with a non-selected quality tier.
+        # By default (include_untagged_quality=True), channels with no quality tag
+        # always pass — deselecting SD hides SD channels, not untagged content.
         if quality_prefixes:
-            query = query.filter(ChannelDB.detected_quality.in_(quality_prefixes))
+            if include_untagged_quality:
+                query = query.filter(or_(
+                    ChannelDB.detected_quality.in_(quality_prefixes),
+                    ChannelDB.detected_quality.is_(None),
+                ))
+            else:
+                query = query.filter(ChannelDB.detected_quality.in_(quality_prefixes))
 
         # Content-type filter (source_category — live channels only)
         if source_categories is not None:
-            from sqlalchemy import or_
             cond = ChannelDB.source_category.in_(source_categories)
             if include_uncategorized_content_types:
                 cond = or_(cond, ChannelDB.source_category.is_(None))
@@ -677,6 +693,19 @@ class ChannelRepository:
 
         total_channels = query.count()
 
+        no_quality_query = self.session.query(func.count(ChannelDB.id)).filter(
+            ChannelDB.is_hidden == False,  # noqa: E712
+            ChannelDB.detected_quality.is_(None),
+        )
+        if provider_id:
+            no_quality_query = no_quality_query.filter(
+                ChannelDB.provider_id == provider_id)
+        if excluded_user_categories:
+            no_quality_query = no_quality_query.filter(
+                or_(ChannelDB.user_category.is_(None),
+                    ~ChannelDB.user_category.in_(excluded_user_categories)))
+        no_quality_count = no_quality_query.scalar() or 0
+
         return {
             'all_prefixes': list(all_prefixes),
             'prefix_counts': prefix_counts,
@@ -687,7 +716,8 @@ class ChannelRepository:
             'unmapped_prefixes': unmapped_list,
             'total_channels': total_channels,
             'channels_with_prefix': total_channels - no_prefix_count,
-            'channels_without_prefix': no_prefix_count
+            'channels_without_prefix': no_prefix_count,
+            'channels_without_quality': no_quality_count,
         }
 
     # -------------------------------------------------------------------------

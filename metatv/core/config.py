@@ -663,6 +663,8 @@ class Config(BaseModel):
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
+    filter_untagged_selected: list = Field(
+        default_factory=lambda: ["no_prefix", "no_quality"])        # Untagged/Unknown section state
     filter_adult_mode: str = "hide"        # "all", "hide", or "only"
     show_excluded_count: bool = True
     search_includes_filtered: bool = True

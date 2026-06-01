@@ -368,8 +368,9 @@ class MainWindow(QMainWindow):
         # Connect splitter moved signal to save widths
         self.main_splitter.splitterMoved.connect(self.save_splitter_sizes)
         
-        main_layout.addWidget(self.main_splitter)
-        
+        main_layout.addWidget(self.main_splitter, 1)
+        main_layout.addWidget(self._create_bottom_nav_bar())
+
         # Create status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -432,8 +433,27 @@ class MainWindow(QMainWindow):
         
         # Connect splitter moved signal to save sizes
         self.sidebar_splitter.splitterMoved.connect(self.save_sidebar_section_sizes)
-        
-        return self.sidebar_splitter
+
+        # Wrap in outer widget so a Settings button can live at the bottom
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        outer_layout.addWidget(self.sidebar_splitter)
+
+        settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
+        settings_btn.setFlat(True)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setToolTip("Open application settings (Ctrl+,)")
+        settings_btn.setStyleSheet(
+            "QPushButton { font-size: 13px; color: #bbbbbb; padding: 7px 12px;"
+            " border-top: 1px solid #333; background: #1e1e1e; }"
+            "QPushButton:hover { color: #eeeeee; background: #2a2a2a; }"
+        )
+        settings_btn.clicked.connect(self.open_settings)
+        outer_layout.addWidget(settings_btn)
+
+        return outer
     
     def create_section(self, section_id: str):
         """Create a sidebar section by ID"""
@@ -1273,6 +1293,55 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
 
+    def _create_bottom_nav_bar(self) -> QWidget:
+        """Build the full-width bottom tab bar with nav chips and Exclusions control."""
+        bar = QWidget()
+        bar.setObjectName("bottomNavBar")
+        bar.setStyleSheet(
+            "#bottomNavBar { background: #1e1e1e; border-top: 1px solid #333; }"
+        )
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(4)
+
+        # Nav chip group — centered in the bar with 30px gaps between chips
+        nav_group = QWidget()
+        nav_layout = QHBoxLayout(nav_group)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(30)
+
+        self.search_chip = ToggleChip(f"{self.config.search_icon} Search", enabled=True)
+        self.search_chip.setToolTip("Channel list and search")
+        self.search_chip.clicked.connect(self.on_search_view_toggle)
+        nav_layout.addWidget(self.search_chip)
+
+        self.epg_chip = ToggleChip("📅 EPG", enabled=False)
+        self.epg_chip.setToolTip("EPG — programme guide, watchlist, on-now")
+        self.epg_chip.clicked.connect(self.on_special_view_toggle)
+        nav_layout.addWidget(self.epg_chip)
+
+        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Recommended", enabled=False)
+        self.prefs_chip.setToolTip("Personalised recommendations")
+        self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
+        nav_layout.addWidget(self.prefs_chip)
+
+        self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
+        self.discover_chip.setToolTip("Browse by genre, decade, actor, director")
+        self.discover_chip.clicked.connect(self.on_discover_view_toggle)
+        nav_layout.addWidget(self.discover_chip)
+
+        layout.addStretch(1)
+        layout.addWidget(nav_group)
+        layout.addStretch(1)
+
+        self._filter_chip = FilterChip("Exclusions")
+        self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
+        self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
+        layout.addWidget(self._filter_chip)
+
+        QTimer.singleShot(0, self._update_filter_btn_state)
+        return bar
+
     def create_content_area(self) -> QWidget:
         """Create main content area"""
         content = QWidget()
@@ -1294,81 +1363,9 @@ class MainWindow(QMainWindow):
         
         self.content_layout.addWidget(nav_bar)
         
-        # Media type chips (above search)
-        media_widget = QWidget()
-        media_layout = QHBoxLayout(media_widget)
-        media_layout.setContentsMargins(0, 5, 0, 5)
-
-        # Grouped in a sub-widget so they can be hidden when in non-list views
-        self._media_type_widget = QWidget()
-        _mt_layout = QHBoxLayout(self._media_type_widget)
-        _mt_layout.setContentsMargins(0, 0, 8, 0)
-        _mt_layout.setSpacing(4)
-        _mt_layout.addWidget(QLabel("Media:"))
-
-        self.live_chip = ToggleChip("Live", enabled=True)
-        _mt_layout.addWidget(self.live_chip)
-
-        self.movies_chip = ToggleChip("Movies", enabled=True)
-        _mt_layout.addWidget(self.movies_chip)
-
-        self.series_chip = ToggleChip("Series", enabled=True)
-        _mt_layout.addWidget(self.series_chip)
-
-        # _media_type_widget lives in search_controls row (added there below)
-
-        # Restore media chip state from config (before connecting signals)
-        enabled_types = getattr(self.config, 'filter_enabled_media_types', ['live', 'movie', 'series'])
-        # If empty list, use default
-        if not enabled_types:
-            enabled_types = ['live', 'movie', 'series']
-        logger.debug(f"Restoring media chip state from config: {enabled_types}")
-        self.live_chip.set_enabled('live' in enabled_types)
-        self.movies_chip.set_enabled('movie' in enabled_types)
-        self.series_chip.set_enabled('series' in enabled_types)
-        logger.debug(f"After restore - Live: {self.live_chip.is_enabled()}, Movies: {self.movies_chip.is_enabled()}, Series: {self.series_chip.is_enabled()}")
-
-        # NOW connect signals after state is restored
-        self.live_chip.clicked.connect(self.on_filter_changed)
-        self.movies_chip.clicked.connect(self.on_filter_changed)
-        self.series_chip.clicked.connect(self.on_filter_changed)
-
-        # Search chip — activates the channel list / search view (the default)
-        self.search_chip = ToggleChip(f"{self.config.search_icon} Search", enabled=True)
-        self.search_chip.setToolTip("Channel list and search")
-        self.search_chip.clicked.connect(self.on_search_view_toggle)
-        media_layout.addWidget(self.search_chip)
-
-        media_layout.addStretch()
-
-        self.epg_chip = ToggleChip("📅 EPG", enabled=False)
-        self.epg_chip.clicked.connect(self.on_special_view_toggle)
-        media_layout.addWidget(self.epg_chip)
-
-        self.prefs_chip = ToggleChip(f"{self.config.preferences_icon} Recommended", enabled=False)
-        self.prefs_chip.clicked.connect(self.on_preferences_view_toggle)
-        media_layout.addWidget(self.prefs_chip)
-
-        self.discover_chip = ToggleChip(f"{self.config.discover_icon} Discover", enabled=False)
-        self.discover_chip.clicked.connect(self.on_discover_view_toggle)
-        media_layout.addWidget(self.discover_chip)
-
-        # Utility group — right-aligned, separated from primary nav chips
-        media_layout.addStretch()
-
-        self._filter_chip = FilterChip("Exclusions")
-        self._filter_chip.toggled_changed.connect(self._on_filter_toggle)
-        self._filter_chip.open_dialog_requested.connect(self._open_global_filter_dialog)
-        media_layout.addWidget(self._filter_chip)
-        QTimer.singleShot(0, self._update_filter_btn_state)
-
-        self.content_layout.addWidget(media_widget)
-        
         # Search and filter controls
         self.search_controls = QWidget()
         controls_layout = QHBoxLayout(self.search_controls)
-        # Media type widget moved to filter panel — hide it here
-        self._media_type_widget.hide()
         controls_layout.addWidget(QLabel("Search:"))
         
         # All / Hidden tab toggle
@@ -1533,7 +1530,7 @@ class MainWindow(QMainWindow):
         panel_w = getattr(self.config, 'filter_panel_width', 220)
         self._inner_splitter.setSizes([panel_w, max(300, 800 - panel_w)])
         self._inner_splitter.splitterMoved.connect(self._save_filter_panel_width)
-        self.content_layout.addWidget(self._inner_splitter)
+        self.content_layout.addWidget(self._inner_splitter, 1)
 
         # Stats label below the splitter
         stats_container = QWidget()
@@ -1638,7 +1635,6 @@ class MainWindow(QMainWindow):
         self.discover_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.search_controls.setVisible(False)
-        self._media_type_widget.setVisible(False)
         self._hidden_banner.setVisible(False)
         self._hidden_mode = False
         if hasattr(self, "_tab_all_btn"):
@@ -1885,24 +1881,17 @@ class MainWindow(QMainWindow):
     
     def toggle_filters(self):
         """Toggle filter panel visibility via inner splitter collapse."""
-        if hasattr(self, '_inner_splitter'):
-            sizes = self._inner_splitter.sizes()
-            if sizes[0] > 0:
-                self._inner_splitter.setSizes([0, sum(sizes)])
-            else:
-                w = getattr(self.config, 'filter_panel_width', 220)
-                self._inner_splitter.setSizes([w, max(200, sum(sizes) - w)])
-        
-        if self.filters_visible:
-            self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}")
+        if not hasattr(self, '_inner_splitter'):
+            return
+        sizes = self._inner_splitter.sizes()
+        if sizes[0] > 0:
+            self._inner_splitter.setSizes([0, sum(sizes)])
+            self.config.filter_section_visible = False
         else:
-            self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.expand_icon}")
-        
-        # Save state to config
-        self.config.filter_section_visible = self.filters_visible
+            w = getattr(self.config, 'filter_panel_width', 220)
+            self._inner_splitter.setSizes([w, max(200, sum(sizes) - w)])
+            self.config.filter_section_visible = True
         self.config.save()
-        
-        logger.debug(f"Filters visibility: {self.filters_visible}")
     
     def toggle_provider_visibility(self, provider_id: str):
         """Toggle provider visibility (active/disabled)"""
@@ -2050,6 +2039,7 @@ class MainWindow(QMainWindow):
             platform_prefixes=None if _bypassing else (platform_prefixes or None),
             invert_prefix_filters=False,
             include_untagged=filter_state.get('include_untagged', True),
+            include_untagged_quality=filter_state.get('include_untagged_quality', True),
             adult_mode=filter_state.get('adult_mode', 'hide'),
             force_adult_ids=force_adult_ids,
             # Global filter — bypassed when paused so the user can see everything
@@ -2096,6 +2086,7 @@ class MainWindow(QMainWindow):
                     platform_prefixes=params.get('platform_prefixes'),
                     invert_prefix_filters=params['invert_prefix_filters'],
                     include_untagged=params['include_untagged'],
+                    include_untagged_quality=params.get('include_untagged_quality', True),
                     adult_mode=params['adult_mode'],
                     force_adult_provider_ids=force_adult_ids or None,
                     source_categories=params['source_categories'],
@@ -2243,8 +2234,19 @@ class MainWindow(QMainWindow):
             self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
             self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
         else:
-            filtered = total_channels - shown
-            self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
+            panel_filtering = any([
+                params.get('language_prefixes'),
+                params.get('region_prefixes'),
+                params.get('quality_prefixes'),
+                params.get('platform_prefixes'),
+            ])
+            if panel_filtering:
+                excluded = total_channels - shown
+                self.stats_label.setText(
+                    f"Showing {shown:,} of {total_channels:,} · {excluded:,} filtered out"
+                )
+            else:
+                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
             if given_provider_id:
                 self.status_bar.showMessage(f"{shown:,} channels from selected provider")
             else:
@@ -2309,18 +2311,11 @@ class MainWindow(QMainWindow):
         self.channels_list.setUpdatesEnabled(True)
     
     def get_enabled_media_types(self) -> list:
-        """Get list of enabled media types — from filter panel when available."""
+        """Get list of enabled media types from the filter panel."""
         if hasattr(self, 'filter_panel'):
             return self.filter_panel.get_filter_state().get(
                 'media_types', ['live', 'movie', 'series'])
-        types = []
-        if self.live_chip.is_enabled():
-            types.append("live")
-        if self.movies_chip.is_enabled():
-            types.append("movie")
-        if self.series_chip.is_enabled():
-            types.append("series")
-        return types
+        return ['live', 'movie', 'series']
     
     def _open_category_picker(self, channel_ids: list[str]) -> None:
         """Open the CategoryPickerDialog and assign the selected category to channel_ids."""

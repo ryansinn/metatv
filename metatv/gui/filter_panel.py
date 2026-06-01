@@ -31,6 +31,7 @@ _ACCENT = {
     "platform":     "#9966cc",
     "quality":      "#f0a040",
     "unidentified": "#cc7722",
+    "untagged":     "#666666",
 }
 
 
@@ -233,14 +234,16 @@ class _Section(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Header
+        # Header — full row is clickable to expand/collapse
         header = QWidget()
         header.setObjectName("sectionHeader")
         header.setStyleSheet(
-            f"QWidget#sectionHeader {{ background: #1e1e1e; "
+            f"QWidget#sectionHeader {{ background: #1a1a1a; "
             f"border-left: 3px solid {accent}; }}"
         )
         header.setFixedHeight(30)
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.mousePressEvent = lambda _e: self._toggle_collapse()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(6, 0, 6, 0)
         hl.setSpacing(4)
@@ -249,7 +252,7 @@ class _Section(QWidget):
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
         self._collapse_btn.setStyleSheet(
-            "QPushButton { color: #888; font-size: 9px; }")
+            "QPushButton { color: #888; font-size: 9px; background: transparent; }")
         self._collapse_btn.clicked.connect(self._toggle_collapse)
         hl.addWidget(self._collapse_btn)
 
@@ -328,6 +331,13 @@ class _Section(QWidget):
         keys = [r.key() for r in self._rows if r.is_checked()]
         for grp in self._groups:
             keys.extend(grp.get_selected_keys())
+        return keys
+
+    def get_all_keys(self) -> list[str]:
+        """Return every key in this section regardless of check state."""
+        keys = [r.key() for r in self._rows]
+        for grp in self._groups:
+            keys.extend(c.key() for c in grp._children)
         return keys
 
     def is_all_selected(self) -> bool:
@@ -428,7 +438,7 @@ class FilterPanel(QWidget):
 
     # Section keys in display order
     _SECTION_KEYS = ["media", "language", "region", "platform",
-                     "quality", "unidentified"]
+                     "quality", "unidentified", "untagged"]
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -450,9 +460,10 @@ class FilterPanel(QWidget):
         ph.setFixedHeight(36)
         phl = QHBoxLayout(ph)
         phl.setContentsMargins(10, 0, 8, 0)
-        QLabel("Filters", ph).setStyleSheet(
+        filters_lbl = QLabel("Includes:")
+        filters_lbl.setStyleSheet(
             "font-size: 13px; font-weight: bold; color: #dddddd;")
-        phl.addWidget(QLabel("Filters", ph))
+        phl.addWidget(filters_lbl)
         phl.addStretch()
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedHeight(22)
@@ -461,7 +472,7 @@ class FilterPanel(QWidget):
                 border-radius:3px; padding:0 8px; font-size:11px; }
             QPushButton:hover { background:#444; color:#ddd; }
         """)
-        clear_btn.setToolTip("Reset all filters — show everything")
+        clear_btn.setToolTip("Reset — include everything")
         clear_btn.clicked.connect(self.clear_all)
         phl.addWidget(clear_btn)
         outer.addWidget(ph)
@@ -534,24 +545,21 @@ class FilterPanel(QWidget):
             initially_expanded=_expanded("unidentified", False))
         self._unid_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._unid_sec)
+        self._add_divider()
+
+        self._untagged_sec = _Section(
+            "untagged", "Untagged / Unknown",
+            initially_expanded=_expanded("untagged", True))
+        self._untagged_sec.set_flat_items([
+            ("no_prefix",  "No prefix tag",   0),
+            ("no_quality", "No quality tag",  0),
+        ])
+        self._untagged_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._untagged_sec)
 
         self._sl.addStretch()
         scroll.setWidget(sc)
         outer.addWidget(scroll, 1)
-
-        # Settings button at bottom
-        settings_btn = QPushButton("⚙  Settings")
-        settings_btn.setFixedHeight(32)
-        settings_btn.setStyleSheet("""
-            QPushButton {
-                background:#111; color:#888; border-top:1px solid #333;
-                border-radius:0; font-size:12px; text-align:left;
-                padding-left:12px;
-            }
-            QPushButton:hover { background:#1e1e1e; color:#aaa; }
-        """)
-        settings_btn.clicked.connect(self.settings_requested)
-        outer.addWidget(settings_btn)
 
         self.restore_state()
 
@@ -636,6 +644,17 @@ class FilterPanel(QWidget):
         if prev_unid:
             self._unid_sec.restore_selection(prev_unid)
 
+        # ── Untagged — update counts; items are static (set in __init__)
+        no_prefix_count  = stats.get('channels_without_prefix',  0)
+        no_quality_count = stats.get('channels_without_quality', 0)
+        prev_untagged = set(self._untagged_sec.get_selected_keys())
+        self._untagged_sec.set_flat_items([
+            ("no_prefix",  "No prefix tag",  no_prefix_count),
+            ("no_quality", "No quality tag", no_quality_count),
+        ])
+        if prev_untagged:
+            self._untagged_sec.restore_selection(prev_untagged)
+
         logger.debug(
             f"FilterPanel updated: {len(lang_items)} lang groups, "
             f"{len(region_data)} region groups, {len(plat_items)} platform, "
@@ -673,9 +692,28 @@ class FilterPanel(QWidget):
                 platform_prefixes.extend(
                     self.config.filter_platform_groups.get(grp, []))
 
-        # Unidentified prefixes join the language pool (same OR logic)
+        # Unidentified codes join the language pool (same OR logic).
         if not unid_all:
             language_prefixes.extend(self._unid_sec.get_selected_keys())
+
+        # Cross-axis expansion: when any axis is restricted, the SQL identity filter
+        # activates and channels must match at least one axis condition to pass.
+        # Any unrestricted axis (all-selected) must be explicitly expanded here —
+        # otherwise its channels (e.g. EAR platform channels when only unid is filtered)
+        # get excluded because the identity condition doesn't include them.
+        any_active = bool(language_prefixes or region_prefixes or platform_prefixes)
+        if any_active:
+            if lang_all:
+                for codes in self.config.filter_language_groups.values():
+                    language_prefixes.extend(codes)
+            if unid_all:
+                language_prefixes.extend(self._unid_sec.get_all_keys())
+            if region_all:
+                for codes in self.config.filter_regional_groups.values():
+                    region_prefixes.extend(codes)
+            if plat_all:
+                for codes in self.config.filter_platform_groups.values():
+                    platform_prefixes.extend(codes)
 
         # Quality prefix codes
         quality_prefixes: list[str] = []
@@ -684,13 +722,18 @@ class FilterPanel(QWidget):
                 quality_prefixes.extend(
                     self.config.filter_quality_groups.get(grp, []))
 
+        untagged_selected = set(self._untagged_sec.get_selected_keys())
+        include_untagged         = "no_prefix"  in untagged_selected
+        include_untagged_quality = "no_quality" in untagged_selected
+
         return {
             'media_types':        media_types,
             'language_groups':    self._lang_sec.get_selected_keys(),
             'region_groups':      self._region_sec.get_selected_keys(),
             'quality_groups':     self._quality_sec.get_selected_keys(),
             'platform_groups':    self._platform_sec.get_selected_keys(),
-            'include_untagged':   unid_all,
+            'include_untagged':          include_untagged,
+            'include_untagged_quality':  include_untagged_quality,
             'adult_mode':         getattr(self.config, 'filter_adult_mode', 'hide'),
             'excluded_provider_ids': [],
             # Resolved for SQL — used directly by load_channels
@@ -724,8 +767,9 @@ class FilterPanel(QWidget):
                 sec.section_key(): sec.is_expanded()
                 for sec in self._all_sections()
             }
-            # Save media selection
+            # Save media selection and untagged toggles
             self.config.filter_enabled_media_types = state['media_types']
+            self.config.filter_untagged_selected = self._untagged_sec.get_selected_keys()
             self.config.save()
         except Exception as e:
             logger.warning(f"Could not save filter panel state: {e}")
@@ -748,6 +792,12 @@ class FilterPanel(QWidget):
                               ['live', 'movie', 'series']) or ['live', 'movie', 'series']
             self._media_sec.restore_selection(set(enabled))
 
+            # Restore untagged catchall toggles (default both checked)
+            saved_untagged = getattr(self.config, 'filter_untagged_selected',
+                                     ['no_prefix', 'no_quality'])
+            if saved_untagged is not None:
+                self._untagged_sec.restore_selection(set(saved_untagged))
+
         except Exception as e:
             logger.warning(f"Could not restore filter panel state: {e}")
         finally:
@@ -757,7 +807,8 @@ class FilterPanel(QWidget):
 
     def _all_sections(self) -> list[_Section]:
         return [self._media_sec, self._lang_sec, self._region_sec,
-                self._platform_sec, self._quality_sec, self._unid_sec]
+                self._platform_sec, self._quality_sec, self._unid_sec,
+                self._untagged_sec]
 
     def _add_divider(self):
         line = QFrame()
