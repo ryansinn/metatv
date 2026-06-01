@@ -345,6 +345,14 @@ radius:
 
 ## Appendix — Are the CLAUDE.md "Critical Rules" themselves best practices?
 
+> **Status (2026-06-01):** the *wording* changes from this review are already applied to
+> CLAUDE.md — DB-sessions and SQLite-JSON rules reworded (no longer ban the better
+> solution); Styles rule softened to target duplication; Collapse/expand rule merged into
+> Icons; Icons + EPG-times rules carry `<!-- target -->` notes pointing here; two new rules
+> added ("Background pools/threads — owned, long-lived, and shut down" and "No unbounded DB
+> work on the UI thread"). What remains below is the *code/structural* work those targets
+> describe — still TODO.
+
 Reviewed each documented rule on its own merits. Verdicts: **Sound** (keep as-is),
 **Band-aid** (the rule reliably prevents a bug, but it does so by mandating discipline at
 every call site instead of removing the root cause — a deeper structural fix would make the

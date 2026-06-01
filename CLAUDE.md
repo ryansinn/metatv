@@ -67,31 +67,21 @@ metatv/
 ### EPG time utilities — always from `epg_utils.py`
 All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`.
 
-### Collapse/expand buttons — always `expand_icon` / `collapse_icon`, never other arrow icons
-Any button that toggles a collapsible section must use `config.expand_icon` (collapsed state) and `config.collapse_icon` (expanded state). Never use `move_up_icon` / `move_down_icon` for this — those are list-ordering arrows with different semantics.
-
-For top-level collapsibles, subclass `CollapsibleSection` (in `sidebar_sections.py`) — it handles the button, state, and persistence automatically. For inner/nested collapsibles (e.g. Stream Monitoring sub-section), follow the same button convention:
-```python
-btn = QPushButton(self.config.collapse_icon)  # start expanded
-btn.setFixedSize(20, 20)
-btn.setFlat(True)
-# on toggle:
-btn.setText(self.config.expand_icon if collapsed else self.config.collapse_icon)
-```
-
-### Styles — use `theme.py`, never inline duplicates
-All Qt stylesheet strings shared across more than one widget must live in `metatv/gui/theme.py` as named constants. Import with `from metatv.gui import theme as _theme` and reference by name (`_theme.PLAY_BTN`, `_theme.CARD_BG`, etc.). Never copy-paste a stylesheet string between files. If you need a variant, add a new constant to `theme.py`.
+### Styles — no duplicated stylesheet strings; share via `theme.py`
+Any Qt stylesheet string used by more than one widget must live in `metatv/gui/theme.py` as a named constant. Import with `from metatv.gui import theme as _theme` and reference by name (`_theme.PLAY_BTN`, `_theme.CARD_BG`, etc.). Never copy-paste a stylesheet string between files; if you need a variant, add a new constant to `theme.py`. A genuinely single-use style may stay inline — the rule targets **duplication**, not the existence of inline styles.
 
 ### Lookup tables — single source of truth, no duplicates
 Region/country codes, quality tokens, audio format maps, and similar lookup data must live in exactly one place. The canonical location for channel-name parsing data is `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, etc.). All other modules (GUI, details pane, sidebar) must import from there — never define their own parallel dicts.
 
 If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
 
-### Icons — always from Config, never hardcoded
-Every icon, emoji, or symbol displayed in the UI must be defined as a field on `Config` (`metatv/core/config.py`) and referenced through it. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything. Never write a literal emoji or symbol string directly in widget or layout code.
+### Icons — always from the central icon registry, never hardcoded
+Every icon, emoji, or symbol displayed in the UI must come from the central icon registry, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
+
+<!-- target: icons currently live as fields on `Config` (metatv/core/config.py). A settings/persistence model is the wrong home for presentation constants — REFACTOR_PLAN moves them to a dedicated `metatv/gui/icons.py` registry. Until that lands, the registry IS `Config`: reference `self.config.<name>_icon` and add new glyphs there first. -->
 
 ```python
-# Correct
+# Correct (current registry = Config)
 rm_btn = QPushButton(self.config.close_icon)
 section_icon = config.favorite_icon
 
@@ -100,7 +90,16 @@ rm_btn = QPushButton("×")
 super().__init__("Favorites", "★", config, parent)
 ```
 
-If you need an icon that doesn't exist in Config yet, add it there first, then reference it.
+If you need an icon that doesn't exist yet, add it to the registry first, then reference it.
+
+**Collapse/expand buttons specifically:** use `config.expand_icon` (collapsed state) and `config.collapse_icon` (expanded state) — never `move_up_icon` / `move_down_icon`, which are list-ordering arrows with different semantics. For top-level collapsibles, subclass `CollapsibleSection` (in `sidebar_sections.py`) — it handles the button, state, and persistence automatically. For inner/nested collapsibles (e.g. Stream Monitoring sub-section), follow the same convention:
+```python
+btn = QPushButton(self.config.collapse_icon)  # start expanded
+btn.setFixedSize(20, 20)
+btn.setFlat(True)
+# on toggle:
+btn.setText(self.config.expand_icon if collapsed else self.config.collapse_icon)
+```
 
 ### Logging — always loguru, never stdlib
 ```python
@@ -108,9 +107,11 @@ from loguru import logger   # correct
 import logging              # NEVER use this
 ```
 
-### Database sessions — try/finally, never `with session`
-`with session` only manages transactions, not cleanup. Always:
+### Database sessions — `close()` must run on every path
+A bare `with session:` only manages the *transaction*, not cleanup — never rely on it to close the session. `close()` must run on every path, including early returns and exceptions. Two acceptable forms:
+
 ```python
+# Form 1 — explicit try/finally (current code uses this everywhere)
 session = self.db.get_session()
 try:
     # ... use session ...
@@ -118,12 +119,30 @@ finally:
     session.close()
 ```
 
-### SQLite + SQLAlchemy JSON — manual serialization only
-SQLAlchemy's JSON column type has SQLite compatibility issues. Use:
+<!-- target: REFACTOR_PLAN proposes a `session_scope()` context manager
+(try → yield → commit → except: rollback → finally: close). Once it lands,
+prefer `with session_scope() as session:` — it is shorter and makes the
+"early returns must clean up" rule automatic for sessions. This is a *better*
+`with`, not the transaction-only one banned above. -->
+```python
+# Form 2 — preferred once session_scope() exists
+with session_scope() as session:
+    # ... use session ...   # commit/rollback/close handled for you
+```
+
+### SQLite + SQLAlchemy JSON — serialize explicitly
+SQLAlchemy's native JSON column type has SQLite compatibility issues, so JSON columns are plain `Text` and serialization is done by hand:
 ```python
 metadata.cast = json.dumps(result.cast)   # saving
 cast = json.loads(metadata.cast) if metadata.cast else []  # loading
 ```
+
+<!-- target: manual dumps/loads at every call site is the *cause* of the
+recurring "stored a Python list instead of a JSON string" bug below.
+REFACTOR_PLAN proposes a `JSONEncoded` TypeDecorator (process_bind_param /
+process_result_value) so columns become `Column(JSONEncoded)` and you
+assign/read plain Python objects — the discipline below becomes unnecessary.
+Until that lands, follow the manual rule exactly. -->
 
 This applies to **every assignment** to a JSON column — including after modifying a previously-deserialized list or dict in-place. If you read with `json.loads()`, you must write back with `json.dumps()`.
 
@@ -183,6 +202,10 @@ for chip in self.chips:
 `NotificationManager.show()` creates a `QTimer` for auto-dismiss and must only be called from the main thread. In `EpgManager`, all notification calls from `ThreadPoolExecutor` workers go through private signals (`_notify`, `_progress_update`, `_progress_done`, `_progress_error`) that Qt queues to the main thread automatically.
 
 ### EPG times — stored as UTC-naive, display as local
+<!-- target: UTC-naive storage is the root cause of this whole cluster of
+defensive rules (and bug P0-2 in REFACTOR_PLAN). The long-term fix is
+tz-aware UTC storage, or routing *every* conversion through `epg_utils.py`
+so no view ever touches a raw `start_time`. Until then, follow the rules below. -->
 `EpgProgramDB.start_time` / `stop_time` are stored as UTC-naive datetimes (the XMLTV parser normalises all timestamps to UTC). For display, convert with:
 ```python
 local = dt.replace(tzinfo=timezone.utc).astimezone()  # → machine local tz
@@ -235,6 +258,12 @@ def closeEvent(self, event):
     self.db.close()
     event.accept()
 ```
+
+### Background pools/threads — owned, long-lived, and shut down
+Create a `ThreadPoolExecutor` / `QThread` **once per owning object**, never per call. A pool created inside a method that runs more than once is a thread leak (see `main_window.py` metadata-fetch path). Every pool/thread must be stopped in its owner's cleanup path — `closeEvent` for managers, `on_deactivate` for views (per the rules above). Reuse the owner's shared executor (`self.executor`) for one-off background work rather than spinning up a throwaway pool.
+
+### No unbounded DB work on the UI thread
+The Qt-threading rule above governs *widget* access from worker threads; this is the inverse. Queries that can scan, filter, aggregate, or count over large tables (channels, EPG) must run in an executor and marshal results back via signal — never block the main thread. Trivial primary-key lookups inline are fine; anything that grows with library size (240k+ channels) must be offloaded. Offenders to watch: startup stat initialization, sidebar `refresh()`, context-menu lookups.
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.
