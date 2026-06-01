@@ -40,11 +40,11 @@ _BRACKET_PREFIX_RE = re.compile(r"^\[[A-Z][A-Z0-9\-+]{0,11}\]\s*")
 """Strip bracket-format prefixes: [SE], [EN], [NF], [D+]. Applied repeatedly for doubles like '[SE] [SE]'."""
 
 _YEAR_SUFFIX_RE = re.compile(
-    r"\s*[\(\[]\d{4}[\)\]]$"  # (2024) or [2024]
-    r"|\s+\d{4}$"             # bare 2024
-    r"|\s+-\s+\d{4}$"         # - 2024  (common provider suffix)
+    r"\s*[\(\[]\d{4}(?:[-–]\d{4})?[?]?[\)\]]$"  # (2024), [2024], (2000-2005), (2024?)
+    r"|\s+\d{4}$"                                 # bare 2024
+    r"|\s+-\s+\d{4}$"                             # - 2024  (common provider suffix)
 )
-"""Strip trailing year markers: ' (2024)', ' [2024]', ' 2024', ' - 2024'."""
+"""Strip trailing year markers: ' (2024)', ' [2024]', ' 2000-2005', ' 2024', ' - 2024'."""
 
 _YEAR_EXTRACT_RE = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
 """Extract a plausible production year (1950–2029) from a channel name."""
@@ -54,9 +54,11 @@ _QUALITY_SUFFIX_RE = re.compile(
 )
 """Strip quality markers that don't distinguish productions."""
 
-_PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z]{1,20}\)\s*$")
-"""Strip trailing alpha-only parentheticals: (US), (EN), (HQ), (LQ), (Dubbed)."""
+_PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z][A-Za-z0-9\-/]{0,25}\)\s*$")
+"""Strip trailing parenthetical qualifiers: (US), (EN), (HQ), (Dubbed), (ENG-SUB), (MULTI-DUB)."""
 
+_BRACKET_QUALIFIER_RE = re.compile(r"\s*\[[^\[\]]*[\s/\-][^\[\]]*\]\s*$")
+"""Strip trailing bracket qualifiers containing separators: [Multi Audio/Sub], [ENG-SUB]."""
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,10 @@ def normalize_title(name: str, prefix: str | None = None) -> str:
     the entire name was noise; callers should fall back to ``channel.id`` as
     a unique key so the channel still gets scored independently.
     """
+    # Strip leading/trailing whitespace first — some providers insert a leading
+    # space before the channel name which defeats prefix-stripping regexes.
+    name = name.strip()
+
     # 1. Strip the stored detected_prefix + its trailing delimiter
     if prefix:
         from metatv.core.prefix_detector import strip_prefix
@@ -84,14 +90,16 @@ def normalize_title(name: str, prefix: str | None = None) -> str:
     while _BRACKET_PREFIX_RE.match(name):
         name = _BRACKET_PREFIX_RE.sub("", name, count=1)
 
-    # 3. Alternately strip trailing year markers and alpha qualifiers until stable.
-    #    "Show (HQ) (2025)": pass1 strips year→"Show (HQ)", then (HQ)→"Show". Done.
-    #    "Show (2024) (US)": pass1 strips (US)→"Show (2024)", pass2 strips year→"Show". Done.
+    # 3. Alternately strip trailing qualifiers until stable:
+    #    year markers, paren qualifiers, and bracket qualifiers.
+    #    "Show (2024) (ENG-SUB)": pass1 strips (ENG-SUB)→"Show (2024)", pass2 strips year→"Show".
+    #    "Show [Multi Audio/Sub]": pass1 strips bracket→"Show".
     prev = None
     while prev != name:
         prev = name
         name = _YEAR_SUFFIX_RE.sub("", name)
         name = _PAREN_QUALIFIER_RE.sub("", name)
+        name = _BRACKET_QUALIFIER_RE.sub("", name)
 
     # 4. Strip quality markers (4K, HD, HQ, LQ, etc.)
     name = _QUALITY_SUFFIX_RE.sub("", name)

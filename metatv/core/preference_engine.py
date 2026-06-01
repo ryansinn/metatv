@@ -319,9 +319,33 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     candidates_q = _apply_prefix_filter(candidates_q, excluded_prefixes, include_uncategorized)
     candidates = candidates_q.all()
 
+    # Implicit prefix preference: count how often the user has positively engaged with
+    # each prefix (favorites, queued, liked, and watched).  Used as a tiebreaker when
+    # no explicit preferred_version_prefixes config entry matches — so that the
+    # recommended version is in the language/source the user actually watches.
+    _implicit_prefix: Counter = Counter()
+    _pos_ids = (favorite_ids | queued_ids | set(liked_map.keys())) - disliked_ids
+    if _pos_ids:
+        for _ch in session.query(ChannelDB).filter(
+            ChannelDB.id.in_(list(_pos_ids)),
+            ChannelDB.media_type.in_(["movie", "series"]),
+        ).all():
+            if _ch.detected_prefix:
+                _implicit_prefix[_ch.detected_prefix] += 1
+    for _ch in session.query(ChannelDB).filter(
+        ChannelDB.last_played.isnot(None),
+        ChannelDB.media_type.in_(["movie", "series"]),
+    ).all():
+        if _ch.detected_prefix:
+            _implicit_prefix[_ch.detected_prefix] += 2  # played = 2× engagement weight
+    _max_impl = max(_implicit_prefix.values(), default=1)
+
     best_per_title: dict[tuple, ScoredChannel] = {}
     variant_counts: dict[tuple, int] = {}
-    vscore_by_id: dict[str, int] = {}   # channel_id → version_score for tiebreaking
+    # (channel_id) → (explicit_vscore, implicit_vscore) for version tiebreaking.
+    # Tuple comparison is lexicographic: explicit config always dominates; implicit
+    # engagement frequency breaks ties when explicit scores are equal.
+    vscore_by_id: dict[str, tuple[int, float]] = {}
     # (norm, mt) → first year-bearing dedup_key seen; used for null-year absorption
     # within the recommendation list so the same show doesn't appear twice.
     null_year_map: dict[tuple, tuple] = {}
@@ -426,21 +450,21 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             metadata_rating=meta.rating,
             rec_shown_count=getattr(channel, 'rec_shown_count', 0) or 0,
         )
-        if version_scorer is not None:
-            vscore_by_id[channel.id] = version_scorer(channel)
+        explicit_vs = version_scorer(channel) if version_scorer is not None else 0
+        impl_vs = _implicit_prefix.get(channel.detected_prefix or "", 0) / _max_impl
+        vscore_by_id[channel.id] = (explicit_vs, impl_vs)
 
         variant_counts[dedup_key] = variant_counts.get(dedup_key, 0) + 1
         existing = best_per_title.get(dedup_key)
         if existing is None:
             best_per_title[dedup_key] = sc
-        elif version_scorer is not None:
-            # Preferred version wins; break ties with preference score.
-            new_vs = vscore_by_id.get(channel.id, 0)
-            old_vs = vscore_by_id.get(existing.channel_id, 0)
+        else:
+            # Version preference wins first (explicit config, then implicit engagement
+            # frequency); content score breaks remaining ties.
+            new_vs = vscore_by_id.get(channel.id, (0, 0.0))
+            old_vs = vscore_by_id.get(existing.channel_id, (0, 0.0))
             if new_vs > old_vs or (new_vs == old_vs and total > existing.score):
                 best_per_title[dedup_key] = sc
-        elif total > existing.score:
-            best_per_title[dedup_key] = sc
 
     for key, sc in best_per_title.items():
         sc.variant_count = variant_counts.get(key, 1)

@@ -1636,6 +1636,8 @@ class MainWindow(QMainWindow):
         self.provider_editor.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
+        if hasattr(self, "filter_panel"):
+            self.filter_panel.setVisible(False)
         self._hidden_mode = False
         if hasattr(self, "_tab_all_btn"):
             self._tab_all_btn.setChecked(True)
@@ -3149,6 +3151,8 @@ class MainWindow(QMainWindow):
 
         self.channels_list.setVisible(True)
         self.search_controls.setVisible(True)
+        if hasattr(self, "filter_panel"):
+            self.filter_panel.setVisible(True)
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
 

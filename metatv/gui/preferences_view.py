@@ -494,9 +494,10 @@ class PreferencesView(QWidget):
         self._executor.submit(self._bg_refresh)
 
     def _bg_refresh(self) -> None:
-        from metatv.core.preference_engine import compute_weights, score_candidates
+        from metatv.core.preference_engine import compute_weights, score_candidates, version_score
         from metatv.core.filter_utils import get_active_category_filter
         excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
+        _config = self.config
         session = self.db.get_session()
         try:
             weights = compute_weights(session)
@@ -506,6 +507,7 @@ class PreferencesView(QWidget):
                 dedupe_overrides=set(getattr(self.config, 'rec_dedupe_overrides', [])),
                 excluded_prefixes=excluded_prefixes,
                 include_uncategorized=include_uncategorized,
+                version_scorer=lambda ch: version_score(ch, _config),
             )
         except Exception:
             logger.exception("PreferencesView bg refresh error")
