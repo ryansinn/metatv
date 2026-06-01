@@ -114,7 +114,8 @@ class _GroupSection(QWidget):
         group_name: str,
         prefixes: list[tuple[str, int]],
         initially_checked: set[str],
-        config=None,
+        *,
+        config,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -142,8 +143,7 @@ class _GroupSection(QWidget):
         self._group_cb.setStyleSheet("font-size: 12px;")
         hl.addWidget(self._group_cb)
 
-        _init_expand = config.expand_icon if config else "▶"
-        self._expand_lbl = QLabel(_init_expand)
+        self._expand_lbl = QLabel(config.expand_icon)
         self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -233,10 +233,7 @@ class _GroupSection(QWidget):
         if self._expanded and not self._body_built:
             self._build_body()
         self._body.setVisible(self._expanded)
-        if self._config:
-            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
-        else:
-            glyph = "▼" if self._expanded else "▶"
+        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
         self._expand_lbl.setText(glyph)
 
     def _update_group_state(self) -> None:
@@ -300,7 +297,8 @@ class _ContentTypeSection(QWidget):
         self,
         items: list[tuple[str, int]],       # [(source_category_label, count)]
         initially_checked: set[str],
-        config=None,
+        *,
+        config,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -327,8 +325,7 @@ class _ContentTypeSection(QWidget):
         self._group_cb.setStyleSheet("font-size: 12px;")
         hl.addWidget(self._group_cb)
 
-        _init_expand = config.expand_icon if config else "▶"
-        self._expand_lbl = QLabel(_init_expand)
+        self._expand_lbl = QLabel(config.expand_icon)
         self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
@@ -411,10 +408,7 @@ class _ContentTypeSection(QWidget):
         if self._expanded and not self._body_built:
             self._build_body()
         self._body.setVisible(self._expanded)
-        if self._config:
-            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
-        else:
-            glyph = "▼" if self._expanded else "▶"
+        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
         self._expand_lbl.setText(glyph)
 
     def _update_state(self) -> None:

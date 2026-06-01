@@ -127,7 +127,7 @@ class _GroupRow(QWidget):
 
     def __init__(self, group_name: str, total_count: int,
                  child_items: list[tuple[str, str, int]],
-                 indent: int = 0, config=None, parent=None):
+                 indent: int = 0, *, config, parent=None):
         super().__init__(parent)
         self._config = config
         self._children: list[_ItemRow] = []
@@ -142,8 +142,7 @@ class _GroupRow(QWidget):
         hl.setContentsMargins(8 + indent, 3, 8, 3)
         hl.setSpacing(4)
 
-        _expand_glyph = config.expand_icon if config else "▶"
-        self._expand_btn = QPushButton(_expand_glyph)
+        self._expand_btn = QPushButton(config.expand_icon)
         self._expand_btn.setFixedSize(16, 16)
         self._expand_btn.setFlat(True)
         self._expand_btn.setStyleSheet("QPushButton { color: #666; font-size: 9px; }")
@@ -187,10 +186,7 @@ class _GroupRow(QWidget):
     def _toggle_expand(self):
         self._expanded = not self._expanded
         self._child_container.setVisible(self._expanded)
-        if self._config:
-            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
-        else:
-            glyph = "▼" if self._expanded else "▶"
+        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
         self._expand_btn.setText(glyph)
 
     def _on_tri_changed(self, state_val: int):
@@ -248,7 +244,8 @@ class _Section(QWidget):
                  initially_expanded: bool = False,
                  info_text: str = "",
                  info_icon: str = "ℹ",
-                 config=None,
+                 *,
+                 config,
                  parent=None):
         super().__init__(parent)
         self._key = section_key
@@ -276,10 +273,7 @@ class _Section(QWidget):
         hl.setContentsMargins(6, 0, 6, 0)
         hl.setSpacing(4)
 
-        if config:
-            _init_glyph = config.collapse_icon if initially_expanded else config.expand_icon
-        else:
-            _init_glyph = "▼" if initially_expanded else "▶"
+        _init_glyph = config.collapse_icon if initially_expanded else config.expand_icon
         self._collapse_btn = QPushButton(_init_glyph)
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
@@ -356,10 +350,7 @@ class _Section(QWidget):
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self._content.setVisible(expanded)
-        if self._config:
-            glyph = self._config.collapse_icon if expanded else self._config.expand_icon
-        else:
-            glyph = "▼" if expanded else "▶"
+        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
         self._collapse_btn.setText(glyph)
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
