@@ -296,6 +296,12 @@ class DiscoverView(QWidget):
         if not self._loaded:
             self.refresh()
 
+    def on_deactivate(self) -> None:
+        """Stop the background loader thread if it is still running."""
+        if self._thread and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(2000)
+
     def reload(self) -> None:
         """Force a full reload — used when global filters change."""
         self._loaded = False

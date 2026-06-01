@@ -1628,6 +1628,10 @@ class MainWindow(QMainWindow):
         """Blank-slate all views. Call before activating any single view."""
         if self.epg_view.isVisible():
             self.epg_view.on_deactivate()
+        if self.discover_view.isVisible():
+            self.discover_view.on_deactivate()
+        if self.preferences_view.isVisible():
+            self.preferences_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)

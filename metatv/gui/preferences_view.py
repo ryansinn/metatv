@@ -202,6 +202,7 @@ class PreferencesView(QWidget):
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._active = False
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._pref_data_ready.connect(self._on_pref_data_ready)
         self._setup_ui()
@@ -488,7 +489,11 @@ class PreferencesView(QWidget):
         self._excl_toggle_btn.setText(f"{arrow} Excluded ({total})")
 
     def on_activate(self) -> None:
+        self._active = True
         self.refresh()
+
+    def on_deactivate(self) -> None:
+        self._active = False
 
     def refresh(self) -> None:
         self._executor.submit(self._bg_refresh)
@@ -517,6 +522,8 @@ class PreferencesView(QWidget):
         self._pref_data_ready.emit(weights, recs)
 
     def _on_pref_data_ready(self, weights, recs) -> None:
+        if not self._active:
+            return
         self._render(weights, recs)
 
     def _render(self, weights: AttributeWeights, recs: list[ScoredChannel]) -> None:
