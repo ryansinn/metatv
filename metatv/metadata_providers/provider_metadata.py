@@ -61,23 +61,21 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
             MetadataResult with fields from raw_data, or None if not available
         """
         try:
-            # Get channel from database
-            session = self.db.get_session()
-            try:
+            with self.db.session_scope() as session:
                 from metatv.core.database import ChannelDB
                 channel = session.query(ChannelDB).filter_by(id=channel_id).first()
-                
+
                 if not channel:
                     logger.debug(f"Channel not found: {channel_id}")
                     return None
-                
+
                 if not channel.raw_data:
                     logger.debug(f"No raw_data for channel: {channel.name}")
                     return None
-                
+
                 # Xtream API stores metadata in 'info' dict
                 info = channel.raw_data.get('info', {})
-                
+
                 if not info:
                     # Maybe raw_data IS the info (flat structure)
                     info = dict(channel.raw_data)   # shallow copy — don't mutate stored raw_data
@@ -88,51 +86,46 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                     info.pop('rating_5based', None)
                 else:
                     logger.debug(f"Using nested 'info' structure for {channel.name}")
-                
-                # Log what fields we found
+
                 logger.debug(f"Available fields in raw_data: {list(info.keys())}")
-                
-                # Extract and parse fields
+
                 result = MetadataResult(
                     title=info.get('name') or channel.name,
                     plot=info.get('plot') or info.get('description'),
                     tagline=info.get('tagline'),
-                    
+
                     # Images (use logo_url/stream_icon as poster fallback)
                     poster_url=info.get('cover') or info.get('movie_image') or channel.logo_url,
                     backdrop_url=self._get_first_or_none(info.get('backdrop_path', [])),
                     logo_url=channel.logo_url,
-                    
+
                     # People
                     director=info.get('director'),
                     cast=self._parse_cast_string(info.get('cast', '')),
-                    
+
                     # Classification
                     genres=self._parse_genres(info.get('genre', '')),
                     content_rating=info.get('rating') if isinstance(info.get('rating'), str) else None,
-                    
+
                     # Ratings
                     rating=self._parse_rating(info.get('rating')),
-                    
+
                     # Technical
                     runtime=self._parse_runtime(info.get('duration')),
                     release_date=info.get('releaseDate') or info.get('release_date'),
-                    
+
                     # Links
                     trailer_url=info.get('youtube_trailer'),
                     tmdb_id=str(info.get('tmdb_id', '')) if info.get('tmdb_id') else None,
-                    
+
                     # Metadata
                     provider_name="provider",
                     confidence=0.8  # Good quality but not verified against external source
                 )
-                
+
                 logger.debug(f"Extracted metadata: title={result.title}, plot_len={len(result.plot) if result.plot else 0}, poster={bool(result.poster_url)}, cast={len(result.cast) if result.cast else 0}")
-                
                 return result
-            finally:
-                session.close()
-        
+
         except Exception as e:
             logger.warning(f"Failed to extract provider metadata for {channel_id}: {e}", exc_info=True)
             return None

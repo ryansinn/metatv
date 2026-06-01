@@ -1,5 +1,6 @@
 """Database models and connection management"""
 
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event
@@ -393,7 +394,26 @@ class Database:
     def get_session(self) -> Session:
         """Get a new database session"""
         return self.SessionLocal()
-    
+
+    @contextmanager
+    def session_scope(self):
+        """Context manager that commits on success, rolls back on exception, always closes.
+
+        Preferred form for new code (supersedes raw try/finally around get_session):
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                ...
+        """
+        session = self.SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def close(self):
         """Close database connection"""
         self.engine.dispose()

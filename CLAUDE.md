@@ -107,27 +107,24 @@ from loguru import logger   # correct
 import logging              # NEVER use this
 ```
 
-### Database sessions — `close()` must run on every path
-A bare `with session:` only manages the *transaction*, not cleanup — never rely on it to close the session. `close()` must run on every path, including early returns and exceptions. Two acceptable forms:
+### Database sessions — use `session_scope()` for new code
+`Database.session_scope()` is a context manager that commits on success, rolls back on exception, and always closes the session. **Use it for all new code:**
 
 ```python
-# Form 1 — explicit try/finally (current code uses this everywhere)
+# Preferred — commits/rollback/close are automatic
+with self.db.session_scope() as session:
+    repos = RepositoryFactory(session)
+    # ... use session ...
+```
+
+A bare `with session:` only manages the *transaction*, not cleanup — never use that form. The legacy `try/finally` pattern remains in existing code:
+```python
+# Legacy — still acceptable, being migrated incrementally
 session = self.db.get_session()
 try:
     # ... use session ...
 finally:
     session.close()
-```
-
-<!-- target: REFACTOR_PLAN proposes a `session_scope()` context manager
-(try → yield → commit → except: rollback → finally: close). Once it lands,
-prefer `with session_scope() as session:` — it is shorter and makes the
-"early returns must clean up" rule automatic for sessions. This is a *better*
-`with`, not the transaction-only one banned above. -->
-```python
-# Form 2 — preferred once session_scope() exists
-with session_scope() as session:
-    # ... use session ...   # commit/rollback/close handled for you
 ```
 
 ### SQLite + SQLAlchemy JSON — serialize explicitly
