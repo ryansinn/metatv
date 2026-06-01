@@ -16,9 +16,9 @@ Panel width persists via the QSplitter in main_window.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
     QScrollArea, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 from loguru import logger
@@ -62,11 +62,13 @@ class _TriCheckbox(QCheckBox):
 
 class _ItemRow(QWidget):
     toggled = pyqtSignal(str, bool)
+    right_clicked = pyqtSignal(str, QPoint)   # key, global position
 
     def __init__(self, key: str, label: str, count: int,
                  indent: int = 0, parent=None):
         super().__init__(parent)
         self._key = key
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8 + indent, 2, 8, 2)
         layout.setSpacing(6)
@@ -94,6 +96,15 @@ class _ItemRow(QWidget):
                                             state == Qt.CheckState.Checked.value)
         )
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._cb.toggle()
+        super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.right_clicked.emit(self._key, event.globalPos())
+        event.accept()
+
     def is_checked(self) -> bool:
         return self._cb.isChecked()
 
@@ -112,6 +123,7 @@ class _ItemRow(QWidget):
 
 class _GroupRow(QWidget):
     changed = pyqtSignal()
+    child_right_clicked = pyqtSignal(str, QPoint)   # item key, global position
 
     def __init__(self, group_name: str, total_count: int,
                  child_items: list[tuple[str, str, int]],
@@ -163,6 +175,7 @@ class _GroupRow(QWidget):
         for key, label, count in child_items:
             row = _ItemRow(key, label, count, indent=indent + 16)
             row.toggled.connect(self._on_child_toggled)
+            row.right_clicked.connect(self.child_right_clicked)
             cl.addWidget(row)
             self._children.append(row)
 
@@ -222,6 +235,7 @@ class _GroupRow(QWidget):
 
 class _Section(QWidget):
     changed = pyqtSignal()
+    item_right_clicked = pyqtSignal(str, str, QPoint)  # item_key, section_key, global_pos
 
     def __init__(self, section_key: str, title: str,
                  and_axis: bool = False,
@@ -337,6 +351,9 @@ class _Section(QWidget):
         for key, label, count in items:
             row = _ItemRow(key, label, count)
             row.toggled.connect(self._on_item_toggled)
+            row.right_clicked.connect(
+                lambda k, pos, sk=self._key: self.item_right_clicked.emit(k, sk, pos)
+            )
             self._content_layout.addWidget(row)
             self._rows.append(row)
         self._update_ui()
@@ -347,6 +364,9 @@ class _Section(QWidget):
         for group_name, total, children in groups:
             g = _GroupRow(group_name, total, children)
             g.changed.connect(self._on_group_changed)
+            g.child_right_clicked.connect(
+                lambda k, pos, sk=self._key: self.item_right_clicked.emit(k, sk, pos)
+            )
             self._content_layout.addWidget(g)
             self._groups.append(g)
         self._update_ui()
@@ -395,6 +415,17 @@ class _Section(QWidget):
         for g in self._groups:
             g.restore_selection(selected_keys)
         self._update_ui()
+
+    def check_only(self, key: str):
+        """Check only the item with this key; uncheck all others in the section."""
+        for r in self._rows:
+            r.set_checked(r.key() == key)
+        for g in self._groups:
+            for child in g._children:
+                child.set_checked(child.key() == key)
+            g._update_tri()
+        self._update_ui()
+        self.changed.emit()
 
     # ── private ────────────────────────────────────────────────────────────
 
@@ -655,6 +686,10 @@ class FilterPanel(QWidget):
         self._sl.addStretch()
         scroll.setWidget(sc)
         outer.addWidget(scroll, 1)
+
+        # Wire right-click signals from all sections
+        for sec in self._all_sections():
+            sec.item_right_clicked.connect(self._on_item_right_clicked)
 
         self.restore_state()
 
@@ -953,3 +988,74 @@ class FilterPanel(QWidget):
     def _region_label(self, code: str) -> str:
         from metatv.core.channel_name_utils import REGION_FULL_NAMES
         return REGION_FULL_NAMES.get(code, code)
+
+    # ── Right-click context menu ────────────────────────────────────────────────
+
+    # Sections where "Exclude globally" makes sense — maps section key to the
+    # config lookup that resolves a display key to its prefix codes.
+    _GLOBALLY_EXCLUDABLE = {"unidentified", "language", "region", "platform"}
+
+    def _on_item_right_clicked(self, item_key: str, section_key: str, pos: QPoint):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background:#2a2a2a; color:#cccccc; border:1px solid #444; }"
+            "QMenu::item:selected { background:#3a3a3a; }"
+        )
+
+        solo_act = menu.addAction(f"Check only '{item_key}'")
+        solo_act.triggered.connect(lambda: self._check_only(item_key, section_key))
+
+        if section_key in self._GLOBALLY_EXCLUDABLE:
+            menu.addSeparator()
+            excl_act = menu.addAction(f"Exclude '{item_key}' globally…")
+            excl_act.triggered.connect(
+                lambda: self._exclude_globally(item_key, section_key)
+            )
+
+        menu.exec(pos)
+
+    def _check_only(self, item_key: str, section_key: str):
+        for sec in self._all_sections():
+            if sec.section_key() == section_key:
+                sec.check_only(item_key)
+                self.save_state()
+                break
+
+    def _exclude_globally(self, item_key: str, section_key: str):
+        """Add the item's prefix codes to global_filter_excluded_prefixes."""
+        # Resolve display key → list of raw prefix codes
+        if section_key == "unidentified":
+            prefixes = [item_key]
+        elif section_key == "language":
+            prefixes = self.config.filter_language_groups.get(item_key, [item_key])
+        elif section_key == "region":
+            prefixes = [item_key]
+        elif section_key == "platform":
+            prefixes = self.config.filter_platform_groups.get(item_key, [item_key])
+        else:
+            return
+
+        excluded: list[str] = list(getattr(self.config, 'global_filter_excluded_prefixes', []))
+        added = False
+        for p in prefixes:
+            if p not in excluded:
+                excluded.append(p)
+                added = True
+        if not added:
+            return
+
+        self.config.global_filter_excluded_prefixes = excluded
+        self.config.save()
+        logger.info(f"Globally excluded {prefixes} via filter panel (key={item_key!r})")
+
+        # Also uncheck the item locally so the UI is consistent
+        for sec in self._all_sections():
+            if sec.section_key() == section_key:
+                for r in sec._rows:
+                    if r.key() == item_key:
+                        r.set_checked(False, block=False)
+                        break
+                sec._update_ui()
+                break
+        self.save_state()
+        self.filter_changed.emit()
