@@ -1,5 +1,6 @@
 """Channel repository for data access"""
 
+import re
 from typing import Optional, List, Dict, Set
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -9,6 +10,115 @@ from loguru import logger
 from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
 from metatv.core.channel_name_utils import parse_channel_name, normalize_region_code, QUALITY_TOKENS
+
+
+# Normalises multilingual genre strings from Xtream providers to English canonical names.
+# Providers supply genres in their own language (French, Italian, German, Spanish, Dutch, etc.)
+# which creates duplicate clusters like Drama/Drame/Dramma/Dramat/Dramat.
+# Keys are lowercased for case-insensitive lookup; values are the canonical English label.
+_GENRE_NORM: dict[str, str] = {
+    # Drama variants
+    "drame":                    "Drama",
+    "dramma":                   "Drama",
+    "dramat":                   "Drama",
+    "draама":                   "Drama",
+    "drama & history":          "Drama",
+    # Comedy variants
+    "comédie":                  "Comedy",
+    "comedie":                  "Comedy",
+    "komödie":                  "Comedy",
+    "komedie":                  "Comedy",
+    "commedia":                 "Comedy",
+    "comedia":                  "Comedy",
+    # Crime / Thriller variants
+    "crimen":                   "Crime",
+    "krimi":                    "Crime",
+    "misdaad":                  "Crime",
+    "crime & mystery":          "Crime",
+    "crime, mystery":           "Crime",
+    # Documentary variants
+    "documentaire":             "Documentary",
+    "documental":               "Documentary",
+    "dokumentär":               "Documentary",
+    "dokumentar":               "Documentary",
+    "dokumentation":            "Documentary",
+    "doku":                     "Documentary",
+    # Sci-Fi / Fantasy variants
+    "science fiction":          "Sci-Fi & Fantasy",
+    "sci-fi":                   "Sci-Fi & Fantasy",
+    "sci fi":                   "Sci-Fi & Fantasy",
+    "science-fiction & fantastique": "Sci-Fi & Fantasy",
+    "science-fiction":          "Sci-Fi & Fantasy",
+    "fantascienza":             "Sci-Fi & Fantasy",
+    "ciencia ficción":          "Sci-Fi & Fantasy",
+    "fantasy":                  "Sci-Fi & Fantasy",
+    # Mystery / Thriller variants
+    "mystère":                  "Mystery",
+    "mystere":                  "Mystery",
+    "misterio":                 "Mystery",
+    "mistero":                  "Mystery",
+    "thriller":                 "Thriller",
+    # Action / Adventure variants
+    "action & abenteuer":       "Action & Adventure",
+    "action et aventure":       "Action & Adventure",
+    "action":                   "Action & Adventure",
+    "adventure":                "Action & Adventure",
+    "abenteuer":                "Action & Adventure",
+    "aventure":                 "Action & Adventure",
+    "aventura":                 "Action & Adventure",
+    # Animation variants
+    "animazione":               "Animation",
+    "animación":                "Animation",
+    "dessin animé":             "Animation",
+    # Family / Kids variants
+    "familial":                 "Family",
+    "famille":                  "Family",
+    "famiglia":                 "Family",
+    "familia":                  "Family",
+    "children":                 "Kids",
+    "children & family":        "Kids",
+    "kinder":                   "Kids",
+    "jeunesse":                 "Kids",
+    # Reality variants
+    "reality tv":               "Reality",
+    "realité":                  "Reality",
+    "realite":                  "Reality",
+    # War variants
+    "war & politics":           "War & Politics",
+    "guerra":                   "War & Politics",
+    "guerre":                   "War & Politics",
+    # Western
+    "western":                  "Western",
+    # Horror / Suspense
+    "horror":                   "Horror",
+    "horreur":                  "Horror",
+    "terror":                   "Horror",
+    # Romance
+    "romance":                  "Romance",
+    "romantique":               "Romance",
+    "romantico":                "Romance",
+    # History
+    "history":                  "History",
+    "histoire":                 "History",
+    "historia":                 "History",
+    "historical":               "History",
+    # Music
+    "music":                    "Music",
+    "musique":                  "Music",
+    "música":                   "Music",
+    # Sport
+    "sport":                    "Sport",
+    "sports":                   "Sport",
+    # News / Current affairs
+    "news":                     "News",
+    "actualité":                "News",
+    # Talk / Variety
+    "talk show":                "Talk Show",
+    "talk":                     "Talk Show",
+    "variety":                  "Talk Show",
+}
+
+_GENRE_SEP_RE = re.compile(r"[,/]")
 
 
 class ChannelRepository:
@@ -725,11 +835,12 @@ class ChannelRepository:
                     ~ChannelDB.user_category.in_(excluded_user_categories)))
         no_quality_count = no_quality_query.scalar() or 0
 
-        # Genre counts — split compound genre strings the same way discovery_engine does.
-        import re as _re
-        _genre_sep = _re.compile(r"[,/]")
+        # Genre counts — split compound strings, normalise multilingual variants to English,
+        # then count. Genres that contain no Latin letters (e.g. Arabic/CJK script) and
+        # have no mapping are dropped so they can't force the panel wider with RTL text.
         from collections import Counter as _Counter
         genre_counter: _Counter = _Counter()
+        _has_latin = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
         genre_q = (
             self.session.query(ChannelDB)
             .filter(
@@ -747,11 +858,16 @@ class ChannelRepository:
             )
         for ch in genre_q.all():
             genre_str = (ch.raw_data or {}).get("genre") or ""
-            for g in _genre_sep.split(genre_str):
+            for g in _GENRE_SEP_RE.split(genre_str):
                 g = g.strip()
-                if g:
-                    genre_counter[g] += 1
-        genre_counts = {g: cnt for g, cnt in genre_counter.most_common() if cnt >= 5}
+                if not g:
+                    continue
+                canonical = _GENRE_NORM.get(g.lower(), g)
+                # Skip genres with no Latin letters and no mapping (Arabic/CJK script etc.)
+                if canonical == g and not _has_latin.search(g):
+                    continue
+                genre_counter[canonical] += 1
+        genre_counts = {g: cnt for g, cnt in genre_counter.most_common() if cnt >= 10}
 
         return {
             'all_prefixes': list(all_prefixes),

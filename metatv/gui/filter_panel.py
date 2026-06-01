@@ -79,6 +79,8 @@ class _ItemRow(QWidget):
         lbl = QLabel(label)
         lbl.setStyleSheet("font-size: 12px; color: #cccccc;")
         lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        lbl.setMinimumWidth(0)   # prevent RTL/long text from forcing the panel wider
+        lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
         if count > 0:
