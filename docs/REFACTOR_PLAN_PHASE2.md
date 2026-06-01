@@ -9,11 +9,15 @@ Same ground rules as the original plan apply: one task per commit, characterizat
 before any behavior-preserving refactor, `venv/bin/python -m pytest tests/ -q` green after
 each task.
 
+**Status:** F0-1, F3-1, F4-1, F4-2 all completed 2026-06-01 on branch
+`refactor/p0-correctness-bugs` (suite 107 → 109). Remaining work is the original
+plan's P2/P3/P4 + test bands T2/T3 (see bottom).
+
 ---
 
 ## Priority 0 — Review follow-ups (latent correctness)
 
-### F0-1 — `_apply_favorite_toggle` reads ORM attributes after `session.close()`
+### F0-1 ✅ DONE — `_apply_favorite_toggle` reads ORM attributes after `session.close()`
 - **Where:** `metatv/gui/main_window.py` — `_apply_favorite_toggle` (~line 660). After the
   `finally: session.close()`, the code reads `channel.name` / `channel.is_favorite` for the
   status-bar message; `toggle_favorite_by_id` then passes the same detached `channel` into
@@ -47,7 +51,7 @@ each task.
 ## Priority 3 — View-owned executors not shut down on exit
 *(extends original-plan P3; same leak class P0-3 targeted, scoped out of PR #1)*
 
-### F3-1 — `PreferencesView._executor` and `DiscoverView` thread leak on app close
+### F3-1 ✅ DONE — `PreferencesView._executor` and `DiscoverView` thread leak on app close
 - **Where:** `metatv/gui/preferences_view.py` (`self._executor = ThreadPoolExecutor(max_workers=1)`
   in `__init__`) and `metatv/gui/discover_view.py` (background loader thread). PR #1 added
   `on_deactivate()` to both, but `MainWindow.closeEvent` does **not** call `on_deactivate()` on
@@ -65,7 +69,7 @@ each task.
 
 ## Priority 4 — Nits / hygiene (opportunistic)
 
-### F4-1 — Drop the dead `config=None` arrow fallbacks
+### F4-1 ✅ DONE — Drop the dead `config=None` arrow fallbacks
 - **Where:** `metatv/gui/filter_panel.py` and `metatv/gui/global_filter_dialog.py` — every
   toggle keeps `config.<icon> if config else "▶"/"▼"`. All production call sites now pass
   `config=self.config` (PR #1), so the literal branches are dead and technically still violate
@@ -76,7 +80,7 @@ each task.
 - **Accept:** no `"▶"`/`"▼"` literal remains in either file; all callers already pass config so
   no signature break in practice; tests pass.
 
-### F4-2 — Update stale `time_slot` comment in `get_schedule`
+### F4-2 ✅ DONE — Update stale `time_slot` comment in `get_schedule`
 - **Where:** `metatv/core/repositories/epg.py:178` — comment reads "local approximation — EPG is
   UTC but close enough."
 - **Why:** after the P0-2 fix, `day_start` is anchored to local-midnight-expressed-in-UTC, so the

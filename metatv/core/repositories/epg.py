@@ -175,7 +175,8 @@ class EpgRepository:
             EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
         )
 
-        # Time slot filter (local approximation — EPG is UTC but close enough)
+        # Time slot filter. day_start is anchored to local-midnight-in-UTC (see above),
+        # so these hour offsets yield exact local-time windows.
         slot_ranges = {
             "morning":   (6,  12),
             "afternoon": (12, 18),

@@ -2801,7 +2801,11 @@ class MainWindow(QMainWindow):
             if not channel:
                 return None
             new_status = repos.channels.toggle_favorite(channel_id)
-            channel.is_favorite = new_status
+            # toggle_favorite() commits, which expires every column on `channel`
+            # (expire_on_commit defaults True). Repopulate now so callers can read
+            # attributes (name, media_type, provider_id, ...) after the session is
+            # closed without triggering a DetachedInstanceError.
+            session.refresh(channel)
         finally:
             session.close()
 
@@ -4174,6 +4178,18 @@ class MainWindow(QMainWindow):
         # Shut down the main-window executor pool
         if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)
+
+        # Stop background work owned by the active content view (its on_deactivate
+        # quits loader threads); _hide_all_content_views only runs on view switches,
+        # not on app close, so do it explicitly here.
+        for _attr in ("discover_view", "preferences_view", "epg_view"):
+            _view = getattr(self, _attr, None)
+            if _view is not None and _view.isVisible():
+                _view.on_deactivate()
+        # PreferencesView owns a long-lived executor that on_deactivate does not stop.
+        _prefs = getattr(self, "preferences_view", None)
+        if _prefs is not None and hasattr(_prefs, "_executor"):
+            _prefs._executor.shutdown(wait=False)
 
         # Close database
         self.db.close()
