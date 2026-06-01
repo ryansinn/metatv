@@ -34,6 +34,7 @@ from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
 from metatv.gui.discover_workers import _LoaderWorker, _SeeAllWorker, _ShelfData
+from metatv.gui import icons as _icons
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -79,7 +80,7 @@ class DiscoverView(QWidget):
         hbl = QHBoxLayout(header_bar)
         hbl.setContentsMargins(8, 4, 8, 4)
         hbl.addStretch()
-        manage_btn = QPushButton(f"{self._config.manage_icon} Manage")
+        manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         manage_btn.setFlat(True)
         manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         manage_btn.setStyleSheet(
@@ -224,7 +225,7 @@ class DiscoverView(QWidget):
         if not visible:
             self._collapsed_zone.setVisible(False)
             return
-        arrow = self._config.collapse_icon if self._more_expanded else self._config.expand_icon
+        arrow = _icons.collapse_icon if self._more_expanded else _icons.expand_icon
         self._more_btn.setText(f"{arrow}  More Categories  ({count})")
         self._collapsed_zone.setVisible(self._more_expanded)
 

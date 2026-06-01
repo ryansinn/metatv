@@ -9,6 +9,7 @@ from PyQt6.QtGui import QPalette, QColor
 
 from metatv.core.notifications import Notification, NotificationType
 from metatv.core.config import Config
+from metatv.gui import icons as _icons
 
 
 class NotificationCard(QFrame):
@@ -74,11 +75,11 @@ class NotificationCard(QFrame):
         
         # Icon based on type
         icon_map = {
-            NotificationType.PROGRESS: self.config.notification_progress_icon,
-            NotificationType.SUCCESS: self.config.notification_success_icon,
-            NotificationType.ERROR: self.config.notification_error_icon,
-            NotificationType.WARNING: self.config.notification_warning_icon,
-            NotificationType.INFO: self.config.notification_info_icon
+            NotificationType.PROGRESS: _icons.notification_progress_icon,
+            NotificationType.SUCCESS: _icons.notification_success_icon,
+            NotificationType.ERROR: _icons.notification_error_icon,
+            NotificationType.WARNING: _icons.notification_warning_icon,
+            NotificationType.INFO: _icons.notification_info_icon
         }
         icon = icon_map.get(self.notification.type, "")
         
@@ -91,7 +92,7 @@ class NotificationCard(QFrame):
         header_layout.addStretch()
         
         if self.notification.dismissible:
-            close_btn = QPushButton(self.config.close_icon)
+            close_btn = QPushButton(_icons.close_icon)
             close_btn.setFixedSize(20, 20)
             close_btn.clicked.connect(self.dismiss)
             header_layout.addWidget(close_btn)
@@ -195,11 +196,11 @@ class NotificationCard(QFrame):
         
         # Update title
         icon_map = {
-            NotificationType.PROGRESS: self.config.notification_progress_icon,
-            NotificationType.SUCCESS: self.config.notification_success_icon,
-            NotificationType.ERROR: self.config.notification_error_icon,
-            NotificationType.WARNING: self.config.notification_warning_icon,
-            NotificationType.INFO: self.config.notification_info_icon
+            NotificationType.PROGRESS: _icons.notification_progress_icon,
+            NotificationType.SUCCESS: _icons.notification_success_icon,
+            NotificationType.ERROR: _icons.notification_error_icon,
+            NotificationType.WARNING: _icons.notification_warning_icon,
+            NotificationType.INFO: _icons.notification_info_icon
         }
         icon = icon_map.get(notification.type, "")
         self.title_label.setText(f"{icon} {notification.title}")

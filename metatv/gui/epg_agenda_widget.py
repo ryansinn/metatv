@@ -11,6 +11,7 @@ from loguru import logger
 from metatv.core.database import Database
 from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
 from metatv.core.repositories.epg import EpgRepository
+from metatv.gui import icons as _icons
 
 
 def _remaining_str(stop: datetime, now: datetime) -> str:
@@ -179,7 +180,7 @@ class EpgAgendaWidget(QWidget):
         if self._config is not None:
             patterns = self._config.epg_watchlist_patterns or []
             in_wl = prog.title in patterns
-            bell_btn = QPushButton(self._config.watchlist_on_icon if in_wl else self._config.watchlist_off_icon)
+            bell_btn = QPushButton(_icons.watchlist_on_icon if in_wl else _icons.watchlist_off_icon)
             bell_btn.setFixedWidth(26)
             bell_btn.setCheckable(True)
             bell_btn.setChecked(in_wl)
@@ -202,7 +203,7 @@ class EpgAgendaWidget(QWidget):
             patterns.remove(title)
         self._config.epg_watchlist_patterns = patterns
         self._config.save()
-        btn.setText(self._config.watchlist_on_icon if add else self._config.watchlist_off_icon)
+        btn.setText(_icons.watchlist_on_icon if add else _icons.watchlist_off_icon)
         btn.setToolTip("Remove from watchlist" if add else "Add to watchlist")
 
 

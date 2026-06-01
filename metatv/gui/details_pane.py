@@ -19,6 +19,7 @@ from metatv.gui.details_sections import (
     _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
 )
 from metatv.gui.details_actions import ChannelActionState, _ActionBar
+from metatv.gui import icons as _icons
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
 from metatv.gui.details_similar import _SimilarSection
 
@@ -130,9 +131,9 @@ class DetailsPaneWidget(QWidget):
         if metadata:
             self._apply_metadata(metadata)
         elif not is_live:
-            self._plot.show_loading(self.config.loading_icon)
+            self._plot.show_loading(_icons.loading_icon)
             self._poster.poster_loading.show()
-            self._poster.poster_loading.setText(f"{self.config.loading_icon} Loading poster...")
+            self._poster.poster_loading.setText(f"{_icons.loading_icon} Loading poster...")
 
         # Async fetches
         self.action_state_requested.emit(channel.id)

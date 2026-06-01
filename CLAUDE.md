@@ -75,30 +75,29 @@ Region/country codes, quality tokens, audio format maps, and similar lookup data
 
 If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
 
-### Icons — always from the central icon registry, never hardcoded
-Every icon, emoji, or symbol displayed in the UI must come from the central icon registry, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
-
-<!-- target: icons currently live as fields on `Config` (metatv/core/config.py). A settings/persistence model is the wrong home for presentation constants — REFACTOR_PLAN moves them to a dedicated `metatv/gui/icons.py` registry. Until that lands, the registry IS `Config`: reference `self.config.<name>_icon` and add new glyphs there first. -->
+### Icons — always from `metatv/gui/icons.py`, never hardcoded
+Every icon, emoji, or symbol displayed in the UI must come from `metatv/gui/icons.py`, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
 
 ```python
-# Correct (current registry = Config)
-rm_btn = QPushButton(self.config.close_icon)
-section_icon = config.favorite_icon
+# Correct
+from metatv.gui import icons as _icons
+rm_btn = QPushButton(_icons.close_icon)
 
-# Wrong — hardcoded literals
+# Wrong — hardcoded literals or old Config references
 rm_btn = QPushButton("×")
-super().__init__("Favorites", "★", config, parent)
+rm_btn = QPushButton(self.config.close_icon)
 ```
 
-If you need an icon that doesn't exist yet, add it to the registry first, then reference it.
+If you need an icon that doesn't exist yet, add it to `icons.py` first, then reference it. **Never add icon glyphs to `Config`** — Config is for user-configurable settings, not presentation constants.
 
-**Collapse/expand buttons specifically:** use `config.expand_icon` (collapsed state) and `config.collapse_icon` (expanded state) — never `move_up_icon` / `move_down_icon`, which are list-ordering arrows with different semantics. For top-level collapsibles, subclass `CollapsibleSection` (in `sidebar_sections.py`) — it handles the button, state, and persistence automatically. For inner/nested collapsibles (e.g. Stream Monitoring sub-section), follow the same convention:
+**Note:** existing code still uses `config.<name>_icon` — that is legacy being migrated incrementally. New code must use `icons.*`.
+
+**Collapse/expand buttons specifically:** use `icons.expand_icon` (collapsed state) and `icons.collapse_icon` (expanded state) — never `icons.move_up_icon` / `icons.move_down_icon`, which are list-ordering arrows. For top-level collapsibles, subclass `CollapsibleSection` — it handles the button, state, and persistence automatically. For inner/nested collapsibles:
 ```python
-btn = QPushButton(self.config.collapse_icon)  # start expanded
-btn.setFixedSize(20, 20)
-btn.setFlat(True)
+from metatv.gui import icons as _icons
+btn = QPushButton(_icons.collapse_icon)  # start expanded
 # on toggle:
-btn.setText(self.config.expand_icon if collapsed else self.config.collapse_icon)
+btn.setText(_icons.expand_icon if collapsed else _icons.collapse_icon)
 ```
 
 ### Logging — always loguru, never stdlib
