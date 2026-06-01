@@ -114,9 +114,10 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
                          "PERU", "DOMINICAN", "RDOM",
                          "VENEZUELA", "VZ",
                          "HONDURAS", "GUATEMALA", "ECUADOR", "PANAMA", "CUBA",
-                         "PR"],
+                         "PR",
+                         "VIX"],   # TelevisaUnivision streaming — Spanish-language Mexican/Latin content
     "Spanish (Spain)":  ["ES", "ESP"],                                  # Spain
-    "Spanish (Mexico)": ["MX", "MEX", "MXC"],                          # Mexico
+    "Spanish (Mexico)": ["MX", "MEX", "MXC", "VIX"],                  # Mexico — VIX is Televisa/TelevisaUnivision
     "Spanish (South America)": ["AR", "ARG", "BO", "CL", "CHL", "CO", "COL",
                                  "EC", "PE", "PY", "PAR", "UY", "URY", "VE", "VEN",
                                  "ARGENTINA", "COLOMBIA", "CHILE", "URUGUAY", "VENEZUELA", "VZ"],
@@ -172,8 +173,8 @@ BASE_PLATFORM_GROUPS: dict[str, list[str]] = {
     "EAR":           ["EAR"],
     "Netflix":       ["NF", "NETFLIX"],
     "Amazon Prime":  ["PRIME", "AMAZON"],
-    "D+":            ["D+", "DISNEY+", "DISNEY"],
-    "VIX":           ["VIX"],           # Spanish/Latin streaming (telenovelas confirmed)
+    "Disney+":       ["D+", "DISNEY+", "DISNEY"],
+    "VIX":           ["VIX"],           # TelevisaUnivision streaming — predominantly Mexican/Latin content
     "Joyn":          ["JOYN"],          # German streaming (ARD/3sat confirmed)
     "Tubi":          ["TUBI"],
     "WOW":           ["WOW"],           # German Sky streaming (Sky Cinema confirmed)
