@@ -4173,6 +4173,18 @@ class MainWindow(QMainWindow):
         if hasattr(self, "stream_retry_manager"):
             self.stream_retry_manager.stop()
 
+        # Shut down EPG timer and its worker pool
+        if hasattr(self, "epg_manager"):
+            self.epg_manager.shutdown()
+
+        # Shut down image-fetch worker pool
+        if hasattr(self, "image_cache"):
+            self.image_cache.shutdown()
+
+        # Shut down the main-window executor pool
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=False)
+
         # Close database
         self.db.close()
         event.accept()
