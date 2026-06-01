@@ -1,13 +1,14 @@
 """Provider data loading and management"""
 
 import asyncio
+import json
 import re
 from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
 
 from metatv.core.models import Provider, MediaType
-from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB
+from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.providers.factory import get_provider
 
@@ -92,8 +93,6 @@ class ProviderLoadThread(QThread):
         if self.provider.urls:
             url_session = self.db.get_session()
             try:
-                from metatv.core.database import ProviderDB
-                import json as _json
                 db_prov = url_session.query(ProviderDB).filter_by(id=self.provider.id).first()
                 if db_prov:
                     raw = parse_provider_urls(db_prov.urls)
@@ -105,7 +104,7 @@ class ProviderLoadThread(QThread):
                             pu = url_map[key]
                             entry['success_count'] = pu.success_count
                             entry['failure_count'] = pu.failure_count
-                    db_prov.urls = _json.dumps(raw)
+                    db_prov.urls = json.dumps(raw)
                     url_session.commit()
             except Exception as e:
                 logger.warning(f"Failed to persist URL stats: {e}")

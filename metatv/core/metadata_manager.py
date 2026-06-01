@@ -1,5 +1,6 @@
 """Metadata provider management and coordination"""
 import asyncio
+import json
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from collections import deque
@@ -279,8 +280,6 @@ class MetadataManager:
     
     def _metadata_db_to_result(self, metadata: MetadataDB) -> MetadataResult:
         """Convert MetadataDB to MetadataResult"""
-        import json
-        
         # Deserialize JSON fields (they're stored as strings in SQLite)
         cast = metadata.cast
         if isinstance(cast, str):
@@ -332,8 +331,6 @@ class MetadataManager:
     
     def _save_metadata_cache(self, session, channel: ChannelDB, result: MetadataResult):
         """Save metadata result to cache"""
-        import json
-        
         try:
             logger.debug(f"Saving metadata cache for {channel.name}")
             

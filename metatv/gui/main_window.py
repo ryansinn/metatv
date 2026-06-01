@@ -1,5 +1,15 @@
 """Main application window"""
 
+import asyncio
+import base64
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import time
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QSplitter,
@@ -10,9 +20,6 @@ from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from metatv.gui.icon_utils import resolve_icon
 from loguru import logger
-import re
-import subprocess
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from urllib.parse import urlparse, urlunparse
@@ -284,7 +291,6 @@ class MainWindow(QMainWindow):
         saved_geom = getattr(self.config, 'window_geometry', '')
         if saved_geom:
             try:
-                import base64
                 from PyQt6.QtCore import QByteArray
                 geom_bytes = QByteArray(base64.b64decode(saved_geom))
                 restored = self.restoreGeometry(geom_bytes)
@@ -815,10 +821,9 @@ class MainWindow(QMainWindow):
         self.executor.submit(self._bg_fetch_similar_titles, channel_id)
 
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
-        import re as _re
         from metatv.core.database import ChannelDB, WatchQueueDB
         from metatv.core.content_dedup import normalize_title, build_dedup_key
-        _non_ascii = _re.compile(r'[^\x00-\x7F]+')
+        _non_ascii = re.compile(r'[^\x00-\x7F]+')
 
         session = self.db.get_session()
         try:
@@ -2873,7 +2878,6 @@ class MainWindow(QMainWindow):
         """Update details pane with channel metadata (async)"""
         from concurrent.futures import ThreadPoolExecutor
         from metatv.core.models import MediaType
-        import asyncio
 
         # Live channels have no TMDb/OMDb metadata — show basic info and return.
         # EPG agenda and channel icon are handled directly by the details pane.
@@ -3942,8 +3946,6 @@ class MainWindow(QMainWindow):
     
     def ensure_single_mpv_running(self):
         """Ensure single mpv instance is running with IPC"""
-        import os
-        
         # Check if mpv is already running
         if self.mpv_process and self.mpv_process.poll() is None:
             logger.info("Single mpv instance already running")
@@ -3974,7 +3976,6 @@ class MainWindow(QMainWindow):
             logger.info(f"Started single mpv instance with PID {self.mpv_process.pid}")
             
             # Wait a moment for socket to be created
-            import time
             for i in range(10):
                 if os.path.exists(self.mpv_socket):
                     logger.info(f"mpv IPC socket ready: {self.mpv_socket}")
@@ -3989,10 +3990,6 @@ class MainWindow(QMainWindow):
     
     def play_in_single_mpv(self, url: str, title: str) -> bool:
         """Send URL to single mpv instance via IPC"""
-        import socket
-        import json
-        import os
-        
         # Ensure mpv is running
         if not self.ensure_single_mpv_running():
             return False
@@ -4152,7 +4149,6 @@ class MainWindow(QMainWindow):
         """Handle window close"""
         # Save window geometry so it restores on next launch
         try:
-            import base64
             self.config.window_geometry = base64.b64encode(
                 bytes(self.saveGeometry())
             ).decode("ascii")

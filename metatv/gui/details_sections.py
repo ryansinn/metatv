@@ -1,4 +1,6 @@
 """Content section widgets for the details pane: poster, metadata, plot, technical, cast."""
+import re
+
 from loguru import logger
 
 from PyQt6.QtWidgets import (
@@ -291,10 +293,9 @@ class _MetadataSection(QWidget):
             h, m = divmod(metadata.runtime, 60)
             self.runtime_label.setText(f"{h}h {m}m" if h else f"{m}m")
         if metadata.genres:
-            import re as _re
             genres: list[str] = []
             for g in metadata.genres:
-                if isinstance(g, str) and _re.search(r'\s*/\s*', g):
+                if isinstance(g, str) and re.search(r'\s*/\s*', g):
                     genres.extend(p.strip() for p in g.split('/') if p.strip())
                 else:
                     genres.append(g)
