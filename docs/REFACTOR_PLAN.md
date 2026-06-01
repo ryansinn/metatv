@@ -134,6 +134,19 @@ copy-pasted in **at least 6 places**:
 
 ---
 
+### P1-5 — Per-call `ThreadPoolExecutor` for metadata fetch (thread leak)
+- **Where:** `metatv/gui/main_window.py:2939` — inside the metadata-fetch path a fresh
+  `executor = ThreadPoolExecutor(max_workers=1)` is created **on every channel selection**,
+  used for one `submit`, and never `shutdown()`. Each call leaks a worker thread until GC.
+- **Fix:** reuse the existing long-lived `self.executor` (created at `main_window.py:241`).
+  Replace the local executor with `self.executor.submit(fetch_metadata)`; keep the
+  `add_done_callback`. (The callback runs on the pool thread, so it already correctly
+  marshals to the UI via `self.metadata_loaded.emit` — leave that intact.)
+- **Accept:** no per-call executor remains; selecting many channels does not grow the thread
+  count; metadata still loads.
+
+---
+
 ## Priority 2 — Inline stylesheets → `theme.py`
 
 - **Rule violated:** *"Styles — use `theme.py`, never inline duplicates."*
@@ -229,6 +242,40 @@ break behavior. Order: test → see green → refactor → see green → commit 
   date **2026-05-31** returns it and for **2026-06-01** does not. This test should FAIL on
   current `main` and PASS after P0-2. Also cover the time-slot ("Evening") boundary.
 
+### P0-3 — `MainWindow.closeEvent` leaks threads (cleanup-rule violation)
+- **Where:** `metatv/gui/main_window.py:4168-4178`. `closeEvent` calls
+  `player_manager.cleanup()`, `stream_retry_manager.stop()`, `db.close()` — but **never**
+  calls these background managers that own threads/timers:
+  - `epg_manager.shutdown()` (`epg_manager.py:453` — stops the QTimer **and**
+    `self._executor.shutdown()` for a 2-worker pool)
+  - `image_cache.shutdown()` (`image_cache.py:290` — 4-worker pool)
+  - `self.executor.shutdown()` (the MainWindow-owned 4-worker pool created at
+    `main_window.py:241`)
+- **Rule violated:** *"Resource cleanup in closeEvent — any background manager with a
+  stop()/shutdown() method must be called explicitly… GC/parent destruction is not
+  sufficient for threads."* On exit, these pools/timer keep running.
+- **Fix:** add the three calls to `closeEvent` before `event.accept()`. Guard each with
+  `hasattr`/`is not None` like the existing `stream_retry_manager` block.
+- **Accept:** app exits cleanly; no lingering `epg`/`image`/executor threads; a test that
+  spies `shutdown()`/`stop()` were each called on close.
+
+### P0-4 — Views with `on_activate()` but no `on_deactivate()` (lifecycle-rule violation)
+- **Where:** `discover_view.py`, `events_view.py`, `sports_view.py`, `preferences_view.py`
+  each define `on_activate()` (start QThreads / submit executor work) but **no**
+  `on_deactivate()`. (`epg_view`, `content_view`, `ppv_view` are symmetric — use them as
+  the template.)
+- **Rule violated:** *"View lifecycle — on_activate / on_deactivate must be symmetric."*
+  Concrete failure: switch away from Discover mid-load and the running `QThread`
+  (`discover_view.py:325`) is never `quit()`/`wait()`-ed; on app close this can raise
+  *"QThread: Destroyed while thread is still running."* Executor-backed views
+  (events/sports/preferences) keep fetching after the user has left the view.
+- **Fix:** add `on_deactivate()` to each: quit+wait the QThread (or set a cancel flag the
+  worker checks), stop any view timers, and have `main_window._hide_all_content_views()`
+  call `on_deactivate()` on the departing view (per the CLAUDE.md "safest pattern").
+- **Accept:** rapid view-switching during a Discover load produces no Qt thread warnings;
+  leaving events/sports cancels in-flight fetches; tests assert the host calls
+  `on_deactivate` on the outgoing view.
+
 ### T1 — Characterization tests before the P1 dedup refactors
 
 - **T1-1 `test_provider_urls_parse.py`** — pin `parse_provider_urls()` semantics so all 6
@@ -293,3 +340,50 @@ radius:
   commit message).
 - Update the **[filter test suite memory]** count and the FILTERING_DESIGN / ROADMAP
   test-coverage sections when the suite grows (per Session Wrap SOP step 1).
+
+---
+
+## Appendix — Are the CLAUDE.md "Critical Rules" themselves best practices?
+
+Reviewed each documented rule on its own merits. Verdicts: **Sound** (keep as-is),
+**Band-aid** (the rule reliably prevents a bug, but it does so by mandating discipline at
+every call site instead of removing the root cause — a deeper structural fix would make the
+rule unnecessary), **Reconsider** (the rule may push code toward a mild anti-pattern).
+
+Most rules are genuinely good. The five "Band-aid"/"Reconsider" items below share one
+theme — *they enforce repeated manual discipline where a single shared mechanism would be
+safer.* These are the highest-leverage structural improvements in this whole plan, because
+each one **eliminates an entire recurring bug class** rather than fixing one instance. Treat
+them as optional-but-recommended P1.5 work, each behind its own design discussion.
+
+| CLAUDE.md rule | Verdict | Note |
+|---|---|---|
+| EPG time utils from `epg_utils.py` | **Sound** | Textbook DRY / single source. |
+| Collapse/expand icon convention | **Sound** | Consistency convention; cheap to honor. |
+| Styles in `theme.py`, *never* inline | **Sound** (soften wording) | DRY is right; "never inline" is too absolute — a genuinely one-off style is fine inline. Reword to "no **duplicated** stylesheet string." |
+| Lookup tables single-source | **Sound** | Correct. |
+| **Icons always on `Config`** | **Reconsider** | Overloads a *settings/persistence* model (Pydantic `Config`) with dozens of presentation constants — two concerns in one object, and every new glyph bloats the user config schema. Better: a dedicated `metatv/gui/icons.py` (or `theme.ICONS`) constants module; reserve `Config` for things the user actually configures. Keeps the "no hardcoded literals" benefit without conflating config with theming. |
+| Logging = loguru only | **Sound** | Fine project-wide consistency choice. |
+| **DB sessions: try/finally, never `with`** | **Band-aid** | The rule prevents a real leak, but enshrines try/finally boilerplate at ~every query site (and spawns the sibling rule "early returns must clean up"). Root-cause fix: one `@contextmanager session_scope()` helper that does `try → yield → commit → except: rollback → finally: close`. Call sites become `with session_scope() as s:` — shorter, leak-proof, and the "early-return cleanup" rule becomes moot for sessions. This is the single biggest readability win available. |
+| **SQLite JSON: manual `json.dumps/loads` every assignment** | **Band-aid** | The rule itself documents a recurring bug (forgetting the write-back `dumps`). That bug class only exists *because* serialization is manual. Root-cause fix: a SQLAlchemy `TypeDecorator` (`JSONEncoded`) that does dumps/loads in `process_bind_param`/`process_result_value` once; columns become `Column(JSONEncoded)` and you assign/read plain Python objects. Eliminates the entire "stored a Python list instead of JSON string" footgun (incl. the P1-1 provider-urls churn). |
+| Qt threading via signals | **Sound** | Correct and non-negotiable. |
+| QPixmap on main thread | **Sound** | Correct Qt constraint. |
+| Signal-block during restore | **Sound** | Standard Qt idiom. |
+| EPG notifications not from workers | **Sound** | Correct; already implemented via private signals. |
+| **EPG times stored UTC-naive** | **Reconsider (root cause)** | This single decision spawns *three* defensive rules (display-convert, "never `.date()==today()`", arithmetic-in-UTC) and is the direct cause of bug **P0-2**. Storing tz-aware UTC datetimes (or documenting a single conversion boundary at the parser/repo edge) would remove the footgun class. At minimum, centralize *all* conversions in `epg_utils.py` so no view ever touches a raw `start_time`. Heavier lift (touches the schema/parser) — scope as its own task, not a drive-by. |
+| EPG one-worker fetch (SQLite lock) | **Sound** (note) | Correct given current setup. Worth a footnote: enabling SQLite **WAL mode** would relax write-concurrency pain app-wide and is independently worth doing. |
+| Early returns clean up acquired state | **Sound** | Good defensive rule — but see the `session_scope()` note: context managers make most instances of it automatic. |
+| View `on_activate`/`on_deactivate` symmetric | **Sound** | Good rule; currently **violated** in 4 views (task P0-4). |
+| Resource cleanup in `closeEvent` | **Sound** (fragile) | Right intent, but manual per-manager registration is fragile and is **already violated** (task P0-3). Sturdier: a small `self._cleanables: list` that managers register into, iterated in `closeEvent` — new managers can't be forgotten. |
+| UI state persistence everywhere | **Sound** | Good product rule. |
+
+**Recommended structural tasks distilled from the above (each its own design + commit):**
+1. `session_scope()` contextmanager → migrate query sites off raw try/finally. (Supersedes the "never `with session`" rule with a *better* `with`.)
+2. `JSONEncoded` `TypeDecorator` → retire manual `json.dumps/loads` discipline.
+3. `metatv/gui/icons.py` constants module → move glyphs off the `Config` settings model.
+4. EPG tz-aware storage (or single conversion boundary) → dissolve the cluster of EPG-time rules; fixes P0-2 at the root.
+5. `closeEvent` cleanup registry → make P0-3-style omissions structurally impossible.
+6. (Independent) Enable SQLite **WAL mode** to ease the one-writer constraint.
+
+Do **not** silently rewrite these — each changes a documented convention. Propose the change,
+update CLAUDE.md's rule text in the *same* commit, and keep the old rule's intent intact.
