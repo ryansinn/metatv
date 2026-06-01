@@ -2,6 +2,13 @@
 
 What's left to build. Completed features live in git history.
 
+> **Product vision & direction:** see [docs/PRODUCT_VISION.md](docs/PRODUCT_VISION.md) for the
+> enduring "why" — the thesis (lean native ambient-companion player; complexity → a mind-reading
+> Discover; comfort↔explore and chef↔grocery axes), design principles (function-over-form,
+> power-without-dumbing-down, good-on-raw-data), and clearly-subordinate stretch directions
+> (multi-source aggregation, URL-loaded plugin manifests, headless backend + mobile/TV clients).
+> The items below are concrete, tracked features.
+
 ## Metadata & Enrichment
 
 - [ ] **TMDb / OMDb providers** — architecture in place; need API key config UI + implementations
@@ -28,6 +35,10 @@ What's left to build. Completed features live in git history.
 
 ## Playback & Queue
 
+- [ ] **Ambient mini-player mode** — low-chrome, always-on-top / PIP corner window that expands to fullscreen; the "media in the corner while working ↔ relax fullscreen" continuum (see PRODUCT_VISION.md ambient-companion thesis)
+- [ ] **Global playback hotkeys** — control play/pause/next/seek without focusing the player window (essential for the corner-companion loop)
+- [ ] **Music as a first-class media type** — treat audio/music alongside video in management, queue, and playback (MetaTV is a media *and* music player)
+- [ ] **(Stretch) Desktop-embedded video-widget playback** — Linux/KDE: render playback into a desktop-embedded widget that normal windows cover when on top (wallpaper/widget-style ambient playback); platform-specific, experimental
 - [ ] **MPV IPC event system** — monitor `playlist-pos`, `time-pos`, `end-file` via socket; thread-safe Qt signals; enables real-time history for queued episodes and resume playback
 - [ ] **Resume playback** — track `time-pos` per episode; "Resume from X:XX?" prompt on re-open (requires IPC event system)
 - [ ] **Completion detection** — auto-mark watched at >90%; mark partial if 10–90% (requires IPC event system)
