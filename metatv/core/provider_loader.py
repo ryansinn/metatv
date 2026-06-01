@@ -8,6 +8,7 @@ from loguru import logger
 
 from metatv.core.models import Provider, MediaType
 from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB
+from metatv.core.repositories.provider import parse_provider_urls
 from metatv.providers.factory import get_provider
 
 _HASH_HEADER_RE = re.compile(r'^#{2,}\s*(.*?)\s*#{2,}$')
@@ -95,9 +96,7 @@ class ProviderLoadThread(QThread):
                 import json as _json
                 db_prov = url_session.query(ProviderDB).filter_by(id=self.provider.id).first()
                 if db_prov:
-                    raw = db_prov.urls or []
-                    if isinstance(raw, str):
-                        raw = _json.loads(raw)
+                    raw = parse_provider_urls(db_prov.urls)
                     # Merge updated counts from the in-memory ProviderURL objects
                     url_map = {pu.url.rstrip('/'): pu for pu in self.provider.urls}
                     for entry in raw:

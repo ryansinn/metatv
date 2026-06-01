@@ -10,6 +10,25 @@ from metatv.core.database import ProviderDB
 from metatv.core.models import Provider, ProviderURL
 
 
+def parse_provider_urls(raw: "str | list | None") -> list[dict]:
+    """Coerce a ProviderDB.urls value (JSON string or list) into a list of dicts.
+
+    Handles all formats that may appear in the DB column:
+    - JSON-encoded string  → decoded then filtered
+    - Already a list       → filtered in place
+    - None / empty string  → empty list
+    - Malformed JSON       → empty list (logged as warning by callers)
+    """
+    if isinstance(raw, str):
+        if not raw:
+            return []
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    return [u for u in (raw or []) if isinstance(u, dict)]
+
+
 class ProviderRepository:
     """Repository for provider data access"""
     
@@ -68,14 +87,8 @@ class ProviderRepository:
     def to_model(self, db_provider: ProviderDB) -> Provider:
         """Convert database model to domain model, including alternate URLs."""
         urls: List[ProviderURL] = []
-        raw_urls = db_provider.urls or []
-        if isinstance(raw_urls, str):
-            try:
-                raw_urls = json.loads(raw_urls)
-            except Exception:
-                raw_urls = []
-        for u in raw_urls:
-            if not isinstance(u, dict) or not u.get('url'):
+        for u in parse_provider_urls(db_provider.urls):
+            if not u.get('url'):
                 continue
             urls.append(ProviderURL(
                 url=u['url'],

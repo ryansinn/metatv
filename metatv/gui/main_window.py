@@ -22,6 +22,7 @@ from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.notifications import NotificationManager
 from metatv.core.player_manager import PlayerManager
 from metatv.core.provider_loader import SeriesLoadThread
@@ -2882,8 +2883,7 @@ class MainWindow(QMainWindow):
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(channel.provider_id)
             if provider_db and provider_db.urls:
-                import json
-                urls_data = json.loads(provider_db.urls) if isinstance(provider_db.urls, str) else provider_db.urls
+                urls_data = parse_provider_urls(provider_db.urls)
                 provider_urls = [u.get('url') for u in urls_data if u.get('is_active', True) and u.get('url')]
             session.close()
             logger.debug(f"Provider URLs for failover: {provider_urls}")
@@ -3769,10 +3769,7 @@ class MainWindow(QMainWindow):
 
             logger.info(f"Trying {len(candidate_bases)} alternate URL(s) for {provider_db.name} (reliability order)")
 
-            raw_urls = provider_db.urls or []
-            if isinstance(raw_urls, str):
-                import json as _json
-                raw_urls = _json.loads(raw_urls)
+            raw_urls = parse_provider_urls(provider_db.urls)
 
             for alt_base in candidate_bases:
                 new_stream_url = self.reconstruct_stream_url(stream_url, original_base, alt_base)

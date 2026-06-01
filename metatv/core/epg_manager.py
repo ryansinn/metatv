@@ -12,6 +12,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
+from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
 
 
@@ -84,16 +85,10 @@ class EpgManager(QObject):
 
     def _build_epg_url(self, provider: ProviderDB) -> str | None:
         """Construct the standard Xtream XMLTV URL from provider credentials + primary server."""
-        import json as _json
-        raw_urls = provider.urls or []
-        if isinstance(raw_urls, str):
-            try:
-                raw_urls = _json.loads(raw_urls)
-            except Exception:
-                raw_urls = []
+        raw_urls = parse_provider_urls(provider.urls)
         if not raw_urls:
             return None
-        first = raw_urls[0] if isinstance(raw_urls[0], dict) else {}
+        first = raw_urls[0]
         base = first.get("url", "").rstrip("/")
         if not base:
             return None
