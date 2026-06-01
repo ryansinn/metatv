@@ -127,31 +127,15 @@ finally:
     session.close()
 ```
 
-### SQLite + SQLAlchemy JSON — serialize explicitly
-SQLAlchemy's native JSON column type has SQLite compatibility issues, so JSON columns are plain `Text` and serialization is done by hand:
-```python
-metadata.cast = json.dumps(result.cast)   # saving
-cast = json.loads(metadata.cast) if metadata.cast else []  # loading
-```
-
-<!-- target: manual dumps/loads at every call site is the *cause* of the
-recurring "stored a Python list instead of a JSON string" bug below.
-REFACTOR_PLAN proposes a `JSONEncoded` TypeDecorator (process_bind_param /
-process_result_value) so columns become `Column(JSONEncoded)` and you
-assign/read plain Python objects — the discipline below becomes unnecessary.
-Until that lands, follow the manual rule exactly. -->
-
-This applies to **every assignment** to a JSON column — including after modifying a previously-deserialized list or dict in-place. If you read with `json.loads()`, you must write back with `json.dumps()`.
+### SQLite JSON columns — use `JSONEncoded`, assign plain Python objects
+JSON-like columns use `Column(JSONEncoded)` (defined in `database.py`), a `TypeDecorator` over `Text` that serializes transparently. Assign and read plain Python objects — no `json.dumps/loads` needed:
 
 ```python
-# Wrong — assigning a Python object back without re-serializing
-raw = json.loads(db_obj.urls)
-raw[0]['count'] += 1
-db_obj.urls = raw          # ← BUG: stores a Python list, not JSON string
-
-# Correct
-db_obj.urls = json.dumps(raw)
+metadata.cast = result.cast          # assign a list — JSONEncoded handles serialization
+cast = metadata.cast or []           # read back a list — no json.loads needed
 ```
+
+Never do `json.dumps(value)` before assigning to a `JSONEncoded` column — that double-encodes.
 
 ### Qt threading — signals only, never direct widget access from threads
 Qt widgets are NOT thread-safe. Worker threads must emit signals; only the main thread updates widgets.

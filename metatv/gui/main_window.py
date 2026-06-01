@@ -3792,7 +3792,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['success_count'] = url_entry.get('success_count', 0) + 1
                         url_entry['last_success'] = datetime.now().isoformat()
-                        provider_db.urls = _json.dumps(raw_urls)
+                        provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
                     return new_stream_url, None
@@ -3800,7 +3800,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
                         url_entry['last_failure'] = datetime.now().isoformat()
-                        provider_db.urls = _json.dumps(raw_urls)
+                        provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
                     if alt_err:

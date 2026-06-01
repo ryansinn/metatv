@@ -2,13 +2,38 @@
 
 from contextlib import contextmanager
 from datetime import datetime
+import json as _json
 from typing import Optional
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 Base = declarative_base()
+
+
+class JSONEncoded(TypeDecorator):
+    """Stores any JSON-serializable Python object as TEXT in SQLite.
+
+    Use instead of Column(JSON) to avoid SQLite JSON-type quirks. Assign plain
+    Python objects (lists, dicts, None); serialization is transparent.
+
+        cast = Column(JSONEncoded)   # assign/read a Python list — no json.dumps/loads needed
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return _json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return _json.loads(value)
 
 
 class ChannelDB(Base):
@@ -52,7 +77,7 @@ class ChannelDB(Base):
     sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
     league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
     team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
-    event_metadata = Column(JSON)  # Additional parsed data (event name, quality, etc.)
+    event_metadata = Column(JSONEncoded)  # Additional parsed data (event name, quality, etc.)
 
     rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
     rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
@@ -85,13 +110,13 @@ class MetadataDB(Base):
     year = Column(Integer, index=True)
     runtime = Column(Integer)
     
-    genres = Column(JSON)
+    genres = Column(JSONEncoded)
     media_type = Column(String, default="unknown", index=True)
-    
+
     # People (cast is the new name, actors kept for backwards compatibility)
-    actors = Column(JSON)  # Deprecated: use cast instead
-    cast = Column(JSON)  # [{name, character, photo_url}]
-    crew = Column(JSON)  # [{name, job, department}]
+    actors = Column(JSONEncoded)  # Deprecated: use cast instead
+    cast = Column(JSONEncoded)  # [{name, character, photo_url}]
+    crew = Column(JSONEncoded)  # [{name, job, department}]
     director = Column(String)
     
     plot = Column(Text)
@@ -127,7 +152,7 @@ class ProviderDB(Base):
     type = Column(String, nullable=False)
     
     url = Column(Text, nullable=False)
-    urls = Column(JSON)  # List of ProviderURL objects
+    urls = Column(JSONEncoded)  # List of ProviderURL objects
     username = Column(String)
     password = Column(String)  # TODO: Encrypt this
     

@@ -280,51 +280,32 @@ class MetadataManager:
     
     def _metadata_db_to_result(self, metadata: MetadataDB) -> MetadataResult:
         """Convert MetadataDB to MetadataResult"""
-        # Deserialize JSON fields (they're stored as strings in SQLite)
-        cast = metadata.cast
-        if isinstance(cast, str):
-            cast = json.loads(cast) if cast else []
-        elif cast is None:
-            cast = []
-            
-        crew = metadata.crew
-        if isinstance(crew, str):
-            crew = json.loads(crew) if crew else []
-        elif crew is None:
-            crew = []
-            
-        genres = metadata.genres
-        if isinstance(genres, str):
-            genres = json.loads(genres) if genres else []
-        elif genres is None:
-            genres = []
-        
         return MetadataResult(
             title=metadata.title,
             year=metadata.year,
             plot=metadata.plot,
             tagline=metadata.tagline,
-            
+
             poster_url=metadata.poster_url,
             backdrop_url=metadata.backdrop_url,
-            
-            cast=cast,
-            crew=crew,
+
+            cast=metadata.cast or [],
+            crew=metadata.crew or [],
             director=metadata.director,
-            
-            genres=genres,
+
+            genres=metadata.genres or [],
             content_rating=metadata.content_rating,
-            
+
             rating=metadata.rating,
             rating_count=metadata.rating_count,
-            
+
             runtime=metadata.runtime,
             release_date=metadata.release_date,
-            
+
             trailer_url=metadata.trailer_url,
             imdb_id=metadata.imdb_id,
             tmdb_id=metadata.tmdb_id,
-            
+
             provider_name=metadata.source,
             confidence=1.0
         )
@@ -356,14 +337,9 @@ class MetadataManager:
             metadata.poster_url = result.poster_url
             metadata.backdrop_url = result.backdrop_url
             
-            # Convert cast/crew to JSON strings for SQLite compatibility
-            logger.debug(f"Cast data type: {type(result.cast)}, value: {result.cast[:2] if result.cast else None}")
-            logger.debug(f"Crew data type: {type(result.crew)}, value: {result.crew[:2] if result.crew else None}")
-            
-            # Manually serialize to JSON strings to avoid SQLAlchemy JSON issues
-            metadata.cast = json.dumps(result.cast) if result.cast else json.dumps([])
-            metadata.crew = json.dumps(result.crew) if result.crew else json.dumps([])
-            metadata.genres = json.dumps(result.genres) if result.genres else json.dumps([])
+            metadata.cast = result.cast or []
+            metadata.crew = result.crew or []
+            metadata.genres = result.genres or []
 
             metadata.director = result.director
             metadata.content_rating = result.content_rating

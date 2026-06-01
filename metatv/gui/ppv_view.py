@@ -27,9 +27,7 @@ class PPVEventCard(QFrame):
     def __init__(self, channel: ChannelDB, parent=None):
         super().__init__(parent)
         self.channel = channel
-        # event_metadata is stored as a JSON string in SQLite
-        raw = channel.event_metadata
-        self._meta: dict = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        self._meta: dict = channel.event_metadata or {}
         self._setup_ui()
         self.update_countdown()
 
