@@ -71,6 +71,17 @@ What's left to build. Completed features live in git history.
 - [ ] **Launch-time feedback prompts** — while channels load at startup (5-10s), show "You watched [X] — what did you think?" prompts for recently-watched content with no rating; feeds the recommendation engine quickly; opt-in ("Ask me about content I watch"), explain data stays local; dismissable and rate-limited so it doesn't become annoying
 - [ ] **Recommendation dashboard — category mood editor** — show all user categories with their current mood, channel count, and inferred genre; let user adjust mood in bulk without re-opening CategoryPickerDialog; "Why is this recommended?" explainer links back to category mood contributions
 
+## Code Health / Refactor
+
+See **[docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md)** for the full prioritized,
+file:line-level task list (full-codebase review 2026-06-01). Summary:
+
+- [ ] **P0 — best-practice bug fixes** — `provider_loader.py` `with session` leak (try/finally rule); EPG Browse date picker uses local `date.today()` against UTC-naive storage (wrong programmes for non-UTC users)
+- [ ] **P1 — deduplication** — single `parse_provider_urls()` helper (6 copy-paste sites); collapse duplicated favorite-toggle in `main_window.py`; replace hardcoded `▼`/`▶` with `Config.expand_icon`/`collapse_icon`; hoist in-function imports to module scope
+- [ ] **P2 — inline stylesheets → `theme.py`** — `epg_view.py` (63), `provider_editor.py` (36), `global_filter_dialog.py` (30), etc. share repeated style strings
+- [ ] **P3 — decompose oversized files (>1000-line rule)** — `main_window.py` (4178), `epg_view.py` (2167), `sidebar_sections.py` (1403), `provider_editor.py` (1120), `filter_panel.py` (1061)
+- [ ] **P4 — status-set dedup** (5 sites, see [refactor-audit memory]) + delete stray 25 MB `--help` artifact
+
 ## Platform & Distribution
 
 - [ ] **M3U playlist support**

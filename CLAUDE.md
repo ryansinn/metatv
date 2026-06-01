@@ -297,3 +297,4 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | Xtream API schema | [docs/xtream_api_schema.md](docs/xtream_api_schema.md) |
 | UI state persistence patterns | [DESIGN.md](DESIGN.md) |
 | Roadmap | [ROADMAP.md](ROADMAP.md) |
+| Refactor / dedup / cleanup plan | [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md) |
