@@ -13,6 +13,11 @@ from metatv.core.database import EpgProgramDB, ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc
 
 
+def _local_tz():
+    """Return the machine's local tzinfo. Extracted for testability."""
+    return datetime.now().astimezone().tzinfo
+
+
 class EpgRepository:
     """Repository for EPG programme data access."""
 
@@ -155,9 +160,13 @@ class EpgRepository:
         Returns:
             Programmes ordered by start_time.
         """
-        # Build date boundary in naive UTC (EPG times stored as UTC-naive)
-        day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
-        day_end   = day_start + timedelta(days=1)
+        # Convert the LOCAL calendar date chosen by the user into a UTC-naive window.
+        # target_date is a local date; EPG rows are stored as UTC-naive datetimes.
+        local_start = datetime(
+            target_date.year, target_date.month, target_date.day, tzinfo=_local_tz()
+        )
+        day_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+        day_end   = (local_start + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
 
         query = self.session.query(EpgProgramDB).filter(
             EpgProgramDB.provider_id.in_(provider_ids),
