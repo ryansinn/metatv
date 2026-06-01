@@ -1,6 +1,5 @@
 """Metadata provider management and coordination"""
 import asyncio
-import json
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 from collections import deque

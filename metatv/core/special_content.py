@@ -1,6 +1,5 @@
 """Special content detection and parsing for PPV, Live Events, and Sports"""
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path

@@ -1,6 +1,5 @@
 """PPV (Pay-Per-View) events view with responsive flow grid layout"""
 
-import json
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QWidget,

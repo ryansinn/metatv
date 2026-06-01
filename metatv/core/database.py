@@ -415,7 +415,68 @@ class Database:
                     logger.info(f"Migration: added column {col} to {table}")
                 except Exception:
                     pass  # column already exists
-    
+
+        self._normalize_double_encoded_json()
+
+    # JSONEncoded columns that, prior to the B3-3 TypeDecorator, were written via
+    # ``json.dumps(obj)`` into a ``Column(JSON)`` — double-encoding the value on disk.
+    # JSONEncoded decodes exactly once, so those legacy rows would read back as JSON
+    # *strings* instead of lists/dicts. See _normalize_double_encoded_json.
+    _JSON_ENCODED_COLUMNS = [
+        ("metadata",  "cast"),
+        ("metadata",  "crew"),
+        ("metadata",  "actors"),
+        ("metadata",  "genres"),
+        ("providers", "urls"),
+        ("channels",  "event_metadata"),
+    ]
+
+    def _normalize_double_encoded_json(self):
+        """One-time fix for legacy double-encoded JSONEncoded values (pre-B3-3).
+
+        Old code assigned ``json.dumps(obj)`` into ``Column(JSON)``, which serialized
+        the value a second time — storing a JSON *string* (on-disk text begins with a
+        quote, e.g. ``"[{...}]"``) rather than a JSON array/object. ``JSONEncoded``
+        decodes once, so such rows now read back as ``str``. This peels the extra layer.
+
+        Only rows whose raw TEXT begins with ``"`` (a double-encoded string) are
+        touched; correctly single-encoded rows (``[``/``{``) are skipped, so the pass
+        is idempotent. Gated on ``PRAGMA user_version`` so it runs at most once.
+        """
+        with self.engine.connect() as conn:
+            try:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            except Exception:
+                version = 0
+            if version >= 1:
+                return
+
+            for table, col in self._JSON_ENCODED_COLUMNS:
+                try:
+                    rows = conn.execute(text(
+                        f'SELECT rowid, "{col}" FROM {table} WHERE "{col}" LIKE \'"%\''
+                    )).fetchall()
+                except Exception:
+                    continue  # table/column not present in this DB
+                fixed = 0
+                for rowid, raw in rows:
+                    try:
+                        inner = _json.loads(raw)
+                    except Exception:
+                        continue
+                    if not isinstance(inner, str):
+                        continue  # not actually double-encoded
+                    conn.execute(
+                        text(f'UPDATE {table} SET "{col}" = :v WHERE rowid = :r'),
+                        {"v": inner, "r": rowid},
+                    )
+                    fixed += 1
+                if fixed:
+                    logger.info(f"Migration: normalized {fixed} double-encoded {table}.{col} value(s)")
+
+            conn.execute(text("PRAGMA user_version = 1"))
+            conn.commit()
+
     def get_session(self) -> Session:
         """Get a new database session"""
         return self.SessionLocal()
