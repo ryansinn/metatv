@@ -327,3 +327,4 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | UI state persistence patterns | [DESIGN.md](DESIGN.md) |
 | Roadmap | [ROADMAP.md](ROADMAP.md) |
 | Refactor / dedup / cleanup plan | [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md) |
+| Sonnet execution prompt for the plan | [docs/SONNET_EXECUTION_PROMPT.md](docs/SONNET_EXECUTION_PROMPT.md) |
