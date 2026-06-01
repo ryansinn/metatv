@@ -486,16 +486,27 @@ class FilterPanel(QWidget):
             "font-size: 13px; font-weight: bold; color: #dddddd;")
         phl.addWidget(filters_lbl)
         phl.addStretch()
+
+        _btn_style = (
+            "QPushButton { background:#333; color:#aaa; border:1px solid #444;"
+            " border-radius:3px; padding:0 7px; font-size:11px; }"
+            "QPushButton:hover { background:#444; color:#ddd; }"
+        )
+
+        all_btn = QPushButton("All")
+        all_btn.setFixedHeight(22)
+        all_btn.setStyleSheet(_btn_style)
+        all_btn.setToolTip("Select all — show everything, no filter active")
+        all_btn.clicked.connect(self.select_all_sections)
+        phl.addWidget(all_btn)
+
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedHeight(22)
-        clear_btn.setStyleSheet("""
-            QPushButton { background:#333; color:#aaa; border:1px solid #444;
-                border-radius:3px; padding:0 8px; font-size:11px; }
-            QPushButton:hover { background:#444; color:#ddd; }
-        """)
-        clear_btn.setToolTip("Reset — include everything")
+        clear_btn.setStyleSheet(_btn_style)
+        clear_btn.setToolTip("Clear all — uncheck everything, then pick exactly what to include")
         clear_btn.clicked.connect(self.clear_all)
         phl.addWidget(clear_btn)
+
         outer.addWidget(ph)
 
         # Scrollable sections
@@ -808,11 +819,23 @@ class FilterPanel(QWidget):
             '_quality_prefixes':  quality_prefixes or None,
         }
 
-    def clear_all(self):
+    def select_all_sections(self):
+        """Check everything — show all content, no active filter."""
         self._restoring = True
         try:
             for sec in self._all_sections():
                 sec.select_all()
+        finally:
+            self._restoring = False
+        self.save_state()
+        self.filter_changed.emit()
+
+    def clear_all(self):
+        """Uncheck everything — start from scratch to select exactly what to include."""
+        self._restoring = True
+        try:
+            for sec in self._all_sections():
+                sec.select_none()
         finally:
             self._restoring = False
         self.save_state()
