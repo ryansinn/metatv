@@ -31,6 +31,7 @@ _ACCENT = {
     "region":       "#44aa77",
     "platform":     "#9966cc",
     "quality":      "#f0a040",
+    "genre":        "#33bb88",
     "unidentified": "#cc7722",
     "untagged":     "#666666",
 }
@@ -459,7 +460,7 @@ class FilterPanel(QWidget):
 
     # Section keys in display order
     _SECTION_KEYS = ["media", "language", "region", "platform",
-                     "quality", "unidentified", "untagged"]
+                     "quality", "genre", "unidentified", "untagged"]
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -601,6 +602,20 @@ class FilterPanel(QWidget):
         self._sl.addWidget(self._quality_sec)
         self._add_divider()
 
+        self._genre_sec = _Section(
+            "genre", "Genre",
+            initially_expanded=_expanded("genre", False),
+            info_text=(
+                "Filter movies and series by genre.\n\n"
+                "Check genres to include — channels of any checked genre are shown. "
+                "Channels with no genre data are always included.\n"
+                "Only applies to Movies and Series; live channels are unaffected."
+            ),
+            info_icon=_ii)
+        self._genre_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._genre_sec)
+        self._add_divider()
+
         self._unid_sec = _Section(
             "unidentified", "Uncategorized",
             initially_expanded=_expanded("unidentified", False),
@@ -708,6 +723,19 @@ class FilterPanel(QWidget):
         if prev_qual:
             self._quality_sec.restore_selection(prev_qual)
 
+        # ── Genre — flat, sorted by count descending (alphabetically within same count)
+        genre_counts: dict[str, int] = stats.get('genre_counts', {})
+        genre_items = sorted(
+            [(g, g, c) for g, c in genre_counts.items()],
+            key=lambda x: (-x[2], x[1]),
+        )
+        prev_genre = set(self._genre_sec.get_selected_keys())
+        self._genre_sec.set_flat_items(genre_items)
+        if prev_genre:
+            self._genre_sec.restore_selection(prev_genre)
+        else:
+            self._genre_sec.select_all()
+
         # ── Unidentified — individual prefix codes, sorted by count
         unmapped: list[str] = stats.get('unmapped_prefixes', [])
         unid_items = sorted(
@@ -734,7 +762,8 @@ class FilterPanel(QWidget):
         logger.debug(
             f"FilterPanel updated: {len(lang_items)} lang groups, "
             f"{len(region_data)} region groups, {len(plat_items)} platform, "
-            f"{len(qual_items)} quality, {len(unid_items)} unidentified"
+            f"{len(qual_items)} quality, {len(genre_items)} genres, "
+            f"{len(unid_items)} unidentified"
         )
 
     def get_filter_state(self) -> dict:
@@ -743,11 +772,12 @@ class FilterPanel(QWidget):
         media_all = {"live", "movie", "series"}
         media_types = list(media_sel) if media_sel != media_all else list(media_all)
 
-        lang_all  = self._lang_sec.is_all_selected()
+        lang_all   = self._lang_sec.is_all_selected()
         region_all = self._region_sec.is_all_selected()
-        plat_all  = self._platform_sec.is_all_selected()
-        qual_all  = self._quality_sec.is_all_selected()
-        unid_all  = self._unid_sec.is_all_selected()
+        plat_all   = self._platform_sec.is_all_selected()
+        qual_all   = self._quality_sec.is_all_selected()
+        genre_all  = self._genre_sec.is_all_selected()
+        unid_all   = self._unid_sec.is_all_selected()
 
         # Resolve language prefix codes from selected group names
         language_prefixes: list[str] = []
@@ -802,12 +832,15 @@ class FilterPanel(QWidget):
         include_untagged         = "no_prefix"  in untagged_selected
         include_untagged_quality = "no_quality" in untagged_selected
 
+        genre_filters = None if genre_all else self._genre_sec.get_selected_keys()
+
         return {
             'media_types':        media_types,
             'language_groups':    self._lang_sec.get_selected_keys(),
             'region_groups':      self._region_sec.get_selected_keys(),
             'quality_groups':     self._quality_sec.get_selected_keys(),
             'platform_groups':    self._platform_sec.get_selected_keys(),
+            'genre_filters':      self._genre_sec.get_selected_keys(),
             'include_untagged':          include_untagged,
             'include_untagged_quality':  include_untagged_quality,
             'adult_mode':         getattr(self.config, 'filter_adult_mode', 'hide'),
@@ -817,6 +850,7 @@ class FilterPanel(QWidget):
             '_region_prefixes':   region_prefixes or None,
             '_platform_prefixes': platform_prefixes or None,
             '_quality_prefixes':  quality_prefixes or None,
+            '_genre_filters':     genre_filters,
         }
 
     def select_all_sections(self):
@@ -848,6 +882,7 @@ class FilterPanel(QWidget):
             self.config.filter_included_regions    = state['region_groups']
             self.config.filter_included_qualities  = state['quality_groups']
             self.config.filter_included_platforms  = state['platform_groups']
+            self.config.filter_included_genres     = state['genre_filters']
             self.config.filter_adult_mode          = state['adult_mode']
 
             # Save per-section collapse states
@@ -870,6 +905,7 @@ class FilterPanel(QWidget):
                 ('filter_included_regions',   self._region_sec),
                 ('filter_included_qualities', self._quality_sec),
                 ('filter_included_platforms', self._platform_sec),
+                ('filter_included_genres',    self._genre_sec),
             ]:
                 saved = getattr(self.config, attr, [])
                 if saved:
@@ -895,8 +931,8 @@ class FilterPanel(QWidget):
 
     def _all_sections(self) -> list[_Section]:
         return [self._media_sec, self._lang_sec, self._region_sec,
-                self._platform_sec, self._quality_sec, self._unid_sec,
-                self._untagged_sec]
+                self._platform_sec, self._quality_sec, self._genre_sec,
+                self._unid_sec, self._untagged_sec]
 
     def _add_divider(self):
         line = QFrame()

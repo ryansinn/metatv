@@ -35,6 +35,7 @@ class ChannelRepository:
                 region_prefixes: Optional[List[str]] = None,
                 quality_prefixes: Optional[List[str]] = None,
                 platform_prefixes: Optional[List[str]] = None,
+                genre_filters: Optional[List[str]] = None,
                 include_hidden: bool = False,
                 hidden_only: bool = False,
                 invert_prefix_filters: bool = False,
@@ -190,6 +191,24 @@ class ChannelRepository:
             if include_uncategorized_content_types:
                 cond = or_(cond, ChannelDB.source_category.is_(None))
             query = query.filter(cond)
+
+        # Genre filter — OR across selected genres; channels with no genre always pass.
+        # genre_filters is a list of individual genre strings (already split from compound).
+        if genre_filters:
+            from sqlalchemy import text as _text
+            no_genre_cond = or_(
+                ChannelDB.raw_data.is_(None),
+                _text("json_extract(raw_data, '$.genre') IS NULL"),
+                _text("json_extract(raw_data, '$.genre') = ''"),
+            )
+            genre_like_conds = [no_genre_cond]
+            for i, g in enumerate(genre_filters):
+                genre_like_conds.append(
+                    _text(f"json_extract(raw_data, '$.genre') LIKE :_genre{i}").bindparams(
+                        **{f"_genre{i}": f"%{g}%"}
+                    )
+                )
+            query = query.filter(or_(*genre_like_conds))
 
         # SQL text search pushdown (case-insensitive LIKE on channel name)
         if search_query:
@@ -706,6 +725,34 @@ class ChannelRepository:
                     ~ChannelDB.user_category.in_(excluded_user_categories)))
         no_quality_count = no_quality_query.scalar() or 0
 
+        # Genre counts — split compound genre strings the same way discovery_engine does.
+        import re as _re
+        _genre_sep = _re.compile(r"[,/]")
+        from collections import Counter as _Counter
+        genre_counter: _Counter = _Counter()
+        genre_q = (
+            self.session.query(ChannelDB)
+            .filter(
+                ChannelDB.media_type.in_(["movie", "series"]),
+                ChannelDB.is_hidden == False,  # noqa: E712
+                ChannelDB.raw_data.isnot(None),
+            )
+        )
+        if provider_id:
+            genre_q = genre_q.filter(ChannelDB.provider_id == provider_id)
+        if excluded_user_categories:
+            genre_q = genre_q.filter(
+                or_(ChannelDB.user_category.is_(None),
+                    ~ChannelDB.user_category.in_(excluded_user_categories))
+            )
+        for ch in genre_q.all():
+            genre_str = (ch.raw_data or {}).get("genre") or ""
+            for g in _genre_sep.split(genre_str):
+                g = g.strip()
+                if g:
+                    genre_counter[g] += 1
+        genre_counts = {g: cnt for g, cnt in genre_counter.most_common() if cnt >= 5}
+
         return {
             'all_prefixes': list(all_prefixes),
             'prefix_counts': prefix_counts,
@@ -718,6 +765,7 @@ class ChannelRepository:
             'channels_with_prefix': total_channels - no_prefix_count,
             'channels_without_prefix': no_prefix_count,
             'channels_without_quality': no_quality_count,
+            'genre_counts': genre_counts,
         }
 
     # -------------------------------------------------------------------------

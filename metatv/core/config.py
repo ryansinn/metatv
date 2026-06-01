@@ -660,6 +660,7 @@ class Config(BaseModel):
     filter_included_regions: list = Field(default_factory=list)    # Empty = all included
     filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
     filter_included_platforms: list = Field(default_factory=list)  # Empty = all included
+    filter_included_genres: list = Field(default_factory=list)     # Empty = all included
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
     filter_include_untagged: bool = True   # Show channels with no detected_prefix

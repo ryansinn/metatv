@@ -2032,6 +2032,7 @@ class MainWindow(QMainWindow):
         # _bypass_tier1_filters: set when user clicks "Show filtered results" in the
         # zero-results state. Allows them to see what's hidden without changing settings.
         _bypassing = self._bypass_tier1_filters
+        _genre_filters = filter_state.get('_genre_filters')
         params = dict(
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
@@ -2039,6 +2040,7 @@ class MainWindow(QMainWindow):
             region_prefixes=None if _bypassing else (region_prefixes or None),
             quality_prefixes=None if _bypassing else (quality_prefixes or None),
             platform_prefixes=None if _bypassing else (platform_prefixes or None),
+            genre_filters=None if _bypassing else _genre_filters,
             invert_prefix_filters=False,
             include_untagged=filter_state.get('include_untagged', True),
             include_untagged_quality=filter_state.get('include_untagged_quality', True),
@@ -2086,6 +2088,7 @@ class MainWindow(QMainWindow):
                     region_prefixes=params.get('region_prefixes'),
                     quality_prefixes=params['quality_prefixes'],
                     platform_prefixes=params.get('platform_prefixes'),
+                    genre_filters=params.get('genre_filters'),
                     invert_prefix_filters=params['invert_prefix_filters'],
                     include_untagged=params['include_untagged'],
                     include_untagged_quality=params.get('include_untagged_quality', True),
