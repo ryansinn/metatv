@@ -181,26 +181,31 @@ for chip in self.chips:
 ### EPG notifications — never call NotificationManager from worker threads
 `NotificationManager.show()` creates a `QTimer` for auto-dismiss and must only be called from the main thread. In `EpgManager`, all notification calls from `ThreadPoolExecutor` workers go through private signals (`_notify`, `_progress_update`, `_progress_done`, `_progress_error`) that Qt queues to the main thread automatically.
 
-### EPG times — stored as UTC-naive, display as local
-<!-- target: UTC-naive storage is the root cause of this whole cluster of
-defensive rules (and bug P0-2 in REFACTOR_PLAN). The long-term fix is
-tz-aware UTC storage, or routing *every* conversion through `epg_utils.py`
-so no view ever touches a raw `start_time`. Until then, follow the rules below. -->
-`EpgProgramDB.start_time` / `stop_time` are stored as UTC-naive datetimes (the XMLTV parser normalises all timestamps to UTC). For display, convert with:
-```python
-local = dt.replace(tzinfo=timezone.utc).astimezone()  # → machine local tz
-```
-For arithmetic (remaining time, progress bars), compare UTC-naive against `_now_utc()` — no conversion needed.
+### EPG times — single conversion boundary in `epg_utils.py`
+`EpgProgramDB.start_time` / `stop_time` are stored as UTC-naive datetimes. **Never open-code timezone conversions inline.** Use the helpers from `metatv/core/epg_utils.py`:
 
-**Never compare `.date()` directly against `date.today()`.** `date.today()` returns the local calendar date; EPG datetimes are UTC-naive. For users outside UTC, this produces wrong Today/Tomorrow labels. Always convert first:
 ```python
-# Wrong
-if prog.start_time.date() == date.today():  # UTC date vs local date — mismatch
+from metatv.core.epg_utils import to_local, is_local_today, local_weekday, local_day_window, now_utc
 
-# Correct
-local_date = prog.start_time.replace(tzinfo=timezone.utc).astimezone().date()
-if local_date == date.today():
+# Display: convert to local tz-aware datetime
+local = to_local(prog.start_time)         # tz-aware local datetime
+
+# Today check (correct for any timezone)
+if is_local_today(prog.start_time): ...   # replaces .date() == date.today()
+
+# Weekday label (correct for any timezone)
+day = local_weekday(prog.start_time)      # replaces .strftime('%a')
+
+# Date-picker window (EPG browse)
+day_start, day_end = local_day_window(target_date, tz=_local_tz())
+
+# Current time for arithmetic comparisons
+now = now_utc()                           # replaces datetime.now(timezone.utc).replace(tzinfo=None)
 ```
+
+**Never compare `.date()` directly against `date.today()`** — the naive date is UTC-anchored and wrong for non-UTC users. Never open-code `.replace(tzinfo=timezone.utc).astimezone()` outside `epg_utils.py`.
+
+For arithmetic (remaining time, progress bars), compare UTC-naive against `now_utc()` — no conversion needed.
 
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.

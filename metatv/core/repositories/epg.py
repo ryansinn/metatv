@@ -10,12 +10,8 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from metatv.core.database import EpgProgramDB, ChannelDB
-from metatv.core.epg_utils import now_utc as _now_utc
-
-
-def _local_tz():
-    """Return the machine's local tzinfo. Extracted for testability."""
-    return datetime.now().astimezone().tzinfo
+from metatv.core.epg_utils import now_utc as _now_utc, local_day_window as _local_day_window
+from metatv.core.epg_utils import _local_tz  # re-exported so test patches still work
 
 
 class EpgRepository:
@@ -162,11 +158,7 @@ class EpgRepository:
         """
         # Convert the LOCAL calendar date chosen by the user into a UTC-naive window.
         # target_date is a local date; EPG rows are stored as UTC-naive datetimes.
-        local_start = datetime(
-            target_date.year, target_date.month, target_date.day, tzinfo=_local_tz()
-        )
-        day_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
-        day_end   = (local_start + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+        day_start, day_end = _local_day_window(target_date, tz=_local_tz())
 
         query = self.session.query(EpgProgramDB).filter(
             EpgProgramDB.provider_id.in_(provider_ids),

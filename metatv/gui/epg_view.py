@@ -103,6 +103,8 @@ from metatv.core.epg_utils import (
     fmt_duration as _duration_str,
     minutes_away as _minutes_away,
     remaining_str as _remaining_str,
+    is_local_today as _is_local_today,
+    local_weekday as _local_weekday,
 )
 
 
@@ -815,7 +817,7 @@ class EpgView(ContentView):
             live_data = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
 
             # Build dismissed set (expired entries are filtered out)
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            now = _now_utc()
             dismissed = {
                 cid for cid, ts_str in self.config.epg_dismissed_channels.items()
                 if _parse_iso(ts_str) > now
@@ -1244,10 +1246,10 @@ class EpgView(ContentView):
                 mins = _minutes_away(prog.start_time)
                 if mins < 120:
                     time_str = f"in {mins} min"
-                elif prog.start_time.replace(tzinfo=timezone.utc).astimezone().date() == date.today():
+                elif _is_local_today(prog.start_time):
                     time_str = f"Today {_format_time(prog.start_time)}"
                 else:
-                    time_str = f"{prog.start_time.strftime('%a')} {_format_time(prog.start_time)}"
+                    time_str = f"{_local_weekday(prog.start_time)} {_format_time(prog.start_time)}"
 
             row_w = QWidget()
             cid = prog.channel_db_id
@@ -1987,7 +1989,7 @@ class EpgView(ContentView):
         self._reload_watchlist()
 
     def _dismissed_ids(self) -> set[str]:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = _now_utc()
         return {
             cid for cid, ts_str in self.config.epg_dismissed_channels.items()
             if _parse_iso(ts_str) > now
@@ -2079,7 +2081,7 @@ class _DismissedDialog(QDialog):
         self.list = QListWidget()
         layout.addWidget(self.list)
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = _now_utc()
         for cid, ts_str in list(self.config.epg_dismissed_channels.items()):
             until = _parse_iso(ts_str)
             if until > now:
