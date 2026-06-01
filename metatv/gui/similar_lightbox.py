@@ -15,7 +15,6 @@ Architecture:
 """
 from __future__ import annotations
 
-import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -397,13 +396,9 @@ class SimilarTitleLightbox(QWidget):
 
             cast_list: list[str] = []
             if meta and meta.cast:
-                try:
-                    raw = json.loads(meta.cast) if isinstance(meta.cast, str) else meta.cast
-                    cast_list = [
-                        (p.get("name") or "") for p in raw[:5] if isinstance(p, dict)
-                    ]
-                except Exception:
-                    pass
+                cast_list = [
+                    (p.get("name") or "") for p in (meta.cast or [])[:5] if isinstance(p, dict)
+                ]
 
             queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
 

@@ -53,48 +53,28 @@ class StreamRetryManager(QObject):
 
     def add_failure(self, channel_id: str, channel_name: str, stream_url: str, error: str) -> None:
         """Record a stream failure (called on main thread after preflight fails)."""
-        session = self._db.get_session()
-        try:
-            repo = StreamRetryRepository(session)
-            repo.add(channel_id, channel_name, stream_url, error)
-        finally:
-            session.close()
+        with self._db.session_scope() as session:
+            StreamRetryRepository(session).add(channel_id, channel_name, stream_url, error)
         self.retry_list_changed.emit()
 
     def remove(self, entry_id: str) -> None:
-        session = self._db.get_session()
-        try:
-            repo = StreamRetryRepository(session)
-            repo.remove(entry_id)
-        finally:
-            session.close()
+        with self._db.session_scope() as session:
+            StreamRetryRepository(session).remove(entry_id)
         self.retry_list_changed.emit()
 
     def remove_by_channel(self, channel_id: str) -> None:
-        session = self._db.get_session()
-        try:
-            repo = StreamRetryRepository(session)
-            repo.remove_by_channel(channel_id)
-        finally:
-            session.close()
+        with self._db.session_scope() as session:
+            StreamRetryRepository(session).remove_by_channel(channel_id)
         self.retry_list_changed.emit()
 
     def clear_all(self) -> None:
-        session = self._db.get_session()
-        try:
-            repo = StreamRetryRepository(session)
-            repo.clear_all()
-        finally:
-            session.close()
+        with self._db.session_scope() as session:
+            StreamRetryRepository(session).clear_all()
         self.retry_list_changed.emit()
 
     def get_all_pending(self) -> list:
-        session = self._db.get_session()
-        try:
-            repo = StreamRetryRepository(session)
-            return repo.get_all_pending()
-        finally:
-            session.close()
+        with self._db.session_scope() as session:
+            return StreamRetryRepository(session).get_all_pending()
 
     def check_all_now(self) -> None:
         """Force-check all pending entries regardless of schedule (e.g. after source refresh)."""
@@ -113,8 +93,7 @@ class StreamRetryManager(QObject):
 
     def _run_checks(self, force_all: bool) -> None:
         try:
-            session = self._db.get_session()
-            try:
+            with self._db.session_scope() as session:
                 repo = StreamRetryRepository(session)
                 entries = repo.get_all_pending() if force_all else repo.get_due()
                 if not entries:
@@ -136,7 +115,5 @@ class StreamRetryManager(QObject):
 
                 if changed:
                     self.retry_list_changed.emit()
-            finally:
-                session.close()
         finally:
             self._busy = False

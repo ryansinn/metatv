@@ -1,6 +1,5 @@
 """Special content detection and parsing for PPV, Live Events, and Sports"""
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -388,11 +387,10 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         channel.event_start_time = ppv_data['start_time']
         channel.sport_type = ppv_data['sport_type']
 
-        # Manual JSON serialization per CLAUDE.md SQLite compat rule
         metadata = ppv_data.copy()
         if metadata['start_time']:
             metadata['start_time'] = metadata['start_time'].isoformat()
-        channel.event_metadata = json.dumps(metadata)
+        channel.event_metadata = metadata
 
     elif special_view == 'sports':
         sports_data = parse_sports_channel(channel, config)

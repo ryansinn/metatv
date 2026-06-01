@@ -75,30 +75,29 @@ Region/country codes, quality tokens, audio format maps, and similar lookup data
 
 If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
 
-### Icons — always from the central icon registry, never hardcoded
-Every icon, emoji, or symbol displayed in the UI must come from the central icon registry, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
-
-<!-- target: icons currently live as fields on `Config` (metatv/core/config.py). A settings/persistence model is the wrong home for presentation constants — REFACTOR_PLAN moves them to a dedicated `metatv/gui/icons.py` registry. Until that lands, the registry IS `Config`: reference `self.config.<name>_icon` and add new glyphs there first. -->
+### Icons — always from `metatv/gui/icons.py`, never hardcoded
+Every icon, emoji, or symbol displayed in the UI must come from `metatv/gui/icons.py`, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
 
 ```python
-# Correct (current registry = Config)
-rm_btn = QPushButton(self.config.close_icon)
-section_icon = config.favorite_icon
+# Correct
+from metatv.gui import icons as _icons
+rm_btn = QPushButton(_icons.close_icon)
 
-# Wrong — hardcoded literals
+# Wrong — hardcoded literals or old Config references
 rm_btn = QPushButton("×")
-super().__init__("Favorites", "★", config, parent)
+rm_btn = QPushButton(self.config.close_icon)
 ```
 
-If you need an icon that doesn't exist yet, add it to the registry first, then reference it.
+If you need an icon that doesn't exist yet, add it to `icons.py` first, then reference it. **Never add icon glyphs to `Config`** — Config is for user-configurable settings, not presentation constants.
 
-**Collapse/expand buttons specifically:** use `config.expand_icon` (collapsed state) and `config.collapse_icon` (expanded state) — never `move_up_icon` / `move_down_icon`, which are list-ordering arrows with different semantics. For top-level collapsibles, subclass `CollapsibleSection` (in `sidebar_sections.py`) — it handles the button, state, and persistence automatically. For inner/nested collapsibles (e.g. Stream Monitoring sub-section), follow the same convention:
+**Note:** existing code still uses `config.<name>_icon` — that is legacy being migrated incrementally. New code must use `icons.*`.
+
+**Collapse/expand buttons specifically:** use `icons.expand_icon` (collapsed state) and `icons.collapse_icon` (expanded state) — never `icons.move_up_icon` / `icons.move_down_icon`, which are list-ordering arrows. For top-level collapsibles, subclass `CollapsibleSection` — it handles the button, state, and persistence automatically. For inner/nested collapsibles:
 ```python
-btn = QPushButton(self.config.collapse_icon)  # start expanded
-btn.setFixedSize(20, 20)
-btn.setFlat(True)
+from metatv.gui import icons as _icons
+btn = QPushButton(_icons.collapse_icon)  # start expanded
 # on toggle:
-btn.setText(self.config.expand_icon if collapsed else self.config.collapse_icon)
+btn.setText(_icons.expand_icon if collapsed else _icons.collapse_icon)
 ```
 
 ### Logging — always loguru, never stdlib
@@ -107,11 +106,19 @@ from loguru import logger   # correct
 import logging              # NEVER use this
 ```
 
-### Database sessions — `close()` must run on every path
-A bare `with session:` only manages the *transaction*, not cleanup — never rely on it to close the session. `close()` must run on every path, including early returns and exceptions. Two acceptable forms:
+### Database sessions — use `session_scope()` for new code
+`Database.session_scope()` is a context manager that commits on success, rolls back on exception, and always closes the session. **Use it for all new code:**
 
 ```python
-# Form 1 — explicit try/finally (current code uses this everywhere)
+# Preferred — commits/rollback/close are automatic
+with self.db.session_scope() as session:
+    repos = RepositoryFactory(session)
+    # ... use session ...
+```
+
+A bare `with session:` only manages the *transaction*, not cleanup — never use that form. The legacy `try/finally` pattern remains in existing code:
+```python
+# Legacy — still acceptable, being migrated incrementally
 session = self.db.get_session()
 try:
     # ... use session ...
@@ -119,42 +126,15 @@ finally:
     session.close()
 ```
 
-<!-- target: REFACTOR_PLAN proposes a `session_scope()` context manager
-(try → yield → commit → except: rollback → finally: close). Once it lands,
-prefer `with session_scope() as session:` — it is shorter and makes the
-"early returns must clean up" rule automatic for sessions. This is a *better*
-`with`, not the transaction-only one banned above. -->
-```python
-# Form 2 — preferred once session_scope() exists
-with session_scope() as session:
-    # ... use session ...   # commit/rollback/close handled for you
-```
-
-### SQLite + SQLAlchemy JSON — serialize explicitly
-SQLAlchemy's native JSON column type has SQLite compatibility issues, so JSON columns are plain `Text` and serialization is done by hand:
-```python
-metadata.cast = json.dumps(result.cast)   # saving
-cast = json.loads(metadata.cast) if metadata.cast else []  # loading
-```
-
-<!-- target: manual dumps/loads at every call site is the *cause* of the
-recurring "stored a Python list instead of a JSON string" bug below.
-REFACTOR_PLAN proposes a `JSONEncoded` TypeDecorator (process_bind_param /
-process_result_value) so columns become `Column(JSONEncoded)` and you
-assign/read plain Python objects — the discipline below becomes unnecessary.
-Until that lands, follow the manual rule exactly. -->
-
-This applies to **every assignment** to a JSON column — including after modifying a previously-deserialized list or dict in-place. If you read with `json.loads()`, you must write back with `json.dumps()`.
+### SQLite JSON columns — use `JSONEncoded`, assign plain Python objects
+JSON-like columns use `Column(JSONEncoded)` (defined in `database.py`), a `TypeDecorator` over `Text` that serializes transparently. Assign and read plain Python objects — no `json.dumps/loads` needed:
 
 ```python
-# Wrong — assigning a Python object back without re-serializing
-raw = json.loads(db_obj.urls)
-raw[0]['count'] += 1
-db_obj.urls = raw          # ← BUG: stores a Python list, not JSON string
-
-# Correct
-db_obj.urls = json.dumps(raw)
+metadata.cast = result.cast          # assign a list — JSONEncoded handles serialization
+cast = metadata.cast or []           # read back a list — no json.loads needed
 ```
+
+Never do `json.dumps(value)` before assigning to a `JSONEncoded` column — that double-encodes.
 
 ### Qt threading — signals only, never direct widget access from threads
 Qt widgets are NOT thread-safe. Worker threads must emit signals; only the main thread updates widgets.
@@ -201,26 +181,31 @@ for chip in self.chips:
 ### EPG notifications — never call NotificationManager from worker threads
 `NotificationManager.show()` creates a `QTimer` for auto-dismiss and must only be called from the main thread. In `EpgManager`, all notification calls from `ThreadPoolExecutor` workers go through private signals (`_notify`, `_progress_update`, `_progress_done`, `_progress_error`) that Qt queues to the main thread automatically.
 
-### EPG times — stored as UTC-naive, display as local
-<!-- target: UTC-naive storage is the root cause of this whole cluster of
-defensive rules (and bug P0-2 in REFACTOR_PLAN). The long-term fix is
-tz-aware UTC storage, or routing *every* conversion through `epg_utils.py`
-so no view ever touches a raw `start_time`. Until then, follow the rules below. -->
-`EpgProgramDB.start_time` / `stop_time` are stored as UTC-naive datetimes (the XMLTV parser normalises all timestamps to UTC). For display, convert with:
-```python
-local = dt.replace(tzinfo=timezone.utc).astimezone()  # → machine local tz
-```
-For arithmetic (remaining time, progress bars), compare UTC-naive against `_now_utc()` — no conversion needed.
+### EPG times — single conversion boundary in `epg_utils.py`
+`EpgProgramDB.start_time` / `stop_time` are stored as UTC-naive datetimes. **Never open-code timezone conversions inline.** Use the helpers from `metatv/core/epg_utils.py`:
 
-**Never compare `.date()` directly against `date.today()`.** `date.today()` returns the local calendar date; EPG datetimes are UTC-naive. For users outside UTC, this produces wrong Today/Tomorrow labels. Always convert first:
 ```python
-# Wrong
-if prog.start_time.date() == date.today():  # UTC date vs local date — mismatch
+from metatv.core.epg_utils import to_local, is_local_today, local_weekday, local_day_window, now_utc
 
-# Correct
-local_date = prog.start_time.replace(tzinfo=timezone.utc).astimezone().date()
-if local_date == date.today():
+# Display: convert to local tz-aware datetime
+local = to_local(prog.start_time)         # tz-aware local datetime
+
+# Today check (correct for any timezone)
+if is_local_today(prog.start_time): ...   # replaces .date() == date.today()
+
+# Weekday label (correct for any timezone)
+day = local_weekday(prog.start_time)      # replaces .strftime('%a')
+
+# Date-picker window (EPG browse)
+day_start, day_end = local_day_window(target_date, tz=_local_tz())
+
+# Current time for arithmetic comparisons
+now = now_utc()                           # replaces datetime.now(timezone.utc).replace(tzinfo=None)
 ```
+
+**Never compare `.date()` directly against `date.today()`** — the naive date is UTC-anchored and wrong for non-UTC users. Never open-code `.replace(tzinfo=timezone.utc).astimezone()` outside `epg_utils.py`.
+
+For arithmetic (remaining time, progress bars), compare UTC-naive against `now_utc()` — no conversion needed.
 
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.
@@ -248,16 +233,16 @@ Apply this to locks, sets, progress trackers, and any other state set before a v
 ### View lifecycle — on_activate / on_deactivate must be symmetric
 If a view has `on_activate()` (starts timers, loads data), it must also have `on_deactivate()` (stops timers, cancels pending work). Both must be called by the host (`main_window.py`) at view switch time — `on_deactivate` for the departing view, `on_activate` for the arriving one. The safest pattern: call `on_deactivate()` inside `_hide_all_content_views()` for any view that is currently visible.
 
-### Resource cleanup in closeEvent
-Any background manager with a `stop()` or `shutdown()` method must be called explicitly in `MainWindow.closeEvent`. Relying on garbage collection or QObject parent destruction is not sufficient for threads. Pattern:
+### Resource cleanup in closeEvent — use the cleanup registry
+`MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:
+
 ```python
-def closeEvent(self, event):
-    self.player_manager.cleanup()
-    if hasattr(self, "stream_retry_manager"):
-        self.stream_retry_manager.stop()
-    self.db.close()
-    event.accept()
+# After creating the manager:
+self.my_manager = MyManager(...)
+self._register_cleanable("my_manager", self.my_manager.shutdown)
 ```
+
+`closeEvent` iterates `_cleanables` automatically; exceptions are caught per-entry so a failing cleanup never blocks the rest. Never add a new `hasattr(self, "manager_name")` block to `closeEvent` — use the registry instead. `db.close()` and the view-deactivation loop remain explicit in `closeEvent` because they require sequencing/visibility logic the registry does not handle.
 
 ### Background pools/threads — owned, long-lived, and shut down
 Create a `ThreadPoolExecutor` / `QThread` **once per owning object**, never per call. A pool created inside a method that runs more than once is a thread leak (see `main_window.py` metadata-fetch path). Every pool/thread must be stopped in its owner's cleanup path — `closeEvent` for managers, `on_deactivate` for views (per the rules above). Reuse the owner's shared executor (`self.executor`) for one-off background work rather than spinning up a throwaway pool.

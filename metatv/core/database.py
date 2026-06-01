@@ -1,13 +1,39 @@
 """Database models and connection management"""
 
+from contextlib import contextmanager
 from datetime import datetime
+import json as _json
 from typing import Optional
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.types import TypeDecorator
 from loguru import logger
 
 Base = declarative_base()
+
+
+class JSONEncoded(TypeDecorator):
+    """Stores any JSON-serializable Python object as TEXT in SQLite.
+
+    Use instead of Column(JSON) to avoid SQLite JSON-type quirks. Assign plain
+    Python objects (lists, dicts, None); serialization is transparent.
+
+        cast = Column(JSONEncoded)   # assign/read a Python list — no json.dumps/loads needed
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return _json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return _json.loads(value)
 
 
 class ChannelDB(Base):
@@ -51,7 +77,7 @@ class ChannelDB(Base):
     sport_type = Column(String, index=True)  # 'soccer', 'basketball', 'football', etc.
     league_name = Column(String, index=True)  # 'Premier League', 'NBA', 'NFL', etc.
     team_name = Column(String, index=True)  # 'Manchester United', 'Lakers', etc.
-    event_metadata = Column(JSON)  # Additional parsed data (event name, quality, etc.)
+    event_metadata = Column(JSONEncoded)  # Additional parsed data (event name, quality, etc.)
 
     rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
     rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
@@ -84,13 +110,13 @@ class MetadataDB(Base):
     year = Column(Integer, index=True)
     runtime = Column(Integer)
     
-    genres = Column(JSON)
+    genres = Column(JSONEncoded)
     media_type = Column(String, default="unknown", index=True)
-    
+
     # People (cast is the new name, actors kept for backwards compatibility)
-    actors = Column(JSON)  # Deprecated: use cast instead
-    cast = Column(JSON)  # [{name, character, photo_url}]
-    crew = Column(JSON)  # [{name, job, department}]
+    actors = Column(JSONEncoded)  # Deprecated: use cast instead
+    cast = Column(JSONEncoded)  # [{name, character, photo_url}]
+    crew = Column(JSONEncoded)  # [{name, job, department}]
     director = Column(String)
     
     plot = Column(Text)
@@ -126,7 +152,7 @@ class ProviderDB(Base):
     type = Column(String, nullable=False)
     
     url = Column(Text, nullable=False)
-    urls = Column(JSON)  # List of ProviderURL objects
+    urls = Column(JSONEncoded)  # List of ProviderURL objects
     username = Column(String)
     password = Column(String)  # TODO: Encrypt this
     
@@ -389,11 +415,91 @@ class Database:
                     logger.info(f"Migration: added column {col} to {table}")
                 except Exception:
                     pass  # column already exists
-    
+
+        self._normalize_double_encoded_json()
+
+    # JSONEncoded columns that, prior to the B3-3 TypeDecorator, were written via
+    # ``json.dumps(obj)`` into a ``Column(JSON)`` — double-encoding the value on disk.
+    # JSONEncoded decodes exactly once, so those legacy rows would read back as JSON
+    # *strings* instead of lists/dicts. See _normalize_double_encoded_json.
+    _JSON_ENCODED_COLUMNS = [
+        ("metadata",  "cast"),
+        ("metadata",  "crew"),
+        ("metadata",  "actors"),
+        ("metadata",  "genres"),
+        ("providers", "urls"),
+        ("channels",  "event_metadata"),
+    ]
+
+    def _normalize_double_encoded_json(self):
+        """One-time fix for legacy double-encoded JSONEncoded values (pre-B3-3).
+
+        Old code assigned ``json.dumps(obj)`` into ``Column(JSON)``, which serialized
+        the value a second time — storing a JSON *string* (on-disk text begins with a
+        quote, e.g. ``"[{...}]"``) rather than a JSON array/object. ``JSONEncoded``
+        decodes once, so such rows now read back as ``str``. This peels the extra layer.
+
+        Only rows whose raw TEXT begins with ``"`` (a double-encoded string) are
+        touched; correctly single-encoded rows (``[``/``{``) are skipped, so the pass
+        is idempotent. Gated on ``PRAGMA user_version`` so it runs at most once.
+        """
+        with self.engine.connect() as conn:
+            try:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            except Exception:
+                version = 0
+            if version >= 1:
+                return
+
+            for table, col in self._JSON_ENCODED_COLUMNS:
+                try:
+                    rows = conn.execute(text(
+                        f'SELECT rowid, "{col}" FROM {table} WHERE "{col}" LIKE \'"%\''
+                    )).fetchall()
+                except Exception:
+                    continue  # table/column not present in this DB
+                fixed = 0
+                for rowid, raw in rows:
+                    try:
+                        inner = _json.loads(raw)
+                    except Exception:
+                        continue
+                    if not isinstance(inner, str):
+                        continue  # not actually double-encoded
+                    conn.execute(
+                        text(f'UPDATE {table} SET "{col}" = :v WHERE rowid = :r'),
+                        {"v": inner, "r": rowid},
+                    )
+                    fixed += 1
+                if fixed:
+                    logger.info(f"Migration: normalized {fixed} double-encoded {table}.{col} value(s)")
+
+            conn.execute(text("PRAGMA user_version = 1"))
+            conn.commit()
+
     def get_session(self) -> Session:
         """Get a new database session"""
         return self.SessionLocal()
-    
+
+    @contextmanager
+    def session_scope(self):
+        """Context manager that commits on success, rolls back on exception, always closes.
+
+        Preferred form for new code (supersedes raw try/finally around get_session):
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                ...
+        """
+        session = self.SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def close(self):
         """Close database connection"""
         self.engine.dispose()

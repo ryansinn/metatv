@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor, QFont
 from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
+from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 
@@ -638,7 +639,7 @@ class WatchAlertsSection(CollapsibleSection):
             live_data    = repo.get_live_for_watchlist(patterns)
             upcoming_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24)
 
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            now = _now_utc()
 
             def _title_key(title: str) -> str:
                 return " ".join(title.casefold().replace("&", "and").split())
@@ -672,12 +673,10 @@ class WatchAlertsSection(CollapsibleSection):
                     mins = int((prog.start_time - now).total_seconds() / 60)
                     if mins < 60:
                         time_str = f"in {mins}m"
-                    elif prog.start_time.date() == now.date():
-                        local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
-                        time_str = local.strftime("%-I:%M %p")
+                    elif _is_local_today(prog.start_time):
+                        time_str = _to_local(prog.start_time).strftime("%-I:%M %p")
                     else:
-                        local = prog.start_time.replace(tzinfo=timezone.utc).astimezone()
-                        time_str = local.strftime("%a %-I:%M %p")
+                        time_str = _to_local(prog.start_time).strftime("%a %-I:%M %p")
                     key = _title_key(prog.title)
                     ts = prog.start_time.timestamp()
                     if key in live_groups:

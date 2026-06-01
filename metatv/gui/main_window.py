@@ -208,8 +208,13 @@ class MainWindow(QMainWindow):
         # Filter state
         self.current_filter_state = None
         
+        # Cleanup registry — callables called in closeEvent; register new managers here
+        # so additions can't be silently forgotten (see CLAUDE.md "closeEvent cleanup").
+        self._cleanables: list[tuple[str, callable]] = []
+
         # Player management
         self.player_manager = PlayerManager(config)
+        self._register_cleanable("player_manager", self.player_manager.cleanup)
         self.loading_channels = set()  # Track channels being loaded
         self.refreshing_providers = set()  # Track providers being refreshed
         
@@ -227,7 +232,8 @@ class MainWindow(QMainWindow):
             cache_dir=config.image_cache_dir,
             max_size_mb=config.image_cache_max_size_mb
         )
-        
+        self._register_cleanable("image_cache", self.image_cache.shutdown)
+
         # Initialize metadata provider registry
         self.metadata_registry = MetadataProviderRegistry()
         
@@ -241,12 +247,14 @@ class MainWindow(QMainWindow):
         # Stream retry manager — must exist before setup_ui() which wires sidebar signals
         from metatv.core.stream_retry_manager import StreamRetryManager
         self.stream_retry_manager = StreamRetryManager(self.db, self.validate_stream_url, parent=self)
+        self._register_cleanable("stream_retry_manager", self.stream_retry_manager.stop)
 
         self.setup_ui()
         self.setup_notifications()
 
         # Initialize before load_channels() which uses these
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._register_cleanable("executor", lambda: self.executor.shutdown(wait=False))
         self._load_channels_token: int = 0
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
@@ -1488,6 +1496,7 @@ class MainWindow(QMainWindow):
 
         # EPG manager + view (hidden by default)
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
+        self._register_cleanable("epg_manager", self.epg_manager.shutdown)
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
         self.epg_view.play_channel_requested.connect(self.play_special_event)
         self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
@@ -3783,7 +3792,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['success_count'] = url_entry.get('success_count', 0) + 1
                         url_entry['last_success'] = datetime.now().isoformat()
-                        provider_db.urls = _json.dumps(raw_urls)
+                        provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
                     return new_stream_url, None
@@ -3791,7 +3800,7 @@ class MainWindow(QMainWindow):
                     if url_entry:
                         url_entry['failure_count'] = url_entry.get('failure_count', 0) + 1
                         url_entry['last_failure'] = datetime.now().isoformat()
-                        provider_db.urls = _json.dumps(raw_urls)
+                        provider_db.urls = raw_urls
                         repos.providers.update(provider_db)
                         session.commit()
                     if alt_err:
@@ -4147,6 +4156,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Could not save sidebar section sizes: {e}")
     
+    def _register_cleanable(self, name: str, fn: callable) -> None:
+        """Register a cleanup callable for closeEvent. Call this after creating each manager."""
+        self._cleanables.append((name, fn))
+
     def closeEvent(self, event):
         """Handle window close"""
         # Save window geometry so it restores on next launch
@@ -4160,24 +4173,13 @@ class MainWindow(QMainWindow):
         # Save splitter sizes one final time
         self.save_splitter_sizes()
 
-        # Cleanup player resources
-        self.player_manager.cleanup()
-
-        # Stop retry manager background thread
-        if hasattr(self, "stream_retry_manager"):
-            self.stream_retry_manager.stop()
-
-        # Shut down EPG timer and its worker pool
-        if hasattr(self, "epg_manager"):
-            self.epg_manager.shutdown()
-
-        # Shut down image-fetch worker pool
-        if hasattr(self, "image_cache"):
-            self.image_cache.shutdown()
-
-        # Shut down the main-window executor pool
-        if hasattr(self, "executor"):
-            self.executor.shutdown(wait=False)
+        # Shut down all registered managers (registered in __init__ / setup_ui via
+        # _register_cleanable — new managers must be registered there, not added here).
+        for _name, _fn in getattr(self, "_cleanables", []):
+            try:
+                _fn()
+            except Exception as e:
+                logger.warning(f"Cleanup of {_name} failed: {e}")
 
         # Stop background work owned by the active content view (its on_deactivate
         # quits loader threads); _hide_all_content_views only runs on view switches,

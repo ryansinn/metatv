@@ -78,6 +78,7 @@ file:line-level task list (full-codebase review 2026-06-01). Summary:
 
 - [x] **P0 — best-practice bug fixes** — all 4 done (2026-06-01, branch refactor/p0-correctness-bugs): session leak fix, EPG browse TZ fix, closeEvent shutdown calls, view lifecycle on_deactivate
 - [x] **P1 — deduplication** — all 5 done (2026-06-01): parse_provider_urls helper, _apply_favorite_toggle, config icons, import hoisting, executor thread leak fix
+- [x] **Band 3 — structural fixes** — all done (2026-06-01, branch refactor/band3-structural): WAL (was already on), closeEvent registry, session_scope(), JSONEncoded TypeDecorator, icons.py, EPG conversion boundary + 2 latent bug fixes; 134 tests
 - [ ] **P2 — inline stylesheets → `theme.py`** — `epg_view.py` (63), `provider_editor.py` (36), `global_filter_dialog.py` (30), etc. share repeated style strings
 - [ ] **P3 — decompose oversized files (>1000-line rule)** — `main_window.py` (4178), `epg_view.py` (2167), `sidebar_sections.py` (1403), `provider_editor.py` (1120), `filter_panel.py` (1061)
 - [ ] **P4 — status-set dedup** (5 sites, see [refactor-audit memory]) + delete stray 25 MB `--help` artifact
