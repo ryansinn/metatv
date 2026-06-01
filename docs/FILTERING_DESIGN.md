@@ -96,7 +96,7 @@ result        = identity_pool AND (selected_qualities)
 
 ---
 
-## The Five Filter Axes
+## The Six Filter Axes
 
 ### Axis 1 — Language
 
@@ -182,7 +182,21 @@ Asia
 
 **Detection**: `detected_quality` column, populated by `update_detected_prefixes()` on ingestion. Scans both the prefix position and suffix position in the channel name (quality markers appear in both places: `4K ★ Channel Name` and `Channel Name ᴴᴰ ᴿᵃʷ`). Also falls back to the API `quality` field when name-based detection fails.
 
-### Axis 5 — Audio / Subtitle (modifier on Language)
+### Axis 5 — Genre
+
+**What it means**: content genre sourced from the provider's `raw_data['genre']` field (Xtream API).
+
+**Behavior**: OR within the axis — checking multiple genres shows channels belonging to any of them. Channels with no genre data always pass through (genre is sparse; only movie/series channels have it; live channels are never filtered by genre).
+
+**Scope**: only meaningful for `media_type = movie | series`. Live channels have no genre metadata and are unaffected regardless of genre filter state.
+
+**Normalization**: provider genre strings are multilingual (Drama/Drame/Dramma/Dramat all mean the same thing). The `_GENRE_NORM` table in `channel.py` maps ~80 common French, Italian, German, Spanish, and Dutch variants to canonical English names before counting or filtering. Non-Latin script genres (Arabic, CJK) with no mapping are dropped.
+
+**Count threshold**: only genres with ≥ 10 channels appear in the panel (keeps the list to ~12–15 useful genres).
+
+**No global exclusion**: genre is not wired to `global_filter_excluded_*` — there is no "exclude Horror everywhere" persistent setting yet.
+
+### Axis 6 — Audio / Subtitle (modifier on Language)
 
 Sub and Dub are included within the Language axis — they are not a separate filter dropdown.
 
@@ -250,6 +264,7 @@ Locale sub-groups and country-level region filters only work when providers use 
 | Prefix normalization / alias map | `metatv/core/channel_name_utils.py` → `_ALIAS_MAP`, `normalize_region_code()` |
 | Quality detection | `metatv/core/filter_utils.py` → `extract_quality()` |
 | Filter panel UI ("Includes:") | `metatv/gui/filter_panel.py` |
+| Genre normalization table | `metatv/core/repositories/channel.py` → `_GENRE_NORM` |
 | Channel query with filter axes | `metatv/core/repositories/channel.py` → `get_all()` |
 | Global Exclusions dialog | `metatv/gui/global_filter_dialog.py` |
 | Filter SQL regression tests | `tests/test_channel_filters.py`, `tests/test_prefix_stats.py` |
@@ -278,8 +293,14 @@ Locale sub-groups and country-level region filters only work when providers use 
 | Tier 1 All / Clear buttons (reset everything / start from scratch) | ✅ |
 | Info (ℹ) buttons on all section headers with click/hover tooltips | ✅ |
 | RAW quality tier in detection + filter | ✅ |
-| Platform split: individual brand groups (NF, PRIME, D+, VIX, EAR, etc.) | ✅ |
+| Platform split: individual brand groups (NF, PRIME, Disney+, VIX, EAR, etc.) | ✅ |
 | EAR reclassified to Platform (not Arabic language) | ✅ |
+| VIX added to Spanish language + Spanish (Mexico) groups | ✅ |
+| Tier 1 Genre filter section (multilingual normalization, ≥10 count threshold) | ✅ |
+| Row-click toggle on all filter panel items (not just checkbox target) | ✅ |
+| Right-click context menu — "Check only this" + "Exclude globally" | ✅ |
+| Filter panel hides when switching to EPG / Recommended / Discover views | ✅ |
+| Section header summary text clears correctly on All/Clear/header-checkbox | ✅ |
 | Tier 2 Global Exclusions modal (blacklist model) | ✅ |
 | Global Exclusions applied to search + Discovery | ✅ |
 | Grayed-out excluded versions in details pane | ✅ |
@@ -288,6 +309,8 @@ Locale sub-groups and country-level region filters only work when providers use 
 | Filter SQL regression test suite (65 tests, ~0.6s) | ✅ |
 | **Sub/Dub included within Language axis** | ❌ |
 | **Region UI: three-state hierarchical selector (currently flat list)** | ❌ deferred |
+| **Genre global exclusion** | ❌ not built |
+| **Filter panel in EPG / Discover / Recommended views** | ❌ those views use their own filter bars |
 | **Compound locale schema** (`detected_language`, `detected_platform` separate columns) | ❌ deferred — current prefix-based OR model is sufficient for now |
 
 ---
@@ -298,8 +321,12 @@ Locale sub-groups and country-level region filters only work when providers use 
 - [ ] **Move SC prefix to platform group** — confirmed mixed multi-language VOD platform; currently still in "Other" config
 - [ ] **Sub/Dub within Language axis** — include DUB/SUB prefixed channels in their target-language group results
 - [ ] **Region UI: three-state hierarchical selector** — current region section is flat list; should be continent → sub-region → country hierarchy matching Global Exclusions dialog model
-- [ ] **Others prefix audit** — add French/Spanish/Arabic country name variants to `_ALIAS_MAP` (MAROC→MAR, ALGÉRIE→DZA, etc.)
+- [ ] **Others prefix audit** — identify and classify Uncategorized prefix codes (GO, CITY, V+, ONE, SU, VD, SKR, BEE, etc.) into Language / Region / Platform groups; user is actively working on this; add country name variants to `_ALIAS_MAP` (MAROC→MAR, ALGÉRIE→DZA, etc.)
 - [ ] **User-defined prefix groups** — UI to assign "Other" prefixes to existing groups or new custom groups; backed by `user_prefix_overrides` config
+- [ ] **Unified filter panel across views** — EPG, Discover, and Recommended have their own filter controls; goal is a single shared FilterPanel (or shared filter state) so settings carry across view switches; migrate EPG sports filter bar, discover chips, and recommendations filter to the same pattern
+- [ ] **Genre global exclusion** — wire genre into `global_filter_excluded_*` so persistent genre exclusions work like language exclusions
+- [ ] **UI vocabulary standard** — single consistent terminology across all context menus and surfaces: "Exclude" (panel/global), "Hide" (per-channel), retire "Block" as a synonym; document in UI_UX_GUIDELINES.md
+- [ ] **Context menu standardization** — define a standard context menu structure (right-click on any channel or filter item) that is consistent across channel list, EPG, details pane, filter panel, and discovery views
 - [ ] **"Copy filters from…" across views** — apply a dialed-in Tier 1 filter from one view to another
 - [ ] **"Promote to Global Exclusion"** — convert an active Tier 1 filter set into a permanent Tier 2 exclusion
 - [ ] **FilterPanel expansion logic test coverage** — needs pytest-qt / QApplication; currently only SQL layer is tested

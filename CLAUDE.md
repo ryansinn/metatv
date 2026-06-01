@@ -273,6 +273,18 @@ MD5(url) as filename in `~/.cache/metatv/images/`. LRU cleanup at 500MB. Always 
 - Use `ThreadPoolExecutor` for blocking I/O; use `asyncio` for async providers
 - `QTimer.singleShot(0, ...)` for deferred main-thread execution
 
+## Session Wrap SOP
+
+When the user says "let's wrap up" or "wrap this session", do ALL of the following in order:
+
+1. **Tests** — run `venv/bin/python -m pytest tests/ -x -q` and confirm all pass; if any new behaviour was added, note what test coverage is still missing and add items to the FILTERING_DESIGN / ROADMAP test-coverage sections
+2. **Commit anything uncommitted** — stage and commit all modified files with a descriptive message; never leave working changes untracked
+3. **Docs** — update any design/reference docs that are now stale: `docs/FILTERING_DESIGN.md` (implementation status table + roadmap), `ROADMAP.md` (new items, completed items), `docs/UI_UX_GUIDELINES.md` if interaction patterns changed
+4. **CLAUDE.md** — update if any new critical rules, architecture patterns, or file locations were established this session
+5. **Memory** — update persistent memory files in `~/.claude/projects/…/memory/`: refresh `project_session_handoff.md` with current branch/commit/open work, update `project_filter_system.md` or other relevant memory files with anything that changed; write new memory files for new patterns or decisions
+6. **Push** — `git push origin main`; confirm no errors
+7. **Confirm** — tell the user what was committed, pushed, and written to memory; call out anything that couldn't be done and why
+
 ## Reference Docs
 
 | Topic | File |
