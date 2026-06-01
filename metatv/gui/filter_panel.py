@@ -1,13 +1,14 @@
 """Faceted filter panel — resizable vertical sidebar inside the channel list area.
 
-Sections (Language OR Region OR Platform OR Unidentified grows the pool;
-Quality narrows it):
-  Media       — Live / Movies / Series
-  Language    — language groups + locale sub-groups
-  Region      — geographic hierarchy: group → individual prefix codes
-  Platform    — individual streaming brands
-  Quality     — resolution/encoding tiers  (AND/restrictive)
-  Unidentified — unmapped prefix codes; each individually selectable
+Sections (Language OR Region OR Platform OR Uncategorized grows the pool;
+Quality filters it):
+  Media        — Live / Movies / Series
+  Language     — language groups + locale sub-groups
+  Region       — geographic hierarchy: group → individual prefix codes
+  Platform     — individual streaming brands
+  Quality      — resolution/encoding tiers  (AND/restrictive)
+  Uncategorized — prefix codes not mapped to any known group; each individually selectable
+  Unknown      — channels with no detectable region/language or quality tag
 
 All sections persist their collapsed/expanded state and selection state to config.
 Panel width persists via the QSplitter in main_window.
@@ -263,7 +264,7 @@ class _Section(QWidget):
         hl.addWidget(title_lbl)
 
         if and_axis:
-            narrows = QLabel("— narrows")
+            narrows = QLabel("— filter")
             narrows.setStyleSheet(
                 "font-size: 10px; color: #f0a04077; font-style: italic;")
             hl.addWidget(narrows)
@@ -541,18 +542,18 @@ class FilterPanel(QWidget):
         self._add_divider()
 
         self._unid_sec = _Section(
-            "unidentified", "Unidentified",
+            "unidentified", "Uncategorized",
             initially_expanded=_expanded("unidentified", False))
         self._unid_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._unid_sec)
         self._add_divider()
 
         self._untagged_sec = _Section(
-            "untagged", "Untagged / Unknown",
+            "untagged", "Unknown",
             initially_expanded=_expanded("untagged", True))
         self._untagged_sec.set_flat_items([
-            ("no_prefix",  "No prefix tag",   0),
-            ("no_quality", "No quality tag",  0),
+            ("no_prefix",  "Region / Language",  0),
+            ("no_quality", "Playback Quality",   0),
         ])
         self._untagged_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._untagged_sec)
@@ -649,8 +650,8 @@ class FilterPanel(QWidget):
         no_quality_count = stats.get('channels_without_quality', 0)
         prev_untagged = set(self._untagged_sec.get_selected_keys())
         self._untagged_sec.set_flat_items([
-            ("no_prefix",  "No prefix tag",  no_prefix_count),
-            ("no_quality", "No quality tag", no_quality_count),
+            ("no_prefix",  "Region / Language", no_prefix_count),
+            ("no_quality", "Playback Quality",  no_quality_count),
         ])
         if prev_untagged:
             self._untagged_sec.restore_selection(prev_untagged)
