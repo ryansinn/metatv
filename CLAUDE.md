@@ -248,16 +248,16 @@ Apply this to locks, sets, progress trackers, and any other state set before a v
 ### View lifecycle — on_activate / on_deactivate must be symmetric
 If a view has `on_activate()` (starts timers, loads data), it must also have `on_deactivate()` (stops timers, cancels pending work). Both must be called by the host (`main_window.py`) at view switch time — `on_deactivate` for the departing view, `on_activate` for the arriving one. The safest pattern: call `on_deactivate()` inside `_hide_all_content_views()` for any view that is currently visible.
 
-### Resource cleanup in closeEvent
-Any background manager with a `stop()` or `shutdown()` method must be called explicitly in `MainWindow.closeEvent`. Relying on garbage collection or QObject parent destruction is not sufficient for threads. Pattern:
+### Resource cleanup in closeEvent — use the cleanup registry
+`MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:
+
 ```python
-def closeEvent(self, event):
-    self.player_manager.cleanup()
-    if hasattr(self, "stream_retry_manager"):
-        self.stream_retry_manager.stop()
-    self.db.close()
-    event.accept()
+# After creating the manager:
+self.my_manager = MyManager(...)
+self._register_cleanable("my_manager", self.my_manager.shutdown)
 ```
+
+`closeEvent` iterates `_cleanables` automatically; exceptions are caught per-entry so a failing cleanup never blocks the rest. Never add a new `hasattr(self, "manager_name")` block to `closeEvent` — use the registry instead. `db.close()` and the view-deactivation loop remain explicit in `closeEvent` because they require sequencing/visibility logic the registry does not handle.
 
 ### Background pools/threads — owned, long-lived, and shut down
 Create a `ThreadPoolExecutor` / `QThread` **once per owning object**, never per call. A pool created inside a method that runs more than once is a thread leak (see `main_window.py` metadata-fetch path). Every pool/thread must be stopped in its owner's cleanup path — `closeEvent` for managers, `on_deactivate` for views (per the rules above). Reuse the owner's shared executor (`self.executor`) for one-off background work rather than spinning up a throwaway pool.

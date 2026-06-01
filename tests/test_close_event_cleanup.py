@@ -1,10 +1,9 @@
-"""Regression test for P0-3: closeEvent must call shutdown on all thread-owning managers.
-
-Asserts that epg_manager.shutdown(), image_cache.shutdown(), and executor.shutdown()
-are each invoked when the window closes.
+"""Regression test for P0-3 / B3-1: closeEvent must call shutdown on all thread-owning
+managers. Managers are now registered via _cleanables (B3-1 cleanup registry) rather
+than individual hasattr checks.
 """
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pytest
 
 
@@ -24,13 +23,22 @@ def _build_mock_window():
         win = mw_module.MainWindow.__new__(mw_module.MainWindow)
 
     # Managers that closeEvent must shut down
-    win.player_manager    = MagicMock()
+    win.player_manager       = MagicMock()
     win.stream_retry_manager = MagicMock()
-    win.db                = MagicMock()
-    win.epg_manager       = MagicMock()
-    win.image_cache       = MagicMock()
-    win.executor          = MagicMock()
-    win.config            = MagicMock()
+    win.db                   = MagicMock()
+    win.epg_manager          = MagicMock()
+    win.image_cache          = MagicMock()
+    win.executor             = MagicMock()
+    win.config               = MagicMock()
+
+    # B3-1: populate the cleanup registry (mirrors registration order in __init__ / setup_ui)
+    win._cleanables = [
+        ("player_manager",       win.player_manager.cleanup),
+        ("image_cache",          win.image_cache.shutdown),
+        ("stream_retry_manager", win.stream_retry_manager.stop),
+        ("executor",             lambda: win.executor.shutdown(wait=False)),
+        ("epg_manager",          win.epg_manager.shutdown),
+    ]
 
     # Content views whose background work closeEvent stops on exit (F3-1).
     # Default to not-visible so on_deactivate is not invoked unless a test opts in.
@@ -97,4 +105,26 @@ def test_event_accepted():
     win = _build_mock_window()
     ev = _make_close_event()
     win.closeEvent(ev)
+    ev.accept.assert_called_once()
+
+
+def test_cleanable_registry_calls_registered_fn():
+    """B3-1: any callable registered via _cleanables must be invoked in closeEvent."""
+    win = _build_mock_window()
+    sentinel = MagicMock()
+    win._cleanables.append(("test_sentinel", sentinel))
+    win.closeEvent(_make_close_event())
+    sentinel.assert_called_once()
+
+
+def test_cleanable_registry_exception_does_not_abort_close():
+    """B3-1: a failing cleanable must not prevent the rest from running or the window closing."""
+    win = _build_mock_window()
+    boom = MagicMock(side_effect=RuntimeError("boom"))
+    after = MagicMock()
+    win._cleanables.append(("boom", boom))
+    win._cleanables.append(("after", after))
+    ev = _make_close_event()
+    win.closeEvent(ev)
+    after.assert_called_once()
     ev.accept.assert_called_once()
