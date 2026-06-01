@@ -249,9 +249,11 @@ Locale sub-groups and country-level region filters only work when providers use 
 | Platform/service groups | `metatv/core/config.py` → `BASE_PLATFORM_GROUPS` |
 | Prefix normalization / alias map | `metatv/core/channel_name_utils.py` → `_ALIAS_MAP`, `normalize_region_code()` |
 | Quality detection | `metatv/core/filter_utils.py` → `extract_quality()` |
-| Filter bar UI | `metatv/gui/filter_bar.py` |
+| Filter panel UI ("Includes:") | `metatv/gui/filter_panel.py` |
 | Channel query with filter axes | `metatv/core/repositories/channel.py` → `get_all()` |
 | Global Exclusions dialog | `metatv/gui/global_filter_dialog.py` |
+| Filter SQL regression tests | `tests/test_channel_filters.py`, `tests/test_prefix_stats.py` |
+| Prefix ETL unit tests | `tests/test_extract_prefix.py` |
 
 ---
 
@@ -262,36 +264,42 @@ Locale sub-groups and country-level region filters only work when providers use 
 | `detected_prefix` column + prefix normalization | ✅ |
 | `detected_quality` column (prefix + suffix + API fallback) | ✅ |
 | `detected_region` column (parenthetical suffix e.g. `(US)→US`) | ✅ |
-| Tier 1 Language filter dropdown | ✅ |
-| Tier 1 Quality filter dropdown | ✅ |
-| Tier 1 Platform filter dropdown | ✅ |
-| Tier 1 "N results filtered" inline bypass button | ✅ |
+| Tier 1 filter panel ("Includes:") — collapsible vertical sidebar | ✅ |
+| Tier 1 Language filter section | ✅ |
+| Tier 1 Quality filter section (AND/restrictive, labeled "— filter") | ✅ |
+| Tier 1 Platform filter section (individual brands) | ✅ |
+| Tier 1 Region filter section | ✅ |
 | Tier 1 locale sub-groups (EN/FR/PT/AR/ES regional variants) | ✅ |
+| Tier 1 filter logic: Language OR Region OR Platform identity pool | ✅ |
+| Tier 1 cross-axis expansion (deselect one axis → others remain active) | ✅ |
+| Tier 1 Quality NULL pass-through (`include_untagged_quality` flag) | ✅ |
+| Tier 1 "Uncategorized" section (unmapped prefix codes, identification workflow) | ✅ |
+| Tier 1 "Unknown" section (no_prefix + no_quality catchall) | ✅ |
+| Tier 1 All / Clear buttons (reset everything / start from scratch) | ✅ |
+| Info (ℹ) buttons on all section headers with click/hover tooltips | ✅ |
+| RAW quality tier in detection + filter | ✅ |
+| Platform split: individual brand groups (NF, PRIME, D+, VIX, EAR, etc.) | ✅ |
+| EAR reclassified to Platform (not Arabic language) | ✅ |
 | Tier 2 Global Exclusions modal (blacklist model) | ✅ |
 | Global Exclusions applied to search + Discovery | ✅ |
 | Grayed-out excluded versions in details pane | ✅ |
 | Debounced SQL search (200ms, 5k page cap) | ✅ |
 | User Categories (custom discovery shelves, mood signals) | ✅ |
-| **Tier 1 filter logic: Language OR Region OR Platform identity pool** | ❌ not yet — currently AND across axes |
-| **Tier 1 Region filter dropdown (hierarchical)** | ❌ `BASE_REGIONAL_GROUPS` defined but not wired to UI |
-| **Region UI: three-state hierarchical selector** | ❌ not yet built |
-| **RAW quality tier in detection + filter bar** | ❌ |
-| **Platform split: individual brand groups (no Streaming catchall)** | ❌ |
-| **EAR reclassified to Platform/Multi (not Arabic)** | ❌ |
+| Filter SQL regression test suite (65 tests, ~0.6s) | ✅ |
 | **Sub/Dub included within Language axis** | ❌ |
+| **Region UI: three-state hierarchical selector (currently flat list)** | ❌ deferred |
 | **Compound locale schema** (`detected_language`, `detected_platform` separate columns) | ❌ deferred — current prefix-based OR model is sufficient for now |
 
 ---
 
 ## Roadmap
 
-- [ ] **Wire BASE_REGIONAL_GROUPS to filter bar** — Region dropdown with hierarchical three-state picker (same model as Global Exclusions dialog)
-- [ ] **Implement Language OR Region OR Platform pool logic** — replace current AND-across-axes SQL with the identity pool model
-- [ ] **Split BASE_PLATFORM_GROUPS** — individual brand groups: NF, PRIME, D+, VIX, JOYN, TUBI, GOLD, VIP, WOW, SHAHID; remove "Streaming" catchall
-- [ ] **Add RAW to quality detection** — scan suffix position in channel names for RAW/ᴿᵃʷ tokens; add RAW tier to BASE_QUALITY_GROUPS
-- [ ] **Reclassify EAR** — move from Arabic language group to Platform + Multi/Subtitle groups
+- [ ] **Move EX prefix to language group** — confirmed Serbian/Croatian (Ex-Yugoslav content); currently still in "Other" config
+- [ ] **Move SC prefix to platform group** — confirmed mixed multi-language VOD platform; currently still in "Other" config
 - [ ] **Sub/Dub within Language axis** — include DUB/SUB prefixed channels in their target-language group results
+- [ ] **Region UI: three-state hierarchical selector** — current region section is flat list; should be continent → sub-region → country hierarchy matching Global Exclusions dialog model
 - [ ] **Others prefix audit** — add French/Spanish/Arabic country name variants to `_ALIAS_MAP` (MAROC→MAR, ALGÉRIE→DZA, etc.)
 - [ ] **User-defined prefix groups** — UI to assign "Other" prefixes to existing groups or new custom groups; backed by `user_prefix_overrides` config
 - [ ] **"Copy filters from…" across views** — apply a dialed-in Tier 1 filter from one view to another
 - [ ] **"Promote to Global Exclusion"** — convert an active Tier 1 filter set into a permanent Tier 2 exclusion
+- [ ] **FilterPanel expansion logic test coverage** — needs pytest-qt / QApplication; currently only SQL layer is tested
