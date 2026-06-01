@@ -33,7 +33,7 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
-from metatv.gui.filter_bar import FilterBar, ToggleChip, FilterChip
+from metatv.gui.filter_bar import ToggleChip, FilterChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
 from metatv.gui.details_actions import ChannelActionState
@@ -1638,7 +1638,6 @@ class MainWindow(QMainWindow):
         self.discover_view.setVisible(False)
         self.provider_editor.setVisible(False)
         self.search_controls.setVisible(False)
-        self.filter_bar.setVisible(False)
         self._media_type_widget.setVisible(False)
         self._hidden_banner.setVisible(False)
         self._hidden_mode = False
@@ -1885,9 +1884,14 @@ class MainWindow(QMainWindow):
         self.load_channels(provider_id)
     
     def toggle_filters(self):
-        """Toggle filter bar visibility"""
-        self.filters_visible = not self.filters_visible
-        self.filter_bar.setVisible(self.filters_visible)
+        """Toggle filter panel visibility via inner splitter collapse."""
+        if hasattr(self, '_inner_splitter'):
+            sizes = self._inner_splitter.sizes()
+            if sizes[0] > 0:
+                self._inner_splitter.setSizes([0, sum(sizes)])
+            else:
+                w = getattr(self.config, 'filter_panel_width', 220)
+                self._inner_splitter.setSizes([w, max(200, sum(sizes) - w)])
         
         if self.filters_visible:
             self.toggle_filters_btn.setText(f"{self.settings_icon} Filters {self.config.collapse_icon}")
@@ -1947,7 +1951,7 @@ class MainWindow(QMainWindow):
         filter_state = self.current_filter_state or (
             self.filter_panel.get_filter_state()
             if hasattr(self, 'filter_panel')
-            else self.filter_bar.get_filter_state()
+            else {}
         )
 
         # Filter panel provides pre-resolved prefix lists — use them directly.
@@ -2171,7 +2175,7 @@ class MainWindow(QMainWindow):
         provider_icon_map  = params.get('provider_icon_map', {})
         given_provider_id  = params.get('given_provider_id')
 
-        self.filter_bar.set_adult_filter_visible(has_adult)
+        # Adult filter now lives in filter panel (no separate toggle needed)
 
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
@@ -2377,9 +2381,11 @@ class MainWindow(QMainWindow):
         """Handle filter changes from FilterBar or media chips"""
         logger.info("Filter changed, reloading channels...")
         self._bypass_tier1_filters = False  # user changed filters — cancel any bypass
-        # Get filter state from FilterBar and add media types from chips
-        self.current_filter_state = self.filter_bar.get_filter_state()
-        self.current_filter_state['media_types'] = self.get_enabled_media_types()
+        self.current_filter_state = (
+            self.filter_panel.get_filter_state()
+            if hasattr(self, 'filter_panel')
+            else {}
+        )
         # Chip state drives provider filtering; sidebar selection is set separately
         # via on_provider_selected_new which calls load_channels(provider_id) directly.
         self.load_channels(None)
@@ -3148,8 +3154,6 @@ class MainWindow(QMainWindow):
 
         self.channels_list.setVisible(True)
         self.search_controls.setVisible(True)
-        self._media_type_widget.setVisible(True)
-        self.filter_bar.setVisible(self.filters_visible)
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
 
