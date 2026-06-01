@@ -76,8 +76,8 @@ What's left to build. Completed features live in git history.
 See **[docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md)** for the full prioritized,
 file:line-level task list (full-codebase review 2026-06-01). Summary:
 
-- [ ] **P0 — best-practice bug fixes** — `provider_loader.py` `with session` leak (try/finally rule); EPG Browse date picker uses local `date.today()` against UTC-naive storage (wrong programmes for non-UTC users)
-- [ ] **P1 — deduplication** — single `parse_provider_urls()` helper (6 copy-paste sites); collapse duplicated favorite-toggle in `main_window.py`; replace hardcoded `▼`/`▶` with `Config.expand_icon`/`collapse_icon`; hoist in-function imports to module scope
+- [x] **P0 — best-practice bug fixes** — all 4 done (2026-06-01, branch refactor/p0-correctness-bugs): session leak fix, EPG browse TZ fix, closeEvent shutdown calls, view lifecycle on_deactivate
+- [x] **P1 — deduplication** — all 5 done (2026-06-01): parse_provider_urls helper, _apply_favorite_toggle, config icons, import hoisting, executor thread leak fix
 - [ ] **P2 — inline stylesheets → `theme.py`** — `epg_view.py` (63), `provider_editor.py` (36), `global_filter_dialog.py` (30), etc. share repeated style strings
 - [ ] **P3 — decompose oversized files (>1000-line rule)** — `main_window.py` (4178), `epg_view.py` (2167), `sidebar_sections.py` (1403), `provider_editor.py` (1120), `filter_panel.py` (1061)
 - [ ] **P4 — status-set dedup** (5 sites, see [refactor-audit memory]) + delete stray 25 MB `--help` artifact
