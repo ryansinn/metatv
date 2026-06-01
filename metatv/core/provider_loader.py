@@ -395,9 +395,10 @@ class SeriesLoadThread(QThread):
             return
         
         self.progress.emit("Storing seasons and episodes...")
-        
+
         # Store in database
-        with self.db.get_session() as session:
+        session = self.db.get_session()
+        try:
             # Parse and store seasons
             seasons = series_data.get("seasons", [])
             episodes_data = series_data.get("episodes", {})
@@ -583,6 +584,8 @@ class SeriesLoadThread(QThread):
             
             session.commit()
             logger.info(f"Stored {season_count} seasons and {total_episodes} episodes for {self.series_name}")
-        
+        finally:
+            session.close()
+
         self.finished.emit(True, f"Loaded {season_count} seasons", series_data)
 
