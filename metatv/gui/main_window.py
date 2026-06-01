@@ -2876,7 +2876,6 @@ class MainWindow(QMainWindow):
     
     def update_details_pane_for_channel(self, channel):
         """Update details pane with channel metadata (async)"""
-        from concurrent.futures import ThreadPoolExecutor
         from metatv.core.models import MediaType
 
         # Live channels have no TMDb/OMDb metadata — show basic info and return.
@@ -2949,9 +2948,8 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Error in on_metadata_loaded: {e}", exc_info=True)
         
-        # Submit to thread pool
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(fetch_metadata)
+        # Reuse the long-lived executor — creating a per-call pool leaks threads
+        future = self.executor.submit(fetch_metadata)
         future.add_done_callback(on_metadata_loaded)
     
     def _update_details_with_metadata(self, channel, metadata):
