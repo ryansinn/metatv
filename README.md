@@ -1,6 +1,6 @@
-# MetaTV - IPTV Stream Organizer
+# MetaTV — a lean, native media manager + companion player
 
-A powerful, cross-platform IPTV stream organizer with advanced filtering, metadata enrichment, personalized recommendations, and flexible content organization.
+A lean, native cross-platform desktop app for curating and playing your media: a powerful management UI (multi-source, advanced filtering, metadata enrichment, personalized recommendations, discovery) paired with simple, out-of-the-way mpv playback — designed to live as an ambient companion on a working PC.
 
 ## Current Features
 
