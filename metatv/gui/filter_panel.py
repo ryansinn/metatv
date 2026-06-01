@@ -377,6 +377,7 @@ class _Section(QWidget):
             r.set_checked(True)
         for g in self._groups:
             g.set_all_checked(True)
+        self._update_summary()
 
     def select_none(self):
         self._select_all.blockSignals(True)
@@ -386,6 +387,7 @@ class _Section(QWidget):
             r.set_checked(False)
         for g in self._groups:
             g.set_all_checked(False)
+        self._update_summary()
 
     def restore_selection(self, selected_keys: set[str]):
         for r in self._rows:
@@ -415,7 +417,7 @@ class _Section(QWidget):
             r.set_checked(checked)
         for g in self._groups:
             g.set_all_checked(checked)
-        self._update_summary()
+        self._update_ui()
         self.changed.emit()
 
     def _on_item_toggled(self, key: str, checked: bool):
