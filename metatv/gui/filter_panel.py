@@ -19,7 +19,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -223,6 +223,8 @@ class _Section(QWidget):
     def __init__(self, section_key: str, title: str,
                  and_axis: bool = False,
                  initially_expanded: bool = False,
+                 info_text: str = "",
+                 info_icon: str = "ℹ",
                  parent=None):
         super().__init__(parent)
         self._key = section_key
@@ -268,6 +270,24 @@ class _Section(QWidget):
             narrows.setStyleSheet(
                 "font-size: 10px; color: #f0a04077; font-style: italic;")
             hl.addWidget(narrows)
+
+        if info_text:
+            info_btn = QPushButton(info_icon)
+            info_btn.setFixedSize(16, 16)
+            info_btn.setFlat(True)
+            info_btn.setStyleSheet(
+                "QPushButton { color: #555; font-size: 10px; background: transparent; }"
+                "QPushButton:hover { color: #99bbff; }"
+            )
+            info_btn.setToolTip(info_text)
+            # Also show on click for touch / keyboard users
+            info_btn.clicked.connect(
+                lambda _checked=False, btn=info_btn, txt=info_text:
+                    QToolTip.showText(
+                        btn.mapToGlobal(btn.rect().center()), txt, btn
+                    )
+            )
+            hl.addWidget(info_btn)
 
         hl.addStretch()
 
@@ -500,10 +520,14 @@ class FilterPanel(QWidget):
         def _expanded(key: str, default: bool) -> bool:
             return saved_states.get(key, default)
 
+        _ii = self.config.info_icon
+
         # Build sections
         self._media_sec = _Section(
             "media", "Media",
-            initially_expanded=_expanded("media", True))
+            initially_expanded=_expanded("media", True),
+            info_text="Filter by content type. Uncheck a type to hide all channels of that kind.",
+            info_icon=_ii)
         self._media_sec.set_flat_items([
             ("live",   "Live",   0),
             ("movie",  "Movies", 0),
@@ -515,42 +539,82 @@ class FilterPanel(QWidget):
 
         self._lang_sec = _Section(
             "language", "Language",
-            initially_expanded=_expanded("language", False))
+            initially_expanded=_expanded("language", False),
+            info_text=(
+                "Show channels by language or locale prefix (e.g. EN, FR, DE).\n"
+                "Language, Region, and Platform work as a union — "
+                "checking more always expands results, never shrinks them."
+            ),
+            info_icon=_ii)
         self._lang_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._lang_sec)
         self._add_divider()
 
         self._region_sec = _Section(
             "region", "Region",
-            initially_expanded=_expanded("region", False))
+            initially_expanded=_expanded("region", False),
+            info_text=(
+                "Show channels by geographic region code (e.g. US, CA, MX).\n"
+                "Works together with Language and Platform as a union — "
+                "checking more always adds to results."
+            ),
+            info_icon=_ii)
         self._region_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._region_sec)
         self._add_divider()
 
         self._platform_sec = _Section(
             "platform", "Platform",
-            initially_expanded=_expanded("platform", False))
+            initially_expanded=_expanded("platform", False),
+            info_text=(
+                "Show channels from specific streaming platforms (e.g. Netflix, EAR, Disney+).\n"
+                "Works together with Language and Region as a union — "
+                "checking more always adds to results."
+            ),
+            info_icon=_ii)
         self._platform_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._platform_sec)
         self._add_divider()
 
         self._quality_sec = _Section(
             "quality", "Quality", and_axis=True,
-            initially_expanded=_expanded("quality", False))
+            initially_expanded=_expanded("quality", False),
+            info_text=(
+                "Filter by video quality tier.\n\n"
+                "Unlike other sections, this works differently: unchecking a tier "
+                "hides channels explicitly tagged with that quality. "
+                "Channels with no quality information are always shown."
+            ),
+            info_icon=_ii)
         self._quality_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._quality_sec)
         self._add_divider()
 
         self._unid_sec = _Section(
             "unidentified", "Uncategorized",
-            initially_expanded=_expanded("unidentified", False))
+            initially_expanded=_expanded("unidentified", False),
+            info_text=(
+                "Channels that have a prefix code the app hasn't classified "
+                "into a known language, region, or platform group.\n\n"
+                "The prefix is there — we just don't know what it means yet. "
+                "Uncheck a code to exclude those channels from results."
+            ),
+            info_icon=_ii)
         self._unid_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._unid_sec)
         self._add_divider()
 
         self._untagged_sec = _Section(
             "untagged", "Unknown",
-            initially_expanded=_expanded("untagged", True))
+            initially_expanded=_expanded("untagged", True),
+            info_text=(
+                "Channels where no identifying information could be detected at all "
+                "(not even an unrecognised prefix).\n\n"
+                "Region / Language: channels with no language or region prefix.\n"
+                "Playback Quality: channels with no quality marker.\n\n"
+                "Uncheck either to hide that group from results."
+            ),
+            info_icon=_ii)
         self._untagged_sec.set_flat_items([
             ("no_prefix",  "Region / Language",  0),
             ("no_quality", "Playback Quality",   0),
