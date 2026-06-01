@@ -127,8 +127,9 @@ class _GroupRow(QWidget):
 
     def __init__(self, group_name: str, total_count: int,
                  child_items: list[tuple[str, str, int]],
-                 indent: int = 0, parent=None):
+                 indent: int = 0, config=None, parent=None):
         super().__init__(parent)
+        self._config = config
         self._children: list[_ItemRow] = []
         self._expanded = False
 
@@ -141,7 +142,8 @@ class _GroupRow(QWidget):
         hl.setContentsMargins(8 + indent, 3, 8, 3)
         hl.setSpacing(4)
 
-        self._expand_btn = QPushButton("▶")
+        _expand_glyph = config.expand_icon if config else "▶"
+        self._expand_btn = QPushButton(_expand_glyph)
         self._expand_btn.setFixedSize(16, 16)
         self._expand_btn.setFlat(True)
         self._expand_btn.setStyleSheet("QPushButton { color: #666; font-size: 9px; }")
@@ -185,7 +187,11 @@ class _GroupRow(QWidget):
     def _toggle_expand(self):
         self._expanded = not self._expanded
         self._child_container.setVisible(self._expanded)
-        self._expand_btn.setText("▼" if self._expanded else "▶")
+        if self._config:
+            glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
+        else:
+            glyph = "▼" if self._expanded else "▶"
+        self._expand_btn.setText(glyph)
 
     def _on_tri_changed(self, state_val: int):
         state = Qt.CheckState(state_val)
@@ -242,9 +248,11 @@ class _Section(QWidget):
                  initially_expanded: bool = False,
                  info_text: str = "",
                  info_icon: str = "ℹ",
+                 config=None,
                  parent=None):
         super().__init__(parent)
         self._key = section_key
+        self._config = config
         self._rows: list[_ItemRow] = []
         self._groups: list[_GroupRow] = []
         self._expanded = initially_expanded
@@ -268,7 +276,11 @@ class _Section(QWidget):
         hl.setContentsMargins(6, 0, 6, 0)
         hl.setSpacing(4)
 
-        self._collapse_btn = QPushButton("▼" if initially_expanded else "▶")
+        if config:
+            _init_glyph = config.collapse_icon if initially_expanded else config.expand_icon
+        else:
+            _init_glyph = "▼" if initially_expanded else "▶"
+        self._collapse_btn = QPushButton(_init_glyph)
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
         self._collapse_btn.setStyleSheet(
@@ -344,7 +356,11 @@ class _Section(QWidget):
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
         self._content.setVisible(expanded)
-        self._collapse_btn.setText("▼" if expanded else "▶")
+        if self._config:
+            glyph = self._config.collapse_icon if expanded else self._config.expand_icon
+        else:
+            glyph = "▼" if expanded else "▶"
+        self._collapse_btn.setText(glyph)
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
         self._clear()
@@ -362,7 +378,7 @@ class _Section(QWidget):
                           groups: list[tuple[str, int, list[tuple[str, str, int]]]]):
         self._clear()
         for group_name, total, children in groups:
-            g = _GroupRow(group_name, total, children)
+            g = _GroupRow(group_name, total, children, config=self._config)
             g.changed.connect(self._on_group_changed)
             g.child_right_clicked.connect(
                 lambda k, pos, sk=self._key: self.item_right_clicked.emit(k, sk, pos)
@@ -574,7 +590,7 @@ class FilterPanel(QWidget):
             "media", "Media",
             initially_expanded=_expanded("media", True),
             info_text="Filter by content type. Uncheck a type to hide all channels of that kind.",
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._media_sec.set_flat_items([
             ("live",   "Live",   0),
             ("movie",  "Movies", 0),
@@ -592,7 +608,7 @@ class FilterPanel(QWidget):
                 "Language, Region, and Platform work as a union — "
                 "checking more always expands results, never shrinks them."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._lang_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._lang_sec)
         self._add_divider()
@@ -605,7 +621,7 @@ class FilterPanel(QWidget):
                 "Works together with Language and Platform as a union — "
                 "checking more always adds to results."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._region_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._region_sec)
         self._add_divider()
@@ -618,7 +634,7 @@ class FilterPanel(QWidget):
                 "Works together with Language and Region as a union — "
                 "checking more always adds to results."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._platform_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._platform_sec)
         self._add_divider()
@@ -632,7 +648,7 @@ class FilterPanel(QWidget):
                 "hides channels explicitly tagged with that quality. "
                 "Channels with no quality information are always shown."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._quality_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._quality_sec)
         self._add_divider()
@@ -646,7 +662,7 @@ class FilterPanel(QWidget):
                 "Channels with no genre data are always included.\n"
                 "Only applies to Movies and Series; live channels are unaffected."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._genre_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._genre_sec)
         self._add_divider()
@@ -660,7 +676,7 @@ class FilterPanel(QWidget):
                 "The prefix is there — we just don't know what it means yet. "
                 "Uncheck a code to exclude those channels from results."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._unid_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._unid_sec)
         self._add_divider()
@@ -675,7 +691,7 @@ class FilterPanel(QWidget):
                 "Playback Quality: channels with no quality marker.\n\n"
                 "Uncheck either to hide that group from results."
             ),
-            info_icon=_ii)
+            info_icon=_ii, config=self.config)
         self._untagged_sec.set_flat_items([
             ("no_prefix",  "Region / Language",  0),
             ("no_quality", "Playback Quality",   0),
