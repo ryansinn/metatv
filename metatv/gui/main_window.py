@@ -2784,54 +2784,60 @@ class MainWindow(QMainWindow):
         finally:
             session.close()
     
+    def _apply_favorite_toggle(self, channel_id: str):
+        """Toggle favorite in DB, show status bar message, refresh sidebar.
+
+        Returns (channel, new_status) on success, or None if channel not found.
+        """
+        session = self.db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                return None
+            new_status = repos.channels.toggle_favorite(channel_id)
+            channel.is_favorite = new_status
+        finally:
+            session.close()
+
+        status = "added to" if channel.is_favorite else "removed from"
+        self.status_bar.showMessage(f"{channel.name} {status} favorites")
+        logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
+        self.load_favorites()
+        return channel, new_status
+
     def toggle_favorite(self, item):
         """Toggle favorite status of a channel"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                # Toggle favorite status
-                new_status = repos.channels.toggle_favorite(channel_id)
-                channel.is_favorite = new_status
-                
-                status = "added to" if channel.is_favorite else "removed from"
-                self.status_bar.showMessage(f"{channel.name} {status} favorites")
-                logger.info(f"Toggled favorite for {channel.name}: {channel.is_favorite}")
-                
-                # Update the icon on the current item only (fast, no database query)
-                current_text = item.text()
-                if channel.is_favorite:
-                    # Replace unfavorite icon with favorite icon
-                    updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-                else:
-                    # Replace favorite icon with unfavorite icon
-                    updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-                item.setText(updated_text)
-                
-                # Also update in all_channels cache for filtering
-                for i, (text, ch) in enumerate(self.all_channels):
-                    if ch.id == channel_id:
-                        ch.is_favorite = channel.is_favorite
-                        # Update cached display text
-                        media_icon = self.get_media_type_icon(ch.media_type)
-                        fav_icon = self.favorite_icon if ch.is_favorite else self.unfavorite_icon
-                        display_text = f"{media_icon}{fav_icon} {ch.name}"
-                        if ch.category:
-                            display_text += f" [{ch.category}]"
-                        if ch.quality and ch.quality != "unknown":
-                            display_text += f" ({ch.quality})"
-                        self.all_channels[i] = (display_text, ch)
-                        break
-                
-                # Only refresh favorites sidebar (fast, no full reload)
-                self.load_favorites()
-        finally:
-            session.close()
+
+        result = self._apply_favorite_toggle(channel_id)
+        if not result:
+            return
+        channel, _ = result
+
+        # Update the icon on the current item only (fast, no database query)
+        current_text = item.text()
+        if channel.is_favorite:
+            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
+        else:
+            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
+        item.setText(updated_text)
+
+        # Also update in all_channels cache for filtering
+        for i, (text, ch) in enumerate(self.all_channels):
+            if ch.id == channel_id:
+                ch.is_favorite = channel.is_favorite
+                media_icon = self.get_media_type_icon(ch.media_type)
+                fav_icon = self.favorite_icon if ch.is_favorite else self.unfavorite_icon
+                display_text = f"{media_icon}{fav_icon} {ch.name}"
+                if ch.category:
+                    display_text += f" [{ch.category}]"
+                if ch.quality and ch.quality != "unknown":
+                    display_text += f" ({ch.quality})"
+                self.all_channels[i] = (display_text, ch)
+                break
     
     def show_channel_details_by_id(self, channel_id: str):
         """Show channel details in details pane (for sidebar selections)"""
@@ -2971,37 +2977,26 @@ class MainWindow(QMainWindow):
     
     def toggle_favorite_by_id(self, channel_id: str):
         """Toggle favorite by ID (for details pane Favorite button)"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                new_status = repos.channels.toggle_favorite(channel_id)
-                channel.is_favorite = new_status
-                
-                status = "added to" if channel.is_favorite else "removed from"
-                self.status_bar.showMessage(f"{channel.name} {status} favorites")
-                
-                # Update details pane — but not while the lightbox has focus (D6)
-                if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
-                    self.update_details_pane_for_channel(channel)
-                
-                # Refresh favorites sidebar
-                self.load_favorites()
-                
-                # Update channel list display if visible
-                for i in range(self.channels_list.count()):
-                    item = self.channels_list.item(i)
-                    if item.data(Qt.ItemDataRole.UserRole) == channel_id:
-                        current_text = item.text()
-                        if channel.is_favorite:
-                            updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-                        else:
-                            updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-                        item.setText(updated_text)
-                        break
-        finally:
-            session.close()
+        result = self._apply_favorite_toggle(channel_id)
+        if not result:
+            return
+        channel, _ = result
+
+        # Update details pane — but not while the lightbox has focus (D6)
+        if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
+            self.update_details_pane_for_channel(channel)
+
+        # Update channel list display if visible
+        for i in range(self.channels_list.count()):
+            item = self.channels_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == channel_id:
+                current_text = item.text()
+                if channel.is_favorite:
+                    updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
+                else:
+                    updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
+                item.setText(updated_text)
+                break
     
     def play_channel(self, item):
         """Play selected channel in external player or drill down into series"""
