@@ -59,3 +59,11 @@ STATUS_ERR = "color: #F44336; font-size: 12px; font-weight: 600;"
 SEP_DARK = "color: #444; margin-top: 4px; margin-bottom: 4px;"
 SECTION_TITLE_SM = "font-size: 12px; font-weight: bold; padding-top: 4px;"
 LABEL_MUTED_MD = "color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;"
+
+BG_TRANSPARENT = "background: transparent;"
+RATING_BTN = (
+    "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
+    " font-size: 13px; color: #888; }"
+    "QPushButton:checked { background: rgba(255,255,255,0.18); color: #fff; }"
+    "QPushButton:hover { background: rgba(255,255,255,0.10); color: #ccc; }"
+)
