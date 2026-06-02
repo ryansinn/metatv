@@ -44,6 +44,7 @@ review's deferred items — without changing user-visible behavior except where 
 | Stray `--help` artifact | **Absent** — already gone; P4-2 is moot, just confirm. |
 | `probe_all_urls` dead code / probe English in core / `url_row_widget` literals | **Fixed** in the PR #6 follow-up commit. Do not redo. |
 | **B6-5** (icons + `ICON_PALETTE`) | **DONE — pulled forward into PR #6.** Do not redo. |
+| **B6-6** (theme tokens for `provider_editor` + `filter_group_row`) | **DONE — pulled forward into PR #6.** Both files are color/font-literal free. Do not redo. |
 
 ---
 
@@ -136,7 +137,20 @@ in a *widget* file (`url_row_widget.py:127`) only because `provider_editor` impo
 - **Accept:** no icon glyph literals in `url_row_widget.py`; `ICON_PALETTE` not defined in a
   widget module; both importers updated; tests pass.
 
-### B6-6 — theme tokens: `ProviderIconPicker` + `filter_group_row._ACCENT`
+### B6-6 — theme tokens: `ProviderIconPicker` + `filter_group_row._ACCENT` — ✅ DONE (PR #6)
+Resolved in PR #6, and taken further than the original scope: **all** color/font literals in
+`provider_editor.py` and `filter_group_row.py` were removed. Added the section-accent palette
+(`COLOR_ACCENT_BLUE/_2/_3`, `_GREEN/_PURPLE/_ORANGE/_TEAL/_BROWN`, `_ORANGE_FADED`), structural
+colors (`COLOR_BG_SECTION`, `COLOR_LINE_DARK`, `COLOR_TEXT_LOW`, `COLOR_BTN_SAVE[_HOVER]`),
+overlays (`OVERLAY_04/08/15`, `OVERLAY_BLUE_10/15/20/25`, `OVERLAY_ERR_15`, `OVERLAY_POPUP`),
+one-off font sizes (`FONT_HEADING/INPUT/ICON/ICON_LG`), and role-named semantic constants
+(`ICON_PICK_BTN[_SELECTED]`, `ICON_PICK_MAIN_BTN`, `ICON_PICK_POPUP`, `PROVIDER_TOPBAR`,
+`LINK_BTN`, `DELETE_BTN`, `SAVE_BTN`). `_ACCENT` is still a map; its values are now tokens.
+Also dropped the dead `config` param from `ProviderIconPicker` and migrated its `📡`/`🗑`
+glyph fallbacks to `icons.*`. Structural px (border-width, radius, letter-spacing, padding)
+left literal, consistent with the rest of `theme.py`. **Do not redo.**
+
+> Original task: theme tokens for `ProviderIconPicker` + `filter_group_row._ACCENT`.
 ~24 hex/rgba literals remain in `provider_editor.py` (mostly `ProviderIconPicker._BTN_STYLE`
 / `_BTN_SELECTED_STYLE`, `#4488ff` + `rgba(68,136,255,...)`) and ~20 in
 `filter_group_row.py` (the `_ACCENT` per-section colour map).
@@ -210,8 +224,8 @@ Band 5 made `core/provider_probe.py` Qt-free — it is now unit-testable without
 ## Suggested band ordering & PR grouping
 
 ```
-PR A — Priority C cleanups (B6-6, B6-9, B6-10)         ← low-risk, fast, do first
-       (B6-5 icons already done in PR #6)
+PR A — Priority C cleanups (B6-9, B6-10)               ← low-risk, fast, do first
+       (B6-5 icons + B6-6 theme tokens already done in PR #6)
 PR B — B6-7 + B6-8 (streaming off-thread + session_scope)  ← behavior change, own PR
 PR C — B6-3 status-set dedup                            ← verify-then-extract
 PR D — B6-1 main_window.py passes 2–3                   ← large mechanical split

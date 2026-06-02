@@ -15,16 +15,16 @@ from PyQt6.QtWidgets import (
 from metatv.gui import theme as _theme
 
 
-# ── Accent colours per section ─────────────────────────────────────────────────
+# ── Accent colours per section (values are theme tokens) ────────────────────────
 _ACCENT = {
-    "media":        "#4488ff",
-    "language":     "#4488ff",
-    "region":       "#44aa77",
-    "platform":     "#9966cc",
-    "quality":      "#f0a040",
-    "genre":        "#33bb88",
-    "unidentified": "#cc7722",
-    "untagged":     "#666666",
+    "media":        _theme.COLOR_ACCENT_BLUE,
+    "language":     _theme.COLOR_ACCENT_BLUE,
+    "region":       _theme.COLOR_ACCENT_GREEN,
+    "platform":     _theme.COLOR_ACCENT_PURPLE,
+    "quality":      _theme.COLOR_ACCENT_ORANGE,
+    "genre":        _theme.COLOR_ACCENT_TEAL,
+    "unidentified": _theme.COLOR_ACCENT_BROWN,
+    "untagged":     _theme.COLOR_MUTED_2,
 }
 
 
@@ -70,7 +70,7 @@ class _ItemRow(QWidget):
         layout.addWidget(self._cb)
 
         lbl = QLabel(label)
-        lbl.setStyleSheet("font-size: 12px; color: #cccccc;")
+        lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         lbl.setMinimumWidth(0)   # prevent RTL/long text from forcing the panel wider
         lbl.setWordWrap(True)
@@ -136,7 +136,8 @@ class _GroupRow(QWidget):
         self._expand_btn = QPushButton(config.expand_icon)
         self._expand_btn.setFixedSize(16, 16)
         self._expand_btn.setFlat(True)
-        self._expand_btn.setStyleSheet("QPushButton { color: #666; font-size: 9px; }")
+        self._expand_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
         self._expand_btn.clicked.connect(self._toggle_expand)
         hl.addWidget(self._expand_btn)
 
@@ -146,7 +147,7 @@ class _GroupRow(QWidget):
         hl.addWidget(self._tri)
 
         name_lbl = QLabel(group_name)
-        name_lbl.setStyleSheet("font-size: 12px; color: #bbbbbb;")
+        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
         name_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
                                 QSizePolicy.Policy.Preferred)
         hl.addWidget(name_lbl)
@@ -245,7 +246,7 @@ class _Section(QWidget):
         self._groups: list[_GroupRow] = []
         self._expanded = initially_expanded
 
-        accent = _ACCENT.get(section_key, "#4488ff")
+        accent = _ACCENT.get(section_key, _theme.COLOR_ACCENT_BLUE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -254,7 +255,7 @@ class _Section(QWidget):
         header = QWidget()
         header.setObjectName("sectionHeader")
         header.setStyleSheet(
-            f"QWidget#sectionHeader {{ background: #1a1a1a; "
+            f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
             f"border-left: 3px solid {accent}; }}"
         )
         header.setFixedHeight(30)
@@ -269,20 +270,22 @@ class _Section(QWidget):
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
         self._collapse_btn.setStyleSheet(
-            "QPushButton { color: #888; font-size: 9px; background: transparent; }")
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
+            " background: transparent; }")
         self._collapse_btn.clicked.connect(self._toggle_collapse)
         hl.addWidget(self._collapse_btn)
 
         title_lbl = QLabel(title.upper())
         title_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #cccccc; "
+            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
             "letter-spacing: 1px;")
         hl.addWidget(title_lbl)
 
         if and_axis:
             narrows = QLabel("— filter")
             narrows.setStyleSheet(
-                "font-size: 10px; color: #f0a04077; font-style: italic;")
+                f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
+                " font-style: italic;")
             hl.addWidget(narrows)
 
         if info_text:
@@ -290,8 +293,9 @@ class _Section(QWidget):
             info_btn.setFixedSize(16, 16)
             info_btn.setFlat(True)
             info_btn.setStyleSheet(
-                "QPushButton { color: #555; font-size: 10px; background: transparent; }"
-                "QPushButton:hover { color: #99bbff; }"
+                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
+                " background: transparent; }"
+                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}"
             )
             info_btn.setToolTip(info_text)
             # Also show on click for touch / keyboard users
@@ -306,7 +310,7 @@ class _Section(QWidget):
         hl.addStretch()
 
         self._summary_lbl = QLabel("")
-        self._summary_lbl.setStyleSheet("font-size: 10px; color: #666666;")
+        self._summary_lbl.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         hl.addWidget(self._summary_lbl)
 
         self._select_all = _TriCheckbox()
@@ -319,7 +323,7 @@ class _Section(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #2a2a2a;")
+        sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
         outer.addWidget(sep)
 
         # Content
