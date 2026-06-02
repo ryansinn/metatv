@@ -32,3 +32,18 @@ SECTION_HDR = (
 CARD_BG = "QWidget { background: rgba(255,255,255,0.03); border-radius: 6px; }"
 
 SEPARATOR_LINE = "background: #333; margin-top: 4px; margin-bottom: 2px;"
+SEPARATOR_H = "border: none; border-top: 1px solid #333; margin: 8px 0;"
+
+EMPTY_LABEL = "color: #555; font-size: 13px; padding: 20px;"
+LABEL_MUTED = "color: #666; font-size: 11px;"
+LIST_TITLE = "font-weight: bold; font-size: 13px;"
+
+SECTION_HDR_LG = (
+    "font-size: 11px; font-weight: bold; color: #666;"
+    " letter-spacing: 1px; padding: 4px 0;"
+)
+SECTION_HINT = "color: #555; font-size: 11px; padding: 2px 0 6px 0;"
+SECTION_ITEM = "color: #555; font-size: 11px; padding: 4px 0;"
+
+CLEAR_BTN = "border: none; color: #777; font-size: 10px;"
+CLOSE_BTN = "color: #666; border: none; background: transparent; font-size: 14px;"
