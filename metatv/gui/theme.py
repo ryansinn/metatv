@@ -61,6 +61,7 @@ SECTION_TITLE_SM = "font-size: 12px; font-weight: bold; padding-top: 4px;"
 LABEL_MUTED_MD = "color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;"
 
 BG_TRANSPARENT = "background: transparent;"
+HEADER_TINT = "background-color: rgba(255, 255, 255, 0.05);"
 FILTER_CHECKBOX = "QCheckBox { color: #cccccc; }"
 ITEM_COUNT = "font-size: 11px; color: #555555;"
 PANEL_BTN = (

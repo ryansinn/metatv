@@ -210,7 +210,7 @@ class CollapsibleSection(QFrame):
     def create_header(self):
         """Create collapsible header with title and toggle button"""
         header = QWidget()
-        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header.setStyleSheet(_theme.HEADER_TINT)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
         
@@ -348,7 +348,7 @@ class SourcesSection(CollapsibleSection):
     def create_header(self):
         """Override to add '+' button in the header instead of bottom buttons."""
         header = QWidget()
-        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header.setStyleSheet(_theme.HEADER_TINT)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
 
@@ -518,7 +518,7 @@ class WatchAlertsSection(CollapsibleSection):
 
     def create_header(self):
         header = QWidget()
-        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header.setStyleSheet(_theme.HEADER_TINT)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(5, 3, 5, 3)
         self.toggle_btn = QPushButton(self.config.collapse_icon)
@@ -984,7 +984,7 @@ class FavoritesSection(CollapsibleSection):
 
     def create_header(self):
         header = QWidget()
-        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header.setStyleSheet(_theme.HEADER_TINT)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(5, 3, 5, 3)
         self.toggle_btn = QPushButton(self.config.collapse_icon)
@@ -1122,7 +1122,7 @@ class RecommendedSection(CollapsibleSection):
 
     def create_header(self):
         header = QWidget()
-        header.setStyleSheet("background-color: rgba(255, 255, 255, 0.05);")
+        header.setStyleSheet(_theme.HEADER_TINT)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(5, 3, 5, 3)
 
