@@ -50,6 +50,12 @@ CLOSE_BTN = "color: #666; border: none; background: transparent; font-size: 14px
 EYE_BTN = "border: none; padding: 0; color: #aaa;"
 
 HINT_XS = "color: #888; font-size: 10px;"
+LABEL_XS = "color: #666; font-size: 9px;"
 FIELD_LABEL = "font-weight: 600;"
+TEXT_SM = "font-size: 12px;"
 STATUS_OK = "color: #4CAF50; font-size: 12px; font-weight: 600;"
 STATUS_ERR = "color: #F44336; font-size: 12px; font-weight: 600;"
+
+SEP_DARK = "color: #444; margin-top: 4px; margin-bottom: 4px;"
+SECTION_TITLE_SM = "font-size: 12px; font-weight: bold; padding-top: 4px;"
+LABEL_MUTED_MD = "color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;"
