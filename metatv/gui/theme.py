@@ -218,6 +218,22 @@ SAVE_BTN = (
     "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
 )
 
+# Category / prefix chips (version chips, similar-title chips, title-area prefix badge)
+CATEGORY_CHIP = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 2px 8px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_DIM + ";"
+    " background: " + OVERLAY_05 + "; }"
+)
+CATEGORY_CHIP_SM = (
+    "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_DIM + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 1px 6px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + ";"
+    " background: " + OVERLAY_05 + "; }"
+)
+
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"
 SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin: 8px 0;"

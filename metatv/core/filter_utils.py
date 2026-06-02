@@ -14,6 +14,10 @@ _BRACKET_RE = re.compile(r'^\[([A-Z0-9]{1,8})\]\s*')
 # + is allowed for streaming brands: D+, DISNEY+, PARAMOUNT+
 _VALID_PREFIX = re.compile(r'^[A-Z0-9][A-Z0-9/+]{0,9}$')
 
+# Fallback: PREFIX-  Title (dash directly after prefix, followed by 1+ spaces).
+# Some providers omit the leading space: "EN-  Walking Dead" instead of "EN - Walking Dead".
+_DASH_NO_SPACE_RE = re.compile(r'^([A-Z][A-Z0-9/+]{0,9})-\s+(.+)$')
+
 # Default separator search order — longer/more-specific patterns first to avoid
 # partial matches (e.g. " ★ " before bare "★").
 DEFAULT_PREFIX_SEPARATORS: list[str] = [" ★ ", "★", " | ", "| ", "|", ": ", ":", " - "]
@@ -27,16 +31,18 @@ def extract_prefix(channel_name: str, separators: list[str] | None = None) -> Op
     2. Each separator in *separators* (default: ★, |, :, then ' - ').
        The candidate before the separator must match ``[A-Z0-9][A-Z0-9/]{0,9}``
        (no spaces, no lowercase, ≤ 10 chars) to avoid false positives.
+    3. Dash-no-space fallback: ``PREFIX-  Title`` → returns ``PREFIX``.
 
     Examples::
 
-        extract_prefix("EN - Breaking Bad")   → 'EN'
-        extract_prefix("AF ★ Wede - Doc")     → 'AF'
-        extract_prefix("AFR| RTN TELE SAHEL") → 'AFR'
-        extract_prefix("[SE] Star Trek")      → 'SE'
-        extract_prefix("UK: Channel Name")    → 'UK'
-        extract_prefix("Breaking Bad - S01")  → None  (has lowercase)
-        extract_prefix("Just A Title")        → None
+        extract_prefix("EN - Breaking Bad")    → 'EN'
+        extract_prefix("EN-  Breaking Bad")    → 'EN'  (dash no-space variant)
+        extract_prefix("AF ★ Wede - Doc")      → 'AF'
+        extract_prefix("AFR| RTN TELE SAHEL")  → 'AFR'
+        extract_prefix("[SE] Star Trek")       → 'SE'
+        extract_prefix("UK: Channel Name")     → 'UK'
+        extract_prefix("Breaking Bad - S01")   → None  (has lowercase)
+        extract_prefix("Just A Title")         → None
     """
     if not channel_name:
         return None
@@ -52,6 +58,11 @@ def extract_prefix(channel_name: str, separators: list[str] | None = None) -> Op
             candidate = channel_name.split(sep, 1)[0].strip()
             if _VALID_PREFIX.match(candidate):
                 return candidate
+
+    # Fallback: PREFIX-  Title (no space before dash, 1+ spaces after)
+    m2 = _DASH_NO_SPACE_RE.match(channel_name)
+    if m2 and _VALID_PREFIX.match(m2.group(1)):
+        return m2.group(1)
 
     return None
 

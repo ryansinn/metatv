@@ -212,6 +212,7 @@ class DetailsPaneWidget(QWidget):
         s.version_selected.connect(self.version_selected)
         s.favorite_toggled.connect(self.favorite_toggled)
         s.queue_toggled.connect(self.queue_toggled)
+        s.prefix_exclude_requested.connect(self.prefix_block_requested)
         s.similar_preview_requested.connect(self.similar_preview_requested)
 
         # Action bar — wrap with channel_id

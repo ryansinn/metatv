@@ -47,6 +47,8 @@ class ChannelVersion:
     is_favorite: bool = False
     in_history: bool = False
     provider_name: str | None = None
+    media_type: str = ""            # "movie" | "series" | "live" | ""
+    user_rating: int = 0            # +1 liked, -1 disliked, 0 no rating
 
 
 # ---------------------------------------------------------------------------

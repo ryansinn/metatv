@@ -229,6 +229,7 @@ class _GroupRow(QWidget):
 
 class _Section(QWidget):
     changed = pyqtSignal()
+    collapse_toggled = pyqtSignal()          # collapse/expand only — does NOT mean filter changed
     item_right_clicked = pyqtSignal(str, str, QPoint)  # item_key, section_key, global_pos
 
     def __init__(self, section_key: str, title: str,
@@ -439,7 +440,7 @@ class _Section(QWidget):
 
     def _toggle_collapse(self):
         self.set_expanded(not self._expanded)
-        self.changed.emit()  # so parent can save collapse state
+        self.collapse_toggled.emit()  # save collapse state without triggering a filter reload
 
     def _on_select_all(self, state_val: int):
         state = Qt.CheckState(state_val)

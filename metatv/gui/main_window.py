@@ -91,6 +91,26 @@ def _format_episode_duration(raw: str) -> str:
 
 from metatv.core.preference_engine import version_score as _version_score
 
+_YEAR_IN_NAME = re.compile(r'\b(19[5-9]\d|20[0-2]\d)\b')
+
+
+def _name_year(name: str) -> int | None:
+    """Year explicitly in the channel name (not from metadata)."""
+    m = _YEAR_IN_NAME.search(name)
+    return int(m.group(1)) if m else None
+
+
+def _version_years_compatible(name_a: str, name_b: str) -> bool:
+    """Return False only when BOTH names carry explicit, differing years.
+
+    If either name lacks a year the match is accepted — a no-year channel is
+    assumed to be the same production. Only when both names have distinct years
+    (e.g. (1979) vs (1985)) are they treated as different productions.
+    """
+    yr_a = _name_year(name_a)
+    yr_b = _name_year(name_b)
+    return yr_a is None or yr_b is None or yr_a == yr_b
+
 
 from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
 
@@ -724,6 +744,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
                 versions_raw = [
                     ch for ch in candidates
                     if normalize_title(ch.name, ch.detected_prefix) == current_norm
+                    and _version_years_compatible(ch.name, channel.name)
                 ]
 
             current_score = _version_score(channel, self.config)
@@ -872,7 +893,9 @@ class MainWindow(_StreamingMixin, QMainWindow):
                     seen_norms.add(ch_norm)
                     results.append(ch)
 
+            from metatv.core.database import UserRatingDB
             queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
+            ratings = {r.channel_id: r.rating for r in session.query(UserRatingDB).all()}
             similar = [
                 ChannelVersion(
                     channel_id=ch.id,
@@ -881,6 +904,8 @@ class MainWindow(_StreamingMixin, QMainWindow):
                     detected_prefix=ch.detected_prefix,
                     is_favorite=bool(ch.is_favorite),
                     in_history=bool(ch.play_count),
+                    media_type=ch.media_type or "",
+                    user_rating=ratings.get(ch.id, 0),
                 )
                 for ch in results[:20]
             ]
@@ -3386,11 +3411,12 @@ class MainWindow(_StreamingMixin, QMainWindow):
                 for episode in episodes:
                     # Create episode item
                     episode_item = QTreeWidgetItem(season_item)
-                    watched_indicator = f"{self.watched_icon} " if episode.is_watched else ""
                     display_title = _clean_episode_title(
                         episode.title, episode.season_num, episode.episode_num, episode.series_name
                     )
-                    episode_item.setText(0, f"  {self.episode_icon} {watched_indicator}{display_title}")
+                    # Use history icon for watched episodes so the icon replaces the play indicator
+                    ep_icon = self.history_icon if episode.is_watched else self.episode_icon
+                    episode_item.setText(0, f"  {ep_icon} {display_title}")
                     episode_item.setToolTip(0, episode.title)
 
                     # Episode number

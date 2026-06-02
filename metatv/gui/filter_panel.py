@@ -226,6 +226,8 @@ class FilterPanel(QWidget):
         # Wire right-click signals from all sections
         for sec in self._all_sections():
             sec.item_right_clicked.connect(self._on_item_right_clicked)
+            # collapse_toggled saves state but does NOT emit filter_changed
+            sec.collapse_toggled.connect(self._on_collapse_toggled)
 
         self.restore_state()
 
@@ -515,6 +517,11 @@ class FilterPanel(QWidget):
         line.setFixedHeight(1)
         line.setStyleSheet("background:#2a2a2a; border:none;")
         self._sl.addWidget(line)
+
+    def _on_collapse_toggled(self):
+        """Save collapse state when a section header is toggled — no filter reload."""
+        if not self._restoring:
+            self.save_state()
 
     def _on_changed(self):
         if not self._restoring:

@@ -1,21 +1,34 @@
 """Similar Titles collapsible section for the details pane."""
+from __future__ import annotations
+
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSizePolicy,
+    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QMenu, QSizePolicy,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
-from metatv.core.prefix_detector import strip_prefix
-from metatv.gui.details_versions import ChannelVersion
+from metatv.core.channel_name_utils import parse_channel_name
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
+from metatv.gui.details_versions import ChannelVersion, resolve_category_name
+
+
+# Icon-only action buttons — transparent, no border, hover brightens (single-use, token-built)
+_ICON_BTN = (
+    f"QPushButton {{ border: none; font-size: {_theme.FONT_LG}; padding: 0px;"
+    " background: transparent; }"
+    f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+)
 
 
 class _SimilarSection(QWidget):
     """Collapsible 'Similar Titles' section showing fuzzy-matched content."""
 
-    play_requested          = pyqtSignal(str)              # channel_id
-    version_selected        = pyqtSignal(str)              # channel_id → show in details pane
-    favorite_toggled        = pyqtSignal(str)              # channel_id
-    queue_toggled           = pyqtSignal(str)              # channel_id
-    similar_preview_requested = pyqtSignal(list, int, str) # (channel_ids, index, origin_title)
+    play_requested            = pyqtSignal(str)              # channel_id
+    version_selected          = pyqtSignal(str)              # channel_id → show in details pane
+    favorite_toggled          = pyqtSignal(str)              # channel_id
+    queue_toggled             = pyqtSignal(str)              # channel_id
+    prefix_exclude_requested  = pyqtSignal(str)              # prefix → add to global exclusions
+    similar_preview_requested = pyqtSignal(list, int, str)   # (channel_ids, index, origin_title)
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -35,13 +48,15 @@ class _SimilarSection(QWidget):
         hdr = QHBoxLayout(self._header)
         hdr.setContentsMargins(0, 4, 0, 2)
         hdr.setSpacing(4)
-        self._toggle_btn = QPushButton(self.config.collapse_icon)
+        self._toggle_btn = QPushButton(_icons.collapse_icon)
         self._toggle_btn.setFlat(True)
         self._toggle_btn.setFixedSize(20, 20)
         self._toggle_btn.setToolTip("Collapse Similar Titles")
         self._toggle_btn.clicked.connect(self._toggle)
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet("font-weight: bold; color: #ccc;")
+        self._title_lbl.setStyleSheet(
+            f"font-weight: bold; color: {_theme.COLOR_TEXT};"
+        )
         hdr.addWidget(self._toggle_btn)
         hdr.addWidget(self._title_lbl)
         hdr.addStretch()
@@ -87,56 +102,77 @@ class _SimilarSection(QWidget):
         self._expanded = not self._expanded
         self._body.setVisible(self._expanded)
         self._toggle_btn.setText(
-            self.config.collapse_icon if self._expanded else self.config.expand_icon
+            _icons.collapse_icon if self._expanded else _icons.expand_icon
         )
         self._toggle_btn.setToolTip(
             "Collapse Similar Titles" if self._expanded else "Expand Similar Titles"
         )
 
+    # ------------------------------------------------------------------ #
+    # Row builder                                                          #
+    # ------------------------------------------------------------------ #
+
     def _make_row(self, v: ChannelVersion) -> QWidget:
+        parsed = parse_channel_name(v.name)
+        clean_title = parsed.bare_name or v.name
+        year_str = parsed.year or ""
         prefix = v.detected_prefix
-        clean_title = strip_prefix(v.name, prefix) if prefix else v.name
 
         row_w = QWidget()
         row = QHBoxLayout(row_w)
         row.setContentsMargins(0, 1, 0, 1)
         row.setSpacing(4)
 
-        # Play button — leftmost, always visible
-        _BTN = (
-            "QPushButton { border: none; font-size: 13px; padding: 0px;"
-            " background: transparent; }"
-            "QPushButton:hover { color: #fff; }"
-        )
-        play_btn = QPushButton(self.config.play_icon)
+        # 1. Play button
+        play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
-        play_btn.setStyleSheet(f"QPushButton {{ color: #666; }} {_BTN}")
+        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_ICON_BTN}")
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
 
-        # Prefix chip — matches category chip style from _VersionSection
-        if prefix:
-            chip = QLabel(prefix)
-            chip.setStyleSheet(
-                "QLabel { font-size: 10px; color: #aaa; border: 1px solid #444;"
-                " border-radius: 4px; padding: 1px 6px; }"
+        # 2. Media type icon (🎬/📺/📡)
+        type_icon = {
+            "movie":  _icons.movie_icon,
+            "series": _icons.series_icon,
+            "live":   _icons.live_icon,
+        }.get(v.media_type, "")
+        if type_icon:
+            type_lbl = QLabel(type_icon)
+            type_lbl.setFixedWidth(18)
+            type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            type_lbl.setStyleSheet(
+                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};"
             )
-            chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            type_lbl.setToolTip((v.media_type or "").title())
+            row.addWidget(type_lbl)
+
+        # 3. Prefix chip — right-click opens context menu to add to global exclusions
+        if prefix:
+            full_name = resolve_category_name(prefix, self.config) or prefix
+            chip = QPushButton(prefix)
             chip.setFixedHeight(18)
+            chip.setStyleSheet(_theme.CATEGORY_CHIP_SM)
+            chip.setToolTip(full_name)
+            chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
+            chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            chip.customContextMenuRequested.connect(
+                lambda pos, _p=prefix, _c=chip:
+                    self._show_chip_menu(_c.mapToGlobal(pos), _p)
+            )
             row.addWidget(chip)
 
-        # Clean title — clickable, takes all remaining space; Ignored policy lets
-        # the layout shrink it below text width so long names don't push buttons off-screen
+        # 4. Name button — takes remaining space, shrinkable; right-click → lightbox preview
         name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         name_btn.setStyleSheet(
-            "QPushButton { text-align: left; color: #ccc; font-size: 11px; border: none; }"
-            "QPushButton:hover { color: #fff; }"
+            f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
+            f" font-size: {_theme.FONT_MD}; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
         )
-        name_btn.setToolTip("Click: go to details  ·  Right-click: preview")
+        name_btn.setToolTip("Click: go to details  ·  Right-click: preview in lightbox")
         name_btn.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
         name_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         idx = self._channel_ids.index(v.channel_id)
@@ -147,32 +183,88 @@ class _SimilarSection(QWidget):
         )
         row.addWidget(name_btn, 1)
 
-        # History indicator — read-only, shown only if previously watched
+        # 5. Rating icon (liked / disliked — hidden when neutral)
+        if v.user_rating == 1:
+            rating_lbl = QLabel(_icons.like_icon)
+            rating_lbl.setStyleSheet(
+                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE};"
+            )
+            rating_lbl.setToolTip("You liked this")
+            row.addWidget(rating_lbl)
+        elif v.user_rating == -1:
+            rating_lbl = QLabel(_icons.dislike_icon)
+            rating_lbl.setStyleSheet(
+                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_ORANGE};"
+            )
+            rating_lbl.setToolTip("You disliked this")
+            row.addWidget(rating_lbl)
+
+        # 6. History indicator (previously watched)
         if v.in_history:
-            hist = QLabel(self.config.history_icon)
-            hist.setStyleSheet("font-size: 11px; color: #555;")
+            hist = QLabel(_icons.history_icon)
+            hist.setStyleSheet(
+                f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};"
+            )
             hist.setToolTip("Previously watched")
             row.addWidget(hist)
 
-        # Favorite toggle — gold when active, dim when not
-        fav_color = "#f0c040" if v.is_favorite else "#444"
-        fav_btn = QPushButton(self.config.favorite_icon)
+        # 7. Year — right-aligned, fixed width so years form a column
+        year_lbl = QLabel(year_str)
+        year_lbl.setFixedWidth(36)
+        year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        year_lbl.setStyleSheet(
+            f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};"
+        )
+        row.addWidget(year_lbl)
+
+        # 8. Favorite toggle
+        fav_color = _theme.COLOR_GOLD if v.is_favorite else _theme.COLOR_FAINT
+        fav_btn = QPushButton(_icons.favorite_icon)
         fav_btn.setFixedSize(22, 20)
         fav_btn.setFlat(True)
-        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_BTN}")
+        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_ICON_BTN}")
         fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
         row.addWidget(fav_btn)
 
-        # Queue toggle — ✓ + blue when in queue, 📋 + dim when not (shape + color)
-        queue_icon = self.config.watched_icon if v.in_queue else self.config.queue_icon
-        queue_color = "#4a9eff" if v.in_queue else "#444"
-        queue_btn = QPushButton(queue_icon)
+        # 9. Queue toggle — optimistic: flips icon/color on click without waiting for DB roundtrip
+        q_icon = _icons.watched_icon if v.in_queue else _icons.queue_icon
+        q_color = _theme.COLOR_ACCENT_BLUE if v.in_queue else _theme.COLOR_FAINT
+        queue_btn = QPushButton(q_icon)
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
-        queue_btn.setStyleSheet(f"QPushButton {{ color: {queue_color}; }} {_BTN}")
+        queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_ICON_BTN}")
         queue_btn.setToolTip("Remove from Queue" if v.in_queue else "Add to Queue")
-        queue_btn.clicked.connect(lambda _, cid=v.channel_id: self.queue_toggled.emit(cid))
+
+        def _on_queue_click(_btn=queue_btn, _v=v):
+            _v.in_queue = not _v.in_queue
+            _btn.setText(_icons.watched_icon if _v.in_queue else _icons.queue_icon)
+            _c = _theme.COLOR_ACCENT_BLUE if _v.in_queue else _theme.COLOR_FAINT
+            _btn.setStyleSheet(f"QPushButton {{ color: {_c}; }} {_ICON_BTN}")
+            _btn.setToolTip("Remove from Queue" if _v.in_queue else "Add to Queue")
+            self.queue_toggled.emit(_v.channel_id)
+
+        queue_btn.clicked.connect(_on_queue_click)
         row.addWidget(queue_btn)
 
         return row_w
+
+    # ------------------------------------------------------------------ #
+    # Context menus                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _show_chip_menu(self, global_pos, prefix: str) -> None:
+        full = resolve_category_name(prefix, self.config)
+        header = f"{full} ({prefix})" if full else prefix
+
+        menu = QMenu(self)
+        title_act = menu.addAction(header)
+        title_act.setEnabled(False)
+        menu.addSeparator()
+        excl_act = menu.addAction(f"Add '{prefix}' to Global Exclusions")
+        excl_act.setToolTip(
+            f"Hides all {prefix} content from recommendations, Similar Titles, and Discovery"
+        )
+        chosen = menu.exec(global_pos)
+        if chosen == excl_act:
+            self.prefix_exclude_requested.emit(prefix)

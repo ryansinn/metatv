@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES, parse_channel_name
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
 from metatv.metadata_providers.base import MetadataResult
@@ -196,11 +197,34 @@ class _MetadataSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Title
+        # Title bar: [prefix chip]  [clean title ···]  [year]
+        title_bar = QWidget()
+        title_bar_layout = QHBoxLayout(title_bar)
+        title_bar_layout.setContentsMargins(0, 0, 0, 0)
+        title_bar_layout.setSpacing(6)
+
+        self._prefix_chip = QPushButton()
+        self._prefix_chip.setFlat(True)
+        self._prefix_chip.setStyleSheet(_theme.CATEGORY_CHIP)
+        self._prefix_chip.setFixedHeight(24)
+        self._prefix_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._prefix_chip.hide()
+        title_bar_layout.addWidget(self._prefix_chip)
+
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
-        layout.addWidget(self.title_label)
+        title_bar_layout.addWidget(self.title_label, 1)
+
+        self._name_year_lbl = QLabel()
+        self._name_year_lbl.setStyleSheet(
+            f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_MUTED}; font-weight: bold;"
+        )
+        self._name_year_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._name_year_lbl.hide()
+        title_bar_layout.addWidget(self._name_year_lbl)
+
+        layout.addWidget(title_bar)
 
         # Metadata row (year, rating, runtime)
         self._meta_row = QWidget()
@@ -257,14 +281,33 @@ class _MetadataSection(QWidget):
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata."""
-        self.title_label.setText(channel.name)
+        parsed = parse_channel_name(channel.name)
+        clean_title = parsed.bare_name if parsed.bare_name else channel.name
+        self.title_label.setText(clean_title)
+
+        # Prefix chip — shows detected category code (EN, NF, D+, etc.)
+        prefix = parsed.region or getattr(channel, "detected_prefix", None) or ""
+        if prefix:
+            tip = resolve_category_name(prefix, self.config) or prefix
+            self._prefix_chip.setText(prefix)
+            self._prefix_chip.setToolTip(tip)
+            self._prefix_chip.show()
+        else:
+            self._prefix_chip.hide()
+
+        # Year from channel name — shown to the right of the title
+        if parsed.year:
+            self._name_year_lbl.setText(parsed.year)
+            self._name_year_lbl.show()
+        else:
+            self._name_year_lbl.hide()
 
         media_icon = {
-            "live": self.config.live_icon,
-            "movie": self.config.movie_icon,
-            "series": self.config.series_icon,
-        }.get(channel.media_type, self.config.unknown_icon)
-        self.year_label.setText(f"{media_icon} {channel.media_type.title()}")
+            "live":   _icons.live_icon,
+            "movie":  _icons.movie_icon,
+            "series": _icons.series_icon,
+        }.get(channel.media_type or "", _icons.unknown_icon)
+        self.year_label.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
 
         if provider_map:
             provider_info = provider_map.get(getattr(channel, "provider_id", None))
@@ -287,6 +330,8 @@ class _MetadataSection(QWidget):
             self.title_label.setText(metadata.title)
         if metadata.year:
             self.year_label.setText(str(metadata.year))
+            self._name_year_lbl.setText(str(metadata.year))
+            self._name_year_lbl.show()
         if metadata.rating:
             stars = self.config.rating_star_icon * int(metadata.rating / 2)
             self.rating_label.setText(f"{stars} {metadata.rating:.1f}/10")
@@ -311,6 +356,8 @@ class _MetadataSection(QWidget):
 
     def clear(self) -> None:
         self.title_label.clear()
+        self._prefix_chip.hide()
+        self._name_year_lbl.hide()
         self.year_label.clear()
         self.rating_label.clear()
         self.runtime_label.clear()
