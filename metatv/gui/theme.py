@@ -62,6 +62,10 @@ LABEL_MUTED_MD = "color: #888; font-size: 12px; padding-left: 4px; padding-top: 
 
 BG_TRANSPARENT = "background: transparent;"
 HEADER_TINT = "background-color: rgba(255, 255, 255, 0.05);"
+DETAIL_TEXT = "color: lightgray;"
+LOADING_TEXT = "color: gray; font-style: italic;"
+TITLE_LG = "font-size: 18px; font-weight: bold;"
+META_DIM = "color: gray;"
 FILTER_CHECKBOX = "QCheckBox { color: #cccccc; }"
 ITEM_COUNT = "font-size: 11px; color: #555555;"
 PANEL_BTN = (

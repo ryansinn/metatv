@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
 from metatv.metadata_providers.base import MetadataResult
 
@@ -65,7 +66,7 @@ class _PosterSection(QWidget):
 
         self.poster_loading = QLabel("Loading poster...")
         self.poster_loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.poster_loading.setStyleSheet("color: gray; font-style: italic;")
+        self.poster_loading.setStyleSheet(_theme.LOADING_TEXT)
         self.poster_loading.hide()
         pf_layout.addWidget(self.poster_loading)
 
@@ -198,7 +199,7 @@ class _MetadataSection(QWidget):
         # Title
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        self.title_label.setStyleSheet(_theme.TITLE_LG)
         layout.addWidget(self.title_label)
 
         # Metadata row (year, rating, runtime)
@@ -206,13 +207,13 @@ class _MetadataSection(QWidget):
         meta_row_layout = QHBoxLayout(self._meta_row)
         meta_row_layout.setContentsMargins(0, 0, 0, 0)
         self.year_label = QLabel()
-        self.year_label.setStyleSheet("color: gray;")
+        self.year_label.setStyleSheet(_theme.META_DIM)
         meta_row_layout.addWidget(self.year_label)
         self.rating_label = QLabel()
         self.rating_label.setStyleSheet("color: gold; font-weight: bold;")
         meta_row_layout.addWidget(self.rating_label)
         self.runtime_label = QLabel()
-        self.runtime_label.setStyleSheet("color: gray;")
+        self.runtime_label.setStyleSheet(_theme.META_DIM)
         meta_row_layout.addWidget(self.runtime_label)
         meta_row_layout.addStretch()
         layout.addWidget(self._meta_row)
@@ -252,7 +253,7 @@ class _MetadataSection(QWidget):
         if is_live:
             self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         else:
-            self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+            self.title_label.setStyleSheet(_theme.TITLE_LG)
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata."""
@@ -342,11 +343,11 @@ class _PlotSection(QWidget):
         self.plot_label = QLabel()
         self.plot_label.setWordWrap(True)
         self.plot_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.plot_label.setStyleSheet("color: lightgray;")
+        self.plot_label.setStyleSheet(_theme.DETAIL_TEXT)
         layout.addWidget(self.plot_label)
 
         self.plot_loading = QLabel("Loading description...")
-        self.plot_loading.setStyleSheet("color: gray; font-style: italic;")
+        self.plot_loading.setStyleSheet(_theme.LOADING_TEXT)
         self.plot_loading.hide()
         layout.addWidget(self.plot_loading)
 
@@ -406,7 +407,7 @@ class _TechnicalSection(QWidget):
         self.tech_details_label = QLabel()
         self.tech_details_label.setWordWrap(True)
         self.tech_details_label.setTextFormat(Qt.TextFormat.RichText)
-        self.tech_details_label.setStyleSheet("color: lightgray;")
+        self.tech_details_label.setStyleSheet(_theme.DETAIL_TEXT)
         content_layout.addWidget(self.tech_details_label)
         layout.addWidget(self._content)
 
@@ -503,7 +504,7 @@ class _CastSection(QWidget):
         self.cast_label = QLabel()
         self.cast_label.setWordWrap(True)
         self.cast_label.setTextFormat(Qt.TextFormat.RichText)
-        self.cast_label.setStyleSheet("color: lightgray;")
+        self.cast_label.setStyleSheet(_theme.DETAIL_TEXT)
         content_layout.addWidget(self.cast_label)
         layout.addWidget(self._content)
 
