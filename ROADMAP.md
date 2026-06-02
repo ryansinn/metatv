@@ -91,7 +91,12 @@ file:line-level task list (full-codebase review 2026-06-01). Summary:
 - [x] **P1 — deduplication** — all 5 done (2026-06-01): parse_provider_urls helper, _apply_favorite_toggle, config icons, import hoisting, executor thread leak fix
 - [x] **Band 3 — structural fixes** — all done (2026-06-01, branch refactor/band3-structural): WAL (was already on), closeEvent registry, session_scope(), JSONEncoded TypeDecorator, icons.py, EPG conversion boundary + 2 latent bug fixes; 134 tests
 - [x] **P2 — inline stylesheets → `theme.py`** — all 7 files done (2026-06-01, branch refactor/band4-styles): epg_view (63 calls), provider_editor (36), global_filter_dialog (30), similar_lightbox (24), filter_panel (23), sidebar_sections (19), details_sections (17); theme.py grew from 7 → 32 constants
-- [ ] **P3 — decompose oversized files (>1000-line rule)** — `main_window.py` (4178), `epg_view.py` (2167), `sidebar_sections.py` (1403), `provider_editor.py` (1120), `filter_panel.py` (1061)
+- [~] **P3 — decompose oversized files (>1000-line rule)** — partial (2026-06-02, branch refactor/band5-splits, PR #6):
+  - [x] `sidebar_sections.py` (1402) → `gui/sidebar/` package (6 files, shim stays for compat)
+  - [x] `filter_panel.py` (1064) → `gui/filter_group_row.py` (483 lines) + `filter_panel.py` (597 lines)
+  - [x] `provider_editor.py` (1121) → `core/provider_probe.py` + `gui/url_row_widget.py`; down to 957 lines
+  - [~] `main_window.py` (4198) → streaming cluster extracted to `main_window_streaming.py`; down to 3835 (needs 2 more passes: nav + favorites mixins)
+  - [ ] `epg_view.py` (2157) → tab mixin split deferred; needs a dedicated session with GUI smoke-testing (90+ methods, deep cross-tab state)
 - [ ] **P4 — status-set dedup** (5 sites, see [refactor-audit memory]) + delete stray 25 MB `--help` artifact
 
 ## Platform & Distribution
