@@ -1,0 +1,432 @@
+"""WatchAlertsSection and its _AlertRow helper widget."""
+
+from PyQt6.QtWidgets import (
+    QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QAbstractScrollArea, QListWidget, QListWidgetItem,
+    QTreeWidget, QTreeWidgetItem,
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QColor
+from loguru import logger
+
+from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
+from metatv.gui import theme as _theme
+from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+
+
+class _AlertRow(QWidget):
+    """Channel row widget for Watch Alerts: name + right-aligned time + hover play button."""
+
+    play_clicked = pyqtSignal()
+    row_clicked  = pyqtSignal()  # single click anywhere except the play button
+
+    def __init__(self, ch_name: str, time_str: str, config, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 1, 4, 1)
+        layout.setSpacing(4)
+
+        name_lbl = QLabel(ch_name)
+        layout.addWidget(name_lbl, 1)
+
+        self.time_lbl = QLabel(time_str)
+        self.time_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        self.time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.time_lbl)
+
+        self.play_btn = QPushButton(config.play_icon)
+        self.play_btn.setFixedSize(20, 18)
+        self.play_btn.setFlat(True)
+        self.play_btn.setToolTip("Play")
+        self.play_btn.setStyleSheet(_theme.PLAY_BTN_SMALL)
+        self.play_btn.clicked.connect(self.play_clicked)
+        self.play_btn.hide()
+        layout.addWidget(self.play_btn)
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        # row_clicked fires only when clicking outside the play button area
+        self.row_clicked.emit()
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event):
+        self.play_btn.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.play_btn.hide()
+        super().leaveEvent(event)
+
+
+class WatchAlertsSection(CollapsibleSection):
+    """Alerts section — EPG watch alerts + stream retry monitoring."""
+
+    alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
+    channel_selected = pyqtSignal(str)      # channel_db_id — single click → load details pane
+    channelContextMenuRequested = pyqtSignal(str, int, int) # channel_db_id, global_x, global_y
+    retryRemoveRequested = pyqtSignal(str)                  # entry_id
+    retryClearAllRequested = pyqtSignal()
+    retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name
+    retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
+
+    def __init__(self, config, db, parent=None):
+        self.db = db
+        super().__init__("Alerts", config.watch_alerts_icon, config, parent)
+
+    def get_section_id(self):
+        return "alerts"
+
+    def create_header(self):
+        header = QWidget()
+        header.setStyleSheet(_theme.HEADER_TINT)
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(5, 3, 5, 3)
+        self.toggle_btn = QPushButton(self.config.collapse_icon)
+        self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        hl.addWidget(self.toggle_btn)
+        self.title_label = QLabel(
+            f'<span style="color:#FFB300">{self.icon}</span> <b>{self.title}</b>'
+        )
+        self.title_label.setTextFormat(Qt.TextFormat.RichText)
+        hl.addWidget(self.title_label)
+        hl.addStretch()
+        self.main_layout.addWidget(header)
+
+    def create_content(self):
+        from PyQt6.QtWidgets import QHeaderView
+        self.alerts_tree = QTreeWidget()
+        self.alerts_tree.setHeaderHidden(True)
+        self.alerts_tree.setColumnCount(1)
+        self.alerts_tree.setMaximumHeight(200)
+        self.alerts_tree.setIndentation(12)
+        self.alerts_tree.header().setStretchLastSection(True)
+        self.alerts_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
+        self.content_layout.addWidget(self.alerts_tree)
+
+        # Stream Monitoring collapsible sub-section
+        self._retry_collapsed = False
+
+        retry_hdr_row = QHBoxLayout()
+        retry_hdr_row.setContentsMargins(0, 4, 0, 2)
+        retry_hdr_row.setSpacing(4)
+
+        self._retry_toggle = QPushButton()
+        self._retry_toggle.setFlat(True)
+        self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._retry_toggle.setStyleSheet(
+            "QPushButton { color: #888; font-size: 11px; font-weight: bold;"
+            " border: none; text-align: left; padding: 0 2px; }"
+            "QPushButton:hover { color: #aaa; }"
+        )
+        self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
+        retry_hdr_row.addWidget(self._retry_toggle)
+
+        _info_lbl = QLabel(self.config.info_icon)
+        _info_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        _info_lbl.setToolTip(
+            "Stream Monitoring periodically re-checks streams that previously\n"
+            "failed to play. When a stream becomes available again you'll\n"
+            "receive a notification. Double-click an entry to retry immediately."
+        )
+        retry_hdr_row.addWidget(_info_lbl)
+        retry_hdr_row.addStretch()
+
+        self._retry_hdr_container = QWidget()
+        self._retry_hdr_container.setLayout(retry_hdr_row)
+        self._retry_hdr_container.hide()
+        self.content_layout.addWidget(self._retry_hdr_container)
+
+        self._retry_list = QListWidget()
+        self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self._retry_list.setMaximumHeight(120)
+        self._retry_list.setStyleSheet("QListWidget { font-size: 11px; }")
+        self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
+        self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
+        self._retry_list.hide()
+        self.content_layout.addWidget(self._retry_list)
+
+        self._update_retry_toggle_label(0)
+        self.set_empty(True)
+
+    def _update_retry_toggle_label(self, count: int) -> None:
+        arrow = self.config.expand_icon if self._retry_collapsed else self.config.collapse_icon
+        label = f"Stream Monitoring  ({count})" if count else "Stream Monitoring"
+        self._retry_toggle.setText(f"{arrow}  {label}")
+
+    def _toggle_stream_monitoring(self) -> None:
+        self._retry_collapsed = not self._retry_collapsed
+        if self._retry_collapsed:
+            self._retry_list.hide()
+        else:
+            self._retry_list.show()
+        self._update_retry_toggle_label(self._retry_list.count())
+
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
+        # child (airing) rows under a group header, or direct single-channel items
+        if item.parent() or item.childCount() == 0:
+            channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
+            if channel_db_id:
+                self.alertClicked.emit(channel_db_id)
+
+    def _on_context_menu(self, pos) -> None:
+        item = self.alerts_tree.itemAt(pos)
+        if not item or not item.parent():  # skip headers
+            return
+        channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if channel_db_id:
+            gp = self.alerts_tree.viewport().mapToGlobal(pos)
+            self.channelContextMenuRequested.emit(channel_db_id, gp.x(), gp.y())
+
+    def refresh(self) -> None:
+        from metatv.core.repositories.epg import EpgRepository
+        from metatv.core.database import ChannelDB
+        from datetime import datetime, timezone
+
+        patterns = self.config.epg_watchlist_patterns
+        self.alerts_tree.clear()
+        if not patterns:
+            self.set_empty(True)
+            return
+
+        session = self.db.get_session()
+        try:
+            repo = EpgRepository(session)
+            live_data    = repo.get_live_for_watchlist(patterns)
+            upcoming_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24)
+
+            now = _now_utc()
+
+            def _title_key(title: str) -> str:
+                return " ".join(title.casefold().replace("&", "and").split())
+
+            # Unified per-title groups — upcoming for a live title folds under WATCH NOW,
+            # preventing the same show from appearing in both sections simultaneously.
+            # live_groups: key -> {'live': [...], 'upcoming': [...], 'title': str}
+            # upcoming_only: key -> {'airings': [...], 'title': str}
+            live_groups: dict[str, dict] = {}
+            upcoming_only: dict[str, dict] = {}
+
+            for _pattern, progs in live_data.items():
+                for prog in progs:
+                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
+                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    ch_display = _fmt_channel_name(raw_name)
+                    mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
+                    time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
+                    key = _title_key(prog.title)
+                    if key not in live_groups:
+                        live_groups[key] = {'live': [], 'upcoming': [], 'title': prog.title}
+                    live_groups[key]['live'].append(
+                        (mins_left, time_str, ch_display, prog.channel_db_id)
+                    )
+
+            for _pattern, progs in upcoming_data.items():
+                for prog in progs:
+                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
+                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
+                    ch_display = _fmt_channel_name(raw_name)
+                    mins = int((prog.start_time - now).total_seconds() / 60)
+                    if mins < 60:
+                        time_str = f"in {mins}m"
+                    elif _is_local_today(prog.start_time):
+                        time_str = _to_local(prog.start_time).strftime("%-I:%M %p")
+                    else:
+                        time_str = _to_local(prog.start_time).strftime("%a %-I:%M %p")
+                    key = _title_key(prog.title)
+                    ts = prog.start_time.timestamp()
+                    if key in live_groups:
+                        live_groups[key]['upcoming'].append(
+                            (ts, time_str, ch_display, prog.channel_db_id)
+                        )
+                    else:
+                        if key not in upcoming_only:
+                            upcoming_only[key] = {'airings': [], 'title': prog.title}
+                        upcoming_only[key]['airings'].append(
+                            (ts, time_str, ch_display, prog.channel_db_id)
+                        )
+
+            if not live_groups and not upcoming_only:
+                self.set_empty(True)
+                return
+
+            def _section_hdr(text: str) -> None:
+                item = QTreeWidgetItem([text])
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                item.setForeground(0, QColor("#555"))
+                f = item.font(0)
+                f.setPointSize(9)
+                f.setBold(True)
+                item.setFont(0, f)
+                self.alerts_tree.addTopLevelItem(item)
+
+            def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
+                """Connect an _AlertRow's signals to the section's public signals."""
+                row.play_clicked.connect(
+                    lambda _=False, cid=channel_db_id: self.alertClicked.emit(cid)
+                )
+                row.row_clicked.connect(
+                    lambda cid=channel_db_id: self.channel_selected.emit(cid)
+                )
+
+            def _add_child(parent_item, ch_name, time_str, channel_db_id, title) -> None:
+                child = QTreeWidgetItem()
+                child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+                child.setToolTip(0, f"{title}\n{ch_name}")
+                parent_item.addChild(child)
+                row = _AlertRow(ch_name, time_str, self.config)
+                _wire_row(row, channel_db_id)
+                self.alerts_tree.setItemWidget(child, 0, row)
+
+            def _add_direct(ch_name, time_str, channel_db_id, title) -> None:
+                """Single-channel item: header IS the row — no expand arrow.
+                Shows the show title; channel name is the tooltip."""
+                item = QTreeWidgetItem()
+                item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+                item.setToolTip(0, ch_name)
+                self.alerts_tree.addTopLevelItem(item)
+                row = _AlertRow(title, time_str, self.config)
+                _wire_row(row, channel_db_id)
+                self.alerts_tree.setItemWidget(item, 0, row)
+
+            if live_groups:
+                _section_hdr("WATCH NOW")
+                for key, grp in sorted(live_groups.items(),
+                                       key=lambda kv: min(a[0] for a in kv[1]['live'])):
+                    title = grp['title']
+                    live_items = sorted(grp['live'], key=lambda a: a[0])
+                    up_items   = sorted(grp['upcoming'], key=lambda a: a[0])
+                    all_items  = live_items + up_items
+                    if len(all_items) == 1:
+                        a = all_items[0]
+                        _add_direct(a[2], a[1], a[3], title)
+                    else:
+                        rep_time = live_items[0][1]
+                        count_badge = f"  +{len(all_items) - 1}"
+                        hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
+                        hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                        self.alerts_tree.addTopLevelItem(hdr)
+                        for a in live_items[:10]:
+                            _add_child(hdr, a[2], a[1], a[3], title)
+                        for a in up_items[:5]:
+                            _add_child(hdr, a[2], a[1], a[3], title)
+
+            if upcoming_only:
+                _section_hdr("UPCOMING")
+                for key, grp in sorted(upcoming_only.items(),
+                                       key=lambda kv: min(a[0] for a in kv[1]['airings'])):
+                    title = grp['title']
+                    airings = sorted(grp['airings'], key=lambda a: a[0])
+                    if len(airings) == 1:
+                        a = airings[0]
+                        _add_direct(a[2], a[1], a[3], title)
+                    else:
+                        rep_time = airings[0][1]
+                        count_badge = f"  +{len(airings) - 1}"
+                        hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
+                        hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                        self.alerts_tree.addTopLevelItem(hdr)
+                        for a in airings[:10]:
+                            _add_child(hdr, a[2], a[1], a[3], title)
+
+            self.set_empty(False)
+            QTimer.singleShot(0, self._apply_expansion)
+        except Exception as e:
+            logger.error(f"WatchAlertsSection refresh error: {e}")
+            self.set_empty(True)
+        finally:
+            session.close()
+
+    def refresh_retry(self, entries: list) -> None:
+        """Populate the stream retry sub-list from StreamRetryDB entries."""
+        self._retry_list.clear()
+        if not entries:
+            self._retry_hdr_container.hide()
+            self._retry_list.hide()
+            return
+
+        from datetime import datetime, timezone
+        now = datetime.utcnow()
+
+        for entry in entries:
+            icon = self.config.stream_retry_online_icon if entry.status == "online" \
+                else self.config.stream_retry_pending_icon
+            item = QListWidgetItem(f"{icon}  {entry.channel_name}")
+            item.setData(Qt.ItemDataRole.UserRole,     entry.id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, entry.channel_id)
+            item.setData(Qt.ItemDataRole.UserRole + 2, entry.stream_url)
+            item.setData(Qt.ItemDataRole.UserRole + 3, entry.channel_name)
+
+            # Tooltip
+            attempts = entry.attempt_count or 0
+            error_line = f"Error: {entry.last_error}" if entry.last_error else "No error detail"
+            if entry.next_check_at and entry.status == "pending":
+                delta = entry.next_check_at - now
+                secs = max(0, int(delta.total_seconds()))
+                if secs < 3600:
+                    next_check = f"{secs // 60}m"
+                else:
+                    next_check = f"{secs // 3600}h {(secs % 3600) // 60}m"
+                timing = f"Next check in {next_check}"
+            else:
+                timing = "Back online!" if entry.status == "online" else ""
+
+            item.setToolTip(
+                f"{entry.channel_name}\n{error_line}\nAttempts: {attempts}\n{timing}"
+            )
+            self._retry_list.addItem(item)
+
+        count = self._retry_list.count()
+        self._update_retry_toggle_label(count)
+        self._retry_hdr_container.show()
+        if not self._retry_collapsed:
+            self._retry_list.show()
+
+    def _on_retry_double_clicked(self, item: "QListWidgetItem") -> None:
+        channel_id   = item.data(Qt.ItemDataRole.UserRole + 1)
+        stream_url   = item.data(Qt.ItemDataRole.UserRole + 2)
+        channel_name = item.data(Qt.ItemDataRole.UserRole + 3) or ""
+        if channel_id and stream_url:
+            self.retryPlayRequested.emit(channel_id, stream_url, channel_name)
+
+    def _on_retry_context_menu(self, pos) -> None:
+        item = self._retry_list.itemAt(pos)
+        if not item:
+            return
+        entry_id   = item.data(Qt.ItemDataRole.UserRole)
+        channel_id = item.data(Qt.ItemDataRole.UserRole + 1)
+        gp = self._retry_list.viewport().mapToGlobal(pos)
+        self.retryContextMenuRequested.emit(entry_id, channel_id or "", gp.x(), gp.y())
+
+    def _apply_expansion(self) -> None:
+        """Expand all items if they all fit in the visible tree height; otherwise expand none."""
+        tree = self.alerts_tree
+        n = tree.topLevelItemCount()
+        if n == 0:
+            return
+        row_h = tree.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = 22
+        visible_h = tree.viewport().height()
+        if visible_h <= 0:
+            visible_h = tree.height()
+        if visible_h <= 0:
+            return
+        max_rows = visible_h // row_h
+        total_if_expanded = sum(
+            1 + tree.topLevelItem(i).childCount()
+            for i in range(n)
+        )
+        expand_all = total_if_expanded <= max_rows
+        for i in range(n):
+            item = tree.topLevelItem(i)
+            if item.childCount() == 0:
+                continue  # section header — not expandable
+            item.setExpanded(expand_all)
