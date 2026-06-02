@@ -178,7 +178,7 @@ class URLRowWidget(QWidget):
         badge = QLabel(f"#{index + 1}")
         badge.setFixedWidth(24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(_theme.HINT_XS)
+        badge.setStyleSheet(_theme.META_HINT)
         layout.addWidget(badge)
 
         # URL + stats column
@@ -191,7 +191,7 @@ class URLRowWidget(QWidget):
         info_col.addWidget(url_label)
 
         self._stats_label = QLabel(self._build_stats(provider_url, config))
-        self._stats_label.setStyleSheet(_theme.HINT_XS)
+        self._stats_label.setStyleSheet(_theme.META_HINT)
         info_col.addWidget(self._stats_label)
         layout.addLayout(info_col, 1)
 
@@ -404,11 +404,11 @@ def subscription_color(exp_date: Optional[datetime], created_at: Optional[dateti
         pct = min(1.0, days_remaining / 30.0)  # fallback: 30-day window
 
     if pct > 0.15 and days_remaining > 7:
-        return "#4CAF50"   # green — plenty of time
+        return _theme.COLOR_OK   # green — plenty of time
     elif pct > 0.05 or days_remaining > 2:
-        return "#FFC107"   # amber — getting close
+        return _theme.COLOR_WARN   # amber — getting close
     else:
-        return "#F44336"   # red — expiring very soon
+        return _theme.COLOR_ERR   # red — expiring very soon
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -760,7 +760,7 @@ class ProviderEditorView(QWidget):
                 self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
             elif status:
                 self._status_indicator.setText(f"● {status}")
-                self._status_indicator.setStyleSheet("color: #FFC107; font-size: 12px; font-weight: 600;")
+                self._status_indicator.setStyleSheet(_theme.STATUS_WARN)
             else:
                 self._status_indicator.setText("")
 
@@ -835,13 +835,13 @@ class ProviderEditorView(QWidget):
 
         # Status label
         if status.lower() == "active":
-            color = "#4CAF50"
+            color = _theme.COLOR_OK
         elif status.lower() == "expired":
-            color = "#F44336"
+            color = _theme.COLOR_ERR
         elif status:
-            color = "#FFC107"
+            color = _theme.COLOR_WARN
         else:
-            color = "#888"
+            color = _theme.COLOR_MUTED
         self._acct_status_lbl.setText(status or "Unknown")
         self._acct_status_lbl.setStyleSheet(f"font-weight: 600; color: {color};")
 

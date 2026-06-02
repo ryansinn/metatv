@@ -141,11 +141,11 @@ class _GroupSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet(_theme.TEXT_SM)
+        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet(_theme.LABEL_XS)
+        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -323,11 +323,11 @@ class _ContentTypeSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet(_theme.TEXT_SM)
+        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet(_theme.LABEL_XS)
+        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -691,7 +691,7 @@ class GlobalFilterDialog(QDialog):
         hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
         hdr_row.addWidget(hdr)
         info = QLabel("ⓘ")
-        info.setStyleSheet(_theme.LABEL_MUTED_MD)
+        info.setStyleSheet(_theme.INFO_LABEL)
         info.setToolTip(
             "Categories you've created via right-click → Assign Category.\n"
             "Check a category to hide its channels everywhere (Global Exclusion)."
@@ -712,7 +712,7 @@ class GlobalFilterDialog(QDialog):
             rl.setSpacing(8)
             cb = QCheckBox(name)
             cb.setChecked(name in excluded)
-            cb.setStyleSheet(_theme.TEXT_SM)
+            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
             rl.addWidget(cb)
             count_lbl = QLabel(f"({count:,} channels)")
             count_lbl.setStyleSheet(_theme.LABEL_MUTED)
@@ -756,7 +756,7 @@ class GlobalFilterDialog(QDialog):
         hdr_row.addWidget(type_hdr)
 
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet(_theme.LABEL_MUTED_MD)
+        info_lbl.setStyleSheet(_theme.INFO_LABEL)
         info_lbl.setToolTip(
             "Content types are derived from category headers in the provider's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
@@ -784,7 +784,7 @@ class GlobalFilterDialog(QDialog):
 
             cb = QCheckBox(group_name)
             cb.setChecked(group_name in excluded_types)
-            cb.setStyleSheet(_theme.TEXT_SM)
+            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
             rl.addWidget(cb)
 
             count_lbl = QLabel(f"({count:,} channels)")

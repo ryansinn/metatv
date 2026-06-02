@@ -195,6 +195,38 @@ This document defines standard UI/UX behaviors maintained throughout the applica
 7. **Performance First**: Handle 100,000+ channels without lag
 8. **Clean Architecture**: Separate business logic from UI, avoid circular dependencies
 
+## Theming & style tokens
+
+All Qt stylesheets are centralized in `metatv/gui/theme.py`, which is deliberately **two layers**.
+The split exists because an earlier pass extracted duplicate stylesheet strings into named
+constants but left two latent problems: raw color/size literals were scattered across ~40 constants
+(so "make muted text lighter" meant editing six near-identical greys), and some constants were
+named by *appearance* (`TEXT_SM`, `GREY_11`) rather than role, which invites two unrelated widgets
+to couple to the same string just because they look alike. The token layer fixes both.
+
+**Layer 1 — design tokens** (`COLOR_*`, `FONT_*`, `OVERLAY_*`): the single source of truth for
+palette values. These are the *only* place a raw hex / rgba / px literal may live. Token names may
+be appearance-based (`FONT_MD = "11px"`, `COLOR_MUTED = "#888"`) because they *are* the design
+scale. Change the palette in one place and it propagates everywhere.
+
+**Layer 2 — semantic constants**: complete stylesheet strings composed from tokens (by string
+concatenation, which keeps literal `{...}` Qt selectors readable), named by the **role** they play —
+`STATUS_OK`, `SECTION_HINT`, `LOADING_TEXT`, `EMPTY_LABEL`. A role name localizes design intent: if
+"status warning" should change, you edit `STATUS_WARN` without touching every amber thing in the app.
+
+**Conventions** (enforced in CLAUDE.md → "Styles"):
+- Never hardcode a hex / rgba / px literal in widget code or in a new semantic constant — reuse or
+  add a token, then compose. This applies to **dynamic** styles too: pick a token at runtime and
+  interpolate it (`f"color: {_theme.COLOR_WARN};"`), never inline the hex.
+- Any stylesheet used by more than one widget → a role-named constant in `theme.py`. Single-use
+  inline styles are allowed but should still build from tokens.
+- Status colors come as a cohesive set (`STATUS_OK` / `STATUS_WARN` / `STATUS_ERR`); extract the
+  whole set even if only one is currently used, so the next usage doesn't reintroduce an inline literal.
+- Behavior-preservation: extracting/refactoring styles must not change rendered output. When moving
+  many strings at once, assert byte-equality of each constant against its prior value (a throwaway
+  comparison script) — the test suite does **not** cover stylesheet values, so this is the only
+  safety net against a silent visual regression.
+
 ## Future Enhancements
 
 ### Browse vs Search Modes

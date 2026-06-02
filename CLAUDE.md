@@ -67,8 +67,27 @@ metatv/
 ### EPG time utilities — always from `epg_utils.py`
 All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`.
 
-### Styles — no duplicated stylesheet strings; share via `theme.py`
-Any Qt stylesheet string used by more than one widget must live in `metatv/gui/theme.py` as a named constant. Import with `from metatv.gui import theme as _theme` and reference by name (`_theme.PLAY_BTN`, `_theme.CARD_BG`, etc.). Never copy-paste a stylesheet string between files; if you need a variant, add a new constant to `theme.py`. A genuinely single-use style may stay inline — the rule targets **duplication**, not the existence of inline styles.
+### Styles — two-layer `theme.py`; tokens for all palette values, role-named constants
+`metatv/gui/theme.py` has two layers and you must respect the split (full rationale in
+[docs/UI_UX_GUIDELINES.md](docs/UI_UX_GUIDELINES.md) → "Theming & style tokens"):
+
+1. **Design tokens** — `COLOR_*`, `FONT_*`, `OVERLAY_*`. The **only** place a raw hex / rgba / px
+   literal may appear. Token names may be appearance-based (`FONT_MD`, `COLOR_MUTED`) — they *are*
+   the palette.
+2. **Semantic constants** — complete stylesheet strings composed *from tokens*, named by **role**
+   (`STATUS_OK`, `SECTION_HINT`, `LOADING_TEXT`), never by appearance (no `TEXT_SM` / `GREY_11`).
+
+Rules:
+- **Never hardcode a hex / rgba / px literal** in widget code *or* in a new semantic constant —
+  reuse a token, or add one to `theme.py`, then compose. This includes dynamic styles: choose a
+  token at runtime and interpolate it (`f"color: {_theme.COLOR_WARN};"`), don't inline the hex.
+- Any stylesheet string used by **more than one widget** must be a named, role-based constant in
+  `theme.py`. Import with `from metatv.gui import theme as _theme`; never copy-paste a stylesheet
+  string between files. A genuinely single-use style may stay inline, but should still build from
+  tokens. The rule targets **duplication and stray literals**, not the existence of inline styles.
+- Name by role so two unrelated widgets never couple to the same string just because they happen to
+  look alike. If you need a visual variant, add a new role-named constant — don't widen an existing
+  one's meaning.
 
 ### Lookup tables — single source of truth, no duplicates
 Region/country codes, quality tokens, audio format maps, and similar lookup data must live in exactly one place. The canonical location for channel-name parsing data is `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, etc.). All other modules (GUI, details pane, sidebar) must import from there — never define their own parallel dicts.

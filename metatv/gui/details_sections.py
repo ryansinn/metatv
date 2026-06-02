@@ -199,7 +199,7 @@ class _MetadataSection(QWidget):
         # Title
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet(_theme.TITLE_LG)
+        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
         layout.addWidget(self.title_label)
 
         # Metadata row (year, rating, runtime)
@@ -253,7 +253,7 @@ class _MetadataSection(QWidget):
         if is_live:
             self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
         else:
-            self.title_label.setStyleSheet(_theme.TITLE_LG)
+            self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata."""
