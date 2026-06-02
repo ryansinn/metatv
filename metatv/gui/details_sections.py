@@ -327,7 +327,12 @@ class _MetadataSection(QWidget):
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
         if metadata.title:
-            self.title_label.setText(metadata.title)
+            parsed = parse_channel_name(metadata.title)
+            clean = parsed.bare_name if parsed.bare_name else metadata.title
+            self.title_label.setText(clean)
+            if parsed.year and not self._name_year_lbl.isVisible():
+                self._name_year_lbl.setText(parsed.year)
+                self._name_year_lbl.show()
         if metadata.year:
             self.year_label.setText(str(metadata.year))
             self._name_year_lbl.setText(str(metadata.year))
