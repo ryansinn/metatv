@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor
 from loguru import logger
 
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
@@ -356,8 +357,8 @@ class WatchAlertsSection(CollapsibleSection):
         now = datetime.utcnow()
 
         for entry in entries:
-            icon = self.config.stream_retry_online_icon if entry.status == "online" \
-                else self.config.stream_retry_pending_icon
+            icon = _icons.stream_retry_online_icon if entry.status == "online" \
+                else _icons.stream_retry_pending_icon
             item = QListWidgetItem(f"{icon}  {entry.channel_name}")
             item.setData(Qt.ItemDataRole.UserRole,     entry.id)
             item.setData(Qt.ItemDataRole.UserRole + 1, entry.channel_id)

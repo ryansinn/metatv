@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
@@ -11,6 +13,19 @@ from metatv.core.repositories.stream_retry import StreamRetryRepository
 
 if TYPE_CHECKING:
     from metatv.core.database import Database
+
+
+@dataclass
+class StreamRetryEntry:
+    """Plain-data snapshot of a StreamRetryDB row — safe to use after session closes."""
+    id: str
+    channel_id: str
+    channel_name: str
+    stream_url: str
+    status: str
+    attempt_count: int
+    last_error: str | None
+    next_check_at: datetime | None
 
 
 class StreamRetryManager(QObject):
@@ -72,9 +87,22 @@ class StreamRetryManager(QObject):
             StreamRetryRepository(session).clear_all()
         self.retry_list_changed.emit()
 
-    def get_all_pending(self) -> list:
+    def get_all_pending(self) -> list[StreamRetryEntry]:
         with self._db.session_scope() as session:
-            return StreamRetryRepository(session).get_all_pending()
+            rows = StreamRetryRepository(session).get_all_pending()
+            return [
+                StreamRetryEntry(
+                    id=r.id,
+                    channel_id=r.channel_id,
+                    channel_name=r.channel_name,
+                    stream_url=r.stream_url,
+                    status=r.status,
+                    attempt_count=r.attempt_count or 0,
+                    last_error=r.last_error,
+                    next_check_at=r.next_check_at,
+                )
+                for r in rows
+            ]
 
     def check_all_now(self) -> None:
         """Force-check all pending entries regardless of schedule (e.g. after source refresh)."""
