@@ -24,6 +24,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import theme as _theme
 
 
 def _load_source_category_counts(db: Database) -> list[tuple[str, int]]:
@@ -140,11 +141,11 @@ class _GroupSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet("font-size: 12px;")
+        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
+        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -154,7 +155,7 @@ class _GroupSection(QWidget):
         hl.addStretch()
 
         self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        self._count_lbl.setStyleSheet(_theme.LABEL_MUTED)
         hl.addWidget(self._count_lbl)
 
         layout.addWidget(header)
@@ -194,7 +195,7 @@ class _GroupSection(QWidget):
             rl.addWidget(cb)
 
             count_lbl = QLabel(f"({count:,})")
-            count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
             rl.addWidget(count_lbl)
             rl.addStretch()
 
@@ -322,11 +323,11 @@ class _ContentTypeSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet("font-size: 12px;")
+        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet("color: #666; font-size: 9px;")
+        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -341,7 +342,7 @@ class _ContentTypeSection(QWidget):
         hl.addStretch()
 
         self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        self._count_lbl.setStyleSheet(_theme.LABEL_MUTED)
         hl.addWidget(self._count_lbl)
 
         layout.addWidget(header)
@@ -373,7 +374,7 @@ class _ContentTypeSection(QWidget):
             rl.addWidget(cb)
 
             cnt_lbl = QLabel(f"({count:,})")
-            cnt_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            cnt_lbl.setStyleSheet(_theme.LABEL_MUTED)
             rl.addWidget(cnt_lbl)
             rl.addStretch()
 
@@ -681,16 +682,16 @@ class GlobalFilterDialog(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #444; margin-top: 4px; margin-bottom: 4px;")
+        sep.setStyleSheet(_theme.SEP_DARK)
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("User Categories")
-        hdr.setStyleSheet("font-size: 12px; font-weight: bold; padding-top: 4px;")
+        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
         hdr_row.addWidget(hdr)
         info = QLabel("ⓘ")
-        info.setStyleSheet("color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;")
+        info.setStyleSheet(_theme.INFO_LABEL)
         info.setToolTip(
             "Categories you've created via right-click → Assign Category.\n"
             "Check a category to hide its channels everywhere (Global Exclusion)."
@@ -711,10 +712,10 @@ class GlobalFilterDialog(QDialog):
             rl.setSpacing(8)
             cb = QCheckBox(name)
             cb.setChecked(name in excluded)
-            cb.setStyleSheet("font-size: 12px;")
+            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
             rl.addWidget(cb)
             count_lbl = QLabel(f"({count:,} channels)")
-            count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
             rl.addWidget(count_lbl)
             rl.addStretch()
             self._inner_vl.addWidget(row)
@@ -745,17 +746,17 @@ class GlobalFilterDialog(QDialog):
         # ── Separator ────────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #444; margin-top: 4px; margin-bottom: 4px;")
+        sep.setStyleSheet(_theme.SEP_DARK)
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         type_hdr = QLabel("Content Types")
-        type_hdr.setStyleSheet("font-size: 12px; font-weight: bold; padding-top: 4px;")
+        type_hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
         hdr_row.addWidget(type_hdr)
 
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet("color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;")
+        info_lbl.setStyleSheet(_theme.INFO_LABEL)
         info_lbl.setToolTip(
             "Content types are derived from category headers in the provider's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
@@ -783,11 +784,11 @@ class GlobalFilterDialog(QDialog):
 
             cb = QCheckBox(group_name)
             cb.setChecked(group_name in excluded_types)
-            cb.setStyleSheet("font-size: 12px;")
+            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
             rl.addWidget(cb)
 
             count_lbl = QLabel(f"({count:,} channels)")
-            count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
             rl.addWidget(count_lbl)
             rl.addStretch()
 

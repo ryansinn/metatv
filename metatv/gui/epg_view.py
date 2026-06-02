@@ -183,7 +183,7 @@ class EpgView(ContentView):
 
         # Status label
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         header_layout.addWidget(self.status_label)
 
         # Refresh button
@@ -222,7 +222,7 @@ class EpgView(ContentView):
 
         # Add-keyword row
         hint = QLabel("Track a show or keyword — press Enter or click Track to add:")
-        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(hint)
 
         add_row = QHBoxLayout()
@@ -280,7 +280,7 @@ class EpgView(ContentView):
             "No channels pinned yet.\nRight-click any channel in On Now → Watch this channel."
         )
         self.ch_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ch_empty_label.setStyleSheet("color: #555; font-size: 13px; padding: 20px;")
+        self.ch_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
 
         self.stack.addWidget(page)
 
@@ -292,7 +292,7 @@ class EpgView(ContentView):
 
         rec_header = QHBoxLayout()
         rec_title = QLabel("Channels with content matching your watchlist patterns:")
-        rec_title.setStyleSheet("color: #888; font-size: 11px;")
+        rec_title.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         rec_header.addWidget(rec_title)
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
@@ -317,7 +317,7 @@ class EpgView(ContentView):
             "Add watchlist patterns to get channel recommendations."
         )
         self.rec_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.rec_empty_label.setStyleSheet("color: #555; font-size: 13px; padding: 20px;")
+        self.rec_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
 
         self.stack.addWidget(page)
 
@@ -344,7 +344,7 @@ class EpgView(ContentView):
         on_now_clear = QPushButton(self.config.close_icon)
         on_now_clear.setFixedWidth(24)
         on_now_clear.setToolTip("Clear search")
-        on_now_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        on_now_clear.setStyleSheet(_theme.CLEAR_BTN)
         on_now_clear.clicked.connect(self.on_now_search.clear)
         filter_row.addWidget(on_now_clear)
 
@@ -401,7 +401,7 @@ class EpgView(ContentView):
         layout.addWidget(self.on_now_list)
 
         self.on_now_stats = QLabel("")
-        self.on_now_stats.setStyleSheet("color: #666; font-size: 11px;")
+        self.on_now_stats.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(self.on_now_stats)
 
         self.stack.addWidget(page)
@@ -424,7 +424,7 @@ class EpgView(ContentView):
         browse_clear = QPushButton(self.config.close_icon)
         browse_clear.setFixedWidth(24)
         browse_clear.setToolTip("Clear")
-        browse_clear.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        browse_clear.setStyleSheet(_theme.CLEAR_BTN)
         browse_clear.clicked.connect(self.search_input.clear)
         search_row.addWidget(browse_clear)
         layout.addLayout(search_row)
@@ -498,7 +498,7 @@ class EpgView(ContentView):
         layout.addWidget(self.browse_placeholder)
 
         self.browse_stats = QLabel("")
-        self.browse_stats.setStyleSheet("color: #666; font-size: 11px;")
+        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(self.browse_stats)
 
         self.stack.addWidget(page)
@@ -531,9 +531,7 @@ class EpgView(ContentView):
 
         # ── Section 1: User-hidden show titles ──────────────────────────
         sec1_lbl = QLabel("HIDDEN SHOWS")
-        sec1_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
-        )
+        sec1_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
         self._hidden_layout.addWidget(sec1_lbl)
 
         hidden_titles = list(self.config.epg_hidden_titles or [])
@@ -545,24 +543,22 @@ class EpgView(ContentView):
                 ))
         else:
             lbl = QLabel("No shows hidden yet — click 🚫 on any On Now row to hide a show.")
-            lbl.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl.setStyleSheet(_theme.SECTION_ITEM)
             lbl.setWordWrap(True)
             self._hidden_layout.addWidget(lbl)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        sep.setStyleSheet(_theme.SEPARATOR_H)
         self._hidden_layout.addWidget(sep)
 
         # ── Section 2: Filler patterns ──────────────────────────────────
         sec2_lbl = QLabel("FILLER PATTERNS")
-        sec2_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
-        )
+        sec2_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
         self._hidden_layout.addWidget(sec2_lbl)
 
         hint = QLabel("Substring match — hides any show whose title contains these words.")
-        hint.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+        hint.setStyleSheet(_theme.SECTION_HINT)
         hint.setWordWrap(True)
         self._hidden_layout.addWidget(hint)
 
@@ -587,20 +583,18 @@ class EpgView(ContentView):
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        sep2.setStyleSheet(_theme.SEPARATOR_H)
         self._hidden_layout.addWidget(sep2)
 
         # ── Section 3: Hidden channels ──────────────────────────────────
         sec3_lbl = QLabel("HIDDEN CHANNELS")
-        sec3_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
-        )
+        sec3_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
         self._hidden_layout.addWidget(sec3_lbl)
 
         hidden_channels = list(self.config.epg_hidden_channels or [])
         if hidden_channels:
             hint3 = QLabel("Entire channel hidden from On Now.")
-            hint3.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            hint3.setStyleSheet(_theme.SECTION_HINT)
             self._hidden_layout.addWidget(hint3)
             for ch_id in hidden_channels:
                 ch_name = self._get_channel_name_from_db(ch_id)
@@ -610,26 +604,24 @@ class EpgView(ContentView):
                 ))
         else:
             lbl3 = QLabel("No channels hidden yet — use the 🚫 button on any On Now row.")
-            lbl3.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl3.setStyleSheet(_theme.SECTION_ITEM)
             lbl3.setWordWrap(True)
             self._hidden_layout.addWidget(lbl3)
 
         sep3 = QFrame()
         sep3.setFrameShape(QFrame.Shape.HLine)
-        sep3.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        sep3.setStyleSheet(_theme.SEPARATOR_H)
         self._hidden_layout.addWidget(sep3)
 
         # ── Section 4: Hidden categories ────────────────────────────────
         sec4_lbl = QLabel("HIDDEN CATEGORIES")
-        sec4_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
-        )
+        sec4_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
         self._hidden_layout.addWidget(sec4_lbl)
 
         hidden_prefixes = list(self.config.epg_hidden_prefixes or [])
         if hidden_prefixes:
             hint4 = QLabel("All channels with this prefix are hidden from On Now.")
-            hint4.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            hint4.setStyleSheet(_theme.SECTION_HINT)
             self._hidden_layout.addWidget(hint4)
             for prefix in hidden_prefixes:
                 full = self._CATEGORY_FULL_NAMES.get(prefix, "")
@@ -640,26 +632,24 @@ class EpgView(ContentView):
                 ))
         else:
             lbl4 = QLabel("No categories hidden yet — use the ⊘ button on any On Now row.")
-            lbl4.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl4.setStyleSheet(_theme.SECTION_ITEM)
             lbl4.setWordWrap(True)
             self._hidden_layout.addWidget(lbl4)
 
         sep5 = QFrame()
         sep5.setFrameShape(QFrame.Shape.HLine)
-        sep5.setStyleSheet("border: none; border-top: 1px solid #333; margin: 8px 0;")
+        sep5.setStyleSheet(_theme.SEPARATOR_H)
         self._hidden_layout.addWidget(sep5)
 
         # ── Section 5: Category overrides ──────────────────────────────
         sec5_lbl = QLabel("CATEGORY OVERRIDES")
-        sec5_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #666; letter-spacing: 1px; padding: 4px 0;"
-        )
+        sec5_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
         self._hidden_layout.addWidget(sec5_lbl)
 
         overrides = dict(self.config.epg_category_overrides or {})
         if overrides:
             hint5 = QLabel("Manually assigned categories — applied before auto-detection.")
-            hint5.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+            hint5.setStyleSheet(_theme.SECTION_HINT)
             self._hidden_layout.addWidget(hint5)
             for ch_id, cat_code in overrides.items():
                 ch_name = self._get_channel_name_from_db(ch_id)
@@ -673,7 +663,7 @@ class EpgView(ContentView):
             lbl5 = QLabel(
                 "No overrides yet — right-click On Now rows to assign a category."
             )
-            lbl5.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl5.setStyleSheet(_theme.SECTION_ITEM)
             lbl5.setWordWrap(True)
             self._hidden_layout.addWidget(lbl5)
 
@@ -1098,7 +1088,7 @@ class EpgView(ContentView):
 
         header = QHBoxLayout()
         pattern_lbl = QLabel(f"{icon}  {pattern}")
-        pattern_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        pattern_lbl.setStyleSheet(_theme.LIST_TITLE)
         header.addWidget(pattern_lbl)
         header.addStretch()
 
@@ -1111,7 +1101,7 @@ class EpgView(ContentView):
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Remove '{pattern}' from watchlist")
-        remove_btn.setStyleSheet("color: #666; border: none; background: transparent; font-size: 14px;")
+        remove_btn.setStyleSheet(_theme.CLOSE_BTN)
         remove_btn.clicked.connect(lambda _=False, p=pattern: self._remove_pattern(p))
         header.addWidget(remove_btn)
         layout.addLayout(header)
@@ -1220,7 +1210,7 @@ class EpgView(ContentView):
         if is_live and upcoming:
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.HLine)
-            sep.setStyleSheet("background: #333; margin-top: 4px; margin-bottom: 2px;")
+            sep.setStyleSheet(_theme.SEPARATOR_LINE)
             sep.setMaximumHeight(1)
             layout.addWidget(sep)
 
@@ -1367,7 +1357,7 @@ class EpgView(ContentView):
         if p.lang:
             header.addWidget(make_region_chip(p.lang, w))
         ch_lbl = QLabel(p.bare_name or channel_name)
-        ch_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        ch_lbl.setStyleSheet(_theme.LIST_TITLE)
         header.addWidget(ch_lbl)
         if display_quality:
             header.addWidget(make_quality_chip(display_quality, w))
@@ -1387,9 +1377,7 @@ class EpgView(ContentView):
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Stop watching '{channel_name}'")
-        remove_btn.setStyleSheet(
-            "color: #666; border: none; background: transparent; font-size: 14px;"
-        )
+        remove_btn.setStyleSheet(_theme.CLOSE_BTN)
         remove_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._unwatch_channel(cid))
         header.addWidget(remove_btn)
         layout.addLayout(header)
@@ -1432,7 +1420,7 @@ class EpgView(ContentView):
         if p.year:
             layout.addWidget(make_year_chip(p.year, w))
         count_lbl = QLabel(f"{count} matches")
-        count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        count_lbl.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(count_lbl)
         layout.addStretch()
 

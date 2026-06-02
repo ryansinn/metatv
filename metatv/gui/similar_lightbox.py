@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from metatv.gui import theme as _theme
+
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
@@ -172,10 +174,10 @@ class SimilarTitleLightbox(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent;")
+        scroll.setStyleSheet(_theme.BG_TRANSPARENT)
 
         self._content_widget = QWidget()
-        self._content_widget.setStyleSheet("background: transparent;")
+        self._content_widget.setStyleSheet(_theme.BG_TRANSPARENT)
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(12, 12, 12, 12)
         self._content_layout.setSpacing(8)
@@ -224,7 +226,7 @@ class SimilarTitleLightbox(QWidget):
         right_col.addWidget(self._title_lbl)
 
         self._meta_lbl = QLabel()
-        self._meta_lbl.setStyleSheet("font-size: 11px; color: #888;")
+        self._meta_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         right_col.addWidget(self._meta_lbl)
 
         self._source_lbl = QLabel()
@@ -237,12 +239,6 @@ class SimilarTitleLightbox(QWidget):
         right_col.addWidget(self._genres_lbl)
 
         # Rating buttons (Like / Not Interested / Dislike)
-        _RATING_STYLE = (
-            "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
-            " font-size: 13px; color: #888; }"
-            "QPushButton:checked { background: rgba(255,255,255,0.18); color: #fff; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.10); color: #ccc; }"
-        )
         rating_row = QHBoxLayout()
         rating_row.setSpacing(4)
         rating_row.setContentsMargins(0, 0, 0, 0)
@@ -252,7 +248,7 @@ class SimilarTitleLightbox(QWidget):
         self._like_btn.setFixedSize(30, 24)
         self._like_btn.setFlat(True)
         self._like_btn.setToolTip("Like")
-        self._like_btn.setStyleSheet(_RATING_STYLE)
+        self._like_btn.setStyleSheet(_theme.RATING_BTN)
         self._like_btn.clicked.connect(lambda: self.rating_requested.emit(self._current_id, 1))
         rating_row.addWidget(self._like_btn)
 
@@ -261,7 +257,7 @@ class SimilarTitleLightbox(QWidget):
         self._not_interested_btn.setFixedSize(30, 24)
         self._not_interested_btn.setFlat(True)
         self._not_interested_btn.setToolTip("Not Interested (suppress from recommendations)")
-        self._not_interested_btn.setStyleSheet(_RATING_STYLE)
+        self._not_interested_btn.setStyleSheet(_theme.RATING_BTN)
         self._not_interested_btn.clicked.connect(
             lambda checked: self.suppression_requested.emit(self._current_id, checked)
         )
@@ -272,7 +268,7 @@ class SimilarTitleLightbox(QWidget):
         self._dislike_btn.setFixedSize(30, 24)
         self._dislike_btn.setFlat(True)
         self._dislike_btn.setToolTip("Dislike")
-        self._dislike_btn.setStyleSheet(_RATING_STYLE)
+        self._dislike_btn.setStyleSheet(_theme.RATING_BTN)
         self._dislike_btn.clicked.connect(lambda: self.rating_requested.emit(self._current_id, -1))
         rating_row.addWidget(self._dislike_btn)
 
@@ -329,7 +325,7 @@ class SimilarTitleLightbox(QWidget):
 
         self._cast_lbl = QLabel()
         self._cast_lbl.setWordWrap(True)
-        self._cast_lbl.setStyleSheet("font-size: 11px; color: #888;")
+        self._cast_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         self._content_layout.addWidget(self._cast_lbl)
 
         self._similar_header_lbl = QLabel("Similar Titles:")
