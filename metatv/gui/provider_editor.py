@@ -26,6 +26,7 @@ from loguru import logger
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import theme as _theme
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -177,7 +178,7 @@ class URLRowWidget(QWidget):
         badge = QLabel(f"#{index + 1}")
         badge.setFixedWidth(24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet("color: #888; font-size: 10px;")
+        badge.setStyleSheet(_theme.HINT_XS)
         layout.addWidget(badge)
 
         # URL + stats column
@@ -185,12 +186,12 @@ class URLRowWidget(QWidget):
         info_col.setSpacing(2)
 
         url_label = QLabel(provider_url.url)
-        url_label.setStyleSheet("font-weight: 600;")
+        url_label.setStyleSheet(_theme.FIELD_LABEL)
         url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         info_col.addWidget(url_label)
 
         self._stats_label = QLabel(self._build_stats(provider_url, config))
-        self._stats_label.setStyleSheet("color: #888; font-size: 10px;")
+        self._stats_label.setStyleSheet(_theme.HINT_XS)
         info_col.addWidget(self._stats_label)
         layout.addLayout(info_col, 1)
 
@@ -498,7 +499,7 @@ class ProviderEditorView(QWidget):
         icon_col = QVBoxLayout()
         icon_col.setSpacing(2)
         lbl_icon = QLabel("Icon")
-        lbl_icon.setStyleSheet("color: #888; font-size: 11px;")
+        lbl_icon.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         icon_col.addWidget(lbl_icon)
         self._icon_picker = ProviderIconPicker(self.config)
         icon_col.addWidget(self._icon_picker)
@@ -509,7 +510,7 @@ class ProviderEditorView(QWidget):
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
         lbl = QLabel("Provider Name")
-        lbl.setStyleSheet("color: #888; font-size: 11px;")
+        lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         name_col.addWidget(lbl)
         self._name_input = QLineEdit()
         self._name_input.setStyleSheet("font-size: 15px; font-weight: 600;")
@@ -534,13 +535,13 @@ class ProviderEditorView(QWidget):
         # Status row
         status_row = QHBoxLayout()
         self._acct_status_lbl = QLabel("—")
-        self._acct_status_lbl.setStyleSheet("font-weight: 600;")
+        self._acct_status_lbl.setStyleSheet(_theme.FIELD_LABEL)
         status_row.addWidget(QLabel("Status:"))
         status_row.addWidget(self._acct_status_lbl)
         status_row.addSpacing(24)
         status_row.addWidget(QLabel("Connections:"))
         self._acct_cons_lbl = QLabel("—")
-        self._acct_cons_lbl.setStyleSheet("font-weight: 600;")
+        self._acct_cons_lbl.setStyleSheet(_theme.FIELD_LABEL)
         status_row.addWidget(self._acct_cons_lbl)
         status_row.addStretch()
         layout.addLayout(status_row)
@@ -600,7 +601,7 @@ class ProviderEditorView(QWidget):
         un_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
         un_eye.setFixedWidth(28)
         un_eye.setCheckable(True)
-        un_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
+        un_eye.setStyleSheet(_theme.EYE_BTN)
         un_eye.toggled.connect(
             lambda checked: self._username_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -617,7 +618,7 @@ class ProviderEditorView(QWidget):
         pw_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
         pw_eye.setFixedWidth(28)
         pw_eye.setCheckable(True)
-        pw_eye.setStyleSheet("border: none; padding: 0; color: #aaa;")
+        pw_eye.setStyleSheet(_theme.EYE_BTN)
         pw_eye.toggled.connect(
             lambda checked: self._password_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -753,10 +754,10 @@ class ProviderEditorView(QWidget):
             status = db_prov.account_status or ""
             if status.lower() == "active":
                 self._status_indicator.setText("● Active")
-                self._status_indicator.setStyleSheet("color: #4CAF50; font-size: 12px; font-weight: 600;")
+                self._status_indicator.setStyleSheet(_theme.STATUS_OK)
             elif status.lower() == "expired":
                 self._status_indicator.setText("⚠ Expired")
-                self._status_indicator.setStyleSheet("color: #F44336; font-size: 12px; font-weight: 600;")
+                self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
             elif status:
                 self._status_indicator.setText(f"● {status}")
                 self._status_indicator.setStyleSheet("color: #FFC107; font-size: 12px; font-weight: 600;")
@@ -817,10 +818,10 @@ class ProviderEditorView(QWidget):
         status = info.get("status", "")
         if status.lower() == "active":
             self._status_indicator.setText("● Active")
-            self._status_indicator.setStyleSheet("color: #4CAF50; font-size: 12px; font-weight: 600;")
+            self._status_indicator.setStyleSheet(_theme.STATUS_OK)
         elif status.lower() == "expired":
             self._status_indicator.setText("⚠ Expired")
-            self._status_indicator.setStyleSheet("color: #F44336; font-size: 12px; font-weight: 600;")
+            self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
         else:
             self._status_indicator.setText(f"● {status}" if status else "")
 

@@ -47,3 +47,9 @@ SECTION_ITEM = "color: #555; font-size: 11px; padding: 4px 0;"
 
 CLEAR_BTN = "border: none; color: #777; font-size: 10px;"
 CLOSE_BTN = "color: #666; border: none; background: transparent; font-size: 14px;"
+EYE_BTN = "border: none; padding: 0; color: #aaa;"
+
+HINT_XS = "color: #888; font-size: 10px;"
+FIELD_LABEL = "font-weight: 600;"
+STATUS_OK = "color: #4CAF50; font-size: 12px; font-weight: 600;"
+STATUS_ERR = "color: #F44336; font-size: 12px; font-weight: 600;"
