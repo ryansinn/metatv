@@ -73,7 +73,7 @@ class URLRowWidget(QWidget):
         self._result_badge = QLabel("")
         self._result_badge.setFixedWidth(110)
         self._result_badge.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600;")
+        self._result_badge.setStyleSheet(_theme.URL_BADGE)
         self._result_badge.hide()
         layout.addWidget(self._result_badge)
 
@@ -81,10 +81,7 @@ class URLRowWidget(QWidget):
         rm_btn = QPushButton(config.close_icon if config else "×")
         rm_btn.setFixedSize(24, 24)
         rm_btn.setToolTip("Remove this URL")
-        rm_btn.setStyleSheet("""
-            QPushButton { color: #e05050; border: 1px solid #555; border-radius: 3px; }
-            QPushButton:hover { background: rgba(224,80,80,0.2); }
-        """)
+        rm_btn.setStyleSheet(_theme.URL_REMOVE_BTN)
         rm_btn.clicked.connect(self.removed)
         layout.addWidget(rm_btn)
 
@@ -92,7 +89,7 @@ class URLRowWidget(QWidget):
         """Show a 'Testing…' spinner while waiting for result."""
         icon = self._config.loading_icon if self._config else "⟳"
         self._result_badge.setText(f"{icon} Testing…")
-        self._result_badge.setStyleSheet("font-size: 10px; color: #888;")
+        self._result_badge.setStyleSheet(_theme.URL_BADGE_TESTING)
         self._result_badge.show()
 
     def show_test_result(self, success: bool, message: str):
@@ -101,10 +98,10 @@ class URLRowWidget(QWidget):
         err_icon = self._config.notification_error_icon if self._config else "✗"
         if success:
             self._result_badge.setText(f"{ok_icon}  {message}")
-            self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #4CAF50;")
+            self._result_badge.setStyleSheet(_theme.URL_BADGE_OK)
         else:
             self._result_badge.setText(f"{err_icon}  {message}")
-            self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #e05050;")
+            self._result_badge.setStyleSheet(_theme.URL_BADGE_ERR)
         self._result_badge.show()
 
     def clear_test_result(self):

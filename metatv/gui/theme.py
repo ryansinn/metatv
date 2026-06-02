@@ -43,12 +43,14 @@ COLOR_ACCENT_HOVER = "#55aaff"
 COLOR_OK    = "#4CAF50"
 COLOR_WARN  = "#FFC107"
 COLOR_ERR   = "#F44336"
+COLOR_ERR_2 = "#e05050"        # softer red — destructive buttons / test-fail badges
 COLOR_GOLD  = "gold"
 # White overlays (alpha)
 OVERLAY_03 = "rgba(255,255,255,0.03)"
 OVERLAY_05 = "rgba(255,255,255,0.05)"
 OVERLAY_10 = "rgba(255,255,255,0.10)"
 OVERLAY_18 = "rgba(255,255,255,0.18)"
+OVERLAY_ERR = "rgba(224,80,80,0.2)"   # COLOR_ERR_2 tint — destructive hover
 
 # Type scale
 FONT_XS  = "9px"
@@ -133,6 +135,16 @@ META_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
 STATUS_OK   = "color: " + COLOR_OK + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_WARN = "color: " + COLOR_WARN + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_ERR  = "color: " + COLOR_ERR + "; font-size: " + FONT_LG + "; font-weight: 600;"
+
+# Provider editor — URL-test result badge (smaller than STATUS_*)
+URL_BADGE         = "font-size: " + FONT_SM + "; font-weight: 600;"
+URL_BADGE_TESTING = "font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+URL_BADGE_OK      = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_OK + ";"
+URL_BADGE_ERR     = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_ERR_2 + ";"
+URL_REMOVE_BTN    = (
+    "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_FAINT + "; border-radius: 3px; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR + "; }"
+)
 
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"

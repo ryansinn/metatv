@@ -25,9 +25,30 @@ from loguru import logger
 
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
+from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget, ICON_PALETTE, pick_next_icon
+
+
+def _format_probe_message(result: ProbeResult) -> str:
+    """Render a :class:`ProbeResult` into a short badge string (UI layer).
+
+    Presentation lives here, not in ``core.provider_probe``, so the probe module
+    stays UI-free and locale-free.
+    """
+    s = result.status
+    if s is ProbeStatus.ACTIVE:
+        return f"Active  {result.latency_ms} ms"
+    if s is ProbeStatus.INACTIVE:
+        return f"Account {result.detail}"
+    if s is ProbeStatus.AUTH_FAILED:
+        return "Auth failed"
+    if s is ProbeStatus.HTTP_ERROR:
+        return f"HTTP {result.detail}"
+    if s is ProbeStatus.TIMEOUT:
+        return "Timeout"
+    return result.detail or "Error"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -86,16 +107,16 @@ class TestAllURLsThread(QThread):
             self.all_done.emit([])
 
     async def _test_all(self):
-        from metatv.core.provider_probe import probe_url
+        def _emit(r: ProbeResult):
+            # Streamed per-URL as each probe finishes (queued to the main thread).
+            self.url_result.emit(r.url, r.success, r.latency_ms, _format_probe_message(r))
 
-        async def test_and_emit(url: str):
-            success, ms, msg = await probe_url(url, self.username, self.password)
-            self.url_result.emit(url, success, ms, msg)
-            return (url, success, ms, msg)
-
-        results = await asyncio.gather(*[test_and_emit(u) for u in self.urls])
-        sorted_results = sorted(results, key=lambda r: (0 if r[1] else 1, r[2]))
-        self.all_done.emit(sorted_results)
+        results = await probe_all_urls(
+            self.urls, self.username, self.password, on_result=_emit
+        )
+        self.all_done.emit(
+            [(r.url, r.success, r.latency_ms, _format_probe_message(r)) for r in results]
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
