@@ -27,8 +27,9 @@ from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.url_row_widget import URLRowWidget, ICON_PALETTE, pick_next_icon
+from metatv.gui.url_row_widget import URLRowWidget
 
 
 def _format_probe_message(result: ProbeResult) -> str:
@@ -179,7 +180,7 @@ class ProviderIconPicker(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(3)
-        for icon in ICON_PALETTE:
+        for icon in _icons.provider_icon_palette:
             b = QPushButton(icon)
             b.setFixedSize(30, 30)
             b.setStyleSheet(self._BTN_STYLE)
@@ -742,7 +743,7 @@ class ProviderEditorView(QWidget):
         total = len(self._provider_urls)
         for i, pu in enumerate(self._provider_urls):
             item = QListWidgetItem()
-            widget = URLRowWidget(pu, i, total, self.config)
+            widget = URLRowWidget(pu, i, total)
             widget.moveUp.connect(lambda idx=i: self._move_url(idx, -1))
             widget.moveDown.connect(lambda idx=i: self._move_url(idx, 1))
             widget.removed.connect(lambda idx=i: self._remove_url(idx))

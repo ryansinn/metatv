@@ -78,3 +78,16 @@ notification_success_icon: str = "✓"
 notification_error_icon: str = "✗"
 notification_warning_icon: str = "⚠"
 notification_info_icon: str = ""
+
+# Provider icon palette — colored-circle glyphs offered when picking a source icon
+provider_icon_palette: list[str] = [
+    "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",
+]
+
+
+def pick_next_icon(used_icons: list[str]) -> str:
+    """Return the first palette icon not already in use; cycle if palette exhausted."""
+    for icon in provider_icon_palette:
+        if icon not in used_icons:
+            return icon
+    return provider_icon_palette[len(used_icons) % len(provider_icon_palette)]

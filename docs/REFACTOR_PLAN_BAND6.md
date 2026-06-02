@@ -43,6 +43,7 @@ review's deferred items — without changing user-visible behavior except where 
 | `epg_view.py` | 2157 lines — split deferred from Band 5. → **B6-2** |
 | Stray `--help` artifact | **Absent** — already gone; P4-2 is moot, just confirm. |
 | `probe_all_urls` dead code / probe English in core / `url_row_widget` literals | **Fixed** in the PR #6 follow-up commit. Do not redo. |
+| **B6-5** (icons + `ICON_PALETTE`) | **DONE — pulled forward into PR #6.** Do not redo. |
 
 ---
 
@@ -112,8 +113,13 @@ close the item; no action needed unless it reappears.
 
 ## Priority C — PR #6 review follow-ups (deferred items #5–#6 + adjacent)
 
-### B6-5 — Icons rule: `url_row_widget` glyphs + `ICON_PALETTE` placement
-Eight icon-glyph literals remain as `config.X_icon if config else "▲"`-style fallbacks
+### B6-5 — Icons rule: `url_row_widget` glyphs + `ICON_PALETTE` placement — ✅ DONE (PR #6)
+Resolved in PR #6: `url_row_widget` now uses `icons.*` directly (the dead `config`-glyph
+fallback path and the `config` param were removed), and `ICON_PALETTE`/`pick_next_icon`
+moved to `icons.py` as `provider_icon_palette`/`pick_next_icon` (importers `provider_editor`
+and `dialogs` updated). Kept below for the record; **do not redo.**
+
+> Original task: Eight icon-glyph literals remained as `config.X_icon if config else "▲"`-style fallbacks
 (`url_row_widget.py:37,38,81,90,97,98,116,117`), and `ICON_PALETTE` (a list of emoji) lives
 in a *widget* file (`url_row_widget.py:127`) only because `provider_editor` imports it.
 - **Rule violated:** *"Icons — always from `metatv/gui/icons.py`, never hardcoded."* Glyphs
@@ -204,7 +210,8 @@ Band 5 made `core/provider_probe.py` Qt-free — it is now unit-testable without
 ## Suggested band ordering & PR grouping
 
 ```
-PR A — Priority C cleanups (B6-5, B6-6, B6-9, B6-10)   ← low-risk, fast, do first
+PR A — Priority C cleanups (B6-6, B6-9, B6-10)         ← low-risk, fast, do first
+       (B6-5 icons already done in PR #6)
 PR B — B6-7 + B6-8 (streaming off-thread + session_scope)  ← behavior change, own PR
 PR C — B6-3 status-set dedup                            ← verify-then-extract
 PR D — B6-1 main_window.py passes 2–3                   ← large mechanical split
