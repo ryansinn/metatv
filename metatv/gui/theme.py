@@ -61,6 +61,13 @@ SECTION_TITLE_SM = "font-size: 12px; font-weight: bold; padding-top: 4px;"
 LABEL_MUTED_MD = "color: #888; font-size: 12px; padding-left: 4px; padding-top: 4px;"
 
 BG_TRANSPARENT = "background: transparent;"
+FILTER_CHECKBOX = "QCheckBox { color: #cccccc; }"
+ITEM_COUNT = "font-size: 11px; color: #555555;"
+PANEL_BTN = (
+    "QPushButton { background:#333; color:#aaa; border:1px solid #444;"
+    " border-radius:3px; padding:0 7px; font-size:11px; }"
+    "QPushButton:hover { background:#444; color:#ddd; }"
+)
 RATING_BTN = (
     "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
     " font-size: 13px; color: #888; }"

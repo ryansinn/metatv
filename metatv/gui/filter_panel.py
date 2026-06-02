@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui import theme as _theme
+
 
 # ── Accent colours per section ─────────────────────────────────────────────────
 _ACCENT = {
@@ -47,7 +49,7 @@ class _TriCheckbox(QCheckBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTristate(True)
-        self.setStyleSheet("QCheckBox { color: #cccccc; }")
+        self.setStyleSheet(_theme.FILTER_CHECKBOX)
 
     def mousePressEvent(self, event):
         state = self.checkState()
@@ -75,7 +77,7 @@ class _ItemRow(QWidget):
 
         self._cb = QCheckBox()
         self._cb.setChecked(True)
-        self._cb.setStyleSheet("QCheckBox { color: #cccccc; }")
+        self._cb.setStyleSheet(_theme.FILTER_CHECKBOX)
         layout.addWidget(self._cb)
 
         lbl = QLabel(label)
@@ -87,7 +89,7 @@ class _ItemRow(QWidget):
 
         if count > 0:
             cnt = QLabel(_fmt(count))
-            cnt.setStyleSheet("font-size: 11px; color: #555555;")
+            cnt.setStyleSheet(_theme.ITEM_COUNT)
             cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(cnt)
 
@@ -162,7 +164,7 @@ class _GroupRow(QWidget):
 
         if total_count > 0:
             cnt = QLabel(_fmt(total_count))
-            cnt.setStyleSheet("font-size: 11px; color: #555555;")
+            cnt.setStyleSheet(_theme.ITEM_COUNT)
             cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             hl.addWidget(cnt)
 
@@ -530,22 +532,16 @@ class FilterPanel(QWidget):
         phl.addWidget(filters_lbl)
         phl.addStretch()
 
-        _btn_style = (
-            "QPushButton { background:#333; color:#aaa; border:1px solid #444;"
-            " border-radius:3px; padding:0 7px; font-size:11px; }"
-            "QPushButton:hover { background:#444; color:#ddd; }"
-        )
-
         all_btn = QPushButton("All")
         all_btn.setFixedHeight(22)
-        all_btn.setStyleSheet(_btn_style)
+        all_btn.setStyleSheet(_theme.PANEL_BTN)
         all_btn.setToolTip("Select all — show everything, no filter active")
         all_btn.clicked.connect(self.select_all_sections)
         phl.addWidget(all_btn)
 
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedHeight(22)
-        clear_btn.setStyleSheet(_btn_style)
+        clear_btn.setStyleSheet(_theme.PANEL_BTN)
         clear_btn.setToolTip("Clear all — uncheck everything, then pick exactly what to include")
         clear_btn.clicked.connect(self.clear_all)
         phl.addWidget(clear_btn)
