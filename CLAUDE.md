@@ -333,3 +333,5 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | Roadmap | [ROADMAP.md](ROADMAP.md) |
 | Refactor / dedup / cleanup plan | [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md) |
 | Sonnet execution prompt for the plan | [docs/SONNET_EXECUTION_PROMPT.md](docs/SONNET_EXECUTION_PROMPT.md) |
+| Band 6 plan (P3 remainder + P4 + PR #6 review follow-ups) | [docs/REFACTOR_PLAN_BAND6.md](docs/REFACTOR_PLAN_BAND6.md) |
+| Sonnet execution prompt for Band 6 | [docs/SONNET_EXECUTION_PROMPT_BAND6.md](docs/SONNET_EXECUTION_PROMPT_BAND6.md) |

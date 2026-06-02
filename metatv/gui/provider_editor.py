@@ -25,8 +25,31 @@ from loguru import logger
 
 from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
+from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.url_row_widget import URLRowWidget
+
+
+def _format_probe_message(result: ProbeResult) -> str:
+    """Render a :class:`ProbeResult` into a short badge string (UI layer).
+
+    Presentation lives here, not in ``core.provider_probe``, so the probe module
+    stays UI-free and locale-free.
+    """
+    s = result.status
+    if s is ProbeStatus.ACTIVE:
+        return f"Active  {result.latency_ms} ms"
+    if s is ProbeStatus.INACTIVE:
+        return f"Account {result.detail}"
+    if s is ProbeStatus.AUTH_FAILED:
+        return "Auth failed"
+    if s is ProbeStatus.HTTP_ERROR:
+        return f"HTTP {result.detail}"
+    if s is ProbeStatus.TIMEOUT:
+        return "Timeout"
+    return result.detail or "Error"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -85,210 +108,33 @@ class TestAllURLsThread(QThread):
             self.all_done.emit([])
 
     async def _test_all(self):
-        import aiohttp
-        from time import time
+        def _emit(r: ProbeResult):
+            # Streamed per-URL as each probe finishes (queued to the main thread).
+            self.url_result.emit(r.url, r.success, r.latency_ms, _format_probe_message(r))
 
-        results: List[tuple] = []
-
-        from metatv.providers.xtream import _DEFAULT_HEADERS
-
-        async def test_one(url: str):
-            start = time()
-            clean = url.rstrip("/")
-            auth_url = f"{clean}/player_api.php?username={self.username}&password={self.password}"
-            try:
-                async with aiohttp.ClientSession(headers=_DEFAULT_HEADERS) as session:
-                    async with session.get(auth_url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
-                        ms = int((time() - start) * 1000)
-                        if resp.status == 200:
-                            data = await resp.json(content_type=None)
-                            user_info = data.get("user_info", {}) if isinstance(data, dict) else {}
-                            auth = user_info.get("auth", 0)
-                            status = user_info.get("status", "")
-                            if auth and status.lower() == "active":
-                                msg = f"Active  {ms} ms"
-                                self.url_result.emit(url, True, ms, msg)
-                                results.append((url, True, ms, msg))
-                            elif auth:
-                                msg = f"Account {status}"
-                                self.url_result.emit(url, False, ms, msg)
-                                results.append((url, False, ms, msg))
-                            else:
-                                msg = "Auth failed"
-                                self.url_result.emit(url, False, ms, msg)
-                                results.append((url, False, ms, msg))
-                        else:
-                            msg = f"HTTP {resp.status}"
-                            self.url_result.emit(url, False, ms, msg)
-                            results.append((url, False, ms, msg))
-            except asyncio.TimeoutError:
-                ms = int((time() - start) * 1000)
-                self.url_result.emit(url, False, ms, "Timeout")
-                results.append((url, False, ms, "Timeout"))
-            except Exception as e:
-                ms = int((time() - start) * 1000)
-                msg = str(e)[:80]
-                self.url_result.emit(url, False, ms, msg)
-                results.append((url, False, ms, msg))
-
-        await asyncio.gather(*[test_one(u) for u in self.urls])
-
-        # Sort: working → fastest first; failed → least failures first
-        sorted_results = sorted(results, key=lambda r: (0 if r[1] else 1, r[2]))
-        self.all_done.emit(sorted_results)
+        results = await probe_all_urls(
+            self.urls, self.username, self.password, on_result=_emit
+        )
+        self.all_done.emit(
+            [(r.url, r.success, r.latency_ms, _format_probe_message(r)) for r in results]
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # URL row widget inside the URL list
 # ──────────────────────────────────────────────────────────────────────────────
 
-class URLRowWidget(QWidget):
-    """Single URL row: move up/down, live test result badge, stats, remove."""
-
-    moveUp = pyqtSignal()
-    moveDown = pyqtSignal()
-    removed = pyqtSignal()
-
-    def __init__(self, provider_url: ProviderURL, index: int, total: int, config=None, parent=None):
-        super().__init__(parent)
-        self.provider_url = provider_url
-        self._config = config
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
-
-        # Order controls
-        order_col = QVBoxLayout()
-        order_col.setSpacing(1)
-        up_icon = config.move_up_icon if config else "▲"
-        down_icon = config.move_down_icon if config else "▼"
-        self._up_btn = QPushButton(up_icon)
-        self._up_btn.setFixedSize(22, 18)
-        self._up_btn.setEnabled(index > 0)
-        self._up_btn.clicked.connect(self.moveUp)
-        self._down_btn = QPushButton(down_icon)
-        self._down_btn.setFixedSize(22, 18)
-        self._down_btn.setEnabled(index < total - 1)
-        self._down_btn.clicked.connect(self.moveDown)
-        order_col.addWidget(self._up_btn)
-        order_col.addWidget(self._down_btn)
-        layout.addLayout(order_col)
-
-        # Priority badge
-        badge = QLabel(f"#{index + 1}")
-        badge.setFixedWidth(24)
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(_theme.META_HINT)
-        layout.addWidget(badge)
-
-        # URL + stats column
-        info_col = QVBoxLayout()
-        info_col.setSpacing(2)
-
-        url_label = QLabel(provider_url.url)
-        url_label.setStyleSheet(_theme.FIELD_LABEL)
-        url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        info_col.addWidget(url_label)
-
-        self._stats_label = QLabel(self._build_stats(provider_url, config))
-        self._stats_label.setStyleSheet(_theme.META_HINT)
-        info_col.addWidget(self._stats_label)
-        layout.addLayout(info_col, 1)
-
-        # Live test result badge (hidden until a test runs)
-        self._result_badge = QLabel("")
-        self._result_badge.setFixedWidth(110)
-        self._result_badge.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600;")
-        self._result_badge.hide()
-        layout.addWidget(self._result_badge)
-
-        # Remove button
-        rm_btn = QPushButton(config.close_icon if config else "×")
-        rm_btn.setFixedSize(24, 24)
-        rm_btn.setToolTip("Remove this URL")
-        rm_btn.setStyleSheet("""
-            QPushButton { color: #e05050; border: 1px solid #555; border-radius: 3px; }
-            QPushButton:hover { background: rgba(224,80,80,0.2); }
-        """)
-        rm_btn.clicked.connect(self.removed)
-        layout.addWidget(rm_btn)
-
-    def show_testing(self):
-        """Show a 'Testing…' spinner while waiting for result."""
-        icon = self._config.loading_icon if self._config else "⟳"
-        self._result_badge.setText(f"{icon} Testing…")
-        self._result_badge.setStyleSheet("font-size: 10px; color: #888;")
-        self._result_badge.show()
-
-    def show_test_result(self, success: bool, message: str):
-        """Update badge with pass/fail result."""
-        ok_icon = self._config.notification_success_icon if self._config else "✓"
-        err_icon = self._config.notification_error_icon if self._config else "✗"
-        if success:
-            self._result_badge.setText(f"{ok_icon}  {message}")
-            self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #4CAF50;")
-        else:
-            self._result_badge.setText(f"{err_icon}  {message}")
-            self._result_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #e05050;")
-        self._result_badge.show()
-
-    def clear_test_result(self):
-        self._result_badge.hide()
-        self._result_badge.setText("")
-
-    @staticmethod
-    def _build_stats(pu: ProviderURL, config=None) -> str:
-        total = pu.success_count + pu.failure_count
-        if total == 0:
-            return "Untested"
-        ok = config.notification_success_icon if config else "✓"
-        err = config.notification_error_icon if config else "✗"
-        rel = f"{pu.reliability_score:.0f}% reliability"
-        parts = [rel, f"{ok}{pu.success_count}", f"{err}{pu.failure_count}"]
-        if pu.last_success:
-            parts.append(f"last ok {pu.last_success.strftime('%m/%d')}")
-        return "  ·  ".join(parts)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Icon palette
-# ──────────────────────────────────────────────────────────────────────────────
-
-ICON_PALETTE = ['🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🔶', '🔷', '🔸', '🔹']
-
-
-def pick_next_icon(used_icons: List[str]) -> str:
-    """Return the first palette icon not already in use; cycle if palette exhausted."""
-    for icon in ICON_PALETTE:
-        if icon not in used_icons:
-            return icon
-    return ICON_PALETTE[len(used_icons) % len(ICON_PALETTE)]
-
-
 class ProviderIconPicker(QWidget):
     """Icon display that reveals a colored-circle palette when clicked."""
 
     icon_changed = pyqtSignal(str)
 
-    _BTN_STYLE = (
-        "QPushButton { font-size: 17px; border: 2px solid transparent;"
-        " border-radius: 5px; padding: 0; }"
-        " QPushButton:hover { border: 2px solid #4488ff;"
-        " background: rgba(68,136,255,0.15); }"
-    )
-    _BTN_SELECTED_STYLE = (
-        "QPushButton { font-size: 17px; border: 2px solid #4488ff;"
-        " border-radius: 5px; padding: 0;"
-        " background: rgba(68,136,255,0.2); }"
-        " QPushButton:hover { border: 2px solid #4488ff;"
-        " background: rgba(68,136,255,0.25); }"
-    )
+    _BTN_STYLE = _theme.ICON_PICK_BTN
+    _BTN_SELECTED_STYLE = _theme.ICON_PICK_BTN_SELECTED
 
-    def __init__(self, config=None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._icon = ""
-        self._config = config
         self._color_btns: List[tuple] = []
         self._setup()
 
@@ -297,24 +143,15 @@ class ProviderIconPicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        default_icon = self._config.provider_icon if self._config else "📡"
-        self._btn = QPushButton(default_icon)
+        self._btn = QPushButton(_icons.provider_icon)
         self._btn.setFixedSize(48, 48)
-        self._btn.setStyleSheet(
-            "QPushButton { font-size: 24px; border: 1px solid rgba(255,255,255,0.15);"
-            " border-radius: 6px; }"
-            " QPushButton:hover { border: 1px solid #4488ff;"
-            " background: rgba(68,136,255,0.1); }"
-        )
+        self._btn.setStyleSheet(_theme.ICON_PICK_MAIN_BTN)
         self._btn.setToolTip("Click to change icon")
         self._btn.clicked.connect(self._toggle_palette)
         layout.addWidget(self._btn)
 
         self._palette = QFrame()
-        self._palette.setStyleSheet(
-            "QFrame { background: rgba(40,40,50,0.97);"
-            " border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; }"
-        )
+        self._palette.setStyleSheet(_theme.ICON_PICK_POPUP)
         self._palette.hide()
         pal_layout = QVBoxLayout(self._palette)
         pal_layout.setContentsMargins(8, 8, 8, 8)
@@ -322,7 +159,7 @@ class ProviderIconPicker(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(3)
-        for icon in ICON_PALETTE:
+        for icon in _icons.provider_icon_palette:
             b = QPushButton(icon)
             b.setFixedSize(30, 30)
             b.setStyleSheet(self._BTN_STYLE)
@@ -334,13 +171,13 @@ class ProviderIconPicker(QWidget):
 
         custom_row = QHBoxLayout()
         lbl = QLabel("Custom:")
-        lbl.setStyleSheet("font-size: 11px; color: #888;")
+        lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         custom_row.addWidget(lbl)
         self._custom_input = QLineEdit()
         self._custom_input.setPlaceholderText("emoji…")
         self._custom_input.setFixedWidth(80)
         self._custom_input.setMaxLength(8)
-        self._custom_input.setStyleSheet("font-size: 16px;")
+        self._custom_input.setStyleSheet(f"font-size: {_theme.FONT_INPUT};")
         custom_row.addWidget(self._custom_input)
         apply_btn = QPushButton("Apply")
         apply_btn.setFixedWidth(54)
@@ -377,7 +214,7 @@ class ProviderIconPicker(QWidget):
 
     def set_icon(self, icon: str):
         self._icon = icon
-        self._btn.setText(icon if icon else (self._config.provider_icon if self._config else "📡"))
+        self._btn.setText(icon if icon else _icons.provider_icon)
         self._update_selection(icon)
 
     def setEnabled(self, enabled: bool):
@@ -395,7 +232,7 @@ def subscription_color(exp_date: Optional[datetime], created_at: Optional[dateti
         return ""
     now = datetime.now()
     if exp_date <= now:
-        return "#888888"  # expired — gray
+        return _theme.COLOR_MUTED  # expired — gray
     days_remaining = (exp_date - now).days
     if created_at and created_at < exp_date:
         total_days = (exp_date - created_at).days
@@ -448,22 +285,19 @@ class ProviderEditorView(QWidget):
 
         # ── Top bar ──────────────────────────────────────────────────────────
         top_bar = QWidget()
-        top_bar.setStyleSheet("background: rgba(255,255,255,0.04); border-bottom: 1px solid rgba(255,255,255,0.08);")
+        top_bar.setStyleSheet(_theme.PROVIDER_TOPBAR)
         top_bar.setFixedHeight(46)
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(12, 0, 12, 0)
 
         done_btn = QPushButton("← Done Editing Sources")
-        done_btn.setStyleSheet("""
-            QPushButton { border: none; color: #4488ff; font-size: 13px; padding: 4px 8px; }
-            QPushButton:hover { color: #88aaff; }
-        """)
+        done_btn.setStyleSheet(_theme.LINK_BTN)
         done_btn.clicked.connect(self.done)
         top_layout.addWidget(done_btn)
         top_layout.addStretch()
 
         self._status_indicator = QLabel("")
-        self._status_indicator.setStyleSheet("font-size: 12px; font-weight: 600;")
+        self._status_indicator.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: 600;")
         top_layout.addWidget(self._status_indicator)
 
         root.addWidget(top_bar)
@@ -501,7 +335,7 @@ class ProviderEditorView(QWidget):
         lbl_icon = QLabel("Icon")
         lbl_icon.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         icon_col.addWidget(lbl_icon)
-        self._icon_picker = ProviderIconPicker(self.config)
+        self._icon_picker = ProviderIconPicker()
         icon_col.addWidget(self._icon_picker)
         icon_col.addStretch()
         row.addLayout(icon_col)
@@ -513,7 +347,7 @@ class ProviderEditorView(QWidget):
         lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         name_col.addWidget(lbl)
         self._name_input = QLineEdit()
-        self._name_input.setStyleSheet("font-size: 15px; font-weight: 600;")
+        self._name_input.setStyleSheet(f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
         self._name_input.setPlaceholderText("My Provider")
         name_col.addWidget(self._name_input)
         row.addLayout(name_col, 1)
@@ -582,7 +416,7 @@ class ProviderEditorView(QWidget):
         layout.addLayout(btn_row)
 
         self._acct_error_lbl = QLabel("")
-        self._acct_error_lbl.setStyleSheet("color: #e05050; font-size: 11px;")
+        self._acct_error_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD};")
         self._acct_error_lbl.hide()
         layout.addWidget(self._acct_error_lbl)
 
@@ -673,11 +507,8 @@ class ProviderEditorView(QWidget):
     def _build_footer_row(self):
         row = QHBoxLayout()
 
-        delete_btn = QPushButton(f"{self.config.delete_icon if self.config else '🗑'}  Delete Provider")
-        delete_btn.setStyleSheet("""
-            QPushButton { color: #e05050; border: 1px solid #e05050; border-radius: 4px; padding: 6px 14px; }
-            QPushButton:hover { background: rgba(224,80,80,0.15); }
-        """)
+        delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Provider")
+        delete_btn.setStyleSheet(_theme.DELETE_BTN)
         delete_btn.clicked.connect(self._delete_provider)
         row.addWidget(delete_btn)
         row.addStretch()
@@ -695,11 +526,7 @@ class ProviderEditorView(QWidget):
         save_btn = QPushButton("Save Changes")
         save_btn.setMinimumWidth(120)
         save_btn.setDefault(True)
-        save_btn.setStyleSheet("""
-            QPushButton { background: #2255cc; color: white; border-radius: 4px; padding: 6px 18px; font-weight: 600; }
-            QPushButton:hover { background: #3366dd; }
-            QPushButton:disabled { background: #333; color: #666; }
-        """)
+        save_btn.setStyleSheet(_theme.SAVE_BTN)
         save_btn.clicked.connect(self._save)
         row.addWidget(save_btn)
 
@@ -864,14 +691,14 @@ class ProviderEditorView(QWidget):
                 self._acct_remaining_lbl.setText(f"{days_left} days  ({pct}%){suffix}")
                 self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {col};")
                 self._acct_progress.setValue(pct)
-                self._acct_progress.setStyleSheet(f"""
-                    QProgressBar::chunk {{ background: {col}; border-radius: 3px; }}
-                    QProgressBar {{ border-radius: 3px; background: rgba(255,255,255,0.1); }}
-                """)
+                self._acct_progress.setStyleSheet(
+                    f"QProgressBar::chunk {{ background: {col}; border-radius: 3px; }}"
+                    f"QProgressBar {{ border-radius: 3px; background: {_theme.OVERLAY_10}; }}"
+                )
                 self._acct_progress.show()
             else:
                 self._acct_remaining_lbl.setText("Expired")
-                self._acct_remaining_lbl.setStyleSheet("font-weight: 600; color: #F44336;")
+                self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {_theme.COLOR_ERR};")
                 self._acct_progress.setValue(0)
                 self._acct_progress.show()
         else:
@@ -885,7 +712,7 @@ class ProviderEditorView(QWidget):
         total = len(self._provider_urls)
         for i, pu in enumerate(self._provider_urls):
             item = QListWidgetItem()
-            widget = URLRowWidget(pu, i, total, self.config)
+            widget = URLRowWidget(pu, i, total)
             widget.moveUp.connect(lambda idx=i: self._move_url(idx, -1))
             widget.moveDown.connect(lambda idx=i: self._move_url(idx, 1))
             widget.removed.connect(lambda idx=i: self._remove_url(idx))

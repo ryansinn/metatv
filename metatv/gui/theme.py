@@ -25,6 +25,7 @@ Rules (also in CLAUDE.md; rationale in docs/UI_UX_GUIDELINES.md → "Theming & s
 COLOR_TEXT_HI   = "#fff"        # emphasized / active text
 COLOR_TEXT      = "#ccc"        # primary light text
 COLOR_TEXT_2    = "#ddd"        # hover text
+COLOR_TEXT_LOW  = "#bbb"        # slightly dimmer than primary (group labels)
 COLOR_DIM       = "#aaa"        # dim text / icon buttons
 COLOR_DIM_2     = "#999"        # dimmer (upcoming)
 COLOR_MUTED     = "#888"        # secondary text
@@ -35,20 +36,47 @@ COLOR_FAINT     = "#555"        # faint hints / empty states
 COLOR_GRAY      = "gray"        # dim meta / loading text
 COLOR_LIGHTGRAY = "lightgray"   # detail body text
 # Structural
-COLOR_BORDER    = "#444"
-COLOR_LINE      = "#333"        # separators / panel bg
+COLOR_BORDER     = "#444"
+COLOR_LINE       = "#333"        # separators / panel bg
+COLOR_LINE_DARK  = "#2a2a2a"     # fainter hairline separators
+COLOR_BG_SECTION = "#1a1a1a"     # filter section header background
 # Accent + status
 COLOR_ACCENT       = "#2288dd"
 COLOR_ACCENT_HOVER = "#55aaff"
 COLOR_OK    = "#4CAF50"
 COLOR_WARN  = "#FFC107"
 COLOR_ERR   = "#F44336"
+COLOR_ERR_2 = "#e05050"        # softer red — destructive buttons / test-fail badges
 COLOR_GOLD  = "gold"
+# Section / category accent palette (filter groups, icon picker)
+COLOR_ACCENT_BLUE         = "#4488ff"
+COLOR_ACCENT_BLUE_2       = "#88aaff"     # lighter — link hover
+COLOR_ACCENT_BLUE_3       = "#99bbff"     # lighter — info hover
+COLOR_ACCENT_GREEN        = "#44aa77"
+COLOR_ACCENT_PURPLE       = "#9966cc"
+COLOR_ACCENT_ORANGE       = "#f0a040"
+COLOR_ACCENT_ORANGE_FADED = "#f0a04077"   # orange @ ~47% alpha (AND-filter hint)
+COLOR_ACCENT_TEAL         = "#33bb88"
+COLOR_ACCENT_BROWN        = "#cc7722"
+COLOR_BTN_SAVE       = "#2255cc"
+COLOR_BTN_SAVE_HOVER = "#3366dd"
 # White overlays (alpha)
 OVERLAY_03 = "rgba(255,255,255,0.03)"
+OVERLAY_04 = "rgba(255,255,255,0.04)"
 OVERLAY_05 = "rgba(255,255,255,0.05)"
+OVERLAY_08 = "rgba(255,255,255,0.08)"
 OVERLAY_10 = "rgba(255,255,255,0.10)"
+OVERLAY_15 = "rgba(255,255,255,0.15)"
 OVERLAY_18 = "rgba(255,255,255,0.18)"
+OVERLAY_POPUP = "rgba(40,40,50,0.97)"   # opaque popup surface (icon palette)
+# Blue (COLOR_ACCENT_BLUE) tints
+OVERLAY_BLUE_10 = "rgba(68,136,255,0.1)"
+OVERLAY_BLUE_15 = "rgba(68,136,255,0.15)"
+OVERLAY_BLUE_20 = "rgba(68,136,255,0.2)"
+OVERLAY_BLUE_25 = "rgba(68,136,255,0.25)"
+# Red (COLOR_ERR_2) tints — destructive hover
+OVERLAY_ERR    = "rgba(224,80,80,0.2)"
+OVERLAY_ERR_15 = "rgba(224,80,80,0.15)"
 
 # Type scale
 FONT_XS  = "9px"
@@ -58,6 +86,11 @@ FONT_LG  = "12px"
 FONT_XL  = "13px"
 FONT_2XL = "14px"
 FONT_3XL = "18px"
+# One-off larger sizes (provider editor / icon picker)
+FONT_HEADING = "15px"   # provider-name input
+FONT_INPUT   = "16px"   # custom-emoji input
+FONT_ICON    = "17px"   # icon-palette buttons
+FONT_ICON_LG = "24px"   # main icon button
 
 
 # ── 2. Semantic constants (composed from tokens, named by role) ──────────────────
@@ -133,6 +166,57 @@ META_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
 STATUS_OK   = "color: " + COLOR_OK + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_WARN = "color: " + COLOR_WARN + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_ERR  = "color: " + COLOR_ERR + "; font-size: " + FONT_LG + "; font-weight: 600;"
+
+# Provider editor — URL-test result badge (smaller than STATUS_*)
+URL_BADGE         = "font-size: " + FONT_SM + "; font-weight: 600;"
+URL_BADGE_TESTING = "font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+URL_BADGE_OK      = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_OK + ";"
+URL_BADGE_ERR     = "font-size: " + FONT_SM + "; font-weight: 600; color: " + COLOR_ERR_2 + ";"
+URL_REMOVE_BTN    = (
+    "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_FAINT + "; border-radius: 3px; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR + "; }"
+)
+
+# Provider editor — icon picker
+ICON_PICK_BTN = (
+    "QPushButton { font-size: " + FONT_ICON + "; border: 2px solid transparent;"
+    " border-radius: 5px; padding: 0; }"
+    " QPushButton:hover { border: 2px solid " + COLOR_ACCENT_BLUE + ";"
+    " background: " + OVERLAY_BLUE_15 + "; }"
+)
+ICON_PICK_BTN_SELECTED = (
+    "QPushButton { font-size: " + FONT_ICON + "; border: 2px solid " + COLOR_ACCENT_BLUE + ";"
+    " border-radius: 5px; padding: 0;"
+    " background: " + OVERLAY_BLUE_20 + "; }"
+    " QPushButton:hover { border: 2px solid " + COLOR_ACCENT_BLUE + ";"
+    " background: " + OVERLAY_BLUE_25 + "; }"
+)
+ICON_PICK_MAIN_BTN = (
+    "QPushButton { font-size: " + FONT_ICON_LG + "; border: 1px solid " + OVERLAY_15 + ";"
+    " border-radius: 6px; }"
+    " QPushButton:hover { border: 1px solid " + COLOR_ACCENT_BLUE + ";"
+    " background: " + OVERLAY_BLUE_10 + "; }"
+)
+ICON_PICK_POPUP = (
+    "QFrame { background: " + OVERLAY_POPUP + ";"
+    " border: 1px solid " + OVERLAY_18 + "; border-radius: 8px; }"
+)
+
+# Provider editor — top bar + footer buttons
+PROVIDER_TOPBAR = "background: " + OVERLAY_04 + "; border-bottom: 1px solid " + OVERLAY_08 + ";"
+LINK_BTN = (
+    "QPushButton { border: none; color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_XL + "; padding: 4px 8px; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
+)
+DELETE_BTN = (
+    "QPushButton { color: " + COLOR_ERR_2 + "; border: 1px solid " + COLOR_ERR_2 + "; border-radius: 4px; padding: 6px 14px; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR_15 + "; }"
+)
+SAVE_BTN = (
+    "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + "; border-radius: 4px; padding: 6px 18px; font-weight: 600; }"
+    "QPushButton:hover { background: " + COLOR_BTN_SAVE_HOVER + "; }"
+    "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
+)
 
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"

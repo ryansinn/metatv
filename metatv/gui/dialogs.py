@@ -304,7 +304,7 @@ class AddProviderDialog(QDialog):
             })
         
         # Auto-assign a colored icon if none is set
-        from metatv.gui.provider_editor import ICON_PALETTE, pick_next_icon
+        from metatv.gui.icons import pick_next_icon
         icon_session = self.db.get_session()
         try:
             icon_repos = RepositoryFactory(icon_session)

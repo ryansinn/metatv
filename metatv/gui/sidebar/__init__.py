@@ -1,4 +1,4 @@
-"""Backwards-compatibility shim — implementations moved to metatv.gui.sidebar.*"""
+"""metatv.gui.sidebar — collapsible sidebar section widgets."""
 
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui.sidebar.sources import ProviderItemWidget, SourcesSection
