@@ -1600,9 +1600,6 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def update_notifications(self, notifications):
         """Update notification widget"""
         self.notification_widget.update_notifications(notifications)
-        # Force repaint to ensure text renders properly
-        self.notification_widget.update()
-        self.notification_widget.repaint()
     
     def resizeEvent(self, event):
         """Handle window resize to reposition notifications and lightbox."""
