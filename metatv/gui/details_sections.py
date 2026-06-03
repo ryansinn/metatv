@@ -61,17 +61,12 @@ class _PosterSection(QWidget):
         self.poster_label.setMinimumHeight(400)
         self.poster_label.setMaximumHeight(600)
         self.poster_label.setStyleSheet(
-            "QLabel { background-color: rgba(0,0,0,0.3); border-radius: 8px; }"
+            f"QLabel {{ background-color: rgba(0,0,0,0.3); border-radius: 8px;"
+            f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
         )
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")
         pf_layout.addWidget(self.poster_label)
-
-        self.poster_loading = QLabel("Loading poster...")
-        self.poster_loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.poster_loading.setStyleSheet(_theme.LOADING_TEXT)
-        self.poster_loading.hide()
-        pf_layout.addWidget(self.poster_loading)
 
         layout.addWidget(self._poster_frame)
 
@@ -108,12 +103,11 @@ class _PosterSection(QWidget):
         if provider_urls is not None:
             self._provider_urls = provider_urls
         self._poster_url = url
-        self.poster_loading.show()
-        self.poster_loading.setText(f"{self.config.loading_icon} Loading poster...")
+        self.poster_label.setPixmap(QPixmap())
+        self.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
         pix = self._image_cache.get_image_sync(url)
         if pix:
             self._display_poster(pix)
-            self.poster_loading.hide()
         else:
             self._image_cache.get_image_async(url, self._provider_urls)
 
@@ -150,7 +144,6 @@ class _PosterSection(QWidget):
     def on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
         if url == self._poster_url and not pixmap.isNull():
             self._display_poster(pixmap)
-            self.poster_loading.hide()
         if url == self._logo_url and not pixmap.isNull():
             self._channel_icon_lbl.setPixmap(pixmap)
             self._channel_icon_lbl.show()
@@ -158,15 +151,13 @@ class _PosterSection(QWidget):
     def on_image_failed(self, url: str, error: str) -> None:
         if url == self._poster_url:
             self.poster_label.setText("Failed to load poster")
-            self.poster_loading.hide()
             logger.debug(f"Poster load failed: {error}")
 
     def clear(self) -> None:
         self._poster_url = None
         self._logo_url = None
-        self.poster_label.clear()
+        self.poster_label.setPixmap(QPixmap())
         self.poster_label.setText("No poster available")
-        self.poster_loading.hide()
         self._country_info_lbl.hide()
         self._channel_icon_lbl.hide()
 

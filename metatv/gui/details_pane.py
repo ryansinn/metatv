@@ -132,8 +132,7 @@ class DetailsPaneWidget(QWidget):
             self._apply_metadata(metadata)
         elif not is_live:
             self._plot.show_loading(_icons.loading_icon)
-            self._poster.poster_loading.show()
-            self._poster.poster_loading.setText(f"{_icons.loading_icon} Loading poster...")
+            self._poster.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
 
         # Async fetches
         self.action_state_requested.emit(channel.id)
@@ -246,7 +245,6 @@ class DetailsPaneWidget(QWidget):
         if metadata.poster_url:
             self._poster.load_poster(metadata.poster_url, self.provider_urls)
         else:
-            self._poster.poster_loading.hide()
             self._poster.poster_label.setText("No poster available")
 
         weights = self._fetch_weights()
