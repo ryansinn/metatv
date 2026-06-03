@@ -203,6 +203,11 @@ class _MetadataSection(QWidget):
         title_bar_layout.setContentsMargins(0, 0, 0, 0)
         title_bar_layout.setSpacing(6)
 
+        self.title_label = QLabel()
+        self.title_label.setWordWrap(True)
+        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
+        title_bar_layout.addWidget(self.title_label, 1)
+
         self._prefix_chip = QPushButton()
         self._prefix_chip.setFlat(True)
         self._prefix_chip.setStyleSheet(_theme.CATEGORY_CHIP)
@@ -210,11 +215,6 @@ class _MetadataSection(QWidget):
         self._prefix_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._prefix_chip.hide()
         title_bar_layout.addWidget(self._prefix_chip)
-
-        self.title_label = QLabel()
-        self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
-        title_bar_layout.addWidget(self.title_label, 1)
 
         self._name_year_lbl = QLabel()
         self._name_year_lbl.setStyleSheet(
