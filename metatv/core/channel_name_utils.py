@@ -37,6 +37,13 @@ _BRACKET_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Quality tokens that start with a digit (4K, 8K) — excluded from _SEPARATOR_RE
+# because that pattern requires [A-Z] as the first character.
+_DIGIT_QUALITY_PREFIX_RE = re.compile(
+    r'^(4K|8K)\s*(?:[★|]|-\s+)\s*(.+)$',
+    re.IGNORECASE,
+)
+
 # ── Suffix patterns ─────────────────────────────────────────────────────────── #
 
 # Quality tokens at end of bare name (including codecs)
@@ -276,6 +283,12 @@ def parse_channel_name(name: str) -> ParsedChannel:
         if bm:
             region = normalize_region_code(bm.group(1))
             bare = bm.group(2).strip()
+        else:
+            # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title")
+            dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
+            if dq:
+                region = dq.group(1).upper()
+                bare = dq.group(2).strip()
 
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
