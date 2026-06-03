@@ -543,35 +543,24 @@ class _TechnicalSection(QWidget):
         self._apply()
 
     def set_mode(self, is_live: bool) -> None:
-        self._header_widget.setVisible(not is_live)
         if is_live:
-            self._content.setVisible(False)
+            self.hide()
         else:
             self._apply()
 
-    def load(self, metadata: MetadataResult, weights=None) -> None:
+    def load(self, metadata: MetadataResult, weights=None) -> bool:
+        """Populate section. Returns True if there is anything to display."""
         parts = []
         if metadata.release_date:
             parts.append(f"<b>Release Date:</b> {metadata.release_date}")
-        if metadata.content_rating and not metadata.rating:
-            parts.append(f"<b>Content Rating:</b> {metadata.content_rating}")
-        if metadata.director:
-            if weights:
-                from metatv.core.preference_engine import _split_directors
-                dir_parts = [
-                    f"{_pref_signal(d, weights, 'directors')}{d}"
-                    for d in _split_directors(metadata.director)
-                ]
-                dir_str = ", ".join(dir_parts)
-            else:
-                dir_str = metadata.director
-            parts.append(f"<b>Director:</b> {dir_str}")
-        if metadata.tmdb_id:
-            parts.append(f"<b>TMDb ID:</b> {metadata.tmdb_id}")
         self.tech_details_label.setText("<br>".join(parts))
+        has_content = bool(parts)
+        self.setVisible(has_content)
+        return has_content
 
     def clear(self) -> None:
         self.tech_details_label.clear()
+        self.hide()
 
     def _toggle(self) -> None:
         self._collapsed = not self._collapsed
