@@ -190,7 +190,7 @@ class _MetadataSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Title bar: [prefix chip]  [clean title ···]  [year]
+        # Title bar: [title ···] [chip] [year]
         title_bar = QWidget()
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(0, 0, 0, 0)
@@ -219,21 +219,69 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(title_bar)
 
-        # Metadata row (year, rating, runtime)
-        self._meta_row = QWidget()
-        meta_row_layout = QHBoxLayout(self._meta_row)
-        meta_row_layout.setContentsMargins(0, 0, 0, 0)
-        self.year_label = QLabel()
-        self.year_label.setStyleSheet(_theme.META_DIM)
-        meta_row_layout.addWidget(self.year_label)
-        self.rating_label = QLabel()
-        self.rating_label.setStyleSheet("color: gold; font-weight: bold;")
-        meta_row_layout.addWidget(self.rating_label)
+        # Tagline — italic subtitle line, shown when metadata provides it
+        self._tagline_lbl = QLabel()
+        self._tagline_lbl.setWordWrap(True)
+        self._tagline_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};"
+        )
+        self._tagline_lbl.hide()
+        layout.addWidget(self._tagline_lbl)
+
+        # Media type row: [icon Type]  [runtime]  stretch  [IMDb xxx  TMDb xxx]
+        self._media_row = QWidget()
+        media_row_layout = QHBoxLayout(self._media_row)
+        media_row_layout.setContentsMargins(0, 0, 0, 0)
+        media_row_layout.setSpacing(8)
+
+        self._media_type_lbl = QLabel()
+        self._media_type_lbl.setStyleSheet(_theme.META_DIM)
+        media_row_layout.addWidget(self._media_type_lbl)
+
         self.runtime_label = QLabel()
         self.runtime_label.setStyleSheet(_theme.META_DIM)
-        meta_row_layout.addWidget(self.runtime_label)
-        meta_row_layout.addStretch()
-        layout.addWidget(self._meta_row)
+        self.runtime_label.hide()
+        media_row_layout.addWidget(self.runtime_label)
+
+        media_row_layout.addStretch()
+
+        self._imdb_lbl = QLabel()
+        self._imdb_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
+        )
+        self._imdb_lbl.hide()
+        media_row_layout.addWidget(self._imdb_lbl)
+
+        self._tmdb_lbl = QLabel()
+        self._tmdb_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
+        )
+        self._tmdb_lbl.hide()
+        media_row_layout.addWidget(self._tmdb_lbl)
+
+        layout.addWidget(self._media_row)
+
+        # Rating row: [★★★ X of 10 by N votes]  [PG-13 badge]
+        self._rating_row = QWidget()
+        self._rating_row.hide()
+        rating_row_layout = QHBoxLayout(self._rating_row)
+        rating_row_layout.setContentsMargins(0, 0, 0, 0)
+        rating_row_layout.setSpacing(8)
+
+        self.rating_label = QLabel()
+        self.rating_label.setStyleSheet(f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
+        rating_row_layout.addWidget(self.rating_label)
+
+        self._content_rating_lbl = QLabel()
+        self._content_rating_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+            f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;"
+        )
+        self._content_rating_lbl.hide()
+        rating_row_layout.addWidget(self._content_rating_lbl)
+        rating_row_layout.addStretch()
+
+        layout.addWidget(self._rating_row)
 
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
@@ -265,10 +313,12 @@ class _MetadataSection(QWidget):
         layout.addWidget(self.rec_reason_label)
 
     def set_mode(self, is_live: bool) -> None:
-        self._meta_row.setVisible(not is_live)
+        self._media_row.setVisible(not is_live)
         self.genres_label.setVisible(not is_live)
         if is_live:
             self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+            self._tagline_lbl.hide()
+            self._rating_row.hide()
         else:
             self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
 
@@ -301,7 +351,8 @@ class _MetadataSection(QWidget):
             "movie":  _icons.movie_icon,
             "series": _icons.series_icon,
         }.get(channel.media_type or "", _icons.unknown_icon)
-        self.year_label.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
+        self._media_type_lbl.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
+        self.runtime_label.hide()
 
         if provider_map:
             provider_info = provider_map.get(getattr(channel, "provider_id", None))
@@ -327,16 +378,41 @@ class _MetadataSection(QWidget):
             if parsed.year and not self._name_year_lbl.isVisible():
                 self._name_year_lbl.setText(parsed.year)
                 self._name_year_lbl.show()
+
+        if metadata.tagline:
+            self._tagline_lbl.setText(metadata.tagline)
+            self._tagline_lbl.show()
+
         if metadata.year:
-            self.year_label.setText(str(metadata.year))
             self._name_year_lbl.setText(str(metadata.year))
             self._name_year_lbl.show()
+
         if metadata.rating:
+            count_str = (
+                f" by {metadata.rating_count:,} votes" if metadata.rating_count else ""
+            )
             stars = self.config.rating_star_icon * int(metadata.rating / 2)
-            self.rating_label.setText(f"{stars} {metadata.rating:.1f}/10")
+            self.rating_label.setText(f"{stars} {metadata.rating:.1f} of 10{count_str}")
+            self._rating_row.show()
+
+        if metadata.content_rating:
+            self._content_rating_lbl.setText(metadata.content_rating)
+            self._content_rating_lbl.show()
+            self._rating_row.show()
+
         if metadata.runtime:
             h, m = divmod(metadata.runtime, 60)
             self.runtime_label.setText(f"{h}h {m}m" if h else f"{m}m")
+            self.runtime_label.show()
+
+        if metadata.imdb_id:
+            self._imdb_lbl.setText(f"IMDb {metadata.imdb_id}")
+            self._imdb_lbl.show()
+
+        if metadata.tmdb_id:
+            self._tmdb_lbl.setText(f"TMDb {metadata.tmdb_id}")
+            self._tmdb_lbl.show()
+
         if metadata.genres:
             genres: list[str] = []
             for g in metadata.genres:
@@ -357,9 +433,14 @@ class _MetadataSection(QWidget):
         self.title_label.clear()
         self._prefix_chip.hide()
         self._name_year_lbl.hide()
-        self.year_label.clear()
+        self._tagline_lbl.hide()
+        self._media_type_lbl.clear()
+        self.runtime_label.hide()
+        self._imdb_lbl.hide()
+        self._tmdb_lbl.hide()
         self.rating_label.clear()
-        self.runtime_label.clear()
+        self._content_rating_lbl.hide()
+        self._rating_row.hide()
         self.genres_label.clear()
         self.source_label.clear()
         self.source_label.hide()
