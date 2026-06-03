@@ -112,6 +112,18 @@ class MetadataResult:
     last_updated: Optional[datetime] = None
 ```
 
+### Year Derivation — always use get_year()
+
+Providers frequently supply `release_date` ("2024-07-03") but leave `year` as `None`. Reading `metadata.year` directly will therefore produce an empty year in the UI even when the information is available.
+
+**Always call `metadata.get_year()` instead of reading `metadata.year` directly.** The method returns:
+
+1. `year` if explicitly set by the provider
+2. `int(release_date[:4])` as a fallback if `release_date` is available
+3. `None` if neither is present
+
+`release_date` continues to be stored and displayed in full (e.g., "Release Date: 2024-07-03" in Technical Details). `get_year()` extracts only the year for contexts that need a single integer — title bar display, content dedup fingerprinting, recommendation scoring.
+
 ### Merge Logic
 
 The `merge()` method intelligently combines metadata from multiple providers:

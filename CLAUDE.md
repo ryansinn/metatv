@@ -281,6 +281,17 @@ Providers tried in priority order until sufficient data found:
 
 `MetadataResult.merge()` uses confidence scores (0.0–1.0) to prefer higher-quality data per field.
 
+### MetadataResult.get_year() — always use this, never read .year directly
+
+`MetadataResult.get_year() -> int | None` returns the best available year:
+
+1. `metadata.year` if explicitly set by the provider
+2. Year extracted from `metadata.release_date` (first 4 chars of ISO-8601 `"YYYY-MM-DD"`) as fallback
+
+**Rule:** Any code that needs a single year value for display, deduplication, or scoring **must** call `metadata.get_year()` instead of reading `metadata.year` directly. Providers often supply `release_date` but not `year`; reading `.year` directly produces a visible empty-year bug in the UI.
+
+`release_date` still stores and displays the full date string (e.g. in Technical Details). `get_year()` extracts only the year portion for use where a single integer year is needed.
+
 ## Content Dedup — Known Compromises
 
 `content_dedup.py` uses a `(norm_title, media_type, year, director)` fingerprint to group same-production channels across providers. This is a **heuristic stopgap** until TMDb/IMDb canonical IDs are wired up. Known trade-offs baked in by deliberate choice:
