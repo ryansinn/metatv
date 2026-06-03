@@ -383,10 +383,8 @@ class _MetadataSection(QWidget):
             self._tagline_lbl.setText(metadata.tagline)
             self._tagline_lbl.show()
 
-        # Use get_year() so release_date fills in when year is absent.
-        effective_year = metadata.get_year()
-        if effective_year:
-            self._name_year_lbl.setText(str(effective_year))
+        if metadata.year:
+            self._name_year_lbl.setText(str(metadata.year))
             self._name_year_lbl.show()
 
         if metadata.rating:

@@ -50,27 +50,6 @@ class MetadataResult:
     provider_name: Optional[str] = None  # Which plugin provided this data
     confidence: float = 0.0  # 0-1 confidence score, default to 0 for empty results
     
-    def get_year(self) -> int | None:
-        """Return the best available year for this result.
-
-        Priority:
-          1. ``year`` — explicitly set by the provider (most authoritative).
-          2. Year extracted from ``release_date`` (ISO-8601 "YYYY-MM-DD") — used as a
-             fallback when the provider supplies a full date but no separate year field.
-
-        Never derive year from ``title`` here; title parsing is UI-layer work.
-        Use this method everywhere a single year value is needed (display, dedup,
-        scoring). Do NOT read ``metadata.year`` directly if a fallback is acceptable.
-        """
-        if self.year:
-            return self.year
-        if self.release_date:
-            try:
-                return int(self.release_date[:4])
-            except (ValueError, IndexError):
-                return None
-        return None
-
     def merge(self, other: 'MetadataResult', prefer_higher_confidence: bool = True):
         """Merge another result into this one
         

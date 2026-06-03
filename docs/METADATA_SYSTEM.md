@@ -112,17 +112,16 @@ class MetadataResult:
     last_updated: Optional[datetime] = None
 ```
 
-### Year Derivation — always use get_year()
+### Year Derivation — happens at ingestion, not at read time
 
-Providers frequently supply `release_date` ("2024-07-03") but leave `year` as `None`. Reading `metadata.year` directly will therefore produce an empty year in the UI even when the information is available.
+Providers frequently supply `release_date` ("2024-07-03") but leave `year` as `None`. The derivation happens **once, at storage time**, via `MetadataManager._derive_year()`:
 
-**Always call `metadata.get_year()` instead of reading `metadata.year` directly.** The method returns:
+- **Write path** (`_save_metadata_cache`): before setting `MetadataDB.year`, calls `_derive_year(result.year, result.release_date)`. If `year` is absent but `release_date` is present, extracts `int(release_date[:4])` and stores it as `year`.
+- **Read path** (`_metadata_db_to_result`): same derivation applied when converting DB rows, so pre-existing rows cached before this logic was deployed are also corrected on first read.
 
-1. `year` if explicitly set by the provider
-2. `int(release_date[:4])` as a fallback if `release_date` is available
-3. `None` if neither is present
+After ingestion, `MetadataDB.year` (and therefore `MetadataResult.year`) is always populated when the information is derivable. **Read `metadata.year` directly** — no helper method, no fallback logic outside `metadata_manager.py`.
 
-`release_date` continues to be stored and displayed in full (e.g., "Release Date: 2024-07-03" in Technical Details). `get_year()` extracts only the year for contexts that need a single integer — title bar display, content dedup fingerprinting, recommendation scoring.
+`release_date` is still stored and displayed in full ("2024-07-03") where a complete date is useful (Technical Details section).
 
 ### Merge Logic
 

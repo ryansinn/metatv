@@ -281,16 +281,16 @@ Providers tried in priority order until sufficient data found:
 
 `MetadataResult.merge()` uses confidence scores (0.0–1.0) to prefer higher-quality data per field.
 
-### MetadataResult.get_year() — always use this, never read .year directly
+### Year derivation happens at ingestion — read `.year` directly everywhere else
 
-`MetadataResult.get_year() -> int | None` returns the best available year:
+`MetadataDB.year` is guaranteed to be populated at write time. `MetadataManager._derive_year()` runs at two points:
 
-1. `metadata.year` if explicitly set by the provider
-2. Year extracted from `metadata.release_date` (first 4 chars of ISO-8601 `"YYYY-MM-DD"`) as fallback
+1. **Write (ingestion):** `_save_metadata_cache()` calls `_derive_year(result.year, result.release_date)` before writing to `MetadataDB`. If the provider gave `release_date` ("2024-07-03") but no `year`, the year (2024) is extracted and stored.
+2. **Read (backfill for pre-existing rows):** `_metadata_db_to_result()` also calls `_derive_year()` so that rows cached before the ingestion fix was deployed are also corrected on first read.
 
-**Rule:** Any code that needs a single year value for display, deduplication, or scoring **must** call `metadata.get_year()` instead of reading `metadata.year` directly. Providers often supply `release_date` but not `year`; reading `.year` directly produces a visible empty-year bug in the UI.
+After these two points, `metadata.year` is reliable. **Read `metadata.year` directly everywhere** — display code, dedup, scoring. No runtime parsing, no helper method, no fallback logic outside `metadata_manager.py`.
 
-`release_date` still stores and displays the full date string (e.g. in Technical Details). `get_year()` extracts only the year portion for use where a single integer year is needed.
+`release_date` still stores and displays the full ISO date string (e.g. "2024-07-03" in Technical Details).
 
 ## Content Dedup — Known Compromises
 

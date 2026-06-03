@@ -277,11 +277,28 @@ class MetadataManager:
         
         return age_days > ttl_days
     
+    @staticmethod
+    def _derive_year(year: int | None, release_date: str | None) -> int | None:
+        """Return year, falling back to the first 4 chars of release_date if year is absent.
+
+        Called at ingestion (before writing to DB) and at read time (for rows cached before
+        the ingestion fix landed). After this runs, callers read .year directly — no runtime
+        derivation anywhere else.
+        """
+        if year:
+            return year
+        if release_date:
+            try:
+                return int(release_date[:4])
+            except (ValueError, IndexError):
+                pass
+        return None
+
     def _metadata_db_to_result(self, metadata: MetadataDB) -> MetadataResult:
         """Convert MetadataDB to MetadataResult"""
         return MetadataResult(
             title=metadata.title,
-            year=metadata.year,
+            year=self._derive_year(metadata.year, metadata.release_date),
             plot=metadata.plot,
             tagline=metadata.tagline,
 
@@ -329,7 +346,7 @@ class MetadataManager:
             
             # Update fields
             metadata.title = result.title
-            metadata.year = result.year
+            metadata.year = self._derive_year(result.year, result.release_date)
             metadata.plot = result.plot
             metadata.tagline = result.tagline
             
