@@ -174,7 +174,7 @@ class DetailsPaneWidget(QWidget):
 
         for widget in (
             self._poster, self._meta, self._versions, self._action_bar,
-            self._plot, self._tech, self._cast, self._similar,
+            self._plot, self._cast, self._tech, self._similar,
         ):
             self._content_layout.addWidget(widget)
 
