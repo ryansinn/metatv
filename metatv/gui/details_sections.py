@@ -10,7 +10,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES, parse_channel_name
+from metatv.core.channel_name_utils import (
+    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS, parse_channel_name,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
@@ -285,9 +287,10 @@ class _MetadataSection(QWidget):
         clean_title = parsed.bare_name if parsed.bare_name else channel.name
         self.title_label.setText(clean_title)
 
-        # Prefix chip — shows detected category code (EN, NF, D+, etc.)
+        # Prefix chip — shows detected category code (EN, NF, D+, etc.).
+        # Quality tokens (4K, HD, etc.) are not region/platform chips; skip them.
         prefix = parsed.region or getattr(channel, "detected_prefix", None) or ""
-        if prefix:
+        if prefix and prefix.upper() not in QUALITY_TOKENS:
             tip = resolve_category_name(prefix, self.config) or prefix
             self._prefix_chip.setText(prefix)
             self._prefix_chip.setToolTip(tip)

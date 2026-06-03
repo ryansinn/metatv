@@ -272,6 +272,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
 
     bare = name.strip()
     region = ""
+    _prefix_quality: str = ""  # set when a digit-starting quality token is the prefix
 
     # 1. Extract prefix
     m = _SEPARATOR_RE.match(bare)
@@ -284,10 +285,11 @@ def parse_channel_name(name: str) -> ParsedChannel:
             region = normalize_region_code(bm.group(1))
             bare = bm.group(2).strip()
         else:
-            # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title")
+            # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
+            # These are quality markers, not region codes — go in quality[], not region.
             dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
             if dq:
-                region = dq.group(1).upper()
+                _prefix_quality = dq.group(1).upper()
                 bare = dq.group(2).strip()
 
     # 2. Strip quality tokens from end (first pass)
@@ -322,5 +324,9 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 6. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, quality2 = _strip_quality(bare)
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
+
+    # 7. Prepend digit-starting quality prefix (e.g. "4K") at highest priority
+    if _prefix_quality:
+        quality = [_prefix_quality] + quality
 
     return ParsedChannel(region, bare, quality, lang, year, audio)
