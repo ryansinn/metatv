@@ -547,6 +547,15 @@ class _CastSection(QWidget):
         self._content = QWidget()
         content_layout = QVBoxLayout(self._content)
         content_layout.setContentsMargins(20, 0, 0, 0)
+        content_layout.setSpacing(4)
+
+        self._director_lbl = QLabel()
+        self._director_lbl.setWordWrap(True)
+        self._director_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._director_lbl.setStyleSheet(_theme.DETAIL_TEXT)
+        self._director_lbl.hide()
+        content_layout.addWidget(self._director_lbl)
+
         self.cast_label = QLabel()
         self.cast_label.setWordWrap(True)
         self.cast_label.setTextFormat(Qt.TextFormat.RichText)
@@ -565,7 +574,22 @@ class _CastSection(QWidget):
         else:
             self._apply()
 
-    def load(self, cast: list, weights=None) -> None:
+    def load(self, cast: list, director: str | None = None, weights=None) -> None:
+        if director:
+            if weights:
+                from metatv.core.preference_engine import _split_directors
+                dir_parts = [
+                    f"{_pref_signal(d, weights, 'directors')}{d}"
+                    for d in _split_directors(director)
+                ]
+                dir_str = ", ".join(dir_parts)
+            else:
+                dir_str = director
+            self._director_lbl.setText(f"<b>Director:</b> {dir_str}")
+            self._director_lbl.show()
+        else:
+            self._director_lbl.hide()
+
         if not cast:
             self.cast_label.clear()
             return
@@ -577,6 +601,7 @@ class _CastSection(QWidget):
         self.cast_label.setText(", ".join(parts))
 
     def clear(self) -> None:
+        self._director_lbl.hide()
         self.cast_label.clear()
 
     def _toggle(self) -> None:

@@ -249,7 +249,7 @@ class DetailsPaneWidget(QWidget):
 
         weights = self._fetch_weights()
         self._tech.load(metadata, weights)
-        self._cast.load(metadata.cast or [], weights)
+        self._cast.load(metadata.cast or [], director=metadata.director, weights=weights)
 
     def _fetch_weights(self):
         """Fetch preference weights for cast/director annotation. Returns None on failure."""
