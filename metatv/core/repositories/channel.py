@@ -347,16 +347,19 @@ class ChannelRepository:
             )
 
         # Person filter — from details-pane cast/director/crew clicks.
-        # JOINs MetadataDB and matches against director, cast JSON, or crew JSON.
+        # Searches raw_data.cast (comma-separated string) and raw_data.director.
+        # MetadataDB is not used because raw_data covers ~70k channels while only
+        # ~763 channels have metadata_id set; most metadata comes from raw_data directly.
         if person_filter:
-            from metatv.core.database import MetadataDB as _MetaDB
-            query = query.join(
-                _MetaDB, ChannelDB.metadata_id == _MetaDB.id
-            ).filter(
+            from sqlalchemy import text as _text3
+            query = query.filter(
                 or_(
-                    _MetaDB.director.ilike(f"%{person_filter}%"),
-                    _MetaDB.cast.ilike(f"%{person_filter}%"),
-                    _MetaDB.crew.ilike(f"%{person_filter}%"),
+                    _text3(
+                        "json_extract(raw_data, '$.cast') LIKE :_person_cast"
+                    ).bindparams(_person_cast=f"%{person_filter}%"),
+                    _text3(
+                        "json_extract(raw_data, '$.director') LIKE :_person_dir"
+                    ).bindparams(_person_dir=f"%{person_filter}%"),
                 )
             )
 
