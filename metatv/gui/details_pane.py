@@ -46,6 +46,7 @@ class DetailsPaneWidget(QWidget):
     prefix_name_saved          = pyqtSignal(str, str)   # prefix, name
     manage_filters_requested   = pyqtSignal()
     genre_filter_requested     = pyqtSignal(str)        # genre name
+    person_filter_requested    = pyqtSignal(str)        # person name
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
@@ -208,6 +209,9 @@ class DetailsPaneWidget(QWidget):
 
         # Genre chips
         self._meta.genre_clicked.connect(self.genre_filter_requested)
+
+        # Cast / director / crew person chips
+        self._cast.person_clicked.connect(self.person_filter_requested)
 
         # Similar titles
         s = self._similar

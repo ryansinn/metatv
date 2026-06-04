@@ -206,10 +206,10 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self._bypass_tier1_filters: bool = False
         self._currently_bypassing: bool = False  # set after load completes, read by filter_channels
 
-        # Details-pane context filter — set when user clicks a genre chip in the details
-        # pane. Drives a strict SQL filter (no passthrough, movies+series only). Cleared
-        # by the chip's dismiss button, by search text changes, and by filter panel changes.
+        # Details-pane context filters — set when user clicks a genre or person chip.
+        # At most one is active at a time; both are cleared by the chip's dismiss button.
         self._details_genre_filter: str | None = None
+        self._details_person_filter: str | None = None
 
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
@@ -358,6 +358,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self.details_pane.prefix_name_saved.connect(self._on_prefix_name_saved)
         self.details_pane.manage_filters_requested.connect(self.manage_filters)
         self.details_pane.genre_filter_requested.connect(self._on_genre_filter_requested)
+        self.details_pane.person_filter_requested.connect(self._on_person_filter_requested)
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)
@@ -2106,6 +2107,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
             excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
+            person_filter=self._details_person_filter,
             page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
@@ -2155,6 +2157,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
                     include_hidden=False,
                     search_query=params.get('search_query'),
                     strict_genre_filter=params.get('strict_genre_filter'),
+                    person_filter=params.get('person_filter'),
                     limit=_page_size,
                 )
             total = repos.channels.count(provider_id=params['provider_id'])
@@ -3801,8 +3804,18 @@ class MainWindow(_StreamingMixin, QMainWindow):
         content actually tagged with the genre appears. The filter panel genre
         section is left untouched — this is a separate, explicit filter context.
         """
+        self._details_person_filter = None
         self._details_genre_filter = genre
         self._context_filter_label.setText(f"Genre: {genre}")
+        self._context_filter_chip.show()
+        self.switch_to_list_view()
+        self.load_channels()
+
+    def _on_person_filter_requested(self, name: str) -> None:
+        """Called when a cast/director/crew name in the details pane is clicked."""
+        self._details_genre_filter = None
+        self._details_person_filter = name
+        self._context_filter_label.setText(f"Cast/Crew: {name}")
         self._context_filter_chip.show()
         self.switch_to_list_view()
         self.load_channels()
@@ -3810,6 +3823,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def _clear_context_filter(self) -> None:
         """Dismiss the details-pane context filter and restore normal results."""
         self._details_genre_filter = None
+        self._details_person_filter = None
         self._context_filter_chip.hide()
         self.load_channels()
     

@@ -166,6 +166,7 @@ class ChannelRepository:
                 include_uncategorized_content_types: bool = True,
                 search_query: Optional[str] = None,
                 strict_genre_filter: Optional[str] = None,
+                person_filter: Optional[str] = None,
                 limit: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
@@ -343,6 +344,20 @@ class ChannelRepository:
                 _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
                     _strict_genre=f"%{strict_genre_filter}%"
                 ),
+            )
+
+        # Person filter — from details-pane cast/director/crew clicks.
+        # JOINs MetadataDB and matches against director, cast JSON, or crew JSON.
+        if person_filter:
+            from metatv.core.database import MetadataDB as _MetaDB
+            query = query.join(
+                _MetaDB, ChannelDB.metadata_id == _MetaDB.id
+            ).filter(
+                or_(
+                    _MetaDB.director.ilike(f"%{person_filter}%"),
+                    _MetaDB.cast.ilike(f"%{person_filter}%"),
+                    _MetaDB.crew.ilike(f"%{person_filter}%"),
+                )
             )
 
         query = query.order_by(ChannelDB.name)

@@ -606,6 +606,8 @@ class _TechnicalSection(QWidget):
 class _CastSection(QWidget):
     """Collapsible Cast & Crew section."""
 
+    person_clicked = pyqtSignal(str)  # emits the person's name when clicked
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -637,6 +639,10 @@ class _CastSection(QWidget):
         self._director_lbl.setWordWrap(True)
         self._director_lbl.setTextFormat(Qt.TextFormat.RichText)
         self._director_lbl.setStyleSheet(_theme.DETAIL_TEXT)
+        self._director_lbl.setOpenExternalLinks(False)
+        self._director_lbl.linkActivated.connect(
+            lambda url: self.person_clicked.emit(url)
+        )
         self._director_lbl.hide()
         content_layout.addWidget(self._director_lbl)
 
@@ -644,6 +650,10 @@ class _CastSection(QWidget):
         self.cast_label.setWordWrap(True)
         self.cast_label.setTextFormat(Qt.TextFormat.RichText)
         self.cast_label.setStyleSheet(_theme.DETAIL_TEXT)
+        self.cast_label.setOpenExternalLinks(False)
+        self.cast_label.linkActivated.connect(
+            lambda url: self.person_clicked.emit(url)
+        )
         content_layout.addWidget(self.cast_label)
         layout.addWidget(self._content)
 
@@ -659,17 +669,21 @@ class _CastSection(QWidget):
             self._apply()
 
     def load(self, cast: list, director: str | None = None, weights=None) -> None:
+        link_col = _theme.COLOR_ACCENT_BLUE_2
+
         if director:
-            if weights:
-                from metatv.core.preference_engine import _split_directors
-                dir_parts = [
-                    f"{_pref_signal(d, weights, 'directors')}{d}"
-                    for d in _split_directors(director)
-                ]
-                dir_str = ", ".join(dir_parts)
-            else:
-                dir_str = director
-            self._director_lbl.setText(f"<b>Director:</b> {dir_str}")
+            from metatv.core.preference_engine import _split_directors
+            names = _split_directors(director)
+            dir_parts = []
+            for d in names:
+                sig = _pref_signal(d, weights, 'directors') if weights else ""
+                href = html.escape(d, quote=True)
+                link = (
+                    f'{sig}<a href="{href}" style="color:{link_col};'
+                    f' text-decoration:none;">{html.escape(d)}</a>'
+                )
+                dir_parts.append(link)
+            self._director_lbl.setText(f"<b>Director:</b> {', '.join(dir_parts)}")
             self._director_lbl.show()
         else:
             self._director_lbl.hide()
@@ -681,7 +695,11 @@ class _CastSection(QWidget):
         for actor in cast[:10]:
             name = actor.get("name", "Unknown") if isinstance(actor, dict) else str(actor)
             sig = _pref_signal(name, weights, "actors") if weights else ""
-            parts.append(f"{sig}{name}")
+            href = html.escape(name, quote=True)
+            parts.append(
+                f'{sig}<a href="{href}" style="color:{link_col};'
+                f' text-decoration:none;">{html.escape(name)}</a>'
+            )
         self.cast_label.setText(", ".join(parts))
 
     def clear(self) -> None:
