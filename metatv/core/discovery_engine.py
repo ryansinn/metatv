@@ -230,9 +230,11 @@ class StatusSets(NamedTuple):
 
 def build_status_sets(session) -> StatusSets:
     """Build per-user status sets in a single pass. Call once per worker run."""
-    from metatv.core.database import ChannelDB, WatchQueueDB, UserRatingDB
+    from metatv.core.database import ChannelDB, UserRatingDB
+    from metatv.core.repositories import RepositoryFactory
+    repos = RepositoryFactory(session)
     fav_ids     = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.is_favorite == True).all()}  # noqa: E712
-    queue_ids   = {r.channel_id for r in session.query(WatchQueueDB).all()}
+    queue_ids   = repos.queue.get_queued_ids()
     watched_ids = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.last_played.isnot(None)).all()}
     liked_ids   = {r.channel_id for r in session.query(UserRatingDB).filter(UserRatingDB.rating > 0).all()}
     return StatusSets(fav_ids, queue_ids, watched_ids, liked_ids)

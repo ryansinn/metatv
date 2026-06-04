@@ -696,7 +696,8 @@ class MainWindow(_StreamingMixin, QMainWindow):
             if not channel:
                 return
 
-            queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
+            repos = RepositoryFactory(session)
+            queue_ids = repos.queue.get_queued_ids()
             provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
             _filter_paused = self.config.global_filter_paused
             excluded_cats = set() if _filter_paused else set(self.config.global_filter_excluded_categories)
@@ -910,7 +911,8 @@ class MainWindow(_StreamingMixin, QMainWindow):
                     results.append(ch)
 
             from metatv.core.database import UserRatingDB
-            queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
+            repos = RepositoryFactory(session)
+            queue_ids = repos.queue.get_queued_ids()
             ratings = {r.channel_id: r.rating for r in session.query(UserRatingDB).all()}
             similar = [
                 ChannelVersion(
