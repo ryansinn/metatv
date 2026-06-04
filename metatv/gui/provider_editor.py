@@ -30,6 +30,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget
+from metatv.providers.factory import get_provider
 
 
 def _format_probe_message(result: ProbeResult) -> str:
@@ -72,7 +73,6 @@ class FetchAccountInfoThread(QThread):
             self.finished.emit(False, str(e))
 
     async def _fetch(self):
-        from metatv.providers.factory import get_provider
         plugin = get_provider(self.provider.type)
         if not plugin or not hasattr(plugin, "fetch_account_info"):
             self.finished.emit(False, "Provider type does not support account info")

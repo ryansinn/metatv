@@ -19,9 +19,12 @@ from urllib.parse import urlparse
 import requests
 from loguru import logger
 from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
 
+from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
+from metatv.providers.xtream import _DEFAULT_HEADERS
 
 
 def _looks_like_text(chunk: bytes) -> bool:
@@ -52,7 +55,6 @@ class _StreamingMixin:
         while serving fine on GET), so we use a streaming GET and read one chunk.
         """
         try:
-            from metatv.providers.xtream import _DEFAULT_HEADERS
             logger.debug(f"Validating stream URL: {url}")
             with requests.get(
                 url,
@@ -246,12 +248,10 @@ class _StreamingMixin:
             )
 
             if not final_url:
-                from PyQt6.QtWidgets import QApplication
                 logger.error(f"All stream URLs failed validation for {channel.name}")
                 self.status_bar.showMessage(f"Error: Stream unavailable for {channel.name}")
                 detail = stream_err if stream_err else "All URLs failed (possibly geo-blocked)"
                 self.notification_manager.dismiss(notif_id)
-                from metatv.core.channel_name_utils import parse_channel_name as _pcn
                 _p = _pcn(channel.name)
                 _display = _p.bare_name or channel.name
                 self.notification_manager.show(
