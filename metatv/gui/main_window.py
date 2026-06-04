@@ -206,6 +206,11 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self._bypass_tier1_filters: bool = False
         self._currently_bypassing: bool = False  # set after load completes, read by filter_channels
 
+        # Details-pane context filter — set when user clicks a genre chip in the details
+        # pane. Drives a strict SQL filter (no passthrough, movies+series only). Cleared
+        # by the chip's dismiss button, by search text changes, and by filter panel changes.
+        self._details_genre_filter: str | None = None
+
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
@@ -1440,6 +1445,31 @@ class MainWindow(_StreamingMixin, QMainWindow):
         
         self.content_layout.addWidget(self.search_controls)
 
+        # ── Context filter bar — shown when a details-pane chip filter is active ──
+        from metatv.gui import theme as _theme
+        self._context_filter_bar = QWidget()
+        self._context_filter_bar.hide()
+        _cfb_layout = QHBoxLayout(self._context_filter_bar)
+        _cfb_layout.setContentsMargins(6, 2, 6, 2)
+        _cfb_layout.setSpacing(6)
+        self._context_filter_label = QLabel()
+        self._context_filter_label.setStyleSheet(
+            f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: {_theme.FONT_SM};"
+        )
+        _cfb_layout.addWidget(self._context_filter_label)
+        _cfb_layout.addStretch()
+        _cfb_dismiss = QPushButton("✕")
+        _cfb_dismiss.setFixedSize(20, 20)
+        _cfb_dismiss.setFlat(True)
+        _cfb_dismiss.setToolTip("Clear filter")
+        _cfb_dismiss.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+        )
+        _cfb_dismiss.clicked.connect(self._clear_context_filter)
+        _cfb_layout.addWidget(_cfb_dismiss)
+        self.content_layout.addWidget(self._context_filter_bar)
+
         # ── Filter panel + inner splitter ─────────────────────────────────────
         from metatv.gui.filter_panel import FilterPanel
         self.filter_panel = FilterPanel(self.config)
@@ -1952,6 +1982,10 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
+        if text and self._details_genre_filter:
+            # User started typing — dismiss the details-pane genre context filter
+            self._details_genre_filter = None
+            self._context_filter_bar.hide()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
 
     def load_channels(self, provider_id=None):
@@ -2080,6 +2114,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
             excluded_prefixes=_global_excluded_prefixes,
             excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
             search_query=_search_text or None,
+            strict_genre_filter=self._details_genre_filter,
             page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
@@ -2128,6 +2163,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
                     hidden_only=False,
                     include_hidden=False,
                     search_query=params.get('search_query'),
+                    strict_genre_filter=params.get('strict_genre_filter'),
                     limit=_page_size,
                 )
             total = repos.channels.count(provider_id=params['provider_id'])
@@ -3770,15 +3806,23 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def _on_genre_filter_requested(self, genre: str) -> None:
         """Called when a genre chip in the details pane is clicked.
 
-        Switches to the channel list, applies the genre as an exclusive filter
-        in the filter panel, and reloads. The user can then expand the genre
-        selection in the filter panel to add more genres.
+        Uses a strict SQL filter (no passthrough, movies+series only) so only
+        content actually tagged with the genre appears. The filter panel genre
+        section is left untouched — this is a separate, explicit filter context.
         """
-        from metatv.core.repositories.channel import normalize_genre
-        canonical = normalize_genre(genre)
+        self._details_genre_filter = genre
+        self._context_filter_label.setText(
+            f"Genre: <b>{genre}</b>"
+        )
+        self._context_filter_bar.show()
         self.switch_to_list_view()
-        if hasattr(self, "filter_panel"):
-            self.filter_panel.select_only_genre(canonical)
+        self.load_channels()
+
+    def _clear_context_filter(self) -> None:
+        """Dismiss the details-pane context filter and restore normal results."""
+        self._details_genre_filter = None
+        self._context_filter_bar.hide()
+        self.load_channels()
     
     def open_settings(self):
         """Open settings dialog"""

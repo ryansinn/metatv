@@ -165,6 +165,7 @@ class ChannelRepository:
                 source_categories: Optional[List[str]] = None,
                 include_uncategorized_content_types: bool = True,
                 search_query: Optional[str] = None,
+                strict_genre_filter: Optional[str] = None,
                 limit: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
@@ -332,6 +333,17 @@ class ChannelRepository:
         # SQL text search pushdown (case-insensitive LIKE on channel name)
         if search_query:
             query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+
+        # Strict genre filter — from details-pane genre chip clicks. No passthrough:
+        # only movies/series whose raw_data genre field contains the requested genre.
+        if strict_genre_filter:
+            from sqlalchemy import text as _text2
+            query = query.filter(
+                ChannelDB.media_type.in_(["movie", "series"]),
+                _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
+                    _strict_genre=f"%{strict_genre_filter}%"
+                ),
+            )
 
         query = query.order_by(ChannelDB.name)
 
