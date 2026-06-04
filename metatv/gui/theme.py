@@ -261,17 +261,21 @@ BG_TRANSPARENT = "background: transparent;"
 # Exclusions chip (FilterChip in bottom nav bar) — three visual states.
 # Active (teal): global exclusions are enabled and applying.
 # Paused (amber): exclusions exist but are temporarily bypassed.
+# Hover and pressed fill the chip solid so feedback is visible over the text, not just in
+# the padding area. Text flips to the dark background color so contrast is maintained.
 EXCL_CHIP_ACTIVE = (
     "QPushButton { background-color: " + OVERLAY_EXCLUSIONS_10 + "; color: " + COLOR_EXCLUSIONS_ACTIVE + ";"
     " border: 1px solid " + COLOR_EXCLUSIONS_ACTIVE + "; border-radius: 12px;"
     " padding: 6px 14px; font-weight: bold; }"
-    "QPushButton:hover { background-color: " + OVERLAY_EXCLUSIONS_18 + "; }"
+    "QPushButton:hover { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
+    "QPushButton:pressed { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
 )
 EXCL_CHIP_PAUSED = (
     "QPushButton { background-color: " + OVERLAY_ORANGE_10 + "; color: " + COLOR_ACCENT_ORANGE + ";"
     " border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 12px;"
     " padding: 6px 14px; font-weight: bold; }"
-    "QPushButton:hover { background-color: " + OVERLAY_ORANGE_18 + "; }"
+    "QPushButton:hover { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
+    "QPushButton:pressed { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
 )
 
 # Context filter chip — inline in the search bar when a details-pane filter is active
