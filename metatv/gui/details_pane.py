@@ -45,6 +45,7 @@ class DetailsPaneWidget(QWidget):
     prefix_unblock_requested   = pyqtSignal(str)        # prefix
     prefix_name_saved          = pyqtSignal(str, str)   # prefix, name
     manage_filters_requested   = pyqtSignal()
+    genre_filter_requested     = pyqtSignal(str)        # genre name
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
@@ -204,6 +205,9 @@ class DetailsPaneWidget(QWidget):
         v.prefix_unblock_requested.connect(self.prefix_unblock_requested)
         v.prefix_name_saved.connect(self.prefix_name_saved)
         v.manage_filters_requested.connect(self.manage_filters_requested)
+
+        # Genre chips
+        self._meta.genre_clicked.connect(self.genre_filter_requested)
 
         # Similar titles
         s = self._similar

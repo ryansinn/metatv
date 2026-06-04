@@ -1,4 +1,5 @@
 """Content section widgets for the details pane: poster, metadata, plot, technical, cast."""
+import html
 import re
 
 from loguru import logger
@@ -180,6 +181,8 @@ class _PosterSection(QWidget):
 class _MetadataSection(QWidget):
     """Title, year, rating, genres, source badge, adult indicator, rec reason."""
 
+    genre_clicked = pyqtSignal(str)  # emits the genre name when user clicks a genre chip
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -299,10 +302,14 @@ class _MetadataSection(QWidget):
         badge_row.addStretch()
         layout.addLayout(badge_row)
 
-        # Genres
+        # Genres — each genre renders as a clickable link
         self.genres_label = QLabel()
         self.genres_label.setWordWrap(True)
-        self.genres_label.setStyleSheet("color: lightblue;")
+        self.genres_label.setTextFormat(Qt.TextFormat.RichText)
+        self.genres_label.setOpenExternalLinks(False)
+        self.genres_label.linkActivated.connect(
+            lambda url: self.genre_clicked.emit(url)
+        )
         layout.addWidget(self.genres_label)
 
         # Recommendation reason
@@ -420,7 +427,14 @@ class _MetadataSection(QWidget):
                     genres.extend(p.strip() for p in g.split('/') if p.strip())
                 else:
                     genres.append(g)
-            self.genres_label.setText(" • ".join(genres))
+            link_col = _theme.COLOR_ACCENT_BLUE_2
+            genre_html = " &bull; ".join(
+                f'<a href="{html.escape(g, quote=True)}" '
+                f'style="color:{link_col}; text-decoration:none;">'
+                f'{html.escape(g)}</a>'
+                for g in genres
+            )
+            self.genres_label.setText(genre_html)
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:

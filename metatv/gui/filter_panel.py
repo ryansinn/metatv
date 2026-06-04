@@ -452,6 +452,14 @@ class FilterPanel(QWidget):
         self.save_state()
         self.filter_changed.emit()
 
+    def select_only_genre(self, genre: str) -> None:
+        """Filter to a single genre — called when the user clicks a genre chip in the details pane.
+
+        Uses check_only() which emits changed → _on_changed → filter_changed,
+        so load_channels() fires automatically.
+        """
+        self._genre_sec.check_only(genre)
+
     def save_state(self):
         try:
             state = self.get_filter_state()

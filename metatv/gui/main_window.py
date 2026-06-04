@@ -352,6 +352,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self.details_pane.prefix_unblock_requested.connect(self._on_prefix_unblock)
         self.details_pane.prefix_name_saved.connect(self._on_prefix_name_saved)
         self.details_pane.manage_filters_requested.connect(self.manage_filters)
+        self.details_pane.genre_filter_requested.connect(self._on_genre_filter_requested)
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)
@@ -3765,6 +3766,19 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def manage_filters(self):
         """Show filter management"""
         logger.info("Manage filters")
+
+    def _on_genre_filter_requested(self, genre: str) -> None:
+        """Called when a genre chip in the details pane is clicked.
+
+        Switches to the channel list, applies the genre as an exclusive filter
+        in the filter panel, and reloads. The user can then expand the genre
+        selection in the filter panel to add more genres.
+        """
+        from metatv.core.repositories.channel import normalize_genre
+        canonical = normalize_genre(genre)
+        self.switch_to_list_view()
+        if hasattr(self, "filter_panel"):
+            self.filter_panel.select_only_genre(canonical)
     
     def open_settings(self):
         """Open settings dialog"""

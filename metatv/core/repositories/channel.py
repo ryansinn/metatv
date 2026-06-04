@@ -121,6 +121,15 @@ _GENRE_NORM: dict[str, str] = {
 _GENRE_SEP_RE = re.compile(r"[,/]")
 
 
+def normalize_genre(genre: str) -> str:
+    """Return the canonical English genre label for a raw genre string.
+
+    Applies the same _GENRE_NORM lookup used when building filter-panel stats,
+    so a genre clicked in the details pane maps to the correct filter-panel key.
+    """
+    return _GENRE_NORM.get(genre.lower(), genre)
+
+
 class ChannelRepository:
     """Repository for channel data access"""
     
