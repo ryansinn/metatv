@@ -120,6 +120,40 @@ def test_double_quality_tokens_not_compound(db_session, repo):
     # quality may come from API or be None — the important thing is the guard fired
 
 
+# ── Trailing [UK]/[US] bracket suffix as content origin ──────────────────────
+
+def test_trailing_bracket_uk_captured_as_region(db_session, repo):
+    """[UK] at the END of a compound-prefix name lands in detected_region."""
+    prefix, quality, region = _prefixes(
+        db_session, repo, "4K-DE - Alex Rider 2020 [UK]"
+    )
+    assert prefix == "DE"
+    assert quality == "4K"
+    assert region == "UK"
+
+
+def test_trailing_bracket_us_captured_as_region(db_session, repo):
+    prefix, quality, region = _prefixes(
+        db_session, repo, "4K-DE - Citadel Honey Bunny · 2024 [US]"
+    )
+    assert prefix == "DE"
+    assert quality == "4K"
+    assert region == "US"
+
+
+def test_trailing_bracket_does_not_affect_audio_suffix(db_session, repo):
+    """[Dub] stays as audio — it is NOT treated as a region code."""
+    prefix, quality, region = _prefixes(db_session, repo, "EN - Movie [Dub]")
+    assert prefix == "EN"
+    assert region is None  # [Dub] must not be captured as region
+
+
+def test_trailing_quality_bracket_not_captured_as_region(db_session, repo):
+    """[UHD] is a quality token — must NOT be captured as region."""
+    prefix, quality, region = _prefixes(db_session, repo, "4K-DE - Chief of War [UHD]")
+    assert region is None  # UHD is in QUALITY_TOKENS, skip
+
+
 # ── Normal channels unaffected ───────────────────────────────────────────────
 
 def test_normal_en_channel_unaffected(db_session, repo):

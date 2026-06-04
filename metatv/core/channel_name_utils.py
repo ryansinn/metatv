@@ -318,8 +318,11 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
 
-    # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end
+    # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end.
+    # Also strips content-origin brackets like [UK], [US] (2-3 alpha letters,
+    # not a quality token) — these are captured as lang in step 4.
     audio = ""
+    _bracket_origin = ""  # e.g. "UK" from [UK] suffix
     bsm = _BRACKET_SUFFIX_RE.search(bare)
     if bsm:
         content = bsm.group(1).strip().upper()
@@ -327,9 +330,16 @@ def parse_channel_name(name: str) -> ParsedChannel:
         if canonical:
             audio = canonical
             bare = bare[: bsm.start()].strip()
+        elif (len(content) in (2, 3) and content.isalpha()
+              and content not in QUALITY_TOKENS):
+            # Content-origin bracket like [UK], [US], [DE] — same semantics as (UK)
+            _bracket_origin = normalize_region_code(content)
+            bare = bare[: bsm.start()].strip()
+        # else: unrecognised bracket stays in bare name
 
     # 4. Strip explicit lang/region qualifier from end: (EN), (JP)
-    lang = ""
+    # Parenthetical form overrides bracket form if both are present.
+    lang = _bracket_origin
     lm = _LANG_QUALIFIER_RE.search(bare)
     if lm:
         candidate = normalize_region_code(lm.group(1))
