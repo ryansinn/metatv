@@ -212,6 +212,14 @@ class _MetadataSection(QWidget):
         self._prefix_chip.hide()
         title_bar_layout.addWidget(self._prefix_chip)
 
+        self._quality_chip = QPushButton()
+        self._quality_chip.setFlat(True)
+        self._quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
+        self._quality_chip.setFixedHeight(24)
+        self._quality_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._quality_chip.hide()
+        title_bar_layout.addWidget(self._quality_chip)
+
         self._name_year_lbl = QLabel()
         self._name_year_lbl.setStyleSheet(
             f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_MUTED}; font-weight: bold;"
@@ -346,6 +354,19 @@ class _MetadataSection(QWidget):
         else:
             self._prefix_chip.hide()
 
+        # Quality chip — shows detected quality (4K, UHD, HD, etc.) next to language chip.
+        # Prefers parsed quality from the name; falls back to stored detected_quality.
+        quality = (
+            parsed.quality[0].upper() if parsed.quality
+            else getattr(channel, "detected_quality", None)
+        )
+        if quality:
+            self._quality_chip.setText(quality)
+            self._quality_chip.setToolTip(f"{quality} quality")
+            self._quality_chip.show()
+        else:
+            self._quality_chip.hide()
+
         # Year from channel name — shown to the right of the title
         if parsed.year:
             self._name_year_lbl.setText(parsed.year)
@@ -446,6 +467,7 @@ class _MetadataSection(QWidget):
     def clear(self) -> None:
         self.title_label.clear()
         self._prefix_chip.hide()
+        self._quality_chip.hide()
         self._name_year_lbl.hide()
         self._tagline_lbl.hide()
         self._media_type_lbl.clear()

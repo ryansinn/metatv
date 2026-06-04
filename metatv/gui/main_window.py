@@ -153,6 +153,8 @@ class MainWindow(_StreamingMixin, QMainWindow):
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
     # Context menu async fetch: (channel, in_queue, rating, gx, gy, variant)
     _ctx_data_ready = pyqtSignal(object, bool, object, int, int, str)
+    # Prefix migration: emitted from background worker when rescan completes
+    _prefix_migration_done = pyqtSignal()
     
     def __init__(self, config: Config):
         super().__init__()
@@ -276,6 +278,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
         self._ctx_data_ready.connect(self._on_ctx_data_ready)
+        self._prefix_migration_done.connect(self._on_prefix_migration_done)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
@@ -290,6 +293,9 @@ class MainWindow(_StreamingMixin, QMainWindow):
 
         # Auto-load channels from all active providers on startup
         self.load_channels()
+
+        # One-time migration: reparse compound prefixes (4K-DE, SE-4K, etc.) if not done
+        QTimer.singleShot(2000, self._check_prefix_migration)
 
         # Initialize filter statistics
         self.initialize_filter_stats()
@@ -3324,6 +3330,28 @@ class MainWindow(_StreamingMixin, QMainWindow):
             if hasattr(self, "preferences_view"):
                 self.preferences_view.refresh()
             self._refresh_recommended_section()
+
+    # ── Compound-prefix migration ───────────────────────────────────────────────
+
+    _PREFIX_PARSE_VERSION = 2  # increment when parsing logic changes
+
+    def _check_prefix_migration(self) -> None:
+        """Run a one-time background rescan if prefix parsing logic has been updated."""
+        if getattr(self.config, "prefix_parse_version", 0) < self._PREFIX_PARSE_VERSION:
+            self.executor.submit(self._bg_prefix_migration)
+
+    def _bg_prefix_migration(self) -> None:
+        """Worker: reparse all channels' detected_prefix/quality for compound prefixes."""
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            repos.channels.update_detected_prefixes()
+        self._prefix_migration_done.emit()
+
+    def _on_prefix_migration_done(self) -> None:
+        """Called on main thread when the background prefix migration finishes."""
+        self.config.prefix_parse_version = self._PREFIX_PARSE_VERSION
+        self.config.save()
+        self.load_channels()
 
     def on_discover_view_toggle(self) -> None:
         if self.discover_chip.is_enabled():

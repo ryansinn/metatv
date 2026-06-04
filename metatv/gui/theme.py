@@ -241,6 +241,14 @@ CATEGORY_CHIP_SM = (
     "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + ";"
     " background: " + OVERLAY_05 + "; }"
 )
+# Quality badge in the details pane title bar (amber/gold, next to language chip)
+QUALITY_CHIP = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_WARN + ";"
+    " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 2px 8px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_WARN + ";"
+    " background: " + OVERLAY_08 + "; }"
+)
 
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"

@@ -44,6 +44,29 @@ _DIGIT_QUALITY_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Compound prefix: quality token + language/platform code, or vice versa, before a
+# separator. Handles "4K-DE - Title", "SE-4K - Title", "PL 4K - Title", and the
+# bracket-before-compound form "[US] 4K-DE - Title".
+#
+# Groups (all via named groups to avoid positional fragility):
+#   bracket   optional [BRACKET] prefix (e.g. "US" from "[US]")
+#   qual_a    quality from QUALITY-LANG form (e.g. "4K" in "4K-DE")
+#   lang_a    lang    from QUALITY-LANG form (e.g. "DE" in "4K-DE")
+#   lang_b    lang    from LANG-QUALITY form (e.g. "SE" in "SE-4K")
+#   qual_b    quality from LANG-QUALITY form (e.g. "4K" in "SE-4K")
+#   lang_c    lang    from LANG QUALITY form (e.g. "PL" in "PL 4K")
+#   qual_c    quality from LANG QUALITY form (e.g. "4K" in "PL 4K")
+#   title     remainder after the compound prefix + separator
+_COMPOUND_PREFIX_RE = re.compile(
+    r'^(?:\[(?P<bracket>[A-Z][A-Z0-9]{0,7})\]\s*)?'
+    r'(?:'
+    r'(?P<qual_a>4K|8K|UHD|HD|FHD)-(?P<lang_a>[A-Z]{2,4})'
+    r'|(?P<lang_b>[A-Z]{2,4})-(?P<qual_b>4K|8K|UHD|HD|FHD)'
+    r'|(?P<lang_c>[A-Z]{2,4})\s+(?P<qual_c>4K|8K|UHD|HD|FHD)'
+    r')\s*(?:[★|]|-\s+)\s*(?P<title>.+)$',
+    re.IGNORECASE,
+)
+
 # ── Suffix patterns ─────────────────────────────────────────────────────────── #
 
 # Quality tokens at end of bare name (including codecs)
