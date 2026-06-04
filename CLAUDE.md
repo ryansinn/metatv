@@ -229,6 +229,17 @@ For arithmetic (remaining time, progress bars), compare UTC-naive against `now_u
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.
 
+### Context filter chips — details-pane metadata clicks → strict channel list filter
+When a user clicks a metadata value in the details pane (genre, cast, director, etc.) a
+temporary "context filter" activates. This uses a **strict SQL filter** — not the filter
+panel's inclusive genre logic (which has a no-data passthrough). The full pattern is in
+[docs/CONTEXT_FILTER_CHIPS.md](docs/CONTEXT_FILTER_CHIPS.md). Key rules:
+- Never route details-pane clicks through `filter_panel.select_only_genre()` or similar — the filter panel is inclusive, context chips are strict.
+- At most one context filter is active at a time; activating any chip clears all others.
+- Text search and an active chip coexist — typing narrows *within* the chip filter; it does NOT dismiss the chip.
+- All chip styles come from `theme.CONTEXT_FILTER_CHIP*` constants — no inline hex.
+- State lives in `_details_*_filter` vars on `MainWindow`; passed through `load_channels()` params → `get_all()`.
+
 ### Early returns must clean up acquired state
 Any resource or set membership acquired before a guard check must be released on every early return path — not just the happy path.
 
@@ -338,6 +349,7 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | Qt threading deep dive | [docs/THREADING_PATTERNS.md](docs/THREADING_PATTERNS.md) |
 | Metadata system architecture | [docs/METADATA_SYSTEM.md](docs/METADATA_SYSTEM.md) |
 | Filtering design | [docs/FILTERING_DESIGN.md](docs/FILTERING_DESIGN.md) |
+| Context filter chips (genre/person/future) | [docs/CONTEXT_FILTER_CHIPS.md](docs/CONTEXT_FILTER_CHIPS.md) |
 | Details pane design | [docs/DETAILS_PANE_DESIGN.md](docs/DETAILS_PANE_DESIGN.md) |
 | Xtream API schema | [docs/xtream_api_schema.md](docs/xtream_api_schema.md) |
 | UI state persistence patterns | [DESIGN.md](DESIGN.md) |
