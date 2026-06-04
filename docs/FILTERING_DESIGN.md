@@ -66,6 +66,30 @@ Once content is in a curated collection, it is permanently accessible regardless
 
 **Does not affect**: Other Versions panel in the details pane — excluded versions always appear there, grayed out.
 
+#### Exclusions chip behavior (bottom nav bar)
+
+The **Exclusions** chip is a three-state widget with a simple left-click / right-click contract:
+
+| Chip state | Visual | Left-click | Right-click |
+|---|---|---|---|
+| No exclusions configured | Gray ○ | Opens the Exclusions dialog | Opens the Exclusions dialog |
+| Exclusions active | Teal ● | **Pauses** exclusions (shows all content) | Opens the Exclusions dialog |
+| Exclusions paused | Amber ● | **Resumes** exclusions (re-hides excluded content) | Opens the Exclusions dialog |
+
+**Rules:**
+- Left-click when no exclusions → open dialog (same as right-click). Nothing to toggle yet.
+- Left-click when active → pause. The exclusion settings are preserved in memory; all excluded content becomes visible until the user clicks again or opens the dialog.
+- Left-click when paused → resume. Re-applies all configured exclusions immediately.
+- Right-click **always** opens the dialog regardless of state. This is the only way to add, remove, or modify exclusion rules.
+
+**The chip shows as active (teal) whenever ANY exclusion is configured**, including:
+- Language / region prefix exclusions (the main language blacklist)
+- Content-type group exclusions ("Religious", etc.)
+- Individually blocked prefix codes (via "Block [PREFIX]" quick action)
+- User-category exclusions (channels assigned to "Trash" or other excluded categories)
+- Source-category exclusions from the "Other" expandable section
+- "Hide untagged channels" checkbox enabled
+
 ---
 
 ## Tier 1 Filter Logic — Identity Pool + Quality
