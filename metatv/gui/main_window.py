@@ -1977,10 +1977,6 @@ class MainWindow(_StreamingMixin, QMainWindow):
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
-        if text and self._details_genre_filter:
-            # User started typing — dismiss the details-pane genre context filter
-            self._details_genre_filter = None
-            self._context_filter_chip.hide()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
 
     def load_channels(self, provider_id=None):
