@@ -99,6 +99,11 @@ class FilterChip(ToggleChip):
 
     def __init__(self, label: str):
         super().__init__(label, enabled=False)
+        # Disable checkable state: ToggleChip sets setCheckable(True), but on Linux/Wayland
+        # Qt's native checkable-button renderer splits the hit-test region so the text area
+        # registers no clicks. FilterChip manages all visual state via setStyleSheet and
+        # never reads isChecked(), so removing checkable has no functional effect.
+        self.setCheckable(False)
         self._paused = False
         self._has_filters = False
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
