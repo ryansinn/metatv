@@ -61,6 +61,8 @@ COLOR_ACCENT_BROWN        = "#cc7722"
 COLOR_BTN_SAVE       = "#2255cc"
 COLOR_BTN_SAVE_HOVER = "#3366dd"
 # White overlays (alpha)
+OVERLAY_ORANGE_12 = "rgba(240,160,64,0.12)"   # amber tint — context filter chip bg
+
 OVERLAY_03 = "rgba(255,255,255,0.03)"
 OVERLAY_04 = "rgba(255,255,255,0.04)"
 OVERLAY_05 = "rgba(255,255,255,0.05)"
@@ -241,3 +243,20 @@ SEP_DARK       = "color: " + COLOR_BORDER + "; margin-top: 4px; margin-bottom: 4
 CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: 6px; }"
 HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
 BG_TRANSPARENT = "background: transparent;"
+
+# Context filter chip — inline in the search bar when a details-pane filter is active
+# (genre click, person click). Amber/orange so it's clearly distinct from a normal search.
+CONTEXT_FILTER_CHIP = (
+    "QWidget { background: " + OVERLAY_ORANGE_12 + ";"
+    " border: 1px solid " + COLOR_ACCENT_ORANGE + ";"
+    " border-radius: 4px; }"
+)
+CONTEXT_FILTER_CHIP_LABEL = (
+    "color: " + COLOR_ACCENT_ORANGE + "; font-size: " + FONT_MD + "; font-weight: bold;"
+    " background: transparent; border: none;"
+)
+CONTEXT_FILTER_CHIP_BTN = (
+    "QPushButton { color: " + COLOR_ACCENT_ORANGE + "; font-size: " + FONT_MD + ";"
+    " background: transparent; border: none; padding: 0 2px; font-weight: bold; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
+)

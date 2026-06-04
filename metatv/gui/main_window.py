@@ -1431,6 +1431,26 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self._tab_hidden_btn.clicked.connect(lambda: self._set_search_tab(True))
         controls_layout.addWidget(self._tab_hidden_btn)
 
+        # Context filter chip — hidden until a details-pane genre/person filter is active
+        from metatv.gui import theme as _theme
+        self._context_filter_chip = QWidget()
+        self._context_filter_chip.hide()
+        self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
+        _cfc_layout = QHBoxLayout(self._context_filter_chip)
+        _cfc_layout.setContentsMargins(6, 2, 6, 2)
+        _cfc_layout.setSpacing(4)
+        self._context_filter_label = QLabel()
+        self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
+        _cfc_layout.addWidget(self._context_filter_label)
+        _cfc_dismiss = QPushButton("✕")
+        _cfc_dismiss.setFixedSize(16, 16)
+        _cfc_dismiss.setFlat(True)
+        _cfc_dismiss.setToolTip("Clear filter")
+        _cfc_dismiss.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
+        _cfc_dismiss.clicked.connect(self._clear_context_filter)
+        _cfc_layout.addWidget(_cfc_dismiss)
+        controls_layout.addWidget(self._context_filter_chip)
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter channels by name, category...")
         self.search_input.textChanged.connect(self._on_search_text_changed)
@@ -1444,31 +1464,6 @@ class MainWindow(_StreamingMixin, QMainWindow):
         controls_layout.addWidget(clear_btn)
         
         self.content_layout.addWidget(self.search_controls)
-
-        # ── Context filter bar — shown when a details-pane chip filter is active ──
-        from metatv.gui import theme as _theme
-        self._context_filter_bar = QWidget()
-        self._context_filter_bar.hide()
-        _cfb_layout = QHBoxLayout(self._context_filter_bar)
-        _cfb_layout.setContentsMargins(6, 2, 6, 2)
-        _cfb_layout.setSpacing(6)
-        self._context_filter_label = QLabel()
-        self._context_filter_label.setStyleSheet(
-            f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: {_theme.FONT_SM};"
-        )
-        _cfb_layout.addWidget(self._context_filter_label)
-        _cfb_layout.addStretch()
-        _cfb_dismiss = QPushButton("✕")
-        _cfb_dismiss.setFixedSize(20, 20)
-        _cfb_dismiss.setFlat(True)
-        _cfb_dismiss.setToolTip("Clear filter")
-        _cfb_dismiss.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
-        )
-        _cfb_dismiss.clicked.connect(self._clear_context_filter)
-        _cfb_layout.addWidget(_cfb_dismiss)
-        self.content_layout.addWidget(self._context_filter_bar)
 
         # ── Filter panel + inner splitter ─────────────────────────────────────
         from metatv.gui.filter_panel import FilterPanel
@@ -1985,7 +1980,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
         if text and self._details_genre_filter:
             # User started typing — dismiss the details-pane genre context filter
             self._details_genre_filter = None
-            self._context_filter_bar.hide()
+            self._context_filter_chip.hide()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
 
     def load_channels(self, provider_id=None):
@@ -3811,17 +3806,15 @@ class MainWindow(_StreamingMixin, QMainWindow):
         section is left untouched — this is a separate, explicit filter context.
         """
         self._details_genre_filter = genre
-        self._context_filter_label.setText(
-            f"Genre: <b>{genre}</b>"
-        )
-        self._context_filter_bar.show()
+        self._context_filter_label.setText(f"Genre: {genre}")
+        self._context_filter_chip.show()
         self.switch_to_list_view()
         self.load_channels()
 
     def _clear_context_filter(self) -> None:
         """Dismiss the details-pane context filter and restore normal results."""
         self._details_genre_filter = None
-        self._context_filter_bar.hide()
+        self._context_filter_chip.hide()
         self.load_channels()
     
     def open_settings(self):
