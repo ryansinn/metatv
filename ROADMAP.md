@@ -11,6 +11,7 @@ What's left to build. Completed features live in git history.
 
 ## Metadata & Enrichment
 
+- [ ] **Genre normalization to canonical English** — genres from non-English providers arrive in various languages (e.g. "Comédie", "Komödie", "喜剧" all meaning "Comedy"). Normalize all genre values to a canonical English vocabulary at ingestion time so that search, filter matching, deduplication, and recommendation scoring operate on a unified taxonomy. Display text remains the raw provider value until the i18n/locale layer is built; the canonical form is stored separately (e.g. `genre_canonical`). Scope: ingestion pipeline in `metadata_manager.py` or `channel_name_utils.py`; needs a mapping table seeded from known IPTV provider genre strings.
 - [ ] **TMDb / OMDb providers** — architecture in place; need API key config UI + implementations
 - [ ] **Xtream VOD API enhancement** — use `get_vod_info()` / `get_live_info()` for full metadata instead of basic stream list
 - [ ] **Episode-level metadata** — extract from series_info response; show in details pane per episode
@@ -79,6 +80,8 @@ What's left to build. Completed features live in git history.
 - [ ] **Dark mode / theme selection**
 - [ ] **Embedded player** option (split-pane mpv in-app)
 - [ ] **Episode history tracking fix** — debug logging to trace why parent channel lookup sometimes fails for history updates
+- [ ] **Restore ratings display in details pane** — the 👍/👎 rating controls have gone missing from the details panel; re-add them to the details pane layout. Bug: was present, now absent.
+- [ ] **Details pane — move "Source:" beneath title/year** — relocate the Source field (currently below the metadata block) to the right side of the title row, inline with or directly beneath the title + year line; keeps the primary content area cleaner and puts provenance info near the header where it's most useful
 - [ ] **Launch-time feedback prompts** — while channels load at startup (5-10s), show "You watched [X] — what did you think?" prompts for recently-watched content with no rating; feeds the recommendation engine quickly; opt-in ("Ask me about content I watch"), explain data stays local; dismissable and rate-limited so it doesn't become annoying
 - [ ] **Recommendation dashboard — category mood editor** — show all user categories with their current mood, channel count, and inferred genre; let user adjust mood in bulk without re-opening CategoryPickerDialog; "Why is this recommended?" explainer links back to category mood contributions
 
