@@ -155,6 +155,8 @@ class MainWindow(_StreamingMixin, QMainWindow):
     _ctx_data_ready = pyqtSignal(object, bool, object, int, int, str)
     # Prefix migration: emitted from background worker when rescan completes
     _prefix_migration_done = pyqtSignal()
+    # Stream validation result: emitted from background thread after validate_and_failover
+    _stream_ready = pyqtSignal(object)  # dict with final_url, stream_err, channel state
     
     def __init__(self, config: Config):
         super().__init__()
@@ -279,6 +281,7 @@ class MainWindow(_StreamingMixin, QMainWindow):
         self._episode_failed.connect(self._on_episode_stream_unavailable)
         self._ctx_data_ready.connect(self._on_ctx_data_ready)
         self._prefix_migration_done.connect(self._on_prefix_migration_done)
+        self._stream_ready.connect(self._on_stream_ready)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
