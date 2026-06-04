@@ -99,6 +99,7 @@ file:line-level task list (full-codebase review 2026-06-01). Summary:
   - [ ] `epg_view.py` (2157) → tab split (B6-2) deferred to dedicated session; requires GUI smoke-test (90+ methods, deeply coupled cross-tab state: shared worker, _data signal, timers)
 - [x] **P4 — status-set dedup** (B6-3, 2026-06-04): audited 5 sites — legitimately different sets for different purposes; added `WatchQueueRepository.get_queued_ids()` helper used at 3 call sites; `--help` artifact confirmed absent
 - [x] **Band 6 cleanups** (2026-06-04, PR #7): B6-7 stream validation off UI thread (play_media non-blocking), B6-8 session_scope in streaming, B6-9 hoisted imports, B6-10 unit tests for provider_probe + _format_probe_message (19 new tests, 196 total)
+- [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes fully clickable after a notification appears and dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover styles did NOT fix it. Likely a z-order or geometry-timing issue in the bottom nav bar at startup. Needs investigation of `notification_widget.py` show/hide side-effects and bottom nav bar layout initialisation.
 
 ## Platform & Distribution
 
