@@ -8,6 +8,7 @@ These tests verify:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch, call
 import pytest
 
@@ -32,6 +33,14 @@ def _make_mixin() -> _StreamingMixin:
 
 # ── validate_and_failover_stream_url: failover ordering ──────────────────────
 
+def _make_session_scope(session: MagicMock):
+    """Return a session_scope contextmanager that yields the given mock session."""
+    @contextmanager
+    def _scope():
+        yield session
+    return _scope
+
+
 def test_failover_uses_alternate_url_on_primary_fail():
     """If primary URL fails (no text error), alternate is tried in order."""
     obj = _make_mixin()
@@ -52,7 +61,7 @@ def test_failover_uses_alternate_url_on_primary_fail():
     repos.providers.to_model.return_value = provider_model
 
     session = MagicMock()
-    obj.db.get_session.return_value = session
+    obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
          patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=[{"url": alt1}]), \
@@ -67,6 +76,7 @@ def test_failover_uses_alternate_url_on_primary_fail():
 
     assert result_url == alt1_url
     assert err is None
+
 
 
 def test_failover_stops_on_text_error():
@@ -103,7 +113,7 @@ def test_failover_success_stat_commit():
     repos.providers.to_model.return_value = provider_model
 
     session = MagicMock()
-    obj.db.get_session.return_value = session
+    obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
          patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=raw_urls), \
@@ -116,7 +126,7 @@ def test_failover_success_stat_commit():
 
     # success_count should be 1
     assert raw_urls[0].get("success_count") == 1
-    # commit should have been called
+    # commit should have been called (per-attempt explicit commit)
     session.commit.assert_called()
 
 
@@ -139,7 +149,7 @@ def test_failover_failure_stat_commit():
     repos.providers.to_model.return_value = provider_model
 
     session = MagicMock()
-    obj.db.get_session.return_value = session
+    obj.db.session_scope = _make_session_scope(session)
 
     with patch("metatv.gui.main_window_streaming.RepositoryFactory", return_value=repos), \
          patch("metatv.gui.main_window_streaming.parse_provider_urls", return_value=raw_urls), \

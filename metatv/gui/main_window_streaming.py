@@ -118,9 +118,13 @@ class _StreamingMixin:
         parsed = urlparse(stream_url)
         original_base = f"{parsed.scheme}://{parsed.netloc}"
 
-        # Try alternate provider domains
-        session = self.db.get_session()
-        try:
+        # Try alternate provider domains.
+        # Per-attempt session.commit() calls are intentional: each stat write
+        # (success_count / failure_count) must persist even if a later attempt
+        # raises an exception.  session_scope() commits on clean exit and rolls
+        # back only the post-last-commit transaction on exception, so earlier
+        # explicit commits remain durable.
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(provider_id)
 
@@ -167,9 +171,6 @@ class _StreamingMixin:
 
             logger.error("No working alternate URLs found")
             return "", None
-
-        finally:
-            session.close()
 
     def reconstruct_stream_url(self, original_url: str, old_base: str, new_base: str) -> str:
         """Reconstruct stream URL with new base domain
@@ -340,14 +341,12 @@ class _StreamingMixin:
 
     def _bg_mark_played(self, channel_id: str) -> None:
         """Worker: write play-count + last-played to DB (off main thread)."""
-        session = self.db.get_session()
         try:
-            repos = RepositoryFactory(session)
-            repos.channels.mark_played(channel_id)
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                repos.channels.mark_played(channel_id)
         except Exception as e:
             logger.error(f"Error marking channel played: {e}")
-        finally:
-            session.close()
 
     def launch_new_mpv(self, url: str):
         """Launch a new mpv instance"""
