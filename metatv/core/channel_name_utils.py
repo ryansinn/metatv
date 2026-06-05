@@ -37,11 +37,41 @@ _BRACKET_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Quality tokens that start with a digit (4K, 8K) — excluded from _SEPARATOR_RE
+# because that pattern requires [A-Z] as the first character.
+_DIGIT_QUALITY_PREFIX_RE = re.compile(
+    r'^(4K|8K)\s*(?:[★|]|-\s+)\s*(.+)$',
+    re.IGNORECASE,
+)
+
+# Compound prefix: quality token + language/platform code, or vice versa, before a
+# separator. Handles "4K-DE - Title", "SE-4K - Title", "PL 4K - Title", and the
+# bracket-before-compound form "[US] 4K-DE - Title".
+#
+# Groups (all via named groups to avoid positional fragility):
+#   bracket   optional [BRACKET] prefix (e.g. "US" from "[US]")
+#   qual_a    quality from QUALITY-LANG form (e.g. "4K" in "4K-DE")
+#   lang_a    lang    from QUALITY-LANG form (e.g. "DE" in "4K-DE")
+#   lang_b    lang    from LANG-QUALITY form (e.g. "SE" in "SE-4K")
+#   qual_b    quality from LANG-QUALITY form (e.g. "4K" in "SE-4K")
+#   lang_c    lang    from LANG QUALITY form (e.g. "PL" in "PL 4K")
+#   qual_c    quality from LANG QUALITY form (e.g. "4K" in "PL 4K")
+#   title     remainder after the compound prefix + separator
+_COMPOUND_PREFIX_RE = re.compile(
+    r'^(?:\[(?P<bracket>[A-Z][A-Z0-9]{0,7})\]\s*)?'
+    r'(?:'
+    r'(?P<qual_a>4K|8K|UHD|HD|FHD)-(?P<lang_a>[A-Z]{2,4})'
+    r'|(?P<lang_b>[A-Z]{2,4})-(?P<qual_b>4K|8K|UHD|HD|FHD)'
+    r'|(?P<lang_c>[A-Z]{2,4})\s+(?P<qual_c>4K|8K|UHD|HD|FHD)'
+    r')\s*(?:[★|]|-\s+)\s*(?P<title>.+)$',
+    re.IGNORECASE,
+)
+
 # ── Suffix patterns ─────────────────────────────────────────────────────────── #
 
-# Quality tokens at end of bare name (including codecs)
+# Quality tokens at end of bare name (including codecs and source indicators)
 _QUALITY_SUFFIX_RE = re.compile(
-    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ|RAW|LIVE)\b\s*$',
+    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ|RAW|LIVE|CAM)\b\s*$',
     re.IGNORECASE,
 )
 
@@ -86,14 +116,51 @@ _AUDIO_NORM: dict[str, str] = {
 # Platform codes — displayed with steel blue chip instead of grey
 PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
+    "ASTRO", "F1TV",
 })
 
 # Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
 # Used to populate detected_quality when the prefix itself is a quality marker.
 QUALITY_TOKENS: frozenset[str] = frozenset({
     "4K", "8K", "UHD", "FHD", "HDR10+", "HDR", "HEVC", "H265", "H264",
-    "HD", "SD", "HQ", "LQ", "RAW",
+    "HD", "SD", "HQ", "LQ", "RAW", "CAM",
 })
+
+# Bracket content that isn't a bare QUALITY_TOKEN but maps to one — typically
+# compound cam-rip variants. Keys are uppercased bracket contents.
+_BRACKET_QUALITY_ALIASES: dict[str, str] = {
+    "CAM":          "CAM",
+    "SD/CAM":       "CAM",
+    "CAM-VERSION":  "CAM",
+    "CAM-VERSON":   "CAM",   # typo seen in provider data
+    "VERSION CAM":  "CAM",
+    "CAM VERSION":  "CAM",
+    "V.CAM":        "CAM",
+}
+
+# Full language names in bracket suffixes → codes stored as detected_region.
+# Covers dubbed/localized audio tracks: "EN ★ Movie [SPANISH]" → detected_region = "ES".
+#
+# Semantic note: values like KR/JP/CN are ISO 3166-1 *country* codes rather than
+# ISO 639-1 *language* codes (ko/ja/zh). The IPTV convention conflates country and
+# language (EN already serves as both in REGION_FULL_NAMES), so we follow the same
+# pattern here for consistency. Tracked as semantic debt in project_filter_system.
+_BRACKET_LANG_NORM: dict[str, str] = {
+    "SPANISH":    "ES",
+    "FRENCH":     "FR",
+    "HINDI":      "HI",
+    "KOREAN":     "KR",
+    "TURKISH":    "TR",
+    "ARABIC":     "AR",
+    "GERMAN":     "DE",
+    "ITALIAN":    "IT",
+    "PORTUGUESE": "PT",
+    "RUSSIAN":    "RU",
+    "JAPANESE":   "JP",
+    "CHINESE":    "CN",
+    "THAI":       "TH",
+    "POLISH":     "PL",
+}
 
 _FULL_NAME_TO_CODE: dict[str, str] = {
     # Europe
@@ -205,12 +272,16 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Regional groupings
     "LAT": "Latin America", "LATS": "Latin America (Spanish)",
     "EXYU": "Ex-Yugoslavia",
+    "SC": "Scandinavian",  # original-audio + Scandinavian subtitles (SE/NO/DK)
     "AL": "Albania", "ALB": "Albania",
     # Language codes (used as channel prefixes on some providers)
     "EN": "English", "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
     "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali", "MR": "Marathi",
     "GU": "Gujarati", "PA": "Punjabi", "FA": "Farsi / Persian", "KU": "Kurdish",
     "OR": "Odia", "BHO": "Bhojpuri",
+    # Regional streaming platforms
+    "ASTRO": "Astro (Malaysia)",
+    "F1TV":  "F1TV",
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
@@ -242,6 +313,40 @@ def _strip_quality(bare: str) -> tuple[str, list[str]]:
     return bare, tokens
 
 
+# Bracket classification result — kind drives which field the value lands in.
+# "audio"   → ParsedChannel.audio  (format: "Multi", "Dub", "Sub")
+# "quality" → ParsedChannel.quality list
+# "origin"  → _bracket_origin → ParsedChannel.lang → detected_region
+# "unknown" → left in bare title (no field to store it in yet)
+class _BracketClass:
+    __slots__ = ("kind", "value")
+
+    def __init__(self, kind: str, value: str) -> None:
+        self.kind = kind
+        self.value = value
+
+
+def _classify_bracket(content: str) -> _BracketClass:
+    """Classify an uppercased bracket-suffix token into its semantic category.
+
+    Called by both the step-3 and step-6a bracket passes in parse_channel_name()
+    so the two parallel passes share one definition and can't silently diverge.
+    """
+    if (canon := _AUDIO_NORM.get(content)):
+        return _BracketClass("audio", canon)
+    if (q := _BRACKET_QUALITY_ALIASES.get(content)):
+        return _BracketClass("quality", q)
+    if content in QUALITY_TOKENS:
+        return _BracketClass("quality", content)
+    if (code := _BRACKET_LANG_NORM.get(content)):
+        return _BracketClass("origin", code)
+    if content in PLATFORM_CODES:
+        return _BracketClass("origin", content)
+    if len(content) in (2, 3) and content.isalpha() and content not in QUALITY_TOKENS:
+        return _BracketClass("origin", normalize_region_code(content))
+    return _BracketClass("unknown", content)
+
+
 def parse_channel_name(name: str) -> ParsedChannel:
     """Parse a raw channel name into structured components.
 
@@ -265,6 +370,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
 
     bare = name.strip()
     region = ""
+    _prefix_quality: str = ""  # set when a digit-starting quality token is the prefix
 
     # 1. Extract prefix
     m = _SEPARATOR_RE.match(bare)
@@ -276,22 +382,41 @@ def parse_channel_name(name: str) -> ParsedChannel:
         if bm:
             region = normalize_region_code(bm.group(1))
             bare = bm.group(2).strip()
+        else:
+            # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
+            # These are quality markers, not region codes — go in quality[], not region.
+            dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
+            if dq:
+                _prefix_quality = dq.group(1).upper()
+                bare = dq.group(2).strip()
 
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
 
-    # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end
+    # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end.
+    # Also strips content-origin brackets like [UK], [US] (2-3 alpha letters,
+    # not a quality token) — these are captured as lang in step 4.
+    # Also strips quality-token brackets like [4K], [UHD], [HD].
     audio = ""
+    _bracket_origin = ""  # e.g. "UK" from [UK] suffix
     bsm = _BRACKET_SUFFIX_RE.search(bare)
     if bsm:
         content = bsm.group(1).strip().upper()
-        canonical = _AUDIO_NORM.get(content)
-        if canonical:
-            audio = canonical
+        bc = _classify_bracket(content)
+        if bc.kind == "audio":
+            audio = bc.value
             bare = bare[: bsm.start()].strip()
+        elif bc.kind == "quality":
+            quality.insert(0, bc.value)
+            bare = bare[: bsm.start()].strip()
+        elif bc.kind == "origin":
+            _bracket_origin = bc.value
+            bare = bare[: bsm.start()].strip()
+        # "unknown": bracket stays in bare name
 
     # 4. Strip explicit lang/region qualifier from end: (EN), (JP)
-    lang = ""
+    # Parenthetical form overrides bracket form if both are present.
+    lang = _bracket_origin
     lm = _LANG_QUALIFIER_RE.search(bare)
     if lm:
         candidate = normalize_region_code(lm.group(1))
@@ -306,8 +431,29 @@ def parse_channel_name(name: str) -> ParsedChannel:
         year = ym.group(1) or ym.group(2)  # group 1 = paren form, group 2 = dash form
         bare = bare[: ym.start()].strip()
 
-    # 6. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
+    # 6a. Second bracket pass — catches brackets that were hidden by the year token in
+    #     step 5 ("[4K] (2025)") or by a second bracket in step 3 ("[FRENCH] [4k]").
+    #     Uses the same _classify_bracket() classifier as step 3.
+    #     Step 4 (lang assignment) already ran, so "origin" results set lang= directly.
+    bsm2 = _BRACKET_SUFFIX_RE.search(bare)
+    if bsm2:
+        content2 = bsm2.group(1).strip().upper()
+        bc2 = _classify_bracket(content2)
+        if bc2.kind == "quality":
+            quality.insert(0, bc2.value)
+            bare = bare[: bsm2.start()].strip()
+        elif bc2.kind == "origin":
+            _bracket_origin = bc2.value
+            lang = bc2.value   # step 4 already ran; update lang directly
+            bare = bare[: bsm2.start()].strip()
+        # audio in step 6a is unusual and not expected; unknown stays in bare
+
+    # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, quality2 = _strip_quality(bare)
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
+
+    # 7. Prepend digit-starting quality prefix (e.g. "4K") at highest priority
+    if _prefix_quality:
+        quality = [_prefix_quality] + quality
 
     return ParsedChannel(region, bare, quality, lang, year, audio)

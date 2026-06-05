@@ -9,7 +9,9 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
-from metatv.core.channel_name_utils import parse_channel_name, normalize_region_code, QUALITY_TOKENS
+from metatv.core.channel_name_utils import (
+    parse_channel_name, normalize_region_code, QUALITY_TOKENS, _COMPOUND_PREFIX_RE,
+)
 
 
 # Normalises multilingual genre strings from Xtream providers to English canonical names.
@@ -116,9 +118,33 @@ _GENRE_NORM: dict[str, str] = {
     "talk show":                "Talk Show",
     "talk":                     "Talk Show",
     "variety":                  "Talk Show",
+    # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
+    "دراما":                    "Drama",
+    "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
+    "كوميديا":                  "Comedy",
+    "ﻛﻮﻣﻴﺪﻱ":                  "Comedy",   # Arabic presentation-form variant
+    "وثائقي":                   "Documentary",
+    "جريمة":                    "Crime",
+    "رعب":                      "Horror",
+    "إثارة":                    "Thriller",
+    "رومانسي":                  "Romance",
+    "مغامرة":                   "Adventure",
+    "أكشن":                     "Action & Adventure",
+    "أطفال":                    "Kids",
+    "تاريخي":                   "History",
+    "رياضة":                    "Sport",
 }
 
 _GENRE_SEP_RE = re.compile(r"[,/]")
+
+
+def normalize_genre(genre: str) -> str:
+    """Return the canonical English genre label for a raw genre string.
+
+    Applies the same _GENRE_NORM lookup used when building filter-panel stats,
+    so a genre clicked in the details pane maps to the correct filter-panel key.
+    """
+    return _GENRE_NORM.get(genre.lower(), genre)
 
 
 class ChannelRepository:
@@ -156,6 +182,8 @@ class ChannelRepository:
                 source_categories: Optional[List[str]] = None,
                 include_uncategorized_content_types: bool = True,
                 search_query: Optional[str] = None,
+                strict_genre_filter: Optional[str] = None,
+                person_filter: Optional[str] = None,
                 limit: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
@@ -323,6 +351,34 @@ class ChannelRepository:
         # SQL text search pushdown (case-insensitive LIKE on channel name)
         if search_query:
             query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+
+        # Strict genre filter — from details-pane genre chip clicks. No passthrough:
+        # only movies/series whose raw_data genre field contains the requested genre.
+        if strict_genre_filter:
+            from sqlalchemy import text as _text2
+            query = query.filter(
+                ChannelDB.media_type.in_(["movie", "series"]),
+                _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
+                    _strict_genre=f"%{strict_genre_filter}%"
+                ),
+            )
+
+        # Person filter — from details-pane cast/director/crew clicks.
+        # Searches raw_data.cast (comma-separated string) and raw_data.director.
+        # MetadataDB is not used because raw_data covers ~70k channels while only
+        # ~763 channels have metadata_id set; most metadata comes from raw_data directly.
+        if person_filter:
+            from sqlalchemy import text as _text3
+            query = query.filter(
+                or_(
+                    _text3(
+                        "json_extract(raw_data, '$.cast') LIKE :_person_cast"
+                    ).bindparams(_person_cast=f"%{person_filter}%"),
+                    _text3(
+                        "json_extract(raw_data, '$.director') LIKE :_person_dir"
+                    ).bindparams(_person_dir=f"%{person_filter}%"),
+                )
+            )
 
         query = query.order_by(ChannelDB.name)
 
@@ -540,13 +596,41 @@ class ChannelRepository:
 
             parsed = parse_channel_name(channel.name)
 
+            # ── Compound prefix decomposition ────────────────────────────────── #
+            # Handles "4K-DE - Title" (quality+lang), "SE-4K - Title" (lang+quality),
+            # "PL 4K - Title" (lang+space+quality), and "[US] 4K-DE - Title" (bracket
+            # before compound). When a compound is found the lang part overrides the
+            # extracted prefix and the bracket (if any) moves to detected_region.
+            compound_quality: str | None = None
+            bracket_as_region: str | None = None
+
+            cm = _COMPOUND_PREFIX_RE.match(channel.name)
+            if cm:
+                bracket    = cm.group("bracket")
+                compound_lang = (
+                    cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
+                ).upper()
+                compound_q = (
+                    cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
+                ).upper()
+
+                # Guard: skip if the "lang" slot is itself a quality token (e.g. 4K-HD)
+                if compound_lang and compound_lang not in QUALITY_TOKENS:
+                    prefix = normalize_region_code(compound_lang)
+                    compound_quality = compound_q or None
+                    if bracket:
+                        bracket_as_region = normalize_region_code(bracket)
+
             # detected_quality priority:
             #   1. Name suffix  ("CNN HD" → "HD")
-            #   2. Quality-as-prefix  ("HD - Movie" → "HD")
-            #   3. API quality field  (channel.quality = "hd" → "HD")
+            #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
+            #   3. Quality-as-prefix  ("HD - Movie" → "HD")
+            #   4. API quality field  (channel.quality = "hd" → "HD")
             quality: str | None = None
             if parsed.quality:
                 quality = parsed.quality[0].upper()
+            elif compound_quality:
+                quality = compound_quality
             elif prefix and prefix.upper() in QUALITY_TOKENS:
                 quality = prefix.upper()
             elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
@@ -554,8 +638,9 @@ class ChannelRepository:
                 if api_q in QUALITY_TOKENS:
                     quality = api_q
 
-            # detected_region: parenthetical lang/region suffix (e.g. "(US)" → "US")
-            region: str | None = parsed.lang or None
+            # detected_region: bracket secondary (from compound decomposition) takes
+            # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
+            region: str | None = bracket_as_region or parsed.lang or None
 
             changed = (
                 prefix != channel.detected_prefix

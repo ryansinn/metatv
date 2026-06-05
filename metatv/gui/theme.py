@@ -60,7 +60,15 @@ COLOR_ACCENT_TEAL         = "#33bb88"
 COLOR_ACCENT_BROWN        = "#cc7722"
 COLOR_BTN_SAVE       = "#2255cc"
 COLOR_BTN_SAVE_HOVER = "#3366dd"
+# Exclusions chip — dedicated teal (slightly cooler than COLOR_ACCENT_TEAL)
+COLOR_EXCLUSIONS_ACTIVE = "#2a9d8f"
 # White overlays (alpha)
+OVERLAY_ORANGE_12 = "rgba(240,160,64,0.12)"   # amber tint — context filter chip bg
+OVERLAY_EXCLUSIONS_10  = "rgba(42,157,143,0.10)"  # teal tint — Exclusions chip active bg
+OVERLAY_EXCLUSIONS_18  = "rgba(42,157,143,0.18)"  # teal tint — Exclusions chip hover
+OVERLAY_ORANGE_10      = "rgba(240,160,64,0.10)"  # amber tint — Exclusions chip paused bg
+OVERLAY_ORANGE_18      = "rgba(240,160,64,0.18)"  # amber tint — Exclusions chip paused hover
+
 OVERLAY_03 = "rgba(255,255,255,0.03)"
 OVERLAY_04 = "rgba(255,255,255,0.04)"
 OVERLAY_05 = "rgba(255,255,255,0.05)"
@@ -233,6 +241,14 @@ CATEGORY_CHIP_SM = (
     "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + ";"
     " background: " + OVERLAY_05 + "; }"
 )
+# Quality badge in the details pane title bar (amber/gold, next to language chip)
+QUALITY_CHIP = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_WARN + ";"
+    " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 2px 8px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_WARN + ";"
+    " background: " + OVERLAY_08 + "; }"
+)
 
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"
@@ -241,3 +257,40 @@ SEP_DARK       = "color: " + COLOR_BORDER + "; margin-top: 4px; margin-bottom: 4
 CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: 6px; }"
 HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
 BG_TRANSPARENT = "background: transparent;"
+
+# Exclusions chip (FilterChip in bottom nav bar) — three visual states.
+# Active (teal): global exclusions are enabled and applying.
+# Paused (amber): exclusions exist but are temporarily bypassed.
+# Hover and pressed fill the chip solid so feedback is visible over the text, not just in
+# the padding area. Text flips to the dark background color so contrast is maintained.
+EXCL_CHIP_ACTIVE = (
+    "QPushButton { background-color: " + OVERLAY_EXCLUSIONS_10 + "; color: " + COLOR_EXCLUSIONS_ACTIVE + ";"
+    " border: 1px solid " + COLOR_EXCLUSIONS_ACTIVE + "; border-radius: 12px;"
+    " padding: 6px 14px; font-weight: bold; }"
+    "QPushButton:hover { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
+    "QPushButton:pressed { background-color: " + COLOR_EXCLUSIONS_ACTIVE + "; color: " + COLOR_BG_SECTION + "; }"
+)
+EXCL_CHIP_PAUSED = (
+    "QPushButton { background-color: " + OVERLAY_ORANGE_10 + "; color: " + COLOR_ACCENT_ORANGE + ";"
+    " border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 12px;"
+    " padding: 6px 14px; font-weight: bold; }"
+    "QPushButton:hover { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
+    "QPushButton:pressed { background-color: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
+)
+
+# Context filter chip — inline in the search bar when a details-pane filter is active
+# (genre click, person click). Amber/orange so it's clearly distinct from a normal search.
+CONTEXT_FILTER_CHIP = (
+    "QWidget { background: " + OVERLAY_ORANGE_12 + ";"
+    " border: 1px solid " + COLOR_ACCENT_ORANGE + ";"
+    " border-radius: 4px; }"
+)
+CONTEXT_FILTER_CHIP_LABEL = (
+    "color: " + COLOR_ACCENT_ORANGE + "; font-size: " + FONT_MD + "; font-weight: bold;"
+    " background: transparent; border: none;"
+)
+CONTEXT_FILTER_CHIP_BTN = (
+    "QPushButton { color: " + COLOR_ACCENT_ORANGE + "; font-size: " + FONT_MD + ";"
+    " background: transparent; border: none; padding: 0 2px; font-weight: bold; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
+)

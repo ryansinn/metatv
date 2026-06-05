@@ -11,6 +11,7 @@ What's left to build. Completed features live in git history.
 
 ## Metadata & Enrichment
 
+- [~] **Genre normalization to canonical English** — `_GENRE_NORM` dict in `metatv/core/repositories/channel.py` normalizes French, German, Spanish, Italian, Dutch, and Arabic genres at query time (applied in `get_prefix_stats` and `normalize_genre()`). Arabic variants added 2026-06-05. Remaining gaps: Chinese, Japanese, Persian, Hindi script genres; a live-DB sanity scan to surface high-volume unrecognized genres should be added as a developer tool or CI check. Display text remains the raw provider value; the i18n layer (future) translates canonical English → user locale in the other direction.
 - [ ] **TMDb / OMDb providers** — architecture in place; need API key config UI + implementations
 - [ ] **Xtream VOD API enhancement** — use `get_vod_info()` / `get_live_info()` for full metadata instead of basic stream list
 - [ ] **Episode-level metadata** — extract from series_info response; show in details pane per episode
@@ -78,7 +79,10 @@ What's left to build. Completed features live in git history.
 - [ ] **Keyboard shortcuts** — Ctrl+F focus search, arrow key nav, Esc clear search
 - [ ] **Dark mode / theme selection**
 - [ ] **Embedded player** option (split-pane mpv in-app)
+- [ ] **Channel sub-attributes / session type tags** — bracket suffixes like `[FP1]`, `[RACE]`, `[SPRINT]`, `[Prelims]`, `[Main Card]`, `[EVENT ONLY]` encode valuable sub-category data (Formula 1 session type; UFC/combat sports segment). No DB field exists today to store these — they're left in the bare channel title for now. Needs a `channel_tags` or `session_type` JSON column so sessions can be filtered ("show me only F1 Race rounds, not practice"). Related: `[WEST]`/`[EAST]` US regional variants would also benefit from a sub-region field.
 - [ ] **Episode history tracking fix** — debug logging to trace why parent channel lookup sometimes fails for history updates
+- [ ] **Restore ratings display in details pane** — the 👍/👎 rating controls have gone missing from the details panel; re-add them to the details pane layout. Bug: was present, now absent.
+- [ ] **Details pane — move "Source:" beneath title/year** — relocate the Source field (currently below the metadata block) to the right side of the title row, inline with or directly beneath the title + year line; keeps the primary content area cleaner and puts provenance info near the header where it's most useful
 - [ ] **Launch-time feedback prompts** — while channels load at startup (5-10s), show "You watched [X] — what did you think?" prompts for recently-watched content with no rating; feeds the recommendation engine quickly; opt-in ("Ask me about content I watch"), explain data stays local; dismissable and rate-limited so it doesn't become annoying
 - [ ] **Recommendation dashboard — category mood editor** — show all user categories with their current mood, channel count, and inferred genre; let user adjust mood in bulk without re-opening CategoryPickerDialog; "Why is this recommended?" explainer links back to category mood contributions
 
@@ -91,13 +95,15 @@ file:line-level task list (full-codebase review 2026-06-01). Summary:
 - [x] **P1 — deduplication** — all 5 done (2026-06-01): parse_provider_urls helper, _apply_favorite_toggle, config icons, import hoisting, executor thread leak fix
 - [x] **Band 3 — structural fixes** — all done (2026-06-01, branch refactor/band3-structural): WAL (was already on), closeEvent registry, session_scope(), JSONEncoded TypeDecorator, icons.py, EPG conversion boundary + 2 latent bug fixes; 134 tests
 - [x] **P2 — inline stylesheets → `theme.py`** — all 7 files done (2026-06-01, branch refactor/band4-styles): epg_view (63 calls), provider_editor (36), global_filter_dialog (30), similar_lightbox (24), filter_panel (23), sidebar_sections (19), details_sections (17); theme.py grew from 7 → 32 constants
-- [~] **P3 — decompose oversized files (>1000-line rule)** — partial (2026-06-02, branch refactor/band5-splits, PR #6):
+- [~] **P3 — decompose oversized files (>1000-line rule)** — partial (2026-06-04, branch refactor/band6, PR #7):
   - [x] `sidebar_sections.py` (1402) → `gui/sidebar/` package (6 files, shim stays for compat)
   - [x] `filter_panel.py` (1064) → `gui/filter_group_row.py` (483 lines) + `filter_panel.py` (597 lines)
-  - [x] `provider_editor.py` (1121) → `core/provider_probe.py` + `gui/url_row_widget.py`; down to 957 lines
-  - [~] `main_window.py` (4198) → streaming cluster extracted to `main_window_streaming.py`; down to 3835 (needs 2 more passes: nav + favorites mixins)
-  - [ ] `epg_view.py` (2157) → tab mixin split deferred; needs a dedicated session with GUI smoke-testing (90+ methods, deep cross-tab state)
-- [ ] **P4 — status-set dedup** (5 sites, see [refactor-audit memory]) + delete stray 25 MB `--help` artifact
+  - [x] `provider_editor.py` (1121) → `core/provider_probe.py` + `gui/url_row_widget.py`; down to 948 lines
+  - [~] `main_window.py` (3950 at B6 start) → passes 2–4 done (B6-1): nav/metadata/favorites extracted to 3 new mixins; down to **2457 lines**, 88 methods. Pass 5 needed: extract _ChannelLoadMixin (~500 lines load_channels/bg_load/on_channels_loaded) + _SeriesMixin (~500 lines series/episode) to reach <1000.
+  - [ ] `epg_view.py` (2157) → tab split (B6-2) deferred to dedicated session; requires GUI smoke-test (90+ methods, deeply coupled cross-tab state: shared worker, _data signal, timers)
+- [x] **P4 — status-set dedup** (B6-3, 2026-06-04): audited 5 sites — legitimately different sets for different purposes; added `WatchQueueRepository.get_queued_ids()` helper used at 3 call sites; `--help` artifact confirmed absent
+- [x] **Band 6 cleanups** (2026-06-04, PR #7): B6-7 stream validation off UI thread (play_media non-blocking), B6-8 session_scope in streaming, B6-9 hoisted imports, B6-10 unit tests for provider_probe + _format_probe_message (19 new tests, 196 total)
+- [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes fully clickable after a notification appears and dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover styles did NOT fix it. Likely a z-order or geometry-timing issue in the bottom nav bar at startup. Needs investigation of `notification_widget.py` show/hide side-effects and bottom nav bar layout initialisation.
 
 ## Platform & Distribution
 

@@ -1,4 +1,5 @@
 """Content section widgets for the details pane: poster, metadata, plot, technical, cast."""
+import html
 import re
 
 from loguru import logger
@@ -10,7 +11,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES, parse_channel_name
+from metatv.core.channel_name_utils import (
+    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS, parse_channel_name,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
@@ -59,17 +62,12 @@ class _PosterSection(QWidget):
         self.poster_label.setMinimumHeight(400)
         self.poster_label.setMaximumHeight(600)
         self.poster_label.setStyleSheet(
-            "QLabel { background-color: rgba(0,0,0,0.3); border-radius: 8px; }"
+            f"QLabel {{ background-color: rgba(0,0,0,0.3); border-radius: 8px;"
+            f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
         )
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")
         pf_layout.addWidget(self.poster_label)
-
-        self.poster_loading = QLabel("Loading poster...")
-        self.poster_loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.poster_loading.setStyleSheet(_theme.LOADING_TEXT)
-        self.poster_loading.hide()
-        pf_layout.addWidget(self.poster_loading)
 
         layout.addWidget(self._poster_frame)
 
@@ -106,12 +104,11 @@ class _PosterSection(QWidget):
         if provider_urls is not None:
             self._provider_urls = provider_urls
         self._poster_url = url
-        self.poster_loading.show()
-        self.poster_loading.setText(f"{self.config.loading_icon} Loading poster...")
+        self.poster_label.setPixmap(QPixmap())
+        self.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
         pix = self._image_cache.get_image_sync(url)
         if pix:
             self._display_poster(pix)
-            self.poster_loading.hide()
         else:
             self._image_cache.get_image_async(url, self._provider_urls)
 
@@ -148,7 +145,6 @@ class _PosterSection(QWidget):
     def on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
         if url == self._poster_url and not pixmap.isNull():
             self._display_poster(pixmap)
-            self.poster_loading.hide()
         if url == self._logo_url and not pixmap.isNull():
             self._channel_icon_lbl.setPixmap(pixmap)
             self._channel_icon_lbl.show()
@@ -156,15 +152,13 @@ class _PosterSection(QWidget):
     def on_image_failed(self, url: str, error: str) -> None:
         if url == self._poster_url:
             self.poster_label.setText("Failed to load poster")
-            self.poster_loading.hide()
             logger.debug(f"Poster load failed: {error}")
 
     def clear(self) -> None:
         self._poster_url = None
         self._logo_url = None
-        self.poster_label.clear()
+        self.poster_label.setPixmap(QPixmap())
         self.poster_label.setText("No poster available")
-        self.poster_loading.hide()
         self._country_info_lbl.hide()
         self._channel_icon_lbl.hide()
 
@@ -187,6 +181,8 @@ class _PosterSection(QWidget):
 class _MetadataSection(QWidget):
     """Title, year, rating, genres, source badge, adult indicator, rec reason."""
 
+    genre_clicked = pyqtSignal(str)  # emits the genre name when user clicks a genre chip
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -197,11 +193,16 @@ class _MetadataSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Title bar: [prefix chip]  [clean title ···]  [year]
+        # Title bar: [title ···] [chip] [year]
         title_bar = QWidget()
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(0, 0, 0, 0)
         title_bar_layout.setSpacing(6)
+
+        self.title_label = QLabel()
+        self.title_label.setWordWrap(True)
+        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
+        title_bar_layout.addWidget(self.title_label, 1)
 
         self._prefix_chip = QPushButton()
         self._prefix_chip.setFlat(True)
@@ -211,10 +212,13 @@ class _MetadataSection(QWidget):
         self._prefix_chip.hide()
         title_bar_layout.addWidget(self._prefix_chip)
 
-        self.title_label = QLabel()
-        self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
-        title_bar_layout.addWidget(self.title_label, 1)
+        self._quality_chip = QPushButton()
+        self._quality_chip.setFlat(True)
+        self._quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
+        self._quality_chip.setFixedHeight(24)
+        self._quality_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._quality_chip.hide()
+        title_bar_layout.addWidget(self._quality_chip)
 
         self._name_year_lbl = QLabel()
         self._name_year_lbl.setStyleSheet(
@@ -226,21 +230,69 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(title_bar)
 
-        # Metadata row (year, rating, runtime)
-        self._meta_row = QWidget()
-        meta_row_layout = QHBoxLayout(self._meta_row)
-        meta_row_layout.setContentsMargins(0, 0, 0, 0)
-        self.year_label = QLabel()
-        self.year_label.setStyleSheet(_theme.META_DIM)
-        meta_row_layout.addWidget(self.year_label)
-        self.rating_label = QLabel()
-        self.rating_label.setStyleSheet("color: gold; font-weight: bold;")
-        meta_row_layout.addWidget(self.rating_label)
+        # Tagline — italic subtitle line, shown when metadata provides it
+        self._tagline_lbl = QLabel()
+        self._tagline_lbl.setWordWrap(True)
+        self._tagline_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};"
+        )
+        self._tagline_lbl.hide()
+        layout.addWidget(self._tagline_lbl)
+
+        # Media type row: [icon Type]  [runtime]  stretch  [IMDb xxx  TMDb xxx]
+        self._media_row = QWidget()
+        media_row_layout = QHBoxLayout(self._media_row)
+        media_row_layout.setContentsMargins(0, 0, 0, 0)
+        media_row_layout.setSpacing(8)
+
+        self._media_type_lbl = QLabel()
+        self._media_type_lbl.setStyleSheet(_theme.META_DIM)
+        media_row_layout.addWidget(self._media_type_lbl)
+
         self.runtime_label = QLabel()
         self.runtime_label.setStyleSheet(_theme.META_DIM)
-        meta_row_layout.addWidget(self.runtime_label)
-        meta_row_layout.addStretch()
-        layout.addWidget(self._meta_row)
+        self.runtime_label.hide()
+        media_row_layout.addWidget(self.runtime_label)
+
+        media_row_layout.addStretch()
+
+        self._imdb_lbl = QLabel()
+        self._imdb_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
+        )
+        self._imdb_lbl.hide()
+        media_row_layout.addWidget(self._imdb_lbl)
+
+        self._tmdb_lbl = QLabel()
+        self._tmdb_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
+        )
+        self._tmdb_lbl.hide()
+        media_row_layout.addWidget(self._tmdb_lbl)
+
+        layout.addWidget(self._media_row)
+
+        # Rating row: [★★★ X of 10 by N votes]  [PG-13 badge]
+        self._rating_row = QWidget()
+        self._rating_row.hide()
+        rating_row_layout = QHBoxLayout(self._rating_row)
+        rating_row_layout.setContentsMargins(0, 0, 0, 0)
+        rating_row_layout.setSpacing(8)
+
+        self.rating_label = QLabel()
+        self.rating_label.setStyleSheet(f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
+        rating_row_layout.addWidget(self.rating_label)
+
+        self._content_rating_lbl = QLabel()
+        self._content_rating_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+            f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;"
+        )
+        self._content_rating_lbl.hide()
+        rating_row_layout.addWidget(self._content_rating_lbl)
+        rating_row_layout.addStretch()
+
+        layout.addWidget(self._rating_row)
 
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
@@ -258,10 +310,14 @@ class _MetadataSection(QWidget):
         badge_row.addStretch()
         layout.addLayout(badge_row)
 
-        # Genres
+        # Genres — each genre renders as a clickable link
         self.genres_label = QLabel()
         self.genres_label.setWordWrap(True)
-        self.genres_label.setStyleSheet("color: lightblue;")
+        self.genres_label.setTextFormat(Qt.TextFormat.RichText)
+        self.genres_label.setOpenExternalLinks(False)
+        self.genres_label.linkActivated.connect(
+            lambda url: self.genre_clicked.emit(url)
+        )
         layout.addWidget(self.genres_label)
 
         # Recommendation reason
@@ -272,10 +328,12 @@ class _MetadataSection(QWidget):
         layout.addWidget(self.rec_reason_label)
 
     def set_mode(self, is_live: bool) -> None:
-        self._meta_row.setVisible(not is_live)
+        self._media_row.setVisible(not is_live)
         self.genres_label.setVisible(not is_live)
         if is_live:
             self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+            self._tagline_lbl.hide()
+            self._rating_row.hide()
         else:
             self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
 
@@ -285,15 +343,29 @@ class _MetadataSection(QWidget):
         clean_title = parsed.bare_name if parsed.bare_name else channel.name
         self.title_label.setText(clean_title)
 
-        # Prefix chip — shows detected category code (EN, NF, D+, etc.)
+        # Prefix chip — shows detected category code (EN, NF, D+, etc.).
+        # Quality tokens (4K, HD, etc.) are not region/platform chips; skip them.
         prefix = parsed.region or getattr(channel, "detected_prefix", None) or ""
-        if prefix:
+        if prefix and prefix.upper() not in QUALITY_TOKENS:
             tip = resolve_category_name(prefix, self.config) or prefix
             self._prefix_chip.setText(prefix)
             self._prefix_chip.setToolTip(tip)
             self._prefix_chip.show()
         else:
             self._prefix_chip.hide()
+
+        # Quality chip — shows detected quality (4K, UHD, HD, etc.) next to language chip.
+        # Prefers parsed quality from the name; falls back to stored detected_quality.
+        quality = (
+            parsed.quality[0].upper() if parsed.quality
+            else getattr(channel, "detected_quality", None)
+        )
+        if quality:
+            self._quality_chip.setText(quality)
+            self._quality_chip.setToolTip(f"{quality} quality")
+            self._quality_chip.show()
+        else:
+            self._quality_chip.hide()
 
         # Year from channel name — shown to the right of the title
         if parsed.year:
@@ -307,7 +379,8 @@ class _MetadataSection(QWidget):
             "movie":  _icons.movie_icon,
             "series": _icons.series_icon,
         }.get(channel.media_type or "", _icons.unknown_icon)
-        self.year_label.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
+        self._media_type_lbl.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
+        self.runtime_label.hide()
 
         if provider_map:
             provider_info = provider_map.get(getattr(channel, "provider_id", None))
@@ -333,16 +406,41 @@ class _MetadataSection(QWidget):
             if parsed.year and not self._name_year_lbl.isVisible():
                 self._name_year_lbl.setText(parsed.year)
                 self._name_year_lbl.show()
+
+        if metadata.tagline:
+            self._tagline_lbl.setText(metadata.tagline)
+            self._tagline_lbl.show()
+
         if metadata.year:
-            self.year_label.setText(str(metadata.year))
             self._name_year_lbl.setText(str(metadata.year))
             self._name_year_lbl.show()
+
         if metadata.rating:
+            count_str = (
+                f" by {metadata.rating_count:,} votes" if metadata.rating_count else ""
+            )
             stars = self.config.rating_star_icon * int(metadata.rating / 2)
-            self.rating_label.setText(f"{stars} {metadata.rating:.1f}/10")
+            self.rating_label.setText(f"{stars} {metadata.rating:.1f} of 10{count_str}")
+            self._rating_row.show()
+
+        if metadata.content_rating:
+            self._content_rating_lbl.setText(metadata.content_rating)
+            self._content_rating_lbl.show()
+            self._rating_row.show()
+
         if metadata.runtime:
             h, m = divmod(metadata.runtime, 60)
             self.runtime_label.setText(f"{h}h {m}m" if h else f"{m}m")
+            self.runtime_label.show()
+
+        if metadata.imdb_id:
+            self._imdb_lbl.setText(f"IMDb {metadata.imdb_id}")
+            self._imdb_lbl.show()
+
+        if metadata.tmdb_id:
+            self._tmdb_lbl.setText(f"TMDb {metadata.tmdb_id}")
+            self._tmdb_lbl.show()
+
         if metadata.genres:
             genres: list[str] = []
             for g in metadata.genres:
@@ -350,7 +448,14 @@ class _MetadataSection(QWidget):
                     genres.extend(p.strip() for p in g.split('/') if p.strip())
                 else:
                     genres.append(g)
-            self.genres_label.setText(" • ".join(genres))
+            link_col = _theme.COLOR_ACCENT_BLUE_2
+            genre_html = " &bull; ".join(
+                f'<a href="{html.escape(g, quote=True)}" '
+                f'style="color:{link_col}; text-decoration:none;">'
+                f'{html.escape(g)}</a>'
+                for g in genres
+            )
+            self.genres_label.setText(genre_html)
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:
@@ -362,10 +467,16 @@ class _MetadataSection(QWidget):
     def clear(self) -> None:
         self.title_label.clear()
         self._prefix_chip.hide()
+        self._quality_chip.hide()
         self._name_year_lbl.hide()
-        self.year_label.clear()
+        self._tagline_lbl.hide()
+        self._media_type_lbl.clear()
+        self.runtime_label.hide()
+        self._imdb_lbl.hide()
+        self._tmdb_lbl.hide()
         self.rating_label.clear()
-        self.runtime_label.clear()
+        self._content_rating_lbl.hide()
+        self._rating_row.hide()
         self.genres_label.clear()
         self.source_label.clear()
         self.source_label.hide()
@@ -468,35 +579,24 @@ class _TechnicalSection(QWidget):
         self._apply()
 
     def set_mode(self, is_live: bool) -> None:
-        self._header_widget.setVisible(not is_live)
         if is_live:
-            self._content.setVisible(False)
+            self.hide()
         else:
             self._apply()
 
-    def load(self, metadata: MetadataResult, weights=None) -> None:
+    def load(self, metadata: MetadataResult, weights=None) -> bool:
+        """Populate section. Returns True if there is anything to display."""
         parts = []
         if metadata.release_date:
             parts.append(f"<b>Release Date:</b> {metadata.release_date}")
-        if metadata.content_rating and not metadata.rating:
-            parts.append(f"<b>Content Rating:</b> {metadata.content_rating}")
-        if metadata.director:
-            if weights:
-                from metatv.core.preference_engine import _split_directors
-                dir_parts = [
-                    f"{_pref_signal(d, weights, 'directors')}{d}"
-                    for d in _split_directors(metadata.director)
-                ]
-                dir_str = ", ".join(dir_parts)
-            else:
-                dir_str = metadata.director
-            parts.append(f"<b>Director:</b> {dir_str}")
-        if metadata.tmdb_id:
-            parts.append(f"<b>TMDb ID:</b> {metadata.tmdb_id}")
         self.tech_details_label.setText("<br>".join(parts))
+        has_content = bool(parts)
+        self.setVisible(has_content)
+        return has_content
 
     def clear(self) -> None:
         self.tech_details_label.clear()
+        self.hide()
 
     def _toggle(self) -> None:
         self._collapsed = not self._collapsed
@@ -528,6 +628,8 @@ class _TechnicalSection(QWidget):
 class _CastSection(QWidget):
     """Collapsible Cast & Crew section."""
 
+    person_clicked = pyqtSignal(str)  # emits the person's name when clicked
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -553,10 +655,27 @@ class _CastSection(QWidget):
         self._content = QWidget()
         content_layout = QVBoxLayout(self._content)
         content_layout.setContentsMargins(20, 0, 0, 0)
+        content_layout.setSpacing(4)
+
+        self._director_lbl = QLabel()
+        self._director_lbl.setWordWrap(True)
+        self._director_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._director_lbl.setStyleSheet(_theme.DETAIL_TEXT)
+        self._director_lbl.setOpenExternalLinks(False)
+        self._director_lbl.linkActivated.connect(
+            lambda url: self.person_clicked.emit(url)
+        )
+        self._director_lbl.hide()
+        content_layout.addWidget(self._director_lbl)
+
         self.cast_label = QLabel()
         self.cast_label.setWordWrap(True)
         self.cast_label.setTextFormat(Qt.TextFormat.RichText)
         self.cast_label.setStyleSheet(_theme.DETAIL_TEXT)
+        self.cast_label.setOpenExternalLinks(False)
+        self.cast_label.linkActivated.connect(
+            lambda url: self.person_clicked.emit(url)
+        )
         content_layout.addWidget(self.cast_label)
         layout.addWidget(self._content)
 
@@ -571,7 +690,26 @@ class _CastSection(QWidget):
         else:
             self._apply()
 
-    def load(self, cast: list, weights=None) -> None:
+    def load(self, cast: list, director: str | None = None, weights=None) -> None:
+        link_col = _theme.COLOR_ACCENT_BLUE_2
+
+        if director:
+            from metatv.core.preference_engine import _split_directors
+            names = _split_directors(director)
+            dir_parts = []
+            for d in names:
+                sig = _pref_signal(d, weights, 'directors') if weights else ""
+                href = html.escape(d, quote=True)
+                link = (
+                    f'{sig}<a href="{href}" style="color:{link_col};'
+                    f' text-decoration:none;">{html.escape(d)}</a>'
+                )
+                dir_parts.append(link)
+            self._director_lbl.setText(f"<b>Director:</b> {', '.join(dir_parts)}")
+            self._director_lbl.show()
+        else:
+            self._director_lbl.hide()
+
         if not cast:
             self.cast_label.clear()
             return
@@ -579,10 +717,15 @@ class _CastSection(QWidget):
         for actor in cast[:10]:
             name = actor.get("name", "Unknown") if isinstance(actor, dict) else str(actor)
             sig = _pref_signal(name, weights, "actors") if weights else ""
-            parts.append(f"{sig}{name}")
+            href = html.escape(name, quote=True)
+            parts.append(
+                f'{sig}<a href="{href}" style="color:{link_col};'
+                f' text-decoration:none;">{html.escape(name)}</a>'
+            )
         self.cast_label.setText(", ".join(parts))
 
     def clear(self) -> None:
+        self._director_lbl.hide()
         self.cast_label.clear()
 
     def _toggle(self) -> None:

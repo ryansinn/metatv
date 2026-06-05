@@ -229,6 +229,17 @@ For arithmetic (remaining time, progress bars), compare UTC-naive against `now_u
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.
 
+### Context filter chips — details-pane metadata clicks → strict channel list filter
+When a user clicks a metadata value in the details pane (genre, cast, director, etc.) a
+temporary "context filter" activates. This uses a **strict SQL filter** — not the filter
+panel's inclusive genre logic (which has a no-data passthrough). The full pattern is in
+[docs/CONTEXT_FILTER_CHIPS.md](docs/CONTEXT_FILTER_CHIPS.md). Key rules:
+- Never route details-pane clicks through `filter_panel.select_only_genre()` or similar — the filter panel is inclusive, context chips are strict.
+- At most one context filter is active at a time; activating any chip clears all others.
+- Text search and an active chip coexist — typing narrows *within* the chip filter; it does NOT dismiss the chip.
+- All chip styles come from `theme.CONTEXT_FILTER_CHIP*` constants — no inline hex.
+- State lives in `_details_*_filter` vars on `MainWindow`; passed through `load_channels()` params → `get_all()`.
+
 ### Early returns must clean up acquired state
 Any resource or set membership acquired before a guard check must be released on every early return path — not just the happy path.
 
@@ -281,6 +292,17 @@ Providers tried in priority order until sufficient data found:
 
 `MetadataResult.merge()` uses confidence scores (0.0–1.0) to prefer higher-quality data per field.
 
+### Year derivation happens at ingestion — read `.year` directly everywhere else
+
+`MetadataDB.year` is guaranteed to be populated at write time. `MetadataManager._derive_year()` runs at two points:
+
+1. **Write (ingestion):** `_save_metadata_cache()` calls `_derive_year(result.year, result.release_date)` before writing to `MetadataDB`. If the provider gave `release_date` ("2024-07-03") but no `year`, the year (2024) is extracted and stored.
+2. **Read (backfill for pre-existing rows):** `_metadata_db_to_result()` also calls `_derive_year()` so that rows cached before the ingestion fix was deployed are also corrected on first read.
+
+After these two points, `metadata.year` is reliable. **Read `metadata.year` directly everywhere** — display code, dedup, scoring. No runtime parsing, no helper method, no fallback logic outside `metadata_manager.py`.
+
+`release_date` still stores and displays the full ISO date string (e.g. "2024-07-03" in Technical Details).
+
 ## Content Dedup — Known Compromises
 
 `content_dedup.py` uses a `(norm_title, media_type, year, director)` fingerprint to group same-production channels across providers. This is a **heuristic stopgap** until TMDb/IMDb canonical IDs are wired up. Known trade-offs baked in by deliberate choice:
@@ -327,6 +349,7 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | Qt threading deep dive | [docs/THREADING_PATTERNS.md](docs/THREADING_PATTERNS.md) |
 | Metadata system architecture | [docs/METADATA_SYSTEM.md](docs/METADATA_SYSTEM.md) |
 | Filtering design | [docs/FILTERING_DESIGN.md](docs/FILTERING_DESIGN.md) |
+| Context filter chips (genre/person/future) | [docs/CONTEXT_FILTER_CHIPS.md](docs/CONTEXT_FILTER_CHIPS.md) |
 | Details pane design | [docs/DETAILS_PANE_DESIGN.md](docs/DETAILS_PANE_DESIGN.md) |
 | Xtream API schema | [docs/xtream_api_schema.md](docs/xtream_api_schema.md) |
 | UI state persistence patterns | [DESIGN.md](DESIGN.md) |

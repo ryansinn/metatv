@@ -9,6 +9,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 from loguru import logger
 
+from metatv.gui import theme as _theme
+
 
 class ToggleChip(QPushButton):
     """Toggle chip button for simple on/off filtering"""
@@ -92,31 +94,16 @@ class FilterChip(ToggleChip):
 
     open_dialog_requested = pyqtSignal()
 
-    _ACTIVE_STYLE = """
-        QPushButton {
-            background-color: rgba(42, 157, 143, 0.10);
-            color: #2a9d8f;
-            border: 1px solid #2a9d8f;
-            border-radius: 12px;
-            padding: 6px 14px;
-            font-weight: bold;
-        }
-        QPushButton:hover { background-color: rgba(42, 157, 143, 0.18); }
-    """
-    _PAUSED_STYLE = """
-        QPushButton {
-            background-color: rgba(240, 160, 64, 0.10);
-            color: #f0a040;
-            border: 1px solid #f0a040;
-            border-radius: 12px;
-            padding: 6px 14px;
-            font-weight: bold;
-        }
-        QPushButton:hover { background-color: rgba(240, 160, 64, 0.18); }
-    """
+    _ACTIVE_STYLE = _theme.EXCL_CHIP_ACTIVE
+    _PAUSED_STYLE = _theme.EXCL_CHIP_PAUSED
 
     def __init__(self, label: str):
         super().__init__(label, enabled=False)
+        # Disable checkable state: ToggleChip sets setCheckable(True), but on Linux/Wayland
+        # Qt's native checkable-button renderer splits the hit-test region so the text area
+        # registers no clicks. FilterChip manages all visual state via setStyleSheet and
+        # never reads isChecked(), so removing checkable has no functional effect.
+        self.setCheckable(False)
         self._paused = False
         self._has_filters = False
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

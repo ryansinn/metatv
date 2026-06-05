@@ -118,48 +118,56 @@ class ProviderLoadThread(QThread):
             current_source_category: str | None = None
             current_source_quality: str | None = None
 
-            # Process all channels
-            for channel in channels:
-                raw = channel.raw_data or {}
-                is_adult = bool(raw.get("is_adult") in (1, "1", True))
-                source_num = raw.get("num")
-                if source_num is not None:
-                    try:
-                        source_num = int(source_num)
-                    except (ValueError, TypeError):
-                        source_num = None
+            # Disable autoflush so writes only happen at each explicit commit().
+            # Without this, session.merge() triggers an autoflush before every
+            # internal SELECT, starting a write transaction that holds the SQLite
+            # write lock until the next commit(). With multiple providers loading
+            # concurrently each provider's lock window spans up to 100 items —
+            # causing SQLITE_BUSY for other writers. With no_autoflush, the write
+            # transaction only opens at commit() and closes immediately after,
+            # giving other providers windows to write between batches.
+            with session.no_autoflush:
+                for channel in channels:
+                    raw = channel.raw_data or {}
+                    is_adult = bool(raw.get("is_adult") in (1, "1", True))
+                    source_num = raw.get("num")
+                    if source_num is not None:
+                        try:
+                            source_num = int(source_num)
+                        except (ValueError, TypeError):
+                            source_num = None
 
-                # Detect ##...## positional category headers (live only)
-                if channel.media_type == "live":
-                    parsed = _parse_hash_header(channel.name)
-                    if parsed is not None:
-                        current_source_category = parsed[0] or None
-                        current_source_quality = parsed[1] or None
+                    # Detect ##...## positional category headers (live only)
+                    if channel.media_type == "live":
+                        parsed = _parse_hash_header(channel.name)
+                        if parsed is not None:
+                            current_source_category = parsed[0] or None
+                            current_source_quality = parsed[1] or None
 
-                db_channel = ChannelDB(
-                    id=channel.id,
-                    source_id=channel.source_id,
-                    provider_id=channel.provider_id,
-                    name=channel.name,
-                    stream_url=channel.stream_url,
-                    category=channel.category,
-                    category_id=channel.category_id,
-                    logo_url=channel.logo_url,
-                    media_type=channel.media_type,
-                    quality=channel.quality.value,
-                    is_adult=is_adult,
-                    raw_data=channel.raw_data,
-                    source_num=source_num,
-                    source_category=current_source_category if channel.media_type == "live" else None,
-                    source_quality_flags=current_source_quality if channel.media_type == "live" else None,
-                )
-                session.merge(db_channel)
-                
-                processed += 1
-                if processed % 100 == 0:
-                    session.commit()  # Commit periodically
-                    percent = int(50 + (processed / total * 20))  # 50–70%
-                    self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
+                    db_channel = ChannelDB(
+                        id=channel.id,
+                        source_id=channel.source_id,
+                        provider_id=channel.provider_id,
+                        name=channel.name,
+                        stream_url=channel.stream_url,
+                        category=channel.category,
+                        category_id=channel.category_id,
+                        logo_url=channel.logo_url,
+                        media_type=channel.media_type,
+                        quality=channel.quality.value,
+                        is_adult=is_adult,
+                        raw_data=channel.raw_data,
+                        source_num=source_num,
+                        source_category=current_source_category if channel.media_type == "live" else None,
+                        source_quality_flags=current_source_quality if channel.media_type == "live" else None,
+                    )
+                    session.merge(db_channel)
+
+                    processed += 1
+                    if processed % 100 == 0:
+                        session.commit()  # Commit periodically
+                        percent = int(50 + (processed / total * 20))  # 50–70%
+                        self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
 
             # Final commit
             session.commit()

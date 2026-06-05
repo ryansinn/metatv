@@ -97,6 +97,10 @@ class WatchQueueRepository:
         if row:
             self.session.delete(row)
 
+    def get_queued_ids(self) -> set[str]:
+        """Return the set of all channel_ids currently in the queue."""
+        return {row.channel_id for row in self.session.query(WatchQueueDB).all()}
+
     def is_queued(self, channel_id: str) -> bool:
         """Return True if channel_id is currently in the queue."""
         return (

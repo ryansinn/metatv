@@ -45,6 +45,8 @@ class DetailsPaneWidget(QWidget):
     prefix_unblock_requested   = pyqtSignal(str)        # prefix
     prefix_name_saved          = pyqtSignal(str, str)   # prefix, name
     manage_filters_requested   = pyqtSignal()
+    genre_filter_requested     = pyqtSignal(str)        # genre name
+    person_filter_requested    = pyqtSignal(str)        # person name
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
@@ -132,8 +134,7 @@ class DetailsPaneWidget(QWidget):
             self._apply_metadata(metadata)
         elif not is_live:
             self._plot.show_loading(_icons.loading_icon)
-            self._poster.poster_loading.show()
-            self._poster.poster_loading.setText(f"{_icons.loading_icon} Loading poster...")
+            self._poster.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
 
         # Async fetches
         self.action_state_requested.emit(channel.id)
@@ -175,7 +176,7 @@ class DetailsPaneWidget(QWidget):
 
         for widget in (
             self._poster, self._meta, self._versions, self._action_bar,
-            self._plot, self._tech, self._cast, self._similar,
+            self._plot, self._cast, self._tech, self._similar,
         ):
             self._content_layout.addWidget(widget)
 
@@ -205,6 +206,12 @@ class DetailsPaneWidget(QWidget):
         v.prefix_unblock_requested.connect(self.prefix_unblock_requested)
         v.prefix_name_saved.connect(self.prefix_name_saved)
         v.manage_filters_requested.connect(self.manage_filters_requested)
+
+        # Genre chips
+        self._meta.genre_clicked.connect(self.genre_filter_requested)
+
+        # Cast / director / crew person chips
+        self._cast.person_clicked.connect(self.person_filter_requested)
 
         # Similar titles
         s = self._similar
@@ -246,12 +253,11 @@ class DetailsPaneWidget(QWidget):
         if metadata.poster_url:
             self._poster.load_poster(metadata.poster_url, self.provider_urls)
         else:
-            self._poster.poster_loading.hide()
             self._poster.poster_label.setText("No poster available")
 
         weights = self._fetch_weights()
         self._tech.load(metadata, weights)
-        self._cast.load(metadata.cast or [], weights)
+        self._cast.load(metadata.cast or [], director=metadata.director, weights=weights)
 
     def _fetch_weights(self):
         """Fetch preference weights for cast/director annotation. Returns None on failure."""

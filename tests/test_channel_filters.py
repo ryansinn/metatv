@@ -318,3 +318,129 @@ def test_search_with_active_filter_returns_filtered_subset(repo, channels):
     )
     assert len(result) == 1
     assert result[0].name == "EAR - One Piece"
+
+
+# ── Context filter chips ───────────────────────────────────────────────────────
+# strict_genre_filter and person_filter are activated from details-pane clicks.
+# They use strict SQL (no passthrough for missing data) unlike the filter panel.
+
+@pytest.fixture
+def genre_channels(db_session):
+    """Seed channels with various raw_data genre tags for context filter tests."""
+    rows = {
+        "drama_movie": make_channel(
+            db_session, "EN - The Crown", media_type="movie",
+            raw_data={"genre": "Drama", "cast": ""},
+        ),
+        "drama_series": make_channel(
+            db_session, "EN - Suits", media_type="series",
+            raw_data={"genre": "Drama", "cast": ""},
+        ),
+        "comedy_movie": make_channel(
+            db_session, "EN - Airplane", media_type="movie",
+            raw_data={"genre": "Comedy", "cast": ""},
+        ),
+        "no_genre_movie": make_channel(
+            db_session, "EN - Unknown Film", media_type="movie",
+            raw_data={"cast": ""},
+        ),
+        "live_drama": make_channel(
+            db_session, "EN - Drama Live", media_type="live",
+            raw_data={"genre": "Drama"},
+        ),
+    }
+    db_session.commit()
+    return rows
+
+
+def test_strict_genre_filter_returns_only_matching_movies_series(repo, genre_channels):
+    result = repo.get_all(strict_genre_filter="Drama")
+    result_names = names(result)
+    assert "EN - The Crown"  in result_names, "Drama movie must match"
+    assert "EN - Suits"      in result_names, "Drama series must match"
+    assert "EN - Airplane"  not in result_names, "Comedy must not match Drama"
+    assert "EN - Unknown Film" not in result_names, "No-genre channel must not pass through"
+
+
+def test_strict_genre_filter_excludes_live_channels(repo, genre_channels):
+    result = repo.get_all(strict_genre_filter="Drama")
+    assert "EN - Drama Live" not in names(result), "Live channels excluded even with matching genre"
+
+
+def test_strict_genre_filter_no_passthrough_for_missing_genre(repo, genre_channels):
+    result = repo.get_all(strict_genre_filter="Drama")
+    assert "EN - Unknown Film" not in names(result), "Missing genre must not pass through (strict)"
+
+
+def test_strict_genre_filter_returns_empty_when_no_match(repo, genre_channels):
+    result = repo.get_all(strict_genre_filter="Horror")
+    assert result == [], "No Horror-tagged channels should return empty list"
+
+
+def test_strict_genre_filter_combined_with_search_query(repo, genre_channels):
+    result = repo.get_all(strict_genre_filter="Drama", search_query="Crown")
+    result_names = names(result)
+    assert "EN - The Crown" in result_names
+    assert "EN - Suits"    not in result_names, "Search narrows within genre"
+
+
+@pytest.fixture
+def person_channels(db_session):
+    """Seed channels with cast/director raw_data for person filter tests."""
+    rows = {
+        "hanks_cast": make_channel(
+            db_session, "EN - Forrest Gump", media_type="movie",
+            raw_data={"cast": "Tom Hanks, Robin Wright, Gary Sinise", "director": "Robert Zemeckis"},
+        ),
+        "hanks_no_match": make_channel(
+            db_session, "EN - Saving Private Ryan", media_type="movie",
+            raw_data={"cast": "Tom Hanks, Matt Damon", "director": "Steven Spielberg"},
+        ),
+        "zemeckis_dir": make_channel(
+            db_session, "EN - Back to the Future", media_type="movie",
+            raw_data={"cast": "Michael J. Fox, Christopher Lloyd", "director": "Robert Zemeckis"},
+        ),
+        "no_cast": make_channel(
+            db_session, "EN - Mystery Film", media_type="movie",
+            raw_data={},
+        ),
+        "live_ch": make_channel(
+            db_session, "EN - Tom Hanks Channel", media_type="live",
+        ),
+    }
+    db_session.commit()
+    return rows
+
+
+def test_person_filter_matches_cast_field(repo, person_channels):
+    result = repo.get_all(person_filter="Tom Hanks")
+    result_names = names(result)
+    assert "EN - Forrest Gump"      in result_names, "Tom Hanks in cast must match"
+    assert "EN - Saving Private Ryan" in result_names, "Tom Hanks in cast must match"
+    assert "EN - Back to the Future" not in result_names, "Tom Hanks not in cast here"
+
+
+def test_person_filter_matches_director_field(repo, person_channels):
+    result = repo.get_all(person_filter="Robert Zemeckis")
+    result_names = names(result)
+    assert "EN - Forrest Gump"       in result_names, "Zemeckis is director of Forrest Gump"
+    assert "EN - Back to the Future" in result_names, "Zemeckis is director of BttF"
+    assert "EN - Saving Private Ryan" not in result_names, "Spielberg != Zemeckis"
+
+
+def test_person_filter_no_results_for_missing_cast(repo, person_channels):
+    result = repo.get_all(person_filter="Tom Hanks")
+    assert "EN - Mystery Film" not in names(result), "Channel with empty raw_data excluded"
+
+
+def test_person_filter_excludes_channels_by_name_match_only(repo, person_channels):
+    """Channel name containing person's name should NOT match — only raw_data.cast/director."""
+    result = repo.get_all(person_filter="Tom Hanks")
+    assert "EN - Tom Hanks Channel" not in names(result), "Live channel name match must not count"
+
+
+def test_person_filter_combined_with_search_query(repo, person_channels):
+    result = repo.get_all(person_filter="Tom Hanks", search_query="Gump")
+    result_names = names(result)
+    assert "EN - Forrest Gump"         in result_names
+    assert "EN - Saving Private Ryan" not in result_names, "Search narrows within person filter"

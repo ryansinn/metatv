@@ -768,6 +768,10 @@ class Config(BaseModel):
     # User-defined human-readable names for prefix codes (e.g. {"KU": "Kurdish", "EAR": "Arabic Subtitled"})
     # Checked first in _resolve_category_name(), before the built-in lookup tables.
     category_name_overrides: dict = Field(default_factory=dict)
+
+    # Internal migration version for detected_prefix / detected_quality re-parsing.
+    # Incremented when the parsing logic changes so the app can auto-rescan on startup.
+    prefix_parse_version: int = 0
     
     # ── Computed views of the base lookup tables ─────────────────────────────
     # These are NOT stored in config.yaml — they're computed from the base

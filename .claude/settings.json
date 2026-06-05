@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(sqlite3 ~/.local/share/metatv/metatv.db \".mode column\" \"SELECT name, media_type, category, detected_prefix, stream_url FROM channels WHERE name LIKE '#%' LIMIT 30;\")",
-      "Bash(sqlite3 ~/.local/share/metatv/metatv.db \"SELECT COUNT\\(*\\) FROM channels c1 WHERE c1.name LIKE '#%' AND EXISTS \\(SELECT 1 FROM channels c2 WHERE c2.stream_url = c1.stream_url AND c2.name NOT LIKE '#%'\\);\")"
+      "Bash(sqlite3 ~/.local/share/metatv/metatv.db \"SELECT COUNT\\(*\\) FROM channels c1 WHERE c1.name LIKE '#%' AND EXISTS \\(SELECT 1 FROM channels c2 WHERE c2.stream_url = c1.stream_url AND c2.name NOT LIKE '#%'\\);\")",
+      "Bash(venv/bin/python -m pytest tests/ -x -q)",
+      "Bash(git commit -m ' *)",
+      "Bash(venv/bin/python -m pytest tests/test_streaming_offthread.py -v)",
+      "Bash(venv/bin/python -m pytest tests/test_streaming_offthread.py::test_failover_success_stat_commit -v)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(venv/bin/python -m pytest tests/ *)"
     ]
   }
 }

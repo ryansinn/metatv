@@ -19,9 +19,12 @@ from urllib.parse import urlparse
 import requests
 from loguru import logger
 from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
 
+from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
+from metatv.providers.xtream import _DEFAULT_HEADERS
 
 
 def _looks_like_text(chunk: bytes) -> bool:
@@ -52,7 +55,6 @@ class _StreamingMixin:
         while serving fine on GET), so we use a streaming GET and read one chunk.
         """
         try:
-            from metatv.providers.xtream import _DEFAULT_HEADERS
             logger.debug(f"Validating stream URL: {url}")
             with requests.get(
                 url,
@@ -116,9 +118,13 @@ class _StreamingMixin:
         parsed = urlparse(stream_url)
         original_base = f"{parsed.scheme}://{parsed.netloc}"
 
-        # Try alternate provider domains
-        session = self.db.get_session()
-        try:
+        # Try alternate provider domains.
+        # Per-attempt session.commit() calls are intentional: each stat write
+        # (success_count / failure_count) must persist even if a later attempt
+        # raises an exception.  session_scope() commits on clean exit and rolls
+        # back only the post-last-commit transaction on exception, so earlier
+        # explicit commits remain durable.
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             provider_db = repos.providers.get_by_id(provider_id)
 
@@ -166,9 +172,6 @@ class _StreamingMixin:
             logger.error("No working alternate URLs found")
             return "", None
 
-        finally:
-            session.close()
-
     def reconstruct_stream_url(self, original_url: str, old_base: str, new_base: str) -> str:
         """Reconstruct stream URL with new base domain
 
@@ -186,7 +189,12 @@ class _StreamingMixin:
         return original_url
 
     def play_media(self, channel):
-        """Play a media item (live stream or movie) in external player"""
+        """Play a media item (live stream or movie) in external player.
+
+        Returns immediately — validation and failover happen in a background
+        thread via ``self.executor``; ``_on_stream_ready`` (main-thread slot)
+        finishes the launch once the result arrives.
+        """
         channel_id = channel.id
 
         # Prevent double-clicks while loading
@@ -197,110 +205,148 @@ class _StreamingMixin:
 
         self.loading_channels.add(channel_id)
 
-        # Get a fresh session for playback recording
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            # Refresh channel object in this session
-            channel = repos.channels.get_by_id(channel_id)
-
-            if not channel:
-                logger.error(f"Channel not found: {channel_id}")
-                self.status_bar.showMessage("Error: Channel not found")
-                self.loading_channels.discard(channel_id)
-                return
-
-            # Validate stream URL
-            if not channel.stream_url:
-                logger.error(f"Channel {channel.name} has no stream URL")
-                self.status_bar.showMessage(f"Error: No stream URL for {channel.name}")
-                return
-
-            # Check if player is available
-            if not self.player_manager.is_available():
-                logger.error("No media player available")
-                self.status_bar.showMessage("Error: No media player found. Please install mpv.")
-                return
-
-            # Show loading notification
-            notif_id = self.notification_manager.show(
-                title="Loading Stream",
-                message=f"Buffering {channel.name}...",
-                type="info",
-                auto_dismiss_ms=5000
-            )
-
-            # Launch player
-            logger.info(f"=== Playing Channel ===")
-            logger.info(f"Name: {channel.name}")
-            logger.info(f"Media Type: {channel.media_type}")
-            logger.info(f"Stream URL: {channel.stream_url}")
-            logger.info(f"Player: {self.player_manager.get_player_name()}")
-
-            # Validate and failover if needed
-            final_url, stream_err = self.validate_and_failover_stream_url(
-                channel.stream_url,
-                channel.provider_id,
-                channel.source_id,
-                channel.media_type
-            )
-
-            if not final_url:
-                from PyQt6.QtWidgets import QApplication
-                logger.error(f"All stream URLs failed validation for {channel.name}")
-                self.status_bar.showMessage(f"Error: Stream unavailable for {channel.name}")
-                detail = stream_err if stream_err else "All URLs failed (possibly geo-blocked)"
-                self.notification_manager.dismiss(notif_id)
-                from metatv.core.channel_name_utils import parse_channel_name as _pcn
-                _p = _pcn(channel.name)
-                _display = _p.bare_name or channel.name
-                self.notification_manager.show(
-                    title="Stream Unavailable",
-                    message=f"{_display}\n{detail}",
-                    type="error",
-                    dismissible=True,
-                    auto_dismiss_seconds=None,
-                    actions=[("Copy Error", lambda n=channel.name, u=final_url, d=detail:
-                        QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))],
-                )
-                if hasattr(self, "stream_retry_manager"):
-                    self.stream_retry_manager.add_failure(
-                        channel.id, channel.name, channel.stream_url, detail
-                    )
-                self.loading_channels.discard(channel_id)
-                return
-
-            if final_url != channel.stream_url:
-                logger.info(f"Using failover URL: {final_url}")
-
-            self.status_bar.showMessage(f"Loading: {channel.name}...")
-
-            # Play using player manager
-            if self.player_manager.play(final_url, channel.name):
-                # Record playback in database
-                repos.channels.mark_played(channel.id)
-                logger.info(f"Recorded playback: {channel.name} (play count: {channel.play_count + 1})")
-
-                # Update UI lists in real-time
-                self.load_history()
-                self.load_favorites()
-                self._refresh_queue_section()
-
-                # Update status after brief delay
-                QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {channel.name}"))
-            else:
-                logger.error(f"Failed to play: {channel.name}")
-                self.status_bar.showMessage(f"Error playing: {channel.name}")
-
-            # Remove from loading set after delay
-            QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
-
-        except Exception as e:
-            logger.error(f"Error playing channel: {e}")
-            self.status_bar.showMessage(f"Error playing channel: {e}")
+        # Guard: stream URL and player availability are known from the channel
+        # object already in memory — no DB or network needed here.
+        if not channel.stream_url:
+            logger.error(f"Channel {channel.name} has no stream URL")
+            self.status_bar.showMessage(f"Error: No stream URL for {channel.name}")
             self.loading_channels.discard(channel_id)
-        finally:
-            session.close()
+            return
+
+        if not self.player_manager.is_available():
+            logger.error("No media player available")
+            self.status_bar.showMessage("Error: No media player found. Please install mpv.")
+            self.loading_channels.discard(channel_id)
+            return
+
+        # Show loading notification (must be main thread — creates QTimer)
+        notif_id = self.notification_manager.show(
+            title="Loading Stream",
+            message=f"Buffering {channel.name}...",
+            type="info",
+            auto_dismiss_ms=5000
+        )
+
+        logger.info("=== Playing Channel ===")
+        logger.info(f"Name: {channel.name}")
+        logger.info(f"Media Type: {channel.media_type}")
+        logger.info(f"Stream URL: {channel.stream_url}")
+        logger.info(f"Player: {self.player_manager.get_player_name()}")
+
+        # Off-load network validation + failover to the shared executor.
+        # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.
+        self.executor.submit(
+            self._bg_validate_and_play,
+            channel_id,
+            channel.name,
+            channel.stream_url,
+            channel.provider_id,
+            channel.source_id,
+            channel.media_type,
+            notif_id,
+        )
+
+    def _bg_validate_and_play(
+        self,
+        channel_id: str,
+        channel_name: str,
+        stream_url: str,
+        provider_id: str,
+        source_id: str,
+        media_type: str,
+        notif_id: str,
+    ) -> None:
+        """Worker: validate + failover stream URL, then emit _stream_ready.
+
+        Runs in ``self.executor``.  Must NOT touch Qt widgets — all UI work is
+        done in ``_on_stream_ready``, which runs on the main thread via the signal.
+        """
+        try:
+            final_url, stream_err = self.validate_and_failover_stream_url(
+                stream_url, provider_id, source_id, media_type
+            )
+            self._stream_ready.emit({
+                "ok": bool(final_url),
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "original_url": stream_url,
+                "final_url": final_url or "",
+                "stream_err": stream_err or "",
+                "notif_id": notif_id,
+            })
+        except Exception as e:
+            logger.error(f"Error in _bg_validate_and_play: {e}")
+            self._stream_ready.emit({
+                "ok": False,
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "original_url": stream_url,
+                "final_url": "",
+                "stream_err": str(e),
+                "notif_id": notif_id,
+            })
+
+    def _on_stream_ready(self, data: dict) -> None:
+        """Main-thread slot: finish player launch or show error after validation."""
+        channel_id = data["channel_id"]
+        channel_name = data.get("channel_name", "")
+        final_url = data.get("final_url", "")
+        original_url = data.get("original_url", "")
+        stream_err = data.get("stream_err", "")
+        notif_id = data.get("notif_id", "")
+
+        if not data.get("ok"):
+            logger.error(f"All stream URLs failed validation for {channel_name}")
+            self.status_bar.showMessage(f"Error: Stream unavailable for {channel_name}")
+            detail = stream_err or "All URLs failed (possibly geo-blocked)"
+            self.notification_manager.dismiss(notif_id)
+            _p = _pcn(channel_name)
+            _display = _p.bare_name or channel_name
+            self.notification_manager.show(
+                title="Stream Unavailable",
+                message=f"{_display}\n{detail}",
+                type="error",
+                dismissible=True,
+                auto_dismiss_seconds=None,
+                actions=[("Copy Error", lambda n=channel_name, u=original_url, d=detail:
+                    QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))],
+            )
+            if hasattr(self, "stream_retry_manager"):
+                self.stream_retry_manager.add_failure(
+                    channel_id, channel_name, original_url, detail
+                )
+            self.loading_channels.discard(channel_id)
+            return
+
+        if final_url != original_url:
+            logger.info(f"Using failover URL: {final_url}")
+
+        self.status_bar.showMessage(f"Loading: {channel_name}...")
+
+        if self.player_manager.play(final_url, channel_name):
+            # Record playback — mark_played is a DB write; run off-thread
+            self.executor.submit(self._bg_mark_played, channel_id)
+
+            # Update UI lists in real-time (main thread)
+            self.load_history()
+            self.load_favorites()
+            self._refresh_queue_section()
+
+            QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {channel_name}"))
+        else:
+            logger.error(f"Failed to play: {channel_name}")
+            self.status_bar.showMessage(f"Error playing: {channel_name}")
+
+        QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
+
+    def _bg_mark_played(self, channel_id: str) -> None:
+        """Worker: write play-count + last-played to DB (off main thread)."""
+        try:
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                repos.channels.mark_played(channel_id)
+        except Exception as e:
+            logger.error(f"Error marking channel played: {e}")
 
     def launch_new_mpv(self, url: str):
         """Launch a new mpv instance"""

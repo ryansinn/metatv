@@ -112,6 +112,17 @@ class MetadataResult:
     last_updated: Optional[datetime] = None
 ```
 
+### Year Derivation — happens at ingestion, not at read time
+
+Providers frequently supply `release_date` ("2024-07-03") but leave `year` as `None`. The derivation happens **once, at storage time**, via `MetadataManager._derive_year()`:
+
+- **Write path** (`_save_metadata_cache`): before setting `MetadataDB.year`, calls `_derive_year(result.year, result.release_date)`. If `year` is absent but `release_date` is present, extracts `int(release_date[:4])` and stores it as `year`.
+- **Read path** (`_metadata_db_to_result`): same derivation applied when converting DB rows, so pre-existing rows cached before this logic was deployed are also corrected on first read.
+
+After ingestion, `MetadataDB.year` (and therefore `MetadataResult.year`) is always populated when the information is derivable. **Read `metadata.year` directly** — no helper method, no fallback logic outside `metadata_manager.py`.
+
+`release_date` is still stored and displayed in full ("2024-07-03") where a complete date is useful (Technical Details section).
+
 ### Merge Logic
 
 The `merge()` method intelligently combines metadata from multiple providers:

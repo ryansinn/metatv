@@ -365,7 +365,7 @@ class Database:
         def _set_pragmas(dbapi_conn, _record):
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA journal_mode=WAL")
-            cur.execute("PRAGMA busy_timeout=5000")
+            cur.execute("PRAGMA busy_timeout=30000")
             cur.execute("PRAGMA synchronous=NORMAL")
             cur.close()
 
