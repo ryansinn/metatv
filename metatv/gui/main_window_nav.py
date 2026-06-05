@@ -279,7 +279,7 @@ class _NavMixin:
 
     # ── Compound-prefix migration ───────────────────────────────────────────
 
-    _PREFIX_PARSE_VERSION = 2
+    _PREFIX_PARSE_VERSION = 3  # bumped: [4k] bracket suffix + CAM variants now parsed
 
     def _check_prefix_migration(self) -> None:
         """Run a one-time background rescan if prefix parsing logic has been updated."""

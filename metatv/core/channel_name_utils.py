@@ -69,9 +69,9 @@ _COMPOUND_PREFIX_RE = re.compile(
 
 # ── Suffix patterns ─────────────────────────────────────────────────────────── #
 
-# Quality tokens at end of bare name (including codecs)
+# Quality tokens at end of bare name (including codecs and source indicators)
 _QUALITY_SUFFIX_RE = re.compile(
-    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ|RAW|LIVE)\b\s*$',
+    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ|RAW|LIVE|CAM)\b\s*$',
     re.IGNORECASE,
 )
 
@@ -122,8 +122,20 @@ PLATFORM_CODES: frozenset[str] = frozenset({
 # Used to populate detected_quality when the prefix itself is a quality marker.
 QUALITY_TOKENS: frozenset[str] = frozenset({
     "4K", "8K", "UHD", "FHD", "HDR10+", "HDR", "HEVC", "H265", "H264",
-    "HD", "SD", "HQ", "LQ", "RAW",
+    "HD", "SD", "HQ", "LQ", "RAW", "CAM",
 })
+
+# Bracket content that isn't a bare QUALITY_TOKEN but maps to one — typically
+# compound cam-rip variants. Keys are uppercased bracket contents.
+_BRACKET_QUALITY_ALIASES: dict[str, str] = {
+    "CAM":          "CAM",
+    "SD/CAM":       "CAM",
+    "CAM-VERSION":  "CAM",
+    "CAM-VERSON":   "CAM",   # typo seen in provider data
+    "VERSION CAM":  "CAM",
+    "CAM VERSION":  "CAM",
+    "V.CAM":        "CAM",
+}
 
 _FULL_NAME_TO_CODE: dict[str, str] = {
     # Europe
@@ -332,6 +344,12 @@ def parse_channel_name(name: str) -> ParsedChannel:
         if canonical:
             audio = canonical
             bare = bare[: bsm.start()].strip()
+        elif (q_alias := _BRACKET_QUALITY_ALIASES.get(content)):
+            # Compound quality bracket like [SD/CAM], [CAM-VERSION] — normalize to
+            # canonical token. Must come before the QUALITY_TOKENS check so that
+            # aliases that ARE in QUALITY_TOKENS (e.g. plain "CAM") also land here.
+            quality.insert(0, q_alias)
+            bare = bare[: bsm.start()].strip()
         elif content in QUALITY_TOKENS:
             # Quality-token bracket like [4K], [UHD], [HD] — treat same as bare suffix.
             # isalpha() fails for "4K" so this must come before the origin-bracket check.
@@ -366,7 +384,10 @@ def parse_channel_name(name: str) -> ParsedChannel:
     bsm2 = _BRACKET_SUFFIX_RE.search(bare)
     if bsm2:
         content2 = bsm2.group(1).strip().upper()
-        if content2 in QUALITY_TOKENS:
+        if (q_alias2 := _BRACKET_QUALITY_ALIASES.get(content2)):
+            quality.insert(0, q_alias2)
+            bare = bare[: bsm2.start()].strip()
+        elif content2 in QUALITY_TOKENS:
             quality.insert(0, content2)
             bare = bare[: bsm2.start()].strip()
 

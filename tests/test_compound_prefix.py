@@ -243,10 +243,32 @@ import pytest
     ("DE - Film UHD",                   "UHD", "DE"),
     # Standalone 4K prefix (no lang code)
     ("4K - The Movie",                  "4K",  None),
+    # CAM source indicator — bare suffix
+    ("EN ★ Movie CAM",                  "CAM", "EN"),
 ])
 def test_4k_variants_exhaustive(db_session, repo, channel_name, exp_quality, exp_prefix):
-    """Every known 4K-encoding variant must produce detected_quality='4K'."""
+    """Every known 4K-encoding variant must produce the expected detected_quality."""
     prefix, quality, _ = _prefixes(db_session, repo, channel_name)
     assert quality == exp_quality, f"{channel_name!r}: expected quality={exp_quality!r}, got {quality!r}"
     if exp_prefix is not None:
         assert prefix == exp_prefix, f"{channel_name!r}: expected prefix={exp_prefix!r}, got {prefix!r}"
+
+
+# ── CAM / camera-rip bracket variants ────────────────────────────────────────
+
+@pytest.mark.parametrize("channel_name", [
+    "FR ★ Nuremberg - 2025 [Cam]",
+    "EN ★ Movie [CAM]",
+    "EN - Movie [SD/CAM]",
+    "EN - Movie [sd/cam]",
+    "EN ★ Michael - 2026 [CAM-VERSION]",
+    "EN ★ Avatar - 2025 [CAM-VERSON]",
+    "FR ★ Zootopie 2 - 2025 [Version CAM]",
+    "DE ★ Film - 2025 [V.Cam]",
+    "EN ★ Title - 2025 [CAM VERSION]",
+])
+def test_cam_variants_all_yield_cam_quality(db_session, repo, channel_name):
+    """Every cam-rip bracket variant must produce detected_quality='CAM'."""
+    _, quality, region = _prefixes(db_session, repo, channel_name)
+    assert quality == "CAM", f"{channel_name!r}: expected quality='CAM', got {quality!r}"
+    assert region is None, f"{channel_name!r}: cam bracket must not land in detected_region, got {region!r}"
