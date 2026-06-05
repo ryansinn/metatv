@@ -138,9 +138,13 @@ _BRACKET_QUALITY_ALIASES: dict[str, str] = {
     "V.CAM":        "CAM",
 }
 
-# Full language names in bracket suffixes → 2-letter codes → stored as detected_region.
+# Full language names in bracket suffixes → codes stored as detected_region.
 # Covers dubbed/localized audio tracks: "EN ★ Movie [SPANISH]" → detected_region = "ES".
-# Keys are uppercased; values are the canonical ISO-639-1 / REGION_FULL_NAMES code.
+#
+# Semantic note: values like KR/JP/CN are ISO 3166-1 *country* codes rather than
+# ISO 639-1 *language* codes (ko/ja/zh). The IPTV convention conflates country and
+# language (EN already serves as both in REGION_FULL_NAMES), so we follow the same
+# pattern here for consistency. Tracked as semantic debt in project_filter_system.
 _BRACKET_LANG_NORM: dict[str, str] = {
     "SPANISH":    "ES",
     "FRENCH":     "FR",
@@ -309,6 +313,40 @@ def _strip_quality(bare: str) -> tuple[str, list[str]]:
     return bare, tokens
 
 
+# Bracket classification result — kind drives which field the value lands in.
+# "audio"   → ParsedChannel.audio  (format: "Multi", "Dub", "Sub")
+# "quality" → ParsedChannel.quality list
+# "origin"  → _bracket_origin → ParsedChannel.lang → detected_region
+# "unknown" → left in bare title (no field to store it in yet)
+class _BracketClass:
+    __slots__ = ("kind", "value")
+
+    def __init__(self, kind: str, value: str) -> None:
+        self.kind = kind
+        self.value = value
+
+
+def _classify_bracket(content: str) -> _BracketClass:
+    """Classify an uppercased bracket-suffix token into its semantic category.
+
+    Called by both the step-3 and step-6a bracket passes in parse_channel_name()
+    so the two parallel passes share one definition and can't silently diverge.
+    """
+    if (canon := _AUDIO_NORM.get(content)):
+        return _BracketClass("audio", canon)
+    if (q := _BRACKET_QUALITY_ALIASES.get(content)):
+        return _BracketClass("quality", q)
+    if content in QUALITY_TOKENS:
+        return _BracketClass("quality", content)
+    if (code := _BRACKET_LANG_NORM.get(content)):
+        return _BracketClass("origin", code)
+    if content in PLATFORM_CODES:
+        return _BracketClass("origin", content)
+    if len(content) in (2, 3) and content.isalpha() and content not in QUALITY_TOKENS:
+        return _BracketClass("origin", normalize_region_code(content))
+    return _BracketClass("unknown", content)
+
+
 def parse_channel_name(name: str) -> ParsedChannel:
     """Parse a raw channel name into structured components.
 
@@ -364,36 +402,17 @@ def parse_channel_name(name: str) -> ParsedChannel:
     bsm = _BRACKET_SUFFIX_RE.search(bare)
     if bsm:
         content = bsm.group(1).strip().upper()
-        canonical = _AUDIO_NORM.get(content)
-        if canonical:
-            audio = canonical
+        bc = _classify_bracket(content)
+        if bc.kind == "audio":
+            audio = bc.value
             bare = bare[: bsm.start()].strip()
-        elif (q_alias := _BRACKET_QUALITY_ALIASES.get(content)):
-            # Compound quality bracket like [SD/CAM], [CAM-VERSION] — normalize to
-            # canonical token. Must come before the QUALITY_TOKENS check so that
-            # aliases that ARE in QUALITY_TOKENS (e.g. plain "CAM") also land here.
-            quality.insert(0, q_alias)
+        elif bc.kind == "quality":
+            quality.insert(0, bc.value)
             bare = bare[: bsm.start()].strip()
-        elif content in QUALITY_TOKENS:
-            # Quality-token bracket like [4K], [UHD], [HD] — treat same as bare suffix.
-            # isalpha() fails for "4K" so this must come before the origin-bracket check.
-            quality.insert(0, content)
+        elif bc.kind == "origin":
+            _bracket_origin = bc.value
             bare = bare[: bsm.start()].strip()
-        elif (lang_code := _BRACKET_LANG_NORM.get(content)):
-            # Full language name like [SPANISH], [HINDI] → 2-letter code in detected_region.
-            _bracket_origin = lang_code
-            bare = bare[: bsm.start()].strip()
-        elif content in PLATFORM_CODES:
-            # Platform bracket like [ASTRO], [F1TV] — longer than 3 chars or has digits,
-            # so the isalpha()+len check below wouldn't catch them.
-            _bracket_origin = content
-            bare = bare[: bsm.start()].strip()
-        elif (len(content) in (2, 3) and content.isalpha()
-              and content not in QUALITY_TOKENS):
-            # Content-origin bracket like [UK], [US], [DE] — same semantics as (UK)
-            _bracket_origin = normalize_region_code(content)
-            bare = bare[: bsm.start()].strip()
-        # else: unrecognised bracket stays in bare name
+        # "unknown": bracket stays in bare name
 
     # 4. Strip explicit lang/region qualifier from end: (EN), (JP)
     # Parenthetical form overrides bracket form if both are present.
@@ -412,26 +431,22 @@ def parse_channel_name(name: str) -> ParsedChannel:
         year = ym.group(1) or ym.group(2)  # group 1 = paren form, group 2 = dash form
         bare = bare[: ym.start()].strip()
 
-    # 6a. Second bracket-quality pass — catches "[4K] (2025)" where year follows the
-    #     quality bracket, so step 3's _BRACKET_SUFFIX_RE didn't see it at the end.
+    # 6a. Second bracket pass — catches brackets that were hidden by the year token in
+    #     step 5 ("[4K] (2025)") or by a second bracket in step 3 ("[FRENCH] [4k]").
+    #     Uses the same _classify_bracket() classifier as step 3.
+    #     Step 4 (lang assignment) already ran, so "origin" results set lang= directly.
     bsm2 = _BRACKET_SUFFIX_RE.search(bare)
     if bsm2:
         content2 = bsm2.group(1).strip().upper()
-        if (q_alias2 := _BRACKET_QUALITY_ALIASES.get(content2)):
-            quality.insert(0, q_alias2)
+        bc2 = _classify_bracket(content2)
+        if bc2.kind == "quality":
+            quality.insert(0, bc2.value)
             bare = bare[: bsm2.start()].strip()
-        elif content2 in QUALITY_TOKENS:
-            quality.insert(0, content2)
+        elif bc2.kind == "origin":
+            _bracket_origin = bc2.value
+            lang = bc2.value   # step 4 already ran; update lang directly
             bare = bare[: bsm2.start()].strip()
-        elif (lang_code2 := _BRACKET_LANG_NORM.get(content2)):
-            # Step 4 already ran so update lang directly (not just _bracket_origin)
-            _bracket_origin = lang_code2
-            lang = lang_code2
-            bare = bare[: bsm2.start()].strip()
-        elif content2 in PLATFORM_CODES:
-            _bracket_origin = content2
-            lang = content2
-            bare = bare[: bsm2.start()].strip()
+        # audio in step 6a is unusual and not expected; unknown stays in bare
 
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, quality2 = _strip_quality(bare)

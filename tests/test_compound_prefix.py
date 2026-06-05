@@ -1,12 +1,52 @@
-"""Tests for compound prefix decomposition (4K-DE, SE-4K, PL 4K, etc.).
+"""Tests for compound prefix decomposition and bracket classification.
 
-These patterns encode both a quality token and a language/platform code in the
-channel-name prefix. update_detected_prefixes() must split them into
-detected_prefix (language/platform) and detected_quality (quality token).
+Covers _classify_bracket() directly (so the helper is independently tested,
+not only via the full parse_channel_name() pipeline), plus compound prefix
+patterns (4K-DE, SE-4K, PL 4K) and all known bracket-suffix variants.
 """
 
 import pytest
 from tests.conftest import make_channel
+from metatv.core.channel_name_utils import _classify_bracket
+
+
+# ── _classify_bracket() unit tests ───────────────────────────────────────────
+# Test the helper directly so drift between the two call sites is caught here,
+# not only discovered through pipeline tests.
+
+@pytest.mark.parametrize("content,exp_kind,exp_value", [
+    # Audio
+    ("MULTI",        "audio",   "Multi"),
+    ("DUB",          "audio",   "Dub"),
+    ("SUB",          "audio",   "Sub"),
+    # Quality aliases
+    ("SD/CAM",       "quality", "CAM"),
+    ("CAM-VERSION",  "quality", "CAM"),
+    # Bare quality tokens
+    ("4K",           "quality", "4K"),
+    ("UHD",          "quality", "UHD"),
+    ("CAM",          "quality", "CAM"),
+    # Full language names
+    ("SPANISH",      "origin",  "ES"),
+    ("HINDI",        "origin",  "HI"),
+    ("FRENCH",       "origin",  "FR"),
+    ("KOREAN",       "origin",  "KR"),
+    # Platform codes
+    ("ASTRO",        "origin",  "ASTRO"),
+    ("F1TV",         "origin",  "F1TV"),
+    # Short origin codes (2-3 alpha)
+    ("UK",           "origin",  "UK"),
+    ("US",           "origin",  "US"),
+    ("DE",           "origin",  "DE"),
+    # Unknown — stays unclassified
+    ("RACE",         "unknown", "RACE"),
+    ("FP1",          "unknown", "FP1"),
+    ("MAIN CARD",    "unknown", "MAIN CARD"),
+])
+def test_classify_bracket(content, exp_kind, exp_value):
+    bc = _classify_bracket(content)
+    assert bc.kind == exp_kind, f"_classify_bracket({content!r}): kind={bc.kind!r}, want {exp_kind!r}"
+    assert bc.value == exp_value, f"_classify_bracket({content!r}): value={bc.value!r}, want {exp_value!r}"
 
 
 @pytest.fixture
