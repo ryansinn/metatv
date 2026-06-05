@@ -175,3 +175,78 @@ def test_pure_quality_prefix_unaffected(db_session, repo):
     # detected_prefix for a pure quality prefix should be "4K" (from extract_prefix)
     # and detected_quality should be "4K" (from the quality-as-prefix tier)
     assert quality == "4K"
+
+
+# ── [4K] bracket suffix quality detection ───────────────────────────────────
+
+def test_bracket_4k_suffix_lowercase(db_session, repo):
+    """EN ★ Title [4k] — lowercase bracket must set quality=4K."""
+    prefix, quality, region = _prefixes(db_session, repo, "EN ★ Bambi The Reckoning - 2025 [4k]")
+    assert prefix == "EN"
+    assert quality == "4K"
+    assert region is None
+
+
+def test_bracket_4k_suffix_uppercase(db_session, repo):
+    """[4K] uppercase bracket — quality=4K."""
+    prefix, quality, _ = _prefixes(db_session, repo, "EN - The Movie [4K]")
+    assert quality == "4K"
+
+
+def test_bracket_uhd_suffix(db_session, repo):
+    """[UHD] bracket suffix — quality=UHD."""
+    prefix, quality, _ = _prefixes(db_session, repo, "DE - Film [UHD]")
+    assert quality == "UHD"
+
+
+def test_bracket_hd_suffix(db_session, repo):
+    """[HD] bracket suffix — quality=HD."""
+    prefix, quality, _ = _prefixes(db_session, repo, "FR - Film [HD]")
+    assert quality == "HD"
+
+
+def test_bracket_quality_does_not_land_in_region(db_session, repo):
+    """[4K] must NOT be captured as detected_region."""
+    _, quality, region = _prefixes(db_session, repo, "EN - Movie [4K]")
+    assert quality == "4K"
+    assert region is None
+
+
+# ── Exhaustive 4K-variant coverage ──────────────────────────────────────────
+# These parametrized cases ensure every real-world 4K encoding we know about
+# is caught. Add new rows here when new variants are discovered in the DB.
+
+import pytest
+
+@pytest.mark.parametrize("channel_name,exp_quality,exp_prefix", [
+    # 4K-XX prefix (compound: quality then lang)
+    ("4K-SC - Anniversary (2025)",      "4K",  "SC"),
+    ("4K-DE - Hanna (2019)",            "4K",  "DE"),
+    ("4K-DK - Nordic Show",             "4K",  "DK"),
+    ("4K-SE - Movie",                   "4K",  "SE"),
+    ("4K-NO - Film",                    "4K",  "NO"),
+    ("4K-PL - Film",                    "4K",  "PL"),
+    ("4K-US - Title",                   "4K",  "US"),
+    ("4K-UK - Title",                   "4K",  "UK"),
+    # XX-4K prefix (compound: lang then quality)
+    ("SC-4K - Another Title",           "4K",  "SC"),
+    ("SE-4K - Breaking Bad",            "4K",  "SE"),
+    ("PL-4K - Wiedźmin",               "4K",  "PL"),
+    # XX 4K space form
+    ("PL 4K - Wiedźmin",               "4K",  "PL"),
+    # [4K] bracket suffix (bare name, various casings)
+    ("EN - Movie [4K]",                 "4K",  "EN"),
+    ("EN ★ Bambi [4k]",                "4K",  "EN"),
+    ("EN - Title [4K] (2025)",          "4K",  "EN"),
+    # Bare suffix (no brackets)
+    ("EN - Movie 4K",                   "4K",  "EN"),
+    ("DE - Film UHD",                   "UHD", "DE"),
+    # Standalone 4K prefix (no lang code)
+    ("4K - The Movie",                  "4K",  None),
+])
+def test_4k_variants_exhaustive(db_session, repo, channel_name, exp_quality, exp_prefix):
+    """Every known 4K-encoding variant must produce detected_quality='4K'."""
+    prefix, quality, _ = _prefixes(db_session, repo, channel_name)
+    assert quality == exp_quality, f"{channel_name!r}: expected quality={exp_quality!r}, got {quality!r}"
+    if exp_prefix is not None:
+        assert prefix == exp_prefix, f"{channel_name!r}: expected prefix={exp_prefix!r}, got {prefix!r}"

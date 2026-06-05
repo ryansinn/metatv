@@ -235,6 +235,7 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Regional groupings
     "LAT": "Latin America", "LATS": "Latin America (Spanish)",
     "EXYU": "Ex-Yugoslavia",
+    "SC": "Scandinavian",  # original-audio + Scandinavian subtitles (SE/NO/DK)
     "AL": "Albania", "ALB": "Albania",
     # Language codes (used as channel prefixes on some providers)
     "EN": "English", "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
@@ -321,6 +322,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 3. Strip audio bracket suffix [Multi-Sub], [Dub], [Sub] from end.
     # Also strips content-origin brackets like [UK], [US] (2-3 alpha letters,
     # not a quality token) — these are captured as lang in step 4.
+    # Also strips quality-token brackets like [4K], [UHD], [HD].
     audio = ""
     _bracket_origin = ""  # e.g. "UK" from [UK] suffix
     bsm = _BRACKET_SUFFIX_RE.search(bare)
@@ -329,6 +331,11 @@ def parse_channel_name(name: str) -> ParsedChannel:
         canonical = _AUDIO_NORM.get(content)
         if canonical:
             audio = canonical
+            bare = bare[: bsm.start()].strip()
+        elif content in QUALITY_TOKENS:
+            # Quality-token bracket like [4K], [UHD], [HD] — treat same as bare suffix.
+            # isalpha() fails for "4K" so this must come before the origin-bracket check.
+            quality.insert(0, content)
             bare = bare[: bsm.start()].strip()
         elif (len(content) in (2, 3) and content.isalpha()
               and content not in QUALITY_TOKENS):
@@ -354,7 +361,16 @@ def parse_channel_name(name: str) -> ParsedChannel:
         year = ym.group(1) or ym.group(2)  # group 1 = paren form, group 2 = dash form
         bare = bare[: ym.start()].strip()
 
-    # 6. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
+    # 6a. Second bracket-quality pass — catches "[4K] (2025)" where year follows the
+    #     quality bracket, so step 3's _BRACKET_SUFFIX_RE didn't see it at the end.
+    bsm2 = _BRACKET_SUFFIX_RE.search(bare)
+    if bsm2:
+        content2 = bsm2.group(1).strip().upper()
+        if content2 in QUALITY_TOKENS:
+            quality.insert(0, content2)
+            bare = bare[: bsm2.start()].strip()
+
+    # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, quality2 = _strip_quality(bare)
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
 
