@@ -279,7 +279,7 @@ class _NavMixin:
 
     # ── Compound-prefix migration ───────────────────────────────────────────
 
-    _PREFIX_PARSE_VERSION = 4  # bumped: full language names + ASTRO/F1TV platform bracket parsing
+    _PREFIX_PARSE_VERSION = 5  # bumped: compound prefix stripping in title + (QFR) paren prefix + detected_title/year storage
 
     def _check_prefix_migration(self) -> None:
         """Run a one-time background rescan if prefix parsing logic has been updated."""

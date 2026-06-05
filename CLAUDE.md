@@ -89,6 +89,19 @@ Rules:
   look alike. If you need a visual variant, add a new role-named constant — don't widen an existing
   one's meaning.
 
+### Channel name processing — ingestion-only, never at render time
+All name-derived fields (`detected_prefix`, `detected_quality`, `detected_region`, `detected_title`, `detected_year`) are computed at ingestion time by `update_detected_prefixes()` in `metatv/core/repositories/channel.py` and stored in the DB. **Never call `parse_channel_name()` in render-time display code** — read the `channel.detected_*` fields directly. The display layer must be a pure DB read.
+
+```python
+# Correct — render-time display uses stored fields
+bare = channel.detected_title or channel.name   # fallback for channels not yet re-parsed
+year_str = f" · {channel.detected_year}" if channel.detected_year else ""
+
+# Wrong — parsing at render time
+_p = parse_channel_name(channel.name)
+year_str = f" · {_p.year}" if _p.year else ""
+```
+
 ### Lookup tables — single source of truth, no duplicates
 Region/country codes, quality tokens, audio format maps, and similar lookup data must live in exactly one place. The canonical location for channel-name parsing data is `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, etc.). All other modules (GUI, details pane, sidebar) must import from there — never define their own parallel dicts.
 

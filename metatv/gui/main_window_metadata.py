@@ -226,6 +226,7 @@ class _MetadataMixin:
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
         from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
         from metatv.core.content_dedup import normalize_title, build_dedup_key
+        from metatv.core.preference_engine import version_score as _version_score
         _non_ascii = re.compile(r'[^\x00-\x7F]+')
 
         session = self.db.get_session()
@@ -254,23 +255,30 @@ class _MetadataMixin:
             )
 
             threshold = max(1, len(words) // 2)
-            seen_norms: set[str] = set()
             current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
             current_key = build_dedup_key(channel, current_meta)
 
-            results: list[ChannelDB] = []
+            # Group by normalized title, keeping the best-scored version per title so
+            # that users who have a preferred prefix (e.g. "EN") see that version when
+            # they click a similar title rather than landing on a non-preferred version.
+            best_per_title: dict[str, tuple[ChannelDB, int]] = {}
             for ch in candidates:
                 ch_norm = normalize_title(ch.name, ch.detected_prefix)
                 ch_norm_ascii = _non_ascii.sub(" ", ch_norm).strip()
                 ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
                 overlap = sum(1 for w in words if w in ch_words)
-                if overlap >= threshold and ch_norm != norm and ch_norm not in seen_norms:
-                    if current_key:
-                        ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
-                        if build_dedup_key(ch, ch_meta) == current_key:
-                            continue
-                    seen_norms.add(ch_norm)
-                    results.append(ch)
+                if overlap < threshold or ch_norm == norm:
+                    continue
+                if current_key:
+                    ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
+                    if build_dedup_key(ch, ch_meta) == current_key:
+                        continue
+                score = _version_score(ch, self.config)
+                existing = best_per_title.get(ch_norm)
+                if existing is None or score > existing[1]:
+                    best_per_title[ch_norm] = (ch, score)
+
+            results = [ch for ch, _ in list(best_per_title.values())[:20]]
 
             repos = RepositoryFactory(session)
             queue_ids = repos.queue.get_queued_ids()

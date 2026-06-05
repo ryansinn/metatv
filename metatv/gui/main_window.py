@@ -1518,12 +1518,12 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
             if show_provider_icon and channel.provider_id in provider_icon_map:
                 src_badge = provider_icon_map[channel.provider_id] + " "
 
-            _p = parse_channel_name(channel.name)
-            prefix_str = f"[{_p.region}] " if _p.region else ""
-            lang_str = f"[{_p.lang}] " if _p.lang else ""
-            quality_str = f" [{channel.quality.upper()}]" if channel.quality and channel.quality != "unknown" else ""
-            year_str = f" · {_p.year}" if _p.year else ""
-            display_text = f"{src_badge}{media_icon}{fav_icon} {prefix_str}{lang_str}{_p.bare_name}{quality_str}{year_str}"
+            prefix_str  = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
+            lang_str    = f"[{channel.detected_region}] " if channel.detected_region else ""
+            quality_str = f" [{channel.detected_quality}]" if channel.detected_quality else ""
+            year_str    = f" · {channel.detected_year}" if channel.detected_year else ""
+            bare        = channel.detected_title or channel.name
+            display_text = f"{src_badge}{media_icon}{fav_icon} {prefix_str}{lang_str}{bare}{quality_str}{year_str}"
             if channel.category:
                 display_text += f" [{channel.category}]"
             self.all_channels.append((display_text, channel))

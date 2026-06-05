@@ -10,7 +10,8 @@ from loguru import logger
 from metatv.core.database import ChannelDB
 from metatv.core.filter_utils import extract_prefix, categorize_prefix
 from metatv.core.channel_name_utils import (
-    parse_channel_name, normalize_region_code, QUALITY_TOKENS, _COMPOUND_PREFIX_RE,
+    parse_channel_name, normalize_region_code, QUALITY_TOKENS,
+    _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE,
 )
 
 
@@ -621,6 +622,14 @@ class ChannelRepository:
                     if bracket:
                         bracket_as_region = normalize_region_code(bracket)
 
+            # Paren prefix: (QFR) Title — parenthetical code at start, not caught by extract_prefix
+            if not cm:
+                pm = _PAREN_PREFIX_RE.match(channel.name)
+                if pm:
+                    paren_code = pm.group(1).upper()
+                    if paren_code not in QUALITY_TOKENS:
+                        prefix = normalize_region_code(paren_code)
+
             # detected_quality priority:
             #   1. Name suffix  ("CNN HD" → "HD")
             #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
@@ -642,15 +651,22 @@ class ChannelRepository:
             # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
             region: str | None = bracket_as_region or parsed.lang or None
 
+            new_title = parsed.bare_name or None
+            new_year  = parsed.year or None
+
             changed = (
                 prefix != channel.detected_prefix
                 or quality != channel.detected_quality
                 or region != channel.detected_region
+                or new_title != channel.detected_title
+                or new_year  != channel.detected_year
             )
             if changed:
                 channel.detected_prefix = prefix
                 channel.detected_quality = quality
                 channel.detected_region = region
+                channel.detected_title  = new_title
+                channel.detected_year   = new_year
                 channel.updated_at = datetime.now()
                 updated += 1
 

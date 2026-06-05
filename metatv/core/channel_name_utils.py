@@ -44,6 +44,13 @@ _DIGIT_QUALITY_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Parenthetical prefix at the very start of a name: (QFR) Title, (TUR) Title.
+# Distinct from _LANG_QUALIFIER_RE which matches at the END of a name.
+_PAREN_PREFIX_RE = re.compile(
+    r'^\(([A-Z]{2,5})\)\s+(.+)$',
+    re.IGNORECASE,
+)
+
 # Compound prefix: quality token + language/platform code, or vice versa, before a
 # separator. Handles "4K-DE - Title", "SE-4K - Title", "PL 4K - Title", and the
 # bracket-before-compound form "[US] 4K-DE - Title".
@@ -282,6 +289,8 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Regional streaming platforms
     "ASTRO": "Astro (Malaysia)",
     "F1TV":  "F1TV",
+    # French-Canadian / Quebec
+    "QFR": "Quebec French",
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
@@ -371,24 +380,48 @@ def parse_channel_name(name: str) -> ParsedChannel:
     bare = name.strip()
     region = ""
     _prefix_quality: str = ""  # set when a digit-starting quality token is the prefix
+    _bracket_origin: str = ""  # secondary lang/region from bracket or suffix
 
-    # 1. Extract prefix
-    m = _SEPARATOR_RE.match(bare)
-    if m:
-        region = normalize_region_code(m.group(1))
-        bare = m.group(2).strip()
+    # 1. Extract prefix — try compound first (catches "4K-SC", "SE-4K"), then standard
+    cm = _COMPOUND_PREFIX_RE.match(bare)
+    if cm:
+        compound_lang = (
+            cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
+        ).upper()
+        compound_q = (
+            cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
+        ).upper()
+        bracket = cm.group("bracket")
+        if compound_lang and compound_lang not in QUALITY_TOKENS:
+            region = normalize_region_code(compound_lang)
+            if compound_q:
+                _prefix_quality = compound_q  # appended to quality[] in step 7 (lower priority than suffix)
+            if bracket:
+                # bracket from "[US] 4K-DE - Title" becomes secondary lang (step 4)
+                _bracket_origin = normalize_region_code(bracket)
+            bare = cm.group("title").strip()
     else:
-        bm = _BRACKET_PREFIX_RE.match(bare)
-        if bm:
-            region = normalize_region_code(bm.group(1))
-            bare = bm.group(2).strip()
+        m = _SEPARATOR_RE.match(bare)
+        if m:
+            region = normalize_region_code(m.group(1))
+            bare = m.group(2).strip()
         else:
-            # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
-            # These are quality markers, not region codes — go in quality[], not region.
-            dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
-            if dq:
-                _prefix_quality = dq.group(1).upper()
-                bare = dq.group(2).strip()
+            bm = _BRACKET_PREFIX_RE.match(bare)
+            if bm:
+                region = normalize_region_code(bm.group(1))
+                bare = bm.group(2).strip()
+            else:
+                pm = _PAREN_PREFIX_RE.match(bare)
+                if pm:
+                    region = normalize_region_code(pm.group(1))
+                    bare = pm.group(2).strip()
+                else:
+                    # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
+                    # These are quality markers, not region codes — go in quality[], not region.
+                    dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
+                    if dq:
+                        _prefix_quality = dq.group(1).upper()
+                        bare = dq.group(2).strip()
 
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
@@ -398,7 +431,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # not a quality token) — these are captured as lang in step 4.
     # Also strips quality-token brackets like [4K], [UHD], [HD].
     audio = ""
-    _bracket_origin = ""  # e.g. "UK" from [UK] suffix
+    # _bracket_origin already initialized above; suffix bracket overrides compound bracket
     bsm = _BRACKET_SUFFIX_RE.search(bare)
     if bsm:
         content = bsm.group(1).strip().upper()
@@ -452,8 +485,10 @@ def parse_channel_name(name: str) -> ParsedChannel:
     bare, quality2 = _strip_quality(bare)
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
 
-    # 7. Prepend digit-starting quality prefix (e.g. "4K") at highest priority
-    if _prefix_quality:
-        quality = [_prefix_quality] + quality
+    # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
+    # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
+    # wins when both are present (e.g. "[US] 4K-DE - Movie UHD" → quality[0] = "UHD").
+    if _prefix_quality and _prefix_quality not in quality:
+        quality = quality + [_prefix_quality]
 
     return ParsedChannel(region, bare, quality, lang, year, audio)

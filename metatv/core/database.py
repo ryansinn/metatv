@@ -53,6 +53,8 @@ class ChannelDB(Base):
     detected_prefix = Column(String, index=True)   # Separator-delimited prefix token (e.g. "EN", "NF", "4K")
     detected_quality = Column(String, index=True)  # Quality token found anywhere in name (e.g. "HD", "4K", "UHD")
     detected_region = Column(String, index=True)   # Parenthetical lang/region suffix (e.g. "(US)"→"US", "(JP)"→"JP")
+    detected_title = Column(String)                # Bare channel name with all prefixes/suffixes stripped
+    detected_year = Column(String)                 # Year or range extracted from name (e.g. "2025", "1993-2002")
     logo_url = Column(Text)  # Channel logo/icon
     cover_url = Column(Text)  # Series/Movie cover art (for future use)
     epg_channel_id = Column(String)
@@ -404,6 +406,8 @@ class Database:
             ("channels",     "source_quality_flags",      "TEXT"),
             ("channels",     "detected_quality",           "TEXT"),
             ("channels",     "detected_region",            "TEXT"),
+            ("channels",     "detected_title",             "TEXT"),
+            ("channels",     "detected_year",              "TEXT"),
             ("channels",     "user_category",              "TEXT"),
             ("channels",     "category_mood",              "TEXT"),
         ]
