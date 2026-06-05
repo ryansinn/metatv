@@ -82,6 +82,20 @@ class ProviderLoadThread(QThread):
 
         channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
 
+        # Deduplicate by channel ID: some providers return the same stream_id in multiple
+        # category responses, producing duplicate channel.id values. Under no_autoflush the
+        # pending INSERT is not visible to merge()'s SELECT, causing UNIQUE constraint errors.
+        # Keep the last occurrence per ID (same result as repeated merge/UPDATE calls).
+        seen: dict[str, object] = {}
+        for ch in channels:
+            seen[ch.id] = ch
+        if len(seen) < len(channels):
+            logger.warning(
+                f"{self.provider.name}: dropped {len(channels) - len(seen):,} duplicate "
+                f"channel IDs (same stream_id in multiple categories)"
+            )
+        channels = list(seen.values())
+
         total = len(channels)
         logger.info(f"Loaded {total:,} items from {self.provider.name}")
 
