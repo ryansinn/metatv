@@ -491,6 +491,8 @@ class GlobalFilterDialog(QDialog):
         self._content_type_other_section: _ContentTypeSection | None = None
         # Separator / header widgets for the content-type section
         self._content_type_header_widgets: list[QWidget] = []
+        # Separator / header widgets for the platforms section
+        self._platform_header_widgets: list[QWidget] = []
         # User-defined category rows: list of (category_name, checkbox, row_widget)
         self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
 
@@ -673,6 +675,52 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.addWidget(section)
             self._sections.append(section)
 
+        # ── Platform sections ───────────────────────────────────────────────────
+        prefix_upper_counts: dict[str, int] = {p.upper(): c for p, c in prefix_counts}
+
+        platform_data: list[tuple[str, list[tuple[str, int]]]] = []
+        for group_name, codes in self._config.filter_platform_groups.items():
+            entries = [
+                (c, prefix_upper_counts.get(c.upper(), 0))
+                for c in codes
+                if prefix_upper_counts.get(c.upper(), 0) > 0
+            ]
+            if entries:
+                entries.sort(key=lambda x: -x[1])
+                platform_data.append((group_name, entries))
+
+        if platform_data:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet(_theme.SEP_DARK)
+            self._inner_vl.addWidget(sep)
+            self._platform_header_widgets.append(sep)
+
+            hdr_row = QHBoxLayout()
+            hdr = QLabel("Platforms")
+            hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+            hdr_row.addWidget(hdr)
+            info = QLabel("ⓘ")
+            info.setStyleSheet(_theme.INFO_LABEL)
+            info.setToolTip(
+                "Streaming services and broadcast platforms detected from channel\n"
+                "name prefixes (Netflix, Disney+, Sports, etc.).\n"
+                "Check a platform to globally exclude its channels."
+            )
+            hdr_row.addWidget(info)
+            hdr_row.addStretch()
+            hdr_w = QWidget()
+            hdr_w.setLayout(hdr_row)
+            self._inner_vl.addWidget(hdr_w)
+            self._platform_header_widgets.append(hdr_w)
+
+            for group_name, entries in sorted(platform_data):
+                initial = excluded & {p for p, _ in entries}
+                section = _GroupSection(group_name, entries, initial, config=self._config)
+                self._inner_vl.addWidget(section)
+                self._sections.append(section)
+
+        # ── Uncategorized (truly unmapped prefixes) ─────────────────────────────
         if other_entries:
             initial = excluded & {p for p, _ in other_entries}
             other_section = _GroupSection("Uncategorized", other_entries, initial, config=self._config)
@@ -829,6 +877,11 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.removeWidget(section)
             section.deleteLater()
         self._sections.clear()
+
+        for w in self._platform_header_widgets:
+            self._inner_vl.removeWidget(w)
+            w.deleteLater()
+        self._platform_header_widgets.clear()
 
         for _name, _cb, row in self._content_type_rows:
             self._inner_vl.removeWidget(row)
