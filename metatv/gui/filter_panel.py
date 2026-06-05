@@ -375,17 +375,21 @@ class FilterPanel(QWidget):
                 platform_prefixes.extend(
                     self.config.filter_platform_groups.get(grp, []))
 
+        # Snapshot whether any *named* axis is restricted BEFORE adding unid codes.
+        # Unid-only selection must NOT trigger cross-axis expansion — expansion would
+        # add all language/region/platform codes and make the filter a no-op.
+        named_axis_active = bool(language_prefixes or region_prefixes or platform_prefixes)
+
         # Unidentified codes join the language pool (same OR logic).
         if not unid_all:
             language_prefixes.extend(self._unid_sec.get_selected_keys())
 
-        # Cross-axis expansion: when any axis is restricted, the SQL identity filter
-        # activates and channels must match at least one axis condition to pass.
-        # Any unrestricted axis (all-selected) must be explicitly expanded here —
-        # otherwise its channels (e.g. EAR platform channels when only unid is filtered)
-        # get excluded because the identity condition doesn't include them.
-        any_active = bool(language_prefixes or region_prefixes or platform_prefixes)
-        if any_active:
+        # Cross-axis expansion: when a named axis (lang/region/plat) is restricted, the
+        # SQL identity filter activates and unrestricted axes must be explicitly expanded
+        # so their channels aren't excluded (e.g. platform channels when filtering language).
+        # When ONLY unidentified codes are selected this expansion is skipped — the
+        # intent is "show only these specific prefixes", not "show everything else too".
+        if named_axis_active:
             if lang_all:
                 for codes in self.config.filter_language_groups.values():
                     language_prefixes.extend(codes)

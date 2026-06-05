@@ -26,7 +26,6 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Arabic (Levant)":      ["LB", "SY", "JO", "PS", "IQ"],        # Levant / Mesopotamia
     "Arabic (North Africa)": ["EG", "MA", "TN", "DZ", "LY", "SD"], # North Africa / Maghreb
     # ── end Arabic ────────────────────────────────────────────────────────────
-    "Argentine":        ["ARG", "ARGENTINA"],
     "Armenian":         ["AM", "ARM"],
     "Azerbaijani":      ["AZ"],
     "Bulgarian":        ["BG"],

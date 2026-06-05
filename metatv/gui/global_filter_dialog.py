@@ -77,11 +77,12 @@ def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None 
 def _group_prefixes(
     prefix_counts: list[tuple[str, int]],
     language_groups: dict[str, list[str]],
+    platform_groups: dict[str, list[str]] | None = None,
 ) -> list[tuple[str, list[tuple[str, int]]]]:
-    """Group prefixes under language group names; unmatched go in 'Other'.
+    """Group prefixes under language/platform group names; unmatched go in 'Uncategorized'.
 
     Returns [(group_name, [(prefix, count)]), …] — named groups sorted
-    alphabetically, 'Other' last.
+    alphabetically, 'Uncategorized' last.
     """
     prefix_upper_map: dict[str, tuple[str, int]] = {
         p.upper(): (p, c) for p, c in prefix_counts
@@ -99,10 +100,18 @@ def _group_prefixes(
         if matched:
             named[group_name] = sorted(matched, key=lambda x: x[0])
 
+    # Also consume platform group codes so they don't appear in Uncategorized.
+    # Platform codes (NF, D+, etc.) are properly labelled in the filter panel's
+    # Platform section; they should not bleed into Uncategorized here.
+    if platform_groups:
+        for group_name, members in platform_groups.items():
+            for m in members:
+                remaining.discard(m.upper())
+
     result = [(g, named[g]) for g in sorted(named)]
     if remaining:
         other = sorted([prefix_upper_map[k] for k in remaining], key=lambda x: x[0])
-        result.append(("Other", other))
+        result.append(("Uncategorized", other))
     return result
 
 
@@ -178,6 +187,8 @@ class _GroupSection(QWidget):
     # ── Lazy body construction ─────────────────────────────────────────────────
 
     def _build_body(self) -> None:
+        from metatv.core.channel_name_utils import REGION_FULL_NAMES
+
         body_vl = QVBoxLayout(self._body)
         body_vl.setSpacing(2)
         body_vl.setContentsMargins(28, 2, 0, 4)
@@ -188,7 +199,9 @@ class _GroupSection(QWidget):
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(8)
 
-            cb = QCheckBox(prefix)
+            full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
+            label = f"[{prefix}] {full_name}" if full_name else prefix
+            cb = QCheckBox(label)
             cb.setChecked(prefix.upper() in self._initial_checked)
             cb.setStyleSheet("font-size: 12px; font-family: monospace;")
             cb.stateChanged.connect(self._on_prefix_changed)
@@ -641,13 +654,17 @@ class GlobalFilterDialog(QDialog):
             self._db,
             excluded_user_categories=set(self._config.global_filter_excluded_user_categories),
         )
-        all_groups = _group_prefixes(prefix_counts, self._config.filter_language_groups)
+        all_groups = _group_prefixes(
+            prefix_counts,
+            self._config.filter_language_groups,
+            platform_groups=self._config.filter_platform_groups,
+        )
         logger.debug(
             f"GlobalFilterDialog: {len(prefix_counts)} prefixes in {len(all_groups)} groups"
         )
 
-        named_groups = [(n, p) for n, p in all_groups if n != "Other"]
-        other_entries = next((p for n, p in all_groups if n == "Other"), [])
+        named_groups = [(n, p) for n, p in all_groups if n != "Uncategorized"]
+        other_entries = next((p for n, p in all_groups if n == "Uncategorized"), [])
 
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
@@ -658,7 +675,7 @@ class GlobalFilterDialog(QDialog):
 
         if other_entries:
             initial = excluded & {p for p, _ in other_entries}
-            other_section = _GroupSection("Other", other_entries, initial, config=self._config)
+            other_section = _GroupSection("Uncategorized", other_entries, initial, config=self._config)
             self._inner_vl.addWidget(other_section)
             self._sections.append(other_section)
 
