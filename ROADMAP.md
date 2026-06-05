@@ -89,23 +89,18 @@ What's left to build. Completed features live in git history.
 ## Code Health / Refactor
 
 See **[docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md)** for the full prioritized,
-file:line-level task list (full-codebase review 2026-06-01). Summary:
+file:line-level task list (full-codebase review 2026-06-01).
 
-- [x] **P0 — best-practice bug fixes** — all 4 done (2026-06-01, branch refactor/p0-correctness-bugs): session leak fix, EPG browse TZ fix, closeEvent shutdown calls, view lifecycle on_deactivate
-- [x] **P1 — deduplication** — all 5 done (2026-06-01): parse_provider_urls helper, _apply_favorite_toggle, config icons, import hoisting, executor thread leak fix
-- [x] **Band 3 — structural fixes** — all done (2026-06-01, branch refactor/band3-structural): WAL (was already on), closeEvent registry, session_scope(), JSONEncoded TypeDecorator, icons.py, EPG conversion boundary + 2 latent bug fixes; 134 tests
-- [x] **P2 — inline stylesheets → `theme.py`** — all 7 files done (2026-06-01, branch refactor/band4-styles): epg_view (63 calls), provider_editor (36), global_filter_dialog (30), similar_lightbox (24), filter_panel (23), sidebar_sections (19), details_sections (17); theme.py grew from 7 → 32 constants
-- [~] **P3 — decompose oversized files (>1000-line rule)** — partial (2026-06-04, branch refactor/band6, PR #7):
-  - [x] `sidebar_sections.py` (1402) → `gui/sidebar/` package (6 files, shim stays for compat)
-  - [x] `filter_panel.py` (1064) → `gui/filter_group_row.py` (483 lines) + `filter_panel.py` (597 lines)
-  - [x] `provider_editor.py` (1121) → `core/provider_probe.py` + `gui/url_row_widget.py`; down to 948 lines
-  - [~] `main_window.py` (3950 at B6 start) → passes 2–4 done (B6-1): nav/metadata/favorites extracted to 3 new mixins; down to **2457 lines**, 88 methods. Pass 5 needed: extract _ChannelLoadMixin (~500 lines load_channels/bg_load/on_channels_loaded) + _SeriesMixin (~500 lines series/episode) to reach <1000.
-  - [ ] `epg_view.py` (2157) → tab split (B6-2) deferred to dedicated session; requires GUI smoke-test (90+ methods, deeply coupled cross-tab state: shared worker, _data signal, timers)
-- [x] **P4 — status-set dedup** (B6-3, 2026-06-04): audited 5 sites — legitimately different sets for different purposes; added `WatchQueueRepository.get_queued_ids()` helper used at 3 call sites; `--help` artifact confirmed absent
-- [x] **Band 6 cleanups** (2026-06-04, PR #7): B6-7 stream validation off UI thread (play_media non-blocking), B6-8 session_scope in streaming, B6-9 hoisted imports, B6-10 unit tests for provider_probe + _format_probe_message (19 new tests, 196 total)
-- [x] **Band 6 merged** (2026-06-05, PR #7 squash `2e7ef5b`): B6-1 main_window passes 2–4 (nav/metadata/favorites mixins, 3950 → 2457), B6-3 status-set dedup + `get_queued_ids()`, plus bundled feature work (context-filter chips, year-derivation, details-pane redesign, compound/bracket prefix parsing → `_PREFIX_PARSE_VERSION` 4); 291 tests
+**Bands 1–6 complete** (2026-06-01 → 06-05; details in git history): P0 best-practice bug fixes,
+P1/P4 deduplication, Band 3 structural fixes (session_scope, closeEvent registry, JSONEncoded,
+icons.py, EPG conversion boundary), P2 inline-styles → `theme.py` tokens, P3 file splits
+(`sidebar_sections` → `gui/sidebar/`, `filter_panel` → `filter_group_row`, `provider_editor` →
+`provider_probe` + `url_row_widget`), and Band 6 — `main_window.py` passes 2–4 (nav/metadata/
+favorites mixins, 3950 → 2457), off-thread streaming, status-set dedup (merged as PR #7 squash
+`2e7ef5b`; 291 tests). Open:
+
 - [ ] **Band 7 — responsiveness seam + finish decomposition** (planned 2026-06-05): see **[docs/REFACTOR_PLAN_BAND7.md](docs/REFACTOR_PLAN_BAND7.md)** + **[docs/SONNET_EXECUTION_PROMPT_BAND7.md](docs/SONNET_EXECUTION_PROMPT_BAND7.md)**. Build one reusable async-read seam (`_run_query`) + repository DTOs (B7-1/2); move EPG count, series tree, sidebar refresh, and hot context-menu reads off the UI thread (B7-3…B7-6); finish the <1000 splits — main_window pass 5, epg_view tab split (was B6-2), channel.py repo split (B7-7/8/9); cleanups — dead streaming params, Exclusions-chip dead zone, DRY the bracket-classification ladder (B7-10/11/12). One concern per PR.
-- [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes fully clickable after a notification appears and dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover styles did NOT fix it. Likely a z-order or geometry-timing issue in the bottom nav bar at startup. Needs investigation of `notification_widget.py` show/hide side-effects and bottom nav bar layout initialisation. *(Tracked as B7-11.)*
+- [ ] **Exclusions chip dead zone** (B7-11) — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover did NOT fix it. Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
 
 ## Platform & Distribution
 
