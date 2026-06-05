@@ -342,6 +342,7 @@ class _MetadataSection(QWidget):
         parsed = parse_channel_name(channel.name)
         clean_title = parsed.bare_name if parsed.bare_name else channel.name
         self.title_label.setText(clean_title)
+        self.title_label.setToolTip(channel.name)
 
         # Prefix chip — shows detected category code (EN, NF, D+, etc.).
         # Quality tokens (4K, HD, etc.) are not region/platform chips; skip them.

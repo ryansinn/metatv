@@ -594,6 +594,11 @@ class ChannelRepository:
             # Normalize full country/language names to standard codes:
             # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
             prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
+            # Reject digit-only codes — these are provider-internal category numbers
+            # (e.g. "300" from "300  - 2007"), not valid display prefixes.
+            if prefix and re.match(r'^\d+$', prefix):
+                prefix = None
+                raw_prefix = None
 
             parsed = parse_channel_name(channel.name)
 
@@ -642,10 +647,22 @@ class ChannelRepository:
                 quality = compound_quality
             elif prefix and prefix.upper() in QUALITY_TOKENS:
                 quality = prefix.upper()
+                prefix = None  # quality token must not display as a category prefix
             elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
                 api_q = channel.quality.upper()
                 if api_q in QUALITY_TOKENS:
                     quality = api_q
+
+            # Safety net: Guard #3 only fires when Guards 1 and 2 didn't. If Guard 1
+            # (parsed.quality) fired first, prefix is still "4K". Clear it here regardless.
+            if prefix and prefix.upper() in QUALITY_TOKENS:
+                prefix = None
+
+            # If prefix was cleared (quality token) or rejected (numeric guard), fall back to
+            # what parse_channel_name extracted in step 1. This lets "[4K] [US] Title" store
+            # detected_prefix = "US" rather than None after Guard #3 cleared "4K".
+            if prefix is None and parsed.region:
+                prefix = parsed.region
 
             # detected_region: bracket secondary (from compound decomposition) takes
             # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
@@ -653,6 +670,18 @@ class ChannelRepository:
 
             new_title = parsed.bare_name or None
             new_year  = parsed.year or None
+
+            # If extract_prefix set a prefix that parse_channel_name couldn't strip
+            # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
+            # are not handled), do the strip manually now.
+            if prefix and raw_prefix and new_title:
+                _strip_m = re.match(
+                    rf'^{re.escape(raw_prefix)}\s*(?:[★|]|-\s+)\s*(.+)$',
+                    new_title,
+                    re.IGNORECASE,
+                )
+                if _strip_m:
+                    new_title = _strip_m.group(1).strip()
 
             changed = (
                 prefix != channel.detected_prefix

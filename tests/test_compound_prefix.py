@@ -64,6 +64,15 @@ def _prefixes(db_session, repo, name: str, api_quality: str = "") -> tuple:
     return ch.detected_prefix, ch.detected_quality, ch.detected_region
 
 
+def _all_fields(db_session, repo, name: str, api_quality: str = "") -> tuple:
+    """Like _prefixes but also returns detected_title and detected_year."""
+    ch = make_channel(db_session, name, quality=api_quality)
+    db_session.commit()
+    repo.update_detected_prefixes()
+    db_session.refresh(ch)
+    return ch.detected_prefix, ch.detected_quality, ch.detected_region, ch.detected_title, ch.detected_year
+
+
 # ── QUALITY-LANG form (e.g. 4K-DE) ──────────────────────────────────────────
 
 def test_4k_de_sets_lang_and_quality(db_session, repo):
@@ -210,11 +219,10 @@ def test_bracket_channel_without_compound_unaffected(db_session, repo):
 
 
 def test_pure_quality_prefix_unaffected(db_session, repo):
-    """4K - Movie (standalone quality prefix, no lang): stays as quality prefix."""
+    """4K - Movie (standalone quality prefix, no lang): quality captured, prefix cleared."""
     prefix, quality, _ = _prefixes(db_session, repo, "4K - The Movie")
-    # detected_prefix for a pure quality prefix should be "4K" (from extract_prefix)
-    # and detected_quality should be "4K" (from the quality-as-prefix tier)
     assert quality == "4K"
+    assert prefix is None  # Guard #3 clears quality tokens from detected_prefix
 
 
 # ── [4K] bracket suffix quality detection ───────────────────────────────────
@@ -354,6 +362,68 @@ def test_f1tv_bracket_sets_region(db_session, repo):
     """[F1TV] platform bracket → detected_region = 'F1TV'."""
     _, _, region = _prefixes(db_session, repo, "ES - Carrera F1 GP Monaco 2024 [F1TV]")
     assert region == "F1TV"
+
+
+# ── Regression: numeric prefix guard ─────────────────────────────────────────
+# extract_prefix() splits on separators and can yield numeric codes like "300"
+# from "300  - 2007". These are provider-internal category numbers and must NOT
+# be stored as detected_prefix (they were previously hidden by the old render-time
+# parse_channel_name() call which uses a stricter [A-Z]-first regex).
+
+def test_numeric_prefix_not_stored(db_session, repo):
+    """'300  - 2007': purely-numeric extract_prefix result must not land in detected_prefix."""
+    prefix, quality, region, title, year = _all_fields(db_session, repo, "300  - 2007")
+    assert prefix is None, f"numeric prefix should be None, got {prefix!r}"
+    assert title == "300", f"title should be '300', got {title!r}"
+    assert year == "2007", f"year should be '2007', got {year!r}"
+
+
+# ── Regression: Guard-3 must clear prefix for quality tokens ─────────────────
+# Before the fix, "4K" extracted by extract_prefix was moved to quality by Guard #3
+# but not cleared from prefix → detected_prefix="4K" AND detected_quality="4K".
+
+def test_quality_pipe_prefix_not_stored_as_display_prefix(db_session, repo):
+    """'4K| Title': quality token as separator prefix must clear detected_prefix."""
+    prefix, quality, _, title, _ = _all_fields(db_session, repo, "4K| SKY SPORTS UHD")
+    assert prefix is None, f"quality-as-prefix should clear detected_prefix, got {prefix!r}"
+    assert quality is not None, "quality should be captured"
+
+
+# ── New: [4K] [REGION] bracket format ────────────────────────────────────────
+# Providers send "[4K] [US] Title [4K] 2026" — two bracket groups at start,
+# first is quality, second is region. Previously both stayed in detected_title.
+
+def test_quality_bracket_then_region_bracket(db_session, repo):
+    """'[4K] [US] A Knight... [4K] (2026)': prefix=US, quality=4K, title stripped."""
+    prefix, quality, _, title, year = _all_fields(
+        db_session, repo, "[4K] [US] A Knight of the Seven Kingdoms [4K] (2026)"
+    )
+    assert prefix == "US", f"expected prefix='US', got {prefix!r}"
+    assert quality == "4K", f"expected quality='4K', got {quality!r}"
+    assert title == "A Knight of the Seven Kingdoms", f"title wrong: {title!r}"
+    assert year == "2026", f"year wrong: {year!r}"
+
+
+def test_uhd_bracket_then_region_bracket(db_session, repo):
+    """'[UHD] [SC] Movie Title': alpha quality bracket + region bracket."""
+    prefix, quality, _, title, _ = _all_fields(
+        db_session, repo, "[UHD] [SC] Movie Title"
+    )
+    assert prefix == "SC", f"expected prefix='SC', got {prefix!r}"
+    assert quality == "UHD", f"expected quality='UHD', got {quality!r}"
+    assert title == "Movie Title", f"title wrong: {title!r}"
+
+
+# ── New: digit-starting prefix title stripping ───────────────────────────────
+# "24/7 ★ Trust Me": extract_prefix correctly extracts "24/7" as a platform prefix,
+# but parse_channel_name's _SEPARATOR_RE (requires [A-Z] first char) can't strip it.
+# update_detected_prefixes must strip it manually so detected_title = "Trust Me".
+
+def test_247_platform_prefix_title_stripped(db_session, repo):
+    """'24/7 ★ Trust Me': platform prefix detected, title stripped to 'Trust Me'."""
+    prefix, _, _, title, _ = _all_fields(db_session, repo, "24/7 ★ Trust Me")
+    assert prefix == "24/7", f"expected prefix='24/7', got {prefix!r}"
+    assert title == "Trust Me", f"title should be 'Trust Me' (not '24/7 ★ Trust Me'), got {title!r}"
 
 
 def test_unrecognised_sports_session_stays_in_title(db_session, repo):

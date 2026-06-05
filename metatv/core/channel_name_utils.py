@@ -44,6 +44,14 @@ _DIGIT_QUALITY_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bracket-enclosed quality token at name start where the token begins with a digit.
+# _BRACKET_PREFIX_RE requires [A-Z] as its first char, so [4K] and [8K] fall through
+# without this. Used in step 1 of parse_channel_name to handle "[4K] [US] Title" format.
+_QUALITY_DIGIT_BRACKET_RE = re.compile(
+    r'^\[(4K|8K)\]\s*(.+)$',
+    re.IGNORECASE,
+)
+
 # Parenthetical prefix at the very start of a name: (QFR) Title, (TUR) Title.
 # Distinct from _LANG_QUALIFIER_RE which matches at the END of a name.
 _PAREN_PREFIX_RE = re.compile(
@@ -406,22 +414,45 @@ def parse_channel_name(name: str) -> ParsedChannel:
             region = normalize_region_code(m.group(1))
             bare = m.group(2).strip()
         else:
-            bm = _BRACKET_PREFIX_RE.match(bare)
-            if bm:
-                region = normalize_region_code(bm.group(1))
-                bare = bm.group(2).strip()
+            # [4K]/[8K] bracket at start — digit-first so _BRACKET_PREFIX_RE won't match.
+            # Handles "[4K] [US] Title" and "[4K] Title" provider formats.
+            qd = _QUALITY_DIGIT_BRACKET_RE.match(bare)
+            if qd:
+                _prefix_quality = qd.group(1).upper()
+                bare = qd.group(2).strip()
+                # Check for a following region bracket: [4K] [US] Title → region="US"
+                bm2 = _BRACKET_PREFIX_RE.match(bare)
+                if bm2:
+                    region = normalize_region_code(bm2.group(1))
+                    bare = bm2.group(2).strip()
             else:
-                pm = _PAREN_PREFIX_RE.match(bare)
-                if pm:
-                    region = normalize_region_code(pm.group(1))
-                    bare = pm.group(2).strip()
+                bm = _BRACKET_PREFIX_RE.match(bare)
+                if bm:
+                    code = bm.group(1).upper()
+                    if code in QUALITY_TOKENS:
+                        # Quality token in letter-bracket form: [HD], [UHD], [FHD] at start.
+                        _prefix_quality = code
+                        bare = bm.group(2).strip()
+                        # Check for a following region bracket: [UHD] [SC] Title → region="SC"
+                        bm2 = _BRACKET_PREFIX_RE.match(bare)
+                        if bm2 and bm2.group(1).upper() not in QUALITY_TOKENS:
+                            region = normalize_region_code(bm2.group(1))
+                            bare = bm2.group(2).strip()
+                    else:
+                        region = normalize_region_code(code)
+                        bare = bm.group(2).strip()
                 else:
-                    # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
-                    # These are quality markers, not region codes — go in quality[], not region.
-                    dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
-                    if dq:
-                        _prefix_quality = dq.group(1).upper()
-                        bare = dq.group(2).strip()
+                    pm = _PAREN_PREFIX_RE.match(bare)
+                    if pm:
+                        region = normalize_region_code(pm.group(1))
+                        bare = pm.group(2).strip()
+                    else:
+                        # Digit-starting quality token prefix (e.g. "4K - Title", "8K ★ Title").
+                        # These are quality markers, not region codes — go in quality[], not region.
+                        dq = _DIGIT_QUALITY_PREFIX_RE.match(bare)
+                        if dq:
+                            _prefix_quality = dq.group(1).upper()
+                            bare = dq.group(2).strip()
 
     # 2. Strip quality tokens from end (first pass)
     bare, quality = _strip_quality(bare)
