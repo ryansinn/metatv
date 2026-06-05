@@ -116,6 +116,7 @@ _AUDIO_NORM: dict[str, str] = {
 # Platform codes — displayed with steel blue chip instead of grey
 PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
+    "ASTRO", "F1TV",
 })
 
 # Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
@@ -135,6 +136,26 @@ _BRACKET_QUALITY_ALIASES: dict[str, str] = {
     "VERSION CAM":  "CAM",
     "CAM VERSION":  "CAM",
     "V.CAM":        "CAM",
+}
+
+# Full language names in bracket suffixes → 2-letter codes → stored as detected_region.
+# Covers dubbed/localized audio tracks: "EN ★ Movie [SPANISH]" → detected_region = "ES".
+# Keys are uppercased; values are the canonical ISO-639-1 / REGION_FULL_NAMES code.
+_BRACKET_LANG_NORM: dict[str, str] = {
+    "SPANISH":    "ES",
+    "FRENCH":     "FR",
+    "HINDI":      "HI",
+    "KOREAN":     "KR",
+    "TURKISH":    "TR",
+    "ARABIC":     "AR",
+    "GERMAN":     "DE",
+    "ITALIAN":    "IT",
+    "PORTUGUESE": "PT",
+    "RUSSIAN":    "RU",
+    "JAPANESE":   "JP",
+    "CHINESE":    "CN",
+    "THAI":       "TH",
+    "POLISH":     "PL",
 }
 
 _FULL_NAME_TO_CODE: dict[str, str] = {
@@ -254,6 +275,9 @@ REGION_FULL_NAMES: dict[str, str] = {
     "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali", "MR": "Marathi",
     "GU": "Gujarati", "PA": "Punjabi", "FA": "Farsi / Persian", "KU": "Kurdish",
     "OR": "Odia", "BHO": "Bhojpuri",
+    # Regional streaming platforms
+    "ASTRO": "Astro (Malaysia)",
+    "F1TV":  "F1TV",
     # Sports leagues / brands
     "EPL": "English Premier League", "EFL": "English Football League",
     "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
@@ -355,6 +379,15 @@ def parse_channel_name(name: str) -> ParsedChannel:
             # isalpha() fails for "4K" so this must come before the origin-bracket check.
             quality.insert(0, content)
             bare = bare[: bsm.start()].strip()
+        elif (lang_code := _BRACKET_LANG_NORM.get(content)):
+            # Full language name like [SPANISH], [HINDI] → 2-letter code in detected_region.
+            _bracket_origin = lang_code
+            bare = bare[: bsm.start()].strip()
+        elif content in PLATFORM_CODES:
+            # Platform bracket like [ASTRO], [F1TV] — longer than 3 chars or has digits,
+            # so the isalpha()+len check below wouldn't catch them.
+            _bracket_origin = content
+            bare = bare[: bsm.start()].strip()
         elif (len(content) in (2, 3) and content.isalpha()
               and content not in QUALITY_TOKENS):
             # Content-origin bracket like [UK], [US], [DE] — same semantics as (UK)
@@ -389,6 +422,15 @@ def parse_channel_name(name: str) -> ParsedChannel:
             bare = bare[: bsm2.start()].strip()
         elif content2 in QUALITY_TOKENS:
             quality.insert(0, content2)
+            bare = bare[: bsm2.start()].strip()
+        elif (lang_code2 := _BRACKET_LANG_NORM.get(content2)):
+            # Step 4 already ran so update lang directly (not just _bracket_origin)
+            _bracket_origin = lang_code2
+            lang = lang_code2
+            bare = bare[: bsm2.start()].strip()
+        elif content2 in PLATFORM_CODES:
+            _bracket_origin = content2
+            lang = content2
             bare = bare[: bsm2.start()].strip()
 
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year

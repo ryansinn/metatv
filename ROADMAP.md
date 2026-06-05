@@ -11,7 +11,7 @@ What's left to build. Completed features live in git history.
 
 ## Metadata & Enrichment
 
-- [ ] **Genre normalization to canonical English** — genres from non-English providers arrive in various languages (e.g. "Comédie", "Komödie", "喜剧" all meaning "Comedy"). Normalize all genre values to a canonical English vocabulary at ingestion time so that search, filter matching, deduplication, and recommendation scoring operate on a unified taxonomy. Display text remains the raw provider value until the i18n/locale layer is built; the canonical form is stored separately (e.g. `genre_canonical`). Scope: ingestion pipeline in `metadata_manager.py` or `channel_name_utils.py`; needs a mapping table seeded from known IPTV provider genre strings.
+- [~] **Genre normalization to canonical English** — `_GENRE_NORM` dict in `metatv/core/repositories/channel.py` normalizes French, German, Spanish, Italian, Dutch, and Arabic genres at query time (applied in `get_prefix_stats` and `normalize_genre()`). Arabic variants added 2026-06-05. Remaining gaps: Chinese, Japanese, Persian, Hindi script genres; a live-DB sanity scan to surface high-volume unrecognized genres should be added as a developer tool or CI check. Display text remains the raw provider value; the i18n layer (future) translates canonical English → user locale in the other direction.
 - [ ] **TMDb / OMDb providers** — architecture in place; need API key config UI + implementations
 - [ ] **Xtream VOD API enhancement** — use `get_vod_info()` / `get_live_info()` for full metadata instead of basic stream list
 - [ ] **Episode-level metadata** — extract from series_info response; show in details pane per episode
@@ -79,6 +79,7 @@ What's left to build. Completed features live in git history.
 - [ ] **Keyboard shortcuts** — Ctrl+F focus search, arrow key nav, Esc clear search
 - [ ] **Dark mode / theme selection**
 - [ ] **Embedded player** option (split-pane mpv in-app)
+- [ ] **Channel sub-attributes / session type tags** — bracket suffixes like `[FP1]`, `[RACE]`, `[SPRINT]`, `[Prelims]`, `[Main Card]`, `[EVENT ONLY]` encode valuable sub-category data (Formula 1 session type; UFC/combat sports segment). No DB field exists today to store these — they're left in the bare channel title for now. Needs a `channel_tags` or `session_type` JSON column so sessions can be filtered ("show me only F1 Race rounds, not practice"). Related: `[WEST]`/`[EAST]` US regional variants would also benefit from a sub-region field.
 - [ ] **Episode history tracking fix** — debug logging to trace why parent channel lookup sometimes fails for history updates
 - [ ] **Restore ratings display in details pane** — the 👍/👎 rating controls have gone missing from the details panel; re-add them to the details pane layout. Bug: was present, now absent.
 - [ ] **Details pane — move "Source:" beneath title/year** — relocate the Source field (currently below the metadata block) to the right side of the title row, inline with or directly beneath the title + year line; keeps the primary content area cleaner and puts provenance info near the header where it's most useful

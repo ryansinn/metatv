@@ -118,6 +118,21 @@ _GENRE_NORM: dict[str, str] = {
     "talk show":                "Talk Show",
     "talk":                     "Talk Show",
     "variety":                  "Talk Show",
+    # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
+    "دراما":                    "Drama",
+    "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
+    "كوميديا":                  "Comedy",
+    "ﻛﻮﻣﻴﺪﻱ":                  "Comedy",   # Arabic presentation-form variant
+    "وثائقي":                   "Documentary",
+    "جريمة":                    "Crime",
+    "رعب":                      "Horror",
+    "إثارة":                    "Thriller",
+    "رومانسي":                  "Romance",
+    "مغامرة":                   "Adventure",
+    "أكشن":                     "Action & Adventure",
+    "أطفال":                    "Kids",
+    "تاريخي":                   "History",
+    "رياضة":                    "Sport",
 }
 
 _GENRE_SEP_RE = re.compile(r"[,/]")

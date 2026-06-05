@@ -272,3 +272,54 @@ def test_cam_variants_all_yield_cam_quality(db_session, repo, channel_name):
     _, quality, region = _prefixes(db_session, repo, channel_name)
     assert quality == "CAM", f"{channel_name!r}: expected quality='CAM', got {quality!r}"
     assert region is None, f"{channel_name!r}: cam bracket must not land in detected_region, got {region!r}"
+
+
+# ── Full language name bracket → detected_region ─────────────────────────────
+
+@pytest.mark.parametrize("channel_name,exp_region", [
+    ("EN ★ 27 Nights - 2025 [SPANISH]",                   "ES"),
+    ("EN ★ A Place to Fight For - 2023 [FRENCH] [4k]",    "FR"),
+    ("EN ★ Bison Kaalamaadan - 2025 [HINDI]",             "HI"),
+    ("EN ★ Attack 13 - 2025 [KOREAN]",                    "KR"),
+    ("EN ★ 10 Days of a Bad Man - 2023 [Turkish] [4k]",   "TR"),
+    ("EN - Movie [ARABIC]",                               "AR"),
+    ("EN - Film [GERMAN]",                                "DE"),
+    ("EN - Title [PORTUGUESE]",                           "PT"),
+])
+def test_full_language_name_bracket_sets_region(db_session, repo, channel_name, exp_region):
+    """Full language name in bracket suffix maps to 2-letter code in detected_region."""
+    prefix, _, region = _prefixes(db_session, repo, channel_name)
+    assert region == exp_region, f"{channel_name!r}: expected region={exp_region!r}, got {region!r}"
+    assert prefix == "EN", f"{channel_name!r}: prefix should still be EN, got {prefix!r}"
+
+
+def test_language_bracket_plus_quality_both_captured(db_session, repo):
+    """[FRENCH] [4k] — both language and quality captured correctly."""
+    prefix, quality, region = _prefixes(
+        db_session, repo, "EN ★ A Place to Fight For - 2023 [FRENCH] [4k]"
+    )
+    assert region == "FR"
+    assert quality == "4K"
+
+
+# ── Platform code brackets → detected_region ─────────────────────────────────
+
+def test_astro_bracket_sets_region(db_session, repo):
+    """[ASTRO] platform bracket → detected_region = 'ASTRO'."""
+    _, _, region = _prefixes(db_session, repo, "MY| AOD 351 [ASTRO]")
+    assert region == "ASTRO"
+
+
+def test_f1tv_bracket_sets_region(db_session, repo):
+    """[F1TV] platform bracket → detected_region = 'F1TV'."""
+    _, _, region = _prefixes(db_session, repo, "ES - Carrera F1 GP Monaco 2024 [F1TV]")
+    assert region == "F1TV"
+
+
+def test_unrecognised_sports_session_stays_in_title(db_session, repo):
+    """[RACE] is not a known bracket type — stays in the bare title, not stored."""
+    prefix, quality, region = _prefixes(
+        db_session, repo, "ES - Formula 1 - 2024 - Austria [RACE]"
+    )
+    assert region is None
+    assert quality is None
