@@ -138,6 +138,7 @@ class EpgAgendaWidget(QWidget):
 
         title_lbl = QLabel(prog.title)
         title_lbl.setWordWrap(True)
+        title_lbl.setMinimumWidth(0)  # prevent long EPG title from expanding scroll area
         title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #f0f0f0;")
         layout.addWidget(title_lbl)
 

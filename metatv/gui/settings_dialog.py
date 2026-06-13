@@ -1,15 +1,25 @@
-"""Settings dialog with Playback and Metadata/API Keys tabs."""
+"""Settings dialog with Playback, Metadata/API Keys, and Sidebar tabs."""
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QFormLayout, QComboBox, QCheckBox, QSpinBox, QLineEdit,
-    QPushButton, QLabel, QDialogButtonBox, QGroupBox,
+    QPushButton, QLabel, QDialogButtonBox, QGroupBox, QListWidget, QListWidgetItem,
 )
 from loguru import logger
 
 from metatv.core.config import Config
+
+_SIDEBAR_SECTION_LABELS: dict[str, str] = {
+    "alerts":      "Alerts",
+    "recommended": "Recommended",
+    "queue":       "Watch Queue",
+    "favorites":   "Favorites",
+    "history":     "History",
+    "sources":     "Sources",
+}
+_ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 
 class SettingsDialog(QDialog):
@@ -31,6 +41,7 @@ class SettingsDialog(QDialog):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_playback_tab(), "Playback")
         self._tabs.addTab(self._build_metadata_tab(), "Metadata & API Keys")
+        self._tabs.addTab(self._build_sidebar_tab(), "Sidebar")
         layout.addWidget(self._tabs)
 
         buttons = QDialogButtonBox(
@@ -184,6 +195,61 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return tab
 
+    def _build_sidebar_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        hint = QLabel(
+            "Check sections to show them. Use the arrows to reorder.\n"
+            "Visibility changes apply immediately; order changes take effect after restart."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(hint)
+
+        self._sidebar_list = QListWidget()
+        self._sidebar_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self._sidebar_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self._sidebar_list.setFixedHeight(200)
+        layout.addWidget(self._sidebar_list)
+
+        arrow_row = QHBoxLayout()
+        up_btn = QPushButton("▲  Move Up")
+        up_btn.setFixedWidth(110)
+        up_btn.clicked.connect(self._sidebar_move_up)
+        down_btn = QPushButton("▼  Move Down")
+        down_btn.setFixedWidth(110)
+        down_btn.clicked.connect(self._sidebar_move_down)
+        arrow_row.addWidget(up_btn)
+        arrow_row.addWidget(down_btn)
+        arrow_row.addStretch()
+        layout.addLayout(arrow_row)
+
+        self._sidebar_restart_hint = QLabel("")
+        self._sidebar_restart_hint.setStyleSheet("color: #f0a000; font-size: 11px;")
+        layout.addWidget(self._sidebar_restart_hint)
+
+        layout.addStretch()
+        return tab
+
+    def _sidebar_move_up(self) -> None:
+        row = self._sidebar_list.currentRow()
+        if row > 0:
+            item = self._sidebar_list.takeItem(row)
+            self._sidebar_list.insertItem(row - 1, item)
+            self._sidebar_list.setCurrentRow(row - 1)
+            self._sidebar_restart_hint.setText("ℹ  Restart required for order changes to take effect.")
+
+    def _sidebar_move_down(self) -> None:
+        row = self._sidebar_list.currentRow()
+        if 0 <= row < self._sidebar_list.count() - 1:
+            item = self._sidebar_list.takeItem(row)
+            self._sidebar_list.insertItem(row + 1, item)
+            self._sidebar_list.setCurrentRow(row + 1)
+            self._sidebar_restart_hint.setText("ℹ  Restart required for order changes to take effect.")
+
     def _load_values(self):
         """Populate widgets from current config."""
         c = self.config
@@ -214,6 +280,24 @@ class SettingsDialog(QDialog):
         self._tmdb_lang_input.setText(c.metadata_tmdb_language)
         self._omdb_key_input.setText(c.metadata_omdb_api_key)
 
+        # Sidebar
+        ordered = list(c.sidebar_sections or _ALL_SIDEBAR_SECTIONS)
+        visible = set(c.sidebar_visible_sections or _ALL_SIDEBAR_SECTIONS)
+        # Append any known sections not yet in the saved order (e.g. new sections added after install)
+        for sid in _ALL_SIDEBAR_SECTIONS:
+            if sid not in ordered:
+                ordered.append(sid)
+        self._sidebar_list.clear()
+        for sid in ordered:
+            label = _SIDEBAR_SECTION_LABELS.get(sid, sid)
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, sid)
+            item.setCheckState(
+                Qt.CheckState.Checked if sid in visible else Qt.CheckState.Unchecked
+            )
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            self._sidebar_list.addItem(item)
+
     def _save_values(self):
         """Write widget values back to config and persist."""
         c = self.config
@@ -241,6 +325,18 @@ class SettingsDialog(QDialog):
         c.metadata_tmdb_api_key = self._tmdb_key_input.text().strip()
         c.metadata_tmdb_language = self._tmdb_lang_input.text().strip()
         c.metadata_omdb_api_key = self._omdb_key_input.text().strip()
+
+        # Sidebar
+        new_order = []
+        new_visible = []
+        for i in range(self._sidebar_list.count()):
+            item = self._sidebar_list.item(i)
+            sid = item.data(Qt.ItemDataRole.UserRole)
+            new_order.append(sid)
+            if item.checkState() == Qt.CheckState.Checked:
+                new_visible.append(sid)
+        c.sidebar_sections = new_order
+        c.sidebar_visible_sections = new_visible
 
         c.save()
         logger.info("Settings saved")

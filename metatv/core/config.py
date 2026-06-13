@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from typing import Optional
+import shutil
+import tempfile
 import yaml
 from pydantic import BaseModel, Field
 from loguru import logger
@@ -609,8 +611,8 @@ class Config(BaseModel):
     font_size: int = 0  # 0 = system default
     
     # Sidebar Configuration
-    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "queue", "recommended", "favorites", "history", "sources"])
-    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "queue", "recommended", "favorites", "history", "sources"])
+    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
+    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
@@ -823,51 +825,138 @@ class Config(BaseModel):
         if changed:
             self.save()
 
+    def model_post_init(self, __context):
+        """Initialize database_url if not set"""
+        if not self.database_url:
+            db_path = self.data_dir / "metatv.db"
+            self.database_url = f"sqlite:///{db_path}"
+
     class Config:
         arbitrary_types_allowed = True
 
     @classmethod
-    def load(cls) -> "Config":
-        """Load configuration from file or create default"""
+    def load(cls) -> tuple["Config", bool]:
+        """Load configuration from file or create default.
+
+        Returns:
+            (config, recovered_from_backup) - recovered_from_backup is True if config was empty/corrupt
+            and was restored from .bak file.
+        """
         config_dir = Path.home() / ".config" / "metatv"
         config_file = config_dir / "config.yaml"
-        
+        backup_file = config_dir / "config.yaml.bak"
+
+        config = None
+        recovered_from_backup = False
+        data = {}
+
         if config_file.exists():
             try:
                 with open(config_file) as f:
                     data = yaml.safe_load(f) or {}
-                logger.info(f"Loaded config from {config_file}")
-                config = cls(**data)
-                config._inject_new_sections()
-                return config
+
+                # Check if config is empty/corrupt (missing database_url indicates corruption)
+                if not data or not data.get("database_url"):
+                    logger.warning("Config file is empty or missing database_url")
+                    # Try to restore from backup
+                    if backup_file.exists():
+                        logger.warning("Attempting to restore from backup")
+                        try:
+                            with open(backup_file) as f:
+                                data = yaml.safe_load(f) or {}
+                            if data:
+                                recovered_from_backup = True
+                                logger.info("Successfully restored config from backup")
+                            else:
+                                logger.error("Backup file is also empty")
+                                data = {}
+                        except Exception as e:
+                            logger.error(f"Failed to load backup: {e}")
+                            data = {}
+                    else:
+                        logger.warning("No backup available, creating fresh config")
+                        data = {}
+                else:
+                    logger.info(f"Loaded config from {config_file}")
+
+                if data:
+                    config = cls(**data)
+                    config._inject_new_sections()
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
+                # Try backup on parse error
+                if backup_file.exists():
+                    logger.warning("Config parse error, attempting backup restore")
+                    try:
+                        with open(backup_file) as f:
+                            data = yaml.safe_load(f) or {}
+                        if data:
+                            config = cls(**data)
+                            config._inject_new_sections()
+                            recovered_from_backup = True
+                    except Exception as e2:
+                        logger.error(f"Backup restore also failed: {e2}")
 
-        # Create default config
-        config = cls()
-        config.save()
-        return config
+        # Create default config if load failed
+        if not config:
+            logger.info("Creating fresh default config")
+            config = cls()
+            # Note: Don't save fresh config to backup yet — only save after successful load
+            # The first save() will create the backup
+
+        return config, recovered_from_backup
     
     def save(self):
-        """Save configuration to file"""
+        """Save configuration to file using atomic writes (temp file → replace).
+
+        Creates config.yaml.bak backup of the current valid config before overwriting.
+        Uses atomic writes to prevent truncation on crash/interrupt.
+        """
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Set database URL if not set
         if not self.database_url:
             db_path = self.data_dir / "metatv.db"
             self.database_url = f"sqlite:///{db_path}"
-        
+
         config_file = self.config_dir / "config.yaml"
-        
+        backup_file = self.config_dir / "config.yaml.bak"
+
+        # Back up current config if it exists and is valid
+        if config_file.exists() and config_file.stat().st_size > 0:
+            try:
+                shutil.copy2(config_file, backup_file)
+                logger.debug(f"Backed up config to {backup_file}")
+            except Exception as e:
+                logger.warning(f"Failed to create backup: {e}")
+
         # Convert to dict, handling Path objects
         data = self.model_dump()
         for key, value in data.items():
             if isinstance(value, Path):
                 data[key] = str(value)
-        
-        with open(config_file, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False)
-        
-        logger.info(f"Saved config to {config_file}")
+
+        # Write to temp file first, then atomically replace
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=self.config_dir,
+                delete=False,
+                suffix='.yaml'
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                yaml.dump(data, tmp, default_flow_style=False)
+
+            # Atomically replace original file
+            tmp_path.replace(config_file)
+            logger.info(f"Saved config to {config_file}")
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+            # Clean up temp file if it exists
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except:
+                pass
+            raise

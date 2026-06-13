@@ -22,11 +22,15 @@ What's left to build. Completed features live in git history.
 ## EPG
 
 - [ ] **EPG settings UI** — notification minutes-before, filler patterns, auto-refresh toggle (currently config-file-only)
+- [ ] **Watchlist persistence** — store watchlist entries in database instead of memory-only; enable watchlist survival across app restarts and multi-device sync (future)
 - [ ] **Compressed XMLTV** — gzip decompression for `.xml.gz` feeds via `gzip.open()` on response stream
 - [ ] **EPG data cleanup** — auto-delete `EpgProgramDB` rows where `stop_time < now - 24h` to prevent unbounded DB growth
 - [ ] **EPG content-type filter** — classify channels by name keywords (Sports/News/Kids/Movies/Music) since ProSat has no `<category>` tags; add `[All Types ▼]` dropdown in EPG header
 - [ ] **Right-click context on On Now rows** — "Hide show globally", "Add to watchlist", "Dismiss channel for 7 days"
 - [ ] **Channel-specific watchlist** — per-channel keyword entries alongside global patterns; two-tier Watchlist tab
+- [ ] **Watchlist match prioritization** — when a keyword matches many channels (e.g. "fifa world cup" → 40+), currently the display is arbitrary. Apply ranking: (1) highest quality (4K > FHD > HD > SD), (2) previously-watched channels float up, (3) user can hide/demote individual entries. Also add a "Show all in Search" button on the watchlist keyword card title to jump to the Search tab pre-filled with the keyword, showing all matching results without the card display limit.
+- [ ] **Watchlist layout** — smarter 2-column distribution when cards have very different heights; currently a tall card can monopolize one column while the other sits empty.
+- [ ] **EPG Browse/Search view makeover** — restyle the Browse tab's search/filter UI to match the main Search chip view: clean title display using `detected_*` fields, quality badges, source indication. Candidate columns: Category | Channel | Quality | Source emoji | Show | Duration. Also align the Browse time-format and result-count footer with the On Now tab style.
 - [ ] **Guide channel player** — embedded mpv in EPG view (50/50 split), autoplay on channel browse with debounce
 - [ ] **Collapsible category groups in On Now** — group rows by channel prefix, allow collapse/expand; replace region dropdown
 - [ ] **Clear EPG link action** — 🧹 dustbroom button in channel details pane (and right-click in channel list) to sever a bad EPG assignment: sets `channel_db_id = NULL` on all `epg_programmes` rows for that channel and clears `epg_channel_id`. Needed because fuzzy channel matching produces wrong links (e.g. `EAR ★ The Simpsons` matched to `UandEden.uk`). All EAR ★ channels are currently mis-matched — they're 24/7 show-loop channels that got paired with unrelated UK/EU broadcast channels whose XMLTV display-names collide.
@@ -103,6 +107,11 @@ favorites mixins, 3950 → 2457), off-thread streaming, status-set dedup (merged
 
 - [ ] **Band 7 — responsiveness seam + finish decomposition** (planned 2026-06-05): see **[docs/REFACTOR_PLAN_BAND7.md](docs/REFACTOR_PLAN_BAND7.md)** + **[docs/SONNET_EXECUTION_PROMPT_BAND7.md](docs/SONNET_EXECUTION_PROMPT_BAND7.md)**. Build one reusable async-read seam (`_run_query`) + repository DTOs (B7-1/2); move EPG count, series tree, sidebar refresh, and hot context-menu reads off the UI thread (B7-3…B7-6); finish the <1000 splits — main_window pass 5, epg_view tab split (was B6-2), channel.py repo split (B7-7/8/9); cleanups — dead streaming params, Exclusions-chip dead zone, DRY the bracket-classification ladder (B7-10/11/12). One concern per PR.
 - [ ] **Exclusions chip dead zone** (B7-11) — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover did NOT fix it. Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
+
+## Data & Storage
+
+- [ ] **Image cache size cap + LRU eviction** — `~/.cache/metatv/images/` currently has no hard cap and grows indefinitely. Implement: configurable max size (default 500MB; settings UI control); eviction strategy = LRU (by file atime or a lightweight manifest); also prune images whose URL-derived key matches a provider that has since been removed. Current size can exceed 1GB+ with long-term use.
+- [ ] **Quality token display refinement** — `HEVC` and `RAW` are codec/bitrate descriptors, not viewer-facing quality levels; they appear in the On Now quality column and filter chips but are not meaningful to most users. Consider translating: `HEVC` → omit or show as a small "efficient" badge; `RAW` → omit or show as "Uncompressed". Do not rename them in the DB (they're derived from channel names) — apply a display-layer translation only.
 
 ## Platform & Distribution
 

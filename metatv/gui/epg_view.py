@@ -363,27 +363,30 @@ class EpgView(ContentView):
 
         layout.addLayout(filter_row)
 
-        # Programme tree: Category | Channel | Show | Progress | [hide]
+        # Programme tree: Category | Channel | Quality | Show | Progress | [hide]
         self.on_now_list = QTreeWidget()
         self.on_now_list.setAlternatingRowColors(True)
         self.on_now_list.setRootIsDecorated(False)
         self.on_now_list.setUniformRowHeights(True)
         self.on_now_list.setSortingEnabled(True)
-        self.on_now_list.setColumnCount(5)
-        self.on_now_list.setHeaderLabels(["", "Channel", "Show", "Progress", "Hide"])
+        self.on_now_list.setColumnCount(6)
+        self.on_now_list.setHeaderLabels(["", "Channel", "Quality", "Show", "Progress", "Hide"])
         hdr = self.on_now_list.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.on_now_list.setColumnWidth(1, 140)
-        self.on_now_list.setColumnWidth(3, 64)
-        self.on_now_list.setColumnWidth(4, 22)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self.on_now_list.setColumnWidth(1, 130)
+        self.on_now_list.setColumnWidth(2, 44)
+        self.on_now_list.setColumnWidth(4, 64)
+        self.on_now_list.setColumnWidth(5, 22)
         self.on_now_list.headerItem().setToolTip(0, "Category / prefix extracted from channel name")
-        self.on_now_list.headerItem().setToolTip(3, "Progress through current show (hover for time remaining)")
+        self.on_now_list.headerItem().setToolTip(2, "Stream quality (4K / FHD / HD / etc.)")
+        self.on_now_list.headerItem().setToolTip(4, "Progress through current show (hover for time remaining)")
         self._progress_delegate = _ProgressBarDelegate(self.on_now_list)
-        self.on_now_list.setItemDelegateForColumn(3, self._progress_delegate)
+        self.on_now_list.setItemDelegateForColumn(4, self._progress_delegate)
         from PyQt6.QtWidgets import QAbstractItemView
         self.on_now_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.on_now_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -866,14 +869,18 @@ class EpgView(ContentView):
                 hidden_channel_ids=list(self.config.epg_hidden_channels or []),
             )
             logger.debug(f"EpgView on-now: {len(programs)} programmes from providers {provider_ids}")
-            # Build name map
+            # Build name + quality maps
             name_map: dict[str, str] = {}
+            quality_map: dict[str, str] = {}
             for p in programs:
                 if p.channel_db_id and p.channel_db_id not in name_map:
                     ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
                     if ch:
                         name_map[p.channel_db_id] = ch.name
+                        if ch.detected_quality:
+                            quality_map[p.channel_db_id] = ch.detected_quality.upper()
             self._channel_name_map.update(name_map)
+            self._channel_quality_map.update(quality_map)
 
             self._data_loaded.emit({"tab": "on_now", "programs": programs})
         except Exception as e:
@@ -1573,28 +1580,30 @@ class EpgView(ContentView):
             remaining_text = _remaining_str(prog.stop_time)
             secs_remaining = max(0.0, (prog.stop_time - now).total_seconds())
 
-            # Columns: Category | Channel | Show | Progress bar | 🚫
-            item = _EpgTreeItem([category, bare_name, title, "", self.config.hide_icon])
+            quality = self._channel_quality_map.get(prog.channel_db_id or "", "")
+            # Columns: Category | Channel | Quality | Show | Progress bar | 🚫
+            item = _EpgTreeItem([category, bare_name, quality, title, "", self.config.hide_icon])
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
-            item.setData(3, _SORT_ROLE, secs_remaining)
-            item.setData(3, _PROGRESS_ROLE, pct)
-            item.setData(3, _REMAIN_ROLE, remaining_text)
-            item.setToolTip(3, remaining_text)
-            item.setData(4, Qt.ItemDataRole.UserRole, prog.title)
-            item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
-            item.setToolTip(4, "Click to hide…")
+            item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
+            item.setData(4, _SORT_ROLE, secs_remaining)
+            item.setData(4, _PROGRESS_ROLE, pct)
+            item.setData(4, _REMAIN_ROLE, remaining_text)
+            item.setToolTip(4, remaining_text)
+            item.setData(5, Qt.ItemDataRole.UserRole, prog.title)
+            item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
+            item.setToolTip(5, "Click to hide…")
 
             if category:
                 full_name = self._CATEGORY_FULL_NAMES.get(category, "")
                 item.setToolTip(0, full_name if full_name else category)
 
             if any(pat in prog.title.lower() for pat in patterns):
-                for col in range(4):
+                for col in range(5):
                     item.setForeground(col, QColor("#4af"))
-                font = item.font(2)
+                font = item.font(3)
                 font.setBold(True)
-                item.setFont(2, font)
+                item.setFont(3, font)
 
             self.on_now_list.addTopLevelItem(item)
 
@@ -1670,7 +1679,7 @@ class EpgView(ContentView):
             if q:
                 region = item.text(0).lower()
                 ch = item.text(1).lower()
-                show = item.text(2).lower()
+                show = item.text(3).lower()
                 if q not in region and q not in ch and q not in show:
                     visible = False
 
@@ -1681,8 +1690,8 @@ class EpgView(ContentView):
             item.setHidden(not visible)
 
     def _on_now_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        if column == 4 and len(self.on_now_list.selectedItems()) == 1:
-            title = item.data(4, Qt.ItemDataRole.UserRole)
+        if column == 5 and len(self.on_now_list.selectedItems()) == 1:
+            title = item.data(5, Qt.ItemDataRole.UserRole)
             ch_id = item.data(0, Qt.ItemDataRole.UserRole)
             ch_name = item.text(1)
             category = item.data(0, Qt.ItemDataRole.UserRole + 1) or ""
@@ -1719,7 +1728,7 @@ class EpgView(ContentView):
 
         # Track show title as watchlist pattern
         show_titles = list({
-            i.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
+            i.text(3).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
         })
         if show_titles:
             preview = show_titles[0] if len(show_titles) == 1 else f"{len(show_titles)} shows"
@@ -1771,7 +1780,7 @@ class EpgView(ContentView):
     def _bulk_hide_titles(self, items: list[QTreeWidgetItem]) -> None:
         hidden = list(self.config.epg_hidden_titles or [])
         for item in items:
-            title = item.data(4, Qt.ItemDataRole.UserRole)
+            title = item.data(5, Qt.ItemDataRole.UserRole)
             if title and title not in hidden:
                 hidden.append(title)
         self.config.epg_hidden_titles = hidden
@@ -1912,7 +1921,7 @@ class EpgView(ContentView):
     def _track_shows_from_items(self, items: list[QTreeWidgetItem]) -> None:
         from PyQt6.QtWidgets import QInputDialog
         titles = list({
-            i.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
+            i.text(3).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
         })
         default = titles[0] if len(titles) == 1 else ""
         text, ok = QInputDialog.getText(

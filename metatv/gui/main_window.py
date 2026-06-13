@@ -161,12 +161,19 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
     # Stream validation result: emitted from background thread after validate_and_failover
     _stream_ready = pyqtSignal(object)  # dict with final_url, stream_err, channel state
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
         self.config = config
         self.notification_manager = NotificationManager(
             max_visible=config.max_stacked_notifications
         )
+
+        # Show notification if config was recovered from backup
+        if config_recovered:
+            self.notification_manager.show(
+                "Config was empty/corrupt, restored from backup",
+                duration_ms=5000
+            )
         
         # UI Icons from config - Media Types
         self.favorite_icon = config.favorite_icon
@@ -464,7 +471,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
             if section:
                 self.sidebar_sections[section_id] = section
                 self.sidebar_splitter.addWidget(section)
-                
+                section.setMinimumHeight(26)  # can't drag below header height
                 # Restore state
                 section.restore_state()
         
@@ -2372,6 +2379,13 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self)
         dialog.exec()
+        self._apply_sidebar_visibility()
+
+    def _apply_sidebar_visibility(self) -> None:
+        """Show/hide existing sidebar sections to match config.sidebar_visible_sections."""
+        visible_ids = set(self.config.sidebar_visible_sections or [])
+        for sid, section in self.sidebar_sections.items():
+            section.setVisible(sid in visible_ids)
     
     def show_about(self):
         """Show about dialog"""

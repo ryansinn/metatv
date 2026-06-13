@@ -183,12 +183,6 @@ class CollapsibleSection(QFrame):
                 self._user_collapsed = True  # treat restored-collapsed as explicit user intent
             self.set_collapsed(collapsed, save=False)
 
-            # Restore height (if not collapsed)
-            if not collapsed:
-                height = state.get('height')
-                if height:
-                    self.setMinimumHeight(height)
-
     def refresh(self):
         """Refresh section content - override in subclasses"""
         pass

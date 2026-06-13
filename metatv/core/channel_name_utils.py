@@ -305,6 +305,8 @@ REGION_FULL_NAMES: dict[str, str] = {
     "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
     "BEIN": "beIN Sports", "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     "SKY": "Sky", "MBC": "MBC",
+    # Content-type prefixes (Trex / provider-specific)
+    "MV": "Music Videos", "SPT": "Sports",
 }
 
 
