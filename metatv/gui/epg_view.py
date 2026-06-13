@@ -1005,24 +1005,45 @@ class EpgView(ContentView):
                 lbl.setStyleSheet(_theme.SECTION_HDR)
                 return lbl
 
-            def _flow_row(cards: list) -> QWidget:
-                w = QWidget()
-                fl = FlowLayout(w, spacing=8)
-                for card in cards:
-                    fl.addWidget(card)
-                return w
+            def _two_col_row(cards: list, h_estimates: list[int]) -> QWidget:
+                """Greedy 2-column layout: always add each card to the shorter column.
+                Preserves original order within each column."""
+                col0_h, col0_cards = 0, []
+                col1_h, col1_cards = 0, []
+                for card, h in zip(cards, h_estimates):
+                    if col0_h <= col1_h:
+                        col0_cards.append(card)
+                        col0_h += h
+                    else:
+                        col1_cards.append(card)
+                        col1_h += h
+
+                container = QWidget()
+                h_layout = QHBoxLayout(container)
+                h_layout.setContentsMargins(0, 0, 0, 0)
+                h_layout.setSpacing(8)
+                for col_cards in (col0_cards, col1_cards):
+                    col_w = QWidget()
+                    col_v = QVBoxLayout(col_w)
+                    col_v.setContentsMargins(0, 0, 0, 0)
+                    col_v.setSpacing(8)
+                    for card in col_cards:
+                        col_v.addWidget(card)
+                    col_v.addStretch()
+                    h_layout.addWidget(col_w, 1)
+                return container
 
             if on_now:
                 wl_outer.addWidget(_section_hdr(f"ON NOW  ·  {len(on_now)}"))
-                wl_outer.addWidget(_flow_row([
-                    self._make_watchlist_item(p, l, u[:3]) for p, l, u in on_now
-                ]))
+                cards = [self._make_watchlist_item(p, l, u[:3]) for p, l, u in on_now]
+                h_ests = [max(len(l), 1) for p, l, u in on_now]
+                wl_outer.addWidget(_two_col_row(cards, h_ests))
 
             if upcoming_only:
                 wl_outer.addWidget(_section_hdr(f"UPCOMING  ·  {len(upcoming_only)}"))
-                wl_outer.addWidget(_flow_row([
-                    self._make_watchlist_item(p, [], u[:3]) for p, u in upcoming_only
-                ]))
+                cards = [self._make_watchlist_item(p, [], u[:3]) for p, u in upcoming_only]
+                h_ests = [max(len(u), 1) for p, u in upcoming_only]
+                wl_outer.addWidget(_two_col_row(cards, h_ests))
 
             if off_air:
                 wl_outer.addWidget(self._make_quiet_section(off_air))
