@@ -159,6 +159,27 @@ finally:
     session.close()
 ```
 
+### ORM objects must not outlive their session — prefer a DTO, expunge is the fragile fallback
+`session_scope()` **commits on `__exit__`**, and the session is created with `expire_on_commit=True`
+(the SQLAlchemy default). So any ORM object still attached when the block closes has its
+attributes *expired*; the next attribute access reloads against a now-closed session and raises
+`DetachedInstanceError`. Two consequences:
+
+- **The right answer is a DTO.** If data must cross the `with` boundary (passed to a play/details
+  handler, returned, emitted), map ORM → a frozen dataclass / plain dict *inside* the block and
+  return that. This is the same boundary `_run_query` enforces (see "Never return ORM objects").
+- **`session.expunge(obj)` before the block exits is a fallback, not a default.** It detaches the
+  object before the commit so its already-loaded columns survive. It is **only safe while the model
+  has no `relationship()` and no `deferred()` columns** — the moment one is added, every detached
+  call site silently regresses (relationship/deferred access on a detached object raises). The
+  MetaTV ORM is deliberately relationship-free today, which is the *only* reason the play/details
+  handlers in `_FavoritesMixin`/`_MetadataMixin` can pass a bare `ChannelDB` across the boundary.
+  If you add a relationship to a model, you own auditing every `session.expunge` call site.
+- **`_apply_favorite_toggle` is the documented exception:** it keeps legacy `try/finally` because
+  `toggle_favorite()` commits internally and `session.refresh()` repopulates *before*
+  `session.close()` detaches — `session_scope`'s exit-commit would re-expire after the refresh.
+  Don't "modernize" it without re-deriving that.
+
 ### SQLite JSON columns — use `JSONEncoded`, assign plain Python objects
 JSON-like columns use `Column(JSONEncoded)` (defined in `database.py`), a `TypeDecorator` over `Text` that serializes transparently. Assign and read plain Python objects — no `json.dumps/loads` needed:
 
@@ -389,6 +410,43 @@ widget via `__new__`, hand it a real `QListWidget` (the module `qapp` fixture ma
 or a `_FakeLabel`, call the slot, assert the rendered rows. A test docstring must not list an
 invariant (e.g. "`_on_data_ready` populates correctly") that no assert actually checks — describing
 unwritten coverage is worse than silence, because the next reader trusts it and the gap calcifies.
+
+### Tests must prove behavior, not shape — no zero-result busy work
+A test that asserts a string exists in source (`"session_scope" in func`, `"session.expunge" in
+src`), that a method is named a certain way, or that an attribute is present, proves *shape*. Shape
+tests are cheap insurance against a careless edit, but **a green shape suite is not coverage** — it
+will stay green through the exact regression it appears to guard. The rule:
+
+- **Every behavior-changing PR must include at least one test that executes the changed code path
+  and asserts the outcome that would actually break.** For the B7-6 session migration that is:
+  drive the real handler against a real in-memory `Database` (`create_tables()` on a `tmp_path`
+  file — not `:memory:`, whose pooled connections each get an empty DB), let the scope close, then
+  assert a detached column is still readable. The substring/AST tests may stay *alongside* it; they
+  may not stand *in place of* it.
+- **Never write a test (or a docstring) whose only effect is to look like coverage.** If you cannot
+  articulate the concrete regression a test would catch, the test is busy work — delete it or
+  replace it with one that can. Padding a count ("11 new tests") with shape assertions that pin
+  nothing is the failure mode this rule exists to stop.
+- This generalizes the async-read rule above: find the half that regresses and execute it.
+
+### Scope discipline & curiosity — ask before generating debt
+The Critical Rules and the active Refactor Plan (`docs/REFACTOR_PLAN_BAND*.md`) define the
+architecture and the scope of each task. They override convenience. Before you reach for a shortcut
+that sidesteps an established pattern (returning an ORM object instead of a DTO, hand-rolling an
+async path instead of the seam, hardcoding a literal instead of a token, tightening a heuristic the
+docs call a deliberate compromise):
+
+- **Re-read the relevant rule and the plan item first.** Most "I'll just…" shortcuts are already
+  ruled out in writing. If a rule's premise has drifted from the code, say so and adapt — don't
+  silently ignore it.
+- **Stay inside the task's scope.** One concern per PR. If you discover a larger problem mid-task,
+  do **not** expand the PR to fix it and do **not** paper over it — record it in the Band plan as a
+  new item and keep moving. Quietly accreting unrelated changes or tech debt is worse than a
+  focused PR that names what it deferred.
+- **When the correct path is genuinely unclear, ask.** A short "the rule says DTOs but this handler
+  passes an ORM object across the boundary — convert it, or is there a reason it's exempt?" is
+  always preferable to inventing a third pattern. Curiosity and a clarifying question cost one
+  message; an undiscussed architectural shortcut costs a review cycle and a follow-up band.
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.

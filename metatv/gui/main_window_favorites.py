@@ -23,53 +23,36 @@ class _FavoritesMixin:
         """Toggle a like (+1) or dislike (-1) rating; clicking the active rating clears it."""
         from datetime import datetime
         from metatv.core.database import UserRatingDB
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope() as session:
             current = session.get(UserRatingDB, channel_id)
             if current and current.rating == rating:
                 session.delete(current)
             else:
                 session.merge(UserRatingDB(channel_id=channel_id, rating=rating,
                                            rated_at=datetime.utcnow()))
-            session.commit()
-        finally:
-            session.close()
         if self.view_mode == "preferences":
             self.preferences_view.refresh()
         self._refresh_recommended_section()
 
     def _toggle_favorite_by_id(self, channel_id: str, make_favorite: bool) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                channel.is_favorite = make_favorite
-                session.commit()
-                self.load_favorites()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
+            if not channel:
+                return
+            channel.is_favorite = make_favorite
+        self.load_favorites()
 
     def _hide_channel_from_alerts(self, channel_id: str) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.set_hidden(channel_id, True)
-            self._refresh_watch_alerts()
-            self.load_history()
-            self.load_channels()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.set_hidden(channel_id, True)
+        self._refresh_watch_alerts()
+        self.load_history()
+        self.load_channels()
 
     def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
         """Suppress (or un-suppress) channel from recommendations only."""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.set_rec_suppressed(channel_id, suppressed)
-            session.commit()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.set_rec_suppressed(channel_id, suppressed)
         self.preferences_view.refresh()
         self._refresh_recommended_section()
 
@@ -83,8 +66,7 @@ class _FavoritesMixin:
 
     def _add_to_queue(self, channel_id: str) -> None:
         from metatv.core.database import ChannelDB
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             ch = session.get(ChannelDB, channel_id)
             repos.queue.add(
@@ -93,20 +75,12 @@ class _FavoritesMixin:
                 media_type=ch.media_type if ch else "",
                 source_id=ch.source_id if ch else "",
             )
-            session.commit()
-        finally:
-            session.close()
         self._refresh_queue_section()
         self._refresh_recommended_section()
 
     def _remove_from_queue(self, channel_id: str) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.queue.remove(channel_id)
-            session.commit()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).queue.remove(channel_id)
         self._refresh_queue_section()
         self._refresh_recommended_section()
 
@@ -124,11 +98,11 @@ class _FavoritesMixin:
     def _on_retry_play_requested(self, channel_id: str, stream_url: str, channel_name: str) -> None:
         """Double-click on a Stream Monitoring item — try launching the stream again."""
         from metatv.core.database import ChannelDB
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             channel = session.query(ChannelDB).filter_by(id=channel_id).first()
-        finally:
-            session.close()
+            if channel:
+                session.expunge(channel)
         if channel:
             self.play_media(channel)
         else:
@@ -142,28 +116,30 @@ class _FavoritesMixin:
         from PyQt6.QtGui import QAction
         from metatv.core.database import UserRatingDB
 
-        session = self.db.get_session()
-        try:
+        channel_found = False
+        channel_is_favorite = False
+        channel_media_type = ""
+        current_rating = 0
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id) if channel_id else None
             if channel:
+                channel_found = True
+                channel_is_favorite = bool(channel.is_favorite)
+                channel_media_type = channel.media_type or ""
                 rating_row = session.get(UserRatingDB, channel_id)
                 current_rating = rating_row.rating if rating_row else 0
-            else:
-                current_rating = 0
-        finally:
-            session.close()
 
         menu = QMenu(self)
 
-        if channel:
+        if channel_found:
             play_act = QAction(f"{self.config.play_icon} Play", self)
             play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
             menu.addAction(play_act)
 
             menu.addSeparator()
 
-            if channel.is_favorite:
+            if channel_is_favorite:
                 fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
                 fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
             else:
@@ -171,7 +147,7 @@ class _FavoritesMixin:
                 fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
             menu.addAction(fav_act)
 
-            if channel.media_type in ("movie", "series"):
+            if channel_media_type in ("movie", "series"):
                 menu.addSeparator()
                 like_act = QAction(f"{self.config.like_icon} Like", self)
                 like_act.setCheckable(True)
@@ -214,23 +190,14 @@ class _FavoritesMixin:
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            session = self.db.get_session()
-            try:
-                repos = RepositoryFactory(session)
-                repos.queue.clear()
-                session.commit()
-            finally:
-                session.close()
+            with self.db.session_scope() as session:
+                RepositoryFactory(session).queue.clear()
             self._refresh_queue_section()
 
     def _clear_watched_queue(self) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            count = repos.queue.clear_watched()
-            session.commit()
-        finally:
-            session.close()
+        count = 0
+        with self.db.session_scope() as session:
+            count = RepositoryFactory(session).queue.clear_watched()
         self._refresh_queue_section()
         if count:
             self.status_bar.showMessage(f"Removed {count} watched item(s) from queue")
@@ -238,12 +205,12 @@ class _FavoritesMixin:
     def play_queue_item_id(self, channel_id: str) -> None:
         """Play a queue item — series opens the season view, others play directly."""
         from metatv.core.models import MediaType
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
-        finally:
-            session.close()
+            if channel:
+                session.expunge(channel)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
@@ -254,8 +221,7 @@ class _FavoritesMixin:
     def _on_details_queue_toggle(self, channel_id: str) -> None:
         """Handle queue toggle from the details pane button."""
         from metatv.core.database import ChannelDB
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             if repos.queue.is_queued(channel_id):
                 repos.queue.remove(channel_id)
@@ -267,9 +233,6 @@ class _FavoritesMixin:
                     media_type=ch.media_type if ch else "",
                     source_id=ch.source_id if ch else "",
                 )
-            session.commit()
-        finally:
-            session.close()
         self._refresh_queue_section()
 
     def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
@@ -277,16 +240,17 @@ class _FavoritesMixin:
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
         from metatv.core.database import UserRatingDB
-        session = self.db.get_session()
-        try:
+
+        channel_media_type = ""
+        current_rating = 0
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if not channel:
                 return
+            channel_media_type = channel.media_type or ""
             rating_row = session.get(UserRatingDB, channel_id)
             current_rating = rating_row.rating if rating_row else 0
-        finally:
-            session.close()
 
         menu = QMenu(self)
 
@@ -306,7 +270,7 @@ class _FavoritesMixin:
         fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
         menu.addAction(fav_act)
 
-        if channel.media_type in ("movie", "series"):
+        if channel_media_type in ("movie", "series"):
             menu.addSeparator()
             like_act = QAction(f"{self.config.like_icon} Like", self)
             like_act.setCheckable(True)
@@ -327,8 +291,10 @@ class _FavoritesMixin:
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
         from metatv.core.database import UserRatingDB
-        session = self.db.get_session()
-        try:
+
+        current_rating = 0
+        in_queue = False
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if not channel:
@@ -336,8 +302,6 @@ class _FavoritesMixin:
             rating_row = session.get(UserRatingDB, channel_id)
             current_rating = rating_row.rating if rating_row else 0
             in_queue = repos.queue.is_queued(channel_id)
-        finally:
-            session.close()
 
         menu = QMenu(self)
 
@@ -383,45 +347,46 @@ class _FavoritesMixin:
         from PyQt6.QtCore import QPoint
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
+
+        is_favorite = False
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
             if not channel:
                 return
-            menu = QMenu()
+            is_favorite = bool(channel.is_favorite)
 
-            play_act = QAction(f"{self.config.play_icon} Play", self)
-            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
-            menu.addAction(play_act)
+        # Session closed — safe to display blocking menu now.
+        menu = QMenu(self)
 
-            menu.addSeparator()
+        play_act = QAction(f"{self.config.play_icon} Play", self)
+        play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
+        menu.addAction(play_act)
 
-            if channel.is_favorite:
-                fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
-            else:
-                fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
-                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
-            menu.addAction(fav_act)
+        menu.addSeparator()
 
-            if channel_id in self.config.epg_watchlist_channels:
-                watch_act = QAction("Stop watching this channel", self)
-                watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel_id))
-            else:
-                watch_act = QAction("Watch this channel (EPG alerts)", self)
-                watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel_id))
-            menu.addAction(watch_act)
+        if is_favorite:
+            fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
+            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
+        else:
+            fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
+            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
+        menu.addAction(fav_act)
 
-            menu.addSeparator()
+        if channel_id in self.config.epg_watchlist_channels:
+            watch_act = QAction("Stop watching this channel", self)
+            watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel_id))
+        else:
+            watch_act = QAction("Watch this channel (EPG alerts)", self)
+            watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel_id))
+        menu.addAction(watch_act)
 
-            hide_act = QAction(f"{self.hide_icon} Hide channel", self)
-            hide_act.triggered.connect(lambda: self._hide_channel_from_alerts(channel_id))
-            menu.addAction(hide_act)
+        menu.addSeparator()
 
-            menu.exec(QPoint(gx, gy))
-        finally:
-            session.close()
+        hide_act = QAction(f"{self.hide_icon} Hide channel", self)
+        hide_act.triggered.connect(lambda: self._hide_channel_from_alerts(channel_id))
+        menu.addAction(hide_act)
+
+        menu.exec(QPoint(gx, gy))
 
     def _on_alert_clicked(self, channel_db_id: str) -> None:
         """Play the channel immediately when a sidebar watch alert is double-clicked."""
@@ -432,22 +397,20 @@ class _FavoritesMixin:
         """Show channel details in the right pane when a watch alert row is single-clicked."""
         if not channel_db_id:
             return
-        session = self.db.get_session()
-        try:
-            from metatv.core.repositories import RepositoryFactory
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_db_id)
             if channel:
-                self.details_pane.show_channel(channel)
-        finally:
-            session.close()
-
+                session.expunge(channel)
+        if channel:
+            self.details_pane.show_channel(channel)
 
     def load_history(self):
         """Load playback history into sidebar"""
         if "history" in self.sidebar_sections:
             self.sidebar_sections["history"].refresh()
-    
+
     def load_favorites(self):
         """Load favorites into sidebar"""
         if "favorites" in self.sidebar_sections:
@@ -467,70 +430,66 @@ class _FavoritesMixin:
         self._show_context_menu_for(channel_id, gp.x(), gp.y(), "history")
 
     def _hide_channel_from_history(self, channel_id: str) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.set_hidden(channel_id, True)
-            self.load_history()
-            self.load_channels()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.set_hidden(channel_id, True)
+        self.load_history()
+        self.load_channels()
 
     def play_from_history(self, item):
         """Play a channel from history"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        
-        # Reuse existing play_channel logic
         self.play_channel(item)
-    
+
     def play_from_history_id(self, channel_id: str):
         """Play a channel from history by ID"""
         from metatv.core.models import MediaType
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                if channel.media_type == MediaType.SERIES:
-                    last_episode = repos.episodes.get_last_played(
-                        series_id=channel.source_id,
-                        provider_id=channel.provider_id
-                    )
-                    if last_episode:
-                        logger.info(f"Playing last watched episode from history: {last_episode.title}")
-                        self.play_episode(last_episode)
-                    else:
-                        logger.info("No episode history found, opening series view")
-                        self.drill_into_series(channel)
-                else:
-                    self.play_media(channel)
-        finally:
-            session.close()
-    
+                session.expunge(channel)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            last_episode = None
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                last_episode = repos.episodes.get_last_played(
+                    series_id=channel.source_id,
+                    provider_id=channel.provider_id,
+                )
+                if last_episode:
+                    session.expunge(last_episode)
+            if last_episode:
+                logger.info(f"Playing last watched episode from history: {last_episode.title}")
+                self.play_episode(last_episode)
+            else:
+                logger.info("No episode history found, opening series view")
+                self.drill_into_series(channel)
+        else:
+            self.play_media(channel)
+
     def remove_from_history(self, channel_id: str):
         """Remove a single channel from history"""
-        session = self.db.get_session()
-        try:
+        channel_name = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
                 channel_name = channel.name
                 repos.channels.remove_from_history(channel_id)
-                
-                self.status_bar.showMessage(f"Removed {channel_name} from history")
-                logger.info(f"Removed {channel_name} from history")
-                
-                # Reload history
-                self.load_history()
-        finally:
-            session.close()
-    
+        if channel_name:
+            self.status_bar.showMessage(f"Removed {channel_name} from history")
+            logger.info(f"Removed {channel_name} from history")
+            self.load_history()
+
     def clear_history(self):
         """Clear all history"""
         from PyQt6.QtWidgets import QMessageBox
-        
+
         reply = QMessageBox.question(
             self,
             "Clear History",
@@ -538,26 +497,19 @@ class _FavoritesMixin:
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
-            session = self.db.get_session()
             try:
-                repos = RepositoryFactory(session)
-                count = repos.channels.clear_history()
-                
+                with self.db.session_scope() as session:
+                    RepositoryFactory(session).channels.clear_history()
                 self.status_bar.showMessage("History cleared")
                 logger.info("Cleared all playback history")
-                
-                # Reload history and favorites (favorites may need updating to show unwatched)
                 self.load_history()
                 self.load_favorites()
             except Exception as e:
-                session.rollback()
                 logger.error(f"Failed to clear history: {e}")
                 self.status_bar.showMessage(f"Error clearing history: {e}")
-            finally:
-                session.close()
-    
+
     def show_favorites_context_menu(self, position, list_widget=None):
         if list_widget is None:
             if hasattr(self, 'favorites_list'):
@@ -609,12 +561,8 @@ class _FavoritesMixin:
             self._update_filter_btn_state()
 
         def _do_assign():
-            session = self.db.get_session()
-            try:
-                repos = RepositoryFactory(session)
-                repos.channels.assign_user_category(channel_ids, category, mood)
-            finally:
-                session.close()
+            with self.db.session_scope() as session:
+                RepositoryFactory(session).channels.assign_user_category(channel_ids, category, mood)
             self._category_assigned.emit()
 
         self.executor.submit(_do_assign)
@@ -664,35 +612,41 @@ class _FavoritesMixin:
         cat_action.setToolTip("Assign a user-defined category to the selected channels")
 
         menu.exec(gp)
-    
+
     def play_favorite(self, item):
         """Play a favorite channel"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        
-        # Reuse existing play_channel logic
         self.play_channel(item)
-    
+
     def play_favorite_id(self, channel_id: str):
         """Play a favorite channel by ID"""
         from metatv.core.models import MediaType
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                if channel.media_type == MediaType.SERIES:
-                    self.drill_into_series(channel)
-                else:
-                    self.play_media(channel)
-        finally:
-            session.close()
-    
+                session.expunge(channel)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel)
+
     def _apply_favorite_toggle(self, channel_id: str):
         """Toggle favorite in DB, show status bar message, refresh sidebar.
 
         Returns (channel, new_status) on success, or None if channel not found.
+
+        Uses legacy try/finally (not session_scope) because toggle_favorite() commits
+        internally, expiring all column attributes via expire_on_commit=True.
+        session.refresh() reloads them; session.close() then detaches the object with
+        its __dict__ intact. session_scope()'s auto-commit on exit would expire again
+        after the refresh, causing DetachedInstanceError when callers access
+        channel.name / channel.is_favorite.
         """
         session = self.db.get_session()
         try:
@@ -747,22 +701,23 @@ class _FavoritesMixin:
                     display_text += f" ({ch.quality})"
                 self.all_channels[i] = (display_text, ch)
                 break
-    
+
     def play_channel_by_id(self, channel_id: str):
         """Play channel by ID (for details pane Play button)"""
-        session = self.db.get_session()
-        try:
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                from metatv.core.models import MediaType
-                if channel.media_type == MediaType.SERIES:
-                    self.drill_into_series(channel)
-                else:
-                    self.play_media(channel)
-        finally:
-            session.close()
-    
+                session.expunge(channel)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel)
+
     def toggle_favorite_by_id(self, channel_id: str):
         """Toggle favorite by ID (for details pane Favorite button)"""
         result = self._apply_favorite_toggle(channel_id)
@@ -785,4 +740,3 @@ class _FavoritesMixin:
                     updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
                 item.setText(updated_text)
                 break
-    
