@@ -473,7 +473,6 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
             if section:
                 self.sidebar_sections[section_id] = section
                 self.sidebar_splitter.addWidget(section)
-                section.setMinimumHeight(26)  # can't drag below header height
                 section.setVisible(section_id in visible_ids)
                 section.restore_state()
 

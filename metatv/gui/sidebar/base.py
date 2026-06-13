@@ -9,6 +9,10 @@ from loguru import logger
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import theme as _theme
 
+# Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
+# The splitter enforces this so the user cannot drag an expanded section below it.
+_MIN_EXPANDED = 80
+
 
 def _fmt_channel_name(name: str, fallback_year: str = "") -> str:
     """Format a raw channel name for text-only lists: 'bare_name · year [REGION] [QUALITY]'.
@@ -52,9 +56,11 @@ class CollapsibleSection(QFrame):
         self.is_collapsed = False
         self.is_empty = True
         self._user_collapsed = False  # True when user (or restore) explicitly collapsed
+        self._expanded_height: int = _MIN_EXPANDED  # remembered across collapse/expand cycles
 
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.setMinimumHeight(_MIN_EXPANDED)  # splitter enforces this while expanded
 
         # Main layout
         self.main_layout = QVBoxLayout(self)
@@ -105,26 +111,31 @@ class CollapsibleSection(QFrame):
         self.set_collapsed(not self.is_collapsed)
 
     def set_collapsed(self, collapsed: bool, save: bool = True):
-        """Set collapsed state
+        """Set collapsed state.
 
         Args:
-            collapsed: Whether to collapse the section
-            save: Whether to save state to config (default: True)
+            collapsed: Whether to collapse the section.
+            save: Whether to save state and redistribute splitter space (False during restore).
         """
         self.is_collapsed = collapsed
         self.content_widget.setVisible(not collapsed)
 
-        # Update button icon
         if collapsed:
             self.toggle_btn.setText(self.config.expand_icon)
+            h = self.height()
+            if h >= _MIN_EXPANDED:
+                self._expanded_height = h
+            freed = max(0, h - 26)
+            self.setMinimumHeight(26)
+            self.setMaximumHeight(self.minimumSizeHint().height())
+            if save and freed > 0:
+                self._release_in_splitter(freed)
         else:
             self.toggle_btn.setText(self.config.collapse_icon)
-
-        # Force size update
-        if collapsed:
-            self.setMaximumHeight(self.minimumSizeHint().height())
-        else:
+            self.setMinimumHeight(_MIN_EXPANDED)
             self.setMaximumHeight(16777215)  # Qt's QWIDGETSIZE_MAX
+            if save:
+                self._grow_in_splitter()
 
         # Notify parent to adjust layout
         self.updateGeometry()
@@ -133,6 +144,107 @@ class CollapsibleSection(QFrame):
         # Save state (unless explicitly disabled, e.g. during restore)
         if save:
             self.save_state()
+
+    # ------------------------------------------------------------------
+    # Splitter redistribution helpers
+    # ------------------------------------------------------------------
+
+    def _grow_in_splitter(self) -> None:
+        """Grow to saved expanded height, stealing proportionally from neighbors."""
+        from PyQt6.QtWidgets import QSplitter
+        splitter = self.parentWidget()
+        if not isinstance(splitter, QSplitter):
+            return
+
+        idx = splitter.indexOf(self)
+        sizes = list(splitter.sizes())
+        n = len(sizes)
+        if idx < 0 or idx >= n:
+            return
+
+        target = max(_MIN_EXPANDED, self._expanded_height)
+        if sizes[idx] >= target:
+            return
+
+        # Floor for each other section: header-only if collapsed, _MIN_EXPANDED if expanded
+        floors = [
+            26 if getattr(splitter.widget(i), 'is_collapsed', False) else _MIN_EXPANDED
+            for i in range(n)
+        ]
+
+        others_avail = [
+            (i, max(0, sizes[i] - floors[i]))
+            for i in range(n)
+            if i != idx and sizes[i] > 0
+        ]
+        total_avail = sum(a for _, a in others_avail)
+        if total_avail <= 0:
+            return
+
+        delta = min(target - sizes[idx], total_avail)
+        new_sizes = list(sizes)
+        new_sizes[idx] += delta
+
+        remaining = delta
+        for i, avail in sorted(others_avail, key=lambda x: -x[1]):
+            if total_avail > 0 and avail > 0:
+                take = round(delta * avail / total_avail)
+                take = min(take, new_sizes[i] - floors[i], remaining)
+                take = max(0, take)
+                new_sizes[i] -= take
+                remaining -= take
+
+        if remaining > 0:
+            for i, avail in others_avail:
+                extra = min(remaining, new_sizes[i] - floors[i])
+                if extra > 0:
+                    new_sizes[i] -= extra
+                    remaining -= extra
+                if remaining <= 0:
+                    break
+
+        splitter.setSizes(new_sizes)
+
+    def _release_in_splitter(self, freed: int) -> None:
+        """Distribute freed pixels to other visible sections when this one collapses."""
+        from PyQt6.QtWidgets import QSplitter
+        splitter = self.parentWidget()
+        if not isinstance(splitter, QSplitter):
+            return
+
+        idx = splitter.indexOf(self)
+        sizes = list(splitter.sizes())
+        n = len(sizes)
+        if idx < 0 or idx >= n or freed <= 0:
+            return
+
+        recipients = [(i, sizes[i]) for i in range(n) if i != idx and sizes[i] > 0]
+        if not recipients:
+            return
+
+        total_r = sum(s for _, s in recipients)
+        new_sizes = list(sizes)
+        new_sizes[idx] = 26  # collapsed to header height
+
+        remaining = freed
+        for i, s in sorted(recipients, key=lambda x: -x[1]):
+            if total_r > 0:
+                take = round(freed * s / total_r)
+                take = min(take, remaining)
+                new_sizes[i] += take
+                remaining -= take
+
+        if remaining > 0:
+            for i, _ in recipients:
+                new_sizes[i] += remaining
+                remaining = 0
+                break
+
+        splitter.setSizes(new_sizes)
+
+    # ------------------------------------------------------------------
+    # Empty / state management
+    # ------------------------------------------------------------------
 
     def set_empty(self, empty: bool):
         """Set empty state and auto-collapse if empty"""
@@ -161,7 +273,8 @@ class CollapsibleSection(QFrame):
 
         self.config.sidebar_section_states[section_id] = {
             'collapsed': self.is_collapsed,
-            'height': self.height()
+            'height': self.height(),
+            'expanded_height': self._expanded_height,
         }
 
         # Save config to disk
@@ -179,7 +292,11 @@ class CollapsibleSection(QFrame):
 
         state = self.config.sidebar_section_states.get(section_id)
         if state:
-            # Restore collapsed state (don't save during restore)
+            # Restore saved expanded height first
+            eh = state.get('expanded_height', _MIN_EXPANDED)
+            if eh and eh >= _MIN_EXPANDED:
+                self._expanded_height = eh
+            # Restore collapsed state (don't redistribute during restore — saved sizes handle it)
             collapsed = state.get('collapsed', False)
             if collapsed:
                 self._user_collapsed = True  # treat restored-collapsed as explicit user intent
