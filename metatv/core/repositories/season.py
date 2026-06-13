@@ -24,6 +24,18 @@ class SeasonRepository:
             series_id=series_id,
             provider_id=provider_id
         ).order_by(SeasonDB.season_number).all()
+
+    def get_seasons_dto(self, series_id: str, provider_id: str) -> "List[SeasonDTO]":
+        """Return seasons as plain DTOs — thread-safe, no live session required."""
+        from metatv.core.repositories.dtos import SeasonDTO
+        seasons = self.get_by_series(series_id=series_id, provider_id=provider_id)
+        result: list[SeasonDTO] = []
+        for s in seasons:
+            rating: str | None = None
+            if s.raw_data and isinstance(s.raw_data, dict):
+                rating = s.raw_data.get("rating") or None
+            result.append(SeasonDTO(id=s.id, name=s.name, episode_count=s.episode_count, rating=rating))
+        return result
     
     def bulk_create_or_update(self, seasons: List[SeasonDB]):
         """Bulk create or update seasons"""

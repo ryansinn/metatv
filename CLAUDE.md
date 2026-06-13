@@ -28,6 +28,7 @@ metatv/
 │       ├── channel.py   # Channel queries (hidden_only, prefix filters, search)
 │       ├── epg.py       # EPG programme queries (current, watchlist, browse, search)
 │       ├── queue.py     # Watch queue CRUD (QueueEntry, WatchQueueRepository)
+│       ├── dtos.py      # Frozen dataclasses for thread-safe sidebar/series data (B7-2)
 │       └── provider.py  # Provider queries
 ├── gui/                # PyQt6 UI components
 │   ├── main_window.py        # Three-panel main window + chip nav
@@ -292,6 +293,35 @@ Create a `ThreadPoolExecutor` / `QThread` **once per owning object**, never per 
 
 ### No unbounded DB work on the UI thread
 The Qt-threading rule above governs *widget* access from worker threads; this is the inverse. Queries that can scan, filter, aggregate, or count over large tables (channels, EPG) must run in an executor and marshal results back via signal — never block the main thread. Trivial primary-key lookups inline are fine; anything that grows with library size (240k+ channels) must be offloaded. Offenders to watch: startup stat initialization, sidebar `refresh()`, context-menu lookups.
+
+### `_run_query` — the required pattern for new background DB reads
+`_AsyncMixin` (`metatv/gui/main_window_async.py`) provides a single reusable async-read seam on `MainWindow`. **All new background DB reads must use it** instead of ad-hoc `executor.submit` + manual signal wiring.
+
+```python
+# Define a token counter if callers can supersede each other (e.g. view switches)
+self._my_token: list[int] = [0]
+
+def _load_something(self) -> None:
+    self._run_query(
+        lambda repos: repos.channels.get_favorites_dto(),   # runs off-thread
+        self._on_something_loaded,                          # called on main thread
+        token_ref=self._my_token,                           # optional stale-drop guard
+    )
+
+def _on_something_loaded(self, rows: list) -> None:         # MAIN THREAD ONLY
+    self._populate_list(rows)
+```
+
+Rules:
+- `query_fn` receives a `RepositoryFactory` and **must return plain data** — frozen DTOs from
+  `core/repositories/dtos.py`, primitive types, or plain dicts. **Never return ORM objects** — they
+  hold a closed session and will raise `DetachedInstanceError` on any attribute access after the
+  `session_scope()` exits.
+- `on_result` runs on the **main thread** (dispatched via `_query_result` signal) — widget access is
+  safe here.
+- Use `token_ref` whenever multiple in-flight calls for the same data type should cancel earlier
+  ones. Omit it for fire-and-forget fetches where order doesn't matter.
+- Always reuse `self.executor` (the owner's long-lived pool) — never create a per-call pool.
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.

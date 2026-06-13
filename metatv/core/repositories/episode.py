@@ -33,6 +33,30 @@ class EpisodeRepository:
         return self.session.query(EpisodeDB).filter_by(
             season_id=season_id
         ).order_by(EpisodeDB.episode_num).all()
+
+    def get_episodes_dto_by_season(self, season_id: str) -> "List[EpisodeDTO]":
+        """Return episodes as plain DTOs — thread-safe, no live session required."""
+        from metatv.core.repositories.dtos import EpisodeDTO
+        episodes = self.get_by_season(season_id=season_id)
+        result: list[EpisodeDTO] = []
+        for ep in episodes:
+            rating: str | None = None
+            if ep.raw_data and isinstance(ep.raw_data, dict):
+                info = ep.raw_data.get("info", {})
+                if isinstance(info, dict):
+                    rating = info.get("rating") or None
+            result.append(EpisodeDTO(
+                id=ep.id,
+                episode_num=ep.episode_num,
+                season_num=ep.season_num,
+                title=ep.title,
+                series_name=ep.series_name,
+                stream_url=ep.stream_url,
+                duration=ep.duration,
+                is_watched=ep.is_watched,
+                rating=rating,
+            ))
+        return result
     
     def get_last_played(self, series_id: str, provider_id: str) -> Optional[EpisodeDB]:
         """Get last played episode for a series"""
