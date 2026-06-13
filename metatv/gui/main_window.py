@@ -31,6 +31,7 @@ from metatv.gui.main_window_streaming import _StreamingMixin, _looks_like_text
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
 from metatv.gui.main_window_favorites import _FavoritesMixin
+from metatv.gui.main_window_async import _AsyncMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
@@ -140,7 +141,7 @@ class _PrefixRescanThread(QThread):
             session.close()
 
 
-class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QMainWindow):
+class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _AsyncMixin, QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -160,6 +161,8 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
     _prefix_migration_done = pyqtSignal()
     # Stream validation result: emitted from background thread after validate_and_failover
     _stream_ready = pyqtSignal(object)  # dict with final_url, stream_err, channel state
+    # Generic async-read seam (_AsyncMixin): worker emits this; _on_query_result dispatches
+    _query_result = pyqtSignal(object)
     
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
@@ -292,6 +295,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
         self._ctx_data_ready.connect(self._on_ctx_data_ready)
         self._prefix_migration_done.connect(self._on_prefix_migration_done)
         self._stream_ready.connect(self._on_stream_ready)
+        self._query_result.connect(self._on_query_result)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
