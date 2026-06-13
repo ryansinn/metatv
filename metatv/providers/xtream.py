@@ -23,6 +23,17 @@ _DEFAULT_HEADERS = {
     "Connection": "keep-alive",
 }
 
+# Timeout for bulk catalog reads (get_*_streams / get_*_categories).
+#
+# These responses can be tens of megabytes and a slow-but-healthy server may take
+# minutes to stream one (observed: an 18 MB live list at ~227 KB/s = 81 s). A `total`
+# deadline punishes that — it conflates "the server is dead" with "the server is slow
+# but still sending" and silently drops the whole catalog, leaving the provider with 0
+# channels. We use `sock_read` instead: it fires only when *no bytes arrive* for the
+# window, so a steady trickle never trips it while a genuinely stalled connection still
+# does. Deliberately NO `total` — large catalogs on slow servers legitimately run long.
+_CONTENT_READ_TIMEOUT = aiohttp.ClientTimeout(sock_connect=15, sock_read=60)
+
 
 class XtreamAPI:
     """Xtream Codes API client"""
@@ -184,7 +195,7 @@ class XtreamAPI:
         """Generic category fetcher. Raises aiohttp.ClientError on connection failure."""
         url = self._build_url(action)
         try:
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
                     data = await response.json()
                     return data if isinstance(data, list) else []
@@ -241,7 +252,7 @@ class XtreamAPI:
 
         url = self._build_url(action, **params)
         try:
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
+            async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
                     data = await response.json()
                     return data if isinstance(data, list) else []
