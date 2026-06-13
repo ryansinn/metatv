@@ -29,23 +29,22 @@ class _MetadataMixin:
         self.executor.submit(self._bg_fetch_action_state, channel_id)
 
     def _bg_fetch_action_state(self, channel_id: str) -> None:
-        session = self.db.get_session()
         try:
-            repos = RepositoryFactory(session)
-            state = ChannelActionState(
-                channel_id=channel_id,
-                in_queue=repos.queue.is_queued(channel_id),
-                rating=repos.ratings.get(channel_id) or 0,
-            )
-            ch = repos.channels.get_by_id(channel_id)
-            if ch:
-                state.is_suppressed = bool(ch.is_rec_suppressed)
-                state.is_hidden = bool(ch.is_hidden)
-            self._action_state_loaded.emit(state)
-        except Exception as e:
-            logger.error(f"Failed to fetch action state for {channel_id}: {e}")
-        finally:
-            session.close()
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                state = ChannelActionState(
+                    channel_id=channel_id,
+                    in_queue=repos.queue.is_queued(channel_id),
+                    rating=repos.ratings.get(channel_id) or 0,
+                )
+                ch = repos.channels.get_by_id(channel_id)
+                if ch:
+                    state.is_suppressed = bool(ch.is_rec_suppressed)
+                    state.is_hidden = bool(ch.is_hidden)
+        except Exception:
+            logger.exception("Failed to fetch action state for %s", channel_id)
+            return
+        self._action_state_loaded.emit(state)
 
     def _on_action_state_loaded(self, state) -> None:
         self.details_pane.apply_action_state(state)
@@ -61,117 +60,116 @@ class _MetadataMixin:
         from metatv.core.preference_engine import version_score as _version_score
         from metatv.gui.main_window import _version_years_compatible
 
-        session = self.db.get_session()
+        versions = []
         try:
-            channel = session.get(ChannelDB, channel_id)
-            if not channel:
-                return
-
-            repos = RepositoryFactory(session)
-            queue_ids = repos.queue.get_queued_ids()
-            provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
-            _filter_paused = self.config.global_filter_paused
-            excluded_cats = set() if _filter_paused else set(self.config.global_filter_excluded_categories)
-            blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
-            all_excluded = excluded_cats | blocked_prefixes
-
-            def _is_filtered(ch: ChannelDB) -> bool:
-                p = ch.detected_prefix
-                return bool(p and p in all_excluded)
-
-            def _is_hidden_category(ch: ChannelDB) -> bool:
-                return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)
-
-            def _first_significant_word(text: str) -> str:
-                for w in text.split():
-                    if len(w) >= 3:
-                        return w
-                return text.split()[0] if text.split() else ""
-
-            is_live = channel.media_type == "live"
-            if is_live:
-                norm = normalize_title(channel.name, channel.detected_prefix)
-                if not norm:
-                    self._versions_loaded.emit(channel_id, [])
+            with self.db.session_scope() as session:
+                channel = session.get(ChannelDB, channel_id)
+                if not channel:
                     return
-                first_word = _first_significant_word(norm)
-                candidates = (
-                    session.query(ChannelDB)
-                    .filter(
-                        ChannelDB.media_type == "live",
-                        ChannelDB.id != channel_id,
-                        ChannelDB.name.ilike(f"%{first_word}%"),
+
+                repos = RepositoryFactory(session)
+                queue_ids = repos.queue.get_queued_ids()
+                provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
+                _filter_paused = self.config.global_filter_paused
+                excluded_cats = set() if _filter_paused else set(self.config.global_filter_excluded_categories)
+                blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
+                all_excluded = excluded_cats | blocked_prefixes
+
+                def _is_filtered(ch: ChannelDB) -> bool:
+                    p = ch.detected_prefix
+                    return bool(p and p in all_excluded)
+
+                def _is_hidden_category(ch: ChannelDB) -> bool:
+                    return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)
+
+                def _first_significant_word(text: str) -> str:
+                    for w in text.split():
+                        if len(w) >= 3:
+                            return w
+                    return text.split()[0] if text.split() else ""
+
+                is_live = channel.media_type == "live"
+                if is_live:
+                    norm = normalize_title(channel.name, channel.detected_prefix)
+                    if not norm:
+                        self._versions_loaded.emit(channel_id, [])
+                        return
+                    first_word = _first_significant_word(norm)
+                    candidates = (
+                        session.query(ChannelDB)
+                        .filter(
+                            ChannelDB.media_type == "live",
+                            ChannelDB.id != channel_id,
+                            ChannelDB.name.ilike(f"%{first_word}%"),
+                        )
+                        .all()
                     )
-                    .all()
-                )
-                versions_raw = [
-                    ch for ch in candidates
-                    if normalize_title(ch.name, ch.detected_prefix) == norm
-                ]
-            else:
-                current_norm = normalize_title(channel.name, channel.detected_prefix)
-                if not current_norm:
-                    self._versions_loaded.emit(channel_id, [])
-                    return
-                first_word = _first_significant_word(current_norm)
-                if not first_word:
-                    self._versions_loaded.emit(channel_id, [])
-                    return
-                candidates = (
-                    session.query(ChannelDB)
-                    .filter(
-                        ChannelDB.media_type == channel.media_type,
-                        ChannelDB.id != channel_id,
-                        ChannelDB.name.ilike(f"%{first_word}%"),
+                    versions_raw = [
+                        ch for ch in candidates
+                        if normalize_title(ch.name, ch.detected_prefix) == norm
+                    ]
+                else:
+                    current_norm = normalize_title(channel.name, channel.detected_prefix)
+                    if not current_norm:
+                        self._versions_loaded.emit(channel_id, [])
+                        return
+                    first_word = _first_significant_word(current_norm)
+                    if not first_word:
+                        self._versions_loaded.emit(channel_id, [])
+                        return
+                    candidates = (
+                        session.query(ChannelDB)
+                        .filter(
+                            ChannelDB.media_type == channel.media_type,
+                            ChannelDB.id != channel_id,
+                            ChannelDB.name.ilike(f"%{first_word}%"),
+                        )
+                        .all()
                     )
-                    .all()
-                )
-                versions_raw = [
-                    ch for ch in candidates
-                    if normalize_title(ch.name, ch.detected_prefix) == current_norm
-                    and _version_years_compatible(ch.name, channel.name)
+                    versions_raw = [
+                        ch for ch in candidates
+                        if normalize_title(ch.name, ch.detected_prefix) == current_norm
+                        and _version_years_compatible(ch.name, channel.name)
+                    ]
+
+                current_score = _version_score(channel, self.config)
+                best_score = current_score
+                best_ch = None
+                for ch in versions_raw:
+                    s = _version_score(ch, self.config)
+                    if s > best_score:
+                        best_score = s
+                        best_ch = ch
+
+                versions = [
+                    ChannelVersion(
+                        channel_id=ch.id,
+                        name=ch.name,
+                        in_queue=ch.id in queue_ids,
+                        detected_prefix=ch.detected_prefix,
+                        is_preferred=(ch is best_ch),
+                        is_filtered=_is_filtered(ch) if not ch.is_hidden else False,
+                        is_hidden=bool(ch.is_hidden),
+                        is_hidden_category=_is_hidden_category(ch),
+                        is_favorite=bool(ch.is_favorite),
+                        in_history=bool(ch.play_count),
+                        provider_name=provider_names.get(ch.provider_id),
+                    )
+                    for ch in versions_raw
                 ]
-
-            current_score = _version_score(channel, self.config)
-            best_score = current_score
-            best_ch = None
-            for ch in versions_raw:
-                s = _version_score(ch, self.config)
-                if s > best_score:
-                    best_score = s
-                    best_ch = ch
-
-            versions = [
-                ChannelVersion(
-                    channel_id=ch.id,
-                    name=ch.name,
-                    in_queue=ch.id in queue_ids,
-                    detected_prefix=ch.detected_prefix,
-                    is_preferred=(ch is best_ch),
-                    is_filtered=_is_filtered(ch) if not ch.is_hidden else False,
-                    is_hidden=bool(ch.is_hidden),
-                    is_hidden_category=_is_hidden_category(ch),
-                    is_favorite=bool(ch.is_favorite),
-                    in_history=bool(ch.play_count),
-                    provider_name=provider_names.get(ch.provider_id),
-                )
-                for ch in versions_raw
-            ]
-            versions.sort(key=lambda v: (
-                v.is_hidden,
-                v.is_filtered,
-                -_version_score(
-                    next(c for c in versions_raw if c.id == v.channel_id), self.config
-                ),
-                v.name,
-            ))
-            versions = versions[:20]
+                versions.sort(key=lambda v: (
+                    v.is_hidden,
+                    v.is_filtered,
+                    -_version_score(
+                        next(c for c in versions_raw if c.id == v.channel_id), self.config
+                    ),
+                    v.name,
+                ))
+                versions = versions[:20]
 
         except Exception:
             logger.exception("Error fetching channel versions for %s", channel_id)
             versions = []
-        finally:
-            session.close()
 
         self._versions_loaded.emit(channel_id, versions)
 
@@ -229,78 +227,77 @@ class _MetadataMixin:
         from metatv.core.preference_engine import version_score as _version_score
         _non_ascii = re.compile(r'[^\x00-\x7F]+')
 
-        session = self.db.get_session()
+        similar = []
         try:
-            channel = session.get(ChannelDB, channel_id)
-            if not channel:
-                self._similar_titles_loaded.emit(channel_id, [])
-                return
+            with self.db.session_scope() as session:
+                channel = session.get(ChannelDB, channel_id)
+                if not channel:
+                    self._similar_titles_loaded.emit(channel_id, [])
+                    return
 
-            norm = normalize_title(channel.name, channel.detected_prefix)
-            words = [w for w in norm.split() if len(w) >= 4]
-            if not words:
-                self._similar_titles_loaded.emit(channel_id, [])
-                return
+                norm = normalize_title(channel.name, channel.detected_prefix)
+                words = [w for w in norm.split() if len(w) >= 4]
+                if not words:
+                    self._similar_titles_loaded.emit(channel_id, [])
+                    return
 
-            candidates = (
-                session.query(ChannelDB)
-                .filter(
-                    ChannelDB.media_type == channel.media_type,
-                    ChannelDB.id != channel_id,
-                    ChannelDB.is_hidden == False,
-                    ChannelDB.name.ilike(f"%{words[0]}%"),
+                candidates = (
+                    session.query(ChannelDB)
+                    .filter(
+                        ChannelDB.media_type == channel.media_type,
+                        ChannelDB.id != channel_id,
+                        ChannelDB.is_hidden == False,
+                        ChannelDB.name.ilike(f"%{words[0]}%"),
+                    )
+                    .limit(200)
+                    .all()
                 )
-                .limit(200)
-                .all()
-            )
 
-            threshold = max(1, len(words) // 2)
-            current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
-            current_key = build_dedup_key(channel, current_meta)
+                threshold = max(1, len(words) // 2)
+                current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
+                current_key = build_dedup_key(channel, current_meta)
 
-            # Group by normalized title, keeping the best-scored version per title so
-            # that users who have a preferred prefix (e.g. "EN") see that version when
-            # they click a similar title rather than landing on a non-preferred version.
-            best_per_title: dict[str, tuple[ChannelDB, int]] = {}
-            for ch in candidates:
-                ch_norm = normalize_title(ch.name, ch.detected_prefix)
-                ch_norm_ascii = _non_ascii.sub(" ", ch_norm).strip()
-                ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
-                overlap = sum(1 for w in words if w in ch_words)
-                if overlap < threshold or ch_norm == norm:
-                    continue
-                if current_key:
-                    ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
-                    if build_dedup_key(ch, ch_meta) == current_key:
+                # Group by normalized title, keeping the best-scored version per title so
+                # that users who have a preferred prefix (e.g. "EN") see that version when
+                # they click a similar title rather than landing on a non-preferred version.
+                best_per_title: dict[str, tuple[ChannelDB, int]] = {}
+                for ch in candidates:
+                    ch_norm = normalize_title(ch.name, ch.detected_prefix)
+                    ch_norm_ascii = _non_ascii.sub(" ", ch_norm).strip()
+                    ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
+                    overlap = sum(1 for w in words if w in ch_words)
+                    if overlap < threshold or ch_norm == norm:
                         continue
-                score = _version_score(ch, self.config)
-                existing = best_per_title.get(ch_norm)
-                if existing is None or score > existing[1]:
-                    best_per_title[ch_norm] = (ch, score)
+                    if current_key:
+                        ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
+                        if build_dedup_key(ch, ch_meta) == current_key:
+                            continue
+                    score = _version_score(ch, self.config)
+                    existing = best_per_title.get(ch_norm)
+                    if existing is None or score > existing[1]:
+                        best_per_title[ch_norm] = (ch, score)
 
-            results = [ch for ch, _ in list(best_per_title.values())[:20]]
+                results = [ch for ch, _ in list(best_per_title.values())[:20]]
 
-            repos = RepositoryFactory(session)
-            queue_ids = repos.queue.get_queued_ids()
-            ratings = {r.channel_id: r.rating for r in session.query(UserRatingDB).all()}
-            similar = [
-                ChannelVersion(
-                    channel_id=ch.id,
-                    name=ch.name,
-                    in_queue=ch.id in queue_ids,
-                    detected_prefix=ch.detected_prefix,
-                    is_favorite=bool(ch.is_favorite),
-                    in_history=bool(ch.play_count),
-                    media_type=ch.media_type or "",
-                    user_rating=ratings.get(ch.id, 0),
-                )
-                for ch in results[:20]
-            ]
+                repos = RepositoryFactory(session)
+                queue_ids = repos.queue.get_queued_ids()
+                ratings = {r.channel_id: r.rating for r in session.query(UserRatingDB).all()}
+                similar = [
+                    ChannelVersion(
+                        channel_id=ch.id,
+                        name=ch.name,
+                        in_queue=ch.id in queue_ids,
+                        detected_prefix=ch.detected_prefix,
+                        is_favorite=bool(ch.is_favorite),
+                        in_history=bool(ch.play_count),
+                        media_type=ch.media_type or "",
+                        user_rating=ratings.get(ch.id, 0),
+                    )
+                    for ch in results[:20]
+                ]
         except Exception:
             logger.exception("Error fetching similar titles for %s", channel_id)
             similar = []
-        finally:
-            session.close()
 
         self._similar_titles_loaded.emit(channel_id, similar)
 
@@ -312,25 +309,16 @@ class _MetadataMixin:
     # ── Recommendations suppression ─────────────────────────────────────────
 
     def _hide_channel_from_recommendations(self, channel_id: str) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.set_hidden(channel_id, True)
-            session.commit()
-        finally:
-            session.close()
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.set_hidden(channel_id, True)
         self.preferences_view.refresh()
         self._refresh_recommended_section()
         self.load_channels()
 
     def _unhide_channel(self, channel_id: str) -> None:
         def _bg() -> None:
-            session = self.db.get_session()
-            try:
-                repos = RepositoryFactory(session)
-                repos.channels.set_hidden(channel_id, False)
-            finally:
-                session.close()
+            with self.db.session_scope() as session:
+                RepositoryFactory(session).channels.set_hidden(channel_id, False)
         self.executor.submit(_bg)
         QTimer.singleShot(150, self.load_channels)
 
@@ -347,14 +335,14 @@ class _MetadataMixin:
 
     def show_channel_details_by_id(self, channel_id: str):
         """Show channel details in details pane (for sidebar selections)."""
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                self.update_details_pane_for_channel(channel)
-        finally:
-            session.close()
+                session.expunge(channel)
+        if channel:
+            self.update_details_pane_for_channel(channel)
 
     def on_channel_selection_changed(self, current, previous):
         """Handle channel selection change — update details pane."""
@@ -366,14 +354,14 @@ class _MetadataMixin:
             return
         self._last_shown_channel_id = channel_id
 
-        session = self.db.get_session()
-        try:
+        channel = None
+        with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             channel = repos.channels.get_by_id(channel_id)
             if channel:
-                self.update_details_pane_for_channel(channel)
-        finally:
-            session.close()
+                session.expunge(channel)
+        if channel:
+            self.update_details_pane_for_channel(channel)
 
     def update_details_pane_for_channel(self, channel):
         """Update details pane with channel metadata (async)."""
@@ -386,13 +374,15 @@ class _MetadataMixin:
 
         provider_urls = []
         try:
-            session = self.db.get_session()
-            repos = RepositoryFactory(session)
-            provider_db = repos.providers.get_by_id(channel.provider_id)
-            if provider_db and provider_db.urls:
-                urls_data = parse_provider_urls(provider_db.urls)
-                provider_urls = [u.get('url') for u in urls_data if u.get('is_active', True) and u.get('url')]
-            session.close()
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                provider_db = repos.providers.get_by_id(channel.provider_id)
+                if provider_db and provider_db.urls:
+                    urls_data = parse_provider_urls(provider_db.urls)
+                    provider_urls = [
+                        u.get('url') for u in urls_data
+                        if u.get('is_active', True) and u.get('url')
+                    ]
             logger.debug(f"Provider URLs for failover: {provider_urls}")
         except Exception as e:
             logger.warning(f"Could not fetch provider URLs: {e}")
