@@ -2380,6 +2380,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
         """Open settings dialog"""
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self)
+        dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.exec()
         self._apply_sidebar_visibility()
 

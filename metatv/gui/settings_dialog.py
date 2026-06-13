@@ -1,6 +1,6 @@
 """Settings dialog with Playback, Metadata/API Keys, and Sidebar tabs."""
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
@@ -24,6 +24,8 @@ _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 class SettingsDialog(QDialog):
     """Modal settings dialog with Playback and Metadata/API Keys tabs."""
+
+    settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
 
     def __init__(self, config: Config, parent=None):
         super().__init__(parent)
@@ -338,6 +340,7 @@ class SettingsDialog(QDialog):
 
     def _apply(self):
         self._save_values()
+        self.settings_applied.emit()
 
     def _accept(self):
         self._save_values()
