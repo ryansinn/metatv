@@ -74,8 +74,10 @@ This document defines standard UI/UX behaviors maintained throughout the applica
 
 ### Collapsible Sections
 - Click section header → expands/collapses content
-- State persists across app restarts
-- Stored in: `config.yaml` → `ui.sidebar.{section}_collapsed`
+- State and **expanded height** persist across app restarts (`sidebar_section_states[id]`)
+- Minimum expanded height: 80px (`_MIN_EXPANDED` in `sidebar/base.py`) — the splitter enforces this so the user cannot drag an expanded section below header + ~2 rows
+- **Collapsing**: freed pixels are distributed proportionally to all other visible sections; no dead gap appears
+- **Expanding**: section restores to its last saved expanded height by stealing proportionally from neighbors; each neighbor's floor is respected (26px if collapsed, 80px if expanded)
 
 ### History Section
 - Shows recently played series/movies
