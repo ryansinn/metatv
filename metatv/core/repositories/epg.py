@@ -350,6 +350,16 @@ class EpgRepository:
             .count()
         )
 
+    def count_by_providers(self, provider_ids: list[str]) -> int:
+        """Total programme rows across multiple providers."""
+        if not provider_ids:
+            return 0
+        return (
+            self.session.query(EpgProgramDB)
+            .filter(EpgProgramDB.provider_id.in_(provider_ids))
+            .count()
+        )
+
     def clear_provider_data(self, provider_id: str) -> int:
         """Delete all EPG rows for a provider. Returns deleted count."""
         count = (

@@ -360,18 +360,6 @@ class EpgManager(QObject):
         finally:
             session.close()
 
-    def get_total_programmes(self, provider_ids: list[str]) -> int:
-        """Total programme count across the given providers."""
-        session = self.db.get_session()
-        try:
-            return (
-                session.query(EpgProgramDB)
-                .filter(EpgProgramDB.provider_id.in_(provider_ids))
-                .count()
-            )
-        finally:
-            session.close()
-
     # ------------------------------------------------------------------
     # Notification timer
     # ------------------------------------------------------------------
