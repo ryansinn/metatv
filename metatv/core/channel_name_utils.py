@@ -85,8 +85,10 @@ _COMPOUND_PREFIX_RE = re.compile(
 # ── Suffix patterns ─────────────────────────────────────────────────────────── #
 
 # Quality tokens at end of bare name (including codecs and source indicators)
+# RAW, LIVE, CAM removed — these are ambiguous when bare (e.g., "WWE Raw" shouldn't become
+# title="WWE"). They must appear bracketed [RAW] or as superscript to count as quality.
 _QUALITY_SUFFIX_RE = re.compile(
-    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ|RAW|LIVE|CAM)\b\s*$',
+    r'\s+\b(4K|8K|UHD|FHD|HDR10\+?|HDR|HEVC|H265|H264|HD|SD|HQ|LQ)\b\s*$',
     re.IGNORECASE,
 )
 
@@ -305,6 +307,13 @@ REGION_FULL_NAMES: dict[str, str] = {
     "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
     "BEIN": "beIN Sports", "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     "SKY": "Sky", "MBC": "MBC",
+    # Streaming platforms (surfaced by Ninja, 2026-06)
+    "NEXT": "Next TV", "JOYN": "Joyn", "VIX": "Vix", "CITY": "City TV",
+    "PLAY+": "Play+", "A+": "A+", "NOWTV": "Now TV", "STH": "STH",
+    # Additional regions (surfaced by Ninja, 2026-06)
+    "MXC": "Mexico",  # surfaced in TREX + IPTV Ninja, measured 2,934 channels
+    "ISR": "Israel",  # surfaced in TREX + IPTV Ninja, measured 588 channels
+    "SOM": "Somalia",  # measured 2,812 channels
     # Content-type prefixes (Trex / provider-specific)
     "MV": "Music Videos", "SPT": "Sports",
 }

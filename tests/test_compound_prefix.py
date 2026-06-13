@@ -291,8 +291,9 @@ import pytest
     ("DE - Film UHD",                   "UHD", "DE"),
     # Standalone 4K prefix (no lang code)
     ("4K - The Movie",                  "4K",  None),
-    # CAM source indicator — bare suffix
-    ("EN ★ Movie CAM",                  "CAM", "EN"),
+    # CAM source indicator — must be bracketed, not bare
+    # (B0 fix: bare CAM/LIVE/RAW no longer stripped from names)
+    ("EN ★ Movie [CAM]",                "CAM", "EN"),
 ])
 def test_4k_variants_exhaustive(db_session, repo, channel_name, exp_quality, exp_prefix):
     """Every known 4K-encoding variant must produce the expected detected_quality."""
