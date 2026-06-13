@@ -27,19 +27,25 @@ def setup_logging():
 def main():
     """Main application entry point"""
     setup_logging()
-    
-    # Load configuration
-    config = Config.load()
-    
+
+    # Load configuration (returns tuple: config, recovered_from_backup)
+    config, recovered_from_backup = Config.load()
+
+    # Save config to create .yaml file and backup on first startup
+    try:
+        config.save()
+    except Exception as e:
+        logger.error(f"Failed to save config on startup: {e}")
+
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("MetaTV")
     app.setOrganizationName("MetaTV")
-    
+
     # Create and show main window
-    window = MainWindow(config)
+    window = MainWindow(config, config_recovered=recovered_from_backup)
     window.show()
-    
+
     # Run application
     sys.exit(app.exec())
 

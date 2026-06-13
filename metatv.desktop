@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MetaTV
+Comment=IPTV client with metadata and EPG support
+Exec=/home/ryan/Projects/metatv/run.sh
+Icon=media-player
+Categories=AudioVideo;Video;
+Terminal=false
+StartupNotify=true
+
