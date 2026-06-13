@@ -455,26 +455,28 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
     
     def create_sidebar(self) -> QWidget:
         """Create modular sidebar with resizable sections"""
-        # Use QSplitter for resizable sections
         self.sidebar_splitter = QSplitter(Qt.Orientation.Vertical)
-        
-        # Track section widgets
         self.sidebar_sections = {}
-        
-        # Create sections based on config order
-        for section_id in self.config.sidebar_sections:
-            # Skip if not visible
-            if section_id not in self.config.sidebar_visible_sections:
-                continue
-            
+
+        # Determine full ordered list: saved order first, then any new sections not yet in it
+        _known = ["alerts", "recommended", "queue", "favorites", "history", "sources"]
+        ordered = list(self.config.sidebar_sections or _known)
+        for sid in _known:
+            if sid not in ordered:
+                ordered.append(sid)
+
+        visible_ids = set(self.config.sidebar_visible_sections or ordered)
+
+        # Create ALL sections (visible and hidden) so live reordering works
+        for section_id in ordered:
             section = self.create_section(section_id)
             if section:
                 self.sidebar_sections[section_id] = section
                 self.sidebar_splitter.addWidget(section)
                 section.setMinimumHeight(26)  # can't drag below header height
-                # Restore state
+                section.setVisible(section_id in visible_ids)
                 section.restore_state()
-        
+
         # Restore section sizes from config
         if self.config.sidebar_section_sizes:
             self.sidebar_splitter.setSizes(self.config.sidebar_section_sizes)
@@ -2382,8 +2384,17 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
         self._apply_sidebar_visibility()
 
     def _apply_sidebar_visibility(self) -> None:
-        """Show/hide existing sidebar sections to match config.sidebar_visible_sections."""
-        visible_ids = set(self.config.sidebar_visible_sections or [])
+        """Reorder and show/hide sidebar sections immediately from config."""
+        ordered_ids = list(self.config.sidebar_sections or self.sidebar_sections.keys())
+        visible_ids = set(self.config.sidebar_visible_sections or ordered_ids)
+
+        # Reorder: insertWidget moves an already-present widget to position i
+        for i, sid in enumerate(ordered_ids):
+            section = self.sidebar_sections.get(sid)
+            if section is not None:
+                self.sidebar_splitter.insertWidget(i, section)
+
+        # Apply visibility
         for sid, section in self.sidebar_sections.items():
             section.setVisible(sid in visible_ids)
     

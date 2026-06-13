@@ -203,7 +203,7 @@ class SettingsDialog(QDialog):
 
         hint = QLabel(
             "Check sections to show them. Use the arrows to reorder.\n"
-            "Visibility changes apply immediately; order changes take effect after restart."
+            "All changes apply immediately when you click OK or Apply."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
@@ -227,9 +227,6 @@ class SettingsDialog(QDialog):
         arrow_row.addStretch()
         layout.addLayout(arrow_row)
 
-        self._sidebar_restart_hint = QLabel("")
-        self._sidebar_restart_hint.setStyleSheet("color: #f0a000; font-size: 11px;")
-        layout.addWidget(self._sidebar_restart_hint)
 
         layout.addStretch()
         return tab
@@ -240,7 +237,6 @@ class SettingsDialog(QDialog):
             item = self._sidebar_list.takeItem(row)
             self._sidebar_list.insertItem(row - 1, item)
             self._sidebar_list.setCurrentRow(row - 1)
-            self._sidebar_restart_hint.setText("ℹ  Restart required for order changes to take effect.")
 
     def _sidebar_move_down(self) -> None:
         row = self._sidebar_list.currentRow()
@@ -248,7 +244,6 @@ class SettingsDialog(QDialog):
             item = self._sidebar_list.takeItem(row)
             self._sidebar_list.insertItem(row + 1, item)
             self._sidebar_list.setCurrentRow(row + 1)
-            self._sidebar_restart_hint.setText("ℹ  Restart required for order changes to take effect.")
 
     def _load_values(self):
         """Populate widgets from current config."""

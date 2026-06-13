@@ -1114,83 +1114,85 @@ class EpgView(ContentView):
         layout.addLayout(header)
 
         # ── Live title groups ────────────────────────────────────────────── #
-        _MAX_VISIBLE = 3
+        _MAX_VISIBLE = 3  # channels shown per title group before "more" toggle
+        _MAX_GROUPS = 4   # title groups shown per card before "more programs" toggle
 
-        for title, progs in title_groups.items():
-            # Show title only when it adds information beyond the pattern keyword.
-            # Skip when it's an exact case-insensitive match — the card header already shows it.
+        def _ch_row(prog):
+            """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]"""
+            raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+            p = parse_channel_name(raw_name)
+
+            db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
+            display_quality = db_quality or (p.quality[0] if p.quality else "")
+
+            row_w = QWidget()
+            cid = prog.channel_db_id
+            row_w.setCursor(Qt.CursorShape.PointingHandCursor)
+            row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
+            row = QHBoxLayout(row_w)
+            row.setContentsMargins(16, 0, 4, 0)
+            row.setSpacing(4)
+
+            time_lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·")
+            time_lbl.setFixedWidth(90)
+            time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            time_lbl.setStyleSheet(_theme.TIME_LABEL)
+            row.addWidget(time_lbl)
+
+            if p.region:
+                row.addWidget(make_region_chip(p.region, row_w))
+            if p.audio:
+                row.addWidget(make_audio_chip(p.audio, row_w))
+            if p.lang:
+                row.addWidget(make_region_chip(p.lang, row_w))
+
+            name_lbl = QLabel(p.bare_name or raw_name)
+            name_lbl.setStyleSheet(_theme.CHANNEL_NAME_LIVE)
+            row.addWidget(name_lbl, 1)
+
+            if display_quality:
+                row.addWidget(make_quality_chip(display_quality, row_w))
+            if p.year:
+                row.addWidget(make_year_chip(p.year, row_w))
+
+            pb = QPushButton(self.config.play_icon)
+            pb.setFixedSize(22, 20)
+            pb.setFlat(True)
+            pb.setToolTip(f"Play: {p.bare_name or raw_name}")
+            pb.setStyleSheet(_theme.PLAY_BTN)
+            cid = prog.channel_db_id
+            pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
+            row.addWidget(pb)
+            return row_w
+
+        def _render_group(title: str, progs: list, target_layout) -> None:
+            """Render one title group (label + channel rows + optional expand) into target_layout."""
             if title.casefold() != pattern.casefold():
                 title_lbl = QLabel(title)
                 title_lbl.setWordWrap(True)
+                # Ignored policy: long titles don't inflate the card's minimum/preferred width
+                title_lbl.setSizePolicy(
+                    QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+                )
                 title_lbl.setStyleSheet(
                     "font-size: 11px; color: #ddd; font-weight: bold;"
                     " padding-left: 8px; padding-top: 4px;"
                 )
-                layout.addWidget(title_lbl)
+                target_layout.addWidget(title_lbl)
 
-            def _ch_row(prog):
-                """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]"""
-                raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-                p = parse_channel_name(raw_name)
-
-                db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
-                display_quality = db_quality or (p.quality[0] if p.quality else "")
-
-                row_w = QWidget()
-                cid = prog.channel_db_id
-                row_w.setCursor(Qt.CursorShape.PointingHandCursor)
-                row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
-                row = QHBoxLayout(row_w)
-                row.setContentsMargins(16, 0, 4, 0)
-                row.setSpacing(4)
-
-                time_lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·")
-                time_lbl.setFixedWidth(90)
-                time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                time_lbl.setStyleSheet(_theme.TIME_LABEL)
-                row.addWidget(time_lbl)
-
-                if p.region:
-                    row.addWidget(make_region_chip(p.region, row_w))
-                if p.audio:
-                    row.addWidget(make_audio_chip(p.audio, row_w))
-                if p.lang:
-                    row.addWidget(make_region_chip(p.lang, row_w))
-
-                name_lbl = QLabel(p.bare_name or raw_name)
-                name_lbl.setStyleSheet(_theme.CHANNEL_NAME_LIVE)
-                row.addWidget(name_lbl, 1)
-
-                if display_quality:
-                    row.addWidget(make_quality_chip(display_quality, row_w))
-                if p.year:
-                    row.addWidget(make_year_chip(p.year, row_w))
-
-                pb = QPushButton(self.config.play_icon)
-                pb.setFixedSize(22, 20)
-                pb.setFlat(True)
-                pb.setToolTip(f"Play: {p.bare_name or raw_name}")
-                pb.setStyleSheet(_theme.PLAY_BTN)
-                cid = prog.channel_db_id
-                pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
-                row.addWidget(pb)
-                return row_w
-
-            # Show first _MAX_VISIBLE channels immediately
             for prog in progs[:_MAX_VISIBLE]:
-                layout.addWidget(_ch_row(prog))
+                target_layout.addWidget(_ch_row(prog))
 
-            # If more, add a hidden container + expand toggle
             if len(progs) > _MAX_VISIBLE:
                 extra = progs[_MAX_VISIBLE:]
                 n_more = len(extra)
 
                 extra_container = QWidget()
-                extra_layout = QVBoxLayout(extra_container)
-                extra_layout.setContentsMargins(0, 0, 0, 0)
-                extra_layout.setSpacing(2)
+                extra_inner = QVBoxLayout(extra_container)
+                extra_inner.setContentsMargins(0, 0, 0, 0)
+                extra_inner.setSpacing(2)
                 for ep in extra:
-                    extra_layout.addWidget(_ch_row(ep))
+                    extra_inner.addWidget(_ch_row(ep))
                 extra_container.hide()
 
                 expand_btn = QPushButton(f"{self.config.move_down_icon}  {n_more} more channels")
@@ -1210,8 +1212,47 @@ class EpgView(ContentView):
                         btn.setText(f"{self.config.move_down_icon}  {n} more channels")
 
                 expand_btn.clicked.connect(_toggle)
-                layout.addWidget(expand_btn)
-                layout.addWidget(extra_container)
+                target_layout.addWidget(expand_btn)
+                target_layout.addWidget(extra_container)
+
+        group_list = list(title_groups.items())
+        visible_groups = group_list[:_MAX_GROUPS]
+        extra_groups = group_list[_MAX_GROUPS:]
+
+        for title, progs in visible_groups:
+            _render_group(title, progs, layout)
+
+        if extra_groups:
+            n_extra_grps = len(extra_groups)
+            extra_grp_container = QWidget()
+            extra_grp_layout = QVBoxLayout(extra_grp_container)
+            extra_grp_layout.setContentsMargins(0, 0, 0, 0)
+            extra_grp_layout.setSpacing(3)
+            for title, progs in extra_groups:
+                _render_group(title, progs, extra_grp_layout)
+            extra_grp_container.hide()
+
+            more_grps_btn = QPushButton(
+                f"{self.config.move_down_icon}  {n_extra_grps} more programs"
+            )
+            more_grps_btn.setFlat(True)
+            more_grps_btn.setStyleSheet(
+                "QPushButton { color: #555; font-size: 10px; border: none;"
+                " text-align: left; padding: 2px 8px; }"
+                "QPushButton:hover { color: #888; }"
+            )
+
+            def _toggle_groups(_, btn=more_grps_btn, cont=extra_grp_container, n=n_extra_grps):
+                if cont.isHidden():
+                    cont.show()
+                    btn.setText(f"{self.config.move_up_icon}  fewer programs")
+                else:
+                    cont.hide()
+                    btn.setText(f"{self.config.move_down_icon}  {n} more programs")
+
+            more_grps_btn.clicked.connect(_toggle_groups)
+            layout.addWidget(more_grps_btn)
+            layout.addWidget(extra_grp_container)
 
         # ── Separator + upcoming ─────────────────────────────────────────── #
         if is_live and upcoming:
@@ -1279,6 +1320,9 @@ class EpgView(ContentView):
             if title.casefold() != pattern.casefold():
                 title_lbl = QLabel(title)
                 title_lbl.setWordWrap(True)
+                title_lbl.setSizePolicy(
+                    QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+                )
                 title_lbl.setStyleSheet(
                     "font-size: 11px; color: #bbb; font-style: italic; padding-left: 8px;"
                 )

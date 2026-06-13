@@ -201,7 +201,7 @@ class _MetadataSection(QWidget):
 
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
-        self.title_label.setMinimumWidth(0)  # prevent long title from expanding scroll area
+        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
         title_bar_layout.addWidget(self.title_label, 1)
 
