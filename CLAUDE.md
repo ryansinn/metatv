@@ -327,6 +327,69 @@ Rules:
   stale-token drop.
 - Always reuse `self.executor` (the owner's long-lived pool) — never create a per-call pool.
 
+**Widget-level sections can't reach the seam.** `_run_query` lives on `MainWindow`; standalone
+`QWidget`s (sidebar `CollapsibleSection` subclasses — Favorites/History/Queue/Recommended) have no
+`self._run_query`. They use the **sibling pattern**, and any new background-reading section must
+match it exactly — do not invent a third shape:
+
+```python
+_data_ready = pyqtSignal(object)          # list[DTO] | None   (None = load failed)
+
+def __init__(self, ...):
+    self._executor = ThreadPoolExecutor(max_workers=1)   # owned; main_window registers shutdown
+    ...
+    self._data_ready.connect(self._on_data_ready)
+
+def refresh(self):                         # main thread
+    self._list.clear()
+    self._executor.submit(self._bg_refresh)
+
+def _bg_refresh(self):                     # worker — NO widget access
+    try:
+        with self.db.session_scope() as session:
+            data = build_dtos(RepositoryFactory(session))   # plain DTOs only
+    except Exception:
+        logger.exception("...")
+        self._data_ready.emit(None)        # signal failure, don't swallow
+        return
+    self._data_ready.emit(data)
+
+def _on_data_ready(self, data):            # main thread
+    self._list.clear()
+    if data is None:
+        self.show_load_error(self._list, "Couldn't load …")   # see rule below
+        return
+    ...
+```
+
+- `max_workers=1` is required (the SQLite-lock rule), and it also makes rapid `refresh()` calls
+  converge: single-worker FIFO + each handler clearing first means last-write-wins with no torn
+  state, so these sections need **no** `token_ref`.
+- The owning `MainWindow` auto-registers each section's `_executor` for shutdown (the
+  `hasattr(section, "_executor")` loop in `setup_ui`). Naming the attribute `_executor` is what
+  opts a section into that cleanup — don't rename it.
+- **This duplication is known debt** (the seam can't be reached from widgets). Do not "fix" it
+  ad-hoc; the unification (a shared `BackgroundRefreshMixin`) is tracked in
+  `docs/REFACTOR_PLAN_BAND8.md` (B8-5). Until then, follow the pattern verbatim.
+
+### Background refresh failure must be visible — never silently blank a list
+A background DB read that backs a list/section **must not** make failure indistinguishable from an
+empty result. On the `None`/error branch of `_on_data_ready`, render a distinct, non-selectable
+error row — use `CollapsibleSection.show_load_error(list_widget, "Couldn't load …")` (it adds an
+`icons.notification_warning_icon` row and keeps the section expanded). Never just `clear(); return`
+on failure: an empty styled "you have nothing here" state is a lie when the query actually threw.
+This mirrors the `on_error` placeholder rule for `_run_query` (e.g. EPG's "count unavailable").
+
+### Async-read tests — pin the main-thread half, and never claim coverage you didn't write
+For any off-thread read (`_run_query` or the sidebar sibling pattern), the worker half (`_bg_refresh`
+/ `query_fn`) is the *boring* half — a try/except around a repo call. The half that regresses is the
+**main-thread `on_result` / `_on_data_ready`**: sorting, the continue-vs-never split, icon mapping,
+episode-code rendering, the empty state, and the failure row. Test it directly — construct the
+widget via `__new__`, hand it a real `QListWidget` (the module `qapp` fixture makes this headless)
+or a `_FakeLabel`, call the slot, assert the rendered rows. A test docstring must not list an
+invariant (e.g. "`_on_data_ready` populates correctly") that no assert actually checks — describing
+unwritten coverage is worse than silence, because the next reader trusts it and the gap calcifies.
+
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.
 

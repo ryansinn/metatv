@@ -246,6 +246,22 @@ class CollapsibleSection(QFrame):
     # Empty / state management
     # ------------------------------------------------------------------
 
+    def show_load_error(self, list_widget, message: str) -> None:
+        """Render a distinct, non-selectable error row after a failed background load.
+
+        A failed background refresh must never look like a legitimate empty result
+        (see CLAUDE.md "Background refresh failure must be visible"). Keeps the section
+        expanded so the message is seen instead of silently blanking the list.
+        """
+        from PyQt6.QtWidgets import QListWidgetItem
+        from metatv.gui import icons as _icons
+
+        list_widget.clear()
+        item = QListWidgetItem(f"{_icons.notification_warning_icon} {message}")
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        list_widget.addItem(item)
+        self.set_empty(False)
+
     def set_empty(self, empty: bool):
         """Set empty state and auto-collapse if empty"""
         was_empty = self.is_empty

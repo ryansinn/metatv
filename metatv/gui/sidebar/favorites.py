@@ -1,8 +1,11 @@
 """FavoritesSection sidebar widget."""
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy
+from concurrent.futures import ThreadPoolExecutor
+
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
@@ -12,14 +15,15 @@ from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 class FavoritesSection(CollapsibleSection):
     """Favorites section"""
 
-    favoriteClicked = pyqtSignal(str)  # channel_id (double-click)
-    itemSelected = pyqtSignal(str)  # channel_id (single-click)
+    favoriteClicked = pyqtSignal(str)   # channel_id (double-click)
+    itemSelected    = pyqtSignal(str)   # channel_id (single-click)
+    _data_ready     = pyqtSignal(object)  # list[FavoriteDTO] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("Favorites", config.favorite_icon, config, parent)
-
-        # Favorites should expand to fill remaining space
+        self._data_ready.connect(self._on_data_ready)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
@@ -43,9 +47,6 @@ class FavoritesSection(CollapsibleSection):
         self.main_layout.addWidget(header)
 
     def create_content(self):
-        """Create favorites list"""
-        from PyQt6.QtWidgets import QListWidget
-
         self.favorites_list = QListWidget()
         self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.favorites_list.itemDoubleClicked.connect(self.on_favorite_clicked)
@@ -53,52 +54,57 @@ class FavoritesSection(CollapsibleSection):
         self.content_layout.addWidget(self.favorites_list)
 
     def refresh(self):
-        """Load favorites from database — shows all providers, no filtering"""
+        """Kick off an off-thread favorites load; clears the list immediately."""
         self.favorites_list.clear()
+        self._executor.submit(self._bg_refresh)
 
-        session = self.db.get_session()
+    def _bg_refresh(self) -> None:
+        from metatv.core.repositories.dtos import FavoriteDTO
         try:
-            repos = RepositoryFactory(session)
             adult_mode = getattr(self.config, "filter_adult_mode", "all")
-            all_favorites = repos.channels.get_favorites(adult_mode=adult_mode)
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                dtos = repos.channels.get_favorites_dto(adult_mode=adult_mode)
+        except Exception:
+            logger.exception("FavoritesSection bg refresh error")
+            self._data_ready.emit(None)
+            return
+        self._data_ready.emit(dtos)
 
-            self.set_empty(len(all_favorites) == 0)
+    def _on_data_ready(self, dtos) -> None:
+        """Main-thread slot: populate favorites_list from DTOs."""
+        self.favorites_list.clear()
+        if dtos is None:
+            self.show_load_error(self.favorites_list, "Couldn't load favorites")
+            return
 
-            if len(all_favorites) == 0:
-                from PyQt6.QtWidgets import QListWidgetItem
-                item = QListWidgetItem("No favorites yet")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self.favorites_list.addItem(item)
-                item = QListWidgetItem("Right-click any channel to add to favorites")
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                self.favorites_list.addItem(item)
-                return
+        self.set_empty(len(dtos) == 0)
+        if not dtos:
+            item = QListWidgetItem("No favorites yet")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.favorites_list.addItem(item)
+            item = QListWidgetItem("Right-click any channel to add to favorites")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.favorites_list.addItem(item)
+            return
 
-            # Separate into continue watching and never watched
-            continue_watching = [c for c in all_favorites if c.last_played]
-            never_watched = [c for c in all_favorites if not c.last_played]
+        continue_watching = sorted(
+            [d for d in dtos if d.last_played], key=lambda d: d.last_played, reverse=True
+        )
+        never_watched = sorted(
+            [d for d in dtos if not d.last_played], key=lambda d: d.name
+        )
 
-            # Sort
-            continue_watching.sort(key=lambda c: c.last_played, reverse=True)
-            never_watched.sort(key=lambda c: c.name)
+        if continue_watching:
+            self._add_header("Continue Watching")
+            for dto in continue_watching:
+                self._add_item(dto)
+        if never_watched:
+            self._add_header("Never Watched")
+            for dto in never_watched:
+                self._add_item(dto)
 
-            # Add headers and items
-            if continue_watching:
-                self.add_header("Continue Watching")
-                for channel in continue_watching:
-                    self.add_favorite_item(channel)
-
-            if never_watched:
-                self.add_header("Never Watched")
-                for channel in never_watched:
-                    self.add_favorite_item(channel)
-        finally:
-            session.close()
-
-    def add_header(self, text):
-        """Add a section header"""
-        from PyQt6.QtWidgets import QListWidgetItem
-
+    def _add_header(self, text: str) -> None:
         item = QListWidgetItem(text)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         font = QFont()
@@ -106,37 +112,29 @@ class FavoritesSection(CollapsibleSection):
         item.setFont(font)
         self.favorites_list.addItem(item)
 
-    def add_favorite_item(self, channel):
-        """Add a favorite channel item"""
-        from PyQt6.QtWidgets import QListWidgetItem
+    def _add_item(self, dto) -> None:
+        item = QListWidgetItem(
+            f"{self._media_icon(dto.media_type)} {_fmt_channel_name(dto.name)}"
+        )
+        item.setData(Qt.ItemDataRole.UserRole, dto.id)
+        self.favorites_list.addItem(item)
 
-        item = QListWidgetItem(self.favorites_list)
-
-        # Get media type icon
-        media_icon = self.get_media_icon(channel.media_type)
-
-        item.setText(f"{media_icon} {_fmt_channel_name(channel.name)}")
-        item.setData(Qt.ItemDataRole.UserRole, channel.id)
-
-    def get_media_icon(self, media_type):
-        """Get icon for media type"""
+    def _media_icon(self, media_type) -> str:
         from metatv.core.models import MediaType
         if media_type == MediaType.LIVE:
             return self.config.live_icon
-        elif media_type == MediaType.MOVIE:
+        if media_type == MediaType.MOVIE:
             return self.config.movie_icon
-        elif media_type == MediaType.SERIES:
+        if media_type == MediaType.SERIES:
             return self.config.series_icon
         return self.config.unknown_icon
 
     def on_favorite_clicked(self, item):
-        """Handle favorite item double-click"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if channel_id:
             self.favoriteClicked.emit(channel_id)
 
     def on_favorite_selected(self, current, previous):
-        """Handle favorite item single-click selection"""
         if not current:
             return
         channel_id = current.data(Qt.ItemDataRole.UserRole)
