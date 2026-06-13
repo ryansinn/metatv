@@ -1,5 +1,7 @@
 """WatchQueueSection — user's ordered watch queue."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
 )
@@ -14,15 +16,18 @@ from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 class WatchQueueSection(CollapsibleSection):
     """Sidebar section showing the user's ordered watch queue."""
 
-    itemDoubleClicked           = pyqtSignal(str)        # channel_id
-    itemSelected                = pyqtSignal(str)        # channel_id
-    channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
-    clearQueueClicked           = pyqtSignal()
-    clearWatchedClicked         = pyqtSignal()
+    itemDoubleClicked             = pyqtSignal(str)        # channel_id
+    itemSelected                  = pyqtSignal(str)        # channel_id
+    channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
+    clearQueueClicked             = pyqtSignal()
+    clearWatchedClicked           = pyqtSignal()
+    _data_ready                   = pyqtSignal(object)     # list[QueueEntry] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("Watch Queue", config.queue_icon, config, parent)
+        self._data_ready.connect(self._on_data_ready)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
@@ -48,6 +53,60 @@ class WatchQueueSection(CollapsibleSection):
 
         self.set_empty(True)
 
+    def refresh(self):
+        """Kick off an off-thread queue load; clears the list immediately."""
+        self._list.clear()
+        self._executor.submit(self._bg_refresh)
+
+    def _bg_refresh(self) -> None:
+        try:
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                entries = repos.queue.get_all()
+        except Exception:
+            logger.exception("WatchQueueSection bg refresh error")
+            self._data_ready.emit(None)
+            return
+        self._data_ready.emit(entries)
+
+    def _on_data_ready(self, entries) -> None:
+        """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
+        self._list.clear()
+        if entries is None:
+            return
+
+        self.set_empty(len(entries) == 0)
+        if not entries:
+            item = QListWidgetItem("Queue is empty — right-click any channel to add")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._list.addItem(item)
+            return
+
+        continue_watching = sorted(
+            [e for e in entries if e.last_played],
+            key=lambda e: e.last_played,
+            reverse=True,
+        )
+        never_watched = [e for e in entries if not e.last_played]
+
+        if continue_watching:
+            self._add_header("Continue Watching")
+            for e in continue_watching:
+                item = QListWidgetItem(
+                    f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
+                )
+                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+                self._list.addItem(item)
+
+        if never_watched:
+            self._add_header("Never Watched")
+            for e in never_watched:
+                item = QListWidgetItem(
+                    f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
+                )
+                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+                self._list.addItem(item)
+
     def _media_icon(self, media_type: str) -> str:
         if media_type == "movie":
             return self.config.movie_icon
@@ -64,48 +123,6 @@ class WatchQueueSection(CollapsibleSection):
         font.setBold(True)
         item.setFont(font)
         self._list.addItem(item)
-
-    def refresh(self):
-        self._list.clear()
-        entries = []
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            entries = repos.queue.get_all()
-        except Exception as e:
-            logger.error(f"WatchQueueSection refresh error: {e}")
-        finally:
-            session.close()
-
-        self.set_empty(len(entries) == 0)
-        if not entries:
-            item = QListWidgetItem("Queue is empty — right-click any channel to add")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._list.addItem(item)
-            return
-
-        # Split into continue-watching (has last_played) and not-yet-started.
-        # Use e.last_played (eagerly copied) to avoid DetachedInstanceError.
-        continue_watching = sorted(
-            [e for e in entries if e.last_played],
-            key=lambda e: e.last_played,
-            reverse=True,
-        )
-        never_watched = [e for e in entries if not e.last_played]
-
-        if continue_watching:
-            self._add_header("Continue Watching")
-            for e in continue_watching:
-                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}")
-                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
-                self._list.addItem(item)
-
-        if never_watched:
-            self._add_header("Never Watched")
-            for e in never_watched:
-                item = QListWidgetItem(f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}")
-                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
-                self._list.addItem(item)
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
         channel_id = item.data(Qt.ItemDataRole.UserRole)

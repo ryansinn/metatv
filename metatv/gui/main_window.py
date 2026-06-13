@@ -481,6 +481,14 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                 section.setVisible(section_id in visible_ids)
                 section.restore_state()
 
+        # Register executor shutdown for every section that owns a thread pool
+        for sid, section in self.sidebar_sections.items():
+            if hasattr(section, "_executor"):
+                self._register_cleanable(
+                    f"sidebar_{sid}_executor",
+                    lambda ex=section._executor: ex.shutdown(wait=False),
+                )
+
         # Restore section sizes from config
         if self.config.sidebar_section_sizes:
             self.sidebar_splitter.setSizes(self.config.sidebar_section_sizes)

@@ -1,7 +1,10 @@
 """HistorySection and HistoryItemWidget."""
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
+from concurrent.futures import ThreadPoolExecutor
+
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
+from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.sidebar.base import CollapsibleSection
@@ -20,12 +23,10 @@ class HistoryItemWidget(QWidget):
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(4)
 
-        # Text label (series name + episode info)
         text_label = QLabel(text)
         text_label.setWordWrap(False)
-        layout.addWidget(text_label, 1)  # Stretch factor 1
+        layout.addWidget(text_label, 1)
 
-        # Play next button (only show if there's a next episode)
         if has_next_episode:
             next_btn = QPushButton(">>")
             next_btn.setFixedSize(30, 20)
@@ -55,92 +56,88 @@ class HistoryItemWidget(QWidget):
 class HistorySection(CollapsibleSection):
     """Playback history section"""
 
-    historyItemClicked = pyqtSignal(str)  # channel_id (double-click)
-    itemSelected = pyqtSignal(str)  # channel_id (single-click)
+    historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
+    itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
+    _data_ready        = pyqtSignal(object)  # list[HistoryDTO] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("History", config.history_icon, config, parent)
+        self._data_ready.connect(self._on_data_ready)
 
     def get_section_id(self):
         return "history"
 
     def create_content(self):
-        """Create history list and clear button"""
-        from PyQt6.QtWidgets import QListWidget
-
-        # History list
         self.history_list = QListWidget()
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)
         self.content_layout.addWidget(self.history_list)
 
-        # Clear button
         self.clear_btn = QPushButton(f"{self.config.delete_icon} Clear History")
         self.clear_btn.clicked.connect(self.clearHistoryClicked.emit)
         self.content_layout.addWidget(self.clear_btn)
 
     def refresh(self):
-        """Load history from database — shows all providers, no filtering"""
-        from metatv.core.models import MediaType
-
+        """Kick off an off-thread history load; clears the list immediately."""
         self.history_list.clear()
+        self._executor.submit(self._bg_refresh)
 
-        session = self.db.get_session()
+    def _bg_refresh(self) -> None:
+        from metatv.core.repositories.dtos import build_history_dtos
         try:
-            repos = RepositoryFactory(session)
             adult_mode = getattr(self.config, "filter_adult_mode", "all")
-            recent = repos.channels.get_recent_history(limit=30, adult_mode=adult_mode)
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                dtos = build_history_dtos(repos, limit=30, adult_mode=adult_mode)
+        except Exception:
+            logger.exception("HistorySection bg refresh error")
+            self._data_ready.emit(None)
+            return
+        self._data_ready.emit(dtos)
 
-            self.set_empty(len(recent) == 0)
+    def _on_data_ready(self, dtos) -> None:
+        """Main-thread slot: populate history_list from DTOs."""
+        self.history_list.clear()
+        if dtos is None:
+            return
 
-            if len(recent) == 0:
-                return
+        self.set_empty(len(dtos) == 0)
+        if not dtos:
+            return
 
-            for channel in recent:
-                from PyQt6.QtWidgets import QListWidgetItem
-                item = QListWidgetItem(self.history_list)
+        for dto in dtos:
+            item = QListWidgetItem(self.history_list)
+            media_icon = self._media_icon(dto.media_type)
+            if dto.episode_code:
+                item.setText(f"{media_icon} {dto.name}\n   → {dto.episode_code}")
+            else:
+                item.setText(f"{media_icon} {dto.name}")
+            item.setData(Qt.ItemDataRole.UserRole, dto.id)
 
-                media_icon = self.get_media_icon(channel.media_type)
-
-                if channel.media_type == MediaType.SERIES:
-                    last_episode = repos.episodes.get_last_played(
-                        series_id=channel.source_id,
-                        provider_id=channel.provider_id
-                    )
-                    if last_episode:
-                        episode_code = f"S{last_episode.season_num:02d}E{last_episode.episode_num:02d}"
-                        item.setText(f"{media_icon} {channel.name}\n   → {episode_code}")
-                    else:
-                        item.setText(f"{media_icon} {channel.name}")
-                else:
-                    item.setText(f"{media_icon} {channel.name}")
-
-                item.setData(Qt.ItemDataRole.UserRole, channel.id)
-        finally:
-            session.close()
-
-    def get_media_icon(self, media_type):
-        """Get icon for media type"""
+    def _media_icon(self, media_type) -> str:
         from metatv.core.models import MediaType
         if media_type == MediaType.LIVE:
             return self.config.live_icon
-        elif media_type == MediaType.MOVIE:
+        if media_type == MediaType.MOVIE:
             return self.config.movie_icon
-        elif media_type == MediaType.SERIES:
+        if media_type == MediaType.SERIES:
             return self.config.series_icon
         return self.config.unknown_icon
 
+    # kept for backwards compat
+    def get_media_icon(self, media_type):
+        return self._media_icon(media_type)
+
     def on_history_item_clicked(self, item):
-        """Handle history item double-click"""
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if channel_id:
             self.historyItemClicked.emit(channel_id)
 
     def on_history_item_selected(self, current, previous):
-        """Handle history item single-click selection"""
         if not current:
             return
         channel_id = current.data(Qt.ItemDataRole.UserRole)
