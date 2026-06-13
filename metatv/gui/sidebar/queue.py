@@ -73,6 +73,7 @@ class WatchQueueSection(CollapsibleSection):
         """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
         self._list.clear()
         if entries is None:
+            self.show_load_error(self._list, "Couldn't load watch queue")
             return
 
         self.set_empty(len(entries) == 0)

@@ -103,6 +103,7 @@ class HistorySection(CollapsibleSection):
         """Main-thread slot: populate history_list from DTOs."""
         self.history_list.clear()
         if dtos is None:
+            self.show_load_error(self.history_list, "Couldn't load history")
             return
 
         self.set_empty(len(dtos) == 0)
@@ -127,10 +128,6 @@ class HistorySection(CollapsibleSection):
         if media_type == MediaType.SERIES:
             return self.config.series_icon
         return self.config.unknown_icon
-
-    # kept for backwards compat
-    def get_media_icon(self, media_type):
-        return self._media_icon(media_type)
 
     def on_history_item_clicked(self, item):
         channel_id = item.data(Qt.ItemDataRole.UserRole)

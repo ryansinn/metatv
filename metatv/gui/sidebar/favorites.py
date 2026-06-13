@@ -75,6 +75,7 @@ class FavoritesSection(CollapsibleSection):
         """Main-thread slot: populate favorites_list from DTOs."""
         self.favorites_list.clear()
         if dtos is None:
+            self.show_load_error(self.favorites_list, "Couldn't load favorites")
             return
 
         self.set_empty(len(dtos) == 0)
@@ -127,10 +128,6 @@ class FavoritesSection(CollapsibleSection):
         if media_type == MediaType.SERIES:
             return self.config.series_icon
         return self.config.unknown_icon
-
-    # kept for backwards compat (context menu code accesses this list directly)
-    def get_media_icon(self, media_type):
-        return self._media_icon(media_type)
 
     def on_favorite_clicked(self, item):
         channel_id = item.data(Qt.ItemDataRole.UserRole)

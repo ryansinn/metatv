@@ -102,6 +102,31 @@ faint lock-contention cost if a read replica or busier writer ever lands.
 
 ---
 
+### B8-5 — Unify the async-read pattern: a `BackgroundRefreshMixin` widgets can reach
+*Source: senior review of **Band 7 PR C** (`65a2b1b` — B7-5 sidebar refresh off-thread).*
+The `_run_query` seam (B7-1) lives on `MainWindow._AsyncMixin`, so standalone sidebar `QWidget`s
+can't reach it. PR C therefore hand-rolled the seam's mechanics a **third and fourth** time
+(Favorites/History/Queue, on top of the pre-existing Recommended): own `ThreadPoolExecutor` +
+`_data_ready` signal + `_bg_refresh` (try/except → `emit(None)`) + `_on_data_ready`. That's exactly
+the duplication the seam was meant to kill, but the seam wasn't built where its biggest customers
+(the sidebar — N lock-prone reads) could use it.
+- **Method:** extract the shared skeleton into a small `BackgroundRefreshMixin` (own executor,
+  `_data_ready: pyqtSignal(object)`, the `_bg_refresh` try/except/emit-`None` wrapper, the
+  `_on_data_ready` clear+dispatch) that both the sidebar sections and — where it fits — the
+  `MainWindow` seam compose. Sections supply a `_load()` (returns DTOs) and a `_populate(data)`.
+  Alternative if a mixin fights Qt's metaclass: have sections accept an injected `run_query`
+  callable from `MainWindow`. Pick whichever keeps the call sites smallest.
+- **Preserve:** `max_workers=1` (SQLite-lock rule), the `_executor` attribute name (the closeEvent
+  cleanup loop keys on `hasattr(section, "_executor")`), and the `None`→`show_load_error` failure
+  row (CLAUDE.md "Background refresh failure must be visible").
+- **Accept:** Favorites/History/Queue/Recommended share one refresh skeleton; no behavior change;
+  the four copies collapse to one; CLAUDE.md "Widget-level sections can't reach the seam" rule
+  updated to point at the unified primitive instead of the verbatim-copy pattern; tests green.
+- **Note:** This was deliberately *not* fixed in PR C (that PR was behavior-preserving and followed
+  the existing Recommended precedent). It is the one larger item the PR-C review deferred here.
+
+---
+
 ## Priority B — Carryover (only if not already done in Band 7)
 
 Verify against `main` first — these may have shipped in later Band 7 PRs. If done, strike them.
@@ -120,4 +145,6 @@ async-read path. Pure refactor, behavior-preserving, characterization test green
 - DTO imports live at module scope unless a real cycle is named in a comment.
 - The read seam does not COMMIT on a pure read (or it's proven it never did), test-pinned.
 - (If taken) `load_channels` runs through the one shared seam.
+- (B8-5) The four hand-rolled sidebar refresh copies collapse to one shared primitive; the
+  CLAUDE.md widget-pattern rule points at it.
 - All prior behavior preserved — tests green; no user-visible change.
