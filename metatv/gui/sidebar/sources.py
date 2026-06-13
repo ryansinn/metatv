@@ -16,7 +16,8 @@ class ProviderItemWidget(QWidget):
     toggleClicked = pyqtSignal(str)    # provider_id
 
     def __init__(self, provider_id: str, provider_name: str, is_active: bool = True,
-                 icon: str = "", sub_color: str = "", parent=None):
+                 icon: str = "", sub_color: str = "", is_expired: bool = False,
+                 parent=None):
         super().__init__(parent)
         self.provider_id = provider_id
         self._is_active = is_active
@@ -34,17 +35,31 @@ class ProviderItemWidget(QWidget):
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(icon_lbl)
 
-        # Active/inactive dot
-        self._status_lbl = QLabel("●" if is_active else "○")
+        # Status dot — green=active, red=expired, grey=inactive
+        if is_expired:
+            dot_char = "●"
+            dot_color = _theme.COLOR_ERR
+        elif is_active:
+            dot_char = "●"
+            dot_color = _theme.COLOR_OK
+        else:
+            dot_char = "○"
+            dot_color = _theme.COLOR_MUTED_2
+        self._status_lbl = QLabel(dot_char)
         self._status_lbl.setFixedWidth(12)
-        self._status_lbl.setStyleSheet(f"color: {'#4CAF50' if is_active else '#555'};")
+        self._status_lbl.setStyleSheet(f"color: {dot_color};")
+        if is_expired:
+            self._status_lbl.setToolTip("Subscription expired")
         layout.addWidget(self._status_lbl)
 
-        # Provider name — colored by subscription time if available
-        self._name_lbl = QLabel(provider_name)
+        # Provider name — expired gets distinct label + color, otherwise use sub_color
+        display_name = f"{provider_name} (Expired)" if is_expired else provider_name
+        self._name_lbl = QLabel(display_name)
         self._name_lbl.setWordWrap(False)
         self._name_lbl.setTextFormat(Qt.TextFormat.PlainText)
-        if sub_color:
+        if is_expired:
+            self._name_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR}; font-style: italic;")
+        elif sub_color:
             self._name_lbl.setStyleSheet(f"color: {sub_color};")
         layout.addWidget(self._name_lbl, 1)
 
@@ -86,7 +101,8 @@ class ProviderItemWidget(QWidget):
     def update_active(self, is_active: bool):
         self._is_active = is_active
         self._status_lbl.setText("●" if is_active else "○")
-        self._status_lbl.setStyleSheet(f"color: {'#4CAF50' if is_active else '#555'};")
+        dot_color = _theme.COLOR_OK if is_active else _theme.COLOR_MUTED_2
+        self._status_lbl.setStyleSheet(f"color: {dot_color};")
         self._toggle_btn.setText("●" if is_active else "○")
 
 
@@ -164,10 +180,13 @@ class SourcesSection(CollapsibleSection):
 
         session = self.db.get_session()
         try:
+            from datetime import datetime
+            from metatv.gui.provider_editor import subscription_color
             repos = RepositoryFactory(session)
             providers = repos.providers.get_all()
             self.set_empty(len(providers) == 0)
 
+            now = datetime.now()
             for provider in providers:
                 from PyQt6.QtWidgets import QTreeWidgetItem
                 item = QTreeWidgetItem(self.sources_tree)
@@ -175,10 +194,14 @@ class SourcesSection(CollapsibleSection):
                 item.setData(0, Qt.ItemDataRole.UserRole, provider.id)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
-                # Subscription color from cached account info
+                # Determine if subscription has actually lapsed (date-based, not just API status).
+                is_expired = bool(
+                    provider.account_exp_date and provider.account_exp_date <= now
+                )
+
+                # Subscription color — only shown when not expired (expired has its own style).
                 sub_color = ""
-                if provider.account_exp_date:
-                    from metatv.gui.provider_editor import subscription_color
+                if not is_expired and provider.account_exp_date:
                     sub_color = subscription_color(provider.account_exp_date, provider.account_created_at)
 
                 icon = getattr(provider, "icon", "") or ""
@@ -188,6 +211,7 @@ class SourcesSection(CollapsibleSection):
                     is_active=provider.is_active,
                     icon=icon,
                     sub_color=sub_color,
+                    is_expired=is_expired,
                 )
                 widget.refreshClicked.connect(
                     lambda pid=provider.id: self.providerRefreshClicked.emit(pid)

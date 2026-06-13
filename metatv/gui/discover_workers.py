@@ -42,6 +42,7 @@ class _SeeAllWorker(QObject):
             get_by_decade, get_by_actor, build_status_sets, build_adult_filter,
         )
         from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes
+        from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         try:
             ss = build_status_sets(session)
@@ -54,21 +55,23 @@ class _SeeAllWorker(QObject):
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
+            expired_ids = RepositoryFactory(session).providers.get_expired_provider_ids()
+            ek = dict(excluded_provider_ids=expired_ids or None)
 
             key = self._shelf_key
             limit = _SEE_ALL_LIMIT
             if key == "recently_added":
-                cards = get_recently_added(session, limit=limit, **sk, **fk, **af)
+                cards = get_recently_added(session, limit=limit, **sk, **fk, **af, **ek)
             elif key == "top_movies":
-                cards = get_top_rated(session, "movie", limit=limit, **sk, **fk, **af)
+                cards = get_top_rated(session, "movie", limit=limit, **sk, **fk, **af, **ek)
             elif key == "top_series":
-                cards = get_top_rated(session, "series", limit=limit, **sk, **fk, **af)
+                cards = get_top_rated(session, "series", limit=limit, **sk, **fk, **af, **ek)
             elif key.startswith("genre:"):
-                cards = get_by_genre(session, key[6:], limit=limit, **sk, **fk, **af)
+                cards = get_by_genre(session, key[6:], limit=limit, **sk, **fk, **af, **ek)
             elif key.startswith("decade:"):
-                cards = get_by_decade(session, int(key[7:]), limit=limit, **sk, **fk, **af)
+                cards = get_by_decade(session, int(key[7:]), limit=limit, **sk, **fk, **af, **ek)
             elif key.startswith("actor:"):
-                cards = get_by_actor(session, key[6:], limit=limit, **sk, **fk, **af)
+                cards = get_by_actor(session, key[6:], limit=limit, **sk, **fk, **af, **ek)
             else:
                 cards = []
         except Exception:
@@ -96,6 +99,7 @@ class _LoaderWorker(QObject):
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
         from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes
+        from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         try:
             ss = build_status_sets(session)
@@ -110,6 +114,8 @@ class _LoaderWorker(QObject):
 
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
+            expired_ids = RepositoryFactory(session).providers.get_expired_provider_ids()
+            ek = dict(excluded_provider_ids=expired_ids or None)
 
             excluded_user_cats = list(getattr(
                 self._config, "global_filter_excluded_user_categories", []
@@ -131,22 +137,22 @@ class _LoaderWorker(QObject):
                 key = f"user_cat:{cat['name']}"
                 if key not in hidden:
                     cards = get_by_user_category(
-                        session, cat["name"], limit=30, **sk, **fk, **af
+                        session, cat["name"], limit=30, **sk, **fk, **af, **ek
                     )
                     emit(_ShelfData(cat["name"], key, cards, is_user_category=True))
 
             # Fixed shelves
             emit(_ShelfData(
                 "Recently Added", "recently_added",
-                get_recently_added(session, limit=30, **sk, **fk, **af),
+                get_recently_added(session, limit=30, **sk, **fk, **af, **ek),
             ))
             emit(_ShelfData(
                 "Top Rated Movies", "top_movies",
-                get_top_rated(session, "movie", limit=30, **sk, **fk, **af),
+                get_top_rated(session, "movie", limit=30, **sk, **fk, **af, **ek),
             ))
             emit(_ShelfData(
                 "Top Rated Series", "top_series",
-                get_top_rated(session, "series", limit=30, **sk, **fk, **af),
+                get_top_rated(session, "series", limit=30, **sk, **fk, **af, **ek),
             ))
 
             # Featured Actor
@@ -155,25 +161,25 @@ class _LoaderWorker(QObject):
                 weights = compute_weights(session)
             except Exception:
                 weights = None
-            actor, cards = get_featured_actor(session, weights, **sk, **fk, **af)
+            actor, cards = get_featured_actor(session, weights, **sk, **fk, **af, **ek)
             if actor:
                 emit(_ShelfData(f"Featured: {actor}", f"actor:{actor}", cards,
                                 is_featured_actor=True))
 
             # Genre shelves — preference-ranked, no hard cap
-            genres = get_all_genres(session, min_count=10, **fk, **af)
+            genres = get_all_genres(session, min_count=10, **fk, **af, **ek)
             genres = _rank_genres_by_preference(genres, ss.liked_ids, session, **fk)
             for genre in genres:
                 key = f"genre:{genre}"
                 if key not in hidden:
-                    cards = get_by_genre(session, genre, limit=30, **sk, **fk, **af)
+                    cards = get_by_genre(session, genre, limit=30, **sk, **fk, **af, **ek)
                     emit(_ShelfData(genre, key, cards))
 
             # Decade shelves — no hard cap
-            for decade in get_all_decades(session, **fk, **af):
+            for decade in get_all_decades(session, **fk, **af, **ek):
                 key = f"decade:{decade}"
                 if key not in hidden:
-                    cards = get_by_decade(session, decade, limit=30, **sk, **fk, **af)
+                    cards = get_by_decade(session, decade, limit=30, **sk, **fk, **af, **ek)
                     emit(_ShelfData(f"{decade}s", key, cards))
 
         except Exception:

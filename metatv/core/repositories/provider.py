@@ -79,6 +79,21 @@ class ProviderRepository:
             provider.updated_at = datetime.now()
             self.session.commit()
     
+    def get_expired_provider_ids(self) -> List[str]:
+        """Return IDs of providers whose subscription has lapsed (account_exp_date <= now).
+
+        Uses datetime.now() — consistent with how account_exp_date is stored
+        (datetime.fromtimestamp() in provider_editor.py, local-time naive).
+        """
+        now = datetime.now()
+        rows = (
+            self.session.query(ProviderDB.id)
+            .filter(ProviderDB.account_exp_date.isnot(None))
+            .filter(ProviderDB.account_exp_date <= now)
+            .all()
+        )
+        return [r.id for r in rows]
+
     def get_used_icons(self) -> List[str]:
         """Return all non-empty icon values currently set on providers."""
         rows = self.session.query(ProviderDB.icon).all()

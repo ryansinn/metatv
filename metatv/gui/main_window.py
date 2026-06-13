@@ -1387,6 +1387,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             force_adult_ids = params['force_adult_ids']
             hidden_only = params.get('hidden_only', False)
             _page_size = params.get('page_size', 5_000)
+            expired_provider_ids = repos.providers.get_expired_provider_ids()
             if hidden_only:
                 channels = repos.channels.get_hidden_channels(
                     excluded_user_categories=params.get('excluded_user_categories'),
@@ -1414,6 +1415,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                     search_query=params.get('search_query'),
                     strict_genre_filter=params.get('strict_genre_filter'),
                     person_filter=params.get('person_filter'),
+                    excluded_provider_ids=expired_provider_ids or None,
                     limit=_page_size,
                 )
             total = repos.channels.count(provider_id=params['provider_id'])

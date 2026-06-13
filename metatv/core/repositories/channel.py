@@ -185,6 +185,7 @@ class ChannelRepository:
                 search_query: Optional[str] = None,
                 strict_genre_filter: Optional[str] = None,
                 person_filter: Optional[str] = None,
+                excluded_provider_ids: Optional[List[str]] = None,
                 limit: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
@@ -220,6 +221,9 @@ class ChannelRepository:
                 query = query.filter(ChannelDB.provider_id.in_(provider_id))
         elif provider_id:
             query = query.filter_by(provider_id=provider_id)
+
+        if excluded_provider_ids:
+            query = query.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
 
         # Media type filtering
         if media_types:

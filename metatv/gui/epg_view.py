@@ -752,12 +752,15 @@ class EpgView(ContentView):
     # ------------------------------------------------------------------
 
     def _load_provider_ids(self) -> None:
+        from metatv.core.repositories import RepositoryFactory
         session = self.db.get_session()
         try:
+            repos = RepositoryFactory(session)
+            expired_ids = set(repos.providers.get_expired_provider_ids())
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             self._provider_ids = [
                 p.id for p in providers
-                if getattr(p, "epg_url", "")
+                if getattr(p, "epg_url", "") and p.id not in expired_ids
             ]
         finally:
             session.close()
@@ -781,6 +784,14 @@ class EpgView(ContentView):
     def _reload_on_now(self) -> None:
         provider_ids = self._filtered_provider_ids()
         hide_filler = self.filler_check_btn.isChecked()
+        # Show loading state immediately so the list isn't blank during the 10–15 s query.
+        if self.on_now_list.topLevelItemCount() == 0:
+            from PyQt6.QtWidgets import QTreeWidgetItem
+            placeholder = QTreeWidgetItem(["", "Loading channels on now…", "", "", "", ""])
+            placeholder.setFlags(placeholder.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            placeholder.setForeground(1, QColor(_theme.COLOR_MUTED))
+            self.on_now_list.addTopLevelItem(placeholder)
+        self.on_now_stats.setText("Loading…")
         self._executor.submit(self._fetch_on_now, provider_ids, hide_filler)
 
     def _reload_browse(self) -> None:
