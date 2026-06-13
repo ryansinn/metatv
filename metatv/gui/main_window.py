@@ -285,6 +285,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.executor = ThreadPoolExecutor(max_workers=4)
         self._register_cleanable("executor", lambda: self.executor.shutdown(wait=False))
         self._load_channels_token: int = 0
+        self._epg_count_token: list[int] = [0]
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)

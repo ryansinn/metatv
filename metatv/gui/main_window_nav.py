@@ -97,7 +97,18 @@ class _NavMixin:
         self._hide_all_content_views()
         self.epg_view.setVisible(True)
         self.epg_view.on_activate()
-        total = self.epg_manager.get_total_programmes(self.epg_view._provider_ids)
+        self.stats_label.setText("EPG — counting…")
+        provider_ids = list(self.epg_view._provider_ids)
+        self._run_query(
+            lambda repos: repos.epg.count_by_providers(provider_ids),
+            self._on_epg_count_loaded,
+            token_ref=self._epg_count_token,
+        )
+
+    def _on_epg_count_loaded(self, total: int) -> None:
+        """Main-thread slot: update stats_label with the EPG programme count."""
+        if self.view_mode != "epg":
+            return
         self.stats_label.setText(f"{total:,} EPG programmes" if total else "EPG — fetching…")
 
     def switch_to_preferences_view(self) -> None:
