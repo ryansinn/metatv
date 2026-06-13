@@ -207,7 +207,15 @@ class ProviderLoadThread(QThread):
         self._compute_prefix_stats_in_thread()
 
         self.progress.emit(100, 100, f"Loaded {total:,} channels")
-        self.finished.emit(True, f"Loaded {total:,} channels successfully")
+
+        # If we loaded 0 channels, report as failure — this may indicate a timeout,
+        # rate limit, network error, or an empty provider. The user needs visibility.
+        if total == 0:
+            self.finished.emit(False,
+                f"Connected to {self.provider.name}, but received 0 channels — the server may be slow, "
+                f"rate-limited, or returned no content. Check the logs and try again.")
+        else:
+            self.finished.emit(True, f"Loaded {total:,} channels successfully")
 
     def _categorize_special_content(self) -> None:
         """Categorize PPV / Events / Sports for uncategorized channels from this provider.
