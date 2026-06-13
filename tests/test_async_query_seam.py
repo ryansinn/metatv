@@ -174,6 +174,81 @@ def test_run_query_increments_token_ref_before_submit():
     assert token_ref[0] == 1, f"Expected token_ref[0]=1, got {token_ref[0]}"
 
 
+def test_worker_exception_does_not_raise_and_emits_error_envelope():
+    """A raising query_fn must not crash the worker; it emits an error envelope."""
+    subject = _make_subject()
+
+    def boom(repos):
+        raise ValueError("db exploded")
+
+    subject._run_query(boom, lambda d: None)
+    subject.executor.shutdown(wait=True)
+
+    assert len(subject._query_result.emitted) == 1
+    env = subject._query_result.emitted[0]
+    assert isinstance(env.error, ValueError)
+    assert env.data is None
+
+
+def test_on_error_invoked_on_failure():
+    """_on_query_result must route a failed result to on_error, not on_result."""
+    subject = _make_subject()
+    results: list = []
+    errors: list = []
+
+    def boom(repos):
+        raise RuntimeError("nope")
+
+    subject._run_query(
+        boom,
+        lambda d: results.append(d),
+        on_error=lambda e: errors.append(e),
+    )
+    subject.executor.shutdown(wait=True)
+
+    for queued in subject._query_result.emitted:
+        subject._on_query_result(queued)
+
+    assert results == [], "on_result must not fire on failure"
+    assert len(errors) == 1 and isinstance(errors[0], RuntimeError)
+
+
+def test_on_error_omitted_failure_is_silently_dropped():
+    """Without on_error, a failed result is dropped (no on_result, no raise)."""
+    subject = _make_subject()
+    results: list = []
+
+    subject._run_query(
+        lambda repos: (_ for _ in ()).throw(KeyError("x")),
+        lambda d: results.append(d),
+    )
+    subject.executor.shutdown(wait=True)
+
+    for queued in subject._query_result.emitted:
+        subject._on_query_result(queued)   # must not raise
+
+    assert results == []
+
+
+def test_stale_error_result_dropped():
+    """A failed result is also subject to the stale-token drop."""
+    subject = _AsyncMixin.__new__(_AsyncMixin)
+    token_ref = [2]
+    errors: list = []
+
+    stale_err = _QueryResult(
+        on_result=lambda d: None,
+        data=None,
+        token=1,            # superseded
+        token_ref=token_ref,
+        on_error=lambda e: errors.append(e),
+        error=RuntimeError("stale failure"),
+    )
+    subject._on_query_result(stale_err)
+
+    assert errors == [], "stale failure must be dropped before on_error fires"
+
+
 def test_stale_result_dropped_when_superseded():
     """Result from a superseded call must be dropped after token_ref is advanced."""
     subject = _make_subject()

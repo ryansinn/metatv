@@ -29,11 +29,18 @@ from loguru import logger
 
 @dataclass
 class _QueryResult:
-    """Envelope that carries a query result across the Qt thread boundary."""
+    """Envelope that carries a query result (or failure) across the Qt thread boundary.
+
+    On success ``error`` is None and ``data`` holds the query result. On failure
+    ``error`` holds the exception and ``data`` is None; the main-thread slot routes
+    it to ``on_error`` if provided.
+    """
     on_result: Callable[[Any], None]
     data: Any
     token: int | None
     token_ref: list[int] | None
+    on_error: Callable[[Exception], None] | None = None
+    error: Exception | None = None
 
 
 class _AsyncMixin:
@@ -48,6 +55,7 @@ class _AsyncMixin:
         on_result: Callable[[Any], None],
         *,
         token_ref: list[int] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         """Submit query_fn to the background executor; deliver result to on_result on the main thread.
 
@@ -58,6 +66,11 @@ class _AsyncMixin:
             token_ref: Optional mutable [int] counter for stale-result dropping.
                        _run_query increments it before submit; _on_query_result
                        discards results whose token no longer matches.
+            on_error: Optional callback invoked on the main thread if query_fn
+                      raises. Receives the exception. If omitted, the failure is
+                      logged only — but callers that show a loading/placeholder
+                      state SHOULD pass on_error to clear it, otherwise the
+                      placeholder will never be replaced.
         """
         if token_ref is not None:
             token_ref[0] += 1
@@ -69,8 +82,14 @@ class _AsyncMixin:
                 with self.db.session_scope() as session:
                     repos = RepositoryFactory(session)
                     data = query_fn(repos)
-            except Exception:
+            except Exception as exc:
                 logger.exception("_run_query worker failed")
+                # Always marshal back to the main thread so callers can clear any
+                # loading/placeholder state (stale results are still dropped there).
+                self._query_result.emit(_QueryResult(
+                    on_result=on_result, data=None, token=token,
+                    token_ref=token_ref, on_error=on_error, error=exc,
+                ))
                 return
             self._query_result.emit(
                 _QueryResult(on_result=on_result, data=data, token=token, token_ref=token_ref)
@@ -79,8 +98,16 @@ class _AsyncMixin:
         self.executor.submit(_worker)
 
     def _on_query_result(self, result: _QueryResult) -> None:
-        """Main-thread slot: drop stale results, then invoke on_result(data)."""
+        """Main-thread slot: drop stale results, then dispatch success or failure."""
         if result.token_ref is not None and result.token_ref[0] != result.token:
+            return
+        if result.error is not None:
+            if result.on_error is None:
+                return   # already logged in the worker; nothing more to deliver
+            try:
+                result.on_error(result.error)
+            except Exception:
+                logger.exception("_run_query on_error callback raised")
             return
         try:
             result.on_result(result.data)

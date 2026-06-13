@@ -321,6 +321,10 @@ Rules:
   safe here.
 - Use `token_ref` whenever multiple in-flight calls for the same data type should cancel earlier
   ones. Omit it for fire-and-forget fetches where order doesn't matter.
+- If the caller shows a **loading/placeholder state**, pass `on_error` — it runs on the main thread
+  with the exception and is your only chance to clear the placeholder. Without it, a failed query
+  is logged and dropped, and the spinner hangs forever. `on_error` is also subject to the
+  stale-token drop.
 - Always reuse `self.executor` (the owner's long-lived pool) — never create a per-call pool.
 
 ### UI state persistence — all sections must remember state
