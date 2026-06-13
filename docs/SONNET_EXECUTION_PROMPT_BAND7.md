@@ -12,6 +12,48 @@ Your job is to EXECUTE `docs/REFACTOR_PLAN_BAND7.md` end to end, with discipline
 redesign the plan — implement it. Where the plan gives a target, hit it; where reality has
 drifted, say so and adapt.
 
+════════════════════════════════════════════════════════
+⛔ ANTI-PATTERNS THAT GOT BAND 7 PRs DOWNGRADED — DO NOT REPEAT ⛔
+════════════════════════════════════════════════════════
+Three traps recurred across the PR-A, PR-C, and PR-D reviews. Each one cost a review cycle and a
+follow-up Band item. They are not style nits — they are the difference between an A and an A−, and
+repeating them after they've been written down is the difference between an A− and a rejection.
+READ THIS SECTION BEFORE EVERY TASK. It overrides any instinct toward "just get it green."
+
+  1. ZERO-RESULT BUSY WORK / SHAPE-ONLY TESTS.  A test that asserts a substring exists in source
+     (`"session_scope" in func`), that a method is named X, or that an attribute is present, proves
+     SHAPE, not BEHAVIOR. A suite of shape tests stays green through the exact regression it looks
+     like it guards. PR D shipped 11 such tests and ZERO that executed a handler. THE RULE: every
+     behavior-changing task ships at least one test that RUNS the changed path against a real
+     in-memory DB / real widget and asserts the outcome that would actually break (e.g. a detached
+     column is still readable after the scope closes). Shape tests may stand beside it, never in
+     place of it. If you cannot name the concrete regression a test catches, it is busy work —
+     don't write it, and NEVER pad a test count or a docstring to look like coverage. (CLAUDE.md
+     "Tests must prove behavior, not shape" + "Async-read tests — pin the main-thread half".)
+
+  2. INVENTING A THIRD PATTERN INSTEAD OF USING THE ESTABLISHED ONE.  The project HAS a boundary
+     for "data leaving a session/thread": a DTO (B7-2) routed through `_run_query` (B7-1). PR C
+     hand-rolled the seam a 3rd/4th time because it "couldn't reach" it; PR D used THREE different
+     ORM-escape hatches (expunge / primitive capture / legacy refresh) instead of a DTO. Each was
+     locally clever and globally debt. THE RULE: before you reach for a bespoke mechanism, find the
+     established pattern in CLAUDE.md and the plan and USE it. If it genuinely doesn't fit, that is
+     a design question — ASK, or record a plan item — do NOT quietly multiply patterns. Passing a
+     bare ORM object across a `session_scope` boundary is the canonical trap: it "works" only while
+     the model has no relationships, and nothing tells the next person they just broke it.
+
+  3. DISREGARDING A FUNDAMENTAL RULE FOR LOCAL CONVENIENCE.  PR C silently blanked a list on load
+     failure (an empty state is a lie when the query threw). Convenience shortcuts that sidestep a
+     written rule — silent failure, hardcoded literals over tokens, ORM-over-DTO, tightening a
+     documented heuristic — are regressions even when tests pass. THE RULE: re-read the relevant
+     Critical Rule before the shortcut. The rules OVERRIDE convenience. If a rule's premise has
+     drifted, say so and adapt in the open; don't ignore it silently.
+
+CURIOSITY BEATS DEBT.  When the correct path is unclear, a one-line clarifying question
+("the rule says DTOs but this handler passes an ORM object across the boundary — convert, or is it
+exempt?") is ALWAYS cheaper than an undiscussed shortcut. Asking is not a failure; accreting silent
+technical debt is. Stay inside the task's scope — one concern per PR; if you find a bigger problem,
+record it as a Band item and keep moving, don't expand the PR and don't paper over it.
+
 ────────────────────────────────────────────────────────
 READ FIRST (before writing any code)
 ────────────────────────────────────────────────────────

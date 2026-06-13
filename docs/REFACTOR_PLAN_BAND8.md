@@ -1,10 +1,12 @@
 # MetaTV — Band 8 Refactor Plan (PR-A review follow-ups + carryover)
 
 **Audience:** an implementing agent (Sonnet).
-**Source:** senior review of **Band 7 PR A** (`c09386a` — B7-1 async-read seam + B7-2 repository
-DTOs). PR A landed at A− quality. The one load-bearing gap (no error-delivery path in the seam)
-was fixed in PR A itself before merge. This band collects the **non-blocking follow-ups** the
-review flagged plus any Band 7 carryover.
+**Source:** senior reviews of **Band 7 PRs A / C / D** — B8-1…B8-4 from PR A (`c09386a`, async-read
+seam + DTOs), B8-5 from PR C (`65a2b1b`, sidebar refresh off-thread), B8-6 from PR D (`76fa505`,
+session_scope migration). Each PR landed at A−; its one load-bearing gap was fixed in-PR before
+merge, and the non-blocking follow-ups were deferred here. **Read `docs/SONNET_EXECUTION_PROMPT_BAND7.md`
+("Anti-patterns that got Band 7 PRs downgraded") before starting — the same three traps recurred
+across A, C, and D and must not recur in Band 8.**
 
 **Goal:** pay down the small, well-scoped debt the seam/DTO work left behind — without changing
 user-visible behavior. Each item is independently shippable and low-risk; the value is keeping the
@@ -89,6 +91,9 @@ against a circular import that does not exist (`dtos.py` imports `RepositoryFact
 The seam's `_worker` wraps `query_fn` in `session_scope()`, which commits on success. For pure
 reads this is a no-op write transaction — harmless on SQLite today, but semantically wrong and a
 faint lock-contention cost if a read replica or busier writer ever lands.
+**Widened by B7-6 (PR-D Lesson 3):** the migration routed ~32 handlers — many of them pure reads
+(context-menu lookups, play-by-id, details) — through `session_scope`, so every one now issues a
+COMMIT-on-exit for a read. Scope this item against that larger surface, not just the seam.
 - **Options (pick the smallest that's correct):**
   1. Add a `read_only=True` path to the seam that uses a non-committing session context (e.g. a
      `session_scope(commit=False)` variant or a plain `get_session()` + `finally: close()`), and
@@ -125,6 +130,32 @@ the duplication the seam was meant to kill, but the seam wasn't built where its 
 - **Note:** This was deliberately *not* fixed in PR C (that PR was behavior-preserving and followed
   the existing Recommended precedent). It is the one larger item the PR-C review deferred here.
 
+### B8-6 — Convert the read-then-consume handlers to DTOs (kill the `expunge` coupling)
+*Source: senior review of **Band 7 PR D** (`76fa505` — B7-6 session_scope migration).*
+B7-6 correctly stopped sessions leaking, but to pass a `ChannelDB`/`EpisodeDB` out of the `with`
+block it used `session.expunge(obj)` before the scope's exit-commit. That works **only because the
+ORM currently has no `relationship()` and no `deferred()` columns** — an invariant that lives in a
+CLAUDE.md note and three runtime tests, nowhere in the model. The day a relationship is added,
+every expunge call site (`play_channel_by_id`, `play_queue_item_id`, `play_favorite_id`,
+`play_from_history_id`, `show_channel_details_by_id`, `on_channel_selection_changed`,
+`_on_retry_play_requested`, `_show_watch_alert_details`) silently regresses.
+- **Method:** give these handlers a small DTO (or reuse `FavoriteDTO`/a new `PlayableDTO`) carrying
+  exactly the fields the consumers touch (`id`, `name`, `media_type`, `source_id`, `provider_id`,
+  and whatever `play_media`/`drill_into_series`/`update_details_pane_for_channel` actually read —
+  audit each). Build it inside the `session_scope`, return/pass the DTO, drop the `expunge`. This is
+  the same boundary `_run_query` already enforces ("Never return ORM objects").
+- **Watch:** `play_media`/`drill_into_series`/`update_details_pane_for_channel` currently accept an
+  ORM `ChannelDB`. Either adapt them to the DTO or keep a thin ORM-fetch at the very point of use —
+  pick the one that removes the cross-boundary ORM handoff without ballooning the diff.
+- **Also (PR-D Lesson 4, minor):** in `_bg_fetch_versions` / `_bg_fetch_similar_titles` the heavy
+  scoring/sorting and the early-return `emit()`s run *inside* the open session. They're on a worker
+  thread (no UI block) and unchanged from before, so it's not a regression — but the cleaner shape
+  is pull-rows → close session → score/emit. Fold in opportunistically if touching these.
+- **Accept:** no ORM object crosses a `session_scope` boundary in `_FavoritesMixin`/`_MetadataMixin`;
+  the `session.expunge` calls are gone; the CLAUDE.md "ORM objects must not outlive their session"
+  rule is updated to point at the DTO path as the norm; behavior unchanged; the B7-6 runtime tests
+  (detached-column-readable) still pass.
+
 ---
 
 ## Priority B — Carryover (only if not already done in Band 7)
@@ -147,4 +178,6 @@ async-read path. Pure refactor, behavior-preserving, characterization test green
 - (If taken) `load_channels` runs through the one shared seam.
 - (B8-5) The four hand-rolled sidebar refresh copies collapse to one shared primitive; the
   CLAUDE.md widget-pattern rule points at it.
+- (B8-6) No ORM object crosses a `session_scope` boundary in the favorites/metadata mixins; the
+  `session.expunge` fallback is replaced by DTOs; the B7-6 detached-column runtime tests still pass.
 - All prior behavior preserved — tests green; no user-visible change.

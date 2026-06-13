@@ -7,14 +7,23 @@ Pins three invariants:
 3. _on_alert_channel_context_menu closes its session BEFORE calling menu.exec(),
    fixing the session-held-during-blocking-menu bug.
 
-No Qt event loop required — tests work at the source-code / import level.
+The structural (AST/substring) tests below pin the *shape* of the migration. They are
+necessary but NOT sufficient: a test that only asserts `"session.expunge" in src` would
+still pass if expunge were placed where it doesn't actually prevent the expiry. Section 6
+therefore drives the REAL handlers against a REAL in-memory session and asserts the
+behavior that would actually regress — that a detached channel's columns are still readable
+after the scope commits-and-closes, and (the precondition) that a non-expunged object is
+not. Per CLAUDE.md "Tests must prove behavior, not shape."
 """
 
 from __future__ import annotations
 
 import inspect
 import ast
+import uuid
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).parent.parent / "metatv" / "gui"
 
@@ -228,3 +237,98 @@ def test_apply_favorite_toggle_documents_legacy_reason():
     assert "expire_on_commit" in src or "legacy" in src.lower(), (
         "_apply_favorite_toggle must document why it keeps the legacy try/finally pattern"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. RUNTIME behavior — the half that actually regresses
+#    Drive the real handlers against a real in-memory session. These would
+#    catch a removed/misplaced expunge that the substring tests above cannot.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def db(tmp_path):
+    # File-backed (not :memory:) so every pooled connection shares the same tables.
+    from metatv.core.database import Database
+    d = Database(f"sqlite:///{tmp_path / 'test.db'}")
+    d.create_tables()
+    yield d
+    d.close()
+
+
+def _seed_movie(db, name="Blade Runner") -> str:
+    """Insert a movie channel; return its id."""
+    from metatv.core.database import ChannelDB
+    cid = str(uuid.uuid4())
+    with db.session_scope() as session:
+        session.add(ChannelDB(
+            id=cid, source_id="s1", provider_id="p1",
+            name=name, media_type="movie",
+        ))
+    return cid
+
+
+def test_session_scope_expires_attributes_without_expunge(db):
+    """Precondition the whole expunge pattern rests on.
+
+    A channel left ATTACHED when session_scope commits-and-closes has its columns
+    expired (expire_on_commit defaults True) and is then detached — accessing any
+    column raises. This is *why* the handlers expunge. If this ever stops raising
+    (e.g. someone sets expire_on_commit=False), the expunge calls and their
+    documented rationale must be revisited.
+    """
+    from metatv.core.database import ChannelDB
+    from sqlalchemy.orm.exc import DetachedInstanceError
+
+    cid = _seed_movie(db)
+    leaked = {}
+    with db.session_scope() as session:
+        leaked["ch"] = session.get(ChannelDB, cid)  # NOT expunged
+    with pytest.raises(DetachedInstanceError):
+        _ = leaked["ch"].name
+
+
+def test_play_channel_by_id_detached_channel_is_readable(db):
+    """play_channel_by_id must hand play_media a channel whose columns are still
+    readable after session_scope exits — proving the real expunge line works.
+
+    Drives the actual handler; if the expunge were removed or misplaced, accessing
+    channel.media_type / .name outside the block would raise DetachedInstanceError.
+    """
+    from metatv.gui.main_window_favorites import _FavoritesMixin
+
+    class _FavHost(_FavoritesMixin):
+        def __init__(self, db):
+            self.db = db
+            self.played = []
+            self.drilled = []
+
+        def play_media(self, ch):
+            self.played.append((ch.id, ch.name, ch.media_type))
+
+        def drill_into_series(self, ch):
+            self.drilled.append((ch.id, ch.name))
+
+    cid = _seed_movie(db)
+    host = _FavHost(db)
+    host.play_channel_by_id(cid)
+    assert host.played == [(cid, "Blade Runner", "movie")]
+    assert host.drilled == []
+
+
+def test_show_channel_details_by_id_detached_channel_is_readable(db):
+    """show_channel_details_by_id must hand a still-readable detached channel to the
+    details pane after the session closes (real expunge line, metadata mixin side)."""
+    from metatv.gui.main_window_metadata import _MetadataMixin
+
+    class _MetaHost(_MetadataMixin):
+        def __init__(self, db):
+            self.db = db
+            self.shown = []
+
+        def update_details_pane_for_channel(self, ch):
+            self.shown.append((ch.id, ch.name, ch.provider_id))
+
+    cid = _seed_movie(db)
+    host = _MetaHost(db)
+    host.show_channel_details_by_id(cid)
+    assert host.shown == [(cid, "Blade Runner", "p1")]
