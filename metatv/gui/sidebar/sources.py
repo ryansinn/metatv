@@ -155,7 +155,6 @@ class SourcesSection(CollapsibleSection):
         from PyQt6.QtWidgets import QTreeWidget
         self.sources_tree = QTreeWidget()
         self.sources_tree.setHeaderHidden(True)
-        self.sources_tree.setMaximumHeight(250)
         self.sources_tree.itemClicked.connect(self.on_provider_clicked)
         self.content_layout.addWidget(self.sources_tree)
 

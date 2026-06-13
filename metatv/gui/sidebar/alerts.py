@@ -102,7 +102,6 @@ class WatchAlertsSection(CollapsibleSection):
         self.alerts_tree = QTreeWidget()
         self.alerts_tree.setHeaderHidden(True)
         self.alerts_tree.setColumnCount(1)
-        self.alerts_tree.setMaximumHeight(200)
         self.alerts_tree.setIndentation(12)
         self.alerts_tree.header().setStretchLastSection(True)
         self.alerts_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

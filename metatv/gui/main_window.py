@@ -489,7 +489,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, QM
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
-        outer_layout.addWidget(self.sidebar_splitter)
+        outer_layout.addWidget(self.sidebar_splitter, 1)  # stretch=1: bounded to outer height
 
         settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
         settings_btn.setFlat(True)

@@ -72,7 +72,6 @@ class HistorySection(CollapsibleSection):
 
         # History list
         self.history_list = QListWidget()
-        self.history_list.setMaximumHeight(150)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)

@@ -64,11 +64,13 @@ class CollapsibleSection(QFrame):
         # Header
         self.create_header()
 
-        # Content container
+        # Content container — Expanding so it fills the section's splitter allocation
         self.content_widget = QWidget()
+        self.content_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(5, 5, 5, 5)
-        self.main_layout.addWidget(self.content_widget)
+        self.content_layout.setSpacing(4)
+        self.main_layout.addWidget(self.content_widget, 1)
 
         # Create section-specific content
         self.create_content()
