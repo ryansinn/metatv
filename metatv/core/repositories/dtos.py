@@ -143,16 +143,18 @@ def build_history_dtos(
     Must be called inside a session_scope() — performs multiple queries.
     """
     channels = repos.channels.get_recent_history(limit=limit, adult_mode=adult_mode)
+    # Batch the series last-played lookup into one query (was N+1 — one query per row).
+    series_keys = [
+        (ch.source_id, ch.provider_id)
+        for ch in channels
+        if ch.media_type == MediaType.SERIES
+    ]
+    code_map = repos.episodes.get_last_played_codes_for_series(series_keys)
     result: list[HistoryDTO] = []
     for ch in channels:
         episode_code: str | None = None
         if ch.media_type == MediaType.SERIES:
-            last_ep = repos.episodes.get_last_played(
-                series_id=ch.source_id,
-                provider_id=ch.provider_id,
-            )
-            if last_ep:
-                episode_code = f"S{last_ep.season_num:02d}E{last_ep.episode_num:02d}"
+            episode_code = code_map.get((ch.source_id, ch.provider_id))
         result.append(HistoryDTO(
             id=ch.id,
             name=ch.name,

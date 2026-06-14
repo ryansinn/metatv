@@ -1,6 +1,6 @@
 """Episode repository for data access"""
 
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from sqlalchemy.orm import Session
 from loguru import logger
@@ -65,6 +65,34 @@ class EpisodeRepository:
             EpisodeDB.provider_id == provider_id,
             EpisodeDB.last_played.isnot(None)
         ).order_by(EpisodeDB.last_played.desc()).first()
+
+    def get_last_played_codes_for_series(
+        self, keys: "List[tuple[str, str]]"
+    ) -> "Dict[tuple[str, str], str]":
+        """Batch the per-series last-played lookup into ONE query.
+
+        For each ``(series_id, provider_id)`` key, returns the ``S..E..`` code of its
+        most recently played episode. Replaces an N+1 of ``get_last_played`` calls (one
+        per history row). History can span providers, so the key is the pair, not just
+        the series id. Ordering desc + first-seen-per-key reproduces ``get_last_played``'s
+        single-row semantics exactly.
+        """
+        if not keys:
+            return {}
+        wanted = set(keys)
+        series_ids = {k[0] for k in keys}
+        provider_ids = {k[1] for k in keys}
+        rows = self.session.query(EpisodeDB).filter(
+            EpisodeDB.series_id.in_(series_ids),
+            EpisodeDB.provider_id.in_(provider_ids),
+            EpisodeDB.last_played.isnot(None),
+        ).order_by(EpisodeDB.last_played.desc()).all()
+        out: Dict[tuple[str, str], str] = {}
+        for ep in rows:
+            key = (ep.series_id, ep.provider_id)
+            if key in wanted and key not in out:
+                out[key] = f"S{ep.season_num:02d}E{ep.episode_num:02d}"
+        return out
     
     def mark_played(self, episode_id: str):
         """Mark episode as played"""

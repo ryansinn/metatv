@@ -8,7 +8,7 @@ no lazy-load, no live ORM reference in the returned objects.
 import uuid
 import pytest
 from datetime import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import Base, ChannelDB, SeasonDB, EpisodeDB
@@ -316,3 +316,54 @@ def test_history_dto_episode_code_none_when_no_episode_played(session):
 
     dto = next(d for d in dtos if d.name == "Unwatched Series")
     assert dto.episode_code is None
+
+
+def test_history_dtos_batched_equals_per_row_and_one_query(session):
+    """B8-1: batched build_history_dtos equals the per-row reference AND issues
+    exactly one episodes query regardless of how many series are in the history."""
+    from metatv.core.models import MediaType
+
+    # Three series; each with several episodes at different last_played times.
+    specs = [
+        ("series_a", [(1, 1, "2024-01-01"), (1, 2, "2024-03-01"), (2, 1, "2024-02-01")]),  # latest S01E02
+        ("series_b", [(3, 4, "2024-05-05"), (1, 9, "2024-05-01")]),                          # latest S03E04
+        ("series_c", []),                                                                    # no episodes
+    ]
+    for src, eps in specs:
+        _make_channel(session, name=src, media_type=MediaType.SERIES,
+                      source_id=src, last_played=datetime.now())
+        for season_num, episode_num, day in eps:
+            ep = _make_episode(session, season_id=f"{src}_s{season_num}", series_id=src,
+                               provider_id="prov1", episode_num=episode_num,
+                               season_num=season_num, title=f"{src} {episode_num}")
+            ep.last_played = datetime.fromisoformat(day)
+    session.commit()
+
+    repos = RepositoryFactory(session)
+
+    # Per-row reference using the OLD single-row method (issued before the counter).
+    expected = {}
+    for src, _ in specs:
+        last = repos.episodes.get_last_played(series_id=src, provider_id="prov1")
+        expected[src] = f"S{last.season_num:02d}E{last.episode_num:02d}" if last else None
+
+    # Count episodes-table queries during the batched build.
+    engine = session.get_bind()
+    counter = {"n": 0}
+
+    def _count(conn, cursor, statement, *a):
+        if "FROM episodes" in statement:
+            counter["n"] += 1
+
+    event.listen(engine, "before_cursor_execute", _count)
+    try:
+        dtos = build_history_dtos(repos, limit=30)
+    finally:
+        event.remove(engine, "before_cursor_execute", _count)
+
+    got = {d.name: d.episode_code for d in dtos}
+    assert got["series_a"] == "S01E02"
+    assert got["series_b"] == "S03E04"
+    assert got["series_c"] is None
+    assert got == expected           # byte-identical to the per-row reference
+    assert counter["n"] == 1         # ONE episodes query for all three series (was N+1)
