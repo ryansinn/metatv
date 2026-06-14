@@ -99,11 +99,11 @@ class ProviderItemWidget(QWidget):
         analyze_btn.clicked.connect(lambda: self.analyzeClicked.emit(self.provider_id))
         layout.addWidget(analyze_btn)
 
-        # Refresh (neutral gray)
+        # Refresh (blue — action button)
         refresh_btn = QPushButton("↻")
         refresh_btn.setFixedSize(22, 20)
         refresh_btn.setToolTip("Refresh channels from provider")
-        refresh_btn.setStyleSheet(_btn_style.format(r=150, g=150, b=150))
+        refresh_btn.setStyleSheet(_btn_style.format(r=68, g=136, b=255))
         refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
 
