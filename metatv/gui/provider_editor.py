@@ -652,6 +652,9 @@ class ProviderEditorView(QWidget):
         else:
             self._status_indicator.setText(f"● {status}" if status else "")
 
+        # Auto-save fresh account info to database immediately
+        self._persist_account_info(info)
+
     def _apply_account_info(self, data: dict, from_cache: bool = False):
         """Populate account info labels from a data dict."""
         status = data.get("status", "")
@@ -807,6 +810,34 @@ class ProviderEditorView(QWidget):
             session.rollback()
             logger.error(f"Failed to save provider: {e}")
             QMessageBox.critical(self, "Save Failed", str(e))
+        finally:
+            session.close()
+
+    def _persist_account_info(self, info: dict):
+        """Immediately save fresh account info to database.
+
+        Called when account refresh succeeds, so changes persist even if user
+        navigates away without clicking Save.
+        """
+        if not self._provider_id or not info:
+            return
+
+        session = self.db.get_session()
+        try:
+            db_prov = session.query(ProviderDB).filter_by(id=self._provider_id).first()
+            if not db_prov:
+                return
+
+            db_prov.account_status = info.get("status")
+            db_prov.account_active_cons = info.get("active_cons", 0)
+            db_prov.max_connections = info.get("max_connections", 1)
+            db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
+            db_prov.account_created_at = self._parse_ts(info.get("created_at"))
+            db_prov.updated_at = datetime.now()
+            session.commit()
+            logger.info(f"Account info auto-saved for '{db_prov.name}'")
+        except Exception as e:
+            logger.error(f"Failed to auto-save account info: {e}")
         finally:
             session.close()
 
