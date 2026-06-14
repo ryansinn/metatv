@@ -347,7 +347,13 @@ class _MetadataSection(QWidget):
 
         # Prefix chip — shows detected category code (EN, NF, D+, etc.).
         # Quality tokens (4K, HD, etc.) are not region/platform chips; skip them.
-        prefix = parsed.region or getattr(channel, "detected_prefix", None) or ""
+        # Priority: parsed region (from name) > detected_prefix > detected_region
+        prefix = (
+            parsed.region
+            or getattr(channel, "detected_prefix", None)
+            or getattr(channel, "detected_region", None)
+            or ""
+        )
         if prefix and prefix.upper() not in QUALITY_TOKENS:
             tip = resolve_category_name(prefix, self.config) or prefix
             self._prefix_chip.setText(prefix)
@@ -392,6 +398,8 @@ class _MetadataSection(QWidget):
                 badge = f"{icon} {name}".strip() if icon else name
                 if badge:
                     self.source_label.setText(f"Source: {badge}")
+                    # Add channel ID to tooltip for debugging/identification
+                    self.source_label.setToolTip(f"ID: {channel.id}")
                     self.source_label.show()
 
         if getattr(channel, "is_adult", False):
