@@ -425,6 +425,23 @@ class _MetadataSection(QWidget):
         else:
             self.adult_indicator.hide()
 
+        # Show rating from raw_data immediately (don't wait for metadata)
+        if channel.raw_data:
+            raw_rating = channel.raw_data.get("rating")
+            if raw_rating:
+                try:
+                    rating_val = float(raw_rating)
+                    rating_val = max(0.0, min(10.0, rating_val))  # clamp to 0-10
+                    stars = self.config.rating_star_icon * int(rating_val / 2)
+                    self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
+                    self._rating_row.show()
+                except (ValueError, TypeError):
+                    self._rating_row.hide()
+            else:
+                self._rating_row.hide()
+        else:
+            self._rating_row.hide()
+
         # Show loading indicator for categories (will be populated by load_metadata)
         self.genres_label.setText(f"{_icons.loading_icon} Loading categories...")
         self.genres_label.show()
