@@ -803,6 +803,7 @@ class ChannelRepository(_ChannelStatsMixin):
         excluded_user_categories: set[str] | None = None,
         search_query: str | None = None,
         provider_id=None,
+        excluded_provider_ids: list[str] | None = None,
     ) -> list[ChannelDB]:
         """Return is_hidden=True channels and channels in excluded user categories."""
         if excluded_user_categories:
@@ -820,6 +821,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 q = q.filter(ChannelDB.provider_id.in_(provider_id))
         elif provider_id:
             q = q.filter(ChannelDB.provider_id == provider_id)
+
+        if excluded_provider_ids:
+            q = q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
 
         if search_query:
             q = q.filter(ChannelDB.name.ilike(f"%{search_query}%"))
