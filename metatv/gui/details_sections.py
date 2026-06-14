@@ -425,6 +425,10 @@ class _MetadataSection(QWidget):
         else:
             self.adult_indicator.hide()
 
+        # Show loading indicator for categories (will be populated by load_metadata)
+        self.genres_label.setText(f"{_icons.loading_icon} Loading categories...")
+        self.genres_label.show()
+
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
         if metadata.title:
@@ -484,6 +488,9 @@ class _MetadataSection(QWidget):
                 for g in genres
             )
             self.genres_label.setText(genre_html)
+        else:
+            # No genres available — hide the loading indicator
+            self.genres_label.hide()
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:
