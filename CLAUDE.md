@@ -298,6 +298,15 @@ Apply this to locks, sets, progress trackers, and any other state set before a v
 ### View lifecycle — on_activate / on_deactivate must be symmetric
 If a view has `on_activate()` (starts timers, loads data), it must also have `on_deactivate()` (stops timers, cancels pending work). Both must be called by the host (`main_window.py`) at view switch time — `on_deactivate` for the departing view, `on_activate` for the arriving one. The safest pattern: call `on_deactivate()` inside `_hide_all_content_views()` for any view that is currently visible.
 
+### Modal/overlay views driven by sidebar actions must hide on all view switches
+When creating a new modal/overlay view (e.g., provider analytics, settings) that is stacked in `_list_layout` and **triggered by sidebar buttons (not chip navigation)**, you must:
+1. Add the view to `_hide_all_content_views()` to call `on_deactivate()` if visible, then hide it
+2. Check for the view's existence using `"view_name" in self.__dict__` (safe for mocked test objects)
+3. Wire an entry method (e.g., `enter_analytics_mode()`) that calls `_hide_all_content_views()`, shows the view, and calls `on_activate()`
+4. Wire an exit method that calls `on_deactivate()` and returns to list view
+
+This ensures the view clears when users navigate away via chips (Search, EPG, Discover) or other views, preventing the modal from lingering on screen and consuming async loads.
+
 ### Resource cleanup in closeEvent — use the cleanup registry
 `MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:
 
