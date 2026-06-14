@@ -1,5 +1,15 @@
 # MetaTV — Band 7 Refactor Plan (Responsiveness Seam + Finish Decomposition)
 
+> **STATUS (2026-06-14, autonomous session):** Priority-A/B done earlier (B7-1/2/3/5/6).
+> This session: **B7-9 (channel.py split → 841) and B7-10 (dead params) — DONE & merged;
+> B7-12 — verified already done** (the `_classify_bracket` extraction + debt comment exist).
+> **DEFERRED (need `./run.sh` smoke-launch, can't verify headless): B7-7** (main_window split —
+> GUI-central, multiple passes), **B7-4** (depends on B7-7), **B7-8** (epg_view tab split — highest
+> GUI risk). **B7-11 (exclusions dead-zone) — DOCUMENTED:** intermittent/compositor-specific, not
+> reproducible headless; current `setCheckable(False)` fix + root-cause notes in
+> `filter_bar.py:102` and memory `feedback_exclusions_chip_dead_zone`. Details in memory
+> `project_band78_autonomous`.
+
 **Audience:** an implementing agent (Sonnet).
 **Source:** senior review of **PR #7** (Band 6 — merged as squash `2e7ef5b`, 2026-06-05) + the
 owner's directive to fix UI latency *architecturally* (not per-query band-aids) while finishing
