@@ -1003,7 +1003,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.switch_to_list_view()
 
     def toggle_provider_active(self, provider_id: str):
-        """Flip the is_active flag for a provider and refresh the sidebar."""
+        """Flip the is_active flag for a provider and refresh all affected views."""
         session = self.db.get_session()
         try:
             from metatv.core.database import ProviderDB as _PDB
@@ -1018,6 +1018,13 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         finally:
             session.close()
         self.load_providers()
+        # Refresh all affected views to reflect the provider change
+        self.load_channels()
+        if hasattr(self, "discover_view"):
+            self.discover_view.reload()
+        if hasattr(self, "preferences_view"):
+            self.preferences_view.refresh()
+        self._refresh_recommended_section()
 
     def _on_provider_saved(self, provider_id: str):
         """Reload sidebar after a provider is saved in the editor."""
