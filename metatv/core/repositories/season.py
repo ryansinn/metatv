@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from metatv.core.database import SeasonDB
+from metatv.core.repositories.dtos import SeasonDTO
 
 
 class SeasonRepository:
@@ -27,7 +28,6 @@ class SeasonRepository:
 
     def get_seasons_dto(self, series_id: str, provider_id: str) -> "List[SeasonDTO]":
         """Return seasons as plain DTOs — thread-safe, no live session required."""
-        from metatv.core.repositories.dtos import SeasonDTO
         seasons = self.get_by_series(series_id=series_id, provider_id=provider_id)
         result: list[SeasonDTO] = []
         for s in seasons:

@@ -13,6 +13,7 @@ from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE,
 )
+from metatv.core.repositories.dtos import FavoriteDTO
 
 
 # Normalises multilingual genre strings from Xtream providers to English canonical names.
@@ -416,7 +417,6 @@ class ChannelRepository:
         force_adult_provider_ids: Optional[List[str]] = None,
     ) -> "List[FavoriteDTO]":
         """Return favorite channels as plain DTOs — thread-safe, no live session required."""
-        from metatv.core.repositories.dtos import FavoriteDTO
         return [
             FavoriteDTO(id=ch.id, name=ch.name, media_type=ch.media_type, last_played=ch.last_played)
             for ch in self.get_favorites(adult_mode=adult_mode, force_adult_provider_ids=force_adult_provider_ids)

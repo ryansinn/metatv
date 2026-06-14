@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from metatv.core.models import MediaType
+
 if TYPE_CHECKING:
     from metatv.core.repositories import RepositoryFactory
 
@@ -140,8 +142,6 @@ def build_history_dtos(
 
     Must be called inside a session_scope() — performs multiple queries.
     """
-    from metatv.core.models import MediaType
-
     channels = repos.channels.get_recent_history(limit=limit, adult_mode=adult_mode)
     result: list[HistoryDTO] = []
     for ch in channels:
