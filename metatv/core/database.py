@@ -486,18 +486,26 @@ class Database:
         return self.SessionLocal()
 
     @contextmanager
-    def session_scope(self):
+    def session_scope(self, commit: bool = True):
         """Context manager that commits on success, rolls back on exception, always closes.
 
         Preferred form for new code (supersedes raw try/finally around get_session):
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
                 ...
+
+        Pass ``commit=False`` for a read-only scope: it never issues a COMMIT, and rolls
+        back at exit so any accidental write in a read path is discarded rather than
+        persisted. The async-read seam (``_run_query``) uses ``commit=False`` — its
+        ``query_fn`` returns plain data and must not write.
         """
         session = self.SessionLocal()
         try:
             yield session
-            session.commit()
+            if commit:
+                session.commit()
+            else:
+                session.rollback()
         except Exception:
             session.rollback()
             raise

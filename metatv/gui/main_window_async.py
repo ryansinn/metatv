@@ -79,7 +79,9 @@ class _AsyncMixin:
         def _worker() -> None:
             try:
                 from metatv.core.repositories import RepositoryFactory
-                with self.db.session_scope() as session:
+                # Read-only scope: query_fn returns plain data and must not write,
+                # so we never COMMIT (commit=False rolls back at exit instead).
+                with self.db.session_scope(commit=False) as session:
                     repos = RepositoryFactory(session)
                     data = query_fn(repos)
             except Exception as exc:

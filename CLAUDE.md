@@ -337,7 +337,9 @@ Rules:
 - `query_fn` receives a `RepositoryFactory` and **must return plain data** — frozen DTOs from
   `core/repositories/dtos.py`, primitive types, or plain dicts. **Never return ORM objects** — they
   hold a closed session and will raise `DetachedInstanceError` on any attribute access after the
-  `session_scope()` exits.
+  `session_scope()` exits. The seam runs `query_fn` inside a **read-only**
+  `session_scope(commit=False)` — it never COMMITs and rolls back at exit, so `query_fn` must not
+  write (an accidental write is discarded, not persisted).
 - `on_result` runs on the **main thread** (dispatched via `_query_result` signal) — widget access is
   safe here.
 - Use `token_ref` whenever multiple in-flight calls for the same data type should cancel earlier
