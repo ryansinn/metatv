@@ -26,12 +26,18 @@ class _NavMixin:
             self.discover_view.on_deactivate()
         if self.preferences_view.isVisible():
             self.preferences_view.on_deactivate()
+        # Deactivate source analytics view if it exists and is visible
+        if "source_analytics" in self.__dict__:
+            if self.source_analytics.isVisible():
+                self.source_analytics.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
         self.preferences_view.setVisible(False)
         self.discover_view.setVisible(False)
         self.provider_editor.setVisible(False)
+        if "source_analytics" in self.__dict__:
+            self.source_analytics.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
         if hasattr(self, "filter_panel"):
