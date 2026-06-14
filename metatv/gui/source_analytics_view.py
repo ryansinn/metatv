@@ -46,7 +46,7 @@ class SourceAnalyticsView(QWidget):
 
         # Top bar: Back button and title
         top_bar = QHBoxLayout()
-        back_btn = QPushButton(_icons.back_icon + " Back")
+        back_btn = QPushButton(_icons.prev_icon + " Back")
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel("Source Analytics")
