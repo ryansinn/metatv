@@ -83,15 +83,15 @@ class ProviderItemWidget(QWidget):
         self._toggle_btn.clicked.connect(lambda: self.toggleClicked.emit(self.provider_id))
         layout.addWidget(self._toggle_btn)
 
-        # Edit pencil
+        # Edit pencil (teal/cyan for edit action)
         edit_btn = QPushButton("✎")
         edit_btn.setFixedSize(22, 20)
         edit_btn.setToolTip("Edit provider settings")
-        edit_btn.setStyleSheet(_btn_style.format(r=100, g=160, b=255))
+        edit_btn.setStyleSheet(_btn_style.format(r=80, g=200, b=180))
         edit_btn.clicked.connect(lambda: self.editClicked.emit(self.provider_id))
         layout.addWidget(edit_btn)
 
-        # Analyze
+        # Analyze (purple for analytics)
         analyze_btn = QPushButton("📊")
         analyze_btn.setFixedSize(22, 20)
         analyze_btn.setToolTip("Analyze source overlap and content")
@@ -99,11 +99,11 @@ class ProviderItemWidget(QWidget):
         analyze_btn.clicked.connect(lambda: self.analyzeClicked.emit(self.provider_id))
         layout.addWidget(analyze_btn)
 
-        # Refresh
+        # Refresh (neutral gray)
         refresh_btn = QPushButton("↻")
         refresh_btn.setFixedSize(22, 20)
         refresh_btn.setToolTip("Refresh channels from provider")
-        refresh_btn.setStyleSheet(_btn_style.format(r=68, g=136, b=255))
+        refresh_btn.setStyleSheet(_btn_style.format(r=150, g=150, b=150))
         refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
 
@@ -150,7 +150,7 @@ class SourcesSection(CollapsibleSection):
         header_layout.addStretch()
 
         _btn_style = (
-            "QPushButton {{ font-size: {fs}px; font-weight: bold; border: 1px solid {c};"
+            "QPushButton {{ font-size: {fs}px; border: 1px solid {c};"
             " border-radius: 3px; color: {c}; background: {bg}; }}"
             "QPushButton:hover {{ background: {hbg}; }}"
         )
@@ -168,8 +168,8 @@ class SourcesSection(CollapsibleSection):
         add_btn.setFixedSize(22, 20)
         add_btn.setToolTip("Add Source…")
         add_btn.setStyleSheet(_btn_style.format(
-            fs=14, c="#4488ff",
-            bg="rgba(68,136,255,0.1)", hbg="rgba(68,136,255,0.3)",
+            fs=13, c="#aaa",
+            bg="rgba(255,255,255,0.05)", hbg="rgba(255,255,255,0.15)",
         ))
         add_btn.clicked.connect(self.addProviderClicked.emit)
         header_layout.addWidget(add_btn)
