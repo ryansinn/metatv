@@ -1,12 +1,10 @@
 """HistorySection and HistoryItemWidget."""
 
-from concurrent.futures import ThreadPoolExecutor
-
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
-from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 
 
@@ -53,7 +51,7 @@ class HistoryItemWidget(QWidget):
         self.setLayout(layout)
 
 
-class HistorySection(CollapsibleSection):
+class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
 
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
@@ -63,9 +61,8 @@ class HistorySection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("History", config.history_icon, config, parent)
-        self._data_ready.connect(self._on_data_ready)
+        self._init_background_refresh()
 
     def get_section_id(self):
         return "history"
@@ -81,31 +78,22 @@ class HistorySection(CollapsibleSection):
         self.clear_btn.clicked.connect(self.clearHistoryClicked.emit)
         self.content_layout.addWidget(self.clear_btn)
 
-    def refresh(self):
-        """Kick off an off-thread history load; clears the list immediately."""
-        self.history_list.clear()
-        self._executor.submit(self._bg_refresh)
+    # --- BackgroundRefreshMixin hooks ---
+    def _refresh_list(self) -> QListWidget:
+        return self.history_list
 
-    def _bg_refresh(self) -> None:
+    def _load_error_message(self) -> str:
+        return "Couldn't load history"
+
+    def _load_rows(self):
         from metatv.core.repositories.dtos import build_history_dtos
-        try:
-            adult_mode = getattr(self.config, "filter_adult_mode", "all")
-            with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                dtos = build_history_dtos(repos, limit=30, adult_mode=adult_mode)
-        except Exception:
-            logger.exception("HistorySection bg refresh error")
-            self._data_ready.emit(None)
-            return
-        self._data_ready.emit(dtos)
+        adult_mode = getattr(self.config, "filter_adult_mode", "all")
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            return build_history_dtos(repos, limit=30, adult_mode=adult_mode)
 
-    def _on_data_ready(self, dtos) -> None:
+    def _populate_rows(self, dtos) -> None:
         """Main-thread slot: populate history_list from DTOs."""
-        self.history_list.clear()
-        if dtos is None:
-            self.show_load_error(self.history_list, "Couldn't load history")
-            return
-
         self.set_empty(len(dtos) == 0)
         if not dtos:
             return

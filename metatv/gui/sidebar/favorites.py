@@ -1,18 +1,16 @@
 """FavoritesSection sidebar widget."""
 
-from concurrent.futures import ThreadPoolExecutor
-
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
-from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
+from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
 
-class FavoritesSection(CollapsibleSection):
+class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
 
     favoriteClicked = pyqtSignal(str)   # channel_id (double-click)
@@ -21,9 +19,8 @@ class FavoritesSection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("Favorites", config.favorite_icon, config, parent)
-        self._data_ready.connect(self._on_data_ready)
+        self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
@@ -53,31 +50,21 @@ class FavoritesSection(CollapsibleSection):
         self.favorites_list.currentItemChanged.connect(self.on_favorite_selected)
         self.content_layout.addWidget(self.favorites_list)
 
-    def refresh(self):
-        """Kick off an off-thread favorites load; clears the list immediately."""
-        self.favorites_list.clear()
-        self._executor.submit(self._bg_refresh)
+    # --- BackgroundRefreshMixin hooks ---
+    def _refresh_list(self) -> QListWidget:
+        return self.favorites_list
 
-    def _bg_refresh(self) -> None:
-        from metatv.core.repositories.dtos import FavoriteDTO
-        try:
-            adult_mode = getattr(self.config, "filter_adult_mode", "all")
-            with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                dtos = repos.channels.get_favorites_dto(adult_mode=adult_mode)
-        except Exception:
-            logger.exception("FavoritesSection bg refresh error")
-            self._data_ready.emit(None)
-            return
-        self._data_ready.emit(dtos)
+    def _load_error_message(self) -> str:
+        return "Couldn't load favorites"
 
-    def _on_data_ready(self, dtos) -> None:
+    def _load_rows(self):
+        adult_mode = getattr(self.config, "filter_adult_mode", "all")
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            return repos.channels.get_favorites_dto(adult_mode=adult_mode)
+
+    def _populate_rows(self, dtos) -> None:
         """Main-thread slot: populate favorites_list from DTOs."""
-        self.favorites_list.clear()
-        if dtos is None:
-            self.show_load_error(self.favorites_list, "Couldn't load favorites")
-            return
-
         self.set_empty(len(dtos) == 0)
         if not dtos:
             item = QListWidgetItem("No favorites yet")

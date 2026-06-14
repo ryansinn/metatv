@@ -1,19 +1,17 @@
 """WatchQueueSection — user's ordered watch queue."""
 
-from concurrent.futures import ThreadPoolExecutor
-
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
-from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
 
-class WatchQueueSection(CollapsibleSection):
+class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     """Sidebar section showing the user's ordered watch queue."""
 
     itemDoubleClicked             = pyqtSignal(str)        # channel_id
@@ -25,9 +23,8 @@ class WatchQueueSection(CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        self._executor = ThreadPoolExecutor(max_workers=1)
         super().__init__("Watch Queue", config.queue_icon, config, parent)
-        self._data_ready.connect(self._on_data_ready)
+        self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def get_section_id(self):
@@ -53,29 +50,20 @@ class WatchQueueSection(CollapsibleSection):
 
         self.set_empty(True)
 
-    def refresh(self):
-        """Kick off an off-thread queue load; clears the list immediately."""
-        self._list.clear()
-        self._executor.submit(self._bg_refresh)
+    # --- BackgroundRefreshMixin hooks ---
+    def _refresh_list(self) -> QListWidget:
+        return self._list
 
-    def _bg_refresh(self) -> None:
-        try:
-            with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                entries = repos.queue.get_all()
-        except Exception:
-            logger.exception("WatchQueueSection bg refresh error")
-            self._data_ready.emit(None)
-            return
-        self._data_ready.emit(entries)
+    def _load_error_message(self) -> str:
+        return "Couldn't load watch queue"
 
-    def _on_data_ready(self, entries) -> None:
+    def _load_rows(self):
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            return repos.queue.get_all()
+
+    def _populate_rows(self, entries) -> None:
         """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
-        self._list.clear()
-        if entries is None:
-            self.show_load_error(self._list, "Couldn't load watch queue")
-            return
-
         self.set_empty(len(entries) == 0)
         if not entries:
             item = QListWidgetItem("Queue is empty — right-click any channel to add")

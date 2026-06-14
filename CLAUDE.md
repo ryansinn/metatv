@@ -350,50 +350,43 @@ Rules:
   stale-token drop.
 - Always reuse `self.executor` (the owner's long-lived pool) — never create a per-call pool.
 
-**Widget-level sections can't reach the seam.** `_run_query` lives on `MainWindow`; standalone
-`QWidget`s (sidebar `CollapsibleSection` subclasses — Favorites/History/Queue/Recommended) have no
-`self._run_query`. They use the **sibling pattern**, and any new background-reading section must
-match it exactly — do not invent a third shape:
+**Widget-level sections can't reach the seam — use `BackgroundRefreshMixin`.** `_run_query` lives
+on `MainWindow`; standalone `QWidget`s (sidebar `CollapsibleSection` subclasses) have no
+`self._run_query`. The unified primitive is `metatv/gui/sidebar/background_refresh.py`
+(`BackgroundRefreshMixin`, B8-5) — **any new background-reading section composes it**; do not
+hand-roll the executor/signal/`_bg_refresh`/`_on_data_ready` again, and do not invent a third shape:
 
 ```python
-_data_ready = pyqtSignal(object)          # list[DTO] | None   (None = load failed)
+class MySection(BackgroundRefreshMixin, CollapsibleSection):
+    _data_ready = pyqtSignal(object)          # list[DTO] | None   (None = load failed)
 
-def __init__(self, ...):
-    self._executor = ThreadPoolExecutor(max_workers=1)   # owned; main_window registers shutdown
-    ...
-    self._data_ready.connect(self._on_data_ready)
+    def __init__(self, ...):
+        super().__init__(...)
+        self._init_background_refresh()       # creates the owned _executor + connects signal
 
-def refresh(self):                         # main thread
-    self._list.clear()
-    self._executor.submit(self._bg_refresh)
-
-def _bg_refresh(self):                     # worker — NO widget access
-    try:
-        with self.db.session_scope() as session:
-            data = build_dtos(RepositoryFactory(session))   # plain DTOs only
-    except Exception:
-        logger.exception("...")
-        self._data_ready.emit(None)        # signal failure, don't swallow
-        return
-    self._data_ready.emit(data)
-
-def _on_data_ready(self, data):            # main thread
-    self._list.clear()
-    if data is None:
-        self.show_load_error(self._list, "Couldn't load …")   # see rule below
-        return
-    ...
+    # hooks the mixin calls:
+    def _refresh_list(self):        return self._list                 # the QListWidget
+    def _load_error_message(self):  return "Couldn't load …"
+    def _load_rows(self):                                              # worker — NO widget access
+        with self.db.session_scope() as session:                      # commit=True is fine (writers);
+            return build_dtos(RepositoryFactory(session))             # reads can pass commit=False
+    def _populate_rows(self, data):                                    # main thread, list already cleared
+        ...
 ```
+
+The mixin owns `refresh()` (clears `_refresh_list()` + submits), `_bg_refresh()`
+(try/except → `emit(None)` on failure), and `_on_data_ready()` (clear → `None` shows
+`show_load_error`, else `_populate_rows`).
 
 - `max_workers=1` is required (the SQLite-lock rule), and it also makes rapid `refresh()` calls
   converge: single-worker FIFO + each handler clearing first means last-write-wins with no torn
   state, so these sections need **no** `token_ref`.
 - The owning `MainWindow` auto-registers each section's `_executor` for shutdown (the
-  `hasattr(section, "_executor")` loop in `setup_ui`). Naming the attribute `_executor` is what
-  opts a section into that cleanup — don't rename it.
-- **This duplication is known debt** (the seam can't be reached from widgets). Do not "fix" it
-  ad-hoc; the unification (a shared `BackgroundRefreshMixin`) is tracked in
-  `docs/REFACTOR_PLAN_BAND8.md` (B8-5). Until then, follow the pattern verbatim.
+  `hasattr(section, "_executor")` loop in `setup_ui`). `_init_background_refresh()` creates it under
+  that exact name — don't rename it.
+- **`RecommendedSection` is the documented exception** and does *not* use the mixin: its `None`
+  means a *valid empty state* ("rate to get recommendations"), not a load failure, and it emits a
+  `(recs, year_by_id)` tuple — different semantics, so folding it would change behavior.
 
 ### Background refresh failure must be visible — never silently blank a list
 A background DB read that backs a list/section **must not** make failure indistinguishable from an
