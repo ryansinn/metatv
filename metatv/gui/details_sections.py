@@ -6,7 +6,7 @@ from loguru import logger
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QSizePolicy,
+    QSizePolicy, QApplication,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
@@ -18,6 +18,23 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
 from metatv.metadata_providers.base import MetadataResult
+
+
+class _ClickableLabel(QLabel):
+    """QLabel that copies its stored channel_id to clipboard on click."""
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.channel_id = None
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if self.channel_id and event.button() == Qt.MouseButton.LeftButton:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.channel_id)
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 def _pref_signal(name: str, weights, attr: str) -> str:
@@ -297,7 +314,7 @@ class _MetadataSection(QWidget):
 
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
-        self.source_label = QLabel()
+        self.source_label = _ClickableLabel()
         self.source_label.setStyleSheet("color: #888; font-size: 11px;")
         self.source_label.hide()
         badge_row.addWidget(self.source_label)
@@ -398,8 +415,9 @@ class _MetadataSection(QWidget):
                 badge = f"{icon} {name}".strip() if icon else name
                 if badge:
                     self.source_label.setText(f"Source: {badge}")
-                    # Add channel ID to tooltip for debugging/identification
-                    self.source_label.setToolTip(f"ID: {channel.id}")
+                    # Store channel ID for click-to-copy and add tooltip
+                    self.source_label.channel_id = channel.id
+                    self.source_label.setToolTip(f"ID: {channel.id}\n(Click to copy)")
                     self.source_label.show()
 
         if getattr(channel, "is_adult", False):
