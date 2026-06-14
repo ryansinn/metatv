@@ -76,6 +76,9 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                 # Xtream API stores metadata in 'info' dict
                 info = channel.raw_data.get('info', {})
 
+                # Preserve raw_data rating as fallback before potentially filtering
+                raw_rating = channel.raw_data.get('rating') if channel.raw_data else None
+
                 if not info:
                     # Maybe raw_data IS the info (flat structure)
                     info = dict(channel.raw_data)   # shallow copy — don't mutate stored raw_data
@@ -107,8 +110,8 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                     genres=self._parse_genres(info.get('genre', '')),
                     content_rating=info.get('rating') if isinstance(info.get('rating'), str) else None,
 
-                    # Ratings
-                    rating=self._parse_rating(info.get('rating')),
+                    # Ratings — use info rating if available, fall back to raw_data rating
+                    rating=self._parse_rating(info.get('rating')) or self._parse_rating(raw_rating),
 
                     # Technical
                     runtime=self._parse_runtime(info.get('duration')),
