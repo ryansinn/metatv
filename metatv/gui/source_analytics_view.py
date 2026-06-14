@@ -50,7 +50,7 @@ class SourceAnalyticsView(QWidget):
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel("Source Analytics")
-        title.setStyleSheet(_theme.HEADING_2)
+        title.setStyleSheet(_theme.DETAIL_TITLE)
         top_bar.addWidget(back_btn)
         top_bar.addWidget(title)
         top_bar.addStretch()
@@ -99,7 +99,7 @@ class SourceAnalyticsView(QWidget):
     def _build_section_header(self, title: str) -> QLabel:
         """Build a section header label."""
         label = QLabel(title)
-        label.setStyleSheet(_theme.HEADING_3)
+        label.setStyleSheet(_theme.SECTION_HDR_LG)
         return label
 
     def on_activate(self, provider_id: str):
@@ -171,7 +171,7 @@ class SourceAnalyticsView(QWidget):
         # Quality histogram
         if dto.quality_histogram:
             quality_label = QLabel("Quality Distribution:")
-            quality_label.setStyleSheet(_theme.SECTION_LABEL)
+            quality_label.setStyleSheet(_theme.SECTION_HDR)
             self._fingerprint_layout.addWidget(quality_label)
             quality_row = QHBoxLayout()
             for quality, count in sorted(dto.quality_histogram.items(), key=lambda x: x[1], reverse=True)[:5]:
@@ -182,7 +182,7 @@ class SourceAnalyticsView(QWidget):
         # Region top-3
         if dto.region_histogram:
             region_label = QLabel("Top Regions:")
-            region_label.setStyleSheet(_theme.SECTION_LABEL)
+            region_label.setStyleSheet(_theme.SECTION_HDR)
             self._fingerprint_layout.addWidget(region_label)
             region_row = QHBoxLayout()
             for region, count in sorted(dto.region_histogram.items(), key=lambda x: x[1], reverse=True)[:3]:
