@@ -307,6 +307,29 @@ When creating a new modal/overlay view (e.g., provider analytics, settings) that
 
 This ensures the view clears when users navigate away via chips (Search, EPG, Discover) or other views, preventing the modal from lingering on screen and consuming async loads.
 
+### Dialog/editor views must notify dependent views when data changes
+When a modal dialog or editor view modifies data that's displayed in other parts of the UI (e.g., sidebar, list, details pane), emit a signal that triggers those views to refresh their display. This prevents stale, out-of-sync visualizations.
+
+**Pattern:**
+```python
+# In the editor view:
+account_info_updated = pyqtSignal(str)  # provider_id
+
+def _persist_changes(self, data):
+    # ... update database ...
+    self.account_info_updated.emit(self._provider_id)  # notify dependents
+
+# In MainWindow:
+self.editor.account_info_updated.connect(self._on_account_info_updated)
+
+def _on_account_info_updated(self, provider_id: str):
+    sidebar_section = self.sidebar_sections.get("sources")
+    if sidebar_section:
+        sidebar_section.refresh()  # refresh display
+```
+
+**Example:** ProviderEditorView refreshes the account info from the API and persists it; emits `account_info_updated` so the Sources sidebar can update its color-coded subscription status display.
+
 ### Resource cleanup in closeEvent — use the cleanup registry
 `MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:
 
