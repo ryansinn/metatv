@@ -126,7 +126,7 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
                     confidence=0.8  # Good quality but not verified against external source
                 )
 
-                logger.debug(f"Extracted metadata: title={result.title}, plot_len={len(result.plot) if result.plot else 0}, poster={bool(result.poster_url)}, cast={len(result.cast) if result.cast else 0}")
+                logger.debug(f"Extracted metadata: title={result.title}, plot_len={len(result.plot) if result.plot else 0}, poster={bool(result.poster_url)}, cast={len(result.cast) if result.cast else 0}, rating={result.rating}")
                 return result
 
         except Exception as e:
