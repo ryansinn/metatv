@@ -35,7 +35,15 @@ class SourceAnalyticsView(QWidget):
         super().__init__()
         self.main_window = main_window
         self.current_provider_id = None
-        self._token_ref = [0]  # For stale-load cancellation
+        # One token per logical query type (seam contract): these panels load
+        # concurrently and do NOT supersede each other, so a single shared counter
+        # would let each _run_query bump it and drop every sibling's result as stale.
+        # A provider switch / deactivate bumps all of them together.
+        self._providers_token = [0]
+        self._fingerprint_token = [0]
+        self._overlap_token = [0]
+        self._unique_token = [0]
+        self._prefixes_token = [0]
 
         self._build_ui()
 
@@ -103,13 +111,26 @@ class SourceAnalyticsView(QWidget):
         return label
 
     def on_activate(self, provider_id: str):
-        """Called when view becomes visible. Load analytics for the provider."""
+        """Called when view becomes visible (or the analyzed source switches).
+
+        Clears every panel to a Loading state first so switching sources visibly
+        refreshes instead of leaving the previous source's data on screen, then
+        kicks off the async loads.
+        """
         self.current_provider_id = provider_id
+        for layout in (self._fingerprint_layout, self._overlap_layout,
+                       self._unique_layout, self._prefixes_layout):
+            self._clear_layout(layout)
+            loading = QLabel("Loading…")
+            loading.setStyleSheet(_theme.SECTION_HINT)
+            layout.addWidget(loading)
         self._load_analytics(provider_id)
 
     def on_deactivate(self):
-        """Called when view is hidden. Stop pending loads."""
-        self._token_ref[0] += 1  # Increment to cancel stale loads
+        """Called when view is hidden. Cancel all pending loads."""
+        for ref in (self._providers_token, self._fingerprint_token,
+                    self._overlap_token, self._unique_token, self._prefixes_token):
+            ref[0] += 1  # Increment to cancel stale loads
 
     def _load_analytics(self, provider_id: str):
         """Load all analytics data asynchronously."""
@@ -122,7 +143,7 @@ class SourceAnalyticsView(QWidget):
         self.main_window._run_query(
             get_provider_ids,
             self._on_provider_ids_loaded,
-            token_ref=self._token_ref,
+            token_ref=self._providers_token,
         )
 
     def _on_provider_ids_loaded(self, provider_ids: list[str]):
@@ -131,28 +152,32 @@ class SourceAnalyticsView(QWidget):
         self.main_window._run_query(
             lambda repos: repos.analytics.source_fingerprint(self.current_provider_id),
             self._on_fingerprint_loaded,
-            token_ref=self._token_ref,
+            token_ref=self._fingerprint_token,
+            on_error=lambda e: self._on_panel_error(self._fingerprint_layout, e),
         )
 
         # Load overlap matrix (all providers x current provider)
         self.main_window._run_query(
             lambda repos: repos.analytics.overlap_matrix(provider_ids, "live"),
             self._on_overlap_loaded,
-            token_ref=self._token_ref,
+            token_ref=self._overlap_token,
+            on_error=lambda e: self._on_panel_error(self._overlap_layout, e),
         )
 
         # Load unique titles
         self.main_window._run_query(
             lambda repos: repos.analytics.unique_titles(self.current_provider_id, "live", limit=1000),
             self._on_unique_loaded,
-            token_ref=self._token_ref,
+            token_ref=self._unique_token,
+            on_error=lambda e: self._on_panel_error(self._unique_layout, e),
         )
 
         # Load unrecognized prefixes
         self.main_window._run_query(
             lambda repos: repos.analytics.unrecognized_prefixes(self.current_provider_id),
             self._on_prefixes_loaded,
-            token_ref=self._token_ref,
+            token_ref=self._prefixes_token,
+            on_error=lambda e: self._on_panel_error(self._prefixes_layout, e),
         )
 
     def _on_fingerprint_loaded(self, dto: SourceFingerprintDTO):
@@ -210,15 +235,17 @@ class SourceAnalyticsView(QWidget):
         # Filter to pairs involving current provider
         relevant = [d for d in dtos if d.provider_a_id == self.current_provider_id or d.provider_b_id == self.current_provider_id]
 
-        # Headline: show overlap with other providers
+        # Headline: show overlap with other providers (by NAME, not UUID)
         headlines = []
         for dto in relevant:
             if dto.provider_a_id == self.current_provider_id and dto.provider_b_id != self.current_provider_id:
-                pct = dto.jaccard * 100
-                headlines.append(f"{self.current_provider_id} is {pct:.1f}% shared with {dto.provider_b_id}")
+                cur_name, other_name = dto.provider_a_name, dto.provider_b_name
             elif dto.provider_b_id == self.current_provider_id and dto.provider_a_id != self.current_provider_id:
-                pct = dto.jaccard * 100
-                headlines.append(f"{self.current_provider_id} is {pct:.1f}% shared with {dto.provider_a_id}")
+                cur_name, other_name = dto.provider_b_name, dto.provider_a_name
+            else:
+                continue
+            pct = dto.jaccard * 100
+            headlines.append(f"{cur_name} is {pct:.1f}% shared with {other_name} (estimate)")
 
         for headline in headlines:
             self._overlap_layout.addWidget(QLabel(headline))
@@ -279,6 +306,18 @@ class SourceAnalyticsView(QWidget):
             table.setItem(row, 2, QTableWidgetItem(examples[:60]))
         table.resizeColumnsToContents()
         self._prefixes_layout.addWidget(table)
+
+    def _on_panel_error(self, layout, exc: Exception):
+        """Render a visible failure row in a panel whose query raised (main thread).
+
+        Without this, a failed load would leave the panel blank — indistinguishable
+        from an empty result (CLAUDE.md: background refresh failure must be visible).
+        """
+        logger.error("Source analytics panel load failed: {}", exc)
+        self._clear_layout(layout)
+        err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this panel")
+        err.setStyleSheet(_theme.SECTION_HINT)
+        layout.addWidget(err)
 
     def _clear_layout(self, layout):
         """Clear all widgets from a layout."""
