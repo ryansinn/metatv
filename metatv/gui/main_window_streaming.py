@@ -94,8 +94,6 @@ class _StreamingMixin:
         self,
         stream_url: str,
         provider_id: str,
-        source_id: str,
-        media_type: str,
     ) -> tuple[str, str | None]:
         """Validate stream URL and try alternate provider URLs if needed.
 
@@ -241,8 +239,6 @@ class _StreamingMixin:
             channel.name,
             channel.stream_url,
             channel.provider_id,
-            channel.source_id,
-            channel.media_type,
             notif_id,
         )
 
@@ -252,8 +248,6 @@ class _StreamingMixin:
         channel_name: str,
         stream_url: str,
         provider_id: str,
-        source_id: str,
-        media_type: str,
         notif_id: str,
     ) -> None:
         """Worker: validate + failover stream URL, then emit _stream_ready.
@@ -263,7 +257,7 @@ class _StreamingMixin:
         """
         try:
             final_url, stream_err = self.validate_and_failover_stream_url(
-                stream_url, provider_id, source_id, media_type
+                stream_url, provider_id
             )
             self._stream_ready.emit({
                 "ok": bool(final_url),

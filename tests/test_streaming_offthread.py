@@ -71,7 +71,7 @@ def test_failover_uses_alternate_url_on_primary_fail():
              (True, None),    # alt1 succeeds
          ]):
         result_url, err = obj.validate_and_failover_stream_url(
-            primary, "prov-1", "src-1", "live"
+            primary, "prov-1"
         )
 
     assert result_url == alt1_url
@@ -87,7 +87,7 @@ def test_failover_stops_on_text_error():
 
     with patch.object(obj, "validate_stream_url", return_value=(False, "not available")):
         result_url, err = obj.validate_and_failover_stream_url(
-            primary, "prov-1", "src-1", "live"
+            primary, "prov-1"
         )
 
     assert result_url == ""
@@ -122,7 +122,7 @@ def test_failover_success_stat_commit():
              (False, None),   # primary fails
              (True, None),    # alt succeeds
          ]):
-        obj.validate_and_failover_stream_url(primary, "prov-1", "src-1", "live")
+        obj.validate_and_failover_stream_url(primary, "prov-1")
 
     # success_count should be 1
     assert raw_urls[0].get("success_count") == 1
@@ -158,7 +158,7 @@ def test_failover_failure_stat_commit():
              (False, None),   # primary fails
              (False, None),   # alt fails
          ]):
-        result_url, _ = obj.validate_and_failover_stream_url(primary, "prov-1", "src-1", "live")
+        result_url, _ = obj.validate_and_failover_stream_url(primary, "prov-1")
 
     assert result_url == ""
     assert raw_urls[0].get("failure_count") == 1
@@ -234,7 +234,7 @@ def test_bg_validate_success_emits_ok():
     ):
         obj._bg_validate_and_play(
             "ch-1", "Chan", "http://primary.example.com/stream.ts",
-            "prov-1", "src-1", "live", "notif-1"
+            "prov-1", "notif-1"
         )
 
     obj._stream_ready.emit.assert_called_once()
@@ -256,7 +256,7 @@ def test_bg_validate_failure_emits_not_ok():
     ):
         obj._bg_validate_and_play(
             "ch-1", "Chan", "http://primary.example.com/stream.ts",
-            "prov-1", "src-1", "live", "notif-1"
+            "prov-1", "notif-1"
         )
 
     payload = obj._stream_ready.emit.call_args[0][0]
