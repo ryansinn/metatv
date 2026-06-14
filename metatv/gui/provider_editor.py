@@ -263,6 +263,7 @@ class ProviderEditorView(QWidget):
     provider_saved = pyqtSignal(str)        # provider_id saved
     provider_deleted = pyqtSignal(str)      # provider_id deleted
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
+    account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
 
     def __init__(self, db: Database, config=None, parent=None):
         super().__init__(parent)
@@ -817,7 +818,8 @@ class ProviderEditorView(QWidget):
         """Immediately save fresh account info to database.
 
         Called when account refresh succeeds, so changes persist even if user
-        navigates away without clicking Save.
+        navigates away without clicking Save. Emits account_info_updated signal
+        so sidebar can refresh its display.
         """
         if not self._provider_id or not info:
             return
@@ -836,6 +838,8 @@ class ProviderEditorView(QWidget):
             db_prov.updated_at = datetime.now()
             session.commit()
             logger.info(f"Account info auto-saved for '{db_prov.name}'")
+            # Notify sidebar to refresh display
+            self.account_info_updated.emit(self._provider_id)
         except Exception as e:
             logger.error(f"Failed to auto-save account info: {e}")
         finally:

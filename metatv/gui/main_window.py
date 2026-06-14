@@ -865,6 +865,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
+        self.provider_editor.account_info_updated.connect(self._on_account_info_updated)
         self.provider_editor.setVisible(False)
         self._list_layout.addWidget(self.provider_editor)
 
@@ -1036,6 +1037,16 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.load_providers()
         self.exit_provider_edit_mode()
         self.status_bar.showMessage("Provider deleted.", 3000)
+
+    def _on_account_info_updated(self, provider_id: str):
+        """Refresh sources sidebar when account info is updated.
+
+        Called when account info is refreshed in the provider editor so the
+        sidebar color/display reflects the updated expiration date.
+        """
+        sources_section = self.sidebar_sections.get("sources")
+        if sources_section:
+            sources_section.refresh()
 
     def edit_provider(self):
         """Legacy hook — no longer used (edit triggers from sidebar widget)."""
