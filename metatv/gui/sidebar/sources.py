@@ -9,10 +9,11 @@ from metatv.gui.sidebar.base import CollapsibleSection
 
 
 class ProviderItemWidget(QWidget):
-    """Custom widget for provider items with refresh, edit, and toggle buttons."""
+    """Custom widget for provider items with refresh, edit, analyze, and toggle buttons."""
 
     refreshClicked = pyqtSignal(str)   # provider_id
     editClicked = pyqtSignal(str)      # provider_id
+    analyzeClicked = pyqtSignal(str)   # provider_id
     toggleClicked = pyqtSignal(str)    # provider_id
 
     def __init__(self, provider_id: str, provider_name: str, is_active: bool = True,
@@ -90,6 +91,14 @@ class ProviderItemWidget(QWidget):
         edit_btn.clicked.connect(lambda: self.editClicked.emit(self.provider_id))
         layout.addWidget(edit_btn)
 
+        # Analyze
+        analyze_btn = QPushButton("📊")
+        analyze_btn.setFixedSize(22, 20)
+        analyze_btn.setToolTip("Analyze source overlap and content")
+        analyze_btn.setStyleSheet(_btn_style.format(r=200, g=100, b=255))
+        analyze_btn.clicked.connect(lambda: self.analyzeClicked.emit(self.provider_id))
+        layout.addWidget(analyze_btn)
+
         # Refresh
         refresh_btn = QPushButton("↻")
         refresh_btn.setFixedSize(22, 20)
@@ -112,6 +121,7 @@ class SourcesSection(CollapsibleSection):
     providerSelected = pyqtSignal(str)         # provider_id
     providerRefreshClicked = pyqtSignal(str)   # provider_id
     providerEditClicked = pyqtSignal(str)      # provider_id
+    providerAnalyzeClicked = pyqtSignal(str)   # provider_id
     providerToggleClicked = pyqtSignal(str)    # provider_id
     addProviderClicked = pyqtSignal()
     refreshAllClicked = pyqtSignal()
@@ -218,6 +228,9 @@ class SourcesSection(CollapsibleSection):
                 )
                 widget.editClicked.connect(
                     lambda pid=provider.id: self.providerEditClicked.emit(pid)
+                )
+                widget.analyzeClicked.connect(
+                    lambda pid=provider.id: self.providerAnalyzeClicked.emit(pid)
                 )
                 widget.toggleClicked.connect(
                     lambda pid=provider.id: self.providerToggleClicked.emit(pid)

@@ -11,6 +11,7 @@ from .alert import AlertRepository
 from .rating import RatingRepository
 from .queue import WatchQueueRepository
 from .epg import EpgRepository
+from .analytics import AnalyticsRepository
 
 
 class RepositoryFactory:
@@ -27,6 +28,7 @@ class RepositoryFactory:
         self._ratings = None
         self._queue = None
         self._epg = None
+        self._analytics = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -91,6 +93,13 @@ class RepositoryFactory:
             self._epg = EpgRepository(self.session)
         return self._epg
 
+    @property
+    def analytics(self) -> AnalyticsRepository:
+        """Get analytics repository"""
+        if self._analytics is None:
+            self._analytics = AnalyticsRepository(self.session)
+        return self._analytics
+
 
 # Export all repositories and factory for convenience
 __all__ = [
@@ -104,4 +113,5 @@ __all__ = [
     'RatingRepository',
     'WatchQueueRepository',
     'EpgRepository',
+    'AnalyticsRepository',
 ]

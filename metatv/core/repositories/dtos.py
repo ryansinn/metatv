@@ -64,6 +64,70 @@ class EpisodeDTO:
 
 
 # ---------------------------------------------------------------------------
+# Analytics DTOs
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SourceFingerprintDTO:
+    """Per-source summary: counts, quality/region histograms, prefix coverage."""
+    provider_id: str
+    name: str
+    live_count: int
+    movie_count: int
+    series_count: int
+    total_count: int
+    live_visible: int
+    movie_visible: int
+    series_visible: int
+    total_visible: int
+    quality_histogram: dict[str, int]      # e.g. {"HD": 100, "4K": 50, "FHD": 200}
+    region_histogram: dict[str, int]       # e.g. {"EN": 500, "FR": 300}
+    recognized_count: int                  # prefixes in canonical lexicon
+    unrecognized_count: int                # prefixes NOT in lexicon
+    recognized_pct: float                  # percentage 0-100
+    adult_pct: float                       # percentage 0-100
+    untagged_pct: float                    # percentage 0-100 (detected_prefix empty)
+    special_view_breakdown: dict[str, int] # e.g. {"ppv": 10, "sports": 5}
+
+
+@dataclass(frozen=True)
+class OverlapMatrixDTO:
+    """Pairwise overlap between two sources for a media type."""
+    provider_a_id: str
+    provider_b_id: str
+    provider_a_name: str
+    provider_b_name: str
+    media_type: str
+    shared: int                   # titles in both
+    a_only: int                   # titles only in A
+    b_only: int                   # titles only in B
+    jaccard: float                # 0-1, shared / (a_total + b_total - shared)
+
+
+@dataclass(frozen=True)
+class UniqueChannelDTO:
+    """Channel that exists only on this provider (not on any other)."""
+    channel_id: str
+    name: str
+    detected_title: str | None
+    detected_prefix: str | None
+    detected_quality: str | None
+    detected_region: str | None
+    detected_year: str | None
+    media_type: str
+    provider_name: str
+
+
+@dataclass(frozen=True)
+class PrefixStatDTO:
+    """Unrecognized prefix token with count and sample channel names."""
+    prefix: str
+    count: int
+    sample_names: list[str]       # 3-5 example channel names
+    is_recognized: bool           # whether it's in the canonical lexicon
+
+
+# ---------------------------------------------------------------------------
 # Cross-repo builder (requires an open session — call inside session_scope())
 # ---------------------------------------------------------------------------
 

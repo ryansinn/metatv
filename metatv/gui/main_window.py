@@ -54,6 +54,7 @@ from metatv.gui.details_versions import ChannelVersion
 from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
+from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
@@ -524,6 +525,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             section.providerSelected.connect(self.on_provider_selected_new)
             section.providerRefreshClicked.connect(self.refresh_provider)
             section.providerEditClicked.connect(self.enter_provider_edit_mode)
+            section.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
             section.providerToggleClicked.connect(self.toggle_provider_active)
             section.addProviderClicked.connect(self.add_provider)
             section.refreshAllClicked.connect(self.refresh_all_providers)
@@ -866,6 +868,12 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.provider_editor.setVisible(False)
         self._list_layout.addWidget(self.provider_editor)
 
+        # Source analytics view (hidden by default)
+        self.source_analytics = SourceAnalyticsView(self)
+        self.source_analytics.done.connect(self.exit_provider_analytics_mode)
+        self.source_analytics.setVisible(False)
+        self._list_layout.addWidget(self.source_analytics)
+
         # Inner splitter: filter panel (left) | list area (right)
         self._inner_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)
         self._inner_splitter.addWidget(self.filter_panel)
@@ -980,6 +988,19 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._in_provider_edit_mode = False
         self.switch_to_list_view()
         self.load_providers()
+
+    def enter_provider_analytics_mode(self, provider_id: str):
+        """Switch center panel to source analytics for the given provider."""
+        self._hide_all_content_views()
+        self.source_analytics.setVisible(True)
+        self.source_analytics.on_activate(provider_id)
+        self.stats_label.setText("Analyzing source — click a source to switch")
+        self._deactivate_view_chips()
+
+    def exit_provider_analytics_mode(self):
+        """Return to the normal channel list view."""
+        self.source_analytics.on_deactivate()
+        self.switch_to_list_view()
 
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh the sidebar."""
