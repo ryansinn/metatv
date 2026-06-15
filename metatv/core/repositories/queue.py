@@ -20,6 +20,9 @@ class QueueEntry:
     media_type:   str
     last_played:  datetime | None   # eagerly extracted before session close
     channel:      ChannelDB | None  # None when orphaned (channel no longer in DB)
+    provider_id:  str | None = None   # None when orphaned
+    available:    bool = True         # False when provider is inactive/expired or orphaned
+    search_title: str = ""            # detected_title or name — recovery search term
 
 
 class WatchQueueRepository:
@@ -28,18 +31,27 @@ class WatchQueueRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_all(self) -> list[QueueEntry]:
+    def get_all(
+        self,
+        hidden_provider_ids: set[str] | None = None,
+    ) -> list[QueueEntry]:
         """Return queue entries in position order.
 
         Each entry carries a live ChannelDB reference if the channel still exists.
         Orphaned entries (channel deleted or ID changed) are kept and logged so
         the user never loses visibility into what they queued.
+
+        Args:
+            hidden_provider_ids: If supplied, entries whose channel belongs to one
+                of these providers are annotated with ``available=False``.  Orphaned
+                entries (no matching ChannelDB row) are always unavailable.
         """
         rows = (
             self.session.query(WatchQueueDB)
             .order_by(WatchQueueDB.position)
             .all()
         )
+        hidden: set[str] = hidden_provider_ids or set()
         entries: list[QueueEntry] = []
         for row in rows:
             ch = self.session.get(ChannelDB, row.channel_id)
@@ -64,6 +76,12 @@ class WatchQueueRepository:
                 or "Unknown"
             )
             display_type = row.media_type or (ch.media_type if ch else "") or ""
+            # Compute availability and recovery title inside the session.
+            pid = ch.provider_id if ch else None
+            available = (
+                ch is not None and (not hidden or pid not in hidden)
+            )
+            search_title = (ch.detected_title if ch else "") or display_name
             entries.append(QueueEntry(
                 queue_id=row.id,
                 channel_id=row.channel_id,
@@ -71,8 +89,41 @@ class WatchQueueRepository:
                 media_type=display_type,
                 last_played=ch.last_played if ch else None,
                 channel=ch,
+                provider_id=pid,
+                available=available,
+                search_title=search_title,
             ))
         return entries
+
+    def clear_unavailable(self, hidden_provider_ids: set[str]) -> int:
+        """Delete queue rows whose channel's provider is hidden (inactive/expired)
+        or whose channel no longer exists (orphaned).
+
+        Args:
+            hidden_provider_ids: Provider IDs to treat as unavailable.
+
+        Returns:
+            Number of rows removed.
+        """
+        rows = (
+            self.session.query(WatchQueueDB)
+            .order_by(WatchQueueDB.position)
+            .all()
+        )
+        removed = 0
+        for row in rows:
+            ch = self.session.get(ChannelDB, row.channel_id)
+            if not ch and row.source_id:
+                ch = (
+                    self.session.query(ChannelDB)
+                    .filter_by(source_id=row.source_id)
+                    .first()
+                )
+            # Remove orphaned entries or entries on a hidden provider.
+            if ch is None or ch.provider_id in hidden_provider_ids:
+                self.session.delete(row)
+                removed += 1
+        return removed
 
     def add(self, channel_id: str, channel_name: str = "", media_type: str = "", source_id: str = "") -> None:
         """Append channel_id to the end of the queue. No-op if already queued."""

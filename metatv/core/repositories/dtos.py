@@ -27,6 +27,9 @@ class FavoriteDTO:
     name: str
     media_type: str | None
     last_played: datetime | None
+    provider_id: str | None = None     # None when channel is orphaned
+    available: bool = True             # False when provider is inactive/expired
+    search_title: str = ""             # detected_title or name — recovery search term
 
 
 @dataclass(frozen=True)

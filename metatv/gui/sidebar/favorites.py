@@ -2,23 +2,31 @@
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
+_ROLE_AVAILABLE    = Qt.ItemDataRole.UserRole + 1
+_ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
+
+_UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on another source."
+
 
 class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
 
-    favoriteClicked = pyqtSignal(str)   # channel_id (double-click)
-    itemSelected    = pyqtSignal(str)   # channel_id (single-click)
-    _data_ready     = pyqtSignal(object)  # list[FavoriteDTO] | None
+    favoriteClicked         = pyqtSignal(str)   # channel_id (double-click, available only)
+    itemSelected            = pyqtSignal(str)   # channel_id (single-click)
+    searchRequested         = pyqtSignal(str)   # search_title — double-click on unavailable
+    clearUnavailableClicked = pyqtSignal()      # request clear-unavailable
+    _data_ready             = pyqtSignal(object)  # list[FavoriteDTO] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._has_unavailable = False
         super().__init__("Favorites", config.favorite_icon, config, parent)
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -61,10 +69,15 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         adult_mode = getattr(self.config, "filter_adult_mode", "all")
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
-            return repos.channels.get_favorites_dto(adult_mode=adult_mode)
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            return repos.channels.get_favorites_dto(
+                adult_mode=adult_mode,
+                hidden_provider_ids=hidden,
+            )
 
     def _populate_rows(self, dtos) -> None:
         """Main-thread slot: populate favorites_list from DTOs."""
+        self._has_unavailable = any(not d.available for d in dtos) if dtos else False
         self.set_empty(len(dtos) == 0)
         if not dtos:
             item = QListWidgetItem("No favorites yet")
@@ -104,7 +117,16 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
             f"{self._media_icon(dto.media_type)} {_fmt_channel_name(dto.name)}"
         )
         item.setData(Qt.ItemDataRole.UserRole, dto.id)
+        item.setData(_ROLE_AVAILABLE, dto.available)
+        item.setData(_ROLE_SEARCH_TITLE, dto.search_title)
+        if not dto.available:
+            item.setForeground(QColor(_theme.COLOR_MUTED))
+            item.setToolTip(_UNAVAILABLE_TOOLTIP)
         self.favorites_list.addItem(item)
+
+    def has_unavailable(self) -> bool:
+        """True when at least one favorite in the current list is unavailable."""
+        return self._has_unavailable
 
     def _media_icon(self, media_type) -> str:
         from metatv.core.models import MediaType
@@ -118,7 +140,13 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def on_favorite_clicked(self, item):
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if channel_id:
+        if not channel_id:
+            return
+        available = item.data(_ROLE_AVAILABLE)
+        if available is False:
+            search_title = item.data(_ROLE_SEARCH_TITLE) or ""
+            self.searchRequested.emit(search_title)
+        else:
             self.favoriteClicked.emit(channel_id)
 
     def on_favorite_selected(self, current, previous):

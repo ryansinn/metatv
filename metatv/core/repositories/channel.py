@@ -288,12 +288,59 @@ class ChannelRepository(_ChannelStatsMixin):
         self,
         adult_mode: str = "all",
         force_adult_provider_ids: Optional[List[str]] = None,
+        hidden_provider_ids: Optional[set] = None,
     ) -> "List[FavoriteDTO]":
-        """Return favorite channels as plain DTOs — thread-safe, no live session required."""
-        return [
-            FavoriteDTO(id=ch.id, name=ch.name, media_type=ch.media_type, last_played=ch.last_played)
-            for ch in self.get_favorites(adult_mode=adult_mode, force_adult_provider_ids=force_adult_provider_ids)
-        ]
+        """Return favorite channels as plain DTOs — thread-safe, no live session required.
+
+        get_favorites() intentionally keeps all favorited channels regardless of
+        source state (engaged-content exception — CLAUDE.md). The ``available``
+        field on each DTO annotates which entries are on a currently active source
+        so the sidebar can dim them without altering the list ordering.
+
+        Args:
+            hidden_provider_ids: If supplied, channels whose ``provider_id`` is in
+                this set are annotated with ``available=False``.
+        """
+        hidden: set = hidden_provider_ids or set()
+        result = []
+        for ch in self.get_favorites(adult_mode=adult_mode,
+                                     force_adult_provider_ids=force_adult_provider_ids):
+            pid = ch.provider_id
+            result.append(FavoriteDTO(
+                id=ch.id,
+                name=ch.name,
+                media_type=ch.media_type,
+                last_played=ch.last_played,
+                provider_id=pid,
+                available=(not hidden or pid not in hidden),
+                search_title=ch.detected_title or ch.name,
+            ))
+        return result
+
+    def clear_unavailable_favorites(self, hidden_provider_ids: set) -> int:
+        """Un-favorite channels whose provider is inactive/expired.
+
+        Sets ``is_favorite=False`` (keeps the row; doesn't delete the channel)
+        for every favorited, visible channel whose provider appears in
+        ``hidden_provider_ids``.
+
+        Args:
+            hidden_provider_ids: Provider IDs to treat as unavailable.
+
+        Returns:
+            Number of channels un-favorited.
+        """
+        from datetime import datetime as _dt
+        channels = (
+            self.session.query(ChannelDB)
+            .filter_by(is_favorite=True, is_hidden=False)
+            .filter(ChannelDB.provider_id.in_(hidden_provider_ids))
+            .all()
+        )
+        for ch in channels:
+            ch.is_favorite = False
+            ch.updated_at = _dt.now()
+        return len(channels)
 
     def get_recent_history(self, limit: int = 30, adult_mode: str = "all",
                            force_adult_provider_ids: Optional[List[str]] = None) -> List[ChannelDB]:

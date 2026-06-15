@@ -558,6 +558,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             section = FavoritesSection(self.config, self.db, self)
             section.favoriteClicked.connect(self.play_favorite_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
+            section.searchRequested.connect(self.search_for_title)
+            section.clearUnavailableClicked.connect(
+                lambda: self._clear_unavailable_favorites(section)
+            )
             # Connect context menu handler
             section.favorites_list.customContextMenuRequested.connect(
                 lambda pos: self.show_favorites_context_menu(pos, section.favorites_list)
@@ -578,6 +582,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
             section.clearQueueClicked.connect(self._clear_queue)
             section.clearWatchedClicked.connect(self._clear_watched_queue)
+            section.searchRequested.connect(self.search_for_title)
+            section.clearUnavailableClicked.connect(
+                lambda: self._clear_unavailable_queue(section)
+            )
             return section
 
         return None
@@ -2001,6 +2009,23 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         )
         cat_act.triggered.connect(lambda: self._open_category_picker([channel_id]))
         menu.addAction(cat_act)
+
+        # For the favorites list — append Clear Unavailable so the action is always
+        # discoverable from the per-item menu, not just the empty-space menu.
+        if variant == "favorites":
+            fav_section = (
+                self.sidebar_sections.get("favorites")
+                if hasattr(self, "sidebar_sections") else None
+            )
+            has_unavail = fav_section.has_unavailable() if fav_section else False
+            menu.addSeparator()
+            clear_unavail_act = QAction("Clear Unavailable", self)
+            clear_unavail_act.setEnabled(has_unavail)
+            if not has_unavail:
+                clear_unavail_act.setToolTip("No unavailable content")
+            if fav_section:
+                clear_unavail_act.triggered.connect(fav_section.clearUnavailableClicked.emit)
+            menu.addAction(clear_unavail_act)
 
         return menu
 
