@@ -187,11 +187,15 @@ class _FavoritesMixin:
         Called when the user double-clicks an unavailable queue or favorites entry
         to find a replacement on an active source.
         """
-        # Ensure the Search chip is active (mirrors on_search_view_toggle).
+        # Ensure the Search chip is active and the channel-list view is actually
+        # shown (the user may be in EPG/Discover) — mirrors on_search_view_toggle,
+        # which switches the view via switch_to_list_view(). Without this the query
+        # would run but the results stay hidden behind the current view.
         if not self.search_chip.is_enabled():
             self.search_chip.blockSignals(True)
             self.search_chip.set_enabled(True)
             self.search_chip.blockSignals(False)
+        self.switch_to_list_view()
         self.search_input.setText(title)
 
     def _clear_unavailable_queue(self, section) -> None:
