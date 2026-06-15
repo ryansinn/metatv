@@ -313,6 +313,7 @@ class ProviderEditorView(QWidget):
         self._epg_was_enabled: bool = True  # tracks loaded state for enabled→disabled detection
         self._epg_url_override: str = ""   # tracks loaded URL override for change detection in _save
         self._loaded_epg_url: str = ""     # auto-built epg_url at load time (for refresh button enablement)
+        self._loading: bool = False        # True while load_provider populates fields; suppresses dirty-marking
         self._setup_ui()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -695,6 +696,7 @@ class ProviderEditorView(QWidget):
 
         self._test_btn = QPushButton("Test Connection")
         self._test_btn.setFixedWidth(140)
+        self._test_btn.setToolTip("Click to re-test connection")
         self._test_btn.clicked.connect(self._test_connection)
         row.addWidget(self._test_btn)
 
@@ -703,14 +705,45 @@ class ProviderEditorView(QWidget):
         discard_btn.clicked.connect(self._discard)
         row.addWidget(discard_btn)
 
-        save_btn = QPushButton("Save Changes")
-        save_btn.setMinimumWidth(120)
-        save_btn.setDefault(True)
-        save_btn.setStyleSheet(_theme.SAVE_BTN)
-        save_btn.clicked.connect(self._save)
-        row.addWidget(save_btn)
+        self._save_btn = QPushButton("Save Changes")
+        self._save_btn.setMinimumWidth(120)
+        self._save_btn.setDefault(True)
+        self._save_btn.setStyleSheet(_theme.SAVE_BTN)
+        self._save_btn.clicked.connect(self._save)
+        row.addWidget(self._save_btn)
 
         self._content_layout.addLayout(row)
+        self._connect_dirty_signals()
+
+    def _connect_dirty_signals(self) -> None:
+        """Wire all editable-field change signals to ``_mark_dirty``.
+
+        Called once at the end of ``_build_footer_row`` so that every field is
+        already constructed.  Connecting here (rather than at the end of each
+        ``_build_*`` method) keeps the wiring in one place and runs after
+        ``_loading`` is already initialised.
+        """
+        self._name_input.textChanged.connect(self._mark_dirty)
+        self._username_input.textChanged.connect(self._mark_dirty)
+        self._password_input.textChanged.connect(self._mark_dirty)
+        self._epg_url_override_input.textChanged.connect(self._mark_dirty)
+        self._enabled_check.toggled.connect(self._mark_dirty)
+        self._force_adult_check.toggled.connect(self._mark_dirty)
+        self._epg_enabled_check.toggled.connect(self._mark_dirty)
+        self._refresh_combo.currentIndexChanged.connect(self._mark_dirty)
+        self._epg_interval_combo.currentIndexChanged.connect(self._mark_dirty)
+        self._icon_picker.icon_changed.connect(self._mark_dirty)
+
+    def _mark_dirty(self, *_args) -> None:
+        """Restore the Save button to its active state when the user edits a field.
+
+        Early-returns while ``_loading`` is True so programmatic field population
+        during ``load_provider`` does not falsely trip the dirty state.
+        """
+        if self._loading:
+            return
+        self._save_btn.setText("Save Changes")
+        self._save_btn.setEnabled(True)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -740,16 +773,31 @@ class ProviderEditorView(QWidget):
             self._acct_epg_lbl.setText(f"Current — guide through {day}")
             self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
 
-    def load_provider(self, provider_id: str):
-        """Switch the editor to the given provider. Safe to call while editing."""
-        if provider_id == self._provider_id:
+    def load_provider(self, provider_id: str, force: bool = False):
+        """Switch the editor to the given provider. Safe to call while editing.
+
+        Args:
+            provider_id: The provider to display.
+            force: When True, reload even if ``provider_id`` matches the currently
+                loaded provider.  Used by ``_discard`` to revert in-progress edits.
+        """
+        if provider_id == self._provider_id and not force:
             return  # already showing this one
+
+        # Reset per-source transient button state before populating the new provider.
+        # This prevents Test Connection result text and the "Saved" state from the
+        # previous source bleeding through to the newly-loaded one.
+        self._test_btn.setText("Test Connection")
+        self._test_btn.setEnabled(True)
+        self._save_btn.setText("Save Changes")
+        self._save_btn.setEnabled(True)
 
         # Prompt if there are unsaved changes?  Keep simple for now.
         self._provider_id = provider_id
         self._pending_account_info = None
 
         session = self.db.get_session()
+        self._loading = True
         try:
             repos = RepositoryFactory(session)
             db_prov = repos.providers.get_by_id(provider_id)
@@ -826,6 +874,7 @@ class ProviderEditorView(QWidget):
                 self._status_indicator.setText("")
 
         finally:
+            self._loading = False
             session.close()
 
     # ── Account info ──────────────────────────────────────────────────────────
@@ -1063,6 +1112,10 @@ class ProviderEditorView(QWidget):
             # Reflect updated state so repeated saves behave correctly.
             self._epg_was_enabled = epg_now_enabled
             self._epg_url_override = new_epg_override or ""
+            # Show transient "Saved" confirmation — persists until the next field edit,
+            # at which point _mark_dirty() restores "Save Changes" and re-enables the button.
+            self._save_btn.setText(f"{_icons.notification_success_icon} Saved")
+            self._save_btn.setEnabled(False)
             self.provider_saved.emit(self._provider_id)
 
         except Exception as e:
@@ -1106,7 +1159,7 @@ class ProviderEditorView(QWidget):
     def _discard(self):
         """Reload from DB, discarding unsaved changes."""
         if self._provider_id:
-            self.load_provider(self._provider_id)
+            self.load_provider(self._provider_id, force=True)
 
     def _delete_provider(self):
         if not self._provider_id:
