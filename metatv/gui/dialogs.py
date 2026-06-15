@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QLabel,
     QProgressBar, QTextEdit, QDialogButtonBox,
-    QListWidget, QListWidgetItem, QWidget
+    QListWidget, QListWidgetItem, QWidget, QCheckBox
 )
 from loguru import logger
 
@@ -85,7 +85,17 @@ class AddProviderDialog(QDialog):
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow("Password:", self.password_input)
-        
+
+        self.epg_enabled_check = QCheckBox("Enable Electronic Programme Guide (EPG)")
+        self.epg_enabled_check.setChecked(True)
+        self.epg_enabled_check.setToolTip(
+            "When enabled, MetaTV downloads this source's XMLTV guide data right after "
+            "the channels load, so the EPG view, On Now, and Watchlist work immediately — "
+            "no need to open Source Settings. Uncheck to add the source without any EPG "
+            "download (you can enable it later in Source Settings)."
+        )
+        form.addRow("EPG:", self.epg_enabled_check)
+
         layout.addLayout(form)
         
         # Progress area
@@ -325,6 +335,7 @@ class AddProviderDialog(QDialog):
                 username=provider.username,
                 password=provider.password,
                 icon=assigned_icon,
+                epg_enabled=self.epg_enabled_check.isChecked(),
             )
             # Persist account info fetched during test (if available)
             if self._fetched_account_info:
@@ -351,6 +362,12 @@ class AddProviderDialog(QDialog):
         
         # Signal main window to refresh the provider (which will load channels)
         if self.parent():
+            # If EPG is enabled, mark this freshly-added provider for a one-time EPG
+            # fetch once its channel load finishes (handled in on_provider_refresh_finished).
+            if self.epg_enabled_check.isChecked():
+                fetch_set = getattr(self.parent(), "_epg_fetch_after_add", None)
+                if fetch_set is not None:
+                    fetch_set.add(provider.id)
             # Refresh sidebar to show new provider
             self.parent().load_providers()
             # Start loading channels from this provider

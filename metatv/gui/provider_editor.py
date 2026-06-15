@@ -12,14 +12,14 @@ import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QPushButton, QGroupBox,
     QListWidget, QListWidgetItem, QComboBox,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
-    QCheckBox, QProgressBar, QTextEdit, QSpacerItem,
+    QCheckBox, QProgressBar, QTextEdit, QSpacerItem, QApplication,
 )
 from loguru import logger
 
@@ -248,6 +248,40 @@ def subscription_color(exp_date: Optional[datetime], created_at: Optional[dateti
         return _theme.COLOR_ERR   # red — expiring very soon
 
 
+class _CopyableLabel(QLabel):
+    """A small label whose full text copies to the clipboard on click.
+
+    Used for the auto-detected EPG URL: shown small/muted, copies the URL to the
+    clipboard when clicked and flashes brief "Copied!" feedback. The displayed
+    text may be elided; the untruncated value to copy is held in ``_full_text``.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+
+    def set_url(self, url: str) -> None:
+        self._full_text = url or ""
+        self.setText(url or "")
+        self.setToolTip("Click to copy" if url else "")
+
+    def _copy(self) -> None:
+        """Copy the full URL to the clipboard and flash brief feedback."""
+        if not self._full_text:
+            return
+        QApplication.clipboard().setText(self._full_text)
+        shown = self.text()
+        self.setText(f"{_icons.notification_success_icon} Copied!")
+        QTimer.singleShot(1200, lambda: self.setText(shown))
+
+    def mousePressEvent(self, event):
+        self._copy()
+        super().mousePressEvent(event)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main editor view (center panel)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -265,16 +299,20 @@ class ProviderEditorView(QWidget):
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
 
-    def __init__(self, db: Database, config=None, parent=None):
+    def __init__(self, db: Database, config=None, epg_manager=None, parent=None):
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._epg_manager = epg_manager
         self._provider_id: Optional[str] = None
         self._provider_urls: List[ProviderURL] = []
         self._account_thread: Optional[FetchAccountInfoThread] = None
         self._test_thread: Optional[TestAllURLsThread] = None
         self._test_results_pending: int = 0
         self._pending_account_info: Optional[Dict] = None
+        self._epg_was_enabled: bool = True  # tracks loaded state for enabled→disabled detection
+        self._epg_url_override: str = ""   # tracks loaded URL override for change detection in _save
+        self._loaded_epg_url: str = ""     # auto-built epg_url at load time (for refresh button enablement)
         self._setup_ui()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -513,6 +551,138 @@ class ProviderEditorView(QWidget):
         form.addRow("Adult content:", self._force_adult_check)
 
         self._content_layout.addWidget(group)
+        self._build_epg_group()
+
+    def _build_epg_group(self):
+        """Build the EPG configuration group box with all EPG controls."""
+        from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
+
+        group = QGroupBox("EPG")
+        form = QFormLayout(group)
+        form.setSpacing(8)
+
+        # 1. Enable / disable — with a right-aligned auto-detect status badge
+        self._epg_enabled_check = QCheckBox("Fetch EPG guide for this provider")
+        self._epg_enabled_check.setChecked(True)
+        self._epg_enabled_check.setToolTip(
+            "When enabled, MetaTV downloads this provider's XMLTV guide data and "
+            "shows programme info in the EPG view, On Now, and Watchlist. "
+            "Disabling immediately removes the fetched guide data for this source "
+            "and skips it on future EPG refreshes. Re-enabling allows the next "
+            "refresh to re-fetch it."
+        )
+        self._epg_detect_badge = QLabel("")
+        self._epg_detect_badge.setTextFormat(Qt.TextFormat.RichText)
+        enable_row = QHBoxLayout()
+        enable_row.setContentsMargins(0, 0, 0, 0)
+        enable_row.addWidget(self._epg_enabled_check)
+        enable_row.addStretch()
+        enable_row.addWidget(self._epg_detect_badge)
+        enable_container = QWidget()
+        enable_container.setLayout(enable_row)
+        form.addRow("Enable EPG:", enable_container)
+
+        # 1b. Auto-detected URL (smaller, click-to-copy). Hidden when none detected.
+        self._epg_autodetected_lbl = _CopyableLabel()
+        self._epg_autodetected_lbl.setVisible(False)
+        form.addRow("", self._epg_autodetected_lbl)
+
+        # 2. URL override
+        self._epg_url_override_input = QLineEdit()
+        self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
+        self._epg_url_override_input.setToolTip(
+            "Optional: supply your own XMLTV URL for this provider. "
+            "Leave blank to use the auto-detected feed. "
+            "Changing this URL forces the guide to re-fetch on next refresh."
+        )
+        form.addRow("XMLTV URL override:", self._epg_url_override_input)
+
+        # 3. Freshness label (read-only)
+        self._acct_epg_lbl = QLabel("—")
+        self._acct_epg_lbl.setToolTip(
+            "Current state of the downloaded EPG guide data for this provider."
+        )
+        form.addRow("Guide freshness:", self._acct_epg_lbl)
+
+        # 4. Refresh interval
+        self._epg_interval_combo = QComboBox()
+        self._epg_interval_combo.addItem("Use default (from Settings)", "default")
+        for value, label in EPG_INTERVAL_CHOICES:
+            self._epg_interval_combo.addItem(label, value)
+        self._epg_interval_combo.setToolTip(
+            "How often to re-fetch this provider's EPG guide. "
+            "'Use default' inherits the global setting from Settings → EPG refresh. "
+            "'Only when data is stale' waits until the guide has fully expired."
+        )
+        form.addRow("Refresh interval:", self._epg_interval_combo)
+
+        # 5. Manual refresh button
+        refresh_row = QHBoxLayout()
+        self._epg_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh EPG now")
+        self._epg_refresh_btn.setToolTip(
+            "Immediately re-fetch this provider's EPG guide, bypassing the throttle. "
+            "Disabled when EPG is off or no URL is configured."
+        )
+        self._epg_refresh_btn.clicked.connect(self._on_epg_refresh_now)
+        refresh_row.addWidget(self._epg_refresh_btn)
+        refresh_row.addStretch()
+        form.addRow("", refresh_row)
+
+        # Disable EPG controls when the checkbox is unchecked
+        self._epg_enabled_check.toggled.connect(self._update_epg_controls_enabled)
+        self._epg_url_override_input.textChanged.connect(
+            lambda _: self._update_epg_refresh_btn_state()
+        )
+        self._update_epg_controls_enabled(self._epg_enabled_check.isChecked())
+
+        self._content_layout.addWidget(group)
+
+    def _update_epg_controls_enabled(self, enabled: bool) -> None:
+        """Enable/disable EPG sub-controls based on the Enable EPG checkbox."""
+        self._epg_url_override_input.setEnabled(enabled)
+        self._epg_interval_combo.setEnabled(enabled)
+        self._update_epg_refresh_btn_state()
+
+    def _update_epg_refresh_btn_state(self) -> None:
+        """Enable the Refresh EPG now button when EPG is on and an effective URL
+        exists — the override OR the auto-detected URL (so the built-in feed can be
+        refreshed without typing a custom URL)."""
+        enabled = self._epg_enabled_check.isChecked()
+        has_url = bool(
+            self._epg_url_override_input.text().strip()
+            or (self._provider_id and getattr(self, "_loaded_epg_url", ""))
+        )
+        self._epg_refresh_btn.setEnabled(enabled and has_url)
+
+    def _update_epg_autodetected_display(self) -> None:
+        """Render the right-aligned auto-detect badge and the click-to-copy auto URL
+        line from ``self._loaded_epg_url``: green AUTODETECTED + the URL when one
+        exists, red NOT FOUND with the URL line hidden otherwise."""
+        auto_url = getattr(self, "_loaded_epg_url", "") or ""
+        if auto_url:
+            self._epg_detect_badge.setText(
+                f'<span style="color:{_theme.COLOR_OK}">{_icons.status_dot_icon}</span> AUTODETECTED'
+            )
+            self._epg_detect_badge.setToolTip(
+                "An XMLTV guide URL was auto-detected from this source's credentials."
+            )
+            self._epg_autodetected_lbl.set_url(auto_url)
+            self._epg_autodetected_lbl.setVisible(True)
+        else:
+            self._epg_detect_badge.setText(
+                f'<span style="color:{_theme.COLOR_ERR}">{_icons.status_dot_icon}</span> NOT FOUND'
+            )
+            self._epg_detect_badge.setToolTip(
+                "No XMLTV guide URL could be auto-detected. Add a URL override to fetch EPG."
+            )
+            self._epg_autodetected_lbl.set_url("")
+            self._epg_autodetected_lbl.setVisible(False)
+
+    def _on_epg_refresh_now(self) -> None:
+        """Trigger an immediate EPG refresh for the current provider via EpgManager."""
+        if not self._provider_id or not self._epg_manager:
+            return
+        self._epg_manager.force_refresh_provider(self._provider_id)
 
     def _build_footer_row(self):
         row = QHBoxLayout()
@@ -600,6 +770,33 @@ class ProviderEditorView(QWidget):
             self._refresh_combo.setCurrentIndex(schedule_map.get(db_prov.refresh_schedule or "manual", 0))
 
             self._force_adult_check.setChecked(bool(getattr(db_prov, "force_adult", False)))
+
+            epg_enabled = bool(getattr(db_prov, "epg_enabled", True))
+            self._epg_enabled_check.setChecked(epg_enabled)
+            self._epg_was_enabled = epg_enabled
+
+            # URL override
+            epg_url_override = getattr(db_prov, "epg_url_override", None) or ""
+            self._epg_url_override = epg_url_override  # capture loaded value for change detection in _save
+            self._epg_url_override_input.setText(epg_url_override)
+            self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
+            # Resolve the auto-detected URL: prefer the stored epg_url, else derive it
+            # from credentials so the badge/refresh reflect reality before the first fetch.
+            stored_epg_url = db_prov.epg_url or ""
+            if not stored_epg_url and self._epg_manager:
+                stored_epg_url = self._epg_manager.build_epg_url(db_prov) or ""
+            self._loaded_epg_url = stored_epg_url
+
+            # Refresh interval
+            epg_interval = getattr(db_prov, "epg_refresh_interval", None) or "default"
+            combo = self._epg_interval_combo
+            idx = combo.findData(epg_interval)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)  # fallback to "Use default"
+
+            # Update EPG controls enabled state + auto-detect display
+            self._update_epg_controls_enabled(epg_enabled)
+            self._update_epg_autodetected_display()
+            self._update_epg_refresh_btn_state()
 
             # Account info from DB (cached)
             self._apply_account_info({
@@ -812,6 +1009,21 @@ class ProviderEditorView(QWidget):
             db_prov.password = self._password_input.text().strip()
             db_prov.force_adult = self._force_adult_check.isChecked()
 
+            epg_now_enabled = self._epg_enabled_check.isChecked()
+            db_prov.epg_enabled = epg_now_enabled
+
+            # EPG refresh interval
+            db_prov.epg_refresh_interval = self._epg_interval_combo.currentData() or "default"
+
+            # EPG URL override — if changed, null epg_last_fetched to force a refetch
+            new_epg_override = self._epg_url_override_input.text().strip() or None
+            old_epg_override = getattr(self, "_epg_url_override", None) or None
+            db_prov.epg_url_override = new_epg_override
+            if new_epg_override != old_epg_override:
+                # URL changed: old data stays visible until next fetch; force refetch
+                db_prov.epg_last_fetched = None
+                logger.info(f"EPG URL override changed for {self._provider_id}; forcing refetch")
+
             schedule_map = {0: "manual", 1: "launch", 2: "daily", 3: "weekly", 4: "monthly"}
             db_prov.refresh_schedule = schedule_map.get(self._refresh_combo.currentIndex(), "manual")
 
@@ -838,9 +1050,19 @@ class ProviderEditorView(QWidget):
                 db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
                 db_prov.account_created_at = self._parse_ts(info.get("created_at"))
 
+            # Purge EPG data on enabled→disabled transition so the UI reflects
+            # the change immediately (no stale programmes in On Now / Watchlist).
+            # Reuses the open session so the purge and the settings update commit
+            # together atomically.
+            if self._epg_was_enabled and not epg_now_enabled and self._epg_manager:
+                self._epg_manager.purge_provider_epg(self._provider_id, session)
+
             db_prov.updated_at = datetime.now()
             session.commit()
             logger.info(f"Provider '{db_prov.name}' saved")
+            # Reflect updated state so repeated saves behave correctly.
+            self._epg_was_enabled = epg_now_enabled
+            self._epg_url_override = new_epg_override or ""
             self.provider_saved.emit(self._provider_id)
 
         except Exception as e:

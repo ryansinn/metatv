@@ -167,3 +167,51 @@ def progress_pct(start: datetime, stop: datetime, _now: datetime | None = None) 
         return 100
     elapsed = (_now - start).total_seconds()
     return max(0, min(100, int(elapsed / total * 100)))
+
+
+# ---------------------------------------------------------------------------
+# EPG refresh interval — single source of truth for enum values + labels.
+# Used by EpgManager.needs_refresh(), the provider editor dropdown, and the
+# global settings dropdown. All label/enum data lives here (one place).
+# ---------------------------------------------------------------------------
+
+# Ordered (value, human_label) pairs. "every_open" and "when_stale" are
+# sentinels; all others map to a timedelta via epg_interval_delta().
+EPG_INTERVAL_CHOICES: list[tuple[str, str]] = [
+    ("every_open", "Every time EPG opens"),
+    ("4h",         "Every 4 hours"),
+    ("8h",         "Every 8 hours"),
+    ("12h",        "Every 12 hours"),
+    ("1d",         "Daily"),
+    ("2d",         "Every 2 days"),
+    ("3d",         "Every 3 days"),
+    ("7d",         "Weekly"),
+    ("when_stale", "Only when data is stale"),
+]
+
+_EPG_INTERVAL_DELTA_MAP: dict[str, timedelta] = {
+    "4h":  timedelta(hours=4),
+    "8h":  timedelta(hours=8),
+    "12h": timedelta(hours=12),
+    "1d":  timedelta(days=1),
+    "2d":  timedelta(days=2),
+    "3d":  timedelta(days=3),
+    "7d":  timedelta(days=7),
+}
+
+
+def epg_interval_delta(value: str) -> timedelta | None:
+    """Map an interval enum value to a timedelta.
+
+    Returns ``None`` for the two non-time sentinels (``"every_open"`` and
+    ``"when_stale"``). Callers should handle those branches explicitly
+    before calling this helper.
+
+    Args:
+        value: One of the :data:`EPG_INTERVAL_CHOICES` values.
+
+    Returns:
+        A :class:`~datetime.timedelta` for time-based intervals, or ``None``
+        for ``"every_open"`` / ``"when_stale"``.
+    """
+    return _EPG_INTERVAL_DELTA_MAP.get(value)

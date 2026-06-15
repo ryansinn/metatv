@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.config import Config
+from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "alerts":      "Alerts",
@@ -100,6 +101,22 @@ class SettingsDialog(QDialog):
         net_form.addRow("Reconnect attempts:", self._reconnect_spin)
 
         layout.addWidget(net_group)
+
+        epg_group = QGroupBox("EPG")
+        epg_form = QFormLayout(epg_group)
+        epg_form.setSpacing(8)
+
+        self._epg_interval_combo = QComboBox()
+        for value, label in EPG_INTERVAL_CHOICES:
+            self._epg_interval_combo.addItem(label, value)
+        self._epg_interval_combo.setToolTip(
+            "Default EPG guide refresh frequency for all providers. "
+            "Individual providers can override this in their editor. "
+            "'Only when data is stale' waits until the guide has fully expired before re-fetching."
+        )
+        epg_form.addRow("EPG refresh:", self._epg_interval_combo)
+
+        layout.addWidget(epg_group)
 
         mpv_group = QGroupBox("MPV Extra Arguments")
         mpv_layout = QVBoxLayout(mpv_group)
@@ -268,6 +285,10 @@ class SettingsDialog(QDialog):
 
         self._mpv_args_input.setText(" ".join(c.mpv_extra_args))
 
+        # EPG
+        epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
+        self._epg_interval_combo.setCurrentIndex(epg_idx if epg_idx >= 0 else 0)
+
         # Metadata
         self._meta_enabled_check.setChecked(c.metadata_enabled)
         self._meta_autofetch_check.setChecked(c.metadata_auto_fetch)
@@ -313,6 +334,11 @@ class SettingsDialog(QDialog):
 
         raw_args = self._mpv_args_input.text().strip()
         c.mpv_extra_args = raw_args.split() if raw_args else []
+
+        # EPG
+        epg_val = self._epg_interval_combo.currentData()
+        if epg_val:
+            c.epg_default_refresh_interval = epg_val
 
         # Metadata
         c.metadata_enabled = self._meta_enabled_check.isChecked()

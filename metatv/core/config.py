@@ -732,6 +732,7 @@ class Config(BaseModel):
     events_filter_state: dict = Field(default_factory=dict)
 
     # EPG settings
+    epg_default_refresh_interval: str = "3d"  # Global default interval; sources inherit this when per-source = "default"
     epg_watchlist_patterns: list = Field(default_factory=list)
     epg_watchlist_quiet_collapsed: bool = True  # collapse "nothing on now" section by default
     # e.g. ["NHL", "Jeopardy!", "MasterChef Canada"]
