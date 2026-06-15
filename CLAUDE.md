@@ -264,6 +264,15 @@ For arithmetic (remaining time, progress bars), compare UTC-naive against `now_u
 ### EPG concurrent fetches — one worker at a time
 `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`. Running two XMLTV fetches concurrently causes SQLite `database is locked` errors because each fetch does a bulk-delete + bulk-insert. Providers are fetched sequentially; the second queues behind the first.
 
+### Per-provider EPG configuration — `epg_enabled`, `epg_refresh_interval`, `epg_url_override`
+Each `ProviderDB` row carries three EPG columns: `epg_enabled` (bool; when `False` the provider is
+skipped by the fetcher, excluded from EPG/watchlist surfaces via `get_epg_active_provider_ids()`,
+and its programmes are purged via `EpgManager.purge_provider_epg()`), `epg_refresh_interval`
+(String enum; `"default"` inherits `Config.epg_default_refresh_interval` which defaults to `"3d"`;
+throttle logic lives in `EpgManager.needs_refresh()`), and `epg_url_override` (optional XMLTV URL;
+the effective fetch URL is resolved by `EpgManager.effective_epg_url(provider)` = override-or-auto).
+Never read `provider.epg_url` directly as the fetch URL — always go through `effective_epg_url`.
+
 ### Context filter chips — details-pane metadata clicks → strict channel list filter
 When a user clicks a metadata value in the details pane (genre, cast, director, etc.) a
 temporary "context filter" activates. This uses a **strict SQL filter** — not the filter
@@ -356,6 +365,12 @@ Discover shelves + See-All (`discover_workers`), and recommendations
 (`preference_engine.score_candidates`, called from the Recommended sidebar section and the
 Preferences dashboard). EPG scopes equivalently (`is_active=True` + expired) in
 `_load_provider_ids`.
+
+The **include-list sibling for EPG/watchlist surfaces** is
+`ProviderRepository.get_epg_active_provider_ids()` (= `is_active` ∧ not-expired ∧ has
+`epg_url` ∧ `epg_enabled`). Used by the Alerts "WATCH NOW" group and
+`epg_view._load_provider_ids` — pass its result as `provider_ids` to watchlist and EPG
+programme queries; never hand-roll this filter at a call site.
 
 Do **not** rebuild this set ad-hoc at a call site (e.g. `get_expired_provider_ids()` alone —
 that was the bug: disabled-but-unexpired sources leaked into Discover and recommendations).

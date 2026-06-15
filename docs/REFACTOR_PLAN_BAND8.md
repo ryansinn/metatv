@@ -163,6 +163,21 @@ every expunge call site (`play_channel_by_id`, `play_queue_item_id`, `play_favor
   rule is updated to point at the DTO path as the norm; behavior unchanged; the B7-6 runtime tests
   (detached-column-readable) still pass.
 
+### B8-7 — Migrate `WatchAlertsSection.refresh()` to `BackgroundRefreshMixin` (deferred from EPG band)
+*Source: deliberate deferral from the EPG band (PR-1 plan note).*
+`WatchAlertsSection.refresh()` (`metatv/gui/sidebar/alerts.py`) runs its watchlist queries
+synchronously on the main thread and issues an N+1 `ChannelDB` lookup per programme — a direct
+violation of the "no unbounded DB work on the UI thread" rule. Migrating it to
+`BackgroundRefreshMixin` (landed in B8-5) will bring it in line with Favorites/History/Queue and
+eliminate the main-thread block at sidebar load time.
+- **Method:** compose `BackgroundRefreshMixin` on `WatchAlertsSection`; move the session +
+  `get_live_for_watchlist` / `get_upcoming_for_watchlist` + per-programme channel lookup into
+  `_load_rows()` (worker thread, returns a DTO list); populate in `_populate_rows()` on the main
+  thread. The DTOs need the fields currently read from `ChannelDB` after the inline lookup — audit
+  and define in `dtos.py` or reuse an existing DTO.
+- **Accept:** `refresh()` returns immediately; no DB work on the main thread; `BackgroundRefreshMixin`
+  handles load error visibility; tests green.
+
 ---
 
 ## Priority B — Carryover (only if not already done in Band 7)
