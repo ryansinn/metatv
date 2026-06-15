@@ -187,6 +187,7 @@ class WatchAlertsSection(CollapsibleSection):
 
     def refresh(self) -> None:
         from metatv.core.repositories.epg import EpgRepository
+        from metatv.core.repositories import RepositoryFactory
         from metatv.core.database import ChannelDB
         from datetime import datetime, timezone
 
@@ -198,9 +199,15 @@ class WatchAlertsSection(CollapsibleSection):
 
         session = self.db.get_session()
         try:
+            repos = RepositoryFactory(session)
+            provider_ids = repos.providers.get_epg_active_provider_ids()
+            if not provider_ids:
+                self.set_empty(True)
+                return
+
             repo = EpgRepository(session)
-            live_data    = repo.get_live_for_watchlist(patterns)
-            upcoming_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24)
+            live_data    = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
+            upcoming_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24, provider_ids=provider_ids)
 
             now = _now_utc()
 

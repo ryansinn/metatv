@@ -116,6 +116,22 @@ class ProviderRepository:
         """
         return list(set(self.get_inactive_provider_ids()) | set(self.get_expired_provider_ids()))
 
+    def get_epg_active_provider_ids(self) -> List[str]:
+        """Providers eligible for EPG/watchlist surfacing: is_active, not expired,
+        and with a non-empty epg_url. The include-list counterpart of
+        get_hidden_provider_ids() for EPG-program queries.
+
+        A later PR will fold in an ``epg_enabled`` column here. Do NOT add it now.
+        """
+        expired = set(self.get_expired_provider_ids())
+        rows = (
+            self.session.query(ProviderDB.id)
+            .filter(ProviderDB.is_active == True)  # noqa: E712
+            .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
+            .all()
+        )
+        return [r.id for r in rows if r.id not in expired]
+
     def get_stale_epg_providers(self) -> List[tuple]:
         """Return ``(id, name, epg_data_end)`` for active providers whose fetched EPG
         guide has already ended — they have an ``epg_url`` but no current programmes.
