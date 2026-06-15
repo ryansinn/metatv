@@ -306,3 +306,50 @@ def test_purge_only_deletes_target_provider_programmes(db):
         assert remaining == 1, "Other provider's programmes must not be deleted"
 
     manager._executor.shutdown(wait=False)
+
+
+def test_fetch_worker_persists_timestamps_and_engages_throttle(db, monkeypatch):
+    """Regression (PR-2 hotfix): the fetch worker must persist epg_last_fetched /
+    epg_data_start / epg_data_end after saving programmes.
+
+    A stale ``_now_utc()`` call crashed the worker right between the bulk-save and the
+    timestamp-set (NameError), so the timestamp never persisted — and because
+    ``needs_refresh`` keys off ``epg_last_fetched is None``, the EPG view re-fetched on
+    every focus. This drives the real worker with a stubbed parser and asserts BOTH
+    halves: the timestamps land, and the 3-day throttle then reports no refresh needed.
+    """
+    import metatv.core.epg_manager as epgmod
+    from metatv.core.xmltv_parser import XmltvProgramme
+
+    with db.session_scope() as session:
+        _add_provider(session, "fetch-p", epg_url="http://e/xmltv.php",
+                      epg_last_fetched=None, epg_data_end=None)
+
+    now = now_utc()
+    progs = [
+        XmltvProgramme(channel_id="c1", title="On Now", description="",
+                       start_time=now - timedelta(hours=1),
+                       stop_time=now + timedelta(hours=1)),
+        XmltvProgramme(channel_id="c1", title="Later", description="",
+                       start_time=now + timedelta(hours=2),
+                       stop_time=now + timedelta(hours=3)),
+    ]
+    monkeypatch.setattr(epgmod, "parse_xmltv_url", lambda *a, **k: ([], progs))
+
+    config = MagicMock()
+    config.epg_default_refresh_interval = "3d"
+    manager = EpgManager(db, config, notifications=None)
+
+    # Runs synchronously here; this raised NameError('_now_utc') before the fix.
+    manager._fetch_worker("fetch-p", "http://e/xmltv.php", "Fetch P", None)
+
+    with db.session_scope(commit=False) as session:
+        prov = session.query(ProviderDB).filter_by(id="fetch-p").first()
+        assert prov.epg_last_fetched is not None, "worker must persist epg_last_fetched"
+        assert prov.epg_data_start is not None
+        assert prov.epg_data_end is not None
+        assert session.query(EpgProgramDB).filter_by(provider_id="fetch-p").count() == 2
+        # Throttle now engaged: just fetched, 3d interval, guide still valid → no refetch.
+        assert manager.needs_refresh(prov) is False
+
+    manager._executor.shutdown(wait=False)

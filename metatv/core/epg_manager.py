@@ -365,7 +365,7 @@ class EpgManager(QObject):
                 saved += len(batch)
 
             # Update provider timestamps
-            now = _now_utc()
+            now = now_utc()
             provider = session.query(ProviderDB).filter_by(id=provider_id).first()
             if provider:
                 provider.epg_last_fetched = now
@@ -459,7 +459,7 @@ class EpgManager(QObject):
             if last is None:
                 return "No EPG data — click ⟳ to fetch"
 
-            now = _now_utc()
+            now = now_utc()
             age = now - last
             if age.total_seconds() < 3600:
                 age_str = f"{int(age.total_seconds() / 60)}m ago"
@@ -531,7 +531,7 @@ class EpgManager(QObject):
                 channel_name = channel.name if channel else prog.channel_epg_id
 
                 # Minutes until start
-                now = _now_utc()
+                now = now_utc()
                 mins_away = max(0, int((prog.start_time - now).total_seconds() / 60))
                 time_str = f"in {mins_away} min" if mins_away > 0 else "now"
 
