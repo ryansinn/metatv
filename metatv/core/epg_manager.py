@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
@@ -12,12 +12,9 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
+from metatv.core.epg_utils import epg_is_stale, epg_interval_delta, now_utc
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
-
-
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class EpgManager(QObject):
@@ -113,21 +110,69 @@ class EpgManager(QObject):
             session.rollback()
         return True
 
+    @staticmethod
+    def effective_epg_url(provider: ProviderDB) -> str:
+        """Return the URL to use for fetching: override wins over auto-built URL.
+
+        ``epg_url_override`` (user-supplied) takes precedence; falls back to the
+        auto-built ``epg_url`` populated by ``_ensure_epg_url``.
+        """
+        return getattr(provider, "epg_url_override", None) or getattr(provider, "epg_url", "") or ""
+
     def needs_refresh(self, provider: ProviderDB) -> bool:
         """Return True if this provider's EPG data should be re-fetched.
 
-        Triggers only when data is absent or within epg_refresh_hours_before
-        of expiry (default 48h, configurable per provider).
+        Resolution order:
+        1. No effective URL → False.
+        2. ``epg_enabled`` is False → False.
+        3. Never fetched (``epg_last_fetched`` is None) → True.
+        4. Resolve effective interval = per-source ``epg_refresh_interval`` unless
+           it is ``"default"`` / blank, in which case use the global config default
+           (``config.epg_default_refresh_interval``).
+        5. ``every_open`` → True.
+        6. ``when_stale`` → True only if guide has fully expired.
+        7. Time interval → True if elapsed since last fetch ≥ delta **OR** guide
+           has fully expired (expiry floor — time intervals must never leave an
+           empty "On Now").
         """
-        if not getattr(provider, "epg_url", ""):
+        if not self.effective_epg_url(provider):
             return False
 
-        data_end = getattr(provider, "epg_data_end", None)
-        if data_end is None:
+        if not getattr(provider, "epg_enabled", True):
+            return False
+
+        last_fetched = getattr(provider, "epg_last_fetched", None)
+        if last_fetched is None:
             return True  # never fetched
 
-        hours_before = getattr(provider, "epg_refresh_hours_before", 48) or 48
-        return data_end < _now_utc() + timedelta(hours=hours_before)
+        # Resolve effective interval
+        per_source = getattr(provider, "epg_refresh_interval", None) or "default"
+        if per_source == "default":
+            effective = getattr(self.config, "epg_default_refresh_interval", "3d") or "3d"
+        else:
+            effective = per_source
+
+        data_end = getattr(provider, "epg_data_end", None)
+        guide_expired = epg_is_stale(data_end)  # True if data_end < now_utc()
+
+        if effective == "every_open":
+            return True
+
+        if effective == "when_stale":
+            return guide_expired
+
+        # Time-based interval
+        delta = epg_interval_delta(effective)
+        if delta is None:
+            # Unrecognised value — treat as "every_open" (safe default)
+            logger.warning(f"EPG: unknown epg_refresh_interval {effective!r} for {provider.id}; treating as every_open")
+            return True
+
+        # Expiry floor: refresh immediately if guide ran out, even within the interval
+        if guide_expired:
+            return True
+
+        return now_utc() - last_fetched >= delta
 
     def refresh_all_if_needed(self) -> None:
         """Check every active provider and trigger a background refresh if needed.
@@ -146,14 +191,17 @@ class EpgManager(QObject):
                 if not getattr(provider, "epg_enabled", True):
                     continue  # user disabled EPG for this provider
                 self._ensure_epg_url(provider, session)
-                if provider.id not in self._active_refreshes and self.needs_refresh(provider):
-                    self._start_refresh(provider.id, provider.epg_url,
-                                        provider.name, force=False)
+                eff_url = self.effective_epg_url(provider)
+                if eff_url and provider.id not in self._active_refreshes and self.needs_refresh(provider):
+                    self._start_refresh(provider.id, eff_url, provider.name, force=False)
         finally:
             session.close()
 
     def force_refresh_provider(self, provider_id: str) -> None:
-        """Unconditionally refresh one provider's EPG data."""
+        """Unconditionally refresh one provider's EPG data.
+
+        Uses ``effective_epg_url`` (override takes precedence over auto-built URL).
+        """
         if provider_id in self._active_refreshes:
             logger.info(f"EPG refresh already running for {provider_id}")
             return
@@ -164,10 +212,12 @@ class EpgManager(QObject):
             if not provider:
                 logger.warning(f"EPG: provider {provider_id} not found")
                 return
-            if not self._ensure_epg_url(provider, session):
+            self._ensure_epg_url(provider, session)
+            eff_url = self.effective_epg_url(provider)
+            if not eff_url:
                 logger.warning(f"EPG: no URL available for provider {provider_id}")
                 return
-            self._start_refresh(provider.id, provider.epg_url, provider.name, force=True)
+            self._start_refresh(provider.id, eff_url, provider.name, force=True)
         finally:
             session.close()
 
