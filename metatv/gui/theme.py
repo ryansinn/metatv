@@ -149,6 +149,11 @@ SECTION_HDR_LG = (
     "; letter-spacing: 1px; padding: 4px 0;"
 )
 SECTION_HINT      = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + "; padding: 2px 0 6px 0;"
+# Warning banner for stale/out-of-date EPG guide data (EPG view).
+EPG_STALE_NOTICE  = (
+    "color: " + COLOR_WARN + "; font-size: " + FONT_MD + ";"
+    " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 6px 10px;"
+)
 SECTION_ITEM      = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + "; padding: 4px 0;"
 SECTION_TITLE_SM  = "font-size: " + FONT_LG + "; font-weight: bold; padding-top: 4px;"
 

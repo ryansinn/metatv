@@ -19,6 +19,46 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# A provider whose guide ends within this window is "ending soon" (about to run out).
+EPG_ENDING_SOON_HOURS = 24
+
+
+def epg_status(epg_url: str | None, epg_data_end: datetime | None,
+               _now: datetime | None = None) -> str:
+    """Classify a provider's EPG freshness as a single state string.
+
+    - ``"none"``    — no EPG configured, or nothing fetched yet
+    - ``"stale"``   — guide data already ended (feed is out of date)
+    - ``"soon"``    — guide ends within ``EPG_ENDING_SOON_HOURS`` (about to run out)
+    - ``"current"`` — guide extends comfortably into the future
+
+    Canonical classifier for the sidebar EPG indicator, the EPG view, and the editor.
+    Compared UTC-naive against :func:`now_utc` (``epg_data_end`` storage format).
+    """
+    if not epg_url or epg_data_end is None:
+        return "none"
+    now = _now or now_utc()
+    if epg_data_end < now:
+        return "stale"
+    if epg_data_end < now + timedelta(hours=EPG_ENDING_SOON_HOURS):
+        return "soon"
+    return "current"
+
+
+def epg_is_stale(epg_data_end: datetime | None, _now: datetime | None = None) -> bool:
+    """Return True if a provider's fetched EPG guide already ended (data is stale).
+
+    ``epg_data_end`` is the latest programme stop_time, stored UTC-naive, so it is
+    compared against :func:`now_utc`. A provider with no EPG data (``None``) is not
+    "stale" — it simply has no guide; callers distinguish that separately. This is the
+    single source of truth for EPG staleness (EPG view notice, provider editor, fetch
+    warning).
+    """
+    if epg_data_end is None:
+        return False
+    return epg_data_end < (_now or now_utc())
+
+
 # ---------------------------------------------------------------------------
 # UTC-naive → local conversion helpers
 # Use these everywhere a UTC-naive EPG datetime needs local display or comparison.

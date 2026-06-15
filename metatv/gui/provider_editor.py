@@ -263,6 +263,7 @@ class ProviderEditorView(QWidget):
     provider_saved = pyqtSignal(str)        # provider_id saved
     provider_deleted = pyqtSignal(str)      # provider_id deleted
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
+    account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
 
     def __init__(self, db: Database, config=None, parent=None):
         super().__init__(parent)
@@ -391,6 +392,15 @@ class ProviderEditorView(QWidget):
         dates_row.addWidget(self._acct_exp_lbl)
         dates_row.addStretch()
         layout.addLayout(dates_row)
+
+        # EPG guide status — surfaces a provider feed serving stale/out-of-date data
+        # (so a blank EPG view reads as "provider's guide is stale", not "our bug").
+        epg_row = QHBoxLayout()
+        epg_row.addWidget(QLabel("EPG guide:"))
+        self._acct_epg_lbl = QLabel("—")
+        epg_row.addWidget(self._acct_epg_lbl)
+        epg_row.addStretch()
+        layout.addLayout(epg_row)
 
         # Remaining bar
         bar_row = QHBoxLayout()
@@ -534,6 +544,32 @@ class ProviderEditorView(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def _set_epg_status_label(self, epg_url, epg_data_end) -> None:
+        """Populate the EPG-guide status line from the provider's cached EPG fields.
+
+        Uses the canonical epg_is_stale boundary so this matches the EPG view notice."""
+        from metatv.core.epg_utils import epg_is_stale, to_local
+        if not epg_url:
+            self._acct_epg_lbl.setText("Not configured")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
+            return
+        if epg_data_end is None:
+            self._acct_epg_lbl.setText("No guide data fetched yet")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
+            return
+        try:
+            day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")
+        except Exception:
+            day = str(epg_data_end)
+        if epg_is_stale(epg_data_end):
+            self._acct_epg_lbl.setText(
+                f"{_icons.notification_warning_icon} Stale — guide ends {day} (provider out of date)"
+            )
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_WARN};")
+        else:
+            self._acct_epg_lbl.setText(f"Current — guide through {day}")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
+
     def load_provider(self, provider_id: str):
         """Switch the editor to the given provider. Safe to call while editing."""
         if provider_id == self._provider_id:
@@ -573,6 +609,7 @@ class ProviderEditorView(QWidget):
                 "active_cons": db_prov.account_active_cons or 0,
                 "max_connections": db_prov.max_connections or 1,
             }, from_cache=True)
+            self._set_epg_status_label(db_prov.epg_url, db_prov.epg_data_end)
 
             self._rebuild_url_list()
             self._set_fields_enabled(True)
@@ -651,6 +688,9 @@ class ProviderEditorView(QWidget):
             self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
         else:
             self._status_indicator.setText(f"● {status}" if status else "")
+
+        # Auto-save fresh account info to database immediately
+        self._persist_account_info(info)
 
     def _apply_account_info(self, data: dict, from_cache: bool = False):
         """Populate account info labels from a data dict."""
@@ -807,6 +847,37 @@ class ProviderEditorView(QWidget):
             session.rollback()
             logger.error(f"Failed to save provider: {e}")
             QMessageBox.critical(self, "Save Failed", str(e))
+        finally:
+            session.close()
+
+    def _persist_account_info(self, info: dict):
+        """Immediately save fresh account info to database.
+
+        Called when account refresh succeeds, so changes persist even if user
+        navigates away without clicking Save. Emits account_info_updated signal
+        so sidebar can refresh its display.
+        """
+        if not self._provider_id or not info:
+            return
+
+        session = self.db.get_session()
+        try:
+            db_prov = session.query(ProviderDB).filter_by(id=self._provider_id).first()
+            if not db_prov:
+                return
+
+            db_prov.account_status = info.get("status")
+            db_prov.account_active_cons = info.get("active_cons", 0)
+            db_prov.max_connections = info.get("max_connections", 1)
+            db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
+            db_prov.account_created_at = self._parse_ts(info.get("created_at"))
+            db_prov.updated_at = datetime.now()
+            session.commit()
+            logger.info(f"Account info auto-saved for '{db_prov.name}'")
+            # Notify sidebar to refresh display
+            self.account_info_updated.emit(self._provider_id)
+        except Exception as e:
+            logger.error(f"Failed to auto-save account info: {e}")
         finally:
             session.close()
 

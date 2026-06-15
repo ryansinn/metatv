@@ -8,6 +8,7 @@ import yaml
 from loguru import logger
 
 from metatv.core.database import ChannelDB
+from metatv.core.channel_name_utils import parse_platform_event
 
 
 # Built-in sport keyword map: canonical sport name → list of keywords to match
@@ -237,6 +238,18 @@ def detect_live_event_channel(channel: ChannelDB) -> bool:
     return False
 
 
+def detect_platform_event_channel(channel: ChannelDB) -> bool:
+    """Detect an EPG-embedded event feed: "US (Peacock 01) | Title (timestamp)".
+
+    These encode a scheduled programme (or an always-available network feed) in the
+    channel name. Only the *scheduled* form (a real timestamp or the always-available
+    sentinel) is a live event; the plain network form ("US (P+) Title", no time) is a
+    regular channel and falls through to the keyword-based detectors.
+    """
+    pe = parse_platform_event(channel.name or "")
+    return bool(pe and (pe.start_time is not None or pe.always_available))
+
+
 def detect_sports_channel(channel: ChannelDB) -> bool:
     """Detect if channel is a sports channel
     
@@ -340,7 +353,7 @@ def detect_and_categorize_channel(channel: ChannelDB) -> Optional[str]:
 
     Priority:
         1. PPV (has date/time + PPV keyword)
-        2. Live Event (has [EVENT] tag)
+        2. Live Event ([EVENT] tag, or EPG-embedded "REGION (NETWORK) | Title (time)")
         3. Sports (has sports keywords)
 
     Returns:
@@ -353,9 +366,9 @@ def detect_and_categorize_channel(channel: ChannelDB) -> Optional[str]:
     # Priority 1: PPV
     if detect_ppv_channel(channel):
         return 'ppv'
-    
-    # Priority 2: Live Events
-    if detect_live_event_channel(channel):
+
+    # Priority 2: Live Events — [EVENT] tag or EPG-embedded scheduled programme
+    if detect_live_event_channel(channel) or detect_platform_event_channel(channel):
         return 'live_event'
     
     # Priority 3: Sports
@@ -391,6 +404,29 @@ def update_channel_special_content(channel: ChannelDB, config=None) -> bool:
         if metadata['start_time']:
             metadata['start_time'] = metadata['start_time'].isoformat()
         channel.event_metadata = metadata
+
+    elif special_view == 'live_event':
+        # EPG-embedded event feeds carry a network/time in the name; enrich from them.
+        pe = parse_platform_event(channel.name or "")
+        if pe is not None:
+            channel.event_start_time = pe.start_time
+
+            metadata: Dict[str, Any] = {
+                'event_name': pe.title or None,
+                'network': pe.network,            # browseable broadcaster/brand
+                'channel_num': pe.channel_num or None,
+                'region': pe.region,
+                'availability': 'always' if pe.always_available else 'scheduled',
+            }
+            if pe.start_time:
+                metadata['start_time'] = pe.start_time.isoformat()
+            channel.event_metadata = metadata
+
+            # These are sports events — enrich sport/league/team for the sports facets.
+            sports_data = parse_sports_channel(channel, config)
+            channel.sport_type = sports_data['sport_type']
+            channel.league_name = sports_data['league_name']
+            channel.team_name = sports_data['team_name']
 
     elif special_view == 'sports':
         sports_data = parse_sports_channel(channel, config)

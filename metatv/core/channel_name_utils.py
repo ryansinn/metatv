@@ -1,6 +1,7 @@
 """Shared channel name parsing — prefix extraction, region normalization, quality/year/audio detection."""
 import re
-from typing import NamedTuple
+from datetime import datetime
+from typing import NamedTuple, Optional
 
 
 class ParsedChannel(NamedTuple):
@@ -36,6 +37,101 @@ _BRACKET_PREFIX_RE = re.compile(
     r'^\[([A-Z][A-Z0-9\-+]{0,11})\]\s*(.+)$',
     re.IGNORECASE,
 )
+
+# Leading-pipe prefix: |WC| Title, |EN| Title (ProSat/ottcst style). The prefix is
+# wrapped in pipes at the very start; the standard separator patterns require the
+# prefix *before* the separator, so they miss this format entirely.
+_LEADING_PIPE_PREFIX_RE = re.compile(
+    r'^\|\s*([A-Z][A-Z0-9\-+]{0,11})\s*\|\s*(.+)$',
+    re.IGNORECASE,
+)
+
+# EPG-embedded event feed: "REGION (NETWORK [CHAN#]) | TITLE (TIMESTAMP)".
+# Some providers (TREX/Ninja) encode a scheduled programme directly in the channel
+# name: a known region, a broadcaster/network in parens (optionally with a feed
+# number), then the programme title and an optional start timestamp. This is
+# effectively EPG data inlined in the title — parse_platform_event() decomposes it.
+#   "US (Peacock 01) | La Vuelta a España: Stage 11 (2025-09-03 07:20:00)"
+#   "US (P+) AFC Champions League 1"   (form A: network feed, no scheduled time)
+_PLATFORM_EVENT_RE = re.compile(
+    r'^(?P<region>[A-Z]{2,4})\s+\(\s*'
+    r'(?P<network>[A-Za-z][A-Za-z0-9+]*)'      # broadcaster/brand: ESPN+, Paramount, P+
+    r'(?:\s+(?P<chan>\d+))?\s*\)\s*'           # optional feed/channel number
+    r'(?P<rest>.*)$'
+)
+# Trailing scheduled-time stamp: "(2025-09-03 07:20:00)" at end of the title.
+_EVENT_TS_RE = re.compile(
+    r'\(\s*(?P<dt>\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?)\s*\)\s*$'
+)
+# Providers use a far-future date (e.g. 2098-12-31) as an "always available"
+# sentinel rather than a real schedule time.
+_EVENT_SENTINEL_YEAR = 2090
+
+
+class PlatformEvent(NamedTuple):
+    """Decomposed EPG-embedded event feed (see parse_platform_event)."""
+    region: str            # normalized region code (e.g. "US")
+    network: str           # broadcaster/brand (e.g. "ESPN+", "Paramount")
+    channel_num: str       # feed/channel number as text, or "" if absent
+    title: str             # programme title with network/pipe/timestamp stripped
+    start_time: Optional[datetime]  # scheduled start, or None (form-A / sentinel)
+    always_available: bool # True when the timestamp was the far-future sentinel
+
+
+def _parse_event_ts(s: str) -> Optional[datetime]:
+    """Parse the embedded timestamp ("YYYY-MM-DD HH:MM[:SS]") to a naive datetime."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_platform_event(name: str) -> Optional[PlatformEvent]:
+    """Decompose an EPG-embedded event-feed channel name.
+
+    Grammar: ``REGION (NETWORK [CHAN#]) [|] TITLE [(TIMESTAMP)]``. Only accepted
+    when REGION is a *known* region code (guards against title words like
+    "FBI (2024)"). The network must start with a letter, so a bare year in the
+    parens never matches. A far-future timestamp is treated as an
+    "always available" sentinel (start_time=None, always_available=True).
+
+    Returns None when the name is not this format.
+    """
+    if not name:
+        return None
+    m = _PLATFORM_EVENT_RE.match(name.strip())
+    if not m:
+        return None
+    region = normalize_region_code(m.group("region"))
+    if region not in REGION_FULL_NAMES:
+        return None
+
+    rest = m.group("rest").strip()
+    if rest.startswith("|"):
+        rest = rest[1:].strip()
+
+    start_time: Optional[datetime] = None
+    always = False
+    tm = _EVENT_TS_RE.search(rest)
+    if tm:
+        rest = rest[: tm.start()].strip()
+        dt = _parse_event_ts(tm.group("dt"))
+        if dt and dt.year >= _EVENT_SENTINEL_YEAR:
+            always = True
+        else:
+            start_time = dt
+
+    return PlatformEvent(
+        region=region,
+        network=m.group("network"),
+        channel_num=m.group("chan") or "",
+        title=rest.strip(" |").strip(),
+        start_time=start_time,
+        always_available=always,
+    )
 
 # Quality tokens that start with a digit (4K, 8K) — excluded from _SEPARATOR_RE
 # because that pattern requires [A-Z] as the first character.
@@ -401,9 +497,35 @@ def parse_channel_name(name: str) -> ParsedChannel:
     _prefix_quality: str = ""  # set when a digit-starting quality token is the prefix
     _bracket_origin: str = ""  # secondary lang/region from bracket or suffix
 
-    # 1. Extract prefix — try compound first (catches "4K-SC", "SE-4K"), then standard
-    cm = _COMPOUND_PREFIX_RE.match(bare)
-    if cm:
+    # 0. Pre-extraction prefix forms the standard separator patterns miss because the
+    # prefix is not immediately followed by a separator. When one matches, the prefix
+    # is consumed here and step 1 is skipped so it can't be clobbered.
+    _prefix_consumed = False
+
+    # 0a. Leading-pipe prefix: |WC| Title — strip the pipe-wrapped token to region.
+    lpm = _LEADING_PIPE_PREFIX_RE.match(bare)
+    if lpm:
+        region = normalize_region_code(lpm.group(1).upper())
+        bare = lpm.group(2).strip()
+        _prefix_consumed = True
+
+    # 0b. EPG-embedded event feed: "US (Peacock 01) | Title (timestamp)" — set the
+    # region and strip the network/pipe/timestamp to a clean title. The event fields
+    # (start time, network) are captured separately by special_content.parse.
+    if not _prefix_consumed:
+        pe = parse_platform_event(bare)
+        if pe:
+            region = pe.region
+            if pe.title:
+                bare = pe.title
+            _prefix_consumed = True
+
+    # 1. Extract prefix — try compound first (catches "4K-SC", "SE-4K"), then standard.
+    # Skip when a pre-extraction form (step 0) already set the region.
+    cm = None if _prefix_consumed else _COMPOUND_PREFIX_RE.match(bare)
+    if _prefix_consumed:
+        pass  # prefix already extracted in step 0
+    elif cm:
         compound_lang = (
             cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
         ).upper()

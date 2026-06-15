@@ -238,10 +238,12 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      dedupe_overrides: set[str] | None = None,
                      excluded_prefixes: list[str] | None = None,
                      include_uncategorized: bool = True,
+                     excluded_provider_ids: list[str] | None = None,
                      version_scorer=None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
+    - From an inactive/expired source (excluded_provider_ids) → excluded
     - Disliked (rating < 0) → always excluded
     - Hidden (is_hidden) → excluded
     - Rec-suppressed (is_rec_suppressed) → excluded
@@ -317,6 +319,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         )
     )
     candidates_q = _apply_prefix_filter(candidates_q, excluded_prefixes, include_uncategorized)
+    # Canonical provider scoping: never recommend content from inactive/expired sources.
+    if excluded_provider_ids:
+        candidates_q = candidates_q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
     candidates = candidates_q.all()
 
     # Implicit prefix preference: count how often the user has positively engaged with

@@ -80,6 +80,19 @@ class TestExtractPrefix:
         # No separator match at all → None
         assert extract_prefix("EN - BBC News", separators=["::"]) is None
 
+    def test_leading_pipe_prefix(self):
+        # ProSat/ottcst wrap the prefix in pipes: |WC| Title, |EN| Title.
+        # Splitting on a bare "|" yields an empty candidate, so this is handled
+        # explicitly. Regression: ~190k ottcst channels parsed to no prefix.
+        assert extract_prefix("|WC| BEIN SPORTS 1 HD FR") == "WC"
+        assert extract_prefix("|EN| Breaking Bad") == "EN"
+        assert extract_prefix("|MULTI | Foo Bar") == "MULTI"   # inner space tolerated
+
+    def test_leading_pipe_no_closing_pipe(self):
+        # "|PPV MAIN EVENT 01: ..." has no closing pipe and the run after "|"
+        # contains spaces — must not be mistaken for a wrapped prefix.
+        assert extract_prefix("|PPV MAIN EVENT 01: Usyk vs Dubois") is None
+
 
 # ── categorize_prefix ──────────────────────────────────────────────────────────
 

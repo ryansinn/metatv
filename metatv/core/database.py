@@ -175,6 +175,7 @@ class ProviderDB(Base):
     epg_url = Column(String, default="")   # XMLTV EPG feed URL
     force_adult = Column(Boolean, default=False)  # Treat all channels as adult regardless of is_adult flag
     epg_last_fetched = Column(DateTime, nullable=True)      # When EPG was last downloaded
+    epg_data_start = Column(DateTime, nullable=True)        # Earliest start_time in fetched EPG data
     epg_data_end = Column(DateTime, nullable=True)          # Latest stop_time in fetched EPG data
     epg_refresh_hours_before = Column(Integer, default=48)  # Refresh when data expires within N hours
 
@@ -393,6 +394,7 @@ class Database:
             ("providers", "force_adult",          "INTEGER DEFAULT 0"),
             ("channels",  "is_adult",             "INTEGER DEFAULT 0"),
             ("providers",    "epg_last_fetched",         "DATETIME"),
+            ("providers",    "epg_data_start",           "DATETIME"),
             ("providers",    "epg_data_end",             "DATETIME"),
             ("providers",    "epg_refresh_hours_before", "INTEGER DEFAULT 48"),
             ("watch_queue",  "channel_name",             "TEXT NOT NULL DEFAULT ''"),

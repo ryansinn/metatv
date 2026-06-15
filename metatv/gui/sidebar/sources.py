@@ -4,24 +4,60 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.core.epg_utils import epg_status as _epg_status, to_local as _to_local
 from metatv.gui import theme as _theme
+from metatv.gui import icons as _icons
 from metatv.gui.sidebar.base import CollapsibleSection
+
+
+def _epg_tooltip(state: str, start, end) -> str:
+    """Build the EPG indicator tooltip: a date range, or 'No EPG Available'."""
+    if state == "none":
+        return "No EPG Available"
+
+    def _fmt(d):
+        if d is None:
+            return "?"
+        try:
+            return _to_local(d).strftime("%d %b %Y").lstrip("0")
+        except Exception:
+            return str(d)
+
+    label = {
+        "stale": "EPG stale",
+        "soon": "EPG ending soon",
+        "current": "EPG current",
+    }.get(state, "EPG")
+    return f"{label}: {_fmt(start)} – {_fmt(end)}  (click to refresh)"
+
+
+# EPG freshness state → colour token (single source: epg_utils.epg_status).
+_EPG_STATE_COLOR = {
+    "none":    _theme.COLOR_FAINT,    # almost transparent — no guide
+    "stale":   _theme.COLOR_ERR_2,    # softer red — feed out of date
+    "soon":    _theme.COLOR_WARN,     # amber — about to run out
+    "current": _theme.COLOR_OK,       # green — current & future-looking
+}
 
 
 class ProviderItemWidget(QWidget):
     """Custom widget for provider items with refresh, edit, analyze, and toggle buttons."""
 
-    refreshClicked = pyqtSignal(str)   # provider_id
-    editClicked = pyqtSignal(str)      # provider_id
-    analyzeClicked = pyqtSignal(str)   # provider_id
-    toggleClicked = pyqtSignal(str)    # provider_id
+    refreshClicked = pyqtSignal(str)      # provider_id
+    editClicked = pyqtSignal(str)         # provider_id
+    analyzeClicked = pyqtSignal(str)      # provider_id
+    toggleClicked = pyqtSignal(str)       # provider_id
+    epgRefreshClicked = pyqtSignal(str)   # provider_id — refresh EPG for this source
 
     def __init__(self, provider_id: str, provider_name: str, is_active: bool = True,
                  icon: str = "", sub_color: str = "", is_expired: bool = False,
+                 busy: bool = False, epg_state: str = "none", epg_tooltip: str = "",
                  parent=None):
         super().__init__(parent)
         self.provider_id = provider_id
         self._is_active = is_active
+        self._epg_state = epg_state
+        self._epg_tooltip = epg_tooltip
 
         self.setAutoFillBackground(True)
 
@@ -52,6 +88,15 @@ class ProviderItemWidget(QWidget):
         if is_expired:
             self._status_lbl.setToolTip("Subscription expired")
         layout.addWidget(self._status_lbl)
+
+        # EPG freshness indicator — colored by state; click to refresh EPG for this source.
+        self._epg_btn = QPushButton(_icons.epg_indicator_icon)
+        self._epg_btn.setFixedSize(16, 20)
+        self._epg_btn.setFlat(True)
+        self._epg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._epg_btn.clicked.connect(lambda: self.epgRefreshClicked.emit(self.provider_id))
+        layout.addWidget(self._epg_btn)
+        self.set_epg_state(epg_state, epg_tooltip)
 
         # Provider name — expired gets distinct label + color, otherwise use sub_color
         display_name = f"{provider_name} (Expired)" if is_expired else provider_name
@@ -107,12 +152,52 @@ class ProviderItemWidget(QWidget):
         refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
 
+        # Action buttons that get disabled while a provider operation is in flight.
+        self._action_btns = [self._toggle_btn, edit_btn, analyze_btn, refresh_btn]
+        if busy:
+            self.set_busy(True)
+
     def update_active(self, is_active: bool):
         self._is_active = is_active
         self._status_lbl.setText("●" if is_active else "○")
         dot_color = _theme.COLOR_OK if is_active else _theme.COLOR_MUTED_2
         self._status_lbl.setStyleSheet(f"color: {dot_color};")
         self._toggle_btn.setText("●" if is_active else "○")
+
+    def set_busy(self, busy: bool) -> None:
+        """Disable the row's action buttons and show a spinner on the toggle while a
+        provider operation (enable/disable + view refresh) is in progress."""
+        for btn in self._action_btns:
+            btn.setEnabled(not busy)
+        if busy:
+            self._toggle_btn.setText(_icons.loading_icon)
+            self._toggle_btn.setToolTip("Updating…")
+        else:
+            self._toggle_btn.setText("●" if self._is_active else "○")
+            self._toggle_btn.setToolTip("Enable / Disable this provider")
+
+    def set_epg_state(self, state: str, tooltip: str) -> None:
+        """Color the EPG indicator by freshness state and set its date-range tooltip."""
+        self._epg_state = state
+        self._epg_tooltip = tooltip
+        color = _EPG_STATE_COLOR.get(state, _theme.COLOR_FAINT)
+        self._epg_btn.setEnabled(True)
+        self._epg_btn.setText(_icons.epg_indicator_icon)
+        self._epg_btn.setStyleSheet(
+            f"QPushButton {{ color: {color}; border: none; background: transparent;"
+            f" font-size: {_theme.FONT_MD}; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+        )
+        self._epg_btn.setToolTip(tooltip)
+
+    def set_epg_refreshing(self, busy: bool) -> None:
+        """Spinner on the EPG indicator while its feed is being refreshed."""
+        if busy:
+            self._epg_btn.setText(_icons.loading_icon)
+            self._epg_btn.setEnabled(False)
+            self._epg_btn.setToolTip("Refreshing EPG…")
+        else:
+            self.set_epg_state(self._epg_state, self._epg_tooltip)
 
 
 class SourcesSection(CollapsibleSection):
@@ -123,11 +208,16 @@ class SourcesSection(CollapsibleSection):
     providerEditClicked = pyqtSignal(str)      # provider_id
     providerAnalyzeClicked = pyqtSignal(str)   # provider_id
     providerToggleClicked = pyqtSignal(str)    # provider_id
+    providerEpgRefreshClicked = pyqtSignal(str)  # provider_id — refresh EPG for this source
     addProviderClicked = pyqtSignal()
     refreshAllClicked = pyqtSignal()
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        # provider_ids with an operation in flight (toggle + view refresh); survives the
+        # tree rebuild in refresh() so the spinner/disabled state is re-applied.
+        self._busy_ids: set[str] = set()
+        self._item_widgets: dict[str, "ProviderItemWidget"] = {}
         super().__init__("Sources", config.provider_icon, config, parent)
 
     def get_section_id(self):
@@ -187,6 +277,7 @@ class SourcesSection(CollapsibleSection):
     def refresh(self):
         """Load providers from database."""
         self.sources_tree.clear()
+        self._item_widgets = {}
 
         session = self.db.get_session()
         try:
@@ -216,13 +307,25 @@ class SourcesSection(CollapsibleSection):
 
                 icon = getattr(provider, "icon", "") or ""
 
+                epg_state = _epg_status(
+                    getattr(provider, "epg_url", None), getattr(provider, "epg_data_end", None)
+                )
+                epg_tooltip = _epg_tooltip(
+                    epg_state, getattr(provider, "epg_data_start", None),
+                    getattr(provider, "epg_data_end", None),
+                )
+
                 widget = ProviderItemWidget(
                     provider.id, provider.name,
                     is_active=provider.is_active,
                     icon=icon,
                     sub_color=sub_color,
                     is_expired=is_expired,
+                    busy=provider.id in self._busy_ids,
+                    epg_state=epg_state,
+                    epg_tooltip=epg_tooltip,
                 )
+                self._item_widgets[provider.id] = widget
                 widget.refreshClicked.connect(
                     lambda pid=provider.id: self.providerRefreshClicked.emit(pid)
                 )
@@ -234,6 +337,9 @@ class SourcesSection(CollapsibleSection):
                 )
                 widget.toggleClicked.connect(
                     lambda pid=provider.id: self.providerToggleClicked.emit(pid)
+                )
+                widget.epgRefreshClicked.connect(
+                    lambda pid=provider.id: self.providerEpgRefreshClicked.emit(pid)
                 )
                 self.sources_tree.setItemWidget(item, 0, widget)
         finally:
@@ -247,3 +353,33 @@ class SourcesSection(CollapsibleSection):
     def update_provider_status(self, provider_id: str, status: str):
         """Legacy method — no-op; widgets now update via refresh()."""
         pass
+
+    def is_provider_busy(self, provider_id: str) -> bool:
+        return provider_id in self._busy_ids
+
+    def set_provider_busy(self, provider_id: str, busy: bool) -> None:
+        """Mark a provider's row busy/idle. Records it in `_busy_ids` (so a later
+        refresh() rebuild re-applies the state) and updates the live widget in place
+        for immediate feedback without a full rebuild."""
+        if busy:
+            self._busy_ids.add(provider_id)
+        else:
+            self._busy_ids.discard(provider_id)
+        widget = self._item_widgets.get(provider_id)
+        if widget is not None:
+            widget.set_busy(busy)
+
+    def set_provider_epg_refreshing(self, provider_id: str, busy: bool) -> None:
+        """Show/clear the spinner on a provider row's EPG indicator while its feed
+        is being refreshed (in place — no full rebuild needed)."""
+        widget = self._item_widgets.get(provider_id)
+        if widget is not None:
+            widget.set_epg_refreshing(busy)
+
+    def has_busy(self) -> bool:
+        return bool(self._busy_ids)
+
+    def clear_busy(self) -> None:
+        """Clear busy/spinner state for every provider row."""
+        for pid in list(self._busy_ids):
+            self.set_provider_busy(pid, False)

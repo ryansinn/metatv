@@ -220,6 +220,7 @@ class EpgManager(QObject):
 
             batch: list[EpgProgramDB] = []
             max_stop: datetime | None = None
+            min_start: datetime | None = None
             saved = 0
             _report_every = max(1, total_progs // 20)  # ~5% increments
 
@@ -240,6 +241,8 @@ class EpgManager(QObject):
 
                 if max_stop is None or prog.stop_time > max_stop:
                     max_stop = prog.stop_time
+                if min_start is None or prog.start_time < min_start:
+                    min_start = prog.start_time
 
                 if len(batch) >= 2000:
                     session.bulk_save_objects(batch)
@@ -263,7 +266,17 @@ class EpgManager(QObject):
             provider = session.query(ProviderDB).filter_by(id=provider_id).first()
             if provider:
                 provider.epg_last_fetched = now
+                provider.epg_data_start = min_start
                 provider.epg_data_end = max_stop
+                # The provider's feed can serve year-old data (e.g. ottcst returns a
+                # Jan-2025 snapshot). Flag it so it's not mistaken for our bug — the
+                # EPG view / provider editor surface this to the user via epg_is_stale.
+                if max_stop is not None and max_stop < now:
+                    logger.warning(
+                        f"EPG: {provider_name} returned STALE guide data — latest "
+                        f"programme ends {max_stop:%Y-%m-%d} (before now). The provider's "
+                        f"XMLTV endpoint is out of date; nothing will appear in On Now."
+                    )
 
             session.commit()
             count = session.query(EpgProgramDB).filter_by(provider_id=provider_id).count()
