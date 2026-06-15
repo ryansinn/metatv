@@ -27,11 +27,45 @@ from metatv.core.repositories.provider import parse_provider_urls
 from metatv.providers.xtream import _DEFAULT_HEADERS
 
 
+# ISO-BMFF (MP4/MOV) top-level box types that legitimately appear at the very start of
+# a stream. `ftyp`/`moov` lead a faststart (web-optimised) file; the box type lives at
+# bytes 4–8, after the 4-byte size field.
+_ISO_BMFF_BOXES = frozenset(
+    (b"ftyp", b"styp", b"moov", b"moof", b"mdat", b"free", b"skip", b"wide", b"pnot")
+)
+
+
+def _looks_like_video(chunk: bytes) -> bool:
+    """Return True if a chunk begins with a known video-container magic number.
+
+    This must take precedence over the printable-ASCII heuristic: a faststart MP4
+    (``ftyp``/``moov`` first) and a Matroska/WebM header are dominated by ASCII box/
+    element names (`ftyp`, `isom`, `avc1`, `matroska`, …), so `_looks_like_text` would
+    false-positive and the validator would reject perfectly good VOD as a text error.
+    """
+    if not chunk:
+        return False
+    if chunk[0] == 0x47:                          # MPEG-TS sync byte
+        return True
+    if chunk[:4] == b"\x1a\x45\xdf\xa3":          # EBML — Matroska / WebM
+        return True
+    if len(chunk) >= 8 and chunk[4:8] in _ISO_BMFF_BOXES:  # ISO-BMFF — MP4 / MOV
+        return True
+    if chunk[:3] == b"\x00\x00\x01":              # MPEG PS/ES start code
+        return True
+    if chunk[:3] == b"FLV":                       # Flash Video
+        return True
+    return False
+
+
 def _looks_like_text(chunk: bytes) -> bool:
     """Return True if a stream response chunk looks like text rather than binary video data.
 
     MPEG-TS sync byte (0x47) as the first byte is a strong binary signal.
     Otherwise we check the printable-ASCII ratio of the first 256 bytes.
+
+    Note: callers must check :func:`_looks_like_video` first — some binary containers
+    (faststart MP4, Matroska) are ASCII-heavy in their first bytes and would trip this.
     """
     if not chunk:
         return False
@@ -70,6 +104,13 @@ class _StreamingMixin:
                 if chunk is None:
                     logger.warning(f"Stream URL returned no data")
                     return False, None
+                # A recognised video container wins outright — even if its ASCII-heavy
+                # header (faststart MP4, Matroska) would otherwise look like text, and
+                # even if the server mislabels the Content-Type.
+                if _looks_like_video(chunk):
+                    logger.debug(f"Stream URL validated: HTTP {response.status_code}, "
+                                 f"video container, got {len(chunk)} bytes")
+                    return True, None
                 # Detect text error messages (e.g. "This channel is not available")
                 ct = response.headers.get("Content-Type", "").lower()
                 is_text_ct = any(t in ct for t in ("text/", "application/json"))

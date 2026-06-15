@@ -55,8 +55,9 @@ class _SeeAllWorker(QObject):
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
-            expired_ids = RepositoryFactory(session).providers.get_expired_provider_ids()
-            ek = dict(excluded_provider_ids=expired_ids or None)
+            # Canonical provider scoping: hide inactive + expired sources.
+            _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
+            ek = dict(excluded_provider_ids=_excl_ids or None)
 
             key = self._shelf_key
             limit = _SEE_ALL_LIMIT
@@ -114,8 +115,9 @@ class _LoaderWorker(QObject):
 
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
-            expired_ids = RepositoryFactory(session).providers.get_expired_provider_ids()
-            ek = dict(excluded_provider_ids=expired_ids or None)
+            # Canonical provider scoping: hide inactive + expired sources.
+            _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
+            ek = dict(excluded_provider_ids=_excl_ids or None)
 
             excluded_user_cats = list(getattr(
                 self._config, "global_filter_excluded_user_categories", []

@@ -105,7 +105,9 @@ from metatv.core.epg_utils import (
     remaining_str as _remaining_str,
     is_local_today as _is_local_today,
     local_weekday as _local_weekday,
+    to_local as _to_local,
 )
+from metatv.gui import icons as _icons
 
 
 def _progress_bar(start: datetime, stop: datetime, width: int = 20) -> str:
@@ -199,6 +201,16 @@ class EpgView(ContentView):
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("border: none; border-top: 1px solid #333;")
         root.addWidget(sep)
+
+        # ── Stale-EPG notice ────────────────────────────────────────────
+        # Surfaces sources whose provider feed serves out-of-date guide data, so an
+        # empty On Now reads as "provider's guide is stale" rather than "EPG is broken".
+        self._stale_epg_notice = QLabel("")
+        self._stale_epg_notice.setWordWrap(True)
+        self._stale_epg_notice.setStyleSheet(_theme.EPG_STALE_NOTICE)
+        self._stale_epg_notice.setContentsMargins(12, 6, 12, 6)
+        self._stale_epg_notice.hide()
+        root.addWidget(self._stale_epg_notice)
 
         # ── Stacked content area ────────────────────────────────────────
         self.stack = QStackedWidget()
@@ -728,9 +740,35 @@ class EpgView(ContentView):
     def get_selected_channel(self) -> Optional[ChannelDB]:
         return None  # EPG doesn't track a single selected channel
 
+    def _refresh_stale_epg_notice(self) -> None:
+        """Show/hide the banner listing active sources whose EPG guide data is stale."""
+        from metatv.core.repositories import RepositoryFactory
+        session = self.db.get_session()
+        try:
+            stale = RepositoryFactory(session).providers.get_stale_epg_providers()
+        finally:
+            session.close()
+        if not stale:
+            self._stale_epg_notice.hide()
+            return
+        parts = []
+        for _id, name, data_end in stale:
+            try:
+                day = _to_local(data_end).strftime("%d %b %Y").lstrip("0")
+            except Exception:
+                day = str(data_end)
+            parts.append(f"{name} (guide ends {day})")
+        self._stale_epg_notice.setText(
+            f"{_icons.notification_warning_icon}  Stale guide data — these sources' "
+            f"providers aren't supplying current EPG, so they won't show in On Now: "
+            + "; ".join(parts)
+        )
+        self._stale_epg_notice.show()
+
     def on_activate(self) -> None:
         """Called when the EPG chip is clicked and view becomes visible."""
         self._load_provider_ids()
+        self._refresh_stale_epg_notice()
         self._update_status_label()
 
         # Default to On Now (tab 3); stay on a watchlist tab only if patterns already exist

@@ -66,7 +66,7 @@ metatv/
 ## Critical Rules
 
 ### EPG time utilities — always from `epg_utils.py`
-All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`.
+All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`, `epg_is_stale`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`. `epg_is_stale(epg_data_end)` is the single staleness boundary (a provider feed serving year-old guide data) — used by the EPG view notice, the provider editor's EPG line, and the fetch-time warning; the EPG view's banner list comes from `ProviderRepository.get_stale_epg_providers()`.
 
 ### Styles — two-layer `theme.py`; tokens for all palette values, role-named constants
 `metatv/gui/theme.py` has two layers and you must respect the split (full rationale in
@@ -329,6 +329,45 @@ def _on_account_info_updated(self, provider_id: str):
 ```
 
 **Example:** ProviderEditorView refreshes the account info from the API and persists it; emits `account_info_updated` so the Sources sidebar can update its color-coded subscription status display.
+
+### Provider/source mutations → one canonical refresh, never hand-pick views
+Every view derived from the provider/channel corpus must be refreshed through the
+**single** method `MainWindow._refresh_provider_dependent_views()`. It refreshes the full
+set: sidebar Sources/Favorites/History/Queue/Recommended, the main channel list/search
+(which also rebuilds `provider_icon_map`), and the lazy Discover/Preferences overlay views.
+
+**All** provider mutations funnel through it — add (`on_provider_refresh_finished`), edit
+(`_on_provider_saved`), delete (`_on_provider_deleted`), toggle active
+(`toggle_provider_active`) / visibility (`toggle_provider_visibility`). **Never** re-implement
+a partial refresh at a call site (e.g. `load_providers()` alone). That hand-picking is a
+recurring bug class: it repeatedly left views stale — most visibly, editing a source's icon
+refreshed the sidebar but not the main list, so a new source showed its content with no icon
+badge. If you add a new provider-mutation path or a new corpus-derived view, wire it through
+(or into) this method — don't grow a new partial path. The account-info poll
+(`_on_account_info_updated`) is the one deliberate exception: it changes only the Sources
+display, not the channel set, so a sidebar-only refresh is correct there.
+
+### Active-source scoping → one helper, never hand-pick (history/engaged are the exception)
+Content from **inactive (toggled-off) or expired** sources must never appear in a
+forward-looking view. The single source of truth is
+`ProviderRepository.get_hidden_provider_ids()` (= inactive ∪ expired). Every "what can I
+watch" query passes it as `excluded_provider_ids`: the channel list (`_bg_load_channels`),
+Discover shelves + See-All (`discover_workers`), and recommendations
+(`preference_engine.score_candidates`, called from the Recommended sidebar section and the
+Preferences dashboard). EPG scopes equivalently (`is_active=True` + expired) in
+`_load_provider_ids`.
+
+Do **not** rebuild this set ad-hoc at a call site (e.g. `get_expired_provider_ids()` alone —
+that was the bug: disabled-but-unexpired sources leaked into Discover and recommendations).
+If you add a new content-surfacing view or a new query in the engine, thread
+`excluded_provider_ids=get_hidden_provider_ids()` through it.
+
+**The exception is record/engaged views — History, Favorites, Watch Queue — which show prior
+engagement regardless of a source's current state** (you watched it; the source going
+inactive doesn't erase that). This mirrors the engaged-content prune rule (a different
+source going away keeps its favorites/queue/history as context). Recommendation
+*weights* likewise still learn from engaged items on now-inactive sources; only the candidate
+*pool that gets surfaced* is scoped to active sources.
 
 ### Resource cleanup in closeEvent — use the cleanup registry
 `MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:

@@ -527,6 +527,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             section.providerEditClicked.connect(self.enter_provider_edit_mode)
             section.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
             section.providerToggleClicked.connect(self.toggle_provider_active)
+            section.providerEpgRefreshClicked.connect(self._on_provider_epg_refresh)
             section.addProviderClicked.connect(self.add_provider)
             section.refreshAllClicked.connect(self.refresh_all_providers)
             return section
@@ -857,6 +858,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
 
         self.epg_manager.start_notification_timer()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
+        # Recolor the sidebar EPG indicator (and clear its spinner) when a fetch ends.
+        self.epg_manager.refresh_finished.connect(self._on_provider_epg_refreshed)
+        self.epg_manager.refresh_error.connect(self._on_provider_epg_refreshed)
         self._refresh_watch_alerts()
 
         # Provider editor (hidden by default)
@@ -1005,6 +1009,17 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
 
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh all affected views."""
+        sources = self.sidebar_sections.get("sources")
+        # Re-entrancy guard: the canonical refresh below can take many seconds
+        # (recommendations recompute over the whole library), so ignore repeat
+        # clicks while one is in flight rather than stacking them.
+        if sources is not None and sources.is_provider_busy(provider_id):
+            self.status_bar.showMessage("Source update already in progress…", 2000)
+            return
+        if sources is not None:
+            sources.set_provider_busy(provider_id, True)
+        self.status_bar.showMessage("Updating views…")
+
         session = self.db.get_session()
         try:
             from metatv.core.database import ProviderDB as _PDB
@@ -1016,26 +1031,68 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to toggle provider: {e}")
+            self._clear_provider_busy()   # early-return cleanup (CLAUDE.md rule)
+            return
         finally:
             session.close()
-        self.load_providers()
-        # Refresh all affected views to reflect the provider change
-        self.load_channels()
-        if hasattr(self, "discover_view"):
-            self.discover_view.reload()
-        if hasattr(self, "preferences_view"):
-            self.preferences_view.refresh()
-        self._refresh_recommended_section()
+        # Refresh every view derived from provider/channel data (canonical).
+        # Busy state is cleared when the channel reload completes (_on_channels_loaded);
+        # the timer is a safety net in case that signal never fires.
+        self._refresh_provider_dependent_views()
+        QTimer.singleShot(30_000, self._clear_provider_busy)
+
+    def _clear_provider_busy(self) -> None:
+        """Clear any in-flight provider busy/spinner state and the status message.
+
+        Called when a provider-triggered refresh completes (via _on_channels_loaded)
+        and as a safety timeout from toggle_provider_active."""
+        sources = self.sidebar_sections.get("sources")
+        had_busy = sources is not None and sources.has_busy()
+        if sources is not None:
+            sources.clear_busy()
+        if had_busy:
+            self.status_bar.clearMessage()
+
+    def _on_provider_epg_refresh(self, provider_id: str) -> None:
+        """Sidebar EPG indicator clicked — refresh that source's EPG feed."""
+        sources = self.sidebar_sections.get("sources")
+        if sources is not None:
+            sources.set_provider_epg_refreshing(provider_id, True)
+            # Safety net: clear the spinner if the fetch never signals back (e.g. the
+            # provider has no usable EPG URL, so force_refresh_provider no-ops).
+            QTimer.singleShot(
+                90_000,
+                lambda pid=provider_id: self._epg_refresh_spinner_off(pid),
+            )
+        self.status_bar.showMessage("Refreshing EPG…", 3000)
+        self.epg_manager.force_refresh_provider(provider_id)
+
+    def _epg_refresh_spinner_off(self, provider_id: str) -> None:
+        sources = self.sidebar_sections.get("sources")
+        if sources is not None:
+            sources.set_provider_epg_refreshing(provider_id, False)
+
+    def _on_provider_epg_refreshed(self, provider_id: str, *_args) -> None:
+        """EPG fetch finished/errored — rebuild Sources so the indicator recolors with
+        the new date range and the spinner clears."""
+        sources = self.sidebar_sections.get("sources")
+        if sources is not None:
+            sources.refresh()
 
     def _on_provider_saved(self, provider_id: str):
-        """Reload sidebar after a provider is saved in the editor."""
-        self.load_providers()
+        """Refresh dependent views after a provider is saved in the editor.
+
+        Goes through the canonical refresh so an icon/name/credential edit
+        reflects everywhere (sidebar AND the main list's provider badges), not
+        just the sidebar.
+        """
+        self._refresh_provider_dependent_views()
         self.status_bar.showMessage("Provider saved.", 3000)
 
     def _on_provider_deleted(self, provider_id: str):
         """Clean up after a provider is deleted from the editor."""
-        self.load_providers()
         self.exit_provider_edit_mode()
+        self._refresh_provider_dependent_views()
         self.status_bar.showMessage("Provider deleted.", 3000)
 
     def _on_account_info_updated(self, provider_id: str):
@@ -1047,6 +1104,31 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         sources_section = self.sidebar_sections.get("sources")
         if sources_section:
             sources_section.refresh()
+
+    def _refresh_provider_dependent_views(self) -> None:
+        """Canonical refresh for everything derived from provider/channel data.
+
+        ALL provider/source mutations — add, edit, delete, refresh-complete,
+        toggle active/visibility — must funnel through this one method instead
+        of hand-picking a subset of views at each call site. Hand-picking is
+        what repeatedly left views stale (e.g. the sidebar icon updated but the
+        main list's ``provider_icon_map`` did not, so new sources showed content
+        with no icon). Keep this list complete; do not re-implement partial
+        refreshes elsewhere.
+        """
+        # Sidebar sections fed by the channel/provider corpus
+        self.load_providers()
+        self.load_favorites()
+        self.load_history()
+        self._refresh_queue_section()
+        self._refresh_recommended_section()
+        # Main channel list / search results — also rebuilds provider_icon_map
+        self.load_channels()
+        # Center overlay views — lazily constructed, refresh only if present
+        if hasattr(self, "discover_view"):
+            self.discover_view.reload()
+        if hasattr(self, "preferences_view"):
+            self.preferences_view.refresh()
 
     def edit_provider(self):
         """Legacy hook — no longer used (edit triggers from sidebar widget)."""
@@ -1182,9 +1264,8 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                     self.filter_panel.update_data(stats)
                 logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
 
-            # Reload sidebar and channels
-            self.load_providers()
-            self.load_channels()
+            # Refresh every view derived from provider/channel data (canonical)
+            self._refresh_provider_dependent_views()
             # Re-check any failed streams now that content is fresh
             if hasattr(self, "stream_retry_manager"):
                 self.stream_retry_manager.check_all_now()
@@ -1260,10 +1341,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                 
                 # Update status button
                 self.update_provider_status(provider_id, "testing" if provider.is_active else "disabled")
-                
-                # Reload channels
-                self.load_channels()
-                
+
+                # Refresh every view derived from provider/channel data (canonical)
+                self._refresh_provider_dependent_views()
+
                 # Test connection if enabled
                 if provider.is_active:
                     self.test_provider_connection(provider_id)
@@ -1427,14 +1508,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             force_adult_ids = params['force_adult_ids']
             hidden_only = params.get('hidden_only', False)
             _page_size = params.get('page_size', 5_000)
-            expired_provider_ids = repos.providers.get_expired_provider_ids()
-            # Calculate inactive providers to exclude them from results
-            active_providers = repos.providers.get_all(active_only=True)
-            active_provider_ids = set(p.id for p in active_providers)
-            all_providers = repos.providers.get_all()
-            inactive_provider_ids = [p.id for p in all_providers if p.id not in active_provider_ids]
-            # Combine expired and inactive providers to exclude
-            providers_to_exclude = list(set((expired_provider_ids or []) + inactive_provider_ids))
+            # Canonical provider scoping: hide inactive + expired sources (see
+            # ProviderRepository.get_hidden_provider_ids — single source of truth).
+            providers_to_exclude = repos.providers.get_hidden_provider_ids()
             if hidden_only:
                 channels = repos.channels.get_hidden_channels(
                     excluded_user_categories=params.get('excluded_user_categories'),
@@ -1529,6 +1605,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # Discard results from a superseded query
         if params.get('token') != self._load_channels_token:
             return
+
+        # A current channel load finished — the visible result of a provider toggle's
+        # canonical refresh. Clear any provider busy/spinner state now.
+        self._clear_provider_busy()
 
         total_channels    = params.get('total_channels', 0)
         has_adult         = params.get('has_adult', False)

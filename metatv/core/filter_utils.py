@@ -52,6 +52,17 @@ def extract_prefix(channel_name: str, separators: list[str] | None = None) -> Op
     if m:
         return m.group(1)
 
+    # |XX| leading-pipe format: prefix wrapped in pipes (ProSat/ottcst style),
+    # e.g. "|WC| BEIN SPORTS 1 HD FR" → "WC", "|EN| Breaking Bad" → "EN".
+    # Splitting on a bare "|" yields an empty candidate, so handle it explicitly:
+    # take the token between the first two pipes and validate it as a prefix.
+    if channel_name.startswith("|"):
+        end = channel_name.find("|", 1)
+        if end > 1:
+            candidate = channel_name[1:end].strip()
+            if _VALID_PREFIX.match(candidate):
+                return candidate
+
     seps = separators if separators is not None else DEFAULT_PREFIX_SEPARATORS
     for sep in seps:
         if sep in channel_name:
@@ -313,5 +324,141 @@ def matches_filter(
     # Apply invert logic for "Show Excluded" feature
     if invert_complex_filters:
         return not matches
-    
+
     return matches
+
+
+# Normalises multilingual genre strings from Xtream providers to English canonical names.
+# Providers supply genres in their own language (French, Italian, German, Spanish, Dutch, etc.)
+# which creates duplicate clusters like Drama/Drame/Dramma/Dramat/Dramat.
+# Keys are lowercased for case-insensitive lookup; values are the canonical English label.
+#
+# Canonical home (single source of truth): imported by both
+# ``repositories/channel.py`` (normalize_genre) and ``repositories/channel_stats.py``
+# (filter-stat aggregation). It lives here — a dependency-free leaf — because channel.py
+# imports channel_stats.py, so the table cannot live in either of them without a cycle.
+_GENRE_NORM: dict[str, str] = {
+    # Drama variants
+    "drame":                    "Drama",
+    "dramma":                   "Drama",
+    "dramat":                   "Drama",
+    "draама":                   "Drama",
+    "drama & history":          "Drama",
+    # Comedy variants
+    "comédie":                  "Comedy",
+    "comedie":                  "Comedy",
+    "komödie":                  "Comedy",
+    "komedie":                  "Comedy",
+    "commedia":                 "Comedy",
+    "comedia":                  "Comedy",
+    # Crime / Thriller variants
+    "crimen":                   "Crime",
+    "krimi":                    "Crime",
+    "misdaad":                  "Crime",
+    "crime & mystery":          "Crime",
+    "crime, mystery":           "Crime",
+    # Documentary variants
+    "documentaire":             "Documentary",
+    "documental":               "Documentary",
+    "dokumentär":               "Documentary",
+    "dokumentar":               "Documentary",
+    "dokumentation":            "Documentary",
+    "doku":                     "Documentary",
+    # Sci-Fi / Fantasy variants
+    "science fiction":          "Sci-Fi & Fantasy",
+    "sci-fi":                   "Sci-Fi & Fantasy",
+    "sci fi":                   "Sci-Fi & Fantasy",
+    "science-fiction & fantastique": "Sci-Fi & Fantasy",
+    "science-fiction":          "Sci-Fi & Fantasy",
+    "fantascienza":             "Sci-Fi & Fantasy",
+    "ciencia ficción":          "Sci-Fi & Fantasy",
+    "fantasy":                  "Sci-Fi & Fantasy",
+    # Mystery / Thriller variants
+    "mystère":                  "Mystery",
+    "mystere":                  "Mystery",
+    "misterio":                 "Mystery",
+    "mistero":                  "Mystery",
+    "thriller":                 "Thriller",
+    # Action / Adventure variants
+    "action & abenteuer":       "Action & Adventure",
+    "action et aventure":       "Action & Adventure",
+    "action":                   "Action & Adventure",
+    "adventure":                "Action & Adventure",
+    "abenteuer":                "Action & Adventure",
+    "aventure":                 "Action & Adventure",
+    "aventura":                 "Action & Adventure",
+    # Animation variants
+    "animazione":               "Animation",
+    "animación":                "Animation",
+    "dessin animé":             "Animation",
+    # Family / Kids variants
+    "familial":                 "Family",
+    "famille":                  "Family",
+    "famiglia":                 "Family",
+    "familia":                  "Family",
+    "children":                 "Kids",
+    "children & family":        "Kids",
+    "kinder":                   "Kids",
+    "jeunesse":                 "Kids",
+    # Reality variants
+    "reality tv":               "Reality",
+    "realité":                  "Reality",
+    "realite":                  "Reality",
+    # War variants
+    "war & politics":           "War & Politics",
+    "guerra":                   "War & Politics",
+    "guerre":                   "War & Politics",
+    # Western
+    "western":                  "Western",
+    # Horror / Suspense
+    "horror":                   "Horror",
+    "horreur":                  "Horror",
+    "terror":                   "Horror",
+    # Romance
+    "romance":                  "Romance",
+    "romantique":               "Romance",
+    "romantico":                "Romance",
+    # History
+    "history":                  "History",
+    "histoire":                 "History",
+    "historia":                 "History",
+    "historical":               "History",
+    # Music
+    "music":                    "Music",
+    "musique":                  "Music",
+    "música":                   "Music",
+    # Sport
+    "sport":                    "Sport",
+    "sports":                   "Sport",
+    # News / Current affairs
+    "news":                     "News",
+    "actualité":                "News",
+    # Talk / Variety
+    "talk show":                "Talk Show",
+    "talk":                     "Talk Show",
+    "variety":                  "Talk Show",
+    # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
+    "دراما":                    "Drama",
+    "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
+    "كوميديا":                  "Comedy",
+    "ﻛﻮﻣﻴﺪﻱ":                  "Comedy",   # Arabic presentation-form variant
+    "وثائقي":                   "Documentary",
+    "جريمة":                    "Crime",
+    "رعب":                      "Horror",
+    "إثارة":                    "Thriller",
+    "رومانسي":                  "Romance",
+    "مغامرة":                   "Adventure",
+    "أكشن":                     "Action & Adventure",
+    "أطفال":                    "Kids",
+    "تاريخي":                   "History",
+    "رياضة":                    "Sport",
+}
+
+
+def normalize_genre(genre: str) -> str:
+    """Return the canonical English genre label for a raw genre string.
+
+    Applies the :data:`_GENRE_NORM` lookup so a genre clicked in the details
+    pane maps to the same filter-panel key produced during stat aggregation.
+    """
+    return _GENRE_NORM.get(genre.lower(), genre)

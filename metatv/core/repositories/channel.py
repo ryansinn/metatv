@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, update
 from loguru import logger
 
 from metatv.core.database import ChannelDB
-from metatv.core.filter_utils import extract_prefix, categorize_prefix
+from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE,
@@ -17,136 +17,9 @@ from metatv.core.repositories.dtos import FavoriteDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 
 
-# Normalises multilingual genre strings from Xtream providers to English canonical names.
-# Providers supply genres in their own language (French, Italian, German, Spanish, Dutch, etc.)
-# which creates duplicate clusters like Drama/Drame/Dramma/Dramat/Dramat.
-# Keys are lowercased for case-insensitive lookup; values are the canonical English label.
-_GENRE_NORM: dict[str, str] = {
-    # Drama variants
-    "drame":                    "Drama",
-    "dramma":                   "Drama",
-    "dramat":                   "Drama",
-    "draама":                   "Drama",
-    "drama & history":          "Drama",
-    # Comedy variants
-    "comédie":                  "Comedy",
-    "comedie":                  "Comedy",
-    "komödie":                  "Comedy",
-    "komedie":                  "Comedy",
-    "commedia":                 "Comedy",
-    "comedia":                  "Comedy",
-    # Crime / Thriller variants
-    "crimen":                   "Crime",
-    "krimi":                    "Crime",
-    "misdaad":                  "Crime",
-    "crime & mystery":          "Crime",
-    "crime, mystery":           "Crime",
-    # Documentary variants
-    "documentaire":             "Documentary",
-    "documental":               "Documentary",
-    "dokumentär":               "Documentary",
-    "dokumentar":               "Documentary",
-    "dokumentation":            "Documentary",
-    "doku":                     "Documentary",
-    # Sci-Fi / Fantasy variants
-    "science fiction":          "Sci-Fi & Fantasy",
-    "sci-fi":                   "Sci-Fi & Fantasy",
-    "sci fi":                   "Sci-Fi & Fantasy",
-    "science-fiction & fantastique": "Sci-Fi & Fantasy",
-    "science-fiction":          "Sci-Fi & Fantasy",
-    "fantascienza":             "Sci-Fi & Fantasy",
-    "ciencia ficción":          "Sci-Fi & Fantasy",
-    "fantasy":                  "Sci-Fi & Fantasy",
-    # Mystery / Thriller variants
-    "mystère":                  "Mystery",
-    "mystere":                  "Mystery",
-    "misterio":                 "Mystery",
-    "mistero":                  "Mystery",
-    "thriller":                 "Thriller",
-    # Action / Adventure variants
-    "action & abenteuer":       "Action & Adventure",
-    "action et aventure":       "Action & Adventure",
-    "action":                   "Action & Adventure",
-    "adventure":                "Action & Adventure",
-    "abenteuer":                "Action & Adventure",
-    "aventure":                 "Action & Adventure",
-    "aventura":                 "Action & Adventure",
-    # Animation variants
-    "animazione":               "Animation",
-    "animación":                "Animation",
-    "dessin animé":             "Animation",
-    # Family / Kids variants
-    "familial":                 "Family",
-    "famille":                  "Family",
-    "famiglia":                 "Family",
-    "familia":                  "Family",
-    "children":                 "Kids",
-    "children & family":        "Kids",
-    "kinder":                   "Kids",
-    "jeunesse":                 "Kids",
-    # Reality variants
-    "reality tv":               "Reality",
-    "realité":                  "Reality",
-    "realite":                  "Reality",
-    # War variants
-    "war & politics":           "War & Politics",
-    "guerra":                   "War & Politics",
-    "guerre":                   "War & Politics",
-    # Western
-    "western":                  "Western",
-    # Horror / Suspense
-    "horror":                   "Horror",
-    "horreur":                  "Horror",
-    "terror":                   "Horror",
-    # Romance
-    "romance":                  "Romance",
-    "romantique":               "Romance",
-    "romantico":                "Romance",
-    # History
-    "history":                  "History",
-    "histoire":                 "History",
-    "historia":                 "History",
-    "historical":               "History",
-    # Music
-    "music":                    "Music",
-    "musique":                  "Music",
-    "música":                   "Music",
-    # Sport
-    "sport":                    "Sport",
-    "sports":                   "Sport",
-    # News / Current affairs
-    "news":                     "News",
-    "actualité":                "News",
-    # Talk / Variety
-    "talk show":                "Talk Show",
-    "talk":                     "Talk Show",
-    "variety":                  "Talk Show",
-    # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
-    "دراما":                    "Drama",
-    "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
-    "كوميديا":                  "Comedy",
-    "ﻛﻮﻣﻴﺪﻱ":                  "Comedy",   # Arabic presentation-form variant
-    "وثائقي":                   "Documentary",
-    "جريمة":                    "Crime",
-    "رعب":                      "Horror",
-    "إثارة":                    "Thriller",
-    "رومانسي":                  "Romance",
-    "مغامرة":                   "Adventure",
-    "أكشن":                     "Action & Adventure",
-    "أطفال":                    "Kids",
-    "تاريخي":                   "History",
-    "رياضة":                    "Sport",
-}
-
-
-
-def normalize_genre(genre: str) -> str:
-    """Return the canonical English genre label for a raw genre string.
-
-    Applies the same _GENRE_NORM lookup used when building filter-panel stats,
-    so a genre clicked in the details pane maps to the correct filter-panel key.
-    """
-    return _GENRE_NORM.get(genre.lower(), genre)
+# _GENRE_NORM and normalize_genre now live in metatv.core.filter_utils (a dependency-free
+# leaf) — single source of truth, re-imported above so existing `channel._GENRE_NORM` /
+# `channel.normalize_genre` references keep working. See filter_utils for the table.
 
 
 class ChannelRepository(_ChannelStatsMixin):

@@ -94,6 +94,46 @@ class ProviderRepository:
         )
         return [r.id for r in rows]
 
+    def get_inactive_provider_ids(self) -> List[str]:
+        """Return IDs of providers the user has toggled off (is_active = False).
+
+        Discovery/recommendation queries use an exclusion list, so disabled
+        sources must be passed here to keep their content out of those views —
+        mirroring how the main channel list scopes to active providers only.
+        """
+        rows = self.session.query(ProviderDB.id).filter_by(is_active=False).all()
+        return [r.id for r in rows]
+
+    def get_hidden_provider_ids(self) -> List[str]:
+        """Return IDs of providers whose content must be hidden from forward-looking
+        views — the union of **inactive** (user toggled off) and **expired** sources.
+
+        This is the single source of truth for provider scoping. Every view that
+        shows "what you can watch" — the channel list, Discover shelves, See-All
+        browse, recommendations — must exclude these ids. Record/engaged views
+        (History, Favorites, Watch Queue) are the deliberate exception: they show
+        prior engagement regardless of a source's current state.
+        """
+        return list(set(self.get_inactive_provider_ids()) | set(self.get_expired_provider_ids()))
+
+    def get_stale_epg_providers(self) -> List[tuple]:
+        """Return ``(id, name, epg_data_end)`` for active providers whose fetched EPG
+        guide has already ended — they have an ``epg_url`` but no current programmes.
+
+        Staleness uses the canonical :func:`metatv.core.epg_utils.epg_is_stale`
+        boundary (UTC-naive vs now_utc). Inactive sources are excluded — their content
+        is already hidden everywhere (see get_hidden_provider_ids)."""
+        from metatv.core.epg_utils import now_utc
+        rows = (
+            self.session.query(ProviderDB.id, ProviderDB.name, ProviderDB.epg_data_end)
+            .filter(ProviderDB.is_active == True)  # noqa: E712
+            .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
+            .filter(ProviderDB.epg_data_end.isnot(None))
+            .filter(ProviderDB.epg_data_end < now_utc())
+            .all()
+        )
+        return [(r.id, r.name, r.epg_data_end) for r in rows]
+
     def get_used_icons(self) -> List[str]:
         """Return all non-empty icon values currently set on providers."""
         rows = self.session.query(ProviderDB.icon).all()

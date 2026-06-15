@@ -11,7 +11,7 @@ from typing import Optional, List, Dict
 from sqlalchemy import func, or_
 
 from metatv.core.database import ChannelDB
-from metatv.core.filter_utils import categorize_prefix
+from metatv.core.filter_utils import categorize_prefix, _GENRE_NORM
 
 
 _GENRE_SEP_RE = re.compile(r"[,/]")

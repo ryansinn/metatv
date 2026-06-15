@@ -50,6 +50,7 @@ next_icon: str = "▶"
 
 # State
 loading_icon: str = "⟳"
+epg_indicator_icon: str = "▦"   # EPG/guide status square; colored by freshness state
 live_indicator_icon: str = "🟢"
 stream_retry_pending_icon: str = "🔴"
 stream_retry_online_icon: str = "🟢"

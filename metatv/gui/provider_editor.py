@@ -393,6 +393,15 @@ class ProviderEditorView(QWidget):
         dates_row.addStretch()
         layout.addLayout(dates_row)
 
+        # EPG guide status — surfaces a provider feed serving stale/out-of-date data
+        # (so a blank EPG view reads as "provider's guide is stale", not "our bug").
+        epg_row = QHBoxLayout()
+        epg_row.addWidget(QLabel("EPG guide:"))
+        self._acct_epg_lbl = QLabel("—")
+        epg_row.addWidget(self._acct_epg_lbl)
+        epg_row.addStretch()
+        layout.addLayout(epg_row)
+
         # Remaining bar
         bar_row = QHBoxLayout()
         bar_row.addWidget(QLabel("Remaining:"))
@@ -535,6 +544,32 @@ class ProviderEditorView(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def _set_epg_status_label(self, epg_url, epg_data_end) -> None:
+        """Populate the EPG-guide status line from the provider's cached EPG fields.
+
+        Uses the canonical epg_is_stale boundary so this matches the EPG view notice."""
+        from metatv.core.epg_utils import epg_is_stale, to_local
+        if not epg_url:
+            self._acct_epg_lbl.setText("Not configured")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
+            return
+        if epg_data_end is None:
+            self._acct_epg_lbl.setText("No guide data fetched yet")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
+            return
+        try:
+            day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")
+        except Exception:
+            day = str(epg_data_end)
+        if epg_is_stale(epg_data_end):
+            self._acct_epg_lbl.setText(
+                f"{_icons.notification_warning_icon} Stale — guide ends {day} (provider out of date)"
+            )
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_WARN};")
+        else:
+            self._acct_epg_lbl.setText(f"Current — guide through {day}")
+            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
+
     def load_provider(self, provider_id: str):
         """Switch the editor to the given provider. Safe to call while editing."""
         if provider_id == self._provider_id:
@@ -574,6 +609,7 @@ class ProviderEditorView(QWidget):
                 "active_cons": db_prov.account_active_cons or 0,
                 "max_connections": db_prov.max_connections or 1,
             }, from_cache=True)
+            self._set_epg_status_label(db_prov.epg_url, db_prov.epg_data_end)
 
             self._rebuild_url_list()
             self._set_fields_enabled(True)
