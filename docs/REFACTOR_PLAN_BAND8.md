@@ -1,9 +1,9 @@
 # MetaTV — Band 8 Refactor Plan (PR-A review follow-ups + carryover)
 
-> **STATUS (2026-06-14, autonomous session):** **B8-1, B8-2, B8-3, B8-5 — DONE & merged to main**
-> (400 tests green). **B8-4 (load_channels→seam) and B8-6 (expunge→DTO) — DEFERRED:** both touch
-> paths that cannot be smoke-tested headless (central channel load / play-details-series), so they
-> were not landed blind. B8-6's approach is recorded in memory `project_band78_autonomous`
+> **STATUS (2026-06-15):** **B8-1, B8-2, B8-3, B8-5, B8-7 — DONE & merged to main**
+> (562 tests green). **B8-4 (load_channels→seam) and B8-6 (expunge→DTO) — DEFERRED → Band 9:**
+> both touch paths that cannot be smoke-tested headless (central channel load /
+> play-details-series). B8-6's approach is recorded in memory `project_band78_autonomous`
 > (play_media is duck-typed → a PlayableDTO drops in; details/series are the hard sites). Resume
 > with a display available.
 
@@ -163,7 +163,7 @@ every expunge call site (`play_channel_by_id`, `play_queue_item_id`, `play_favor
   rule is updated to point at the DTO path as the norm; behavior unchanged; the B7-6 runtime tests
   (detached-column-readable) still pass.
 
-### B8-7 — Migrate `WatchAlertsSection.refresh()` to `BackgroundRefreshMixin` (deferred from EPG band)
+### B8-7 — ✅ DONE (merged #19) — Migrate `WatchAlertsSection.refresh()` to `BackgroundRefreshMixin` (deferred from EPG band)
 *Source: deliberate deferral from the EPG band (PR-1 plan note).*
 `WatchAlertsSection.refresh()` (`metatv/gui/sidebar/alerts.py`) runs its watchlist queries
 synchronously on the main thread and issues an N+1 `ChannelDB` lookup per programme — a direct
