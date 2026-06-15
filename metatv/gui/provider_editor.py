@@ -12,14 +12,14 @@ import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QFont, QColor, QPalette
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QPushButton, QGroupBox,
     QListWidget, QListWidgetItem, QComboBox,
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
-    QCheckBox, QProgressBar, QTextEdit, QSpacerItem,
+    QCheckBox, QProgressBar, QTextEdit, QSpacerItem, QApplication,
 )
 from loguru import logger
 
@@ -246,6 +246,40 @@ def subscription_color(exp_date: Optional[datetime], created_at: Optional[dateti
         return _theme.COLOR_WARN   # amber — getting close
     else:
         return _theme.COLOR_ERR   # red — expiring very soon
+
+
+class _CopyableLabel(QLabel):
+    """A small label whose full text copies to the clipboard on click.
+
+    Used for the auto-detected EPG URL: shown small/muted, copies the URL to the
+    clipboard when clicked and flashes brief "Copied!" feedback. The displayed
+    text may be elided; the untruncated value to copy is held in ``_full_text``.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+
+    def set_url(self, url: str) -> None:
+        self._full_text = url or ""
+        self.setText(url or "")
+        self.setToolTip("Click to copy" if url else "")
+
+    def _copy(self) -> None:
+        """Copy the full URL to the clipboard and flash brief feedback."""
+        if not self._full_text:
+            return
+        QApplication.clipboard().setText(self._full_text)
+        shown = self.text()
+        self.setText(f"{_icons.notification_success_icon} Copied!")
+        QTimer.singleShot(1200, lambda: self.setText(shown))
+
+    def mousePressEvent(self, event):
+        self._copy()
+        super().mousePressEvent(event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -527,7 +561,7 @@ class ProviderEditorView(QWidget):
         form = QFormLayout(group)
         form.setSpacing(8)
 
-        # 1. Enable / disable
+        # 1. Enable / disable — with a right-aligned auto-detect status badge
         self._epg_enabled_check = QCheckBox("Fetch EPG guide for this provider")
         self._epg_enabled_check.setChecked(True)
         self._epg_enabled_check.setToolTip(
@@ -537,7 +571,21 @@ class ProviderEditorView(QWidget):
             "and skips it on future EPG refreshes. Re-enabling allows the next "
             "refresh to re-fetch it."
         )
-        form.addRow("Enable EPG:", self._epg_enabled_check)
+        self._epg_detect_badge = QLabel("")
+        self._epg_detect_badge.setTextFormat(Qt.TextFormat.RichText)
+        enable_row = QHBoxLayout()
+        enable_row.setContentsMargins(0, 0, 0, 0)
+        enable_row.addWidget(self._epg_enabled_check)
+        enable_row.addStretch()
+        enable_row.addWidget(self._epg_detect_badge)
+        enable_container = QWidget()
+        enable_container.setLayout(enable_row)
+        form.addRow("Enable EPG:", enable_container)
+
+        # 1b. Auto-detected URL (smaller, click-to-copy). Hidden when none detected.
+        self._epg_autodetected_lbl = _CopyableLabel()
+        self._epg_autodetected_lbl.setVisible(False)
+        form.addRow("", self._epg_autodetected_lbl)
 
         # 2. URL override
         self._epg_url_override_input = QLineEdit()
@@ -596,13 +644,39 @@ class ProviderEditorView(QWidget):
         self._update_epg_refresh_btn_state()
 
     def _update_epg_refresh_btn_state(self) -> None:
-        """Enable the Refresh EPG now button only when EPG is on and a URL exists."""
+        """Enable the Refresh EPG now button when EPG is on and an effective URL
+        exists — the override OR the auto-detected URL (so the built-in feed can be
+        refreshed without typing a custom URL)."""
         enabled = self._epg_enabled_check.isChecked()
         has_url = bool(
             self._epg_url_override_input.text().strip()
             or (self._provider_id and getattr(self, "_loaded_epg_url", ""))
         )
         self._epg_refresh_btn.setEnabled(enabled and has_url)
+
+    def _update_epg_autodetected_display(self) -> None:
+        """Render the right-aligned auto-detect badge and the click-to-copy auto URL
+        line from ``self._loaded_epg_url``: green AUTODETECTED + the URL when one
+        exists, red NOT FOUND with the URL line hidden otherwise."""
+        auto_url = getattr(self, "_loaded_epg_url", "") or ""
+        if auto_url:
+            self._epg_detect_badge.setText(
+                f'<span style="color:{_theme.COLOR_OK}">{_icons.status_dot_icon}</span> AUTODETECTED'
+            )
+            self._epg_detect_badge.setToolTip(
+                "An XMLTV guide URL was auto-detected from this source's credentials."
+            )
+            self._epg_autodetected_lbl.set_url(auto_url)
+            self._epg_autodetected_lbl.setVisible(True)
+        else:
+            self._epg_detect_badge.setText(
+                f'<span style="color:{_theme.COLOR_ERR}">{_icons.status_dot_icon}</span> NOT FOUND'
+            )
+            self._epg_detect_badge.setToolTip(
+                "No XMLTV guide URL could be auto-detected. Add a URL override to fetch EPG."
+            )
+            self._epg_autodetected_lbl.set_url("")
+            self._epg_autodetected_lbl.setVisible(False)
 
     def _on_epg_refresh_now(self) -> None:
         """Trigger an immediate EPG refresh for the current provider via EpgManager."""
@@ -705,10 +779,13 @@ class ProviderEditorView(QWidget):
             epg_url_override = getattr(db_prov, "epg_url_override", None) or ""
             self._epg_url_override = epg_url_override  # capture loaded value for change detection in _save
             self._epg_url_override_input.setText(epg_url_override)
-            # Show auto-detected URL as placeholder so user knows what they'd override
-            self._loaded_epg_url = db_prov.epg_url or ""
-            auto_url = db_prov.epg_url or ""
-            self._epg_url_override_input.setPlaceholderText(auto_url if auto_url else "(uses auto-detected URL)")
+            self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
+            # Resolve the auto-detected URL: prefer the stored epg_url, else derive it
+            # from credentials so the badge/refresh reflect reality before the first fetch.
+            stored_epg_url = db_prov.epg_url or ""
+            if not stored_epg_url and self._epg_manager:
+                stored_epg_url = self._epg_manager.build_epg_url(db_prov) or ""
+            self._loaded_epg_url = stored_epg_url
 
             # Refresh interval
             epg_interval = getattr(db_prov, "epg_refresh_interval", None) or "default"
@@ -716,8 +793,9 @@ class ProviderEditorView(QWidget):
             idx = combo.findData(epg_interval)
             combo.setCurrentIndex(idx if idx >= 0 else 0)  # fallback to "Use default"
 
-            # Update EPG controls enabled state
+            # Update EPG controls enabled state + auto-detect display
             self._update_epg_controls_enabled(epg_enabled)
+            self._update_epg_autodetected_display()
             self._update_epg_refresh_btn_state()
 
             # Account info from DB (cached)

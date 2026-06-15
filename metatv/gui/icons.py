@@ -54,6 +54,7 @@ epg_indicator_icon: str = "▦"   # EPG/guide status square; colored by freshnes
 live_indicator_icon: str = "🟢"
 stream_retry_pending_icon: str = "🔴"
 stream_retry_online_icon: str = "🟢"
+status_dot_icon: str = "●"      # filled status dot; colored by state (ok/err) at the call site
 watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"

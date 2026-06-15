@@ -80,7 +80,8 @@ class EpgManager(QObject):
     # Refresh control
     # ------------------------------------------------------------------
 
-    def _build_epg_url(self, provider: ProviderDB) -> str | None:
+    @staticmethod
+    def build_epg_url(provider: ProviderDB) -> str | None:
         """Construct the standard Xtream XMLTV URL from provider credentials + primary server."""
         raw_urls = parse_provider_urls(provider.urls)
         if not raw_urls:
@@ -99,7 +100,7 @@ class EpgManager(QObject):
         """Auto-populate epg_url from credentials if it is empty. Returns True if URL is set."""
         if getattr(provider, "epg_url", ""):
             return True
-        url = self._build_epg_url(provider)
+        url = self.build_epg_url(provider)
         if not url:
             return False
         provider.epg_url = url
