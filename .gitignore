@@ -59,3 +59,6 @@ metatv.db
 flsp_*.txt
 *_watchlist.txt
 json
+
+# Stray mpv screenshots
+mpv-shot*.jpg

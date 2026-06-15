@@ -607,3 +607,5 @@ When the user says "let's wrap up" or "wrap this session", do ALL of the followi
 | Band 6 plan (P3 remainder + P4 + PR #6 review follow-ups) | [docs/REFACTOR_PLAN_BAND6.md](docs/REFACTOR_PLAN_BAND6.md) |
 | Band 7 plan (responsiveness seam + finish decomposition) | [docs/REFACTOR_PLAN_BAND7.md](docs/REFACTOR_PLAN_BAND7.md) |
 | Sonnet execution prompt for Band 7 | [docs/SONNET_EXECUTION_PROMPT_BAND7.md](docs/SONNET_EXECUTION_PROMPT_BAND7.md) |
+| Band 8 plan (seam cleanup + BackgroundRefreshMixin + deferred items) | [docs/REFACTOR_PLAN_BAND8.md](docs/REFACTOR_PLAN_BAND8.md) |
+| Band 9 plan (load_channels seam + expunge→DTO + EPG cosmetics) | [docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md) |
