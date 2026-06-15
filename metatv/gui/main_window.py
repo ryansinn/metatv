@@ -864,7 +864,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._refresh_watch_alerts()
 
         # Provider editor (hidden by default)
-        self.provider_editor = ProviderEditorView(self.db, self.config, self)
+        self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager, self)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)

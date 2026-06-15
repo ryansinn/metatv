@@ -130,7 +130,12 @@ class EpgManager(QObject):
         return data_end < _now_utc() + timedelta(hours=hours_before)
 
     def refresh_all_if_needed(self) -> None:
-        """Check every active provider and trigger a background refresh if needed."""
+        """Check every active provider and trigger a background refresh if needed.
+
+        Providers with ``epg_enabled=False`` are skipped — the user has explicitly
+        opted out of EPG fetching for those sources. NULL is treated as enabled for
+        backwards compatibility with rows predating the column.
+        """
         if not self.config.epg_auto_refresh:
             return
 
@@ -138,6 +143,8 @@ class EpgManager(QObject):
         try:
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             for provider in providers:
+                if not getattr(provider, "epg_enabled", True):
+                    continue  # user disabled EPG for this provider
                 self._ensure_epg_url(provider, session)
                 if provider.id not in self._active_refreshes and self.needs_refresh(provider):
                     self._start_refresh(provider.id, provider.epg_url,
@@ -163,6 +170,51 @@ class EpgManager(QObject):
             self._start_refresh(provider.id, provider.epg_url, provider.name, force=True)
         finally:
             session.close()
+
+    def purge_provider_epg(self, provider_id: str, session=None) -> int:
+        """Delete all EPG programmes for *provider_id* and clear its EPG timestamps.
+
+        Called when the user disables EPG for a provider so the UI immediately
+        reflects the change (no stale programmes in On Now / Watchlist / Browse).
+        Also nulls ``epg_last_fetched``, ``epg_data_start``, and ``epg_data_end``
+        so the editor's EPG status line shows "Not configured / off".
+
+        Args:
+            provider_id: The provider whose EPG data should be removed.
+            session: An open SQLAlchemy session to reuse (e.g. inside ``_save``).
+                     If None, a new session is opened and closed by this method.
+
+        Returns:
+            Number of ``EpgProgramDB`` rows deleted.
+        """
+        own_session = session is None
+        if own_session:
+            session = self.db.get_session()
+        try:
+            deleted = (
+                session.query(EpgProgramDB)
+                .filter_by(provider_id=provider_id)
+                .delete()
+            )
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if provider:
+                provider.epg_last_fetched = None
+                provider.epg_data_start = None
+                provider.epg_data_end = None
+            if own_session:
+                session.commit()
+            logger.info(
+                f"EPG: purged {deleted} programmes for provider {provider_id} "
+                f"(EPG disabled by user)"
+            )
+            return deleted
+        except Exception:
+            if own_session:
+                session.rollback()
+            raise
+        finally:
+            if own_session:
+                session.close()
 
     def _start_refresh(self, provider_id: str, epg_url: str,
                        provider_name: str, force: bool) -> None:

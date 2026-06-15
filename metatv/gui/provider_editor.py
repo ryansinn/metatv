@@ -265,16 +265,18 @@ class ProviderEditorView(QWidget):
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
 
-    def __init__(self, db: Database, config=None, parent=None):
+    def __init__(self, db: Database, config=None, epg_manager=None, parent=None):
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._epg_manager = epg_manager
         self._provider_id: Optional[str] = None
         self._provider_urls: List[ProviderURL] = []
         self._account_thread: Optional[FetchAccountInfoThread] = None
         self._test_thread: Optional[TestAllURLsThread] = None
         self._test_results_pending: int = 0
         self._pending_account_info: Optional[Dict] = None
+        self._epg_was_enabled: bool = True  # tracks loaded state for enabled→disabled detection
         self._setup_ui()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -512,6 +514,17 @@ class ProviderEditorView(QWidget):
         )
         form.addRow("Adult content:", self._force_adult_check)
 
+        self._epg_enabled_check = QCheckBox("Fetch EPG guide for this provider")
+        self._epg_enabled_check.setChecked(True)
+        self._epg_enabled_check.setToolTip(
+            "When enabled, MetaTV downloads this provider's XMLTV guide data and "
+            "shows programme info in the EPG view, On Now, and Watchlist. "
+            "Disabling immediately removes the fetched guide data for this source "
+            "and skips it on future EPG refreshes. Re-enabling allows the next "
+            "refresh to re-fetch it."
+        )
+        form.addRow("EPG guide:", self._epg_enabled_check)
+
         self._content_layout.addWidget(group)
 
     def _build_footer_row(self):
@@ -600,6 +613,10 @@ class ProviderEditorView(QWidget):
             self._refresh_combo.setCurrentIndex(schedule_map.get(db_prov.refresh_schedule or "manual", 0))
 
             self._force_adult_check.setChecked(bool(getattr(db_prov, "force_adult", False)))
+
+            epg_enabled = bool(getattr(db_prov, "epg_enabled", True))
+            self._epg_enabled_check.setChecked(epg_enabled)
+            self._epg_was_enabled = epg_enabled
 
             # Account info from DB (cached)
             self._apply_account_info({
@@ -812,6 +829,9 @@ class ProviderEditorView(QWidget):
             db_prov.password = self._password_input.text().strip()
             db_prov.force_adult = self._force_adult_check.isChecked()
 
+            epg_now_enabled = self._epg_enabled_check.isChecked()
+            db_prov.epg_enabled = epg_now_enabled
+
             schedule_map = {0: "manual", 1: "launch", 2: "daily", 3: "weekly", 4: "monthly"}
             db_prov.refresh_schedule = schedule_map.get(self._refresh_combo.currentIndex(), "manual")
 
@@ -838,9 +858,18 @@ class ProviderEditorView(QWidget):
                 db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
                 db_prov.account_created_at = self._parse_ts(info.get("created_at"))
 
+            # Purge EPG data on enabled→disabled transition so the UI reflects
+            # the change immediately (no stale programmes in On Now / Watchlist).
+            # Reuses the open session so the purge and the settings update commit
+            # together atomically.
+            if self._epg_was_enabled and not epg_now_enabled and self._epg_manager:
+                self._epg_manager.purge_provider_epg(self._provider_id, session)
+
             db_prov.updated_at = datetime.now()
             session.commit()
             logger.info(f"Provider '{db_prov.name}' saved")
+            # Reflect the new epg_was_enabled state so repeated saves don't re-purge.
+            self._epg_was_enabled = epg_now_enabled
             self.provider_saved.emit(self._provider_id)
 
         except Exception as e:

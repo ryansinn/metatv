@@ -178,6 +178,7 @@ class ProviderDB(Base):
     epg_data_start = Column(DateTime, nullable=True)        # Earliest start_time in fetched EPG data
     epg_data_end = Column(DateTime, nullable=True)          # Latest stop_time in fetched EPG data
     epg_refresh_hours_before = Column(Integer, default=48)  # Refresh when data expires within N hours
+    epg_enabled = Column(Boolean, default=True)  # If False, skip EPG fetch and exclude from EPG surfaces
 
     # Account info cached from provider API
     account_status = Column(String)         # Active, Expired, Banned, Disabled
@@ -412,6 +413,7 @@ class Database:
             ("channels",     "detected_year",              "TEXT"),
             ("channels",     "user_category",              "TEXT"),
             ("channels",     "category_mood",              "TEXT"),
+            ("providers",    "epg_enabled",                "INTEGER DEFAULT 1"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

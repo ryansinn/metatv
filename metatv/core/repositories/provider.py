@@ -118,16 +118,23 @@ class ProviderRepository:
 
     def get_epg_active_provider_ids(self) -> List[str]:
         """Providers eligible for EPG/watchlist surfacing: is_active, not expired,
-        and with a non-empty epg_url. The include-list counterpart of
-        get_hidden_provider_ids() for EPG-program queries.
+        with a non-empty epg_url, and epg_enabled is not False (NULL treated as
+        enabled for backwards compatibility with rows predating the column).
 
-        A later PR will fold in an ``epg_enabled`` column here. Do NOT add it now.
+        The include-list counterpart of get_hidden_provider_ids() for EPG queries.
         """
+        from sqlalchemy import or_
         expired = set(self.get_expired_provider_ids())
         rows = (
             self.session.query(ProviderDB.id)
             .filter(ProviderDB.is_active == True)  # noqa: E712
             .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
+            .filter(
+                or_(  # NULL → treat as enabled (legacy rows)
+                    ProviderDB.epg_enabled.is_(None),
+                    ProviderDB.epg_enabled == True,  # noqa: E712
+                )
+            )
             .all()
         )
         return [r.id for r in rows if r.id not in expired]
@@ -137,15 +144,23 @@ class ProviderRepository:
         guide has already ended — they have an ``epg_url`` but no current programmes.
 
         Staleness uses the canonical :func:`metatv.core.epg_utils.epg_is_stale`
-        boundary (UTC-naive vs now_utc). Inactive sources are excluded — their content
-        is already hidden everywhere (see get_hidden_provider_ids)."""
+        boundary (UTC-naive vs now_utc). Inactive sources and providers with
+        epg_enabled=False are excluded — no point warning about EPG data the user
+        has intentionally disabled."""
         from metatv.core.epg_utils import now_utc
+        from sqlalchemy import or_
         rows = (
             self.session.query(ProviderDB.id, ProviderDB.name, ProviderDB.epg_data_end)
             .filter(ProviderDB.is_active == True)  # noqa: E712
             .filter(ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != "")
             .filter(ProviderDB.epg_data_end.isnot(None))
             .filter(ProviderDB.epg_data_end < now_utc())
+            .filter(
+                or_(  # NULL → treat as enabled (legacy rows)
+                    ProviderDB.epg_enabled.is_(None),
+                    ProviderDB.epg_enabled == True,  # noqa: E712
+                )
+            )
             .all()
         )
         return [(r.id, r.name, r.epg_data_end) for r in rows]
