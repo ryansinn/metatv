@@ -830,6 +830,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # EPG manager + view (hidden by default)
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
         self._register_cleanable("epg_manager", self.epg_manager.shutdown)
+        # Provider IDs that should get a one-time EPG fetch once their channel load
+        # completes — populated by AddProviderDialog when "Enable EPG" is checked.
+        self._epg_fetch_after_add: set[str] = set()
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
         self.epg_view.play_channel_requested.connect(self.play_special_event)
         self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
@@ -1269,7 +1272,20 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             # Re-check any failed streams now that content is fresh
             if hasattr(self, "stream_retry_manager"):
                 self.stream_retry_manager.check_all_now()
+
+            # Freshly-added provider with EPG enabled → kick off its first EPG pull
+            # now (alongside the channel data), so the user never has to open Source
+            # Settings to get the initial guide. force_refresh_provider bypasses the
+            # throttle and no-ops if a fetch is already running.
+            if provider_id and provider_id in self._epg_fetch_after_add:
+                self._epg_fetch_after_add.discard(provider_id)
+                if getattr(self, "epg_manager", None):
+                    logger.info(f"First EPG fetch for newly-added provider {provider_id}")
+                    self.epg_manager.force_refresh_provider(provider_id)
         else:
+            # Channel load failed — drop any pending add-time EPG flag.
+            if provider_id:
+                self._epg_fetch_after_add.discard(provider_id)
             from metatv.core.notifications import NotificationType
             self.notification_manager.update(
                 notif_id,
