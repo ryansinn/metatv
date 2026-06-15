@@ -753,6 +753,8 @@ class Config(BaseModel):
     epg_hidden_prefixes: list = Field(default_factory=list)
     epg_category_overrides: dict = Field(default_factory=dict)  # channel_db_id → category code
     epg_filter_state: dict = Field(default_factory=dict)
+    epg_events_view_mode: str = "timeline"   # "timeline" | "network" — Events tab sub-view toggle
+    epg_events_network_filter: str = "All"   # network combo selection in Events tab
 
     # Details pane UI settings
     details_pane_visible: bool = False  # Show/hide details pane

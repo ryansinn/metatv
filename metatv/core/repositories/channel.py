@@ -13,7 +13,7 @@ from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE,
 )
-from metatv.core.repositories.dtos import FavoriteDTO
+from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 
 
@@ -749,6 +749,58 @@ class ChannelRepository(_ChannelStatsMixin):
             q = q.filter(ChannelDB.name.ilike(f"%{search_query}%"))
 
         return q.order_by(ChannelDB.name).all()
+
+    def get_live_events_dto(
+        self,
+        excluded_provider_ids: set[str] | None = None,
+    ) -> list[LiveEventDTO]:
+        """Return platform-event channels as plain DTOs — thread-safe, no live session.
+
+        Queries ``ChannelDB.special_view == 'live_event'``, excluding hidden channels
+        and channels on inactive/expired providers (forward-looking view). The caller
+        should pass ``ProviderRepository.get_hidden_provider_ids()`` as
+        ``excluded_provider_ids``.
+
+        Sorting and grouping (Timeline / By-Network) are performed by the view layer,
+        not here.
+
+        Args:
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired).
+
+        Returns:
+            List of :class:`LiveEventDTO` — safe to cross the Qt thread boundary.
+        """
+        q = (
+            self.session.query(ChannelDB)
+            .filter(
+                ChannelDB.special_view == "live_event",
+                ChannelDB.is_hidden == False,  # noqa: E712
+            )
+        )
+        if excluded_provider_ids:
+            q = q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
+
+        rows: list[LiveEventDTO] = []
+        for ch in q.all():
+            meta: dict = ch.event_metadata or {}
+            network = meta.get("network", "") or ""
+            region = meta.get("region", "") or ""
+            channel_num = meta.get("channel_num", "") or ""
+            availability = meta.get("availability", "") or ""
+            always_available = (
+                availability == "always" or ch.event_start_time is None
+            )
+            rows.append(LiveEventDTO(
+                channel_id=ch.id,
+                name=ch.name,
+                detected_title=ch.detected_title,
+                network=network,
+                region=region,
+                channel_num=channel_num,
+                start_time=ch.event_start_time,
+                always_available=always_available,
+            ))
+        return rows
 
     def update_category_mood(self, category: str, mood: str | None) -> int:
         """Update the mood for all channels in a user category."""

@@ -69,6 +69,7 @@ calendar_icon: str = "📅"
 discover_icon: str = "✨"
 preferences_icon: str = "🎯"
 queue_icon: str = "📋"
+events_icon: str = "🎯"         # EPG Events tab (platform-event / scheduled feeds)
 
 # View toggles
 list_view_icon: str = "☰"

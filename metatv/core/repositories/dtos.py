@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from metatv.core.models import MediaType
 
@@ -130,6 +130,31 @@ class PrefixStatDTO:
     count: int
     sample_names: list[str]       # 3-5 example channel names
     is_recognized: bool           # whether it's in the canonical lexicon
+
+
+# ---------------------------------------------------------------------------
+# Events tab DTO
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class LiveEventDTO:
+    """One row in the EPG Events tab — a platform-event channel.
+
+    Platform-event channels are regular playable live channels whose names encode
+    a scheduled programme (e.g. "US (Peacock 01) | La Vuelta: Stage 11 (2025-09-03
+    07:20:00)"). The provider's "always available" sentinel (far-future date ≥ 2090)
+    maps to ``always_available=True`` / ``start_time=None``.
+
+    Safe to pass across the Qt thread boundary from worker → main thread.
+    """
+    channel_id: str
+    name: str
+    detected_title: Optional[str]
+    network: str
+    region: str
+    channel_num: str
+    start_time: Optional[datetime]          # None when always_available is True
+    always_available: bool                  # True for sentinel / no-schedule feeds
 
 
 # ---------------------------------------------------------------------------
