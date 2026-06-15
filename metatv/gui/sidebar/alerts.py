@@ -12,6 +12,7 @@ from loguru import logger
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
 
@@ -62,7 +63,7 @@ class _AlertRow(QWidget):
         super().leaveEvent(event)
 
 
-class WatchAlertsSection(CollapsibleSection):
+class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     """Alerts section — EPG watch alerts + stream retry monitoring."""
 
     alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
@@ -72,10 +73,12 @@ class WatchAlertsSection(CollapsibleSection):
     retryClearAllRequested = pyqtSignal()
     retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name
     retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
+    _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
 
     def __init__(self, config, db, parent=None):
         self.db = db
         super().__init__("Alerts", config.watch_alerts_icon, config, parent)
+        self._init_background_refresh()
 
     def get_section_id(self):
         return "alerts"
@@ -185,34 +188,86 @@ class WatchAlertsSection(CollapsibleSection):
             gp = self.alerts_tree.viewport().mapToGlobal(pos)
             self.channelContextMenuRequested.emit(channel_db_id, gp.x(), gp.y())
 
-    def refresh(self) -> None:
+    # ------------------------------------------------------------------
+    # BackgroundRefreshMixin hooks
+    # ------------------------------------------------------------------
+
+    def _refresh_list(self) -> QTreeWidget:
+        return self.alerts_tree
+
+    def _load_error_message(self) -> str:
+        return "Couldn't load watch alerts"
+
+    def show_load_error(self, tree, message: str) -> None:
+        """Override for QTreeWidget: render a non-selectable error row.
+
+        The base CollapsibleSection.show_load_error uses QListWidgetItem + addItem,
+        which does not exist on QTreeWidget and would crash. This override adds a
+        top-level QTreeWidgetItem instead.
+        """
+        tree.clear()
+        item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        tree.addTopLevelItem(item)
+        self.set_empty(False)
+
+    def _load_rows(self) -> dict:
+        """Worker thread — NO widget access.
+
+        Returns a plain dict with keys 'live_groups' and 'upcoming_only'
+        (never None for valid-empty; None is reserved for real exceptions
+        and emitted only by the mixin's try/except wrapper).
+        """
         from metatv.core.repositories.epg import EpgRepository
         from metatv.core.repositories import RepositoryFactory
         from metatv.core.database import ChannelDB
-        from datetime import datetime, timezone
+
+        _empty: dict = {"live_groups": {}, "upcoming_only": {}}
 
         patterns = self.config.epg_watchlist_patterns
-        self.alerts_tree.clear()
         if not patterns:
-            self.set_empty(True)
-            return
+            return _empty
 
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
             provider_ids = repos.providers.get_epg_active_provider_ids()
             if not provider_ids:
-                self.set_empty(True)
-                return
+                return _empty
 
             repo = EpgRepository(session)
-            live_data    = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
-            upcoming_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=24, provider_ids=provider_ids)
+            live_data     = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
+            upcoming_data = repo.get_upcoming_for_watchlist(
+                patterns, hours_ahead=24, provider_ids=provider_ids
+            )
+
+            # Batch channel-name lookup — one IN query instead of N per-programme queries.
+            all_channel_ids: set[str] = set()
+            for progs in live_data.values():
+                for prog in progs:
+                    if prog.channel_db_id:
+                        all_channel_ids.add(prog.channel_db_id)
+            for progs in upcoming_data.values():
+                for prog in progs:
+                    if prog.channel_db_id:
+                        all_channel_ids.add(prog.channel_db_id)
+
+            channel_names: dict[str, str] = {}
+            if all_channel_ids:
+                rows = (
+                    session.query(ChannelDB.id, ChannelDB.name)
+                    .filter(ChannelDB.id.in_(all_channel_ids))
+                    .all()
+                )
+                channel_names = {cid: name for cid, name in rows}
 
             now = _now_utc()
 
             def _title_key(title: str) -> str:
                 return " ".join(title.casefold().replace("&", "and").split())
+
+            def _channel_display(prog) -> str:
+                raw_name = channel_names.get(prog.channel_db_id) or (prog.channel_epg_id or "Unknown")
+                return _fmt_channel_name(raw_name)
 
             # Unified per-title groups — upcoming for a live title folds under WATCH NOW,
             # preventing the same show from appearing in both sections simultaneously.
@@ -223,9 +278,7 @@ class WatchAlertsSection(CollapsibleSection):
 
             for _pattern, progs in live_data.items():
                 for prog in progs:
-                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
-                    ch_display = _fmt_channel_name(raw_name)
+                    ch_display = _channel_display(prog)
                     mins_left = max(0, int((prog.stop_time - now).total_seconds() / 60))
                     time_str = f"{mins_left}m left" if mins_left >= 1 else "ending"
                     key = _title_key(prog.title)
@@ -237,9 +290,7 @@ class WatchAlertsSection(CollapsibleSection):
 
             for _pattern, progs in upcoming_data.items():
                 for prog in progs:
-                    ch = session.query(ChannelDB).filter_by(id=prog.channel_db_id).first()
-                    raw_name = ch.name if ch else (prog.channel_epg_id or "Unknown")
-                    ch_display = _fmt_channel_name(raw_name)
+                    ch_display = _channel_display(prog)
                     mins = int((prog.start_time - now).total_seconds() / 60)
                     if mins < 60:
                         time_str = f"in {mins}m"
@@ -260,96 +311,102 @@ class WatchAlertsSection(CollapsibleSection):
                             (ts, time_str, ch_display, prog.channel_db_id)
                         )
 
-            if not live_groups and not upcoming_only:
-                self.set_empty(True)
-                return
+        return {"live_groups": live_groups, "upcoming_only": upcoming_only}
 
-            def _section_hdr(text: str) -> None:
-                item = QTreeWidgetItem([text])
-                item.setFlags(Qt.ItemFlag.NoItemFlags)
-                item.setForeground(0, QColor("#555"))
-                f = item.font(0)
-                f.setPointSize(9)
-                f.setBold(True)
-                item.setFont(0, f)
-                self.alerts_tree.addTopLevelItem(item)
+    def _populate_rows(self, data: dict) -> None:
+        """Main thread: rebuild the alerts_tree from pre-computed plain data.
 
-            def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
-                """Connect an _AlertRow's signals to the section's public signals."""
-                row.play_clicked.connect(
-                    lambda _=False, cid=channel_db_id: self.alertClicked.emit(cid)
-                )
-                row.row_clicked.connect(
-                    lambda cid=channel_db_id: self.channel_selected.emit(cid)
-                )
+        'data' is the dict returned by _load_rows (never None here — None is
+        handled by the mixin which calls show_load_error instead).
+        """
+        live_groups   = data["live_groups"]
+        upcoming_only = data["upcoming_only"]
 
-            def _add_child(parent_item, ch_name, time_str, channel_db_id, title) -> None:
-                child = QTreeWidgetItem()
-                child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
-                child.setToolTip(0, f"{title}\n{ch_name}")
-                parent_item.addChild(child)
-                row = _AlertRow(ch_name, time_str, self.config)
-                _wire_row(row, channel_db_id)
-                self.alerts_tree.setItemWidget(child, 0, row)
-
-            def _add_direct(ch_name, time_str, channel_db_id, title) -> None:
-                """Single-channel item: header IS the row — no expand arrow.
-                Shows the show title; channel name is the tooltip."""
-                item = QTreeWidgetItem()
-                item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
-                item.setToolTip(0, ch_name)
-                self.alerts_tree.addTopLevelItem(item)
-                row = _AlertRow(title, time_str, self.config)
-                _wire_row(row, channel_db_id)
-                self.alerts_tree.setItemWidget(item, 0, row)
-
-            if live_groups:
-                _section_hdr("WATCH NOW")
-                for key, grp in sorted(live_groups.items(),
-                                       key=lambda kv: min(a[0] for a in kv[1]['live'])):
-                    title = grp['title']
-                    live_items = sorted(grp['live'], key=lambda a: a[0])
-                    up_items   = sorted(grp['upcoming'], key=lambda a: a[0])
-                    all_items  = live_items + up_items
-                    if len(all_items) == 1:
-                        a = all_items[0]
-                        _add_direct(a[2], a[1], a[3], title)
-                    else:
-                        rep_time = live_items[0][1]
-                        count_badge = f"  +{len(all_items) - 1}"
-                        hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
-                        hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                        self.alerts_tree.addTopLevelItem(hdr)
-                        for a in live_items[:10]:
-                            _add_child(hdr, a[2], a[1], a[3], title)
-                        for a in up_items[:5]:
-                            _add_child(hdr, a[2], a[1], a[3], title)
-
-            if upcoming_only:
-                _section_hdr("UPCOMING")
-                for key, grp in sorted(upcoming_only.items(),
-                                       key=lambda kv: min(a[0] for a in kv[1]['airings'])):
-                    title = grp['title']
-                    airings = sorted(grp['airings'], key=lambda a: a[0])
-                    if len(airings) == 1:
-                        a = airings[0]
-                        _add_direct(a[2], a[1], a[3], title)
-                    else:
-                        rep_time = airings[0][1]
-                        count_badge = f"  +{len(airings) - 1}"
-                        hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
-                        hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                        self.alerts_tree.addTopLevelItem(hdr)
-                        for a in airings[:10]:
-                            _add_child(hdr, a[2], a[1], a[3], title)
-
-            self.set_empty(False)
-            QTimer.singleShot(0, self._apply_expansion)
-        except Exception as e:
-            logger.error(f"WatchAlertsSection refresh error: {e}")
+        if not live_groups and not upcoming_only:
             self.set_empty(True)
-        finally:
-            session.close()
+            return
+
+        def _section_hdr(text: str) -> None:
+            item = QTreeWidgetItem([text])
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            item.setForeground(0, QColor("#555"))
+            f = item.font(0)
+            f.setPointSize(9)
+            f.setBold(True)
+            item.setFont(0, f)
+            self.alerts_tree.addTopLevelItem(item)
+
+        def _wire_row(row: _AlertRow, channel_db_id: str) -> None:
+            """Connect an _AlertRow's signals to the section's public signals."""
+            row.play_clicked.connect(
+                lambda _=False, cid=channel_db_id: self.alertClicked.emit(cid)
+            )
+            row.row_clicked.connect(
+                lambda cid=channel_db_id: self.channel_selected.emit(cid)
+            )
+
+        def _add_child(parent_item, ch_name, time_str, channel_db_id, title) -> None:
+            child = QTreeWidgetItem()
+            child.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+            child.setToolTip(0, f"{title}\n{ch_name}")
+            parent_item.addChild(child)
+            row = _AlertRow(ch_name, time_str, self.config)
+            _wire_row(row, channel_db_id)
+            self.alerts_tree.setItemWidget(child, 0, row)
+
+        def _add_direct(ch_name, time_str, channel_db_id, title) -> None:
+            """Single-channel item: header IS the row — no expand arrow.
+            Shows the show title; channel name is the tooltip."""
+            item = QTreeWidgetItem()
+            item.setData(0, Qt.ItemDataRole.UserRole, channel_db_id)
+            item.setToolTip(0, ch_name)
+            self.alerts_tree.addTopLevelItem(item)
+            row = _AlertRow(title, time_str, self.config)
+            _wire_row(row, channel_db_id)
+            self.alerts_tree.setItemWidget(item, 0, row)
+
+        if live_groups:
+            _section_hdr("WATCH NOW")
+            for key, grp in sorted(live_groups.items(),
+                                   key=lambda kv: min(a[0] for a in kv[1]['live'])):
+                title = grp['title']
+                live_items = sorted(grp['live'], key=lambda a: a[0])
+                up_items   = sorted(grp['upcoming'], key=lambda a: a[0])
+                all_items  = live_items + up_items
+                if len(all_items) == 1:
+                    a = all_items[0]
+                    _add_direct(a[2], a[1], a[3], title)
+                else:
+                    rep_time = live_items[0][1]
+                    count_badge = f"  +{len(all_items) - 1}"
+                    hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
+                    hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    self.alerts_tree.addTopLevelItem(hdr)
+                    for a in live_items[:10]:
+                        _add_child(hdr, a[2], a[1], a[3], title)
+                    for a in up_items[:5]:
+                        _add_child(hdr, a[2], a[1], a[3], title)
+
+        if upcoming_only:
+            _section_hdr("UPCOMING")
+            for key, grp in sorted(upcoming_only.items(),
+                                   key=lambda kv: min(a[0] for a in kv[1]['airings'])):
+                title = grp['title']
+                airings = sorted(grp['airings'], key=lambda a: a[0])
+                if len(airings) == 1:
+                    a = airings[0]
+                    _add_direct(a[2], a[1], a[3], title)
+                else:
+                    rep_time = airings[0][1]
+                    count_badge = f"  +{len(airings) - 1}"
+                    hdr = QTreeWidgetItem([f"{title}  ·  {rep_time}{count_badge}"])
+                    hdr.setFlags(hdr.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    self.alerts_tree.addTopLevelItem(hdr)
+                    for a in airings[:10]:
+                        _add_child(hdr, a[2], a[1], a[3], title)
+
+        self.set_empty(False)
+        QTimer.singleShot(0, self._apply_expansion)
 
     def refresh_retry(self, entries: list) -> None:
         """Populate the stream retry sub-list from StreamRetryDB entries."""
