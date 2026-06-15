@@ -40,7 +40,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
-from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
+from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.content_view import ContentView
@@ -794,12 +794,7 @@ class EpgView(ContentView):
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            expired_ids = set(repos.providers.get_expired_provider_ids())
-            providers = session.query(ProviderDB).filter_by(is_active=True).all()
-            self._provider_ids = [
-                p.id for p in providers
-                if getattr(p, "epg_url", "") and p.id not in expired_ids
-            ]
+            self._provider_ids = repos.providers.get_epg_active_provider_ids()
         finally:
             session.close()
 
