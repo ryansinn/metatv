@@ -3,7 +3,7 @@
 import re
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Callable, Iterator, Optional
 from xml.etree import ElementTree as ET
 
@@ -157,7 +157,10 @@ def _parse_xmltv_datetime(s: str) -> datetime:
 
     naive = datetime(int(year), int(month), int(day),
                      int(hour), int(minute), int(second))
-    return (naive - offset).replace(tzinfo=timezone.utc)
+    # Return naive UTC to match the EpgProgramDB storage format (see CLAUDE.md:
+    # "start_time / stop_time are stored as UTC-naive datetimes"). Keeping tzinfo
+    # here would make _fetch_worker's `max_stop < now_utc()` compare aware-vs-naive.
+    return naive - offset
 
 
 def _strip_badges(title: str) -> tuple[str, bool, bool]:
