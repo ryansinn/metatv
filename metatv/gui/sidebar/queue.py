@@ -4,11 +4,17 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+
+_ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
+_ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
+
+_UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on another source."
 
 
 class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
@@ -19,10 +25,13 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
     clearQueueClicked             = pyqtSignal()
     clearWatchedClicked           = pyqtSignal()
+    clearUnavailableClicked       = pyqtSignal()           # request clear-unavailable
+    searchRequested               = pyqtSignal(str)        # search_title for recovery
     _data_ready                   = pyqtSignal(object)     # list[QueueEntry] | None
 
     def __init__(self, config, db, parent=None):
         self.db = db
+        self._has_unavailable = False
         super().__init__("Watch Queue", config.queue_icon, config, parent)
         self._init_background_refresh()
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -60,10 +69,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def _load_rows(self):
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
-            return repos.queue.get_all()
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            return repos.queue.get_all(hidden_provider_ids=hidden)
 
     def _populate_rows(self, entries) -> None:
         """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
+        self._has_unavailable = any(not e.available for e in entries) if entries else False
         self.set_empty(len(entries) == 0)
         if not entries:
             item = QListWidgetItem("Queue is empty — right-click any channel to add")
@@ -81,20 +92,29 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         if continue_watching:
             self._add_header("Continue Watching")
             for e in continue_watching:
-                item = QListWidgetItem(
-                    f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
-                )
-                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
-                self._list.addItem(item)
+                self._add_entry_item(e)
 
         if never_watched:
             self._add_header("Never Watched")
             for e in never_watched:
-                item = QListWidgetItem(
-                    f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
-                )
-                item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
-                self._list.addItem(item)
+                self._add_entry_item(e)
+
+    def _add_entry_item(self, e) -> None:
+        """Add a single queue entry to the list, dimming unavailable ones."""
+        item = QListWidgetItem(
+            f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
+        )
+        item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+        item.setData(_ROLE_AVAILABLE, e.available)
+        item.setData(_ROLE_SEARCH_TITLE, e.search_title)
+        if not e.available:
+            item.setForeground(QColor(_theme.COLOR_MUTED))
+            item.setToolTip(_UNAVAILABLE_TOOLTIP)
+        self._list.addItem(item)
+
+    def has_unavailable(self) -> bool:
+        """True when at least one entry in the current list is unavailable."""
+        return self._has_unavailable
 
     def _media_icon(self, media_type: str) -> str:
         if media_type == "movie":
@@ -115,7 +135,13 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
         channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if channel_id:
+        if not channel_id:
+            return
+        available = item.data(_ROLE_AVAILABLE)
+        if available is False:
+            search_title = item.data(_ROLE_SEARCH_TITLE) or ""
+            self.searchRequested.emit(search_title)
+        else:
             self.itemDoubleClicked.emit(channel_id)
 
     def _on_selection_changed(self, current: QListWidgetItem, _previous) -> None:
@@ -126,9 +152,25 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _on_context_menu(self, pos) -> None:
         item = self._list.itemAt(pos)
-        if not item:
-            return
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if channel_id:
-            gp = self._list.viewport().mapToGlobal(pos)
-            self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+        gp = self._list.viewport().mapToGlobal(pos)
+
+        if item:
+            channel_id = item.data(Qt.ItemDataRole.UserRole)
+            if channel_id:
+                # Emit signal so main_window builds the per-item context menu,
+                # which will also append "Clear Unavailable" (see main_window_favorites.py).
+                self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
+                return
+
+        # Right-click on empty space or a header — still offer Clear Unavailable.
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtCore import QPoint
+        menu = QMenu(self)
+        clear_act = QAction("Clear Unavailable", self)
+        clear_act.setEnabled(self._has_unavailable)
+        if not self._has_unavailable:
+            clear_act.setToolTip("No unavailable content")
+        clear_act.triggered.connect(self.clearUnavailableClicked.emit)
+        menu.addAction(clear_act)
+        menu.exec(QPoint(gp.x(), gp.y()))

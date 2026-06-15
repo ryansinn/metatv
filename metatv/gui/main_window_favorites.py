@@ -181,6 +181,88 @@ class _FavoritesMixin:
         )
         self._refresh_alerts_retry_section()
 
+    def search_for_title(self, title: str) -> None:
+        """Activate the Search view and pre-fill the search box with *title*.
+
+        Called when the user double-clicks an unavailable queue or favorites entry
+        to find a replacement on an active source.
+        """
+        # Ensure the Search chip is active (mirrors on_search_view_toggle).
+        if not self.search_chip.is_enabled():
+            self.search_chip.blockSignals(True)
+            self.search_chip.set_enabled(True)
+            self.search_chip.blockSignals(False)
+        self.search_input.setText(title)
+
+    def _clear_unavailable_queue(self, section) -> None:
+        """Confirm then remove all unavailable entries from the watch queue."""
+        from PyQt6.QtWidgets import QMessageBox
+        # Count without modifying; get hidden ids on a read-only pass.
+        count = 0
+        hidden: set[str] = set()
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            entries = repos.queue.get_all(hidden_provider_ids=hidden)
+            count = sum(1 for e in entries if not e.available)
+
+        if count == 0:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Clear Unavailable",
+            f"Remove {count} unavailable item{'s' if count != 1 else ''} from your watch queue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            repos.queue.clear_unavailable(hidden)
+
+        section.refresh()
+        self.status_bar.showMessage(
+            f"Removed {count} unavailable item{'s' if count != 1 else ''} from watch queue"
+        )
+
+    def _clear_unavailable_favorites(self, section) -> None:
+        """Confirm then un-favorite all channels on unavailable sources."""
+        from PyQt6.QtWidgets import QMessageBox
+        count = 0
+        hidden: set[str] = set()
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            dtos = repos.channels.get_favorites_dto(hidden_provider_ids=hidden)
+            count = sum(1 for d in dtos if not d.available)
+
+        if count == 0:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Clear Unavailable",
+            f"Remove {count} unavailable item{'s' if count != 1 else ''} from your favorites?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            hidden = set(repos.providers.get_hidden_provider_ids())
+            repos.channels.clear_unavailable_favorites(hidden)
+
+        section.refresh()
+        self.status_bar.showMessage(
+            f"Removed {count} unavailable item{'s' if count != 1 else ''} from favorites"
+        )
+
     def _clear_queue(self) -> None:
         from PyQt6.QtWidgets import QMessageBox
         reply = QMessageBox.question(
@@ -283,6 +365,18 @@ class _FavoritesMixin:
             dislike_act.setChecked(current_rating == -1)
             dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
             menu.addAction(dislike_act)
+
+        # Clear Unavailable — always shown so the menu is stable; disabled when none.
+        menu.addSeparator()
+        queue_section = self.sidebar_sections.get("queue") if hasattr(self, "sidebar_sections") else None
+        has_unavail = queue_section.has_unavailable() if queue_section else False
+        clear_unavail_act = QAction("Clear Unavailable", self)
+        clear_unavail_act.setEnabled(has_unavail)
+        if not has_unavail:
+            clear_unavail_act.setToolTip("No unavailable content")
+        if queue_section:
+            clear_unavail_act.triggered.connect(queue_section.clearUnavailableClicked.emit)
+        menu.addAction(clear_unavail_act)
 
         menu.exec(QPoint(gx, gy))
 
