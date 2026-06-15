@@ -299,3 +299,25 @@ CONTEXT_FILTER_CHIP_BTN = (
     " background: transparent; border: none; padding: 0 2px; font-weight: bold; }"
     "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
 )
+
+# Events tab — segmented view-mode toggle (Timeline / By Network)
+EVENTS_SEG_INACTIVE = (
+    "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px;"
+    " padding: 3px 10px; background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_DIM + "; }"
+)
+EVENTS_SEG_ACTIVE = (
+    "QPushButton { color: " + COLOR_TEXT_HI + "; font-size: " + FONT_MD + "; font-weight: 600;"
+    " border: 1px solid " + COLOR_ACCENT + "; border-radius: 3px;"
+    " padding: 3px 10px; background: " + OVERLAY_BLUE_15 + "; }"
+)
+# Event row group header (bold, non-selectable section label inside the list)
+EVENTS_GROUP_HEADER = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_MUTED_2 + ";"
+    " letter-spacing: 1px; padding: 4px 2px 2px 2px;"
+)
+# Time/availability hint label on each event row
+EVENTS_TIME_HINT = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+EVENTS_TIME_HINT_PASSED = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+EVENTS_TIME_ON_NOW = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
