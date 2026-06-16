@@ -13,6 +13,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import epg_is_stale, epg_interval_delta, now_utc
+from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
 
@@ -308,7 +309,7 @@ class EpgManager(QObject):
             )
 
             # Build channel match map: epg_id → channel_db_id
-            match_map = self._build_match_map(session, channels)
+            match_map = self._build_match_map(session, channels, provider_id)
             logger.info(f"EPG: matched {len(match_map)} channels for {provider_name}")
 
             # Clear existing data — commit delete immediately so the write lock is released
@@ -401,13 +402,26 @@ class EpgManager(QObject):
             session.close()
             self._active_refreshes.discard(provider_id)
 
-    def _build_match_map(self, session, xmltv_channels) -> dict[str, str]:
+    def _build_match_map(
+        self, session, xmltv_channels, provider_id: str
+    ) -> dict[str, str]:
         """Build xmltv_epg_id → channel_db_id lookup.
 
-        Primary match: ChannelDB.epg_channel_id == xmltv channel.epg_id (exact)
-        Fallback: normalized display-name comparison against ALL live channels
+        Resolution order (first match wins):
+        1. Exact ``epg_channel_id`` match — highest confidence, provider-agnostic.
+        2. Same-provider fuzzy name match — normalized channel name from the feed's
+           own provider wins over any cross-source match.
+        3. Cross-provider fuzzy name match — fills gaps when the feed's own provider
+           has no matching channel (e.g. a bare XMLTV feed covering multiple sources).
+
+        Channels belonging to hidden (inactive or expired) providers are excluded from
+        the fuzzy candidate pool entirely, so guide data never attaches to a
+        disabled/expired source at fetch time.
         """
-        # Exact match: channels with a populated epg_channel_id
+        repos = RepositoryFactory(session)
+        hidden_ids: set[str] = set(repos.providers.get_hidden_provider_ids())
+
+        # ── Tier 1: exact epg_channel_id match ──────────────────────────────
         db_channels_with_id = session.query(ChannelDB).filter(
             ChannelDB.epg_channel_id.isnot(None),
             ChannelDB.is_hidden == False,
@@ -418,27 +432,46 @@ class EpgManager(QObject):
             if ch.epg_channel_id
         }
 
-        # Fuzzy fallback: normalize all live channel names
+        # ── Tiers 2 & 3: fuzzy name candidates, excluding hidden providers ──
+        # Build two separate dicts so same-provider always beats cross-provider.
+        # Last-writer-wins within each dict is fine: duplicate normalized names
+        # are rare and either candidate would be acceptable.
         all_live = session.query(ChannelDB).filter(
             ChannelDB.media_type == "live",
             ChannelDB.is_hidden == False,
         ).all()
-        name_to_id: dict[str, str] = {
-            normalize_channel_name(ch.name): ch.id
-            for ch in all_live
-        }
+
+        same_provider: dict[str, str] = {}   # norm_name → channel_db_id
+        cross_provider: dict[str, str] = {}  # norm_name → channel_db_id
+
+        for ch in all_live:
+            if ch.provider_id in hidden_ids:
+                continue  # never attach guide data to a disabled/expired source
+            norm = normalize_channel_name(ch.name)
+            if ch.provider_id == provider_id:
+                same_provider[norm] = ch.id
+            else:
+                cross_provider[norm] = ch.id
 
         result: dict[str, str] = {}
         for xch in xmltv_channels:
             if xch.epg_id in exact:
+                # Tier 1 — exact epg_channel_id
                 result[xch.epg_id] = exact[xch.epg_id]
             else:
                 norm = normalize_channel_name(xch.display_name)
-                if norm in name_to_id:
-                    result[xch.epg_id] = name_to_id[norm]
+                if norm in same_provider:
+                    # Tier 2 — same-provider fuzzy
+                    result[xch.epg_id] = same_provider[norm]
+                elif norm in cross_provider:
+                    # Tier 3 — cross-provider fuzzy
+                    result[xch.epg_id] = cross_provider[norm]
 
-        matched = sum(1 for v in result.values() if v)
-        logger.info(f"EPG channel matching: {matched}/{len(xmltv_channels)} XMLTV channels matched to playable streams")
+        matched = len(result)
+        logger.info(
+            f"EPG channel matching: {matched}/{len(xmltv_channels)} XMLTV channels "
+            f"matched to playable streams (provider={provider_id})"
+        )
         return result
 
     # ------------------------------------------------------------------
