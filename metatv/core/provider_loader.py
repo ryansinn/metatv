@@ -297,35 +297,60 @@ class ProviderLoadThread(QThread):
         Only processes channels where special_view IS NULL so subsequent refreshes
         of the same provider are fast.  All providers are always included in the
         queries — this scopes to the just-loaded provider to bound the work.
+
+        Channels are processed in ID-based batches (mirroring update_detected_prefixes)
+        so at most _CATEGORIZE_BATCH full ORM objects reside in memory at once instead
+        of the entire provider channel set (up to ~300k rows).
         """
         from metatv.core.special_content import update_channel_special_content
 
+        _CATEGORIZE_BATCH = 2000
+
         session = self.db.get_session()
         try:
-            channels = session.query(ChannelDB).filter(
-                ChannelDB.provider_id == self.provider.id,
-                ChannelDB.special_view.is_(None),
-            ).all()
+            # Fetch only IDs first — avoids loading raw_data for all channels upfront.
+            ids = [
+                row[0]
+                for row in session.query(ChannelDB.id).filter(
+                    ChannelDB.provider_id == self.provider.id,
+                    ChannelDB.special_view.is_(None),
+                ).all()
+            ]
 
-            if not channels:
+            if not ids:
                 return
 
+            n = len(ids)
             logger.info(
-                f"Categorizing special content for {len(channels):,} uncategorized "
+                f"Categorizing special content for {n:,} uncategorized "
                 f"channels from '{self.provider.name}'"
             )
 
             updated = 0
-            n = len(channels)
-            for i, channel in enumerate(channels):
-                if update_channel_special_content(channel):
-                    updated += 1
-                if i % 5000 == 4999:
-                    session.commit()
-                    pct = int(72 + (i / n) * 15)  # 72–87%
-                    self.progress.emit(pct, 100, f"Categorizing content ({i+1:,}/{n:,})…")
+            processed = 0
 
-            session.commit()
+            for batch_start in range(0, n, _CATEGORIZE_BATCH):
+                chunk_ids = ids[batch_start : batch_start + _CATEGORIZE_BATCH]
+                channels = session.query(ChannelDB).filter(
+                    ChannelDB.id.in_(chunk_ids),
+                ).all()
+
+                for channel in channels:
+                    if update_channel_special_content(channel):
+                        updated += 1
+                    processed += 1
+
+                is_last_batch = (batch_start + _CATEGORIZE_BATCH) >= n
+                session.commit()
+                if not is_last_batch:
+                    session.expunge_all()
+
+                pct = int(72 + (processed / n) * 15)  # 72–87%
+                self.progress.emit(
+                    pct, 100,
+                    f"Categorizing content ({processed:,}/{n:,})…",
+                )
+
             logger.info(
                 f"Special content: {updated:,} channels categorized "
                 f"(PPV/Events/Sports) for '{self.provider.name}'"
