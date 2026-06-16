@@ -422,36 +422,44 @@ class EpgManager(QObject):
         hidden_ids: set[str] = set(repos.providers.get_hidden_provider_ids())
 
         # ── Tier 1: exact epg_channel_id match ──────────────────────────────
-        db_channels_with_id = session.query(ChannelDB).filter(
+        # Select only the two scalar columns needed — avoids loading raw_data
+        # (potentially large JSON) for every channel in a 1M+ library.
+        db_channels_with_id = session.query(
+            ChannelDB.id, ChannelDB.epg_channel_id,
+        ).filter(
             ChannelDB.epg_channel_id.isnot(None),
             ChannelDB.is_hidden == False,
         ).all()
         exact: dict[str, str] = {
-            ch.epg_channel_id: ch.id
-            for ch in db_channels_with_id
-            if ch.epg_channel_id
+            epg_id: cid
+            for cid, epg_id in db_channels_with_id
+            if epg_id
         }
 
         # ── Tiers 2 & 3: fuzzy name candidates, excluding hidden providers ──
         # Build two separate dicts so same-provider always beats cross-provider.
         # Last-writer-wins within each dict is fine: duplicate normalized names
         # are rare and either candidate would be acceptable.
-        all_live = session.query(ChannelDB).filter(
+        # yield_per streams results in fixed-size buffers to avoid materialising
+        # the full channel table (240k–1M rows) into memory at once.
+        all_live = session.query(
+            ChannelDB.id, ChannelDB.name, ChannelDB.provider_id,
+        ).filter(
             ChannelDB.media_type == "live",
             ChannelDB.is_hidden == False,
-        ).all()
+        ).yield_per(10000)
 
         same_provider: dict[str, str] = {}   # norm_name → channel_db_id
         cross_provider: dict[str, str] = {}  # norm_name → channel_db_id
 
-        for ch in all_live:
-            if ch.provider_id in hidden_ids:
+        for cid, name, prov_id in all_live:
+            if prov_id in hidden_ids:
                 continue  # never attach guide data to a disabled/expired source
-            norm = normalize_channel_name(ch.name)
-            if ch.provider_id == provider_id:
-                same_provider[norm] = ch.id
+            norm = normalize_channel_name(name)
+            if prov_id == provider_id:
+                same_provider[norm] = cid
             else:
-                cross_provider[norm] = ch.id
+                cross_provider[norm] = cid
 
         result: dict[str, str] = {}
         for xch in xmltv_channels:
