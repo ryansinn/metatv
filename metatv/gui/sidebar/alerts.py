@@ -234,10 +234,16 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             if not provider_ids:
                 return _empty
 
+            excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
+
             repo = EpgRepository(session)
-            live_data     = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
+            live_data     = repo.get_live_for_watchlist(
+                patterns, provider_ids=provider_ids,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
+            )
             upcoming_data = repo.get_upcoming_for_watchlist(
-                patterns, hours_ahead=24, provider_ids=provider_ids
+                patterns, hours_ahead=24, provider_ids=provider_ids,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
 
             # Batch channel-name lookup — one IN query instead of N per-programme queries.

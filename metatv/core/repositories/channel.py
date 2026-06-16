@@ -423,7 +423,8 @@ class ChannelRepository(_ChannelStatsMixin):
 
     def search(self, query: str, provider_id: Optional[str] = None,
                media_type: Optional[str] = None,
-               hidden_only: bool = False) -> List[ChannelDB]:
+               hidden_only: bool = False,
+               excluded_provider_ids: Optional[List[str]] = None) -> List[ChannelDB]:
         """Search channels by name"""
         if hidden_only:
             hidden_filter = (ChannelDB.is_hidden == True)  # noqa: E712
@@ -433,13 +434,18 @@ class ChannelRepository(_ChannelStatsMixin):
             ChannelDB.name.ilike(f"%{query}%"),
             hidden_filter,
         )
-        
+
         if provider_id:
             db_query = db_query.filter_by(provider_id=provider_id)
-        
+
         if media_type:
             db_query = db_query.filter_by(media_type=media_type)
-        
+
+        if excluded_provider_ids:
+            db_query = db_query.filter(
+                ~ChannelDB.provider_id.in_(excluded_provider_ids)
+            )
+
         return db_query.order_by(ChannelDB.name).all()
     
     def get_by_category(self, category: str, provider_id: Optional[str] = None) -> List[ChannelDB]:
