@@ -61,13 +61,27 @@ class ProviderRepository:
         return provider
     
     def delete(self, provider_id: str) -> bool:
-        """Delete provider"""
+        """Delete provider and cascade-prune its non-engaged content.
+
+        Non-engaged channels (not favorited, not played, not queued) and all
+        their dependents (metadata, EPG, seasons, episodes, ratings, alerts)
+        are deleted in memory-safe batches before the provider row is removed.
+
+        Engaged channels of this provider are intentionally kept — they remain
+        accessible in History / Favorites / Watch Queue and are hidden from
+        forward-looking views via ``get_hidden_provider_ids()``.
+        """
         provider = self.get_by_id(provider_id)
-        if provider:
-            self.session.delete(provider)
-            self.session.commit()
-            return True
-        return False
+        if not provider:
+            return False
+
+        from metatv.core.repositories.channel import ChannelRepository
+        ChannelRepository(self.session).prune_provider_content([provider_id])
+
+        self.session.delete(provider)
+        self.session.commit()
+        logger.info(f"Provider {provider_id!r} deleted.")
+        return True
     
     def update_stats(self, provider_id: str, total_channels: int, total_categories: int):
         """Update provider statistics"""

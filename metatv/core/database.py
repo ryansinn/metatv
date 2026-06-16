@@ -385,6 +385,7 @@ class Database:
         logger.info("Database tables created")
         self._migrate()
         self._ensure_auto_vacuum()
+        self._prune_orphaned_channels()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -531,6 +532,67 @@ class Database:
             logger.info("auto_vacuum=FULL migration complete.")
         except Exception as exc:
             logger.error(f"Could not enable auto_vacuum=FULL: {exc}")
+
+    def _prune_orphaned_channels(self) -> None:
+        """One-time migration: prune channels whose provider no longer exists.
+
+        When a provider was deleted before cascade-deletion was implemented its
+        channels were left orphaned (provider_id not in providers).  This migration
+        runs once per database (gated on PRAGMA user_version == 2) and removes all
+        non-engaged orphaned channels plus their dependents.
+
+        Engaged channels (favorited / played / queued) are preserved — they remain
+        accessible in History / Favorites / Watch Queue and are hidden from
+        forward-looking views via ``get_hidden_provider_ids()``.
+
+        The migration runs AFTER ``_ensure_auto_vacuum()`` so that auto_vacuum=FULL
+        is active and the per-batch commits auto-reclaim freed pages.
+
+        Any failure is caught and logged — it must never block startup.
+        """
+        try:
+            with self.engine.connect() as conn:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version >= 2:
+                return  # already ran — fast path
+
+            # Find provider_ids that appear in channels but not in providers
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        "SELECT DISTINCT provider_id FROM channels "
+                        "WHERE provider_id NOT IN (SELECT id FROM providers)"
+                    )
+                ).fetchall()
+            orphaned_provider_ids = [r[0] for r in rows if r[0]]
+
+            if orphaned_provider_ids:
+                logger.info(
+                    f"One-time cleanup: pruning orphaned channels from "
+                    f"{len(orphaned_provider_ids)} removed source(s) "
+                    f"(preserving engaged) …"
+                )
+                from metatv.core.repositories.channel import ChannelRepository
+                with self.session_scope() as session:
+                    counts = ChannelRepository(session).prune_provider_content(
+                        orphaned_provider_ids
+                    )
+                logger.info(
+                    f"Orphan cleanup complete: {counts['channels']} channels, "
+                    f"{counts['metadata']} metadata, "
+                    f"{counts['epg_by_channel'] + counts['epg_by_provider']} EPG rows, "
+                    f"{counts['seasons']} seasons, {counts['episodes']} episodes removed."
+                )
+            else:
+                logger.debug("Orphan cleanup: no orphaned provider_ids found — nothing to do.")
+
+            # Stamp version 2 so this never reruns
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA user_version = 2"))
+                conn.commit()
+
+        except Exception as exc:
+            logger.error(f"Orphan-channel cleanup migration failed (startup unblocked): {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""
