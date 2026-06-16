@@ -169,7 +169,7 @@ class _ChannelStatsMixin:
         genre_counter: _Counter = _Counter()
         _has_latin = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
         genre_q = (
-            self.session.query(ChannelDB)
+            self.session.query(ChannelDB.raw_data)
             .filter(
                 ChannelDB.media_type.in_(["movie", "series"]),
                 ChannelDB.is_hidden == False,  # noqa: E712
@@ -183,8 +183,8 @@ class _ChannelStatsMixin:
                 or_(ChannelDB.user_category.is_(None),
                     ~ChannelDB.user_category.in_(excluded_user_categories))
             )
-        for ch in genre_q.all():
-            genre_str = (ch.raw_data or {}).get("genre") or ""
+        for (raw_data,) in genre_q.yield_per(2000):
+            genre_str = (raw_data or {}).get("genre") or ""
             for g in _GENRE_SEP_RE.split(genre_str):
                 g = g.strip()
                 if not g:
