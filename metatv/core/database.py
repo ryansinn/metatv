@@ -373,6 +373,7 @@ class Database:
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA busy_timeout=30000")
             cur.execute("PRAGMA synchronous=NORMAL")
+            cur.execute("PRAGMA auto_vacuum=FULL")
             cur.close()
 
         self.SessionLocal = sessionmaker(bind=self.engine)
@@ -383,6 +384,7 @@ class Database:
         Base.metadata.create_all(self.engine)
         logger.info("Database tables created")
         self._migrate()
+        self._ensure_auto_vacuum()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -488,6 +490,36 @@ class Database:
 
             conn.execute(text("PRAGMA user_version = 1"))
             conn.commit()
+
+    def _ensure_auto_vacuum(self) -> None:
+        """Enable auto_vacuum=FULL on existing databases via a one-time VACUUM.
+
+        For brand-new databases the connect-listener pragma already sets FULL mode
+        before any table is created, so this is a fast no-op (mode == 1 on the very
+        first call). For databases that were created before this feature was added
+        (mode == 0 / NONE), a one-time VACUUM rebuilds the file in FULL mode. After
+        that first migration every subsequent startup reads mode 1 and returns
+        immediately at no cost.
+
+        VACUUM cannot run inside a transaction, so we use an AUTOCOMMIT connection.
+        Any failure is logged but never blocks startup — this is an optimisation, not
+        a correctness requirement.
+        """
+        try:
+            with self.engine.connect() as conn:
+                mode = conn.exec_driver_sql("PRAGMA auto_vacuum").scalar()
+            if mode == 1:
+                return  # already FULL — common case after the one-time migration
+            logger.info(
+                "One-time database optimization (enabling auto_vacuum=FULL) — "
+                "running VACUUM to rebuild the file. This may take a moment on large databases."
+            )
+            with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.exec_driver_sql("PRAGMA auto_vacuum=FULL")
+                conn.exec_driver_sql("VACUUM")
+            logger.info("auto_vacuum=FULL migration complete.")
+        except Exception as exc:
+            logger.error(f"Could not enable auto_vacuum=FULL: {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""
