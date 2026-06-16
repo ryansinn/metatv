@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 import json
-from metatv.core.database import ProviderDB
+from metatv.core.database import ProviderDB, ChannelDB
 from metatv.core.models import Provider, ProviderURL
 
 
@@ -106,7 +106,17 @@ class ProviderRepository:
 
     def get_hidden_provider_ids(self) -> List[str]:
         """Return IDs of providers whose content must be hidden from forward-looking
-        views — the union of **inactive** (user toggled off) and **expired** sources.
+        views — the union of **inactive** (user toggled off), **expired**, and
+        **orphaned** (provider_id appears in channels but has no matching row in
+        providers) sources.
+
+        Orphaned provider_ids arise when a provider is deleted: the ``providers``
+        row is removed but its channels are left behind with a stale ``provider_id``
+        that no longer exists.  ``get_hidden_provider_ids`` was previously unaware
+        of these, so orphaned channels bypassed all scoping and leaked into every
+        forward-looking view.  Including them here closes that leak at the single
+        canonical chokepoint — every existing ``excluded_provider_ids=get_hidden_provider_ids()``
+        caller benefits automatically with no per-site changes.
 
         This is the single source of truth for provider scoping. Every view that
         shows "what you can watch" — the channel list, Discover shelves, See-All
@@ -114,7 +124,20 @@ class ProviderRepository:
         (History, Favorites, Watch Queue) are the deliberate exception: they show
         prior engagement regardless of a source's current state.
         """
-        return list(set(self.get_inactive_provider_ids()) | set(self.get_expired_provider_ids()))
+        orphaned = {
+            row[0] for row in (
+                self.session.query(ChannelDB.provider_id)
+                .filter(~ChannelDB.provider_id.in_(self.session.query(ProviderDB.id)))
+                .distinct()
+                .all()
+            )
+            if row[0]
+        }
+        return list(
+            set(self.get_inactive_provider_ids())
+            | set(self.get_expired_provider_ids())
+            | orphaned
+        )
 
     def get_epg_active_provider_ids(self) -> List[str]:
         """Providers eligible for EPG/watchlist surfacing: is_active, not expired,
