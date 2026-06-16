@@ -1246,10 +1246,20 @@ class EpgView(ContentView):
     def _fetch_watchlist(self, patterns: list[str], provider_ids: list[str]) -> None:
         session = self.db.get_session()
         try:
-            repo = EpgRepository(session)
-            watchlist_data = repo.get_upcoming_for_watchlist(patterns, hours_ahead=48,
-                                                              provider_ids=provider_ids)
-            live_data = repo.get_live_for_watchlist(patterns, provider_ids=provider_ids)
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
+            repo = repos.epg
+            watchlist_data = repo.get_upcoming_for_watchlist(
+                patterns, hours_ahead=48,
+                provider_ids=provider_ids,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
+            )
+            live_data = repo.get_live_for_watchlist(
+                patterns,
+                provider_ids=provider_ids,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
+            )
 
             # Build dismissed set (expired entries are filtered out)
             now = _now_utc()
@@ -1263,6 +1273,7 @@ class EpgView(ContentView):
                 dismissed_ids=dismissed,
                 provider_ids=provider_ids,
                 limit=8,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
 
             # Build channel name map
@@ -1299,7 +1310,10 @@ class EpgView(ContentView):
             return
         session = self.db.get_session()
         try:
-            repo = EpgRepository(session)
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
+            repo = repos.epg
             filler = self.config.epg_filler_patterns if hide_filler else []
             dismissed = self._dismissed_ids()
             programs = repo.get_current_programs(
@@ -1309,6 +1323,7 @@ class EpgView(ContentView):
                 dismissed_channel_ids=dismissed,
                 hidden_titles=list(self.config.epg_hidden_titles or []),
                 hidden_channel_ids=list(self.config.epg_hidden_channels or []),
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
             logger.debug(f"EpgView on-now: {len(programs)} programmes from providers {provider_ids}")
             # Build name + quality maps
@@ -2046,18 +2061,32 @@ class EpgView(ContentView):
         "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     }
 
+    @staticmethod
+    def _on_now_hidden_prefixes(config) -> set[str]:
+        """Prefixes/categories hidden from the On Now grid.
+
+        EPG-specific ``epg_hidden_prefixes`` plus the global content exclusions —
+        the union of ``global_filter_excluded_categories`` AND
+        ``global_filter_excluded_prefixes``, the latter gated by
+        ``global_filter_paused``. Mirrors the main channel list's ``_is_filtered``
+        (main_window_metadata.py) so On Now and the list agree.
+        """
+        paused = getattr(config, 'global_filter_paused', False)
+        global_excluded = (
+            set()
+            if paused
+            else (
+                set(config.global_filter_excluded_categories or [])
+                | set(config.global_filter_excluded_prefixes or [])
+            )
+        )
+        return set(config.epg_hidden_prefixes or []) | global_excluded
+
     def _render_on_now(self, programs: list[EpgProgramDB]) -> None:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
-        # Apply global content filter on top of EPG-specific hidden prefixes,
-        # unless the global filter is paused (user wants to see everything temporarily).
-        _global_excluded = (
-            set()
-            if getattr(self.config, 'global_filter_paused', False)
-            else set(self.config.global_filter_excluded_prefixes or [])
-        )
-        hidden_prefixes = set(self.config.epg_hidden_prefixes or []) | _global_excluded
+        hidden_prefixes = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
 

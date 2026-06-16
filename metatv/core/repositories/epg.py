@@ -33,11 +33,21 @@ class EpgRepository:
         lang_code: str = "",
         hidden_titles: list[str] | None = None,
         hidden_channel_ids: list[str] | None = None,
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> list[EpgProgramDB]:
         """Programmes airing right now across the given providers.
 
         Only returns entries that have a matched channel (channel_db_id IS NOT NULL)
         so callers know they are playable.
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: When truthy, programmes whose matched
+                ChannelDB row belongs to one of these provider IDs are excluded.
+                This is the channel-side scoping complement to the feed-side
+                ``provider_ids`` filter — it prevents disabled-source channels
+                from appearing when another source's EPG feed happens to match
+                them cross-provider.  ``None`` / empty preserves existing behaviour.
         """
         now = _now_utc()
         query = self.session.query(EpgProgramDB).filter(
@@ -46,6 +56,13 @@ class EpgRepository:
             EpgProgramDB.stop_time  >  now,
             EpgProgramDB.channel_db_id.isnot(None),
         )
+
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
 
         if hide_filler and filler_patterns:
             for pattern in filler_patterns:
@@ -73,13 +90,16 @@ class EpgRepository:
         hours_ahead: int = 48,
         provider_ids: list[str] | None = None,
         lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> dict[str, list[EpgProgramDB]]:
         """Upcoming programmes matching each watchlist pattern.
 
         Args:
             patterns: List of keyword patterns to match against title.
             hours_ahead: How many hours into the future to look.
-            provider_ids: Optional provider filter.
+            provider_ids: Optional feed-provider filter.
+            excluded_channel_provider_ids: When truthy, excludes programmes
+                whose matched ChannelDB row belongs to one of these provider IDs.
 
         Returns:
             Dict mapping each pattern to a list of upcoming EpgProgramDB rows,
@@ -98,6 +118,12 @@ class EpgRepository:
             )
             if provider_ids:
                 query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
+            if excluded_channel_provider_ids:
+                query = (
+                    query
+                    .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                    .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+                )
             if lang_code:
                 query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
             result[pattern] = query.order_by(EpgProgramDB.start_time).limit(20).all()
@@ -109,6 +135,7 @@ class EpgRepository:
         patterns: list[str],
         provider_ids: list[str] | None = None,
         lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> dict[str, list[EpgProgramDB]]:
         """Programmes matching watchlist patterns that are airing RIGHT NOW."""
         now = _now_utc()
@@ -123,6 +150,12 @@ class EpgRepository:
             )
             if provider_ids:
                 query = query.filter(EpgProgramDB.provider_id.in_(provider_ids))
+            if excluded_channel_provider_ids:
+                query = (
+                    query
+                    .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                    .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+                )
             if lang_code:
                 query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
             result[pattern] = query.all()
@@ -233,11 +266,16 @@ class EpgRepository:
         dismissed_ids: set[str],
         provider_ids: list[str],
         limit: int = 10,
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> list[tuple[str, str, int]]:
         """Channels with the most upcoming programmes matching watchlist patterns.
 
         Excludes channels already in dismissed_ids and channels with no
         channel_db_id (unplayable).
+
+        Args:
+            excluded_channel_provider_ids: When truthy, excludes programmes
+                whose matched ChannelDB row belongs to one of these provider IDs.
 
         Returns:
             List of (channel_db_id, channel_name, match_count) sorted by
@@ -254,7 +292,7 @@ class EpgRepository:
             EpgProgramDB.title.ilike(f"%{p}%") for p in patterns
         ]
 
-        rows = (
+        query = (
             self.session.query(
                 EpgProgramDB.channel_db_id,
                 func.count(EpgProgramDB.id).label("cnt"),
@@ -266,6 +304,17 @@ class EpgRepository:
                 EpgProgramDB.start_time <= cutoff,
                 or_(*pattern_conditions),
             )
+        )
+
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+
+        rows = (
+            query
             .group_by(EpgProgramDB.channel_db_id)
             .order_by(func.count(EpgProgramDB.id).desc())
             .limit(limit * 3)  # oversample to allow dismissed filtering
