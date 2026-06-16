@@ -195,14 +195,25 @@ def build_engaged_normalized(
     engaged: set[tuple] = set()
 
     # Explicitly engaged channels (rated, favorited, queued)
-    for ch_id in all_engaged_ids:
-        ch = session.get(ChannelDB, ch_id)
-        if not ch or ch.id in overrides:
-            continue
+    # Batch-fetch all engaged channels in one IN query instead of per-id session.get()
+    engaged_ids_list = list(all_engaged_ids - overrides)
+    engaged_channel_map: dict[str, ChannelDB] = {}
+    if engaged_ids_list:
+        for ch in session.query(ChannelDB).filter(ChannelDB.id.in_(engaged_ids_list)).all():
+            engaged_channel_map[ch.id] = ch
+
+    # Batch-fetch metadata for engaged channels that have metadata_id
+    engaged_meta_ids = [ch.metadata_id for ch in engaged_channel_map.values() if ch.metadata_id]
+    engaged_meta_map: dict[str, MetadataDB] = {}
+    if engaged_meta_ids:
+        for meta in session.query(MetadataDB).filter(MetadataDB.id.in_(engaged_meta_ids)).all():
+            engaged_meta_map[meta.id] = meta
+
+    for ch in engaged_channel_map.values():
         norm = normalize_title(ch.name, getattr(ch, "detected_prefix", None))
         if not norm:
             continue
-        meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
+        meta = engaged_meta_map.get(ch.metadata_id) if ch.metadata_id else None
         engaged.add((
             norm,
             ch.media_type or "",
@@ -210,9 +221,20 @@ def build_engaged_normalized(
             director_key(meta),
         ))
 
-    # Watched channels — single join query for efficiency
-    for ch, meta in (
-        session.query(ChannelDB, MetadataDB)
+    # Watched channels — column-only query to avoid loading raw_data JSON.
+    # Columns needed: id, name, detected_prefix, media_type, metadata_id (channel);
+    # director, year (metadata via outerjoin on nullable metadata_id).
+    for (ch_id, ch_name, ch_prefix, ch_media_type, ch_meta_id,
+         meta_director, meta_year) in (
+        session.query(
+            ChannelDB.id,
+            ChannelDB.name,
+            ChannelDB.detected_prefix,
+            ChannelDB.media_type,
+            ChannelDB.metadata_id,
+            MetadataDB.director,
+            MetadataDB.year,
+        )
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
         .filter(
             ChannelDB.last_played.isnot(None),
@@ -220,15 +242,23 @@ def build_engaged_normalized(
         )
         .all()
     ):
-        if ch.id in overrides:
+        if ch_id in overrides:
             continue
-        norm = normalize_title(ch.name, getattr(ch, "detected_prefix", None))
+        norm = normalize_title(ch_name, ch_prefix)
         if norm:
+            # Build a lightweight proxy for extract_year / director_key helpers
+            # which only read .year and .director from the MetadataDB side.
+            class _MetaProxy:
+                __slots__ = ("year", "director")
+                def __init__(self, y, d):
+                    self.year = y
+                    self.director = d
+            meta_proxy = _MetaProxy(meta_year, meta_director) if (meta_director is not None or meta_year is not None) else None
             engaged.add((
                 norm,
-                ch.media_type or "",
-                extract_year(ch.name, meta),
-                director_key(meta),
+                ch_media_type or "",
+                extract_year(ch_name, meta_proxy),
+                director_key(meta_proxy),
             ))
 
     logger.debug(f"Content dedup: {len(engaged)} engaged content fingerprints")

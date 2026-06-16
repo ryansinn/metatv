@@ -169,6 +169,13 @@ def compute_weights(session) -> AttributeWeights:
     # Include favorites as implicit +0.5 signals (they shaped the user's taste
     # even if never explicitly rated).
     rated_channel_ids = {r.channel_id for r in ratings}
+    # Batch-fetch rated channels in one IN query instead of per-row session.get()
+    rated_ids_list = list(rated_channel_ids)
+    rated_channel_map: dict[str, ChannelDB] = {}
+    if rated_ids_list:
+        for ch in session.query(ChannelDB).filter(ChannelDB.id.in_(rated_ids_list)).all():
+            rated_channel_map[ch.id] = ch
+
     favorites = [
         ch for ch in session.query(ChannelDB)
         .filter(ChannelDB.is_favorite == True, ChannelDB.metadata_id.isnot(None)).all()  # noqa: E712
@@ -184,23 +191,34 @@ def compute_weights(session) -> AttributeWeights:
         disliked_count=sum(1 for r in ratings if r.rating < 0),
     )
 
-    all_plots = [m.plot for m in session.query(MetadataDB).all() if m.plot]
+    # Column-only fetch for plots — avoids loading full ORM rows for ~1,300 metadata rows
+    all_plots = [
+        row[0] for row in
+        session.query(MetadataDB.plot).filter(MetadataDB.plot.isnot(None)).all()
+    ]
     idf = build_idf(all_plots)
     logger.debug(f"Preference engine: IDF corpus = {len(all_plots)} plots, {len(idf)} unique terms")
 
     # Build a combined signal list: (channel, sig) pairs
     signal_pairs: list[tuple] = []
     for r in ratings:
-        ch = session.get(ChannelDB, r.channel_id)
+        ch = rated_channel_map.get(r.channel_id)
         if ch:
             signal_pairs.append((ch, float(r.rating)))
     for ch in favorites:
         signal_pairs.append((ch, 0.5))  # implicit moderate positive signal
 
+    # Batch-fetch all needed MetadataDB rows in one IN query instead of per-channel session.get()
+    all_metadata_ids = [ch.metadata_id for ch, _ in signal_pairs if ch and ch.metadata_id]
+    meta_map: dict[str, MetadataDB] = {}
+    if all_metadata_ids:
+        for meta in session.query(MetadataDB).filter(MetadataDB.id.in_(all_metadata_ids)).all():
+            meta_map[meta.id] = meta
+
     for channel, sig in signal_pairs:
         if not channel or not channel.metadata_id:
             continue
-        meta = session.get(MetadataDB, channel.metadata_id)
+        meta = meta_map.get(channel.metadata_id)
         if not meta:
             continue
 
@@ -274,8 +292,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     }
     # Favorited items are excluded from the recommendations list — the user already
     # has them; surfacing them again would be redundant.
+    # Column-only query: only need ids, not full ORM objects
     favorite_ids: set[str] = {
-        ch.id for ch in session.query(ChannelDB)
+        cid for (cid,) in session.query(ChannelDB.id)
         .filter(ChannelDB.is_favorite == True).all()  # noqa: E712
     }
     queued_ids: set[str] = {
@@ -324,25 +343,36 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         candidates_q = candidates_q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
     candidates = candidates_q.all()
 
+    # Batch-fetch all MetadataDB rows needed for the candidates loop in one IN query.
+    # The candidate filter guarantees metadata_id IS NOT NULL, so every candidate needs it.
+    candidate_metadata_ids = [ch.metadata_id for ch in candidates if ch.metadata_id]
+    candidate_meta_map: dict[str, MetadataDB] = {}
+    if candidate_metadata_ids:
+        for meta in session.query(MetadataDB).filter(
+            MetadataDB.id.in_(candidate_metadata_ids)
+        ).all():
+            candidate_meta_map[meta.id] = meta
+
     # Implicit prefix preference: count how often the user has positively engaged with
     # each prefix (favorites, queued, liked, and watched).  Used as a tiebreaker when
     # no explicit preferred_version_prefixes config entry matches — so that the
     # recommended version is in the language/source the user actually watches.
+    # Column-only queries: only need detected_prefix, not full ORM objects.
     _implicit_prefix: Counter = Counter()
     _pos_ids = (favorite_ids | queued_ids | set(liked_map.keys())) - disliked_ids
     if _pos_ids:
-        for _ch in session.query(ChannelDB).filter(
+        for (prefix,) in session.query(ChannelDB.detected_prefix).filter(
             ChannelDB.id.in_(list(_pos_ids)),
             ChannelDB.media_type.in_(["movie", "series"]),
+            ChannelDB.detected_prefix.isnot(None),
         ).all():
-            if _ch.detected_prefix:
-                _implicit_prefix[_ch.detected_prefix] += 1
-    for _ch in session.query(ChannelDB).filter(
+            _implicit_prefix[prefix] += 1
+    for (prefix,) in session.query(ChannelDB.detected_prefix).filter(
         ChannelDB.last_played.isnot(None),
         ChannelDB.media_type.in_(["movie", "series"]),
+        ChannelDB.detected_prefix.isnot(None),
     ).all():
-        if _ch.detected_prefix:
-            _implicit_prefix[_ch.detected_prefix] += 2  # played = 2× engagement weight
+        _implicit_prefix[prefix] += 2  # played = 2× engagement weight
     _max_impl = max(_implicit_prefix.values(), default=1)
 
     best_per_title: dict[tuple, ScoredChannel] = {}
@@ -364,7 +394,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             continue
         if channel.last_played:  # already watched — recommendation done
             continue
-        meta = session.get(MetadataDB, channel.metadata_id)
+        meta = candidate_meta_map.get(channel.metadata_id)
         if not meta:
             continue
 

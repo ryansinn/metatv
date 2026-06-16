@@ -241,9 +241,10 @@ def build_status_sets(session) -> StatusSets:
     from metatv.core.database import ChannelDB, UserRatingDB
     from metatv.core.repositories import RepositoryFactory
     repos = RepositoryFactory(session)
-    fav_ids     = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.is_favorite == True).all()}  # noqa: E712
+    # Column-only queries: only need ids, not full ORM objects (avoids loading raw_data JSON)
+    fav_ids     = {cid for (cid,) in session.query(ChannelDB.id).filter(ChannelDB.is_favorite == True).all()}  # noqa: E712
     queue_ids   = repos.queue.get_queued_ids()
-    watched_ids = {ch.id for ch in session.query(ChannelDB).filter(ChannelDB.last_played.isnot(None)).all()}
+    watched_ids = {cid for (cid,) in session.query(ChannelDB.id).filter(ChannelDB.last_played.isnot(None)).all()}
     liked_ids   = {r.channel_id for r in session.query(UserRatingDB).filter(UserRatingDB.rating > 0).all()}
     return StatusSets(fav_ids, queue_ids, watched_ids, liked_ids)
 
