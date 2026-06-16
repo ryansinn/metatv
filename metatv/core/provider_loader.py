@@ -5,11 +5,43 @@ import re
 from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
+from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
 from metatv.core.models import Provider, MediaType
 from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.providers.factory import get_provider
+
+# Columns written by the catalog loader on every channel upsert.
+# On conflict (same `id`), ONLY these columns are updated — derived fields
+# (detected_*, is_favorite, is_hidden, play_count, user_category, etc.) are
+# left untouched so user data is preserved across provider refreshes.
+_CATALOG_COLS: tuple[str, ...] = (
+    "id",
+    "source_id",
+    "provider_id",
+    "name",
+    "stream_url",
+    "category",
+    "category_id",
+    "logo_url",
+    "media_type",
+    "quality",
+    "is_adult",
+    "raw_data",
+    "source_num",
+    "source_category",
+    "source_quality_flags",
+)
+
+# The same set minus `id` — on conflict we update all catalog fields except the PK.
+_CATALOG_UPDATE_COLS: tuple[str, ...] = tuple(c for c in _CATALOG_COLS if c != "id")
+
+# Batch size for bulk upsert VALUES lists.
+# SQLite ≥3.32 raises SQLITE_MAX_VARIABLE_NUMBER at 32766 by default; older
+# builds cap at 999. With ~15 catalog columns, 500 rows × 15 cols = 7 500
+# parameters — well inside either limit and far fewer commits than every-100.
+_STORE_BATCH = 500
 
 _HASH_HEADER_RE = re.compile(r'^#{2,}\s*(.*?)\s*#{2,}$')
 
@@ -126,65 +158,9 @@ class ProviderLoadThread(QThread):
         
         # Store in database
         session = self.db.get_session()
-        
+
         try:
-            processed = 0
-            current_source_category: str | None = None
-            current_source_quality: str | None = None
-
-            # Disable autoflush so writes only happen at each explicit commit().
-            # Without this, session.merge() triggers an autoflush before every
-            # internal SELECT, starting a write transaction that holds the SQLite
-            # write lock until the next commit(). With multiple providers loading
-            # concurrently each provider's lock window spans up to 100 items —
-            # causing SQLITE_BUSY for other writers. With no_autoflush, the write
-            # transaction only opens at commit() and closes immediately after,
-            # giving other providers windows to write between batches.
-            with session.no_autoflush:
-                for channel in channels:
-                    raw = channel.raw_data or {}
-                    is_adult = bool(raw.get("is_adult") in (1, "1", True))
-                    source_num = raw.get("num")
-                    if source_num is not None:
-                        try:
-                            source_num = int(source_num)
-                        except (ValueError, TypeError):
-                            source_num = None
-
-                    # Detect ##...## positional category headers (live only)
-                    if channel.media_type == "live":
-                        parsed = _parse_hash_header(channel.name)
-                        if parsed is not None:
-                            current_source_category = parsed[0] or None
-                            current_source_quality = parsed[1] or None
-
-                    db_channel = ChannelDB(
-                        id=channel.id,
-                        source_id=channel.source_id,
-                        provider_id=channel.provider_id,
-                        name=channel.name,
-                        stream_url=channel.stream_url,
-                        category=channel.category,
-                        category_id=channel.category_id,
-                        logo_url=channel.logo_url,
-                        media_type=channel.media_type,
-                        quality=channel.quality.value,
-                        is_adult=is_adult,
-                        raw_data=channel.raw_data,
-                        source_num=source_num,
-                        source_category=current_source_category if channel.media_type == "live" else None,
-                        source_quality_flags=current_source_quality if channel.media_type == "live" else None,
-                    )
-                    session.merge(db_channel)
-
-                    processed += 1
-                    if processed % 100 == 0:
-                        session.commit()  # Commit periodically
-                        percent = int(50 + (processed / total * 20))  # 50–70%
-                        self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
-
-            # Final commit
-            session.commit()
+            self._store_channels(session, channels, total)
             self.progress.emit(70, 100, f"Stored {total:,} channels")
 
         except Exception as e:
@@ -216,6 +192,104 @@ class ProviderLoadThread(QThread):
                 f"rate-limited, or returned no content. Check the logs and try again.")
         else:
             self.finished.emit(True, f"Loaded {total:,} channels successfully")
+
+    def _store_channels(self, session, channels: list, total: int) -> None:
+        """Bulk-upsert *channels* into the DB using SQLite's INSERT OR REPLACE semantics.
+
+        Replaces the old per-row ``session.merge()`` + commit-every-100 approach.
+        Key properties preserved:
+
+        * **Order is maintained** — the per-channel loop runs in list order so the
+          stateful ``##...##`` hash-header logic (which sets ``source_category`` /
+          ``source_quality_flags`` for all subsequent live channels) is correct.
+        * **User/derived columns are preserved** — the ``ON CONFLICT DO UPDATE``
+          clause only touches ``_CATALOG_UPDATE_COLS``; fields like ``is_favorite``,
+          ``play_count``, ``detected_*``, ``user_category``, etc. are untouched on
+          existing rows.
+        * **Short transaction windows** — ``autoflush=False`` (via ``no_autoflush``)
+          means SQLite only holds the write lock during each explicit ``commit()``,
+          giving concurrent provider-load threads windows to interleave writes and
+          avoiding SQLITE_BUSY errors.
+        * **Batch size** — ``_STORE_BATCH`` rows × 15 columns ≈ 7 500 SQL parameters,
+          well within SQLite's 32 766 limit (and even the legacy 999 limit with room to
+          spare for older builds).
+        """
+        batch: list[dict] = []
+        processed = 0
+        current_source_category: str | None = None
+        current_source_quality: str | None = None
+
+        # Disable autoflush so writes only happen at each explicit commit().
+        # Without this, ORM operations would trigger an autoflush before internal
+        # SELECTs, holding the SQLite write lock across up to 100 items.  With
+        # no_autoflush the write transaction only opens at commit() and closes
+        # immediately, giving other providers interleave windows.
+        with session.no_autoflush:
+            for channel in channels:
+                raw = channel.raw_data or {}
+                is_adult = bool(raw.get("is_adult") in (1, "1", True))
+                source_num = raw.get("num")
+                if source_num is not None:
+                    try:
+                        source_num = int(source_num)
+                    except (ValueError, TypeError):
+                        source_num = None
+
+                # Detect ##...## positional category headers (live only).
+                # This is stateful — the header applies to all subsequent live
+                # channels until the next header.  Processing must stay in order.
+                if channel.media_type == "live":
+                    parsed = _parse_hash_header(channel.name)
+                    if parsed is not None:
+                        current_source_category = parsed[0] or None
+                        current_source_quality = parsed[1] or None
+
+                batch.append({
+                    "id": channel.id,
+                    "source_id": channel.source_id,
+                    "provider_id": channel.provider_id,
+                    "name": channel.name,
+                    "stream_url": channel.stream_url,
+                    "category": channel.category,
+                    "category_id": channel.category_id,
+                    "logo_url": channel.logo_url,
+                    "media_type": channel.media_type,
+                    "quality": channel.quality.value,
+                    "is_adult": is_adult,
+                    "raw_data": channel.raw_data,
+                    "source_num": source_num,
+                    "source_category": current_source_category if channel.media_type == "live" else None,
+                    "source_quality_flags": current_source_quality if channel.media_type == "live" else None,
+                })
+
+                processed += 1
+                if len(batch) >= _STORE_BATCH:
+                    self._flush_batch(session, batch)
+                    batch.clear()
+                    percent = int(50 + (processed / total * 20)) if total else 70  # 50–70%
+                    self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
+
+            # Flush the final partial batch
+            if batch:
+                self._flush_batch(session, batch)
+                batch.clear()
+
+    @staticmethod
+    def _flush_batch(session, batch: list[dict]) -> None:
+        """Execute one bulk upsert for *batch* and commit the transaction.
+
+        Uses SQLite's ``INSERT INTO ... ON CONFLICT(id) DO UPDATE SET ...``
+        to insert new rows and update only catalog columns on conflict.
+        Derived/user columns (``is_favorite``, ``play_count``, ``detected_*``,
+        ``user_category``, etc.) are NOT in the SET clause and are preserved.
+        """
+        stmt = _sqlite_insert(ChannelDB).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS},
+        )
+        session.execute(stmt)
+        session.commit()
 
     def _categorize_special_content(self) -> None:
         """Categorize PPV / Events / Sports for uncategorized channels from this provider.
