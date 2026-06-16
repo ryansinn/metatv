@@ -305,17 +305,9 @@ class TestRenderOnNowGlobalExclusionSet:
         return cfg
 
     def _compute_hidden_prefixes(self, config) -> set[str]:
-        """Reproduce the logic from _render_on_now so we can test it in isolation."""
-        _filter_paused = getattr(config, 'global_filter_paused', False)
-        _global_excluded = (
-            set()
-            if _filter_paused
-            else (
-                set(config.global_filter_excluded_categories or [])
-                | set(config.global_filter_excluded_prefixes or [])
-            )
-        )
-        return set(config.epg_hidden_prefixes or []) | _global_excluded
+        """Call the REAL production helper so a revert of the fix fails these tests."""
+        from metatv.gui.epg_view import EpgView
+        return EpgView._on_now_hidden_prefixes(config)
 
     def test_excluded_categories_included_when_filter_active(self):
         """global_filter_excluded_categories entries appear in hidden_prefixes."""

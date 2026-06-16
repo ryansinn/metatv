@@ -2061,25 +2061,32 @@ class EpgView(ContentView):
         "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
     }
 
+    @staticmethod
+    def _on_now_hidden_prefixes(config) -> set[str]:
+        """Prefixes/categories hidden from the On Now grid.
+
+        EPG-specific ``epg_hidden_prefixes`` plus the global content exclusions —
+        the union of ``global_filter_excluded_categories`` AND
+        ``global_filter_excluded_prefixes``, the latter gated by
+        ``global_filter_paused``. Mirrors the main channel list's ``_is_filtered``
+        (main_window_metadata.py) so On Now and the list agree.
+        """
+        paused = getattr(config, 'global_filter_paused', False)
+        global_excluded = (
+            set()
+            if paused
+            else (
+                set(config.global_filter_excluded_categories or [])
+                | set(config.global_filter_excluded_prefixes or [])
+            )
+        )
+        return set(config.epg_hidden_prefixes or []) | global_excluded
+
     def _render_on_now(self, programs: list[EpgProgramDB]) -> None:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
-        # Apply global content filter on top of EPG-specific hidden prefixes,
-        # unless the global filter is paused (user wants to see everything temporarily).
-        # Mirror exactly what the main channel list does (_is_filtered in
-        # main_window_metadata.py): union both excluded_categories AND excluded_prefixes,
-        # both gated by global_filter_paused.
-        _filter_paused = getattr(self.config, 'global_filter_paused', False)
-        _global_excluded = (
-            set()
-            if _filter_paused
-            else (
-                set(self.config.global_filter_excluded_categories or [])
-                | set(self.config.global_filter_excluded_prefixes or [])
-            )
-        )
-        hidden_prefixes = set(self.config.epg_hidden_prefixes or []) | _global_excluded
+        hidden_prefixes = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
 
