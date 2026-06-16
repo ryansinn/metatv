@@ -140,10 +140,11 @@ def test_initialize_filter_stats_on_result_is_handler():
 
 
 def test_initialize_filter_stats_query_fn_captures_config_values():
-    """query_fn must forward all five config-derived args to get_prefix_stats.
+    """query_fn must forward all config-derived args to get_prefix_stats.
 
     We run the lambda against a fake repos to confirm the right keyword args are
-    passed — this catches a regression where a config group is accidentally dropped.
+    passed — this catches a regression where a config group is accidentally dropped,
+    and also verifies excluded_provider_ids is forwarded from repos.providers.
     """
     host = _make_host()
     host.initialize_filter_stats()
@@ -157,8 +158,13 @@ def test_initialize_filter_stats_query_fn_captures_config_values():
             received_kwargs.append(kwargs)
             return {"channels_with_prefix": 0, "unmapped_prefixes": [], "prefix_counts": {}}
 
+    class _FakeProviderRepo:
+        def get_hidden_provider_ids(self) -> list[str]:
+            return ["hidden-p1", "hidden-p2"]
+
     class _FakeRepos:
         channels = _FakeChannelRepo()
+        providers = _FakeProviderRepo()
 
     query_fn(_FakeRepos())
 
@@ -170,6 +176,11 @@ def test_initialize_filter_stats_query_fn_captures_config_values():
     assert "platform_groups" in kw
     assert "regional_groups" in kw
     assert "excluded_user_categories" in kw
+    # Active-source scoping: hidden provider IDs must be forwarded
+    assert "excluded_provider_ids" in kw, (
+        "excluded_provider_ids must be passed so stats agree with the channel list"
+    )
+    assert set(kw["excluded_provider_ids"]) == {"hidden-p1", "hidden-p2"}
 
 
 # ---------------------------------------------------------------------------
