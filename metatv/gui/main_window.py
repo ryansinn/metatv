@@ -287,6 +287,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._register_cleanable("executor", lambda: self.executor.shutdown(wait=False))
         self._load_channels_token: int = 0
         self._epg_count_token: list[int] = [0]
+        self._filter_stats_token: list[int] = [0]
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
@@ -1861,33 +1862,39 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # via on_provider_selected_new which calls load_channels(provider_id) directly.
         self.load_channels(None)
     
-    def initialize_filter_stats(self):
-        """Initialize filter bar with current prefix statistics"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            
-            # Get prefix statistics
-            stats = repos.channels.get_prefix_stats(
+    def initialize_filter_stats(self) -> None:
+        """Kick off a background load of prefix statistics for the filter bar.
+
+        The heavy GROUP-BY over the full channels table runs off the UI thread via
+        ``_run_query``; ``_on_filter_stats_loaded`` applies the result on the main
+        thread once it arrives.
+        """
+        lang_groups = self.config.filter_language_groups
+        quality_groups = self.config.filter_quality_groups
+        platform_groups = self.config.filter_platform_groups
+        regional_groups = self.config.filter_regional_groups
+        excluded = set(self.config.global_filter_excluded_user_categories)
+
+        self._run_query(
+            lambda repos: repos.channels.get_prefix_stats(
                 provider_id=None,
-                language_groups=self.config.filter_language_groups,
-                quality_groups=self.config.filter_quality_groups,
-                platform_groups=self.config.filter_platform_groups,
-                regional_groups=self.config.filter_regional_groups,
-                excluded_user_categories=set(self.config.global_filter_excluded_user_categories),
-            )
+                language_groups=lang_groups,
+                quality_groups=quality_groups,
+                platform_groups=platform_groups,
+                regional_groups=regional_groups,
+                excluded_user_categories=excluded,
+            ),
+            self._on_filter_stats_loaded,
+            token_ref=self._filter_stats_token,
+            on_error=lambda e: logger.error(f"Failed to load filter stats: {e}"),
+        )
 
-            self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
-            # Populate the filter panel with live counts
-            if hasattr(self, 'filter_panel'):
-                self.filter_panel.update_data(stats)
-
-            logger.info(f"Initialized filter stats: {stats['channels_with_prefix']:,} channels with prefixes")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize filter stats: {e}")
-        finally:
-            session.close()
+    def _on_filter_stats_loaded(self, stats: dict) -> None:
+        """Main-thread handler: apply prefix statistics to the filter bar."""
+        self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
+        if hasattr(self, 'filter_panel'):
+            self.filter_panel.update_data(stats)
+        logger.info(f"Initialized filter stats: {stats['channels_with_prefix']:,} channels with prefixes")
     
     # ---- Context menu shared infrastructure ------------------------------------
 
