@@ -518,125 +518,142 @@ class ChannelRepository(_ChannelStatsMixin):
             separators: Ordered list of separator strings to try. Defaults to
                 ``DEFAULT_PREFIX_SEPARATORS`` from filter_utils when None.
         """
-        query = self.session.query(ChannelDB)
+        _BATCH = 2000
+
+        id_query = self.session.query(ChannelDB.id)
         if provider_id:
-            query = query.filter_by(provider_id=provider_id)
+            id_query = id_query.filter(ChannelDB.provider_id == provider_id)
+        all_ids = [row[0] for row in id_query.all()]
 
-        channels = query.all()
         updated = 0
+        processed = 0
 
-        for channel in channels:
-            raw_prefix = extract_prefix(channel.name, separators=separators)
-            # Normalize full country/language names to standard codes:
-            # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
-            prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
-            # Reject digit-only codes — these are provider-internal category numbers
-            # (e.g. "300" from "300  - 2007"), not valid display prefixes.
-            if prefix and re.match(r'^\d+$', prefix):
-                prefix = None
-                raw_prefix = None
+        for batch_start in range(0, len(all_ids), _BATCH):
+            chunk_ids = all_ids[batch_start : batch_start + _BATCH]
+            channels = self.session.query(ChannelDB).filter(
+                ChannelDB.id.in_(chunk_ids)
+            ).all()
 
-            parsed = parse_channel_name(channel.name)
+            for channel in channels:
+                raw_prefix = extract_prefix(channel.name, separators=separators)
+                # Normalize full country/language names to standard codes:
+                # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
+                prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
+                # Reject digit-only codes — these are provider-internal category numbers
+                # (e.g. "300" from "300  - 2007"), not valid display prefixes.
+                if prefix and re.match(r'^\d+$', prefix):
+                    prefix = None
+                    raw_prefix = None
 
-            # ── Compound prefix decomposition ────────────────────────────────── #
-            # Handles "4K-DE - Title" (quality+lang), "SE-4K - Title" (lang+quality),
-            # "PL 4K - Title" (lang+space+quality), and "[US] 4K-DE - Title" (bracket
-            # before compound). When a compound is found the lang part overrides the
-            # extracted prefix and the bracket (if any) moves to detected_region.
-            compound_quality: str | None = None
-            bracket_as_region: str | None = None
+                parsed = parse_channel_name(channel.name)
 
-            cm = _COMPOUND_PREFIX_RE.match(channel.name)
-            if cm:
-                bracket    = cm.group("bracket")
-                compound_lang = (
-                    cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
-                ).upper()
-                compound_q = (
-                    cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
-                ).upper()
+                # ── Compound prefix decomposition ────────────────────────────────── #
+                # Handles "4K-DE - Title" (quality+lang), "SE-4K - Title" (lang+quality),
+                # "PL 4K - Title" (lang+space+quality), and "[US] 4K-DE - Title" (bracket
+                # before compound). When a compound is found the lang part overrides the
+                # extracted prefix and the bracket (if any) moves to detected_region.
+                compound_quality: str | None = None
+                bracket_as_region: str | None = None
 
-                # Guard: skip if the "lang" slot is itself a quality token (e.g. 4K-HD)
-                if compound_lang and compound_lang not in QUALITY_TOKENS:
-                    prefix = normalize_region_code(compound_lang)
-                    compound_quality = compound_q or None
-                    if bracket:
-                        bracket_as_region = normalize_region_code(bracket)
+                cm = _COMPOUND_PREFIX_RE.match(channel.name)
+                if cm:
+                    bracket    = cm.group("bracket")
+                    compound_lang = (
+                        cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
+                    ).upper()
+                    compound_q = (
+                        cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
+                    ).upper()
 
-            # Paren prefix: (QFR) Title — parenthetical code at start, not caught by extract_prefix
-            if not cm:
-                pm = _PAREN_PREFIX_RE.match(channel.name)
-                if pm:
-                    paren_code = pm.group(1).upper()
-                    if paren_code not in QUALITY_TOKENS:
-                        prefix = normalize_region_code(paren_code)
+                    # Guard: skip if the "lang" slot is itself a quality token (e.g. 4K-HD)
+                    if compound_lang and compound_lang not in QUALITY_TOKENS:
+                        prefix = normalize_region_code(compound_lang)
+                        compound_quality = compound_q or None
+                        if bracket:
+                            bracket_as_region = normalize_region_code(bracket)
 
-            # detected_quality priority:
-            #   1. Name suffix  ("CNN HD" → "HD")
-            #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
-            #   3. Quality-as-prefix  ("HD - Movie" → "HD")
-            #   4. API quality field  (channel.quality = "hd" → "HD")
-            quality: str | None = None
-            if parsed.quality:
-                quality = parsed.quality[0].upper()
-            elif compound_quality:
-                quality = compound_quality
-            elif prefix and prefix.upper() in QUALITY_TOKENS:
-                quality = prefix.upper()
-                prefix = None  # quality token must not display as a category prefix
-            elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
-                api_q = channel.quality.upper()
-                if api_q in QUALITY_TOKENS:
-                    quality = api_q
+                # Paren prefix: (QFR) Title — parenthetical code at start, not caught by extract_prefix
+                if not cm:
+                    pm = _PAREN_PREFIX_RE.match(channel.name)
+                    if pm:
+                        paren_code = pm.group(1).upper()
+                        if paren_code not in QUALITY_TOKENS:
+                            prefix = normalize_region_code(paren_code)
 
-            # Safety net: Guard #3 only fires when Guards 1 and 2 didn't. If Guard 1
-            # (parsed.quality) fired first, prefix is still "4K". Clear it here regardless.
-            if prefix and prefix.upper() in QUALITY_TOKENS:
-                prefix = None
+                # detected_quality priority:
+                #   1. Name suffix  ("CNN HD" → "HD")
+                #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
+                #   3. Quality-as-prefix  ("HD - Movie" → "HD")
+                #   4. API quality field  (channel.quality = "hd" → "HD")
+                quality: str | None = None
+                if parsed.quality:
+                    quality = parsed.quality[0].upper()
+                elif compound_quality:
+                    quality = compound_quality
+                elif prefix and prefix.upper() in QUALITY_TOKENS:
+                    quality = prefix.upper()
+                    prefix = None  # quality token must not display as a category prefix
+                elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
+                    api_q = channel.quality.upper()
+                    if api_q in QUALITY_TOKENS:
+                        quality = api_q
 
-            # If prefix was cleared (quality token) or rejected (numeric guard), fall back to
-            # what parse_channel_name extracted in step 1. This lets "[4K] [US] Title" store
-            # detected_prefix = "US" rather than None after Guard #3 cleared "4K".
-            if prefix is None and parsed.region:
-                prefix = parsed.region
+                # Safety net: Guard #3 only fires when Guards 1 and 2 didn't. If Guard 1
+                # (parsed.quality) fired first, prefix is still "4K". Clear it here regardless.
+                if prefix and prefix.upper() in QUALITY_TOKENS:
+                    prefix = None
 
-            # detected_region: bracket secondary (from compound decomposition) takes
-            # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
-            region: str | None = bracket_as_region or parsed.lang or None
+                # If prefix was cleared (quality token) or rejected (numeric guard), fall back to
+                # what parse_channel_name extracted in step 1. This lets "[4K] [US] Title" store
+                # detected_prefix = "US" rather than None after Guard #3 cleared "4K".
+                if prefix is None and parsed.region:
+                    prefix = parsed.region
 
-            new_title = parsed.bare_name or None
-            new_year  = parsed.year or None
+                # detected_region: bracket secondary (from compound decomposition) takes
+                # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
+                region: str | None = bracket_as_region or parsed.lang or None
 
-            # If extract_prefix set a prefix that parse_channel_name couldn't strip
-            # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
-            # are not handled), do the strip manually now.
-            if prefix and raw_prefix and new_title:
-                _strip_m = re.match(
-                    rf'^{re.escape(raw_prefix)}\s*(?:[★|]|-\s+)\s*(.+)$',
-                    new_title,
-                    re.IGNORECASE,
+                new_title = parsed.bare_name or None
+                new_year  = parsed.year or None
+
+                # If extract_prefix set a prefix that parse_channel_name couldn't strip
+                # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
+                # are not handled), do the strip manually now.
+                if prefix and raw_prefix and new_title:
+                    _strip_m = re.match(
+                        rf'^{re.escape(raw_prefix)}\s*(?:[★|]|-\s+)\s*(.+)$',
+                        new_title,
+                        re.IGNORECASE,
+                    )
+                    if _strip_m:
+                        new_title = _strip_m.group(1).strip()
+
+                changed = (
+                    prefix != channel.detected_prefix
+                    or quality != channel.detected_quality
+                    or region != channel.detected_region
+                    or new_title != channel.detected_title
+                    or new_year  != channel.detected_year
                 )
-                if _strip_m:
-                    new_title = _strip_m.group(1).strip()
+                if changed:
+                    channel.detected_prefix = prefix
+                    channel.detected_quality = quality
+                    channel.detected_region = region
+                    channel.detected_title  = new_title
+                    channel.detected_year   = new_year
+                    channel.updated_at = datetime.now()
+                    updated += 1
 
-            changed = (
-                prefix != channel.detected_prefix
-                or quality != channel.detected_quality
-                or region != channel.detected_region
-                or new_title != channel.detected_title
-                or new_year  != channel.detected_year
-            )
-            if changed:
-                channel.detected_prefix = prefix
-                channel.detected_quality = quality
-                channel.detected_region = region
-                channel.detected_title  = new_title
-                channel.detected_year   = new_year
-                channel.updated_at = datetime.now()
-                updated += 1
+            processed += len(channels)
+            self.session.commit()
+            # Expunge between batches to release ORM objects from memory before
+            # loading the next chunk.  After the last batch there is nothing to
+            # free, so we skip the expunge to leave any caller-held references
+            # in a usable state (expunge_all would detach them).
+            if batch_start + _BATCH < len(all_ids):
+                self.session.expunge_all()
 
-        self.session.commit()
-        logger.info(f"Updated parsed name fields for {updated} of {len(channels)} channels")
+        logger.info(f"Updated parsed name fields for {updated} of {processed} channels")
         return updated
 
     # ── User category methods ──────────────────────────────────────────────────
