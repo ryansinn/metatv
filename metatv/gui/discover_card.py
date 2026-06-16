@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
+from loguru import logger
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 
@@ -167,25 +168,32 @@ class _ContentCard(QWidget):
     def request_image(self) -> None:
         """Request poster image load — idempotent, only fires once.
 
-        Also starts the shimmer and connects the image_loaded signal here
-        (not in __init__) so collapsed-shelf cards incur zero overhead.
+        Also starts the shimmer and connects the image_loaded / image_failed
+        signals here (not in __init__) so collapsed-shelf cards incur zero
+        overhead.  Both signals are disconnected when either one fires.
         """
         if not self._image_requested and self._card.thumbnail_url:
             self._image_requested = True
             if self._shimmer:
                 self._shimmer.start()
             self._image_cache.image_loaded.connect(self._on_image_loaded)
+            self._image_cache.image_failed.connect(self._on_image_failed)
             self._image_cache.get_image_async(self._card.thumbnail_url)
 
-    def _on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
-        if url != self._card.thumbnail_url:
-            return
-        self._image_cache.image_loaded.disconnect(self._on_image_loaded)
+    def _stop_shimmer(self) -> None:
+        """Stop the shimmer animation and reset the poster opacity to 1.0."""
         if self._shimmer:
             self._shimmer.stop()
             effect = self._poster_lbl.graphicsEffect()
             if effect:
                 effect.setOpacity(1.0)
+
+    def _on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
+        if url != self._card.thumbnail_url:
+            return
+        self._image_cache.image_loaded.disconnect(self._on_image_loaded)
+        self._image_cache.image_failed.disconnect(self._on_image_failed)
+        self._stop_shimmer()
         scaled = pixmap.scaled(
             _CARD_W, _POSTER_H,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -196,6 +204,19 @@ class _ContentCard(QWidget):
         cropped = scaled.copy(x, y, _CARD_W, _POSTER_H)
         self._poster_lbl.setPixmap(cropped)
         self._icon_lbl.setVisible(False)
+
+    def _on_image_failed(self, url: str, error: str) -> None:
+        """Handle image-load failure: stop the shimmer and clean up connections.
+
+        The placeholder icon remains visible (it is never hidden on failure),
+        so the card shows a meaningful fallback rather than a blank shimmer.
+        """
+        if url != self._card.thumbnail_url:
+            return
+        logger.debug(f"Poster load failed for {url!r}: {error}")
+        self._image_cache.image_loaded.disconnect(self._on_image_loaded)
+        self._image_cache.image_failed.disconnect(self._on_image_failed)
+        self._stop_shimmer()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
