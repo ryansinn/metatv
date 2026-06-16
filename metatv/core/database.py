@@ -68,7 +68,7 @@ class ChannelDB(Base):
     is_hidden = Column(Boolean, default=False, index=True)  # hidden from all views
     is_adult = Column(Boolean, default=False, index=True)
     is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
-    last_played = Column(DateTime)
+    last_played = Column(DateTime, index=True)
     play_count = Column(Integer, default=0)
 
     raw_data = Column(JSON)
@@ -429,6 +429,17 @@ class Database:
                     logger.info(f"Migration: added column {col} to {table}")
                 except Exception:
                     pass  # column already exists
+
+            # Index migrations — idempotent via IF NOT EXISTS
+            index_migrations = [
+                "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
+            ]
+            for idx_sql in index_migrations:
+                try:
+                    conn.execute(text(idx_sql))
+                    conn.commit()
+                except Exception as exc:
+                    logger.warning(f"Index migration skipped: {exc}")
 
         self._normalize_double_encoded_json()
 
