@@ -268,7 +268,10 @@ class ProviderLoadThread(QThread):
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            updated = repos.channels.update_detected_prefixes(separators=self._separators)
+            updated = repos.channels.update_detected_prefixes(
+                provider_id=self.provider.id,
+                separators=self._separators,
+            )
             logger.info(f"Prefix detection: updated {updated:,} channels")
         except Exception as e:
             logger.error(f"Prefix detection failed: {e}")
