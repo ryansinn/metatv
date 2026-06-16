@@ -26,7 +26,8 @@ class _ChannelStatsMixin:
                         quality_groups: Optional[Dict[str, List[str]]] = None,
                         platform_groups: Optional[Dict[str, List[str]]] = None,
                         regional_groups: Optional[Dict[str, List[str]]] = None,
-                        excluded_user_categories: Optional[set] = None) -> Dict:
+                        excluded_user_categories: Optional[set] = None,
+                        excluded_provider_ids: Optional[List[str]] = None) -> Dict:
         """Get statistics about detected prefixes.
 
         Args:
@@ -34,6 +35,11 @@ class _ChannelStatsMixin:
             language_groups: Language group mappings from config.
             quality_groups: Quality group mappings from config.
             platform_groups: Platform group mappings from config.
+            regional_groups: Regional group mappings from config.
+            excluded_user_categories: User-category values to exclude.
+            excluded_provider_ids: Provider IDs to exclude (inactive + expired
+                sources). When supplied, every aggregation is scoped to active
+                sources only so counts agree with the channel list.
 
         Returns:
             Dict with statistics about prefix distribution.
@@ -42,11 +48,20 @@ class _ChannelStatsMixin:
         quality_groups = quality_groups or {}
         platform_groups = platform_groups or {}
         regional_groups = regional_groups or {}
-        
+        # Normalise once; None / empty → no exclusion (preserves current behaviour).
+        _excl_prov = list(excluded_provider_ids) if excluded_provider_ids else None
+
+        def _apply_provider_exclusion(q):
+            """Return q with the provider exclusion filter applied (if any)."""
+            if _excl_prov:
+                q = q.filter(ChannelDB.provider_id.notin_(_excl_prov))
+            return q
+
         query = self.session.query(ChannelDB)
         if provider_id:
             query = query.filter_by(provider_id=provider_id)
         query = query.filter_by(is_hidden=False)
+        query = _apply_provider_exclusion(query)
         if excluded_user_categories:
             # Must explicitly allow NULL user_category — SQL NOT IN excludes NULLs
             query = query.filter(
@@ -59,28 +74,29 @@ class _ChannelStatsMixin:
             ChannelDB.detected_prefix,
             func.count(ChannelDB.id)
         ).filter_by(is_hidden=False)
+        prefix_query = _apply_provider_exclusion(prefix_query)
         if excluded_user_categories:
             prefix_query = prefix_query.filter(
                 or_(ChannelDB.user_category.is_(None),
                     ~ChannelDB.user_category.in_(excluded_user_categories))
             )
-        
+
         if provider_id:
             prefix_query = prefix_query.filter_by(provider_id=provider_id)
-        
+
         prefix_query = prefix_query.group_by(ChannelDB.detected_prefix)
-        
+
         prefix_counts = {}
         all_prefixes = set()
         no_prefix_count = 0
-        
+
         for prefix, count in prefix_query.all():
             if prefix:
                 prefix_counts[prefix] = count
                 all_prefixes.add(prefix)
             else:
                 no_prefix_count = count
-        
+
         # Quality counts — use detected_quality directly (matches what the SQL filter uses).
         # Channels like "NF - Movie 4K" have detected_prefix=NF but detected_quality=4K;
         # counting by prefix alone would miss them and produce wildly wrong counts.
@@ -92,6 +108,7 @@ class _ChannelStatsMixin:
         )
         if provider_id:
             dq_rows = dq_rows.filter(ChannelDB.provider_id == provider_id)
+        dq_rows = _apply_provider_exclusion(dq_rows)
         dq_rows = dq_rows.group_by(ChannelDB.detected_quality).all()
         dq_counts = {dq: cnt for dq, cnt in dq_rows}
 
@@ -156,6 +173,7 @@ class _ChannelStatsMixin:
         if provider_id:
             no_quality_query = no_quality_query.filter(
                 ChannelDB.provider_id == provider_id)
+        no_quality_query = _apply_provider_exclusion(no_quality_query)
         if excluded_user_categories:
             no_quality_query = no_quality_query.filter(
                 or_(ChannelDB.user_category.is_(None),
@@ -178,6 +196,7 @@ class _ChannelStatsMixin:
         )
         if provider_id:
             genre_q = genre_q.filter(ChannelDB.provider_id == provider_id)
+        genre_q = _apply_provider_exclusion(genre_q)
         if excluded_user_categories:
             genre_q = genre_q.filter(
                 or_(ChannelDB.user_category.is_(None),

@@ -1883,6 +1883,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                 platform_groups=platform_groups,
                 regional_groups=regional_groups,
                 excluded_user_categories=excluded,
+                excluded_provider_ids=set(repos.providers.get_hidden_provider_ids()),
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,
