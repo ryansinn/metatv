@@ -39,6 +39,7 @@ COLOR_LIGHTGRAY = "lightgray"   # detail body text
 COLOR_BORDER     = "#444"
 COLOR_LINE       = "#333"        # separators / panel bg
 COLOR_LINE_DARK  = "#2a2a2a"     # fainter hairline separators
+COLOR_BG_BAR     = "#1e1e1e"     # bottom nav bar / sidebar footer panel background
 COLOR_BG_SECTION = "#1a1a1a"     # filter section header background
 # Accent + status
 COLOR_ACCENT       = "#2288dd"
@@ -121,6 +122,13 @@ PANEL_BTN = (
     "QPushButton { background:" + COLOR_LINE + "; color:" + COLOR_DIM + "; border:1px solid " + COLOR_BORDER + ";"
     " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
     "QPushButton:hover { background:" + COLOR_BORDER + "; color:" + COLOR_TEXT_2 + "; }"
+)
+# Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
+FLAT_NAV_BTN = (
+    "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
+    "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
+    "; background: " + COLOR_BG_BAR + "; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
 )
 RATING_BTN = (
     "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"

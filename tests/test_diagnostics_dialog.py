@@ -4,7 +4,8 @@ The worker half (off-thread probe) is the boring try/except over the headless
 engine — these pin the half that regresses: the main-thread render slot
 (verdict headline text + Apply enabled/disabled), the Apply handler
 (config.mpv_extra_args rewritten via merge_mpv_cache_args + save() called), the
-pure merge helper, and the details-pane → diagnose_requested signal wiring.
+pure merge helper, and the bottom-nav on_diagnose_clicked handler (targets the
+selected channel; notifies + skips the lookup when nothing is selected).
 
 Widgets are constructed via __new__ (no full QDialog __init__) and handed real
 QLabels/QPushButtons through the module qapp fixture, so the slots run headless.
@@ -224,40 +225,42 @@ def test_apply_noop_without_recommended_args(qapp):
 
 
 # --------------------------------------------------------------------------- #
-# 4. Signal wiring — action bar diagnose_clicked → DetailsPane.diagnose_requested #
+# 4. Nav-bar handler — on_diagnose_clicked targets the selected channel          #
 # --------------------------------------------------------------------------- #
 
-def test_details_pane_reemits_diagnose_with_channel_id(qapp):
-    """Firing the action bar's diagnose_clicked must re-emit DetailsPane.diagnose_requested
-    with the current channel's id (the wrapper that adds the channel_id)."""
-    from metatv.core.config import Config
-    from metatv.core.image_cache import ImageCache
-    from metatv.gui.details_pane import DetailsPaneWidget
+def test_nav_diagnose_targets_selected_channel(qapp):
+    """With a selected channel, on_diagnose_clicked calls diagnose_channel_by_id
+    with that channel's id exactly once (the nav-bar action reuses the lookup)."""
+    from types import SimpleNamespace
+    from metatv.gui.main_window import MainWindow
 
-    class _FakeChannel:
-        id = "chan-123"
+    host = MainWindow.__new__(MainWindow)
+    host.details_pane = SimpleNamespace(current_channel=SimpleNamespace(id="ch-123"))
 
-    dp = DetailsPaneWidget(Config(), ImageCache(), db=None)
-    dp.current_channel = _FakeChannel()
+    called: list[str] = []
+    host.diagnose_channel_by_id = lambda cid: called.append(cid)
 
-    received: list[str] = []
-    dp.diagnose_requested.connect(lambda cid: received.append(cid))
-
-    dp._action_bar.diagnose_clicked.emit()
-    assert received == ["chan-123"]
+    MainWindow.on_diagnose_clicked(host)
+    assert called == ["ch-123"]
 
 
-def test_details_pane_diagnose_noop_without_channel(qapp):
-    """With no current channel the wrapper must not emit (guards against None.id)."""
-    from metatv.core.config import Config
-    from metatv.core.image_cache import ImageCache
-    from metatv.gui.details_pane import DetailsPaneWidget
+def test_nav_diagnose_no_channel_notifies_and_skips_lookup(qapp):
+    """With no selected channel, on_diagnose_clicked must NOT call the lookup and
+    must surface a notification instead."""
+    from types import SimpleNamespace
+    from metatv.gui.main_window import MainWindow
 
-    dp = DetailsPaneWidget(Config(), ImageCache(), db=None)
-    dp.current_channel = None
+    host = MainWindow.__new__(MainWindow)
+    host.details_pane = SimpleNamespace(current_channel=None)
 
-    received: list[str] = []
-    dp.diagnose_requested.connect(lambda cid: received.append(cid))
+    called: list[str] = []
+    host.diagnose_channel_by_id = lambda cid: called.append(cid)
 
-    dp._action_bar.diagnose_clicked.emit()
-    assert received == []
+    shown: list[dict] = []
+    host.notification_manager = SimpleNamespace(
+        show=lambda **kwargs: shown.append(kwargs)
+    )
+
+    MainWindow.on_diagnose_clicked(host)
+    assert called == []
+    assert len(shown) == 1

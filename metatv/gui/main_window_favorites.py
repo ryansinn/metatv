@@ -817,7 +817,7 @@ class _FavoritesMixin:
             self.play_media(channel)
 
     def diagnose_channel_by_id(self, channel_id: str) -> None:
-        """Open the stream-diagnostics dialog for a channel (details pane Diagnose button).
+        """Open the stream-diagnostics dialog for a channel (bottom-nav Diagnose button).
 
         Extracts primitives inside the session block (no ORM object crosses the
         boundary), then hands the URL/name to a modal dialog that runs the headless
