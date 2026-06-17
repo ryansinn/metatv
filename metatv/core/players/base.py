@@ -81,3 +81,28 @@ class PlayerPlugin(ABC):
     def cleanup(self):
         """Cleanup resources (sockets, processes, etc.)"""
         pass
+
+    def get_property(self, name: str) -> object | None:
+        """Query a single player runtime property.
+
+        Concrete (non-abstract) default so players without introspection support
+        inherit a safe no-op. Returns None when the property is unavailable.
+
+        Args:
+            name: Property name (player-specific).
+
+        Returns:
+            The property value, or None if unavailable / unsupported.
+        """
+        return None
+
+    def get_properties(self, names: list[str]) -> dict:
+        """Query several runtime properties.
+
+        Args:
+            names: Property names to query.
+
+        Returns:
+            ``{name: value-or-None}`` for each requested name.
+        """
+        return {n: None for n in names}

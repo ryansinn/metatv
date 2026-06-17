@@ -25,6 +25,9 @@ class MPVPlayer(PlayerPlugin):
         self.process: Optional[subprocess.Popen] = None
         self.socket_path = config.mpv_socket_path
         self.single_instance = (config.player_mode == "single-instance")
+        # Monotonically increasing IPC request id for property queries. Replies are
+        # matched by this id so interleaved event lines on the socket are skipped.
+        self._request_id = 100
     
     @property
     def name(self) -> str:
@@ -206,13 +209,88 @@ class MPVPlayer(PlayerPlugin):
             logger.error(f"IPC command failed: {e}")
             return False
     
+    def get_property(self, name: str) -> object | None:
+        """Query a single mpv property via IPC.
+
+        Returns the value, or None on any failure / unavailable property. Skips
+        interleaved event lines (which have no ``request_id``) and matches the
+        reply by the ``request_id`` that was sent. Never raises.
+
+        Args:
+            name: mpv property name (e.g. ``"demuxer-cache-duration"``).
+
+        Returns:
+            The property value, or None if unavailable / on any error.
+        """
+        self._request_id += 1
+        rid = self._request_id
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            sock.connect(self.socket_path)
+
+            command = {"command": ["get_property", name], "request_id": rid}
+            sock.sendall((json.dumps(command) + "\n").encode("utf-8"))
+
+            # mpv sends newline-delimited JSON. The reply for our request can be
+            # preceded by asynchronous event lines (no request_id) — accumulate
+            # bytes, parse complete lines, and only act on the matching reply.
+            buffer = ""
+            try:
+                while True:
+                    data = sock.recv(4096)
+                    if not data:
+                        break  # socket closed before a matching reply
+                    buffer += data.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(msg, dict) or "request_id" not in msg:
+                            continue  # event line — skip
+                        if msg.get("request_id") != rid:
+                            continue  # reply to some other request — skip
+                        if msg.get("error") == "success":
+                            return msg.get("data")
+                        return None
+            finally:
+                sock.close()
+            return None
+        except FileNotFoundError:
+            logger.debug(f"get_property: socket not found: {self.socket_path}")
+            return None
+        except socket.timeout:
+            logger.debug(f"get_property: timed out reading {name!r}")
+            return None
+        except Exception as e:
+            logger.debug(f"get_property failed for {name!r}: {e}")
+            return None
+
+    def get_properties(self, names: list[str]) -> dict:
+        """Query several mpv properties.
+
+        One socket round trip per name is fine (cheap unix-socket calls).
+
+        Args:
+            names: mpv property names to query.
+
+        Returns:
+            ``{name: value-or-None}`` for each requested name.
+        """
+        return {n: self.get_property(n) for n in names}
+
     def play(self, url: str, title: str) -> bool:
         """Play a URL
-        
+
         Args:
             url: Stream URL to play
             title: Title to display
-            
+
         Returns:
             True if successful, False otherwise
         """
