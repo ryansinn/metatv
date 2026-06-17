@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
+from metatv.gui import icons as _icons
+
 
 @dataclass
 class ChannelActionState:
@@ -22,6 +24,7 @@ class _ActionBar(QWidget):
     """
 
     play_clicked            = pyqtSignal()
+    diagnose_clicked        = pyqtSignal()
     favorite_clicked        = pyqtSignal()
     queue_clicked           = pyqtSignal()
     like_clicked            = pyqtSignal()
@@ -53,6 +56,13 @@ class _ActionBar(QWidget):
         self.play_button.setToolTip("Play this channel")
         self.play_button.clicked.connect(self.play_clicked)
         row1.addWidget(self.play_button, 1)
+
+        self.diagnose_button = QPushButton(f"{_icons.diagnose_icon} Diagnose")
+        self.diagnose_button.setToolTip(
+            "Diagnose stream quality — check if buffering is your provider or your connection"
+        )
+        self.diagnose_button.clicked.connect(self.diagnose_clicked)
+        row1.addWidget(self.diagnose_button, 1)
 
         self.queue_button = QPushButton(f"{self.config.queue_icon} Add to Queue")
         self.queue_button.setToolTip("Add to Watch Queue")

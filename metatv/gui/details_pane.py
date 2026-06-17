@@ -33,6 +33,7 @@ class DetailsPaneWidget(QWidget):
 
     # Public signals — wired by main_window (unchanged API)
     play_requested             = pyqtSignal(str)        # channel_id
+    diagnose_requested         = pyqtSignal(str)        # channel_id
     favorite_toggled           = pyqtSignal(str)        # channel_id
     queue_toggled              = pyqtSignal(str)        # channel_id
     rating_requested           = pyqtSignal(str, int)   # channel_id, ±1
@@ -225,6 +226,7 @@ class DetailsPaneWidget(QWidget):
         # Action bar — wrap with channel_id
         ab = self._action_bar
         ab.play_clicked.connect(self._on_play)
+        ab.diagnose_clicked.connect(self._on_diagnose)
         ab.favorite_clicked.connect(self._on_favorite)
         ab.queue_clicked.connect(self._on_queue)
         ab.like_clicked.connect(self._on_like)
@@ -311,6 +313,10 @@ class DetailsPaneWidget(QWidget):
     def _on_play(self) -> None:
         if self.current_channel:
             self.play_requested.emit(self.current_channel.id)
+
+    def _on_diagnose(self) -> None:
+        if self.current_channel:
+            self.diagnose_requested.emit(self.current_channel.id)
 
     def _on_favorite(self) -> None:
         if self.current_channel:

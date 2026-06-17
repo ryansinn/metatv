@@ -816,6 +816,36 @@ class _FavoritesMixin:
         else:
             self.play_media(channel)
 
+    def diagnose_channel_by_id(self, channel_id: str) -> None:
+        """Open the stream-diagnostics dialog for a channel (details pane Diagnose button).
+
+        Extracts primitives inside the session block (no ORM object crosses the
+        boundary), then hands the URL/name to a modal dialog that runs the headless
+        diagnostic off the main thread on the shared executor.
+        """
+        from metatv.gui.diagnostics_dialog import StreamDiagnosticsDialog
+
+        stream_url = None
+        name = ""
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
+            if channel:
+                stream_url = channel.stream_url
+                name = channel.name
+        if not stream_url:
+            return
+
+        player_active = self.player_manager.is_running()
+        dialog = StreamDiagnosticsDialog(
+            channel_name=name,
+            stream_url=stream_url,
+            config=self.config,
+            executor=self.executor,
+            player_active=player_active,
+            parent=self,
+        )
+        dialog.exec()
+
     def toggle_favorite_by_id(self, channel_id: str):
         """Toggle favorite by ID (for details pane Favorite button)"""
         result = self._apply_favorite_toggle(channel_id)

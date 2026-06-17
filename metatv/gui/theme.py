@@ -300,6 +300,24 @@ CONTEXT_FILTER_CHIP_BTN = (
     "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
 )
 
+# Stream-diagnostics dialog
+# Warning banner shown when a stream is already playing (single-connection providers
+# can't be probed concurrently). Amber, bordered — distinct from the verdict headline.
+DIAG_PLAYING_WARNING = (
+    "color: " + COLOR_WARN + "; font-size: " + FONT_LG + ";"
+    " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 6px 10px;"
+)
+# Verdict headline base — color is interpolated at runtime per verdict (see dialog).
+DIAG_VERDICT_HEADLINE = "font-size: " + FONT_2XL + "; font-weight: bold;"
+# Plain-language summary paragraph under the headline.
+DIAG_SUMMARY = "color: " + COLOR_LIGHTGRAY + "; font-size: " + FONT_LG + ";"
+# Metrics block (throughput / bitrate / headroom / ttfb / codec / resolution).
+DIAG_METRICS = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+# Recommended-args / placeholder line.
+DIAG_RECOMMEND = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-style: italic;"
+# Saved-confirmation line after applying tuning.
+DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
+
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (
     "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
