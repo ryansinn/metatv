@@ -641,6 +641,10 @@ class Config(BaseModel):
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
     autoplay_season_episodes: bool = True  # Auto-queue subsequent episodes when playing from season
+
+    # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)
+    diagnostics_baseline_url: str = "https://speed.cloudflare.com/__down?bytes=25000000"  # Neutral-host speed sample
+    diagnostics_sample_seconds: int = 8  # How long to sample provider throughput
     
     # Filtering settings
     filters_enabled: bool = True
