@@ -40,6 +40,72 @@ class MPVPlayer(PlayerPlugin):
         if self.process is None:
             return False
         return self.process.poll() is None
+
+    def _compose_extra_args(self) -> list[str]:
+        """Build the effective extra mpv args.
+
+        Prepends cache-resilience flags derived from ``config.default_cache_size``,
+        then appends the user's ``mpv_extra_args`` last so the user can override
+        the base (mpv applies the last value for a repeated option).
+
+        For ``"auto"`` (or a falsy value) no cache flags are added — stock mpv
+        behavior is preserved. A configured size like ``"100M"`` is mapped to an
+        mpv ``<bytesize>`` suffix (``"100MiB"``) for ``--demuxer-max-bytes``. An
+        unrecognized size falls back to just the user args (never raises).
+
+        Returns:
+            The composed list of extra args to pass on the mpv command line.
+        """
+        size = self.config.default_cache_size
+        user_args = list(self.config.mpv_extra_args)
+
+        if not size or size == "auto":
+            return user_args
+
+        byte_size = self._to_mpv_bytesize(size)
+        if byte_size is None:
+            # Unrecognized value — don't crash, just use the user's args.
+            return user_args
+
+        return [
+            "--cache=yes",
+            f"--demuxer-max-bytes={byte_size}",
+            "--demuxer-readahead-secs=30",
+        ] + user_args
+
+    @staticmethod
+    def _to_mpv_bytesize(size: str) -> Optional[str]:
+        """Convert a config cache size (e.g. ``"50M"``) to an mpv ``<bytesize>``.
+
+        mpv's ``--demuxer-max-bytes`` accepts binary suffixes (``KiB``/``MiB``/
+        ``GiB``). The config stores plain decimal-style suffixes (``"50M"``), so a
+        trailing ``K``/``M``/``G`` is stripped and re-added as the matching binary
+        unit; a bare number defaults to ``MiB``.
+
+        Args:
+            size: Configured cache size string (e.g. ``"50M"``, ``"250M"``).
+
+        Returns:
+            An mpv-accepted bytesize string (e.g. ``"50MiB"``), or ``None`` if the
+            value cannot be parsed.
+        """
+        unit_map = {"K": "KiB", "M": "MiB", "G": "GiB"}
+        raw = size.strip()
+        if not raw:
+            return None
+
+        suffix = raw[-1].upper()
+        if suffix in unit_map:
+            number = raw[:-1].strip()
+            unit = unit_map[suffix]
+        else:
+            number = raw
+            unit = "MiB"
+
+        if not number.isdigit():
+            return None
+
+        return f"{number}{unit}"
     
     def _ensure_single_instance_running(self) -> bool:
         """Ensure single mpv instance is running with IPC socket
@@ -79,8 +145,8 @@ class MPVPlayer(PlayerPlugin):
                 # Keep window open for next video (instant channel switching)
                 cmd.append("--idle=yes")
             
-            cmd += self.config.mpv_extra_args
-            
+            cmd += self._compose_extra_args()
+
             logger.info(f"Starting single mpv instance: {' '.join(cmd)}")
             
             self.process = subprocess.Popen(
@@ -249,7 +315,7 @@ class MPVPlayer(PlayerPlugin):
             cmd = [
                 "mpv",
                 f"--force-media-title={title}"
-            ] + self.config.mpv_extra_args + [url]
+            ] + self._compose_extra_args() + [url]
             
             logger.info(f"Launching new mpv instance: {' '.join(cmd[:3])}...")
             
