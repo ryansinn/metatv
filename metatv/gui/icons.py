@@ -29,6 +29,7 @@ watched_icon: str = "✓"
 
 # Actions
 play_icon: str = "▶"
+diagnose_icon: str = "📶"   # stream-diagnostics action (signal/connectivity glyph)
 close_icon: str = "×"
 delete_icon: str = "🗑"
 refresh_icon: str = "⟳"

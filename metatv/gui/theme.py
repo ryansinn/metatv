@@ -39,6 +39,7 @@ COLOR_LIGHTGRAY = "lightgray"   # detail body text
 COLOR_BORDER     = "#444"
 COLOR_LINE       = "#333"        # separators / panel bg
 COLOR_LINE_DARK  = "#2a2a2a"     # fainter hairline separators
+COLOR_BG_BAR     = "#1e1e1e"     # bottom nav bar / sidebar footer panel background
 COLOR_BG_SECTION = "#1a1a1a"     # filter section header background
 # Accent + status
 COLOR_ACCENT       = "#2288dd"
@@ -121,6 +122,13 @@ PANEL_BTN = (
     "QPushButton { background:" + COLOR_LINE + "; color:" + COLOR_DIM + "; border:1px solid " + COLOR_BORDER + ";"
     " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
     "QPushButton:hover { background:" + COLOR_BORDER + "; color:" + COLOR_TEXT_2 + "; }"
+)
+# Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
+FLAT_NAV_BTN = (
+    "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
+    "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
+    "; background: " + COLOR_BG_BAR + "; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
 )
 RATING_BTN = (
     "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
@@ -299,6 +307,24 @@ CONTEXT_FILTER_CHIP_BTN = (
     " background: transparent; border: none; padding: 0 2px; font-weight: bold; }"
     "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
 )
+
+# Stream-diagnostics dialog
+# Warning banner shown when a stream is already playing (single-connection providers
+# can't be probed concurrently). Amber, bordered — distinct from the verdict headline.
+DIAG_PLAYING_WARNING = (
+    "color: " + COLOR_WARN + "; font-size: " + FONT_LG + ";"
+    " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 6px 10px;"
+)
+# Verdict headline base — color is interpolated at runtime per verdict (see dialog).
+DIAG_VERDICT_HEADLINE = "font-size: " + FONT_2XL + "; font-weight: bold;"
+# Plain-language summary paragraph under the headline.
+DIAG_SUMMARY = "color: " + COLOR_LIGHTGRAY + "; font-size: " + FONT_LG + ";"
+# Metrics block (throughput / bitrate / headroom / ttfb / codec / resolution).
+DIAG_METRICS = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+# Recommended-args / placeholder line.
+DIAG_RECOMMEND = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-style: italic;"
+# Saved-confirmation line after applying tuning.
+DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (

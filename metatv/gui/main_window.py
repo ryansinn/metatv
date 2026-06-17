@@ -46,6 +46,8 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 from metatv.gui.filter_bar import ToggleChip, FilterChip
 from metatv.gui.collapsible_splitter import CollapsibleSplitter
 from metatv.gui.details_pane import DetailsPaneWidget
@@ -509,11 +511,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         settings_btn.setFlat(True)
         settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.setToolTip("Open application settings (Ctrl+,)")
-        settings_btn.setStyleSheet(
-            "QPushButton { font-size: 13px; color: #bbbbbb; padding: 7px 12px;"
-            " border-top: 1px solid #333; background: #1e1e1e; }"
-            "QPushButton:hover { color: #eeeeee; background: #2a2a2a; }"
-        )
+        settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         settings_btn.clicked.connect(self.open_settings)
         outer_layout.addWidget(settings_btn)
 
@@ -666,6 +664,18 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         nav_layout.addWidget(self.discover_chip)
 
+        # Diagnose action — far-left, mirrors the Exclusions chip on the right
+        self._diagnose_btn = QPushButton(f"{_icons.diagnose_icon} Diagnose")
+        self._diagnose_btn.setFlat(True)
+        self._diagnose_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._diagnose_btn.setToolTip(
+            "Diagnose stream quality of the selected channel — "
+            "is buffering your provider or your connection?"
+        )
+        self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)
+        layout.addWidget(self._diagnose_btn)
+
         layout.addStretch(1)
         layout.addWidget(nav_group)
         layout.addStretch(1)
@@ -677,6 +687,20 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
 
         QTimer.singleShot(0, self._update_filter_btn_state)
         return bar
+
+    def on_diagnose_clicked(self) -> None:
+        """Diagnose the currently-selected channel's stream (nav-bar action)."""
+        channel = getattr(self.details_pane, "current_channel", None)
+        if channel is None:
+            self.notification_manager.show(
+                title="No channel selected",
+                message="Select a channel to diagnose its stream.",
+                type="info",
+                dismissible=True,
+                auto_dismiss_seconds=5,
+            )
+            return
+        self.diagnose_channel_by_id(channel.id)
 
     def create_content_area(self) -> QWidget:
         """Create main content area"""
@@ -736,7 +760,6 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         controls_layout.addWidget(self._tab_hidden_btn)
 
         # Context filter chip — hidden until a details-pane genre/person filter is active
-        from metatv.gui import theme as _theme
         self._context_filter_chip = QWidget()
         self._context_filter_chip.hide()
         self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
