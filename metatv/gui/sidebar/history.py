@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
+from metatv.gui import theme as _theme
 
 
 class HistoryItemWidget(QWidget):
@@ -30,21 +31,21 @@ class HistoryItemWidget(QWidget):
             next_btn.setFixedSize(30, 20)
             next_btn.setToolTip("Play next episode")
             next_btn.clicked.connect(lambda: self.playNextClicked.emit(self.channel_id))
-            next_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(68, 136, 255, 0.2);
-                    border: 1px solid #4488ff;
+            next_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {_theme.OVERLAY_BLUE_20};
+                    border: 1px solid {_theme.COLOR_ACCENT_BLUE};
                     border-radius: 3px;
                     font-size: 11px;
                     font-weight: bold;
-                    color: #4488ff;
-                }
-                QPushButton:hover {
+                    color: {_theme.COLOR_ACCENT_BLUE};
+                }}
+                QPushButton:hover {{
                     background-color: rgba(68, 136, 255, 0.4);
-                }
-                QPushButton:pressed {
+                }}
+                QPushButton:pressed {{
                     background-color: rgba(68, 136, 255, 0.6);
-                }
+                }}
             """)
             layout.addWidget(next_btn)
 

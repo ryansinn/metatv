@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 from loguru import logger
 
 from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.gui import theme as _theme
 
 # ---------------------------------------------------------------------------
 # Lookup tables
@@ -134,13 +135,13 @@ class _CategoryNamePopup(QFrame):
         super().__init__(parent, Qt.WindowType.ToolTip)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setStyleSheet(
-            "QFrame { background: #252525; border: 1px solid #555; border-radius: 4px; }"
+            f"QFrame {{ background: #252525; border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; }}"
         )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
         prefix_lbl = QLabel(prefix)
-        prefix_lbl.setStyleSheet("color: #888; font-size: 11px; font-weight: bold;")
+        prefix_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px; font-weight: bold;")
         layout.addWidget(prefix_lbl)
         self._edit = QLineEdit(current_name)
         self._edit.setPlaceholderText(f"Name for {prefix}…")
@@ -215,7 +216,7 @@ class _VersionSection(QWidget):
         row_layout.setSpacing(6)
 
         cat_label = QLabel("Categories:")
-        cat_label.setStyleSheet("color: #888; font-size: 11px;")
+        cat_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         row_layout.addWidget(cat_label, 0)
 
@@ -287,10 +288,10 @@ class _VersionSection(QWidget):
 
         chip = QPushButton(prefix + status)
         chip.setStyleSheet(
-            "QPushButton { font-size: 11px; color: #ccc; border: 1px solid #555;"
+            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_TEXT}; border: 1px solid {_theme.COLOR_FAINT};"
             " border-radius: 4px; padding: 2px 8px; }"
-            "QPushButton:hover { color: #fff; border-color: #888;"
-            " background: rgba(255,255,255,0.05); }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; border-color: {_theme.COLOR_MUTED};"
+            f" background: {_theme.OVERLAY_05}; }}"
         )
         full = resolve_category_name(prefix, self.config)
         tip = full or prefix
@@ -310,7 +311,7 @@ class _VersionSection(QWidget):
         extra = "text-decoration: line-through;" if is_hidden_cat else ""
         chip = QPushButton(prefix)
         chip.setStyleSheet(
-            f"QPushButton {{ font-size: 11px; color: #444; border: 1px solid #333;"
+            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
             f" border-radius: 4px; padding: 2px 8px; {extra} }}"
         )
         full = resolve_category_name(prefix, self.config)

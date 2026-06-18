@@ -16,6 +16,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import theme as _theme
 
 
 class _CategorySection(QWidget):
@@ -68,7 +69,7 @@ class _CategorySection(QWidget):
         hl.addWidget(name_lbl)
 
         count_lbl = QLabel(f"({self._count:,})")
-        count_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        count_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
         hl.addWidget(count_lbl)
 
         if self._is_excluded:
@@ -127,7 +128,7 @@ class _CategorySection(QWidget):
 
         if not channels:
             lbl = QLabel("No channels in this category.")
-            lbl.setStyleSheet("color: #555; font-size: 11px; padding: 4px 0;")
+            lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 4px 0;")
             self._body_vl.addWidget(lbl)
             return
 
@@ -141,15 +142,15 @@ class _CategorySection(QWidget):
         hl.setSpacing(6)
 
         name_lbl = QLabel(channel.name)
-        name_lbl.setStyleSheet("font-size: 11px; color: #bbb;")
+        name_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_TEXT_LOW};")
         hl.addWidget(name_lbl, 1)
 
         move_btn = QPushButton("Change Category")
         move_btn.setFlat(True)
         move_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         move_btn.setStyleSheet(
-            "QPushButton { font-size: 10px; color: #4488ff; padding: 1px 6px; }"
-            "QPushButton:hover { color: #88aaff; }"
+            f"QPushButton {{ font-size: 10px; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
         )
         move_btn.setToolTip("Move this channel to a different category")
         move_btn.clicked.connect(lambda _, cid=channel.id: self._change_category(cid))
@@ -231,13 +232,13 @@ class CategoriesDialog(QDialog):
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
         hint = QLabel("Expand a category to see its channels and manage assignments.")
-        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
         hdr_row.addWidget(hint)
         vl.addLayout(hdr_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #333;")
+        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
         vl.addWidget(sep)
 
         self._scroll_area = QScrollArea()
@@ -279,7 +280,7 @@ class CategoriesDialog(QDialog):
                 'or "Add to Category..." to get started.'
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet("color: #555; font-size: 12px; padding: 30px;")
+            empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 12px; padding: 30px;")
             self._scroll_vl.addWidget(empty)
         else:
             for cat in cats:

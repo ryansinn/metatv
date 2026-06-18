@@ -31,6 +31,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.gui.discover_shelf import _Shelf
@@ -43,7 +44,7 @@ _ZONE_COLLAPSED = "collapsed"
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        "font-size: 12px; font-weight: bold; color: #aaa; "
+        f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_DIM}; "
         "padding: 6px 0 2px 0;"
     )
     return lbl
@@ -52,7 +53,7 @@ def _section_label(text: str) -> QLabel:
 def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet("color: #444;")
+    line.setStyleSheet(f"color: {_theme.COLOR_BORDER};")
     return line
 
 
@@ -79,9 +80,9 @@ class _ShelfRow(QWidget):
         btn.setFlat(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
-            "QPushButton { background: #333; border: 1px solid #555; "
-            "border-radius: 3px; color: #ccc; font-size: 10px; padding: 1px 6px; }"
-            "QPushButton:hover { background: #444; color: #fff; }"
+            f"QPushButton {{ background: {_theme.COLOR_LINE}; border: 1px solid {_theme.COLOR_FAINT}; "
+            f"border-radius: 3px; color: {_theme.COLOR_TEXT}; font-size: 10px; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; }}"
         )
         if tooltip:
             btn.setToolTip(tooltip)
@@ -156,8 +157,8 @@ class DiscoverManageDialog(QDialog):
         expand_all_btn.clicked.connect(self._expand_all)
         for btn in (collapse_all_btn, expand_all_btn):
             btn.setStyleSheet(
-                "QPushButton { background: #2a2a2a; border: 1px solid #555; "
-                "border-radius: 3px; color: #ccc; padding: 3px 10px; }"
+                f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; border: 1px solid {_theme.COLOR_FAINT}; "
+                f"border-radius: 3px; color: {_theme.COLOR_TEXT}; padding: 3px 10px; }}"
                 "QPushButton:hover { background: #3a3a3a; }"
             )
         global_row.addWidget(collapse_all_btn)
@@ -312,7 +313,7 @@ class DiscoverManageDialog(QDialog):
     def _add_empty_label(self, container: QWidget) -> None:
         empty = QLabel("(none)")
         empty.setObjectName("_empty_placeholder")
-        empty.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0;")
+        empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 2px 0;")
         container.layout().addWidget(empty)
 
     def _sync_empty_label(self, container: QWidget) -> None:

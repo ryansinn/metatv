@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QTimer
 from metatv.core.notifications import Notification, NotificationType
 from metatv.core.config import Config
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 
 class NotificationCard(QFrame):
@@ -32,19 +33,19 @@ class NotificationCard(QFrame):
         if self.notification.type == NotificationType.ERROR:
             bg_color = "#2c1515"
             border_color = "#ff4444"
-            text_color = "#ffffff"
+            text_color = _theme.COLOR_TEXT_HI
         elif self.notification.type == NotificationType.SUCCESS:
             bg_color = "#152c15"
             border_color = "#44ff44"
-            text_color = "#ffffff"
+            text_color = _theme.COLOR_TEXT_HI
         elif self.notification.type == NotificationType.WARNING:
             bg_color = "#2c2415"
             border_color = "#ffaa44"
-            text_color = "#ffffff"
+            text_color = _theme.COLOR_TEXT_HI
         else:  # INFO and PROGRESS
             bg_color = "#1a1a2e"
-            border_color = "#4488ff"
-            text_color = "#ffffff"
+            border_color = _theme.COLOR_ACCENT_BLUE
+            text_color = _theme.COLOR_TEXT_HI
 
         self.setStyleSheet(f"""
             NotificationCard {{
@@ -62,7 +63,7 @@ class NotificationCard(QFrame):
                 font-size: 18px;
             }}
             QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.1);
+                background-color: {_theme.OVERLAY_10};
             }}
         """)
 
@@ -111,9 +112,9 @@ class NotificationCard(QFrame):
             for label, callback in self.notification.actions:
                 btn = QPushButton(label)
                 btn.setStyleSheet(
-                    "QPushButton { font-size: 11px; font-weight: bold; border: 1px solid #666;"
+                    f"QPushButton {{ font-size: 11px; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
                     " border-radius: 3px; padding: 2px 8px; }"
-                    "QPushButton:hover { background: rgba(255,255,255,0.15); }"
+                    f"QPushButton:hover {{ background: {_theme.OVERLAY_15}; }}"
                 )
                 btn.setToolTip(label)
                 btn.clicked.connect(lambda _, cb=callback: (cb(), self.dismiss()))

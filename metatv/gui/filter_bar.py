@@ -43,28 +43,28 @@ class ToggleChip(QPushButton):
 
         if self._enabled:
             self.setText(f"{label_text} ●")
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #4488ff;
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {_theme.COLOR_ACCENT_BLUE};
                     color: white;
                     border: none;
                     border-radius: 12px;
                     padding: 6px 14px;
                     font-weight: bold;
-                }
-                QPushButton:hover { background-color: #5599ff; }
+                }}
+                QPushButton:hover {{ background-color: #5599ff; }}
             """)
         else:
             self.setText(f"{label_text} ○")
-            self.setStyleSheet("""
-                QPushButton {
+            self.setStyleSheet(f"""
+                QPushButton {{
                     background-color: #e0e0e0;
-                    color: #666666;
-                    border: 1px solid #cccccc;
+                    color: {_theme.COLOR_MUTED_2};
+                    border: 1px solid {_theme.COLOR_TEXT};
                     border-radius: 12px;
                     padding: 6px 14px;
-                }
-                QPushButton:hover { background-color: #d0d0d0; }
+                }}
+                QPushButton:hover {{ background-color: #d0d0d0; }}
             """)
 
     def is_enabled(self) -> bool:
@@ -155,16 +155,16 @@ class FilterDropdown(QPushButton):
         self.selected_groups: set = set(groups.keys()) if all_selected else set()
 
         self.setText(f"{label} ▼")
-        self.setStyleSheet("""
-            QPushButton {
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background-color: white;
-                color: #333333;
-                border: 1px solid #cccccc;
+                color: {_theme.COLOR_LINE};
+                border: 1px solid {_theme.COLOR_TEXT};
                 border-radius: 4px;
                 padding: 6px 12px;
                 text-align: left;
-            }
-            QPushButton:hover { background-color: #f5f5f5; color: #333333; }
+            }}
+            QPushButton:hover {{ background-color: #f5f5f5; color: {_theme.COLOR_LINE}; }}
         """)
 
         self.menu = QMenu(self)
@@ -287,7 +287,7 @@ class FilterBar(QWidget):
         source_row.setContentsMargins(0, 0, 0, 0)
         source_row.setSpacing(6)
         self._source_chips_label = QLabel("Sources:")
-        self._source_chips_label.setStyleSheet("color: #888; font-size: 11px;")
+        self._source_chips_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         source_row.addWidget(self._source_chips_label)
         self._source_chips_layout = source_row
         source_row.addStretch()
@@ -392,12 +392,12 @@ class FilterBar(QWidget):
 
         self.clear_filters_btn = QPushButton("Clear")
         self.clear_filters_btn.setToolTip("Reset all filters — show everything")
-        self.clear_filters_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e0e0e0; color: #333333;
-                border: 1px solid #cccccc; border-radius: 4px; padding: 6px 12px;
-            }
-            QPushButton:hover { background-color: #d0d0d0; color: #333333; }
+        self.clear_filters_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #e0e0e0; color: {_theme.COLOR_LINE};
+                border: 1px solid {_theme.COLOR_TEXT}; border-radius: 4px; padding: 6px 12px;
+            }}
+            QPushButton:hover {{ background-color: #d0d0d0; color: {_theme.COLOR_LINE}; }}
         """)
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_row.addWidget(self.clear_filters_btn)
@@ -406,7 +406,7 @@ class FilterBar(QWidget):
         layout.addLayout(filter_row)
 
         self.stats_label = QLabel("Showing 0 of 0 channels")
-        self.stats_label.setStyleSheet("color: #666666; font-size: 12px;")
+        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 12px;")
 
     # ── Source chips ──────────────────────────────────────────────────────────
 

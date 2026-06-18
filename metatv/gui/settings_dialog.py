@@ -11,6 +11,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
+from metatv.gui import theme as _theme
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "alerts":      "Alerts",
@@ -124,7 +125,7 @@ class SettingsDialog(QDialog):
         self._mpv_args_input = QLineEdit()
         self._mpv_args_input.setPlaceholderText("--cache=yes --demuxer-max-bytes=50M")
         hint = QLabel("Space-separated flags passed directly to mpv.")
-        hint.setStyleSheet("color: #888; font-size: 11px;")
+        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         mpv_layout.addWidget(self._mpv_args_input)
         mpv_layout.addWidget(hint)
         layout.addWidget(mpv_group)
@@ -172,8 +173,8 @@ class SettingsDialog(QDialog):
         tmdb_link_btn = QPushButton("Get key →")
         tmdb_link_btn.setFixedWidth(80)
         tmdb_link_btn.setStyleSheet(
-            "QPushButton { color: #4488ff; border: none; padding: 0; }"
-            " QPushButton:hover { color: #88aaff; }"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
         )
         tmdb_link_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api"))
@@ -200,8 +201,8 @@ class SettingsDialog(QDialog):
         omdb_link_btn = QPushButton("Get key →")
         omdb_link_btn.setFixedWidth(80)
         omdb_link_btn.setStyleSheet(
-            "QPushButton { color: #4488ff; border: none; padding: 0; }"
-            " QPushButton:hover { color: #88aaff; }"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; padding: 0; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
         )
         omdb_link_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://www.omdbapi.com/apikey.aspx"))
@@ -225,7 +226,7 @@ class SettingsDialog(QDialog):
             "All changes apply immediately when you click OK or Apply."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 11px;")
+        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         layout.addWidget(hint)
 
         self._sidebar_list = QListWidget()

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
+from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -161,7 +162,7 @@ class _ContentCard(QWidget):
         self._title_lbl.setFixedHeight(38)
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._title_lbl.setStyleSheet("font-size: 11px; color: #ddd;")
+        self._title_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_TEXT_2};")
         self._title_lbl.setToolTip(card.title)
         vl.addWidget(self._title_lbl)
 

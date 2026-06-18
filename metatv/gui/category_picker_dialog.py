@@ -18,6 +18,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import theme as _theme
 
 
 # ── Mood constants ─────────────────────────────────────────────────────────────
@@ -31,11 +32,11 @@ MOOD_DISLIKE      = "dislike"
 _MOOD_ORDER = [MOOD_LIKE, MOOD_CURIOUS, MOOD_NONE, MOOD_NOT_FOR_ME, MOOD_DISLIKE]
 
 _MOOD_COLORS = {
-    MOOD_LIKE:       ("#2ecc71", "#1a7a43"),   # bright green bg, dark text
-    MOOD_CURIOUS:    ("#27ae60", "#155a2e"),   # forest green
-    MOOD_NONE:       ("#555555", "#cccccc"),   # mid grey
-    MOOD_NOT_FOR_ME: ("#c0392b", "#f5a5a0"),   # brick red
-    MOOD_DISLIKE:    ("#e74c3c", "#ffffff"),   # bright red
+    MOOD_LIKE:       ("#2ecc71", "#1a7a43"),       # bright green bg, dark text
+    MOOD_CURIOUS:    ("#27ae60", "#155a2e"),        # forest green
+    MOOD_NONE:       (_theme.COLOR_FAINT, _theme.COLOR_TEXT),  # mid grey
+    MOOD_NOT_FOR_ME: ("#c0392b", "#f5a5a0"),       # brick red
+    MOOD_DISLIKE:    ("#e74c3c", _theme.COLOR_TEXT_HI),  # bright red
 }
 
 _MOOD_SELECTED_STYLE = (
@@ -43,9 +44,11 @@ _MOOD_SELECTED_STYLE = (
     " border-radius: 14px; padding: 4px 10px; font-size: 14px; font-weight: bold; }}"
 )
 _MOOD_IDLE_STYLE = (
-    "QPushButton { background: #2a2a2a; color: #666; border: 1px solid #444;"
+    f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_MUTED_2};"
+    f" border: 1px solid {_theme.COLOR_BORDER};"
     " border-radius: 14px; padding: 4px 10px; font-size: 14px; }"
-    "QPushButton:hover { background: #333; color: #aaa; border-color: #666; }"
+    f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"
+    f" border-color: {_theme.COLOR_MUTED_2}; }}"
 )
 
 
@@ -167,12 +170,12 @@ class CategoryPickerDialog(QDialog):
         # ── Quick-pick shortcuts ───────────────────────────────────────────────
         quick_row = QHBoxLayout()
         quick_lbl = QLabel("Quick:")
-        quick_lbl.setStyleSheet("color: #666; font-size: 11px;")
+        quick_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
         quick_row.addWidget(quick_lbl)
 
         _quick_picks = [
             ("🗑 Trash",       "Trash",       MOOD_DISLIKE,    True,  "#5a1a1a", "#ff8888"),
-            ("👀 Watch Later", "Watch Later", MOOD_NONE,       False, "#1a3a5a", "#88aaff"),
+            ("👀 Watch Later", "Watch Later", MOOD_NONE,       False, "#1a3a5a", _theme.COLOR_ACCENT_BLUE_2),
             ("❓ Explore",     "Explore",     MOOD_CURIOUS,    False, "#1a3a1a", "#88cc88"),
         ]
         for label, name, mood, exclude, bg, fg in _quick_picks:
@@ -213,7 +216,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Mood bar ───────────────────────────────────────────────────────────
         mood_hdr = QLabel("Mood  (optional):")
-        mood_hdr.setStyleSheet("color: #888; font-size: 11px;")
+        mood_hdr.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         vl.addWidget(mood_hdr)
 
         self._mood_bar = _MoodBar(self._config)
@@ -222,7 +225,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Global Exclusions toggle (shown when Dislike selected or new category) ──
         self._excl_cb = QCheckBox("Add this category to Global Exclusions (hide everywhere)")
-        self._excl_cb.setStyleSheet("font-size: 11px; color: #aaa;")
+        self._excl_cb.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DIM};")
         self._excl_cb.setToolTip(
             "Channels in this category will be hidden from Discovery,\n"
             "Recommendations, and the channel list everywhere.\n"

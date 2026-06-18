@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
+from metatv.gui import theme as _theme
+
 
 @dataclass
 class ChannelActionState:
@@ -81,8 +83,8 @@ class _ActionBar(QWidget):
         # Row 3: Sentiment — compact, VOD only
         _STYLE = (
             "QPushButton { border: none; border-radius: 3px; padding: 2px 6px; font-size: 14px; }"
-            "QPushButton:checked { background: rgba(255,255,255,0.18); }"
-            "QPushButton:hover   { background: rgba(255,255,255,0.10); }"
+            f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
+            f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
         )
         row3 = QHBoxLayout()
         row3.addStretch()

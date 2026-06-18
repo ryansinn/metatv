@@ -35,6 +35,7 @@ from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
 from metatv.gui.discover_workers import _LoaderWorker, _SeeAllWorker, _ShelfData
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -84,8 +85,8 @@ class DiscoverView(QWidget):
         manage_btn.setFlat(True)
         manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         manage_btn.setStyleSheet(
-            "QPushButton { color: #888; border: none; font-size: 11px; }"
-            "QPushButton:hover { color: #ccc; }"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: 11px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         manage_btn.clicked.connect(self._open_manage_dialog)
         hbl.addWidget(manage_btn)
@@ -107,7 +108,7 @@ class DiscoverView(QWidget):
 
         self._loading_lbl = QLabel("Loading…")
         self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_lbl.setStyleSheet("color: #666; font-size: 13px; padding: 20px;")
+        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 13px; padding: 20px;")
         self._shelves_layout.addWidget(self._loading_lbl)
 
         # Zone containers
@@ -133,14 +134,14 @@ class DiscoverView(QWidget):
             "  background: rgba(255,255,255,8);"
             "  border: none;"
             "  border-radius: 4px;"
-            "  color: #888;"
+            f"  color: {_theme.COLOR_MUTED};"
             "  font-size: 12px;"
             "  text-align: left;"
             "  padding: 0 12px;"
             "}"
             "QPushButton:hover {"
             "  background: rgba(255,255,255,16);"
-            "  color: #ccc;"
+            f"  color: {_theme.COLOR_TEXT};"
             "}"
         )
         self._more_btn.clicked.connect(self._toggle_more_categories)

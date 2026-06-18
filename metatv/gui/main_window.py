@@ -632,7 +632,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         bar = QWidget()
         bar.setObjectName("bottomNavBar")
         bar.setStyleSheet(
-            "#bottomNavBar { background: #1e1e1e; border-top: 1px solid #333; }"
+            f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE}; }}"
         )
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -730,10 +730,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         
         # All / Hidden tab toggle
         _tab_style = (
-            "QPushButton { font-size: 11px; padding: 3px 10px;"
-            " border: 1px solid #444; background: #2a2a2a; color: #777; }"
-            "QPushButton:checked { background: #444; color: #fff; font-weight: bold; }"
-            "QPushButton:hover:!checked { background: #333; }"
+            f"QPushButton {{ font-size: 11px; padding: 3px 10px;"
+            f" border: 1px solid {_theme.COLOR_BORDER}; background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_DISABLED}; }}"
+            f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; font-weight: bold; }}"
+            f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
         )
         self._tab_all_btn = QPushButton("All")
         self._tab_all_btn.setCheckable(True)
@@ -820,9 +820,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._manage_cats_btn.setFlat(True)
         self._manage_cats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._manage_cats_btn.setStyleSheet(
-            "QPushButton { font-size: 11px; color: #4488ff; padding: 2px 8px;"
+            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
             " border: 1px solid #4488ff44; border-radius: 4px; }"
-            "QPushButton:hover { color: #88aaff; border-color: #88aaff44; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: #88aaff44; }}"
         )
         self._manage_cats_btn.setToolTip("Browse and manage your user-defined categories")
         self._manage_cats_btn.clicked.connect(self._open_categories_dialog)
@@ -930,7 +930,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setContentsMargins(10, 5, 10, 5)
         self.stats_label = QLabel("Showing 0 of 0 channels")
-        self.stats_label.setStyleSheet("color: #666666; font-size: 12px;")
+        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 12px;")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
         self.content_layout.addWidget(stats_container)
