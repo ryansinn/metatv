@@ -4,7 +4,10 @@ import subprocess
 import json
 import socket
 import os
+import re
 import shutil
+import hashlib
+from dataclasses import dataclass, field
 from typing import Optional
 from loguru import logger
 
@@ -17,38 +20,500 @@ from metatv.core.http_headers import stream_user_agent
 # conservative (no --hls-use-mpegts or newer opts that vary by build).
 RECONNECT_FLAG = "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30"
 
+# Constant instance key used when split_streams_by_source is False.
+_SHARED_KEY = "__shared__"
+
+
+@dataclass
+class _Inst:
+    """State for a single managed mpv process."""
+
+    process: Optional[subprocess.Popen] = None
+    socket_path: str = ""
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
 
 class MPVPlayer(PlayerPlugin):
-    """MPV media player implementation with single-instance IPC support"""
-    
+    """MPV media player implementation with per-key instance registry.
+
+    In single-instance (default) mode each *instance key* maps to one
+    persistent mpv window.  The key is resolved by the caller:
+    - ``"__shared__"`` → the one legacy window (``config.mpv_socket_path``)
+    - a provider-id string → a separate window with a derived socket path
+
+    In multiple-instances mode every ``play()`` call always spawns a new
+    process (no IPC; the registry / keying does not apply).
+    """
+
     def __init__(self, config: Config):
-        """Initialize MPV player
-        
+        """Initialize MPV player.
+
         Args:
-            config: Application configuration
+            config: Application configuration.
         """
         self.config = config
-        self.process: Optional[subprocess.Popen] = None
-        self.socket_path = config.mpv_socket_path
         self.single_instance = (config.player_mode == "single-instance")
-        # Monotonically increasing IPC request id for property queries. Replies are
-        # matched by this id so interleaved event lines on the socket are skipped.
+        # Registry: instance_key → _Inst
+        self._instances: dict[str, _Inst] = {}
+        # Most recently used key (for default-key fallback in property queries).
+        self._last_key: str | None = None
+        # Monotonically increasing IPC request id for property queries.
         self._request_id = 100
-    
+
+    # ── Public helpers ───────────────────────────────────────────────────────
+
     @property
     def name(self) -> str:
-        """Player name"""
+        """Player name."""
         return "mpv"
-    
+
     def is_available(self) -> bool:
-        """Check if mpv is available on system"""
+        """Check if mpv is available on system."""
         return shutil.which("mpv") is not None
-    
-    def is_running(self) -> bool:
-        """Check if mpv process is currently running"""
-        if self.process is None:
+
+    def active_keys(self) -> list[str]:
+        """Return keys whose mpv process is currently alive."""
+        return [k for k, inst in self._instances.items() if inst.is_running()]
+
+    # ── Socket-path helpers ─────────────────────────────────────────────────
+
+    def _socket_path_for(self, key: str) -> str:
+        """Return the IPC socket path for *key*.
+
+        ``"__shared__"`` → ``config.mpv_socket_path`` (exact legacy value).
+        Any other key → base path + ``"-"`` + first-8-hex of MD5(key), which
+        is filesystem-safe and stable across restarts.
+
+        This method is pure and unit-testable without launching mpv.
+
+        Args:
+            key: Instance key string.
+
+        Returns:
+            Absolute path to the IPC socket for this key.
+        """
+        base = self.config.mpv_socket_path
+        if key == _SHARED_KEY:
+            return base
+        suffix = hashlib.md5(key.encode()).hexdigest()[:8]
+        # Ensure the suffix contains only safe filesystem characters (it's
+        # hex from MD5 so already [0-9a-f], but be explicit).
+        suffix = re.sub(r"[^A-Za-z0-9_-]", "_", suffix)
+        return f"{base}-{suffix}"
+
+    # ── Instance lifecycle ──────────────────────────────────────────────────
+
+    def _ensure_instance_running(self, key: str) -> bool:
+        """Ensure the mpv instance for *key* is alive with its IPC socket.
+
+        If it is already running, returns True immediately.
+        Otherwise launches a new process bound to the key's socket path.
+
+        Args:
+            key: Instance key.
+
+        Returns:
+            True if the instance is (now) ready, False on launch failure.
+        """
+        if not self.single_instance:
             return False
-        return self.process.poll() is None
+
+        inst = self._instances.get(key)
+        if inst is not None and inst.is_running():
+            return True
+
+        sock_path = self._socket_path_for(key)
+
+        # Remove stale socket file.
+        if os.path.exists(sock_path):
+            try:
+                os.remove(sock_path)
+                logger.info(f"Removed stale socket: {sock_path}")
+            except Exception as e:
+                logger.warning(f"Could not remove stale socket: {e}")
+
+        try:
+            cmd = [
+                "mpv",
+                f"--input-ipc-server={sock_path}",
+                "--force-window=yes",
+                "--keep-open=no",
+            ]
+
+            if self.config.close_player_when_finished:
+                cmd.append("--idle=once")
+            else:
+                cmd.append("--idle=yes")
+
+            cmd += self._compose_extra_args()
+
+            logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            logger.info(f"Started mpv instance [{key}] PID {process.pid}")
+
+            # Wait briefly for socket to appear.
+            import time
+            for _ in range(10):
+                if os.path.exists(sock_path):
+                    logger.info(f"Socket ready: {sock_path}")
+                    self._instances[key] = _Inst(process=process, socket_path=sock_path)
+                    return True
+                time.sleep(0.1)
+
+            logger.warning(f"Socket not created within timeout for key [{key}]")
+            self._instances[key] = _Inst(process=process, socket_path=sock_path)
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to start mpv instance [{key}]: {e}")
+            return False
+
+    # ── IPC ─────────────────────────────────────────────────────────────────
+
+    def _send_ipc_command(self, command: dict, key: str) -> bool:
+        """Send IPC command to the socket for *key*.
+
+        Args:
+            command: JSON command dict.
+            key: Instance key whose socket to target.
+
+        Returns:
+            True if the command was delivered, False on any error.
+        """
+        inst = self._instances.get(key)
+        if inst is None:
+            logger.error(f"No instance for key [{key}]")
+            return False
+        sock_path = inst.socket_path
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            sock.connect(sock_path)
+
+            command_json = json.dumps(command) + "\n"
+            sock.sendall(command_json.encode("utf-8"))
+
+            response = sock.recv(4096).decode("utf-8")
+            sock.close()
+
+            logger.debug(f"IPC [{key}] sent: {command}, response: {response}")
+            return True
+
+        except FileNotFoundError:
+            logger.error(f"Socket not found [{key}]: {sock_path}")
+            return False
+        except socket.timeout:
+            logger.warning(f"IPC command timed out [{key}]")
+            return False
+        except Exception as e:
+            logger.error(f"IPC command failed [{key}]: {e}")
+            return False
+
+    # ── Property queries ─────────────────────────────────────────────────────
+
+    def _resolve_key(self, key: str | None) -> str | None:
+        """Resolve *key* to a concrete key.
+
+        Resolution order:
+        1. ``key`` if explicitly provided (not None).
+        2. ``_last_key`` if any play() has been called.
+        3. ``_SHARED_KEY`` in single-instance mode (so property queries work
+           before the first play() call, matching the old ``self.socket_path``
+           behavior).
+        4. None (caller should treat this as "no instance, return None").
+        """
+        if key is not None:
+            return key
+        if self._last_key is not None:
+            return self._last_key
+        if self.single_instance:
+            return _SHARED_KEY
+        return None
+
+    def get_property(self, name: str, key: str | None = None) -> object | None:
+        """Query a single mpv property via IPC.
+
+        Args:
+            name: mpv property name (e.g. ``"demuxer-cache-duration"``).
+            key: Instance key to query; defaults to the most-recently-used key.
+
+        Returns:
+            The property value, or None if unavailable / on any error.
+        """
+        resolved = self._resolve_key(key)
+        if resolved is None:
+            return None
+        inst = self._instances.get(resolved)
+        # If no instance is in the registry yet (e.g. property query before
+        # first play), derive the socket path from config so IPC still works
+        # when the socket happens to exist (the old single self.socket_path
+        # behavior was equivalent to always having the shared path available).
+        sock_path = inst.socket_path if inst is not None else self._socket_path_for(resolved)
+
+        self._request_id += 1
+        rid = self._request_id
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            sock.connect(sock_path)
+
+            command = {"command": ["get_property", name], "request_id": rid}
+            sock.sendall((json.dumps(command) + "\n").encode("utf-8"))
+
+            buffer = ""
+            try:
+                while True:
+                    data = sock.recv(4096)
+                    if not data:
+                        break
+                    buffer += data.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(msg, dict) or "request_id" not in msg:
+                            continue
+                        if msg.get("request_id") != rid:
+                            continue
+                        if msg.get("error") == "success":
+                            return msg.get("data")
+                        return None
+            finally:
+                sock.close()
+            return None
+        except FileNotFoundError:
+            logger.debug(f"get_property: socket not found [{resolved}]: {sock_path}")
+            return None
+        except socket.timeout:
+            logger.debug(f"get_property: timed out reading {name!r} [{resolved}]")
+            return None
+        except Exception as e:
+            logger.debug(f"get_property failed for {name!r} [{resolved}]: {e}")
+            return None
+
+    def get_properties(self, names: list[str], key: str | None = None) -> dict:
+        """Query several mpv properties.
+
+        Args:
+            names: mpv property names to query.
+            key: Instance key to query; defaults to the most-recently-used key.
+
+        Returns:
+            ``{name: value-or-None}`` for each requested name.
+        """
+        resolved = self._resolve_key(key)
+        return {n: self.get_property(n, key=resolved) for n in names}
+
+    # ── Playback ─────────────────────────────────────────────────────────────
+
+    def play(self, url: str, title: str, instance_key: str = _SHARED_KEY) -> bool:
+        """Play *url* in the instance identified by *instance_key*.
+
+        In single-instance mode:
+        - If the instance for *instance_key* is not running, launch it.
+        - Send ``loadfile … replace`` over its IPC socket.
+        - Fall back to a new standalone process if IPC fails.
+
+        In multiple-instances mode *instance_key* is ignored; every call
+        launches an independent new mpv process (legacy behavior unchanged).
+
+        Args:
+            url: Stream URL to play.
+            title: Title to display.
+            instance_key: Registry key for the target window
+                (default ``"__shared__"``).
+
+        Returns:
+            True if the stream was handed off to mpv, False on failure.
+        """
+        logger.info(f"MPVPlayer.play: {title} [key={instance_key}]")
+        logger.info(f"  URL: {url}")
+        logger.info(f"  Mode: {'single-instance' if self.single_instance else 'new-instance'}")
+
+        if self.single_instance:
+            if not self._ensure_instance_running(instance_key):
+                logger.warning(
+                    f"Could not start instance [{instance_key}], falling back to new instance"
+                )
+                return self._launch_new_instance(url, title)
+
+            command = {"command": ["loadfile", url, "replace"], "request_id": 1}
+
+            if self._send_ipc_command(command, instance_key):
+                title_command = {
+                    "command": ["set_property", "force-media-title", title],
+                    "request_id": 2,
+                }
+                self._send_ipc_command(title_command, instance_key)
+
+                self._last_key = instance_key
+                logger.info(f"Sent to mpv instance [{instance_key}]: {title}")
+                return True
+            else:
+                logger.warning(
+                    f"IPC command failed [{instance_key}], falling back to new instance"
+                )
+                return self._launch_new_instance(url, title)
+        else:
+            # Multiple-instances mode: every play = new window.
+            return self._launch_new_instance(url, title)
+
+    def queue(self, url: str, title: str, mode: QueueMode = QueueMode.APPEND_PLAY) -> bool:
+        """Add URL to playlist queue in the most-recently-used instance.
+
+        Args:
+            url: Stream URL to queue.
+            title: Title to display.
+            mode: How to add to queue.
+
+        Returns:
+            True if successful, False otherwise.
+
+        Note:
+            mpv's IPC protocol doesn't support setting titles for queued
+            playlist items.  All queued items will show the currently playing
+            item's title until they start playing.
+        """
+        logger.info(f"MPVPlayer.queue: {title} (mode: {mode.value})")
+
+        if not self.single_instance:
+            logger.warning("Queue mode requires single-instance mode")
+            return self.play(url, title)
+
+        key = self._last_key or _SHARED_KEY
+        if not self._ensure_instance_running(key):
+            logger.warning(f"Could not start instance [{key}]")
+            return False
+
+        mode_map = {
+            QueueMode.REPLACE: "replace",
+            QueueMode.APPEND: "append",
+            QueueMode.APPEND_PLAY: "append-play",
+            QueueMode.INSERT_NEXT: "insert-next",
+        }
+        mpv_mode = mode_map.get(mode, "append-play")
+
+        command = {"command": ["loadfile", url, mpv_mode], "request_id": 1}
+
+        if self._send_ipc_command(command, key):
+            logger.info(f"Queued to mpv [{key}]: {title}")
+            return True
+        else:
+            logger.error(f"Failed to queue [{key}]: {title}")
+            return False
+
+    def _launch_new_instance(self, url: str, title: str) -> bool:
+        """Launch a standalone (no-IPC) mpv process for *url*.
+
+        Args:
+            url: Stream URL.
+            title: Title to display.
+
+        Returns:
+            True if the process was spawned successfully.
+        """
+        try:
+            cmd = (
+                ["mpv", f"--force-media-title={title}"]
+                + self._compose_extra_args()
+                + [url]
+            )
+
+            logger.info(f"Launching new mpv instance: {' '.join(cmd[:3])}...")
+
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            logger.info("mpv process started")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to launch mpv: {e}")
+            return False
+
+    # ── State queries ────────────────────────────────────────────────────────
+
+    def is_running(self, key: str | None = None) -> bool:
+        """Check if an mpv instance is currently running.
+
+        Args:
+            key: Instance key to check; defaults to ``_last_key``.
+
+        Returns:
+            True if the process for the resolved key is alive.
+        """
+        resolved = self._resolve_key(key)
+        if resolved is None:
+            return False
+        inst = self._instances.get(resolved)
+        if inst is None:
+            return False
+        return inst.is_running()
+
+    def stop(self, key: str | None = None) -> bool:
+        """Stop playback in an instance.
+
+        Args:
+            key: Instance key to stop; defaults to ``_last_key``.
+
+        Returns:
+            True if the quit command was sent successfully.
+        """
+        logger.info("Stopping mpv playback")
+        resolved = self._resolve_key(key)
+        if resolved is None:
+            return False
+        if self.single_instance and self.is_running(resolved):
+            command = {"command": ["quit"], "request_id": 1}
+            return self._send_ipc_command(command, resolved)
+        return False
+
+    # ── Cleanup ──────────────────────────────────────────────────────────────
+
+    def cleanup(self) -> None:
+        """Terminate ALL instances' processes and remove ALL their sockets.
+
+        Iterates the full registry so no orphan window or socket is left
+        behind when the application closes.
+        """
+        logger.info("Cleaning up MPVPlayer resources")
+
+        for key, inst in list(self._instances.items()):
+            if inst.is_running():
+                logger.info(f"Terminating mpv instance [{key}] PID {inst.process.pid}")
+                inst.process.terminate()
+                try:
+                    inst.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"mpv instance [{key}] did not terminate, killing")
+                    inst.process.kill()
+
+            if inst.socket_path and os.path.exists(inst.socket_path):
+                try:
+                    os.remove(inst.socket_path)
+                    logger.info(f"Removed socket [{key}]: {inst.socket_path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove socket [{key}]: {e}")
+
+        self._instances.clear()
+
+    # ── Arg composition (unchanged) ──────────────────────────────────────────
 
     @staticmethod
     def _buffer_profile_args(profile: str) -> list[str]:
@@ -173,340 +638,3 @@ class MPVPlayer(PlayerPlugin):
             return None
 
         return f"{number}{unit}"
-    
-    def _ensure_single_instance_running(self) -> bool:
-        """Ensure single mpv instance is running with IPC socket
-        
-        Returns:
-            True if instance is ready, False otherwise
-        """
-        if not self.single_instance:
-            return False
-        
-        # Check if already running
-        if self.is_running():
-            return True
-        
-        # Remove stale socket
-        if os.path.exists(self.socket_path):
-            try:
-                os.remove(self.socket_path)
-                logger.info(f"Removed stale socket: {self.socket_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove stale socket: {e}")
-        
-        # Start mpv with IPC socket
-        try:
-            cmd = [
-                "mpv",
-                f"--input-ipc-server={self.socket_path}",
-                "--force-window=yes",  # Show window immediately
-                "--keep-open=no"  # Don't pause at end of video
-            ]
-            
-            # Configure idle behavior (whether to quit when playlist is empty)
-            if self.config.close_player_when_finished:
-                # Quit after video finishes (will restart quickly on next play)
-                cmd.append("--idle=once")
-            else:
-                # Keep window open for next video (instant channel switching)
-                cmd.append("--idle=yes")
-            
-            cmd += self._compose_extra_args()
-
-            logger.info(f"Starting single mpv instance: {' '.join(cmd)}")
-            
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-            logger.info(f"Started single mpv instance with PID {self.process.pid}")
-            
-            # Wait briefly for socket to be created
-            import time
-            for _ in range(10):  # Wait up to 1 second
-                if os.path.exists(self.socket_path):
-                    logger.info(f"Socket ready: {self.socket_path}")
-                    return True
-                time.sleep(0.1)
-            
-            logger.warning("Socket not created within timeout")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Failed to start single mpv instance: {e}")
-            return False
-    
-    def _send_ipc_command(self, command: dict) -> bool:
-        """Send IPC command to mpv socket
-        
-        Args:
-            command: JSON command dict
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(self.socket_path)
-            
-            command_json = json.dumps(command) + "\n"
-            sock.sendall(command_json.encode('utf-8'))
-            
-            # Read response
-            response = sock.recv(4096).decode('utf-8')
-            sock.close()
-            
-            logger.debug(f"IPC command sent: {command}, response: {response}")
-            return True
-            
-        except FileNotFoundError:
-            logger.error(f"Socket not found: {self.socket_path}")
-            return False
-        except socket.timeout:
-            logger.warning("IPC command timed out")
-            return False
-        except Exception as e:
-            logger.error(f"IPC command failed: {e}")
-            return False
-    
-    def get_property(self, name: str) -> object | None:
-        """Query a single mpv property via IPC.
-
-        Returns the value, or None on any failure / unavailable property. Skips
-        interleaved event lines (which have no ``request_id``) and matches the
-        reply by the ``request_id`` that was sent. Never raises.
-
-        Args:
-            name: mpv property name (e.g. ``"demuxer-cache-duration"``).
-
-        Returns:
-            The property value, or None if unavailable / on any error.
-        """
-        self._request_id += 1
-        rid = self._request_id
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(self.socket_path)
-
-            command = {"command": ["get_property", name], "request_id": rid}
-            sock.sendall((json.dumps(command) + "\n").encode("utf-8"))
-
-            # mpv sends newline-delimited JSON. The reply for our request can be
-            # preceded by asynchronous event lines (no request_id) — accumulate
-            # bytes, parse complete lines, and only act on the matching reply.
-            buffer = ""
-            try:
-                while True:
-                    data = sock.recv(4096)
-                    if not data:
-                        break  # socket closed before a matching reply
-                    buffer += data.decode("utf-8", errors="replace")
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            msg = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if not isinstance(msg, dict) or "request_id" not in msg:
-                            continue  # event line — skip
-                        if msg.get("request_id") != rid:
-                            continue  # reply to some other request — skip
-                        if msg.get("error") == "success":
-                            return msg.get("data")
-                        return None
-            finally:
-                sock.close()
-            return None
-        except FileNotFoundError:
-            logger.debug(f"get_property: socket not found: {self.socket_path}")
-            return None
-        except socket.timeout:
-            logger.debug(f"get_property: timed out reading {name!r}")
-            return None
-        except Exception as e:
-            logger.debug(f"get_property failed for {name!r}: {e}")
-            return None
-
-    def get_properties(self, names: list[str]) -> dict:
-        """Query several mpv properties.
-
-        One socket round trip per name is fine (cheap unix-socket calls).
-
-        Args:
-            names: mpv property names to query.
-
-        Returns:
-            ``{name: value-or-None}`` for each requested name.
-        """
-        return {n: self.get_property(n) for n in names}
-
-    def play(self, url: str, title: str) -> bool:
-        """Play a URL
-
-        Args:
-            url: Stream URL to play
-            title: Title to display
-
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info(f"MPVPlayer.play: {title}")
-        logger.info(f"  URL: {url}")
-        logger.info(f"  Mode: {'single-instance' if self.single_instance else 'new-instance'}")
-        
-        if self.single_instance:
-            # Use single instance with IPC
-            if not self._ensure_single_instance_running():
-                logger.warning("Could not start single instance, falling back to new instance")
-                return self._launch_new_instance(url, title)
-            
-            # Send loadfile command via IPC
-            command = {
-                "command": ["loadfile", url, "replace"],
-                "request_id": 1
-            }
-            
-            if self._send_ipc_command(command):
-                # Set media title
-                title_command = {
-                    "command": ["set_property", "force-media-title", title],
-                    "request_id": 2
-                }
-                self._send_ipc_command(title_command)
-                
-                logger.info(f"Sent to single mpv instance: {title}")
-                return True
-            else:
-                logger.warning("IPC command failed, falling back to new instance")
-                return self._launch_new_instance(url, title)
-        else:
-            # Launch new instance
-            return self._launch_new_instance(url, title)
-    
-    def queue(self, url: str, title: str, mode: QueueMode = QueueMode.APPEND_PLAY) -> bool:
-        """Add URL to playlist queue
-        
-        Args:
-            url: Stream URL to queue
-            title: Title to display
-            mode: How to add to queue
-            
-        Returns:
-            True if successful, False otherwise
-            
-        Note:
-            mpv's IPC protocol doesn't support setting titles for queued playlist items.
-            All queued items will show the currently playing item's title until they
-            start playing. To fix this properly, we need to implement the IPC event
-            system (Phase 4) to listen for playlist-pos changes and set titles when
-            each file starts playing.
-        """
-        logger.info(f"MPVPlayer.queue: {title} (mode: {mode.value})")
-        
-        if not self.single_instance:
-            logger.warning("Queue mode requires single-instance mode")
-            return self.play(url, title)
-        
-        if not self._ensure_single_instance_running():
-            logger.warning("Could not start single instance")
-            return False
-        
-        # Map QueueMode to mpv loadfile flag
-        mode_map = {
-            QueueMode.REPLACE: "replace",
-            QueueMode.APPEND: "append",
-            QueueMode.APPEND_PLAY: "append-play",
-            QueueMode.INSERT_NEXT: "insert-next"
-        }
-        
-        mpv_mode = mode_map.get(mode, "append-play")
-        
-        # Send loadfile command with appropriate flag
-        # TODO: Set title when file starts playing (requires IPC event monitoring)
-        command = {
-            "command": ["loadfile", url, mpv_mode],
-            "request_id": 1
-        }
-        
-        if self._send_ipc_command(command):
-            logger.info(f"Queued to mpv: {title}")
-            return True
-        else:
-            logger.error(f"Failed to queue: {title}")
-            return False
-    
-    def _launch_new_instance(self, url: str, title: str) -> bool:
-        """Launch new mpv instance for URL
-        
-        Args:
-            url: Stream URL
-            title: Title to display
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            cmd = [
-                "mpv",
-                f"--force-media-title={title}"
-            ] + self._compose_extra_args() + [url]
-            
-            logger.info(f"Launching new mpv instance: {' '.join(cmd[:3])}...")
-            
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-            logger.info(f"mpv process started with PID: {process.pid}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to launch mpv: {e}")
-            return False
-    
-    def stop(self) -> bool:
-        """Stop playback
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info("Stopping mpv playback")
-        
-        if self.single_instance and self.is_running():
-            # Send quit command via IPC
-            command = {"command": ["quit"], "request_id": 1}
-            return self._send_ipc_command(command)
-        
-        return False
-    
-    def cleanup(self):
-        """Cleanup resources (terminate process, remove socket)"""
-        logger.info("Cleaning up MPVPlayer resources")
-        
-        # Terminate process if running
-        if self.is_running():
-            logger.info("Terminating mpv process")
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                logger.warning("mpv did not terminate, killing")
-                self.process.kill()
-        
-        # Remove socket
-        if os.path.exists(self.socket_path):
-            try:
-                os.remove(self.socket_path)
-                logger.info(f"Removed socket: {self.socket_path}")
-            except Exception as e:
-                logger.warning(f"Could not remove socket: {e}")

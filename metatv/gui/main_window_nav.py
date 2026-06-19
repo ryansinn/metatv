@@ -152,7 +152,7 @@ class _NavMixin:
         if not channel.stream_url:
             self.status_bar.showMessage(f"No stream URL available for {channel.name}")
             return
-        self.player_manager.play(channel.stream_url, channel.name)
+        self.player_manager.play(channel.stream_url, channel.name, provider_id=channel.provider_id)
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
