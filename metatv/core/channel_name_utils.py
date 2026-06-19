@@ -216,6 +216,11 @@ _AUDIO_NORM: dict[str, str] = {
     "MULTIAUDIO": "Multi", "MULTI AUDIO SUB": "Multi",
     "MULTI LANGUAGE": "Multi", "MULTILANGUAGE": "Multi",
     "MULTI-AUDIO/SUB": "Multi",
+    # "MUTI" — common typo for "Multi" (missing L); fold into the same group
+    "MUTI": "Multi",
+    "MUTI-SUB": "Multi", "MUTI-AUDIO": "Multi",
+    "MUTI SUB": "Multi", "MUTI AUDIO": "Multi",
+    "MUTI AUDIO/SUB": "Multi", "MUTIAUDIO": "Multi",
     # Dub variants (27+9+3+1)
     "DUB": "Dub", "DUBBED": "Dub", "DUBBED VERSION": "Dub",
     # Sub variants (92+38+2)

@@ -17,6 +17,8 @@ from metatv.core.channel_name_utils import _classify_bracket
 @pytest.mark.parametrize("content,exp_kind,exp_value", [
     # Audio
     ("MULTI",        "audio",   "Multi"),
+    ("MUTI",         "audio",   "Multi"),   # common typo for "Multi" (missing L)
+    ("MUTI-SUB",     "audio",   "Multi"),
     ("DUB",          "audio",   "Dub"),
     ("SUB",          "audio",   "Sub"),
     # Quality aliases
