@@ -24,7 +24,43 @@ from PyQt6.QtWidgets import QApplication
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
+from metatv.gui import icons as _icons
 from metatv.providers.xtream import _DEFAULT_HEADERS
+
+
+def format_playback_health(cache_duration_s, cache_speed_bytes, drop_count) -> str:
+    """Build the nav-bar playback-health string.
+
+    e.g. ``"▶ 18s buffer · 6.2 Mbps · 0 drops"``. Missing parts (None) are shown
+    as ``"—"`` but the returned string is always well-formed.
+
+    Args:
+        cache_duration_s: Demuxer cache duration in seconds (mpv
+            ``demuxer-cache-duration``), or None if unavailable.
+        cache_speed_bytes: Network download speed in bytes/sec (mpv
+            ``cache-speed``), or None if unavailable.
+        drop_count: Dropped frame count (mpv ``frame-drop-count``), or None.
+
+    Returns:
+        The composed health string, prefixed with the play glyph.
+    """
+    if cache_duration_s is None:
+        buffer_part = "—s buffer"
+    else:
+        buffer_part = f"{int(round(cache_duration_s))}s buffer"
+
+    if cache_speed_bytes is None:
+        speed_part = "— Mbps"
+    else:
+        mbps = cache_speed_bytes * 8 / 1e6
+        speed_part = f"{mbps:.1f} Mbps"
+
+    if drop_count is None:
+        drops_part = "— drops"
+    else:
+        drops_part = f"{int(drop_count)} drops"
+
+    return f"{_icons.play_icon} " + " · ".join((buffer_part, speed_part, drops_part))
 
 
 # ISO-BMFF (MP4/MOV) top-level box types that legitimately appear at the very start of
@@ -367,6 +403,9 @@ class _StreamingMixin:
             self.load_favorites()
             self._refresh_queue_section()
 
+            # Begin polling mpv for the live playback-health readout (main thread).
+            self._start_playback_health()
+
             QTimer.singleShot(2000, lambda: self.status_bar.showMessage(f"Playing: {channel_name}"))
         else:
             logger.error(f"Failed to play: {channel_name}")
@@ -382,6 +421,93 @@ class _StreamingMixin:
                 repos.channels.mark_played(channel_id)
         except Exception as e:
             logger.error(f"Error marking channel played: {e}")
+
+    # ---- Live playback-health indicator -------------------------------------
+    #
+    # A QTimer polls mpv's IPC socket every ~2s. The socket query runs on the
+    # shared executor (never the main thread); the result is marshalled back via
+    # the _playback_health_ready signal (same pattern as _stream_ready). The
+    # timer self-stops after a short idle grace so there's no perpetual polling
+    # once you stop watching; it restarts on the next play_media.
+
+    def _start_playback_health(self) -> None:
+        """Start (or resume) polling mpv for the playback-health readout.
+
+        Lazily creates the QTimer on first use and registers its stop() with the
+        cleanup registry exactly once. Safe to call on every play.
+        """
+        if not hasattr(self, "_playback_health_timer") or self._playback_health_timer is None:
+            self._playback_health_timer = QTimer(self)
+            self._playback_health_timer.setInterval(2000)
+            self._playback_health_timer.timeout.connect(self._playback_health_tick)
+            self._health_query_inflight = False
+            self._register_cleanable(
+                "playback_health_timer", self._playback_health_timer.stop
+            )
+
+        self._health_idle_ticks = 0
+        if not self._playback_health_timer.isActive():
+            self._playback_health_timer.start()
+
+    def _playback_health_tick(self) -> None:
+        """Timer tick (main thread): kick off an off-thread mpv probe.
+
+        Stops polling if the player process is gone, and never lets probes pile
+        up if one is still in flight.
+        """
+        if not self.player_manager.is_running():
+            # Process gone — hide the readout and stop polling (restarts on play).
+            self._playback_health_label.hide()
+            self._playback_health_timer.stop()
+            return
+
+        if getattr(self, "_health_query_inflight", False):
+            return  # a probe is still running — don't pile up
+
+        self._health_query_inflight = True
+        self.executor.submit(self._bg_query_playback_health)
+
+    def _bg_query_playback_health(self) -> None:
+        """Worker (executor — NO widget access): query mpv, marshal result back.
+
+        Always emits (even on failure) so the result slot can clear the in-flight
+        flag; emits None on any error.
+        """
+        try:
+            props = self.player_manager.get_properties(
+                ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count"]
+            )
+        except Exception as e:
+            logger.debug(f"playback-health probe failed: {e}")
+            props = None
+        self._playback_health_ready.emit(props)
+
+    def _on_playback_health_ready(self, props) -> None:
+        """Main-thread slot: update the nav-bar label from a probe result.
+
+        Idle detection: mpv stays running with ``--idle=yes`` even when nothing
+        is loaded, so we detect idle via the ``path`` property (null/absent when
+        idle) rather than is_running(). After a short idle grace the timer stops
+        so there's no perpetual polling.
+        """
+        self._health_query_inflight = False
+
+        # None (probe error) or no loaded file → idle / nothing playing.
+        if not props or not props.get("path"):
+            self._playback_health_label.hide()
+            self._health_idle_ticks = getattr(self, "_health_idle_ticks", 0) + 1
+            if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
+                self._playback_health_timer.stop()
+            return
+
+        self._health_idle_ticks = 0
+        text = format_playback_health(
+            props.get("demuxer-cache-duration"),
+            props.get("cache-speed"),
+            props.get("frame-drop-count"),
+        )
+        self._playback_health_label.setText(text)
+        self._playback_health_label.show()
 
     def launch_new_mpv(self, url: str):
         """Launch a new mpv instance"""

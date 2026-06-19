@@ -166,6 +166,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
     _stream_ready = pyqtSignal(object)  # dict with final_url, stream_err, channel state
     # Generic async-read seam (_AsyncMixin): worker emits this; _on_query_result dispatches
     _query_result = pyqtSignal(object)
+    # Playback-health probe result: worker (executor) emits the mpv props dict (or None);
+    # _on_playback_health_ready updates the nav-bar label on the main thread.
+    _playback_health_ready = pyqtSignal(object)
     
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
@@ -301,6 +304,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._prefix_migration_done.connect(self._on_prefix_migration_done)
         self._stream_ready.connect(self._on_stream_ready)
         self._query_result.connect(self._on_query_result)
+        self._playback_health_ready.connect(self._on_playback_health_ready)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
@@ -675,6 +679,15 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)
         layout.addWidget(self._diagnose_btn)
+
+        # Live playback-health readout — only visible while mpv is actively playing.
+        self._playback_health_label = QLabel("")
+        self._playback_health_label.setToolTip(
+            "Live playback health (buffer · download speed · dropped frames)"
+        )
+        self._playback_health_label.setStyleSheet(_theme.NAV_HEALTH)
+        self._playback_health_label.hide()
+        layout.addWidget(self._playback_health_label)
 
         layout.addStretch(1)
         layout.addWidget(nav_group)

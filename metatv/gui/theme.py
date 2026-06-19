@@ -326,6 +326,10 @@ DIAG_RECOMMEND = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-s
 # Saved-confirmation line after applying tuning.
 DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
 
+# Live playback-health readout in the bottom nav bar (buffer · speed · dropped frames).
+# Dim/muted at-a-glance line; only visible while mpv is actively playing.
+NAV_HEALTH = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
+
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (
     "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"

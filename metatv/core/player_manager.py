@@ -123,14 +123,28 @@ class PlayerManager:
     
     def is_running(self) -> bool:
         """Check if player is currently running
-        
+
         Returns:
             True if player process is running
         """
         if not self.player:
             return False
-        
+
         return self.player.is_running()
+
+    def get_properties(self, names: list[str]) -> dict:
+        """Query several player runtime properties.
+
+        Args:
+            names: Property names to query (player-specific).
+
+        Returns:
+            ``{name: value-or-None}`` for each requested name; all-None if no
+            player is available.
+        """
+        if not self.player:
+            return {n: None for n in names}
+        return self.player.get_properties(names)
     
     def _get_effective_max_instances(self, provider_max_connections: int) -> int:
         """Calculate effective max instances based on config
