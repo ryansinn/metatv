@@ -93,7 +93,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         hl.addWidget(self.toggle_btn)
         self.title_label = QLabel(
-            f'<span style="color:#FFB300">{self.icon}</span> <b>{self.title}</b>'
+            f'<span style="color:{_theme.COLOR_WARN}">{self.icon}</span> <b>{self.title}</b>'
         )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)

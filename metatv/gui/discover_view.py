@@ -131,7 +131,7 @@ class DiscoverView(QWidget):
         self._more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._more_btn.setStyleSheet(
             "QPushButton {"
-            "  background: rgba(255,255,255,8);"
+            f"  background: {_theme.OVERLAY_08};"
             "  border: none;"
             "  border-radius: 4px;"
             f"  color: {_theme.COLOR_MUTED};"
@@ -140,7 +140,7 @@ class DiscoverView(QWidget):
             "  padding: 0 12px;"
             "}"
             "QPushButton:hover {"
-            "  background: rgba(255,255,255,16);"
+            f"  background: {_theme.OVERLAY_15};"
             f"  color: {_theme.COLOR_TEXT};"
             "}"
         )

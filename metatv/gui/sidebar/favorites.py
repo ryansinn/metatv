@@ -44,7 +44,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         hl.addWidget(self.toggle_btn)
         self.title_label = QLabel(
-            f'<span style="color:#FFD700">{self.icon}</span> <b>{self.title}</b>'
+            f'<span style="color:{_theme.COLOR_GOLD}">{self.icon}</span> <b>{self.title}</b>'
         )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)

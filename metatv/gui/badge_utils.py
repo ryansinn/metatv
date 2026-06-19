@@ -6,15 +6,15 @@ from metatv.core.channel_name_utils import PLATFORM_CODES, REGION_FULL_NAMES
 from metatv.gui import theme as _theme
 
 _QUALITY_COLORS: dict[str, str] = {
-    "4K": "#7755cc", "8K": "#7755cc", "UHD": "#7755cc",
-    "FHD": "#3388dd",
-    "HDR10": "#3388dd", "HDR10+": "#3388dd", "HDR": "#3388dd",
-    "HEVC": "#3388dd", "H265": "#3388dd", "H264": "#3388dd",
-    "HD": "#229977",
-    "SD": "#666666",
-    "RAW": "#cc8822", "HQ": "#cc8822",
-    "LQ": "#444444",
-    "LIVE": "#bb9900",
+    "4K": _theme.COLOR_QUALITY_UHD, "8K": _theme.COLOR_QUALITY_UHD, "UHD": _theme.COLOR_QUALITY_UHD,
+    "FHD": _theme.COLOR_QUALITY_FHD,
+    "HDR10": _theme.COLOR_QUALITY_FHD, "HDR10+": _theme.COLOR_QUALITY_FHD, "HDR": _theme.COLOR_QUALITY_FHD,
+    "HEVC": _theme.COLOR_QUALITY_FHD, "H265": _theme.COLOR_QUALITY_FHD, "H264": _theme.COLOR_QUALITY_FHD,
+    "HD": _theme.COLOR_QUALITY_HD,
+    "SD": _theme.COLOR_MUTED_2,
+    "RAW": _theme.COLOR_QUALITY_RAW, "HQ": _theme.COLOR_QUALITY_RAW,
+    "LQ": _theme.COLOR_BORDER,
+    "LIVE": _theme.COLOR_QUALITY_LIVE,
 }
 
 _CHIP_BASE = (
@@ -23,8 +23,8 @@ _CHIP_BASE = (
 )
 
 _REGION_STYLE  = _CHIP_BASE.format(bg=_theme.OVERLAY_15)
-_PLATFORM_STYLE = _CHIP_BASE.format(bg="rgba(60,120,180,0.5)")
-_AUDIO_STYLE   = _CHIP_BASE.format(bg="#556633")
+_PLATFORM_STYLE = _CHIP_BASE.format(bg=_theme.OVERLAY_PLATFORM_BADGE)
+_AUDIO_STYLE   = _CHIP_BASE.format(bg=_theme.COLOR_AUDIO_BADGE)
 _YEAR_STYLE = (
     f"border: 1px solid {_theme.COLOR_FAINT}; border-radius: 3px; padding: 1px 5px;"
     f" font-size: 10px; color: {_theme.COLOR_MUTED}; background: transparent;"

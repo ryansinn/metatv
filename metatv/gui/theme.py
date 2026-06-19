@@ -83,9 +83,91 @@ OVERLAY_BLUE_10 = "rgba(68,136,255,0.1)"
 OVERLAY_BLUE_15 = "rgba(68,136,255,0.15)"
 OVERLAY_BLUE_20 = "rgba(68,136,255,0.2)"
 OVERLAY_BLUE_25 = "rgba(68,136,255,0.25)"
+OVERLAY_BLUE_40 = "rgba(68,136,255,0.4)"
+OVERLAY_BLUE_60 = "rgba(68,136,255,0.6)"
 # Red (COLOR_ERR_2) tints — destructive hover
 OVERLAY_ERR    = "rgba(224,80,80,0.2)"
 OVERLAY_ERR_15 = "rgba(224,80,80,0.15)"
+
+# --- Quality / badge palette (badge_utils) ---
+OVERLAY_PLATFORM_BADGE = "rgba(60,120,180,0.5)"   # steel-blue tint for streaming platform codes
+COLOR_QUALITY_UHD  = "#7755cc"
+COLOR_QUALITY_FHD  = "#3388dd"
+COLOR_QUALITY_HD   = "#229977"
+COLOR_QUALITY_RAW  = "#cc8822"
+COLOR_QUALITY_LIVE = "#bb9900"
+COLOR_AUDIO_BADGE  = "#556633"
+
+# --- Mood palette (category_picker) ---
+COLOR_MOOD_LIKE_BG     = "#2ecc71"
+COLOR_MOOD_LIKE_FG     = "#1a7a43"
+COLOR_MOOD_CURIOUS_BG  = "#27ae60"
+COLOR_MOOD_CURIOUS_FG  = "#155a2e"
+COLOR_MOOD_NOTFORME_BG = "#c0392b"
+COLOR_MOOD_NOTFORME_FG = "#f5a5a0"
+COLOR_MOOD_DISLIKE_BG  = "#e74c3c"
+COLOR_MOOD_TRASH_BG    = "#5a1a1a"
+COLOR_MOOD_WATCH_BG    = "#1a3a5a"
+COLOR_MOOD_EXPLORE_BG  = "#1a3a1a"
+COLOR_MOOD_EXPLORE_FG  = "#88cc88"
+
+# --- Notification severity ---
+COLOR_NOTIFY_ERR_BG     = "#2c1515"
+COLOR_NOTIFY_ERR_BORDER = "#ff4444"
+COLOR_NOTIFY_OK_BG      = "#152c15"
+COLOR_NOTIFY_OK_BORDER  = "#44ff44"
+COLOR_NOTIFY_WARN_BG     = "#2c2415"
+COLOR_NOTIFY_WARN_BORDER = "#ffaa44"
+COLOR_NOTIFY_INFO_BG    = "#1a1a2e"
+
+# --- Similar-titles lightbox theme ---
+COLOR_LIGHTBOX_BG     = "#1e1e2e"
+COLOR_LIGHTBOX_HEADER = "#2a2a3e"
+
+# --- Yellow alert banner (main_window) ---
+COLOR_BANNER_YEL_BG            = "#3a3a1a"
+COLOR_BANNER_YEL_FG            = "#e8d44d"
+COLOR_BANNER_YEL_BORDER        = "#7a7a30"
+COLOR_BANNER_YEL_BG_HOVER      = "#4a4a22"
+COLOR_BANNER_YEL_BORDER_HOVER  = "#aaaa50"
+
+# --- PPV ---
+COLOR_PPV_ACCENT = "#ff6b35"
+
+# --- misc preserved accents ---
+COLOR_RED_BRIGHT        = "#ff8888"
+COLOR_ERR_MUTED         = "#aa6666"
+COLOR_GOLD_LIGHT        = "#ffe566"
+COLOR_PREF_NUDGE        = "#8fca8f"
+COLOR_ACCENT_BLUE_LIGHT = "#aad4ff"
+COLOR_BG_CARD           = "#252525"
+COLOR_BG_DEEP           = "#111111"
+COLOR_SURFACE_LIGHT     = "#f5f5f5"
+COLOR_SURFACE_LIGHT_2   = "#e0e0e0"
+COLOR_SURFACE_LIGHT_3   = "#d0d0d0"
+
+# --- card backdrop tints (discover_card) ---
+BACKDROP_TINTS = ["#1a3a5c", "#2d4a1e", "#4a1e2d", "#2d1e4a", "#1e4a3a", "#3a2d1e"]
+
+# --- brown/amber tint (hidden-mode banner) ---
+OVERLAY_BROWN_08 = "rgba(204,136,0,0.08)"
+
+# --- green pref-nudge tints (details_versions) ---
+OVERLAY_GREEN_15 = "rgba(80,160,80,0.15)"
+OVERLAY_GREEN_40 = "rgba(80,160,80,0.4)"
+
+# --- err2 tint (categories_dialog / details_sections adult badge) ---
+OVERLAY_ERR2_15 = "rgba(204,68,68,0.15)"
+
+# --- warn/amber tint (epg_agenda_widget now-card) ---
+OVERLAY_WARN_06 = "rgba(255,200,0,0.06)"
+
+# --- black + extra blue overlays ---
+OVERLAY_BLACK_30   = "rgba(0,0,0,0.3)"
+OVERLAY_BLACK_55   = "rgba(0,0,0,0.55)"
+OVERLAY_BLACK_60   = "rgba(0,0,0,0.6)"
+OVERLAY_BLACK_65   = "rgba(0,0,0,0.65)"
+OVERLAY_BLUE_LT_25 = "rgba(136,170,255,0.25)"
 
 # Type scale
 FONT_XS  = "9px"

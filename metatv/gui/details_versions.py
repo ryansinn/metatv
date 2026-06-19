@@ -135,7 +135,7 @@ class _CategoryNamePopup(QFrame):
         super().__init__(parent, Qt.WindowType.ToolTip)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setStyleSheet(
-            f"QFrame {{ background: #252525; border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; }}"
+            f"QFrame {{ background: {_theme.COLOR_BG_CARD}; border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; }}"
         )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -190,18 +190,18 @@ class _VersionSection(QWidget):
         # Preferred version nudge banner (green)
         self._pref_nudge = QFrame()
         self._pref_nudge.setStyleSheet(
-            "QFrame { background: rgba(80,160,80,0.15); border-radius: 4px;"
-            " border: 1px solid rgba(80,160,80,0.4); }"
+            f"QFrame {{ background: {_theme.OVERLAY_GREEN_15}; border-radius: 4px;"
+            f" border: 1px solid {_theme.OVERLAY_GREEN_40}; }}"
         )
         nudge_row = QHBoxLayout(self._pref_nudge)
         nudge_row.setContentsMargins(8, 4, 8, 4)
         self._pref_nudge_lbl = QLabel()
-        self._pref_nudge_lbl.setStyleSheet("font-size: 11px; color: #8fca8f;")
+        self._pref_nudge_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_PREF_NUDGE};")
         self._pref_nudge_lbl.setWordWrap(True)
         self._pref_nudge_switch_btn = QPushButton("Switch")
         self._pref_nudge_switch_btn.setFlat(True)
         self._pref_nudge_switch_btn.setStyleSheet(
-            "color: #8fca8f; font-size: 11px; font-weight: bold; border: none;"
+            f"color: {_theme.COLOR_PREF_NUDGE}; font-size: 11px; font-weight: bold; border: none;"
         )
         self._pref_nudge_switch_btn.setToolTip("Switch the details pane to show your preferred version")
         nudge_row.addWidget(self._pref_nudge_lbl, 1)

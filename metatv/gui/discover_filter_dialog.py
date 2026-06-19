@@ -159,7 +159,7 @@ class DiscoverManageDialog(QDialog):
             btn.setStyleSheet(
                 f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; border: 1px solid {_theme.COLOR_FAINT}; "
                 f"border-radius: 3px; color: {_theme.COLOR_TEXT}; padding: 3px 10px; }}"
-                "QPushButton:hover { background: #3a3a3a; }"
+                f"QPushButton:hover {{ background: {_theme.COLOR_BORDER}; }}"
             )
         global_row.addWidget(collapse_all_btn)
         global_row.addWidget(expand_all_btn)
