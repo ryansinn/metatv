@@ -12,16 +12,9 @@ from metatv.providers.base import ProviderPlugin
 
 
 # Headers that pass Cloudflare's bot-detection (HTTP 520 / 403 without these).
-_DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive",
-}
+# Single source of truth lives in metatv.core.http_headers; re-exported here
+# under the legacy name so existing importers keep working unchanged.
+from metatv.core.http_headers import STREAM_HTTP_HEADERS as _DEFAULT_HEADERS
 
 # Timeout for bulk catalog reads (get_*_streams / get_*_categories).
 #

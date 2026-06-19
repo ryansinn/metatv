@@ -6,6 +6,9 @@ default_cache_size control did nothing. MPVPlayer._compose_extra_args() now maps
 a non-"auto" cache size to --cache=yes / --demuxer-max-bytes=<N>iB /
 --demuxer-readahead-secs=30 and appends the user's args last (so user args win).
 
+The canonical --user-agent is always prepended first so any user-supplied
+--user-agent in mpv_extra_args appears later and wins (mpv honours last value).
+
 These tests execute _compose_extra_args() directly and assert the composed arg
 list — the real observable behavior, not a substring of the source.
 """
@@ -14,7 +17,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from metatv.core.http_headers import stream_user_agent
 from metatv.core.players.mpv import MPVPlayer
+
+_CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
 
 @dataclass
@@ -33,15 +39,24 @@ def _player(cache_size: str, extra_args: list[str]) -> MPVPlayer:
 
 
 def test_auto_preserves_stock_behavior():
-    """'auto' adds nothing — only the user's args come through, verbatim."""
+    """'auto' adds only the canonical UA + user args — no cache flags."""
     player = _player("auto", ["--foo"])
-    assert player._compose_extra_args() == ["--foo"]
+    args = player._compose_extra_args()
+    assert _CANONICAL_UA in args
+    assert "--foo" in args
+    # No cache-related flags.
+    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
+    # User arg must come after the canonical UA.
+    assert args.index(_CANONICAL_UA) < args.index("--foo")
 
 
 def test_falsy_cache_size_preserves_stock_behavior():
-    """An empty cache size behaves like 'auto' (no cache flags added)."""
+    """An empty cache size behaves like 'auto' — canonical UA + user args, no cache flags."""
     player = _player("", ["--foo"])
-    assert player._compose_extra_args() == ["--foo"]
+    args = player._compose_extra_args()
+    assert _CANONICAL_UA in args
+    assert "--foo" in args
+    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
 
 
 def test_configured_size_prepends_cache_flags_user_args_last():
@@ -54,6 +69,8 @@ def test_configured_size_prepends_cache_flags_user_args_last():
     assert "--demuxer-readahead-secs=30" in args
     # User override wins: their arg must be the final element.
     assert args[-1] == "--foo"
+    # Canonical UA must be first in the list.
+    assert args[0] == _CANONICAL_UA
 
 
 def test_size_suffix_conversion_variants():
@@ -65,12 +82,16 @@ def test_size_suffix_conversion_variants():
 
 
 def test_garbage_size_falls_back_to_user_args():
-    """An unrecognized value must not raise and must fall back to just user args."""
+    """An unrecognized value must not raise; returns canonical UA + user args only."""
     player = _player("not-a-size", ["--foo"])
-    assert player._compose_extra_args() == ["--foo"]
+    args = player._compose_extra_args()
+    assert _CANONICAL_UA in args
+    assert "--foo" in args
+    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
 
 
-def test_garbage_size_no_user_args_returns_empty():
-    """Garbage with no user args yields an empty list (no crash, no cache flags)."""
+def test_garbage_size_no_user_args_returns_only_ua():
+    """Garbage with no user args yields only the canonical UA (no crash, no cache flags)."""
     player = _player("???", [])
-    assert player._compose_extra_args() == []
+    args = player._compose_extra_args()
+    assert args == [_CANONICAL_UA]

@@ -25,6 +25,8 @@ import requests
 
 from loguru import logger
 
+from metatv.core.http_headers import STREAM_HTTP_HEADERS, stream_user_agent
+
 # --- Verdict constants -------------------------------------------------------
 VERDICT_HEALTHY = "healthy"
 VERDICT_JITTER = "jitter"
@@ -252,6 +254,8 @@ def _probe_ffprobe(
                 "json",
                 "-show_streams",
                 "-show_format",
+                "-user_agent",
+                stream_user_agent(),
                 stream_url,
             ],
             capture_output=True,
@@ -312,7 +316,9 @@ def _measure_baseline(
     cap_bytes = 25_000_000
     cap_seconds = 5.0
     try:
-        with requests.get(baseline_url, stream=True, timeout=timeout) as resp:
+        with requests.get(
+            baseline_url, stream=True, timeout=timeout, headers=STREAM_HTTP_HEADERS
+        ) as resp:
             resp.raise_for_status()
             start = time.monotonic()
             total = 0
@@ -367,7 +373,9 @@ def run_stream_diagnostic(
 
     request_start = time.monotonic()
     try:
-        resp = requests.get(stream_url, stream=True, timeout=timeout)
+        resp = requests.get(
+            stream_url, stream=True, timeout=timeout, headers=STREAM_HTTP_HEADERS
+        )
     except (requests.RequestException, OSError) as exc:
         msg = f"Stream unreachable: {type(exc).__name__}"
         logger.warning(f"{msg} for {redacted}")
