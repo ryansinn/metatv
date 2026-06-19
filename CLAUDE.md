@@ -72,16 +72,26 @@ All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, 
 `metatv/gui/theme.py` has two layers and you must respect the split (full rationale in
 [docs/UI_UX_GUIDELINES.md](docs/UI_UX_GUIDELINES.md) → "Theming & style tokens"):
 
-1. **Design tokens** — `COLOR_*`, `FONT_*`, `OVERLAY_*`. The **only** place a raw hex / rgba / px
-   literal may appear. Token names may be appearance-based (`FONT_MD`, `COLOR_MUTED`) — they *are*
-   the palette.
+1. **Design tokens** — `COLOR_*`, `FONT_*`, `OVERLAY_*`. The **only** place a raw hex / rgba color
+   literal may appear, and the home of every font *size* (`FONT_*`). Token names may be
+   appearance-based (`FONT_MD`, `COLOR_MUTED`) — they *are* the palette.
 2. **Semantic constants** — complete stylesheet strings composed *from tokens*, named by **role**
    (`STATUS_OK`, `SECTION_HINT`, `LOADING_TEXT`), never by appearance (no `TEXT_SM` / `GREY_11`).
 
-Rules:
-- **Never hardcode a hex / rgba / px literal** in widget code *or* in a new semantic constant —
-  reuse a token, or add one to `theme.py`, then compose. This includes dynamic styles: choose a
-  token at runtime and interpolate it (`f"color: {_theme.COLOR_WARN};"`), don't inline the hex.
+Rules (what is strict vs. conventional — be precise, this is what the audit checks):
+- **Colors are strict — never inline a hex / rgba literal** in widget code *or* a new semantic
+  constant. Always a `COLOR_*` / `OVERLAY_*` token (reuse one, or add it to `theme.py`, then
+  compose). This holds for dynamic styles too — interpolate the token
+  (`f"color: {_theme.COLOR_WARN};"`), never the hex. *(Enforced: the codebase has zero stray color
+  literals — keep it that way.)*
+- **Font sizes use `FONT_*` tokens — never `font-size: Npx`.** There is a `FONT_*` token for each
+  size; new code must use it. *(A backlog of inline `font-size` px literals predates this rule and is
+  being migrated — Band 10 B10-3, see [docs/AUDIT_2026-06-19.md](docs/AUDIT_2026-06-19.md). Their
+  existence is debt, not a license to add more.)*
+- **Structural-spacing `px` is acceptable inline** — `padding`, `margin`, `border-radius`,
+  `border-width`, and fixed `setFixedWidth/Height` etc. have **no** token (there are no spacing
+  tokens), so a small `px` value in an inline style or a semantic constant is fine and conventional.
+  Only colors and font-sizes must be tokens.
 - Any stylesheet string used by **more than one widget** must be a named, role-based constant in
   `theme.py`. Import with `from metatv.gui import theme as _theme`; never copy-paste a stylesheet
   string between files. A genuinely single-use style may stay inline, but should still build from
