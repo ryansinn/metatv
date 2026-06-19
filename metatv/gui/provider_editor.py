@@ -1179,20 +1179,17 @@ class ProviderEditorView(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        session = self.db.get_session()
         try:
-            session.query(ProviderDB).filter_by(id=self._provider_id).delete()
-            session.commit()
-            pid = self._provider_id
-            self._provider_id = None
-            self._set_fields_enabled(False)
-            self.provider_deleted.emit(pid)
+            with self.db.session_scope() as session:
+                deleted = RepositoryFactory(session).providers.delete(self._provider_id)
+            if deleted:
+                pid = self._provider_id
+                self._provider_id = None
+                self._set_fields_enabled(False)
+                self.provider_deleted.emit(pid)
         except Exception as e:
-            session.rollback()
             logger.error(f"Failed to delete provider: {e}")
             QMessageBox.critical(self, "Delete Failed", str(e))
-        finally:
-            session.close()
 
     def _test_connection(self):
         """Test ALL configured URLs in parallel, then reorder by response time."""
