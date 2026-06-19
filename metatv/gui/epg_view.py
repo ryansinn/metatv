@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
-    QStyledItemDelegate,
     QTabBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -42,7 +41,6 @@ from loguru import logger
 from metatv.core.channel_name_utils import parse_channel_name, REGION_FULL_NAMES
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.repositories.dtos import LiveEventDTO
-from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.content_view import ContentView
@@ -56,57 +54,6 @@ from metatv.gui.epg_events_mixin import (
     group_events_by_network,
 )
 
-_SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
-_PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
-_REMAIN_ROLE   = Qt.ItemDataRole.UserRole + 4  # "10m left" tooltip string
-
-
-class _ProgressBarDelegate(QStyledItemDelegate):
-    """Paints a compact horizontal progress bar in the Remaining column."""
-
-    def paint(self, painter, option, index) -> None:  # noqa: N802
-        from PyQt6.QtGui import QColor
-        pct = index.data(_PROGRESS_ROLE)
-        if pct is None:
-            super().paint(painter, option, index)
-            return
-        painter.save()
-        r = option.rect.adjusted(4, 6, -4, -6)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(55, 55, 55))
-        painter.drawRoundedRect(r, 2, 2)
-        fill_w = max(4, int(r.width() * pct / 100))
-        # hue: 55 (yellow) at start → 30 (orange) near end
-        hue = int(55 - (pct / 100) * 25)
-        painter.setBrush(QColor.fromHsv(hue, 200, 210, 200))
-        from PyQt6.QtCore import QRect
-        fill_r = QRect(r.x(), r.y(), fill_w, r.height())
-        painter.drawRoundedRect(fill_r, 2, 2)
-        painter.restore()
-
-    def sizeHint(self, option, index):  # noqa: N802
-        from PyQt6.QtCore import QSize
-        return QSize(64, super().sizeHint(option, index).height())
-
-
-class _EpgTreeItem(QTreeWidgetItem):
-    """QTreeWidgetItem that sorts any column with a _SORT_ROLE numeric value."""
-
-    def __lt__(self, other: QTreeWidgetItem) -> bool:
-        col = self.treeWidget().sortColumn() if self.treeWidget() else 0
-        a = self.data(col, _SORT_ROLE)
-        b = other.data(col, _SORT_ROLE)
-        if a is not None and b is not None:
-            return float(a) < float(b)
-        # Category column: empty strings sort after non-empty in both directions
-        if col == 0:
-            a_text = self.text(0)
-            b_text = other.text(0)
-            if bool(a_text) != bool(b_text):
-                return bool(a_text) > bool(b_text)  # non-empty < empty → non-empty first
-        return super().__lt__(other)
-
-
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
     fmt_time as _format_time,
@@ -119,17 +66,24 @@ from metatv.core.epg_utils import (
 )
 from metatv.gui import icons as _icons
 
+# Re-export shared EPG widget primitives (moved to epg_widgets.py).
+# Kept here for backwards compatibility — existing code and tests that
+# import these names from metatv.gui.epg_view continue to resolve fine.
+from metatv.gui.epg_widgets import (
+    _SORT_ROLE,
+    _PROGRESS_ROLE,
+    _REMAIN_ROLE,
+    _ProgressBarDelegate,
+    _EpgTreeItem,
+    _progress_bar,
+    _DismissedDialog,
+    _AssignCategoryDialog,
+    _parse_iso,
+)
+from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
 
-def _progress_bar(start: datetime, stop: datetime, width: int = 20) -> str:
-    """ASCII progress bar showing how far through the programme we are."""
-    total = max(1, (stop - start).total_seconds())
-    elapsed = max(0, (_now_utc() - start).total_seconds())
-    ratio = min(1.0, elapsed / total)
-    filled = int(ratio * width)
-    return "█" * filled + "░" * (width - filled)
 
-
-class EpgView(_EpgEventsMixin, ContentView):
+class EpgView(_EpgBrowseMixin, _EpgEventsMixin, ContentView):
     """Watchlist-first EPG view with On Now and Browse tabs."""
 
     play_channel_requested = pyqtSignal(object)  # ChannelDB
@@ -456,103 +410,6 @@ class EpgView(_EpgEventsMixin, ContentView):
         self.on_now_stats = QLabel("")
         self.on_now_stats.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(self.on_now_stats)
-
-        self.stack.addWidget(page)
-
-    # ── Tab 2: Browse ──────────────────────────────────────────────────
-
-    def _build_browse_tab(self) -> None:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(6)
-
-        # Search row with clear button
-        search_row = QHBoxLayout()
-        search_row.setSpacing(4)
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search programmes…")
-        self.search_input.textChanged.connect(self._on_search_changed)
-        search_row.addWidget(self.search_input, 1)
-        browse_clear = QPushButton(self.config.close_icon)
-        browse_clear.setFixedWidth(24)
-        browse_clear.setToolTip("Clear")
-        browse_clear.setStyleSheet(_theme.CLEAR_BTN)
-        browse_clear.clicked.connect(self.search_input.clear)
-        search_row.addWidget(browse_clear)
-        layout.addLayout(search_row)
-
-        # Filter row
-        filter_row = QHBoxLayout()
-
-        self.date_combo = QComboBox()
-        self.date_combo.setFixedWidth(110)
-        today = date.today()
-        for i in range(6):
-            d = today + timedelta(days=i)
-            label = "Today" if i == 0 else ("Tomorrow" if i == 1 else d.strftime("%a %b %d"))
-            self.date_combo.addItem(label, d)
-        self.date_combo.currentIndexChanged.connect(self._reload_browse)
-
-        self.time_combo = QComboBox()
-        self.time_combo.setFixedWidth(120)
-        for label, val in [
-            ("All Day", "all"),
-            ("Morning 6–12", "morning"),
-            ("Afternoon 12–6", "afternoon"),
-            ("Prime Time 6–11", "primetime"),
-            ("Late Night 11–3", "latenight"),
-        ]:
-            self.time_combo.addItem(label, val)
-        self.time_combo.currentIndexChanged.connect(self._reload_browse)
-
-        self.hide_filler_btn = QPushButton("Hide Filler ✓")
-        self.hide_filler_btn.setCheckable(True)
-        self.hide_filler_btn.setChecked(self.config.epg_hide_filler)
-        self.hide_filler_btn.setFixedWidth(100)
-        self.hide_filler_btn.clicked.connect(self._reload_browse)
-
-        filter_row.addWidget(self.date_combo)
-        filter_row.addWidget(self.time_combo)
-        filter_row.addStretch()
-        filter_row.addWidget(self.hide_filler_btn)
-        layout.addLayout(filter_row)
-
-        # Programme tree: Time | Channel | Show | Duration
-        self.browse_list = QTreeWidget()
-        self.browse_list.setAlternatingRowColors(True)
-        self.browse_list.setRootIsDecorated(False)
-        self.browse_list.setUniformRowHeights(True)
-        self.browse_list.setSortingEnabled(True)
-        self.browse_list.setColumnCount(4)
-        self.browse_list.setHeaderLabels(["Time", "Channel", "Show", "Duration"])
-        hdr = self.browse_list.header()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
-        self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
-        self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
-        # Restore persisted sort
-        _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
-        _bord = Qt.SortOrder(self.config.epg_filter_state.get("browse_sort_order", 0))
-        self.browse_list.sortByColumn(_bcol, _bord)
-        self.browse_list.header().sortIndicatorChanged.connect(
-            lambda col, order: self._save_epg_sort("browse", col, order)
-        )
-        self.browse_list.setVisible(False)
-        layout.addWidget(self.browse_list)
-
-        self.browse_placeholder = QLabel("Search for a programme, sport, or show above")
-        self.browse_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
-        layout.addWidget(self.browse_placeholder)
-
-        self.browse_stats = QLabel("")
-        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
-        layout.addWidget(self.browse_stats)
 
         self.stack.addWidget(page)
 
@@ -886,19 +743,6 @@ class EpgView(_EpgEventsMixin, ContentView):
         self.on_now_stats.setText("Loading…")
         self._executor.submit(self._fetch_on_now, provider_ids, hide_filler)
 
-    def _reload_browse(self) -> None:
-        search = self.search_input.text().strip()
-        if not search:
-            self._data_loaded.emit({"tab": "browse", "programs": [], "placeholder": True})
-            return
-        provider_ids = self._filtered_provider_ids()
-        target_date = self.date_combo.currentData()
-        time_slot = self.time_combo.currentData()
-        hide_filler = self.hide_filler_btn.isChecked()
-        self._executor.submit(
-            self._fetch_browse, provider_ids, target_date, time_slot, search, hide_filler
-        )
-
     def _filtered_provider_ids(self) -> list[str]:
         return self._provider_ids
 
@@ -1016,39 +860,6 @@ class EpgView(_EpgEventsMixin, ContentView):
         except Exception as e:
             logger.error(f"EpgView on-now fetch error: {e}")
             self._data_loaded.emit({"tab": "on_now", "programs": []})
-        finally:
-            session.close()
-
-    def _fetch_browse(self, provider_ids: list[str], target_date: date,
-                      time_slot: str, search: str, hide_filler: bool) -> None:
-        session = self.db.get_session()
-        try:
-            repo = EpgRepository(session)
-            filler = self.config.epg_filler_patterns if hide_filler else []
-
-            if search:
-                programs = repo.search_programs(search, provider_ids, hours_ahead=168)
-            else:
-                programs = repo.get_schedule(
-                    target_date=target_date,
-                    provider_ids=provider_ids,
-                    hide_filler=hide_filler,
-                    filler_patterns=filler,
-                    time_slot=time_slot,
-                )
-
-            # Build channel name map
-            name_map: dict[str, str] = {}
-            for p in programs:
-                if p.channel_db_id and p.channel_db_id not in name_map:
-                    ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
-                    if ch:
-                        name_map[p.channel_db_id] = ch.name
-            self._channel_name_map.update(name_map)
-
-            self._data_loaded.emit({"tab": "browse", "programs": programs})
-        except Exception as e:
-            logger.error(f"EpgView browse fetch error: {e}")
         finally:
             session.close()
 
@@ -1910,48 +1721,6 @@ class EpgView(_EpgEventsMixin, ContentView):
         self.on_now_stats.setText(f"{count:,} channels on now")
         self.status_message.emit(f"EPG: {count:,} on now")
 
-    # ── Browse render ──────────────────────────────────────────────────
-
-    def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False) -> None:
-        if placeholder:
-            self.browse_list.setVisible(False)
-            self.browse_placeholder.setVisible(True)
-            self.browse_stats.clear()
-            return
-        self.browse_placeholder.setVisible(False)
-        self.browse_list.setVisible(True)
-        self.browse_list.setSortingEnabled(False)
-        self.browse_list.clear()
-        patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
-
-        for prog in programs:
-            ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            time_str = _format_time(prog.start_time)
-            dur = _duration_str(prog.start_time, prog.stop_time)
-            title = prog.title
-            if prog.is_live:
-                title += " ᴸᶦᵛᵉ"
-            if prog.is_new:
-                title += " ᴺᵉʷ"
-
-            item = _EpgTreeItem([time_str, ch_name, title, dur])
-            item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
-            item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
-
-            if any(pat in prog.title.lower() for pat in patterns):
-                for col in range(4):
-                    item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
-                font = item.font(2)
-                font.setBold(True)
-                item.setFont(2, font)
-
-            self.browse_list.addTopLevelItem(item)
-
-        self.browse_list.setSortingEnabled(True)
-        count = len(programs)
-        self.browse_stats.setText(f"{count:,} programmes")
-        self.status_message.emit(f"EPG: {count:,} programmes")
-
     # ------------------------------------------------------------------
     # Interaction handlers
     # ------------------------------------------------------------------
@@ -2400,108 +2169,7 @@ class EpgView(_EpgEventsMixin, ContentView):
     def _on_now_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
 
-    def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
-        self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
-
-    def _on_browse_context_menu(self, pos) -> None:
-        from metatv.core.repositories import RepositoryFactory
-
-        item = self.browse_list.itemAt(pos)
-        if not item:
-            return
-
-        title = item.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
-        cid = item.data(0, Qt.ItemDataRole.UserRole)
-
-        # ── Build context ────────────────────────────────────────────────────
-        ctx_kwargs: dict = dict(
-            channel_ids=[cid] if cid else [],
-            surface="epg_browse",
-        )
-
-        if cid:
-            with self.db.session_scope(commit=False) as session:
-                repos = RepositoryFactory(session)
-                ch = repos.channels.get_by_id(cid)
-                if ch:
-                    ctx_kwargs.update(
-                        media_type=ch.media_type or "",
-                        is_favorite=ch.is_favorite or False,
-                        in_queue=repos.queue.is_queued(cid),
-                        rating=repos.ratings.get(cid) or 0,
-                        is_hidden=ch.is_hidden or False,
-                        channel_name=ch.name or "",
-                        channel_found=True,
-                    )
-                else:
-                    ctx_kwargs["channel_found"] = False
-        else:
-            ctx_kwargs["channel_found"] = False
-
-        ctx = ChannelMenuContext(**ctx_kwargs)
-
-        # ── Build handlers ───────────────────────────────────────────────────
-        host = self._host()
-        handlers: dict = {}
-
-        if cid and ctx.channel_found:
-            is_fav = ctx.is_favorite
-
-            def _play_h(c=cid):
-                if hasattr(host, "play_channel_by_id"):
-                    host.play_channel_by_id(c)
-                else:
-                    self._play_channel(c)
-
-            def _play_new_h(c=cid):
-                if hasattr(host, "play_channel_new_window_by_id"):
-                    host.play_channel_new_window_by_id(c)
-
-            def _fav_h(c=cid, f=is_fav):
-                if hasattr(host, "_toggle_favorite_by_id"):
-                    host._toggle_favorite_by_id(c, not f)
-
-            def _queue_h(c=cid, iq=ctx.in_queue):
-                if hasattr(host, "_add_to_queue") and hasattr(host, "_remove_from_queue"):
-                    if iq:
-                        host._remove_from_queue(c)
-                    else:
-                        host._add_to_queue(c)
-
-            handlers["play"] = _play_h
-            handlers["play_new_window"] = _play_new_h
-            handlers["favorite"] = _fav_h
-            handlers["queue"] = _queue_h
-
-            if ctx.media_type in ("movie", "series"):
-                def _like_h(c=cid):
-                    if hasattr(host, "_toggle_rating"):
-                        host._toggle_rating(c, 1)
-
-                def _dislike_h(c=cid):
-                    if hasattr(host, "_toggle_rating"):
-                        host._toggle_rating(c, -1)
-
-                handlers["like"] = _like_h
-                handlers["dislike"] = _dislike_h
-
-            # epg_watch: only when not already watched
-            if cid not in self.config.epg_watchlist_channels:
-                handlers["epg_watch"] = lambda c=cid: self._watch_channel(c)
-
-        # epg_track_show is always offered when there's a title
-        if title:
-            handlers["epg_track_show"] = lambda t=title: self._prompt_track(t)
-
-        menu = build_channel_menu(ctx, handlers, parent=self)
-        menu.exec(self.browse_list.viewport().mapToGlobal(pos))
-
     def _on_now_selection_changed(self, current, _) -> None:
-        if not current:
-            return
-        self._emit_channel_selected(current.data(0, Qt.ItemDataRole.UserRole))
-
-    def _browse_selection_changed(self, current, _) -> None:
         if not current:
             return
         self._emit_channel_selected(current.data(0, Qt.ItemDataRole.UserRole))
@@ -2521,109 +2189,3 @@ class EpgView(_EpgEventsMixin, ContentView):
         self._executor.shutdown(wait=False)
         super().closeEvent(event)
 
-
-# ------------------------------------------------------------------
-# Manage Dismissed dialog
-# ------------------------------------------------------------------
-
-class _DismissedDialog(QDialog):
-    """Lists dismissed channels and allows un-dismissing them."""
-
-    def __init__(self, config, parent=None) -> None:
-        super().__init__(parent)
-        self.config = config
-        self.setWindowTitle("Manage Dismissed Channels")
-        self.resize(400, 300)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Dismissed recommendations (click to un-dismiss):"))
-
-        self.list = QListWidget()
-        layout.addWidget(self.list)
-
-        now = _now_utc()
-        for cid, ts_str in list(self.config.epg_dismissed_channels.items()):
-            until = _parse_iso(ts_str)
-            if until > now:
-                days = max(0, (until - now).days)
-                item = QListWidgetItem(f"{cid} — {days}d remaining")
-                item.setData(Qt.ItemDataRole.UserRole, cid)
-                self.list.addItem(item)
-
-        if self.list.count() == 0:
-            self.list.addItem("No dismissed channels.")
-
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        undismiss_btn = QPushButton("Un-dismiss selected")
-        undismiss_btn.clicked.connect(self._undismiss)
-        btn_box.addButton(undismiss_btn, QDialogButtonBox.ButtonRole.ActionRole)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-
-    def _undismiss(self) -> None:
-        item = self.list.currentItem()
-        if not item:
-            return
-        cid = item.data(Qt.ItemDataRole.UserRole)
-        if cid and cid in self.config.epg_dismissed_channels:
-            del self.config.epg_dismissed_channels[cid]
-            self.config.save()
-            row = self.list.row(item)
-            self.list.takeItem(row)
-
-
-# ------------------------------------------------------------------
-# Assign Category dialog
-# ------------------------------------------------------------------
-
-class _AssignCategoryDialog(QDialog):
-    """Lets the user pick or type a category code to assign to selected channels."""
-
-    def __init__(self, known: list[str], parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Assign Category")
-        self.setModal(True)
-        self.setMinimumWidth(300)
-        lay = QVBoxLayout(self)
-        lay.setSpacing(8)
-        lay.setContentsMargins(12, 12, 12, 12)
-
-        lay.addWidget(QLabel("Category code (e.g. BEIN, US, UK, NHL):"))
-
-        self._edit = QLineEdit()
-        self._edit.setPlaceholderText("Type a code or pick from list below…")
-        lay.addWidget(self._edit)
-
-        from PyQt6.QtWidgets import QComboBox
-        combo = QComboBox()
-        combo.addItem("— pick existing —")
-        combo.addItems(known)
-        combo.currentIndexChanged.connect(
-            lambda i: self._edit.setText(combo.currentText()) if i > 0 else None
-        )
-        lay.addWidget(combo)
-
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-        lay.addWidget(btns)
-
-    def category_code(self) -> str:
-        return self._edit.text().strip().upper()
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-def _parse_iso(ts_str: str) -> datetime:
-    """Parse ISO timestamp string to naive datetime (UTC)."""
-    try:
-        dt = datetime.fromisoformat(ts_str)
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-    except (ValueError, TypeError):
-        return datetime.min
