@@ -1187,6 +1187,11 @@ class EpgView(ContentView):
 
         self._reload_all()
         self.epg_manager.refresh_all_if_needed()
+        # Relink is cheap (DB-only) and fixes partial-match gaps without a network
+        # fetch — run it every activation so newly-loaded channels are linked before
+        # the user sees On Now / Watchlist.  refresh_finished is emitted per changed
+        # provider so _on_epg_refreshed calls _reload_all() automatically.
+        self.epg_manager.relink_all()
         self._live_refresh_timer.start()
 
     def on_deactivate(self) -> None:

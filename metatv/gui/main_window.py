@@ -1387,6 +1387,15 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             if hasattr(self, "stream_retry_manager"):
                 self.stream_retry_manager.check_all_now()
 
+            # Relink EPG rows against the freshly-loaded channel corpus.
+            # This is a DB-only pass (no network fetch) that fixes the partial-match
+            # case: channels whose EPG rows were stored with channel_db_id=NULL
+            # because they weren't loaded at XMLTV fetch time get linked now.
+            # Safe here because channels just finished loading, and relink_all uses
+            # the EPG manager's existing executor (no new pool / no SQLite lock race).
+            if getattr(self, "epg_manager", None):
+                self.epg_manager.relink_all()
+
             # Freshly-added provider with EPG enabled → kick off its first EPG pull
             # now (alongside the channel data), so the user never has to open Source
             # Settings to get the initial guide. force_refresh_provider bypasses the

@@ -519,6 +519,33 @@ class EpgRepository:
         )
         return has_matched is None  # rows exist but none are matched
 
+    def has_unmatched_unnamed_epg(self, provider_id: str) -> bool:
+        """Return True iff the provider has rows that are BOTH unmatched and unnamed.
+
+        These are *legacy* rows (``channel_db_id`` NULL **and** ``channel_name``
+        empty) — stored before per-programme display-name persistence — which the
+        DB-only relink cannot fix: tier-1 needs an ``epg_channel_id`` match and
+        tiers 2/3 need the display name, which isn't stored. One re-fetch
+        repopulates ``channel_name`` and rebuilds the links; afterwards this
+        returns False and the cheap relink handles everything. A row that is
+        already matched (channel_db_id set) does NOT need re-fetching, so matched
+        providers never trigger here even if their legacy rows lack a name.
+        """
+        from sqlalchemy import or_
+        row = (
+            self.session.query(EpgProgramDB.id)
+            .filter(
+                EpgProgramDB.provider_id == provider_id,
+                EpgProgramDB.channel_db_id.is_(None),
+                or_(
+                    EpgProgramDB.channel_name == "",
+                    EpgProgramDB.channel_name.is_(None),
+                ),
+            )
+            .first()
+        )
+        return row is not None
+
     def get_channel_name_for_epg_id(self, channel_epg_id: str) -> str | None:
         """Resolve an epg_channel_id to a human-readable channel name."""
         prog = (

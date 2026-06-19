@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import types as _types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -210,14 +211,20 @@ class EpgManager(QObject):
                     self._start_refresh(provider.id, eff_url, provider.name, force=False)
                 elif (
                     provider.id not in self._unmatched_refresh_attempted
-                    and epg_repo.has_unmatched_epg(provider.id)
+                    and (
+                        epg_repo.has_unmatched_epg(provider.id)
+                        or epg_repo.has_unmatched_unnamed_epg(provider.id)
+                    )
                 ):
-                    # Guide is time-fresh but all programme rows have channel_db_id=NULL
-                    # (fetch ran before channels were loaded). Re-fetch once this session
-                    # to rebuild the match map now that channels are available.
+                    # Guide is time-fresh but either (a) all rows are unmatched
+                    # (fetch ran before channels loaded), or (b) rows are legacy and
+                    # lack a stored channel_name (so the DB-only relink can't
+                    # fuzzy-match them). Re-fetch once this session to rebuild the
+                    # match map and populate channel_name; afterwards the cheap
+                    # relink handles everything without a network fetch.
                     logger.info(
-                        f"EPG: provider {provider.name!r} has unmatched guide data "
-                        f"— triggering one-time re-fetch to rebuild channel links"
+                        f"EPG: provider {provider.name!r} has unmatched/unnamed guide "
+                        f"data — triggering one-time re-fetch to rebuild channel links"
                     )
                     self._unmatched_refresh_attempted.add(provider.id)
                     self._start_refresh(provider.id, eff_url, provider.name, force=False)
@@ -336,6 +343,9 @@ class EpgManager(QObject):
             # Build channel match map: epg_id → channel_db_id
             match_map = self._build_match_map(session, channels, provider_id)
             logger.info(f"EPG: matched {len(match_map)} channels for {provider_name}")
+            # Denormalized display-name per epg_id, stored on each programme row so a
+            # later DB-only relink can fuzzy-match (tiers 2/3) without re-downloading.
+            chan_name_map = {ch.epg_id: ch.display_name for ch in channels}
 
             # Clear existing data — commit delete immediately so the write lock is released
             # before the bulk insert begins.  Each insert batch is also committed
@@ -359,6 +369,7 @@ class EpgManager(QObject):
                     provider_id    = provider_id,
                     channel_epg_id = prog.channel_id,
                     channel_db_id  = channel_db_id,
+                    channel_name   = chan_name_map.get(prog.channel_id, ""),
                     title          = prog.title,
                     description    = prog.description,
                     start_time     = prog.start_time,
@@ -506,6 +517,144 @@ class EpgManager(QObject):
             f"matched to playable streams (provider={provider_id})"
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Relink — DB-only re-match (no network fetch)
+    # ------------------------------------------------------------------
+
+    def _relink_provider(self, session, provider_id: str) -> int:
+        """Re-run channel matching for existing EPG rows without re-downloading.
+
+        Reads the distinct ``channel_epg_id`` values already stored in
+        ``EpgProgramDB``, passes them to ``_build_match_map`` as lightweight
+        pseudo-channel objects (so tiers 1 and 2/3 both run), then bulk-updates
+        only the rows whose ``channel_db_id`` changed.
+
+        Args:
+            session: An open SQLAlchemy session (caller manages lifecycle).
+            provider_id: Provider whose EPG rows should be re-linked.
+
+        Returns:
+            Total number of ``EpgProgramDB`` rows updated.
+        """
+        # Collect distinct (channel_epg_id, channel_name) pairs from stored rows.
+        pairs = (
+            session.query(EpgProgramDB.channel_epg_id, EpgProgramDB.channel_name)
+            .filter(EpgProgramDB.provider_id == provider_id)
+            .distinct()
+            .all()
+        )
+        if not pairs:
+            return 0
+
+        # Build fake channel objects so _build_match_map can run all three tiers:
+        # tier 1 keys off epg_id; tiers 2/3 fuzzy-match the display_name. Use the
+        # stored channel_name as the display_name, falling back to the epg_id for
+        # legacy rows stored before display-name persistence (tier-1 still works).
+        fake_channels = [
+            _types.SimpleNamespace(epg_id=eid, display_name=(name or eid))
+            for eid, name in pairs
+        ]
+
+        match_map = self._build_match_map(session, fake_channels, provider_id)
+
+        from sqlalchemy import or_
+
+        total_updated = 0
+        for epg_id, channel_db_id in match_map.items():
+            # Update rows where channel_db_id IS NULL (unmatched) OR differs
+            # from the newly resolved id.  A plain `!= channel_db_id` generates
+            # `col != :val` which is never True for NULL rows in SQL.
+            updated = (
+                session.query(EpgProgramDB)
+                .filter(
+                    EpgProgramDB.provider_id == provider_id,
+                    EpgProgramDB.channel_epg_id == epg_id,
+                    or_(
+                        EpgProgramDB.channel_db_id.is_(None),
+                        EpgProgramDB.channel_db_id != channel_db_id,
+                    ),
+                )
+                .update(
+                    {"channel_db_id": channel_db_id},
+                    synchronize_session=False,
+                )
+            )
+            total_updated += updated
+
+        return total_updated
+
+    def _relink_worker(self) -> None:
+        """Background worker: re-link EPG rows for all active, EPG-enabled providers."""
+        session = self.db.get_session()
+        try:
+            providers = (
+                session.query(ProviderDB)
+                .filter_by(is_active=True)
+                .all()
+            )
+            grand_total = 0
+            changed_provider_ids: list[str] = []
+            for provider in providers:
+                if not getattr(provider, "epg_enabled", True):
+                    continue
+                if provider.id in self._active_refreshes:
+                    logger.debug(
+                        f"EPG relink: skipping {provider.name!r} — fetch in progress"
+                    )
+                    continue
+                self._active_refreshes.add(provider.id)
+                try:
+                    relinked = self._relink_provider(session, provider.id)
+                    if relinked:
+                        session.commit()
+                        grand_total += relinked
+                        changed_provider_ids.append(provider.id)
+                        logger.debug(
+                            f"EPG relink: {relinked} rows updated for {provider.name!r}"
+                        )
+                except Exception as exc:
+                    session.rollback()
+                    logger.warning(f"EPG relink failed for {provider.id}: {exc}")
+                finally:
+                    self._active_refreshes.discard(provider.id)
+
+            if grand_total:
+                logger.info(
+                    f"EPG relink complete: {grand_total} rows updated across "
+                    f"{len(changed_provider_ids)} provider(s)"
+                )
+                # Notify views so they repopulate — reuse refresh_finished so the
+                # already-wired handlers (_refresh_watch_alerts + _on_epg_refreshed)
+                # reload On Now / Watchlist without any new signal plumbing.
+                for pid in changed_provider_ids:
+                    count = (
+                        session.query(EpgProgramDB)
+                        .filter_by(provider_id=pid)
+                        .count()
+                    )
+                    self.refresh_finished.emit(pid, count)
+            else:
+                logger.debug("EPG relink: no rows needed updating")
+        except Exception as exc:
+            logger.error(f"EPG relink worker error: {exc}")
+        finally:
+            session.close()
+
+    def relink_all(self) -> None:
+        """Re-run channel matching for all providers using existing EPG rows.
+
+        Unlike ``refresh_all_if_needed``, this is a DB-only operation — no network
+        fetch. It fixes the **partial-match** case where some channels were linked
+        at fetch time but others (e.g. those whose channel list was not yet loaded,
+        or whose name match changed) were left with ``channel_db_id=NULL``.
+
+        Runs in the manager's existing single-worker executor so it never races
+        with a live fetch for the same SQLite file.  Emits ``refresh_finished``
+        for each provider where rows changed so the EPG view and sidebar Watch
+        Alerts reload automatically.
+        """
+        self._executor.submit(self._relink_worker)
 
     # ------------------------------------------------------------------
     # Status

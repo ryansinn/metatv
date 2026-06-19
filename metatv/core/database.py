@@ -311,6 +311,7 @@ class EpgProgramDB(Base):
     provider_id    = Column(String, nullable=False, index=True)
     channel_epg_id = Column(String, nullable=False, index=True)  # XMLTV <channel id="...">
     channel_db_id  = Column(String, nullable=True,  index=True)  # matched ChannelDB.id
+    channel_name   = Column(String, nullable=False, default="")  # XMLTV display-name; enables DB-only fuzzy relink
     title          = Column(String, nullable=False,  index=True)
     description    = Column(Text, default="")
     start_time     = Column(DateTime, nullable=False, index=True)
@@ -406,6 +407,7 @@ class Database:
             ("watch_queue",  "channel_name",             "TEXT NOT NULL DEFAULT ''"),
             ("watch_queue",  "media_type",               "TEXT NOT NULL DEFAULT ''"),
             ("watch_queue",  "source_id",                "TEXT NOT NULL DEFAULT ''"),
+            ("epg_programmes", "channel_name",           "TEXT NOT NULL DEFAULT ''"),
             ("channels",     "is_rec_suppressed",        "INTEGER DEFAULT 0"),
             ("channels",     "rec_shown_count",           "INTEGER DEFAULT 0"),
             ("channels",     "rec_last_shown",            "DATETIME"),
