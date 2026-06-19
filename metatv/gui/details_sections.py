@@ -356,18 +356,21 @@ class _MetadataSection(QWidget):
             self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
-        """Tier-1 display: channel attributes only, no metadata."""
-        parsed = parse_channel_name(channel.name)
-        clean_title = parsed.bare_name if parsed.bare_name else channel.name
+        """Tier-1 display: channel attributes only, no metadata.
+
+        Reads stored detected_* fields written at ingestion time — never calls
+        parse_channel_name() here (ingestion-only rule, CLAUDE.md).
+        """
+        # Title — use stored detected_title (prefix/suffix already stripped at ingestion).
+        clean_title = getattr(channel, "detected_title", None) or channel.name
         self.title_label.setText(clean_title)
         self.title_label.setToolTip(channel.name)
 
         # Prefix chip — shows detected category code (EN, NF, D+, etc.).
         # Quality tokens (4K, HD, etc.) are not region/platform chips; skip them.
-        # Priority: parsed region (from name) > detected_prefix > detected_region
+        # Priority: detected_prefix (separator prefix) > detected_region (parenthetical origin)
         prefix = (
-            parsed.region
-            or getattr(channel, "detected_prefix", None)
+            getattr(channel, "detected_prefix", None)
             or getattr(channel, "detected_region", None)
             or ""
         )
@@ -380,21 +383,18 @@ class _MetadataSection(QWidget):
             self._prefix_chip.hide()
 
         # Quality chip — shows detected quality (4K, UHD, HD, etc.) next to language chip.
-        # Prefers parsed quality from the name; falls back to stored detected_quality.
-        quality = (
-            parsed.quality[0].upper() if parsed.quality
-            else getattr(channel, "detected_quality", None)
-        )
+        quality = getattr(channel, "detected_quality", None)
         if quality:
-            self._quality_chip.setText(quality)
-            self._quality_chip.setToolTip(f"{quality} quality")
+            self._quality_chip.setText(quality.upper())
+            self._quality_chip.setToolTip(f"{quality.upper()} quality")
             self._quality_chip.show()
         else:
             self._quality_chip.hide()
 
         # Year from channel name — shown to the right of the title
-        if parsed.year:
-            self._name_year_lbl.setText(parsed.year)
+        year = getattr(channel, "detected_year", None)
+        if year:
+            self._name_year_lbl.setText(year)
             self._name_year_lbl.show()
         else:
             self._name_year_lbl.hide()
