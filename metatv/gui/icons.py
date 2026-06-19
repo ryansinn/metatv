@@ -75,6 +75,10 @@ preferences_icon: str = "🎯"
 queue_icon: str = "📋"
 events_icon: str = "🎯"         # EPG Events tab (platform-event / scheduled feeds)
 
+# What's New
+whats_new_icon: str = "✦"   # U+2726 BLACK FOUR POINTED STAR — monochrome, menu + dialog header
+bullet_icon: str = "•"       # U+2022 BULLET — used in What's New item lists
+
 # View toggles
 list_view_icon: str = "☰"
 grid_view_icon: str = "⊞"

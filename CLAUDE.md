@@ -576,6 +576,7 @@ MD5(url) as filename in `~/.cache/metatv/images/`. LRU cleanup at 500MB. Always 
 - Keep files under 1000 lines; one class per file (helper classes excepted)
 - Use `ThreadPoolExecutor` for blocking I/O; use `asyncio` for async providers
 - `QTimer.singleShot(0, ...)` for deferred main-thread execution
+- User-facing changes should append a `WhatsNewEntry` (next `id`) to `metatv/whats_new.py` so the in-app What's New dialog explains the change.
 
 ## Session Wrap SOP
 

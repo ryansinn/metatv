@@ -97,6 +97,8 @@ def _format_episode_duration(raw: str) -> str:
 
 
 from metatv.core.preference_engine import version_score as _version_score
+from metatv.gui.whats_new_dialog import WhatsNewDialog
+import metatv.whats_new as _whats_new
 
 _YEAR_IN_NAME = re.compile(r'\b(19[5-9]\d|20[0-2]\d)\b')
 
@@ -359,6 +361,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # One-time auto-rescan if prefix detector version is behind
         QTimer.singleShot(1000, self._maybe_rescan_prefixes)
 
+        # Show What's New dialog after the window paints (deferred, idempotent)
+        self._whats_new_checked: bool = False
+        QTimer.singleShot(0, self.maybe_show_whats_new)
+
         logger.info("Main window initialized")
     
     def setup_ui(self):
@@ -491,6 +497,11 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        whats_new_action = QAction(f"{_icons.whats_new_icon}  What's New", self)
+        whats_new_action.setToolTip("See what changed in recent updates")
+        whats_new_action.triggered.connect(self.show_whats_new)
+        help_menu.addAction(whats_new_action)
+        help_menu.addSeparator()
         help_menu.addAction("&About", self.show_about)
     
     def create_sidebar(self) -> QWidget:
@@ -2750,6 +2761,51 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
     def show_about(self):
         """Show about dialog"""
         logger.info("Show about")
+
+    # ------------------------------------------------------------------
+    # What's New
+    # ------------------------------------------------------------------
+
+    def _whats_new_unseen(self) -> list:
+        """Return changelog entries newer than the user's last-seen cursor.
+
+        Extracted for testability — callers can assert the decision without
+        constructing or exec-ing the modal dialog.
+        """
+        return _whats_new.entries_since(self.config.last_seen_whats_new_id)
+
+    def show_whats_new(self) -> None:
+        """Open the What's New dialog with the full changelog (on-demand viewer).
+
+        Also advances the seen cursor to the latest entry and saves config,
+        so the auto-show guard treats it as seen.
+        """
+        entries = sorted(_whats_new.WHATS_NEW, key=lambda e: e.id, reverse=True)
+        dlg = WhatsNewDialog(entries, self)
+        dlg.exec()
+        self.config.last_seen_whats_new_id = _whats_new.latest_id()
+        self.config.save()
+
+    def maybe_show_whats_new(self) -> None:
+        """Show the What's New dialog once if there are unseen entries.
+
+        Idempotent: guarded by ``_whats_new_checked`` so it cannot fire twice
+        even if called from multiple code paths.  After showing, advances the
+        cursor and saves config so it will not appear again until new entries
+        are added.
+        """
+        if self._whats_new_checked:
+            return
+        self._whats_new_checked = True
+
+        unseen = self._whats_new_unseen()
+        if not unseen:
+            return
+
+        dlg = WhatsNewDialog(unseen, self)
+        dlg.exec()
+        self.config.last_seen_whats_new_id = _whats_new.latest_id()
+        self.config.save()
     
     def _save_filter_panel_width(self):
         """Persist filter panel width when inner splitter is moved."""
