@@ -18,7 +18,7 @@ _QUALITY_COLORS: dict[str, str] = {
 }
 
 _CHIP_BASE = (
-    "border-radius: 3px; padding: 1px 5px; font-size: 10px;"
+    "border-radius: 3px; padding: 1px 5px; font-size: " + _theme.FONT_SM + ";"
     " font-weight: bold; color: white; background: {bg};"
 )
 
@@ -27,7 +27,7 @@ _PLATFORM_STYLE = _CHIP_BASE.format(bg=_theme.OVERLAY_PLATFORM_BADGE)
 _AUDIO_STYLE   = _CHIP_BASE.format(bg=_theme.COLOR_AUDIO_BADGE)
 _YEAR_STYLE = (
     f"border: 1px solid {_theme.COLOR_FAINT}; border-radius: 3px; padding: 1px 5px;"
-    f" font-size: 10px; color: {_theme.COLOR_MUTED}; background: transparent;"
+    f" font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED}; background: transparent;"
 )
 
 

@@ -177,6 +177,7 @@ FONT_LG  = "12px"
 FONT_XL  = "13px"
 FONT_2XL = "14px"
 FONT_3XL = "18px"
+FONT_4XL = "20px"
 # One-off larger sizes (provider editor / icon picker)
 FONT_HEADING = "15px"   # provider-name input
 FONT_INPUT   = "16px"   # custom-emoji input

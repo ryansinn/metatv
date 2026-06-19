@@ -370,7 +370,7 @@ class EpgView(ContentView):
         layout.addLayout(add_row)
 
         ci_note = QLabel("Patterns are not case-sensitive")
-        ci_note.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 10px;")
+        ci_note.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
         layout.addWidget(ci_note)
 
         # Pattern cards — responsive FlowLayout
@@ -429,7 +429,7 @@ class EpgView(ContentView):
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
         self.manage_dismissed_btn.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: 11px; border: none; background: transparent;"
+            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;"
         )
         self.manage_dismissed_btn.clicked.connect(self._manage_dismissed)
         rec_header.addWidget(self.manage_dismissed_btn)
@@ -650,7 +650,7 @@ class EpgView(ContentView):
 
         self.browse_placeholder = QLabel("Search for a programme, sport, or show above")
         self.browse_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 13px; padding: 40px;")
+        self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         layout.addWidget(self.browse_placeholder)
 
         self.browse_stats = QLabel("")
@@ -1096,14 +1096,14 @@ class EpgView(ContentView):
         h.setContentsMargins(0, 2, 0, 2)
         h.setSpacing(8)
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"font-size: 12px; color: {_theme.COLOR_TEXT_2};")
+        lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_2};")
         h.addWidget(lbl, 1)
         det = QLabel(detail)
-        det.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_FAINT};")
+        det.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_FAINT};")
         h.addWidget(det)
         rm_btn = QPushButton(self.config.close_icon)
         rm_btn.setFixedWidth(24)
-        rm_btn.setStyleSheet(f"border: none; color: {_theme.COLOR_MUTED}; font-size: 14px; font-weight: bold;")
+        rm_btn.setStyleSheet(f"border: none; color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL}; font-weight: bold;")
         rm_btn.setToolTip("Remove")
         rm_btn.clicked.connect(on_remove)
         h.addWidget(rm_btn)
@@ -1506,7 +1506,7 @@ class EpgView(ContentView):
         if not patterns:
             empty = QLabel("No watchlist items yet.\nAdd a show or keyword above to get started.")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 13px; padding: 20px;")
+            empty.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
             wl_outer.addWidget(empty)
             wl_outer.addStretch()
         else:
@@ -1647,7 +1647,7 @@ class EpgView(ContentView):
         if is_live:
             n = len(live)
             live_lbl = QLabel(f"ON NOW ({n})" if n > 1 else "ON NOW")
-            live_lbl.setStyleSheet(f"color: {_theme.COLOR_OK}; font-size: 12px;")
+            live_lbl.setStyleSheet(f"color: {_theme.COLOR_OK}; font-size: {_theme.FONT_LG};")
             header.addWidget(live_lbl)
 
         remove_btn = QPushButton(self.config.close_icon)
@@ -1725,7 +1725,7 @@ class EpgView(ContentView):
                     QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
                 )
                 title_lbl.setStyleSheet(
-                    f"font-size: 11px; color: {_theme.COLOR_TEXT_2}; font-weight: bold;"
+                    f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2}; font-weight: bold;"
                     " padding-left: 8px; padding-top: 4px;"
                 )
                 target_layout.addWidget(title_lbl)
@@ -1748,7 +1748,7 @@ class EpgView(ContentView):
                 expand_btn = QPushButton(f"{self.config.move_down_icon}  {n_more} more channels")
                 expand_btn.setFlat(True)
                 expand_btn.setStyleSheet(
-                    f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: 10px; border: none;"
+                    f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM}; border: none;"
                     " text-align: left; padding-left: 16px; }"
                     f"QPushButton:hover {{ color: {_theme.COLOR_DIM_2}; }}"
                 )
@@ -1787,7 +1787,7 @@ class EpgView(ContentView):
             )
             more_grps_btn.setFlat(True)
             more_grps_btn.setStyleSheet(
-                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: 10px; border: none;"
+                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; border: none;"
                 " text-align: left; padding: 2px 8px; }"
                 f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}"
             )
@@ -1880,7 +1880,7 @@ class EpgView(ContentView):
                     QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
                 )
                 title_lbl.setStyleSheet(
-                    f"font-size: 11px; color: {_theme.COLOR_TEXT_LOW}; font-style: italic; padding-left: 8px;"
+                    f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW}; font-style: italic; padding-left: 8px;"
                 )
                 layout.addWidget(title_lbl)
             for prog in progs[:2]:
@@ -1901,7 +1901,7 @@ class EpgView(ContentView):
         toggle_btn = QPushButton()
         toggle_btn.setFlat(True)
         toggle_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: 11px; border: none;"
+            f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; border: none;"
             " text-align: left; padding: 2px 4px; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_MUTED}; }}"
         )
@@ -1955,7 +1955,7 @@ class EpgView(ContentView):
 
         header = QHBoxLayout()
         icon_lbl = QLabel(f"{self.config.series_icon} ")
-        icon_lbl.setStyleSheet("font-size: 13px;")
+        icon_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL};")
         header.addWidget(icon_lbl)
         if p.region:
             header.addWidget(make_region_chip(p.region, w))
@@ -1994,11 +1994,11 @@ class EpgView(ContentView):
             remain = _remaining_str(prog.stop_time) if prog.stop_time > now else ""
             suffix = f"  ·  {remain}" if remain else ""
             prog_lbl = QLabel(f"  {prog.title}{suffix}")
-            prog_lbl.setStyleSheet(f"color: {_theme.COLOR_DIM_2}; font-size: 11px; padding-left: 16px;")
+            prog_lbl.setStyleSheet(f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
             layout.addWidget(prog_lbl)
         else:
             no_epg = QLabel("  No EPG data")
-            no_epg.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding-left: 16px;")
+            no_epg.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding-left: 16px;")
             layout.addWidget(no_epg)
 
         return w

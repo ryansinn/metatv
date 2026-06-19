@@ -141,7 +141,7 @@ class _CategoryNamePopup(QFrame):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
         prefix_lbl = QLabel(prefix)
-        prefix_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px; font-weight: bold;")
+        prefix_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;")
         layout.addWidget(prefix_lbl)
         self._edit = QLineEdit(current_name)
         self._edit.setPlaceholderText(f"Name for {prefix}…")
@@ -196,12 +196,12 @@ class _VersionSection(QWidget):
         nudge_row = QHBoxLayout(self._pref_nudge)
         nudge_row.setContentsMargins(8, 4, 8, 4)
         self._pref_nudge_lbl = QLabel()
-        self._pref_nudge_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_PREF_NUDGE};")
+        self._pref_nudge_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_PREF_NUDGE};")
         self._pref_nudge_lbl.setWordWrap(True)
         self._pref_nudge_switch_btn = QPushButton("Switch")
         self._pref_nudge_switch_btn.setFlat(True)
         self._pref_nudge_switch_btn.setStyleSheet(
-            f"color: {_theme.COLOR_PREF_NUDGE}; font-size: 11px; font-weight: bold; border: none;"
+            f"color: {_theme.COLOR_PREF_NUDGE}; font-size: {_theme.FONT_MD}; font-weight: bold; border: none;"
         )
         self._pref_nudge_switch_btn.setToolTip("Switch the details pane to show your preferred version")
         nudge_row.addWidget(self._pref_nudge_lbl, 1)
@@ -216,7 +216,7 @@ class _VersionSection(QWidget):
         row_layout.setSpacing(6)
 
         cat_label = QLabel("Categories:")
-        cat_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        cat_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         row_layout.addWidget(cat_label, 0)
 
@@ -288,7 +288,7 @@ class _VersionSection(QWidget):
 
         chip = QPushButton(prefix + status)
         chip.setStyleSheet(
-            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_TEXT}; border: 1px solid {_theme.COLOR_FAINT};"
+            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT}; border: 1px solid {_theme.COLOR_FAINT};"
             " border-radius: 4px; padding: 2px 8px; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; border-color: {_theme.COLOR_MUTED};"
             f" background: {_theme.OVERLAY_05}; }}"
@@ -311,7 +311,7 @@ class _VersionSection(QWidget):
         extra = "text-decoration: line-through;" if is_hidden_cat else ""
         chip = QPushButton(prefix)
         chip.setStyleSheet(
-            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
+            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
             f" border-radius: 4px; padding: 2px 8px; {extra} }}"
         )
         full = resolve_category_name(prefix, self.config)

@@ -287,7 +287,7 @@ class FilterBar(QWidget):
         source_row.setContentsMargins(0, 0, 0, 0)
         source_row.setSpacing(6)
         self._source_chips_label = QLabel("Sources:")
-        self._source_chips_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        self._source_chips_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         source_row.addWidget(self._source_chips_label)
         self._source_chips_layout = source_row
         source_row.addStretch()
@@ -406,7 +406,7 @@ class FilterBar(QWidget):
         layout.addLayout(filter_row)
 
         self.stats_label = QLabel("Showing 0 of 0 channels")
-        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 12px;")
+        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
 
     # ── Source chips ──────────────────────────────────────────────────────────
 

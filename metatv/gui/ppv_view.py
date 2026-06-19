@@ -47,15 +47,15 @@ class PPVEventCard(QFrame):
         event_name = self._meta.get('event_name', 'Unknown Event')
         name_label = QLabel(event_name)
         name_label.setWordWrap(True)
-        name_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        name_label.setStyleSheet(f"font-weight: bold; font-size: {_theme.FONT_2XL};")
         layout.addWidget(name_label)
 
         self.datetime_label = QLabel()
-        self.datetime_label.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_MUTED};")
+        self.datetime_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         layout.addWidget(self.datetime_label)
 
         self.countdown_label = QLabel()
-        self.countdown_label.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};")
+        self.countdown_label.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};")
         layout.addWidget(self.countdown_label)
 
         badges_layout = QHBoxLayout()
@@ -64,7 +64,7 @@ class PPVEventCard(QFrame):
             q = QLabel(quality)
             q.setStyleSheet(
                 f"background-color: {_theme.COLOR_OK}; color: white; padding: 2px 8px; "
-                "border-radius: 3px; font-size: 10px; font-weight: bold;"
+                f"border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
             )
             badges_layout.addWidget(q)
         sport_type = self._meta.get('sport_type')
@@ -72,7 +72,7 @@ class PPVEventCard(QFrame):
             s = QLabel(sport_type.capitalize())
             s.setStyleSheet(
                 f"background-color: {_theme.COLOR_ACCENT}; color: white; padding: 2px 8px; "
-                "border-radius: 3px; font-size: 10px; font-weight: bold;"
+                f"border-radius: 3px; font-size: {_theme.FONT_SM}; font-weight: bold;"
             )
             badges_layout.addWidget(s)
         badges_layout.addStretch()
@@ -103,7 +103,7 @@ class PPVEventCard(QFrame):
             days_ago = abs(time_until.days)
             text = "Ended (replay available)" if days_ago == 0 else f"Ended {days_ago}d ago"
             self.countdown_label.setText(text)
-            self.countdown_label.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_MUTED};")
+            self.countdown_label.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_MUTED};")
         else:
             days = time_until.days
             hours, remainder = divmod(time_until.seconds, 3600)
@@ -118,7 +118,7 @@ class PPVEventCard(QFrame):
                 countdown = f"Starting in {seconds}s"
             self.countdown_label.setText(countdown)
             self.countdown_label.setStyleSheet(
-                f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};"
+                f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};"
             )
 
 
@@ -145,7 +145,7 @@ class PPVView(ContentView):
 
         header_layout = QHBoxLayout()
         title_label = QLabel("💰 Pay-Per-View Events")
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title_label.setStyleSheet(f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         refresh_btn = QPushButton("⟳ Refresh")

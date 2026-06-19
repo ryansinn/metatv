@@ -124,7 +124,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_toggle.setFlat(True)
         self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._retry_toggle.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 11px; font-weight: bold;"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;"
             " border: none; text-align: left; padding: 0 2px; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_DIM}; }}"
         )
@@ -132,7 +132,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         retry_hdr_row.addWidget(self._retry_toggle)
 
         _info_lbl = QLabel(self.config.info_icon)
-        _info_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px;")
+        _info_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD};")
         _info_lbl.setToolTip(
             "Stream Monitoring periodically re-checks streams that previously\n"
             "failed to play. When a stream becomes available again you'll\n"
@@ -149,7 +149,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_list = QListWidget()
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._retry_list.setMaximumHeight(120)
-        self._retry_list.setStyleSheet("QListWidget { font-size: 11px; }")
+        self._retry_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)

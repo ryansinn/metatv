@@ -812,7 +812,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         
         # All / Hidden tab toggle
         _tab_style = (
-            f"QPushButton {{ font-size: 11px; padding: 3px 10px;"
+            f"QPushButton {{ font-size: {_theme.FONT_MD}; padding: 3px 10px;"
             f" border: 1px solid {_theme.COLOR_BORDER}; background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_DISABLED}; }}"
             f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; font-weight: bold; }}"
             f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
@@ -895,14 +895,14 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         _hb_lbl = QLabel(
             f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
         )
-        _hb_lbl.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: 11px;")
+        _hb_lbl.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
         _hb_layout.addWidget(_hb_lbl)
         _hb_layout.addStretch()
         self._manage_cats_btn = QPushButton("📁 Manage Categories")
         self._manage_cats_btn.setFlat(True)
         self._manage_cats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._manage_cats_btn.setStyleSheet(
-            f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
+            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
             f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}"
         )
@@ -1012,7 +1012,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         stats_layout = QHBoxLayout(stats_container)
         stats_layout.setContentsMargins(10, 5, 10, 5)
         self.stats_label = QLabel("Showing 0 of 0 channels")
-        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 12px;")
+        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
         self.content_layout.addWidget(stats_container)
@@ -1792,7 +1792,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                     )
                     btn_widget.setStyleSheet(
                         f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG}; border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER};"
-                        " border-radius: 4px; padding: 8px 16px; font-size: 12px; }"
+                        f" border-radius: 4px; padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
                         f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER}; border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
                     )
                     btn_widget.clicked.connect(self._show_filtered_results)

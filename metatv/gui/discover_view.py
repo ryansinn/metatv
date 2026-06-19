@@ -85,7 +85,7 @@ class DiscoverView(QWidget):
         manage_btn.setFlat(True)
         manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         manage_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: 11px; }}"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         manage_btn.clicked.connect(self._open_manage_dialog)
@@ -108,7 +108,7 @@ class DiscoverView(QWidget):
 
         self._loading_lbl = QLabel("Loading…")
         self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 13px; padding: 20px;")
+        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
         self._shelves_layout.addWidget(self._loading_lbl)
 
         # Zone containers
@@ -135,7 +135,7 @@ class DiscoverView(QWidget):
             "  border: none;"
             "  border-radius: 4px;"
             f"  color: {_theme.COLOR_MUTED};"
-            "  font-size: 12px;"
+            f"  font-size: {_theme.FONT_LG};"
             "  text-align: left;"
             "  padding: 0 12px;"
             "}"

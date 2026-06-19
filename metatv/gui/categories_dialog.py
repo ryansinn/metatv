@@ -65,17 +65,17 @@ class _CategorySection(QWidget):
 
         mood_icon = self._mood_icon()
         name_lbl = QLabel(f"{mood_icon}  {self._name}")
-        name_lbl.setStyleSheet("font-weight: bold; font-size: 12px;")
+        name_lbl.setStyleSheet(f"font-weight: bold; font-size: {_theme.FONT_LG};")
         hl.addWidget(name_lbl)
 
         count_lbl = QLabel(f"({self._count:,})")
-        count_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
+        count_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         hl.addWidget(count_lbl)
 
         if self._is_excluded:
             badge = QLabel("globally excluded")
             badge.setStyleSheet(
-                f"color: {_theme.COLOR_ERR_2}; font-size: 10px; padding: 2px 6px;"
+                f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_SM}; padding: 2px 6px;"
                 f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px;"
             )
             badge.setToolTip(
@@ -128,7 +128,7 @@ class _CategorySection(QWidget):
 
         if not channels:
             lbl = QLabel("No channels in this category.")
-            lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 4px 0;")
+            lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 4px 0;")
             self._body_vl.addWidget(lbl)
             return
 
@@ -142,14 +142,14 @@ class _CategorySection(QWidget):
         hl.setSpacing(6)
 
         name_lbl = QLabel(channel.name)
-        name_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_TEXT_LOW};")
+        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_LOW};")
         hl.addWidget(name_lbl, 1)
 
         move_btn = QPushButton("Change Category")
         move_btn.setFlat(True)
         move_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         move_btn.setStyleSheet(
-            f"QPushButton {{ font-size: 10px; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
+            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
         )
         move_btn.setToolTip("Move this channel to a different category")
@@ -160,7 +160,7 @@ class _CategorySection(QWidget):
         remove_btn.setFlat(True)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.setStyleSheet(
-            f"QPushButton {{ font-size: 10px; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
+            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"
         )
         remove_btn.setToolTip(
@@ -228,11 +228,11 @@ class CategoriesDialog(QDialog):
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("Your Categories")
-        hdr.setStyleSheet("font-size: 13px; font-weight: bold;")
+        hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
         hint = QLabel("Expand a category to see its channels and manage assignments.")
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
+        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         hdr_row.addWidget(hint)
         vl.addLayout(hdr_row)
 
@@ -280,7 +280,7 @@ class CategoriesDialog(QDialog):
                 'or "Add to Category..." to get started.'
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 12px; padding: 30px;")
+            empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_LG}; padding: 30px;")
             self._scroll_vl.addWidget(empty)
         else:
             for cat in cats:

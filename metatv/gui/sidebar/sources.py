@@ -109,16 +109,16 @@ class ProviderItemWidget(QWidget):
             self._name_lbl.setStyleSheet(f"color: {sub_color};")
         layout.addWidget(self._name_lbl, 1)
 
-        _btn_style = """
-            QPushButton {{
-                background: rgba({r},{g},{b},0.15);
-                border: 1px solid rgba({r},{g},{b},0.5);
-                border-radius: 3px;
-                font-size: 10px;
-                color: rgb({r},{g},{b});
-            }}
-            QPushButton:hover {{ background: rgba({r},{g},{b},0.35); }}
-        """
+        _btn_style = (
+            "QPushButton {{\n"
+            "    background: rgba({r},{g},{b},0.15);\n"
+            "    border: 1px solid rgba({r},{g},{b},0.5);\n"
+            "    border-radius: 3px;\n"
+            "    font-size: " + _theme.FONT_SM + ";\n"
+            "    color: rgb({r},{g},{b});\n"
+            "}}\n"
+            "QPushButton:hover {{ background: rgba({r},{g},{b},0.35); }}"
+        )
 
         # Toggle (enable/disable)
         self._toggle_btn = QPushButton("●" if is_active else "○")

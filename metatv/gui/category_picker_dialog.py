@@ -41,12 +41,12 @@ _MOOD_COLORS = {
 
 _MOOD_SELECTED_STYLE = (
     "QPushButton {{ background: {bg}; color: {fg}; border: 2px solid {bg};"
-    " border-radius: 14px; padding: 4px 10px; font-size: 14px; font-weight: bold; }}"
+    " border-radius: 14px; padding: 4px 10px; font-size: " + _theme.FONT_2XL + "; font-weight: bold; }}"
 )
 _MOOD_IDLE_STYLE = (
     f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_MUTED_2};"
     f" border: 1px solid {_theme.COLOR_BORDER};"
-    " border-radius: 14px; padding: 4px 10px; font-size: 14px; }"
+    f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
     f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"
     f" border-color: {_theme.COLOR_MUTED_2}; }}"
 )
@@ -164,13 +164,13 @@ class CategoryPickerDialog(QDialog):
         header = QLabel(
             f"Adding <b>{n:,} channel{'s' if n != 1 else ''}</b> to category:"
         )
-        header.setStyleSheet("font-size: 12px;")
+        header.setStyleSheet(f"font-size: {_theme.FONT_LG};")
         vl.addWidget(header)
 
         # ── Quick-pick shortcuts ───────────────────────────────────────────────
         quick_row = QHBoxLayout()
         quick_lbl = QLabel("Quick:")
-        quick_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 11px;")
+        quick_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_MD};")
         quick_row.addWidget(quick_lbl)
 
         _quick_picks = [
@@ -184,7 +184,7 @@ class CategoryPickerDialog(QDialog):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 f"QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {fg}44;"
-                f" border-radius: 10px; padding: 3px 10px; font-size: 11px; }}"
+                f" border-radius: 10px; padding: 3px 10px; font-size: {_theme.FONT_MD}; }}"
                 f"QPushButton:hover {{ background: {bg}cc; }}"
             )
             _tips = {
@@ -216,7 +216,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Mood bar ───────────────────────────────────────────────────────────
         mood_hdr = QLabel("Mood  (optional):")
-        mood_hdr.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        mood_hdr.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         vl.addWidget(mood_hdr)
 
         self._mood_bar = _MoodBar(self._config)
@@ -225,7 +225,7 @@ class CategoryPickerDialog(QDialog):
 
         # ── Global Exclusions toggle (shown when Dislike selected or new category) ──
         self._excl_cb = QCheckBox("Add this category to Global Exclusions (hide everywhere)")
-        self._excl_cb.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DIM};")
+        self._excl_cb.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DIM};")
         self._excl_cb.setToolTip(
             "Channels in this category will be hidden from Discovery,\n"
             "Recommendations, and the channel list everywhere.\n"

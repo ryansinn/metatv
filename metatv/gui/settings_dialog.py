@@ -287,7 +287,7 @@ class SettingsDialog(QDialog):
             "All changes apply immediately when you click OK or Apply."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         layout.addWidget(hint)
 
         self._sidebar_list = QListWidget()
