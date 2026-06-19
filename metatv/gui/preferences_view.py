@@ -16,6 +16,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
+from metatv.gui import theme as _theme
 
 
 class _AttrRow(QWidget):
@@ -48,9 +49,9 @@ class _AttrRow(QWidget):
         bar.setFixedHeight(8)
         bar.setMinimumWidth(40)
         bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        color = "#4caf50" if value >= 0 else "#f44336"
+        color = _theme.COLOR_OK if value >= 0 else _theme.COLOR_ERR
         bar.setStyleSheet(
-            "QProgressBar { border: 1px solid #444; border-radius: 3px; background: #2a2a2a; }"
+            f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; background: {_theme.COLOR_LINE_DARK}; }}"
             f"QProgressBar::chunk {{ background: {color}; border-radius: 2px; }}"
         )
 
@@ -69,7 +70,7 @@ class _AttrRow(QWidget):
             mute_btn.setToolTip(tip)
             mute_btn.setStyleSheet(
                 "QPushButton { border: none; }"
-                "QPushButton:hover { background: rgba(255,255,255,0.10); border-radius: 3px; }"
+                f"QPushButton:hover {{ background: {_theme.OVERLAY_10}; border-radius: 3px; }}"
             )
             mute_btn.clicked.connect(
                 lambda: self.muteClicked.emit(self._attr_type, self._attr_name)
@@ -80,14 +81,14 @@ class _AttrRow(QWidget):
         hl.addWidget(sign_lbl)
 
         if muted:
-            gray = QColor("#666666")
+            gray = QColor(_theme.COLOR_MUTED_2)
             for w in (lbl, sign_lbl):
                 palette = w.palette()
                 palette.setColor(QPalette.ColorRole.WindowText, gray)
                 w.setPalette(palette)
             bar.setStyleSheet(
-                "QProgressBar { border: 1px solid #333; border-radius: 3px; background: #222; }"
-                "QProgressBar::chunk { background: #555; border-radius: 2px; }"
+                f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: #222; }}"
+                f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}"
             )
 
 
@@ -146,8 +147,8 @@ class _RecRow(QWidget):
 
     _BTN_STYLE = (
         "QPushButton { border: none; border-radius: 3px; padding: 2px; }"
-        "QPushButton:checked { background: rgba(255,255,255,0.18); }"
-        "QPushButton:hover   { background: rgba(255,255,255,0.10); }"
+        f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
+        f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
     )
 
     def __init__(self, channel_id: str, text: str, config: Config,
@@ -274,8 +275,8 @@ class PreferencesView(QWidget):
         self._excl_toggle_btn = QPushButton(f"{self.config.expand_icon} Excluded (0)")
         self._excl_toggle_btn.setFlat(True)
         self._excl_toggle_btn.setStyleSheet(
-            "QPushButton { text-align: left; color: #aaa; font-size: 11px; border: none; padding: 2px 0; }"
-            "QPushButton:hover { color: #ccc; }"
+            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: 11px; border: none; padding: 2px 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         self._excl_toggle_btn.clicked.connect(self._toggle_exclusions)
         excl_header.addWidget(self._excl_toggle_btn)
@@ -310,8 +311,8 @@ class PreferencesView(QWidget):
         )
         self._ver_prefs_toggle_btn.setFlat(True)
         self._ver_prefs_toggle_btn.setStyleSheet(
-            "QPushButton { text-align: left; color: #aaa; font-size: 11px; border: none; padding: 2px 0; }"
-            "QPushButton:hover { color: #ccc; }"
+            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: 11px; border: none; padding: 2px 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         self._ver_prefs_toggle_btn.clicked.connect(self._toggle_version_prefs)
         ver_hdr.addWidget(self._ver_prefs_toggle_btn)
@@ -567,16 +568,16 @@ class PreferencesView(QWidget):
 
         def _kw_link(word: str, base_color: str) -> str:
             if word in muted_kws:
-                return (f'<a href="kw:{word}" style="color:#555; '
+                return (f'<a href="kw:{word}" style="color:{_theme.COLOR_FAINT}; '
                         f'text-decoration:line-through; font-style:italic;">{word}</a>')
             return f'<a href="kw:{word}" style="color:{base_color}; text-decoration:none;">{word}</a>'
 
         parts: list[str] = []
         if top_pos:
-            links = "  ".join(_kw_link(k, "#4caf50") for k in top_pos)
+            links = "  ".join(_kw_link(k, _theme.COLOR_OK) for k in top_pos)
             parts.append(f"+ {links}")
         if top_neg:
-            links = "  ".join(_kw_link(k, "#f44336") for k in top_neg)
+            links = "  ".join(_kw_link(k, _theme.COLOR_ERR) for k in top_neg)
             parts.append(f"− {links}")
         self._keyword_label.setText(
             "  |  ".join(parts) if parts else "<i>Rate more content to see keywords</i>"
@@ -646,7 +647,7 @@ class PreferencesView(QWidget):
                 continue
             has_content = True
             type_header = QLabel(f"<b>{attr_type.capitalize()}</b>")
-            type_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            type_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: 11px;")
             self._excl_layout.addWidget(type_header)
             for name in names:
                 row = self._make_exclusion_row(
@@ -667,7 +668,7 @@ class PreferencesView(QWidget):
         if names_ids:
             has_content = True
             titles_header = QLabel("<b>Not Interested titles</b>")
-            titles_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            titles_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: 11px;")
             self._excl_layout.addWidget(titles_header)
             for name, cid in names_ids:
                 row = self._make_exclusion_row(
@@ -681,7 +682,7 @@ class PreferencesView(QWidget):
         if dedup_overrides:
             has_content = True
             dedup_header = QLabel("<b>Shown separately (ungrouped)</b>")
-            dedup_header.setStyleSheet("color: #aaa; font-size: 11px;")
+            dedup_header.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: 11px;")
             self._excl_layout.addWidget(dedup_header)
             session = self.db.get_session()
             try:
@@ -712,7 +713,7 @@ class PreferencesView(QWidget):
         singular = type_label.rstrip("s") if type_label.endswith("s") else type_label
         lbl = QLabel(
             f"<b>{name}</b> · "
-            f"<span style='color:#888'>{singular}</span>"
+            f"<span style='color:{_theme.COLOR_MUTED}'>{singular}</span>"
             f" — not interesting to you"
         )
         lbl.setTextFormat(Qt.TextFormat.RichText)
@@ -723,7 +724,7 @@ class PreferencesView(QWidget):
         change_btn.setFlat(True)
         change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         change_btn.setStyleSheet(
-            "QPushButton { color: #4488ff; text-decoration: underline; border: none; "
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; text-decoration: underline; border: none; "
             "background: transparent; padding: 0; font-size: 11px; }"
             "QPushButton:hover { color: #66aaff; }"
         )

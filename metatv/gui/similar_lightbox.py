@@ -109,8 +109,8 @@ class SimilarTitleLightbox(QWidget):
         self._card = QFrame()
         self._card.setObjectName("lightbox_card")
         self._card.setStyleSheet(
-            "#lightbox_card { background: #1e1e2e; border-radius: 10px;"
-            " border: 1px solid #444; }"
+            f"#lightbox_card {{ background: #1e1e2e; border-radius: 10px;"
+            f" border: 1px solid {_theme.COLOR_BORDER}; }}"
         )
         self._card.setFixedWidth(760)
         self._card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
@@ -136,17 +136,17 @@ class SimilarTitleLightbox(QWidget):
         header_row.addWidget(self._back_btn)
 
         self._header_lbl = QLabel()
-        self._header_lbl.setStyleSheet("color: #ccc; font-size: 12px; font-weight: bold;")
+        self._header_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: 12px; font-weight: bold;")
         header_row.addWidget(self._header_lbl, 1)
 
         self._counter_lbl = QLabel()
-        self._counter_lbl.setStyleSheet("color: #888; font-size: 11px;")
+        self._counter_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         header_row.addWidget(self._counter_lbl)
 
         close_btn = QPushButton(self._config.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(22, 22)
-        close_btn.setStyleSheet("color: #888; font-size: 14px; border: none;")
+        close_btn.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 14px; border: none;")
         close_btn.setToolTip("Close preview")
         close_btn.clicked.connect(self._close)
         header_row.addWidget(close_btn)
@@ -162,9 +162,9 @@ class SimilarTitleLightbox(QWidget):
         self._prev_btn.setFixedWidth(36)
         self._prev_btn.setFlat(True)
         self._prev_btn.setStyleSheet(
-            "QPushButton { color: #888; font-size: 18px; border: none; }"
-            "QPushButton:hover { color: #fff; }"
-            "QPushButton:disabled { color: #333; }"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 18px; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+            f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
         )
         self._prev_btn.setToolTip("Previous similar title")
         self._prev_btn.clicked.connect(self._go_prev)
@@ -190,9 +190,9 @@ class SimilarTitleLightbox(QWidget):
         self._next_btn.setFixedWidth(36)
         self._next_btn.setFlat(True)
         self._next_btn.setStyleSheet(
-            "QPushButton { color: #888; font-size: 18px; border: none; }"
-            "QPushButton:hover { color: #fff; }"
-            "QPushButton:disabled { color: #333; }"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 18px; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+            f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
         )
         self._next_btn.setToolTip("Next similar title")
         self._next_btn.clicked.connect(self._go_next)
@@ -213,7 +213,7 @@ class SimilarTitleLightbox(QWidget):
         self._poster_lbl.setFixedSize(110, 160)
         self._poster_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._poster_lbl.setStyleSheet(
-            "background: #111; border-radius: 4px; color: #555; font-size: 10px;"
+            f"background: #111; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: 10px;"
         )
         top_row.addWidget(self._poster_lbl)
 
@@ -230,7 +230,7 @@ class SimilarTitleLightbox(QWidget):
         right_col.addWidget(self._meta_lbl)
 
         self._source_lbl = QLabel()
-        self._source_lbl.setStyleSheet("font-size: 11px; color: #666;")
+        self._source_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_MUTED_2};")
         right_col.addWidget(self._source_lbl)
 
         self._genres_lbl = QLabel()
@@ -307,19 +307,19 @@ class SimilarTitleLightbox(QWidget):
         # Overview section
         self._overview_header = QLabel("Overview")
         self._overview_header.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #999; margin-top: 6px;"
+            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 6px;"
         )
         self._content_layout.addWidget(self._overview_header)
 
         self._plot_lbl = QLabel()
         self._plot_lbl.setWordWrap(True)
-        self._plot_lbl.setStyleSheet("font-size: 12px; color: #ccc;")
+        self._plot_lbl.setStyleSheet(f"font-size: 12px; color: {_theme.COLOR_TEXT};")
         self._content_layout.addWidget(self._plot_lbl)
 
         # Cast & Crew section
         self._cast_header = QLabel("Cast & Crew")
         self._cast_header.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #999; margin-top: 4px;"
+            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 4px;"
         )
         self._content_layout.addWidget(self._cast_header)
 
@@ -330,7 +330,7 @@ class SimilarTitleLightbox(QWidget):
 
         self._similar_header_lbl = QLabel("Similar Titles:")
         self._similar_header_lbl.setStyleSheet(
-            "font-size: 11px; font-weight: bold; color: #888; margin-top: 6px;"
+            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_MUTED}; margin-top: 6px;"
         )
         self._similar_header_lbl.hide()
         self._content_layout.addWidget(self._similar_header_lbl)
@@ -520,9 +520,9 @@ class SimilarTitleLightbox(QWidget):
                 btn = QPushButton(item["name"])
                 btn.setFlat(True)
                 btn.setStyleSheet(
-                    "QPushButton { text-align: left; color: #aaa; font-size: 11px;"
+                    f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: 11px;"
                     " border: none; padding: 1px 0; }"
-                    "QPushButton:hover { color: #fff; }"
+                    f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
                 )
                 btn.setToolTip(f"Preview: {item['name']}")
                 cid = item["id"]

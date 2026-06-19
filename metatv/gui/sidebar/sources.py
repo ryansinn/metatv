@@ -248,8 +248,8 @@ class SourcesSection(CollapsibleSection):
         refresh_all_btn.setFixedSize(22, 20)
         refresh_all_btn.setToolTip("Refresh all sources")
         refresh_all_btn.setStyleSheet(_btn_style.format(
-            fs=13, c="#aaa",
-            bg="rgba(255,255,255,0.05)", hbg="rgba(255,255,255,0.15)",
+            fs=13, c=_theme.COLOR_DIM,
+            bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
         ))
         refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)
         header_layout.addWidget(refresh_all_btn)
@@ -258,8 +258,8 @@ class SourcesSection(CollapsibleSection):
         add_btn.setFixedSize(22, 20)
         add_btn.setToolTip("Add Source…")
         add_btn.setStyleSheet(_btn_style.format(
-            fs=13, c="#aaa",
-            bg="rgba(255,255,255,0.05)", hbg="rgba(255,255,255,0.15)",
+            fs=13, c=_theme.COLOR_DIM,
+            bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
         ))
         add_btn.clicked.connect(self.addProviderClicked.emit)
         header_layout.addWidget(add_btn)

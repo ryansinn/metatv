@@ -47,7 +47,7 @@ class FilterPanel(QWidget):
         self.setMinimumWidth(160)
         self.setMaximumWidth(400)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet("background: #1a1a1a;")
+        self.setStyleSheet(f"background: {_theme.COLOR_BG_SECTION};")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -61,7 +61,7 @@ class FilterPanel(QWidget):
         phl.setContentsMargins(10, 0, 8, 0)
         filters_lbl = QLabel("Includes:")
         filters_lbl.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #dddddd;")
+            f"font-size: 13px; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
         phl.addWidget(filters_lbl)
         phl.addStretch()
 
@@ -85,14 +85,14 @@ class FilterPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea { border:none; background:#1a1a1a; }
-            QScrollBar:vertical { background:#222; width:6px; border-radius:3px; }
-            QScrollBar::handle:vertical { background:#444; border-radius:3px; }
+        scroll.setStyleSheet(f"""
+            QScrollArea {{ border:none; background:{_theme.COLOR_BG_SECTION}; }}
+            QScrollBar:vertical {{ background:#222; width:6px; border-radius:3px; }}
+            QScrollBar::handle:vertical {{ background:{_theme.COLOR_BORDER}; border-radius:3px; }}
         """)
 
         sc = QWidget()
-        sc.setStyleSheet("background:#1a1a1a;")
+        sc.setStyleSheet(f"background:{_theme.COLOR_BG_SECTION};")
         self._sl = QVBoxLayout(sc)
         self._sl.setContentsMargins(0, 0, 0, 0)
         self._sl.setSpacing(0)
@@ -527,7 +527,7 @@ class FilterPanel(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
-        line.setStyleSheet("background:#2a2a2a; border:none;")
+        line.setStyleSheet(f"background:{_theme.COLOR_LINE_DARK}; border:none;")
         self._sl.addWidget(line)
 
     def _on_collapse_toggled(self):
@@ -553,7 +553,7 @@ class FilterPanel(QWidget):
     def _on_item_right_clicked(self, item_key: str, section_key: str, pos: QPoint):
         menu = QMenu(self)
         menu.setStyleSheet(
-            "QMenu { background:#2a2a2a; color:#cccccc; border:1px solid #444; }"
+            f"QMenu {{ background:{_theme.COLOR_LINE_DARK}; color:{_theme.COLOR_TEXT}; border:1px solid {_theme.COLOR_BORDER}; }}"
             "QMenu::item:selected { background:#3a3a3a; }"
         )
 

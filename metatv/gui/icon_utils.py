@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from PyQt6.QtGui import QIcon
 
+from metatv.gui import theme as _theme
+
 # Fallback chains for keys known to have font-loading issues on some systems.
 # Only this module knows about icon pack identifiers.
 _FALLBACKS: dict[str, list[str]] = {
@@ -19,7 +21,7 @@ _FALLBACKS: dict[str, list[str]] = {
 }
 
 
-def resolve_icon(icon_key: str, color: str = "#888888") -> QIcon:
+def resolve_icon(icon_key: str, color: str = _theme.COLOR_MUTED) -> QIcon:
     """Resolve an icon pack key to a QIcon, trying fallbacks on null result.
 
     Returns an empty QIcon only if every key in the chain fails.

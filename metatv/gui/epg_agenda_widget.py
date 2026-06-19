@@ -12,6 +12,7 @@ from metatv.core.database import Database
 from metatv.core.epg_utils import now_utc as _now_utc, fmt_time as _fmt_time, fmt_duration as _fmt_duration, progress_pct as _progress_pct, remaining_str as _remaining_str_base
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 
 def _remaining_str(stop: datetime, now: datetime) -> str:
@@ -146,7 +147,7 @@ class EpgAgendaWidget(QWidget):
 
         time_str = f"{_fmt_time(prog.start_time)} — {_fmt_time(prog.stop_time)}  ·  {_fmt_duration(prog.start_time, prog.stop_time)}"
         time_lbl = QLabel(time_str)
-        time_lbl.setStyleSheet("font-size: 11px; color: #999;")
+        time_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DIM_2};")
         layout.addWidget(time_lbl)
 
         pct = _progress_pct(prog.start_time, prog.stop_time, now)
@@ -154,7 +155,7 @@ class EpgAgendaWidget(QWidget):
         layout.addWidget(bar)
 
         remaining_lbl = QLabel(f"{pct}%  ·  {_remaining_str(prog.stop_time, now)}")
-        remaining_lbl.setStyleSheet("font-size: 11px; color: #aaa;")
+        remaining_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DIM};")
         layout.addWidget(remaining_lbl)
 
         return card
@@ -167,16 +168,16 @@ class EpgAgendaWidget(QWidget):
 
         time_lbl = QLabel(_fmt_time(prog.start_time))
         time_lbl.setFixedWidth(58)
-        time_lbl.setStyleSheet("font-size: 11px; color: #777;")
+        time_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DISABLED};")
         h.addWidget(time_lbl)
 
         title_lbl = QLabel(prog.title)
-        title_lbl.setStyleSheet("font-size: 11px; color: #bbb;")
+        title_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_TEXT_LOW};")
         title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         h.addWidget(title_lbl, 1)
 
         dur_lbl = QLabel(_fmt_duration(prog.start_time, prog.stop_time))
-        dur_lbl.setStyleSheet("font-size: 11px; color: #555;")
+        dur_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_FAINT};")
         dur_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         h.addWidget(dur_lbl)
 
@@ -243,14 +244,14 @@ class _ProgressBar(QWidget):
 def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet("color: rgba(255,255,255,0.08);")
+    line.setStyleSheet(f"color: {_theme.OVERLAY_08};")
     return line
 
 
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        "font-size: 10px; font-weight: bold; color: #555; letter-spacing: 1px;"
+        f"font-size: 10px; font-weight: bold; color: {_theme.COLOR_FAINT}; letter-spacing: 1px;"
         " padding: 6px 10px 2px 10px;"
     )
     return lbl

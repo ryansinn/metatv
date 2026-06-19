@@ -14,6 +14,7 @@ from metatv.core.database import ChannelDB
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.content_view import ContentView
 from metatv.gui.sports_filter_bar import SportsFilterBar
+from metatv.gui import theme as _theme
 
 
 class SportsView(ContentView):
@@ -84,7 +85,7 @@ class SportsView(ContentView):
         clear_btn = QPushButton("✕")
         clear_btn.setFixedWidth(24)
         clear_btn.setToolTip("Clear")
-        clear_btn.setStyleSheet("border: none; color: #777; font-size: 10px;")
+        clear_btn.setStyleSheet(f"border: none; color: {_theme.COLOR_DISABLED}; font-size: 10px;")
         clear_btn.clicked.connect(self.search_input.clear)
         search_row.addWidget(clear_btn)
         layout.addLayout(search_row)
@@ -100,7 +101,7 @@ class SportsView(ContentView):
 
         # Stats label
         self.stats_label = QLabel("Loading…")
-        self.stats_label.setStyleSheet("color: #666; font-size: 12px;")
+        self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: 12px;")
         layout.addWidget(self.stats_label)
 
     # ------------------------------------------------------------------

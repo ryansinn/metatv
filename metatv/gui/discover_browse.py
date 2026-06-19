@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import _ContentCard, _FlowLayout
+from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -64,7 +65,7 @@ class _BrowseView(QWidget):
         self._back_btn.setFlat(True)
         self._back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back_btn.setStyleSheet(
-            "QPushButton { color: #4488ff; border: none; font-size: 12px; }"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 12px; }}"
             "QPushButton:hover { color: #66aaff; }"
         )
         self._back_btn.clicked.connect(self.backRequested)
@@ -85,8 +86,8 @@ class _BrowseView(QWidget):
         self._toggle_btn.setFlat(True)
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.setStyleSheet(
-            "QPushButton { color: #aaa; border: none; font-size: 11px; }"
-            "QPushButton:hover { color: #ddd; }"
+            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: 11px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}"
         )
         self._toggle_btn.clicked.connect(self._toggle_view)
         top.addWidget(self._toggle_btn)

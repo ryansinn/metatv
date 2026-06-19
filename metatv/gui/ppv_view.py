@@ -11,6 +11,7 @@ from loguru import logger
 from metatv.gui.content_view import ContentView
 from metatv.gui.flow_layout import FlowLayout
 from metatv.core.database import ChannelDB
+from metatv.gui import theme as _theme
 
 
 class PPVEventCard(QFrame):
@@ -40,7 +41,7 @@ class PPVEventCard(QFrame):
         self.poster_label = QLabel()
         self.poster_label.setFixedSize(280, 158)
         self.poster_label.setScaledContents(True)
-        self.poster_label.setStyleSheet("background-color: #2a2a2a; border-radius: 4px;")
+        self.poster_label.setStyleSheet(f"background-color: {_theme.COLOR_LINE_DARK}; border-radius: 4px;")
         layout.addWidget(self.poster_label)
 
         event_name = self._meta.get('event_name', 'Unknown Event')
@@ -50,7 +51,7 @@ class PPVEventCard(QFrame):
         layout.addWidget(name_label)
 
         self.datetime_label = QLabel()
-        self.datetime_label.setStyleSheet("font-size: 11px; color: #888;")
+        self.datetime_label.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_MUTED};")
         layout.addWidget(self.datetime_label)
 
         self.countdown_label = QLabel()
@@ -62,7 +63,7 @@ class PPVEventCard(QFrame):
         if quality:
             q = QLabel(quality)
             q.setStyleSheet(
-                "background-color: #4CAF50; color: white; padding: 2px 8px; "
+                f"background-color: {_theme.COLOR_OK}; color: white; padding: 2px 8px; "
                 "border-radius: 3px; font-size: 10px; font-weight: bold;"
             )
             badges_layout.addWidget(q)
@@ -102,7 +103,7 @@ class PPVEventCard(QFrame):
             days_ago = abs(time_until.days)
             text = "Ended (replay available)" if days_ago == 0 else f"Ended {days_ago}d ago"
             self.countdown_label.setText(text)
-            self.countdown_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #888;")
+            self.countdown_label.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_MUTED};")
         else:
             days = time_until.days
             hours, remainder = divmod(time_until.seconds, 3600)

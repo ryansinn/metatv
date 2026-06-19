@@ -124,15 +124,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_toggle.setFlat(True)
         self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._retry_toggle.setStyleSheet(
-            "QPushButton { color: #888; font-size: 11px; font-weight: bold;"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 11px; font-weight: bold;"
             " border: none; text-align: left; padding: 0 2px; }"
-            "QPushButton:hover { color: #aaa; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_DIM}; }}"
         )
         self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
         retry_hdr_row.addWidget(self._retry_toggle)
 
         _info_lbl = QLabel(self.config.info_icon)
-        _info_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        _info_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px;")
         _info_lbl.setToolTip(
             "Stream Monitoring periodically re-checks streams that previously\n"
             "failed to play. When a stream becomes available again you'll\n"
@@ -335,7 +335,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         def _section_hdr(text: str) -> None:
             item = QTreeWidgetItem([text])
             item.setFlags(Qt.ItemFlag.NoItemFlags)
-            item.setForeground(0, QColor("#555"))
+            item.setForeground(0, QColor(_theme.COLOR_FAINT))
             f = item.font(0)
             f.setPointSize(9)
             f.setBold(True)

@@ -11,6 +11,7 @@ from PyQt6.QtGui import QCursor, QFont
 from loguru import logger
 
 from metatv.gui.filter_bar import FilterDropdown
+from metatv.gui import theme as _theme
 
 
 class HierarchicalFilterDropdown(QPushButton):
@@ -39,19 +40,19 @@ class HierarchicalFilterDropdown(QPushButton):
         self._rebuilding: bool = False
 
         self.setText(f"{label} ▼")
-        self.setStyleSheet("""
-            QPushButton {
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background-color: white;
-                color: #333333;
-                border: 1px solid #cccccc;
+                color: {_theme.COLOR_LINE};
+                border: 1px solid {_theme.COLOR_TEXT};
                 border-radius: 4px;
                 padding: 6px 12px;
                 text-align: left;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #f5f5f5;
-                color: #333333;
-            }
+                color: {_theme.COLOR_LINE};
+            }}
         """)
 
         self.menu = QMenu(self)
@@ -152,7 +153,7 @@ class HierarchicalFilterDropdown(QPushButton):
 
         if not hierarchy:
             placeholder = QLabel("No items available")
-            placeholder.setStyleSheet("color: #888; padding: 4px;")
+            placeholder.setStyleSheet(f"color: {_theme.COLOR_MUTED}; padding: 4px;")
             layout.addWidget(placeholder)
         elif is_two_level:
             self._build_two_level(layout, hierarchy)
@@ -214,7 +215,7 @@ class HierarchicalFilterDropdown(QPushButton):
         font = QFont()
         font.setBold(True)
         label.setFont(font)
-        label.setStyleSheet("color: #333; padding: 4px 0 2px 0;")
+        label.setStyleSheet(f"color: {_theme.COLOR_LINE}; padding: 4px 0 2px 0;")
         return label
 
     def _make_subsection_label(self, text: str) -> QLabel:
@@ -222,7 +223,7 @@ class HierarchicalFilterDropdown(QPushButton):
         font = QFont()
         font.setItalic(True)
         label.setFont(font)
-        label.setStyleSheet("color: #555; padding: 1px 0 1px 20px;")
+        label.setStyleSheet(f"color: {_theme.COLOR_FAINT}; padding: 1px 0 1px 20px;")
         return label
 
     def _make_checkbox(self, item: str, indent: int) -> QCheckBox:

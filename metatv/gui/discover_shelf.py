@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import _ContentCard, _CARD_H
+from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -66,15 +67,15 @@ class _Shelf(QWidget):
 
         btn_ss = (
             "QPushButton { background: transparent; border: none; "
-            "color: #777; font-size: 11px; padding: 2px 4px; }"
-            "QPushButton:hover { color: #ccc; }"
+            f"color: {_theme.COLOR_DISABLED}; font-size: 11px; padding: 2px 4px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
 
         self._see_all_btn = QPushButton("See all →")
         self._see_all_btn.setFlat(True)
         self._see_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._see_all_btn.setStyleSheet(
-            "QPushButton { color: #4488ff; border: none; font-size: 11px; padding: 2px 4px; }"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 11px; padding: 2px 4px; }}"
             "QPushButton:hover { color: #66aaff; }"
         )
         self._see_all_btn.clicked.connect(lambda: self.seeAllRequested.emit(self._shelf_key))
@@ -152,8 +153,8 @@ class _Shelf(QWidget):
             self._collapse_btn.setToolTip("Expand")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                "color: #999; font-size: 12px; padding: 2px 6px; }"
-                "QPushButton:hover { color: #fff; }"
+                f"color: {_theme.COLOR_DIM_2}; font-size: 12px; padding: 2px 6px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
             )
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
@@ -164,8 +165,8 @@ class _Shelf(QWidget):
             self._collapse_btn.setToolTip("Collapse")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                "color: #777; font-size: 12px; padding: 2px 6px; }"
-                "QPushButton:hover { color: #ccc; }"
+                f"color: {_theme.COLOR_DISABLED}; font-size: 12px; padding: 2px 6px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
             )
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
@@ -184,8 +185,8 @@ class _Shelf(QWidget):
             self._pin_btn.setToolTip("Pin to top")
             self._pin_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                "color: #555; font-size: 11px; padding: 2px 4px; }"
-                "QPushButton:hover { color: #ccc; }"
+                f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 2px 4px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
             )
 
     def set_collapsed(self, collapsed: bool) -> None:

@@ -42,9 +42,9 @@ def _pref_signal(name: str, weights, attr: str) -> str:
     d = getattr(weights, attr, {})
     score = d.get(name, 0.0)
     if score > 0.3:
-        return '<span style="color:#4caf50">▲ </span>'
+        return f'<span style="color:{_theme.COLOR_OK}">▲ </span>'
     if score < -0.3:
-        return '<span style="color:#f44336">▼ </span>'
+        return f'<span style="color:{_theme.COLOR_ERR}">▼ </span>'
     return ''
 
 
@@ -101,7 +101,7 @@ class _PosterSection(QWidget):
         live_layout.addWidget(self._channel_icon_lbl)
 
         self._country_info_lbl = QLabel()
-        self._country_info_lbl.setStyleSheet("font-size: 11px; color: #777; font-style: italic;")
+        self._country_info_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DISABLED}; font-style: italic;")
         self._country_info_lbl.setWordWrap(True)
         self._country_info_lbl.hide()
         live_layout.addWidget(self._country_info_lbl, 1)
@@ -315,7 +315,7 @@ class _MetadataSection(QWidget):
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
         self.source_label = _ClickableLabel()
-        self.source_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
         self.source_label.hide()
         badge_row.addWidget(self.source_label)
         self.adult_indicator = QLabel("🔞 Adult")
@@ -340,7 +340,7 @@ class _MetadataSection(QWidget):
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
-        self.rec_reason_label.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic;")
+        self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: 11px; font-style: italic;")
         self.rec_reason_label.setWordWrap(True)
         self.rec_reason_label.hide()
         layout.addWidget(self.rec_reason_label)
