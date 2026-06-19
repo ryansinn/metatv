@@ -9,9 +9,8 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 from __future__ import annotations
 
 from loguru import logger
-from PyQt6.QtCore import Qt, QTimer, QPoint
-from PyQt6.QtWidgets import QMenu, QMessageBox
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QMessageBox
 
 from metatv.core.repositories import RepositoryFactory
 
@@ -110,65 +109,9 @@ class _FavoritesMixin:
             self.launch_player_for_episode(stream_url, channel_name or stream_url, [])
 
     def _on_retry_context_menu_requested(self, entry_id: str, channel_id: str, x: int, y: int) -> None:
-        """Build combined channel + Stream Monitoring context menu."""
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtGui import QAction
-        from metatv.core.database import UserRatingDB
-
-        channel_found = False
-        channel_is_favorite = False
-        channel_media_type = ""
-        current_rating = 0
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id) if channel_id else None
-            if channel:
-                channel_found = True
-                channel_is_favorite = bool(channel.is_favorite)
-                channel_media_type = channel.media_type or ""
-                rating_row = session.get(UserRatingDB, channel_id)
-                current_rating = rating_row.rating if rating_row else 0
-
-        menu = QMenu(self)
-
-        if channel_found:
-            play_act = QAction(f"{self.config.play_icon} Play", self)
-            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
-            menu.addAction(play_act)
-
-            menu.addSeparator()
-
-            if channel_is_favorite:
-                fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
-            else:
-                fav_act = QAction(f"{self.config.favorite_icon} Add to Favorites", self)
-                fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
-            menu.addAction(fav_act)
-
-            if channel_media_type in ("movie", "series"):
-                menu.addSeparator()
-                like_act = QAction(f"{self.config.like_icon} Like", self)
-                like_act.setCheckable(True)
-                like_act.setChecked(current_rating == 1)
-                like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
-                menu.addAction(like_act)
-                dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-                dislike_act.setCheckable(True)
-                dislike_act.setChecked(current_rating == -1)
-                dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
-                menu.addAction(dislike_act)
-
-            menu.addSeparator()
-
-        remove_act = QAction(f"{self.config.close_icon} Remove from Stream Monitoring", self)
-        remove_act.triggered.connect(lambda: self.stream_retry_manager.remove(entry_id))
-        menu.addAction(remove_act)
-        clear_act = QAction("Clear all from Stream Monitoring", self)
-        clear_act.triggered.connect(self.stream_retry_manager.clear_all)
-        menu.addAction(clear_act)
-        menu.exec(QPoint(x, y))
+        """Thin wrapper → unified channel menu (retry surface)."""
+        ids = [channel_id] if channel_id else []
+        self._show_channel_menu(ids, "retry", x, y, entry_id=entry_id)
 
     def _on_stream_back_online(self, channel_id: str, channel_name: str) -> None:
         from PyQt6.QtWidgets import QApplication
@@ -322,169 +265,16 @@ class _FavoritesMixin:
         self._refresh_queue_section()
 
     def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-        from metatv.core.database import UserRatingDB
-
-        channel_media_type = ""
-        current_rating = 0
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-            channel_media_type = channel.media_type or ""
-            rating_row = session.get(UserRatingDB, channel_id)
-            current_rating = rating_row.rating if rating_row else 0
-
-        menu = QMenu(self)
-
-        play_act = QAction(f"{self.config.play_icon} Play", self)
-        play_act.triggered.connect(lambda: self.play_queue_item_id(channel_id))
-        menu.addAction(play_act)
-
-        menu.addSeparator()
-
-        remove_act = QAction(f"{self.config.queue_icon} Remove from Queue", self)
-        remove_act.triggered.connect(lambda: self._remove_from_queue(channel_id))
-        menu.addAction(remove_act)
-
-        menu.addSeparator()
-
-        fav_act = QAction(f"{self.config.favorite_icon} Add to Favorites", self)
-        fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
-        menu.addAction(fav_act)
-
-        if channel_media_type in ("movie", "series"):
-            menu.addSeparator()
-            like_act = QAction(f"{self.config.like_icon} Like", self)
-            like_act.setCheckable(True)
-            like_act.setChecked(current_rating == 1)
-            like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
-            menu.addAction(like_act)
-
-            dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-            dislike_act.setCheckable(True)
-            dislike_act.setChecked(current_rating == -1)
-            dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
-            menu.addAction(dislike_act)
-
-        # Clear Unavailable — always shown so the menu is stable; disabled when none.
-        menu.addSeparator()
-        queue_section = self.sidebar_sections.get("queue") if hasattr(self, "sidebar_sections") else None
-        has_unavail = queue_section.has_unavailable() if queue_section else False
-        clear_unavail_act = QAction("Clear Unavailable", self)
-        clear_unavail_act.setEnabled(has_unavail)
-        if not has_unavail:
-            clear_unavail_act.setToolTip("No unavailable content")
-        if queue_section:
-            clear_unavail_act.triggered.connect(queue_section.clearUnavailableClicked.emit)
-        menu.addAction(clear_unavail_act)
-
-        menu.exec(QPoint(gx, gy))
+        """Thin wrapper → unified channel menu (queue surface)."""
+        self._show_channel_menu([channel_id], "queue", gx, gy)
 
     def _on_rec_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-        from metatv.core.database import UserRatingDB
-
-        current_rating = 0
-        in_queue = False
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-            rating_row = session.get(UserRatingDB, channel_id)
-            current_rating = rating_row.rating if rating_row else 0
-            in_queue = repos.queue.is_queued(channel_id)
-
-        menu = QMenu(self)
-
-        play_act = QAction(f"{self.config.play_icon} Play", self)
-        play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
-        menu.addAction(play_act)
-
-        queue_act = QAction(
-            f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
-        )
-        queue_act.triggered.connect(
-            lambda: self._remove_from_queue(channel_id) if in_queue else self._add_to_queue(channel_id)
-        )
-        menu.addAction(queue_act)
-
-        menu.addSeparator()
-
-        like_act = QAction(f"{self.config.like_icon} Like", self)
-        like_act.setCheckable(True)
-        like_act.setChecked(current_rating == 1)
-        like_act.triggered.connect(lambda: self._toggle_rating(channel_id, 1))
-        menu.addAction(like_act)
-
-        dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-        dislike_act.setCheckable(True)
-        dislike_act.setChecked(current_rating == -1)
-        dislike_act.triggered.connect(lambda: self._toggle_rating(channel_id, -1))
-        menu.addAction(dislike_act)
-
-        menu.addSeparator()
-
-        not_interested_act = QAction(f"{self.config.not_interested_icon} Not Interested", self)
-        not_interested_act.triggered.connect(lambda: self._not_interested(channel_id))
-        menu.addAction(not_interested_act)
-
-        hide_act = QAction(f"{self.config.hide_icon} Hide", self)
-        hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
-        menu.addAction(hide_act)
-
-        menu.exec(QPoint(gx, gy))
+        """Thin wrapper → unified channel menu (recommended surface)."""
+        self._show_channel_menu([channel_id], "recommended", gx, gy)
 
     def _on_alert_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-
-        is_favorite = False
-        with self.db.session_scope() as session:
-            channel = RepositoryFactory(session).channels.get_by_id(channel_id)
-            if not channel:
-                return
-            is_favorite = bool(channel.is_favorite)
-
-        # Session closed — safe to display blocking menu now.
-        menu = QMenu(self)
-
-        play_act = QAction(f"{self.config.play_icon} Play", self)
-        play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
-        menu.addAction(play_act)
-
-        menu.addSeparator()
-
-        if is_favorite:
-            fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
-        else:
-            fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
-            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
-        menu.addAction(fav_act)
-
-        if channel_id in self.config.epg_watchlist_channels:
-            watch_act = QAction("Stop watching this channel", self)
-            watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel_id))
-        else:
-            watch_act = QAction("Watch this channel (EPG alerts)", self)
-            watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel_id))
-        menu.addAction(watch_act)
-
-        menu.addSeparator()
-
-        hide_act = QAction(f"{self.hide_icon} Hide channel", self)
-        hide_act.triggered.connect(lambda: self._hide_channel_from_alerts(channel_id))
-        menu.addAction(hide_act)
-
-        menu.exec(QPoint(gx, gy))
+        """Thin wrapper → unified channel menu (alerts surface)."""
+        self._show_channel_menu([channel_id], "alerts", gx, gy)
 
     def _on_alert_clicked(self, channel_db_id: str) -> None:
         """Play the channel immediately when a sidebar watch alert is double-clicked."""
@@ -674,42 +464,9 @@ class _FavoritesMixin:
         if hasattr(self, "discover_view"):
             QTimer.singleShot(500, self.discover_view.reload)
 
-    def _add_quick_pick_actions(self, menu, channel_ids: list[str]) -> None:
-        """Add Trash / Watch Later / Explore quick-assign actions to menu."""
-        from PyQt6.QtGui import QAction
-        _picks = [
-            ("🗑 Trash",       "Trash",       "dislike", True,
-             "Assign to Trash — Dislike mood, added to Global Exclusions"),
-            ("👀 Watch Later", "Watch Later", None,      False,
-             "Assign to Watch Later — Neutral mood"),
-            ("❓ Explore",     "Explore",     "curious", False,
-             "Assign to Explore — Curious mood, surfaces more like this"),
-        ]
-        for label, name, mood, exclude, tip in _picks:
-            act = QAction(label, self)
-            act.setToolTip(tip)
-            act.triggered.connect(
-                lambda _, n=name, m=mood, ex=exclude:
-                    self._quick_assign_category(channel_ids, n, m, ex)
-            )
-            menu.addAction(act)
-
     def _show_multi_select_context_menu(self, channel_ids: list[str], gp) -> None:
-        """Context menu shown when multiple channels are selected."""
-        from PyQt6.QtWidgets import QMenu
-        menu = QMenu(self)
-        n = len(channel_ids)
-
-        self._add_quick_pick_actions(menu, channel_ids)
-        menu.addSeparator()
-
-        cat_action = menu.addAction(
-            f"{self.config.queue_icon} Add {n:,} selected channel{'s' if n != 1 else ''} to Category…"
-        )
-        cat_action.triggered.connect(lambda: self._open_category_picker(channel_ids))
-        cat_action.setToolTip("Assign a user-defined category to the selected channels")
-
-        menu.exec(gp)
+        """Thin wrapper → unified channel menu (multi-select on channel surface)."""
+        self._show_channel_menu(channel_ids, "channel", gp.x(), gp.y())
 
     def play_favorite(self, item):
         """Play a favorite channel"""
@@ -815,6 +572,31 @@ class _FavoritesMixin:
             self.drill_into_series(channel)
         else:
             self.play_media(channel)
+
+    def play_channel_new_window_by_id(self, channel_id: str) -> None:
+        """Play channel by ID, forcing a separate per-source player window.
+
+        Mirrors ``play_channel_by_id`` but passes ``force_new_window=True`` so
+        the stream is keyed by ``provider_id`` regardless of the global
+        ``split_streams_by_source`` toggle.  For SERIES channels the normal
+        series drill-in is used — a series has no single stream to target.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if channel:
+                session.expunge(channel)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel, force_new_window=True)
 
     def diagnose_channel_by_id(self, channel_id: str) -> None:
         """Open the stream-diagnostics dialog for a channel (bottom-nav Diagnose button).

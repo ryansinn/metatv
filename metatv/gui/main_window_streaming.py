@@ -258,12 +258,19 @@ class _StreamingMixin:
             return original_url.replace(old_base, new_base, 1)
         return original_url
 
-    def play_media(self, channel):
+    def play_media(self, channel, force_new_window: bool = False):
         """Play a media item (live stream or movie) in external player.
 
         Returns immediately — validation and failover happen in a background
         thread via ``self.executor``; ``_on_stream_ready`` (main-thread slot)
         finishes the launch once the result arrives.
+
+        Args:
+            channel: Channel DTO / ORM object with ``stream_url``, ``name``,
+                ``provider_id``, etc.
+            force_new_window: When True, the stream is keyed by provider_id
+                regardless of the ``split_streams_by_source`` toggle — used by
+                "Play in New Window" to open/replace a separate per-source window.
         """
         channel_id = channel.id
 
@@ -312,6 +319,7 @@ class _StreamingMixin:
             channel.stream_url,
             channel.provider_id,
             notif_id,
+            force_new_window,
         )
 
     def _bg_validate_and_play(
@@ -321,6 +329,7 @@ class _StreamingMixin:
         stream_url: str,
         provider_id: str,
         notif_id: str,
+        force_new_window: bool = False,
     ) -> None:
         """Worker: validate + failover stream URL, then emit _stream_ready.
 
@@ -340,6 +349,7 @@ class _StreamingMixin:
                 "stream_err": stream_err or "",
                 "notif_id": notif_id,
                 "provider_id": provider_id,
+                "force_new_window": force_new_window,
             })
         except Exception as e:
             logger.error(f"Error in _bg_validate_and_play: {e}")
@@ -352,6 +362,7 @@ class _StreamingMixin:
                 "stream_err": str(e),
                 "notif_id": notif_id,
                 "provider_id": provider_id,
+                "force_new_window": force_new_window,
             })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -391,7 +402,12 @@ class _StreamingMixin:
 
         self.status_bar.showMessage(f"Loading: {channel_name}...")
 
-        if self.player_manager.play(final_url, channel_name, provider_id=data.get("provider_id")):
+        force_new_window = data.get("force_new_window", False)
+        if self.player_manager.play(
+            final_url, channel_name,
+            provider_id=data.get("provider_id"),
+            force_new_window=force_new_window,
+        ):
             # Record playback — mark_played is a DB write; run off-thread
             self.executor.submit(self._bg_mark_played, channel_id)
 
@@ -451,6 +467,10 @@ class _StreamingMixin:
 
         Stops polling if the player process is gone, and never lets probes pile
         up if one is still in flight.
+
+        Resolves which instance key to poll: the pinned ``_health_view_key`` if
+        it is still alive, otherwise the most-recently-used window (key=None,
+        which MPVPlayer resolves to ``_last_key``).
         """
         if not self.player_manager.is_running():
             # Process gone — hide the readout and stop polling (restarts on play).
@@ -461,33 +481,48 @@ class _StreamingMixin:
         if getattr(self, "_health_query_inflight", False):
             return  # a probe is still running — don't pile up
 
-        self._health_query_inflight = True
-        self.executor.submit(self._bg_query_playback_health)
+        # Determine which instance to poll.
+        keys = self.player_manager.active_keys()
+        view = getattr(self, "_health_view_key", None)
+        key = view if (view and view in keys) else None
+        self._health_querying_key = key
 
-    def _bg_query_playback_health(self) -> None:
+        self._health_query_inflight = True
+        self.executor.submit(self._bg_query_playback_health, key)
+
+    def _bg_query_playback_health(self, key: str | None = None) -> None:
         """Worker (executor — NO widget access): query mpv, marshal result back.
 
         Always emits (even on failure) so the result slot can clear the in-flight
-        flag; emits None on any error.
+        flag; emits ``(key, None)`` on any error.
+
+        Args:
+            key: Instance key to query; None targets the most-recently-used window.
         """
         try:
             props = self.player_manager.get_properties(
-                ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count"]
+                ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count"],
+                key=key,
             )
         except Exception as e:
             logger.debug(f"playback-health probe failed: {e}")
             props = None
-        self._playback_health_ready.emit(props)
+        self._playback_health_ready.emit((key, props))
 
-    def _on_playback_health_ready(self, props) -> None:
+    def _on_playback_health_ready(self, payload) -> None:
         """Main-thread slot: update the nav-bar label from a probe result.
 
         Idle detection: mpv stays running with ``--idle=yes`` even when nothing
         is loaded, so we detect idle via the ``path`` property (null/absent when
         idle) rather than is_running(). After a short idle grace the timer stops
         so there's no perpetual polling.
+
+        When multiple windows are open, a position marker ``"[i/n] "`` is
+        prepended and the tooltip invites the user to click to cycle windows.
         """
         self._health_query_inflight = False
+
+        key, props = payload
 
         # None (probe error) or no loaded file → idle / nothing playing.
         if not props or not props.get("path"):
@@ -503,6 +538,66 @@ class _StreamingMixin:
             props.get("cache-speed"),
             props.get("frame-drop-count"),
         )
+
+        # Multi-window position marker and cycling tooltip.
+        keys = self.player_manager.active_keys()
+        n = len(keys)
+        if n > 1:
+            # Resolve which key is actually being shown.
+            shown_key = key
+            if shown_key is None:
+                shown_key = getattr(
+                    getattr(self.player_manager, "player", None), "_last_key", None
+                )
+            try:
+                idx = keys.index(shown_key) + 1
+            except (ValueError, TypeError):
+                idx = 1
+            text = f"[{idx}/{n}] {text}"
+            self._playback_health_label.setToolTip(
+                f"Click to cycle between {n} open players · buffer · download speed · dropped frames"
+            )
+        else:
+            self._playback_health_label.setToolTip(
+                "Live playback health (buffer · download speed · dropped frames)"
+            )
+
         self._playback_health_label.setText(text)
         self._playback_health_label.show()
+
+    def _on_health_readout_clicked(self) -> None:
+        """Main-thread slot: cycle the health readout to the next open player window.
+
+        When only one window is open this is a no-op.  Otherwise the pinned
+        ``_health_view_key`` advances to the next live key (wrapping around), and
+        an immediate off-thread probe is kicked off so the readout updates without
+        waiting for the next timer tick.
+        """
+        keys = self.player_manager.active_keys()
+        if len(keys) <= 1:
+            return  # nothing to cycle
+
+        # Determine the currently-shown key.
+        current = getattr(self, "_health_view_key", None)
+        if not (current and current in keys):
+            # Not pinned — resolve from _last_key.
+            current = getattr(
+                getattr(self.player_manager, "player", None), "_last_key", None
+            )
+        if current not in keys:
+            current = keys[0]
+
+        # Advance to the next key (wrap around).
+        try:
+            idx = keys.index(current)
+        except ValueError:
+            idx = 0
+        next_key = keys[(idx + 1) % len(keys)]
+        self._health_view_key = next_key
+
+        # Kick off an immediate probe for the newly-selected window.
+        if not getattr(self, "_health_query_inflight", False):
+            self._health_query_inflight = True
+            self._health_querying_key = next_key
+            self.executor.submit(self._bg_query_playback_health, next_key)
 

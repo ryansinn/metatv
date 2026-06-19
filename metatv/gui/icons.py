@@ -30,8 +30,11 @@ watched_icon: str = "✓"
 # Actions
 play_icon: str = "▶"
 diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
+split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams toggle (one window per source)
+new_window_icon: str = "⧉"  # U+29C9 TWO JOINED SQUARES — open/replace a separate per-source window
 close_icon: str = "×"
 delete_icon: str = "🗑"
+watch_later_icon: str = "👀"  # Watch Later quick-pick category
 refresh_icon: str = "⟳"
 settings_icon: str = "⚙"
 search_icon: str = "🔍"

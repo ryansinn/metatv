@@ -48,6 +48,7 @@ class _FakeConfig:
         self.prebuffer_before_play = prebuffer_before_play
         self.prebuffer_wait_secs = prebuffer_wait_secs
         self.mpv_args_override_all = mpv_args_override_all
+        self.split_streams_by_source = False
         self.epg_default_refresh_interval = "3d"
         self.metadata_enabled = True
         self.metadata_auto_fetch = False
@@ -109,6 +110,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Override-all checkbox
     dlg._override_all_check = QCheckBox()
+
+    # Split-streams checkbox (added in feat/split-streams-and-unified-menu)
+    dlg._split_check = QCheckBox()
 
     # EPG interval combo (needed by _load_values)
     dlg._epg_interval_combo = QComboBox()

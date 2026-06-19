@@ -38,22 +38,28 @@ class PlayerManager:
 
     # ── Instance-key resolution ─────────────────────────────────────────────
 
-    def _resolve_instance_key(self, provider_id: str | None) -> str:
+    def _resolve_instance_key(self, provider_id: str | None, force_split: bool = False) -> str:
         """Resolve the mpv instance key for a play request.
 
-        Returns *provider_id* when ``config.split_streams_by_source`` is True
-        and *provider_id* is a non-empty string; otherwise returns the shared
-        singleton key ``"__shared__"``.
+        Returns *provider_id* when ``(force_split or
+        config.split_streams_by_source)`` is True and *provider_id* is a
+        non-empty string; otherwise returns the shared singleton key
+        ``"__shared__"``.
+
+        ``force_split`` lets callers (e.g. "Play in New Window") open a
+        per-source window regardless of the global split toggle.
 
         This method is pure and unit-testable without a real player.
 
         Args:
             provider_id: The channel's provider_id (may be None or empty).
+            force_split: When True, treat the split flag as enabled even if
+                ``config.split_streams_by_source`` is False.
 
         Returns:
             The instance key to pass to the player.
         """
-        if getattr(self.config, "split_streams_by_source", False) and provider_id:
+        if (force_split or getattr(self.config, "split_streams_by_source", False)) and provider_id:
             return provider_id
         return "__shared__"
 
@@ -81,6 +87,7 @@ class PlayerManager:
         title: str,
         provider_id: str | None = None,
         provider_max_connections: int = 1,
+        force_new_window: bool = False,
     ) -> bool:
         """Play a URL with instance limit enforcement.
 
@@ -93,6 +100,9 @@ class PlayerManager:
             provider_id: The channel's provider_id; used to key the player
                 window when ``split_streams_by_source`` is enabled.
             provider_max_connections: Max connections allowed by provider.
+            force_new_window: When True, this play is keyed by provider_id
+                regardless of the split toggle — used by "Play in New Window"
+                to open/replace a separate per-source window.
 
         Returns:
             True if successful, False otherwise
@@ -115,7 +125,7 @@ class PlayerManager:
             )
             return False
 
-        key = self._resolve_instance_key(provider_id)
+        key = self._resolve_instance_key(provider_id, force_split=force_new_window)
         result = self.player.play(url, title, instance_key=key)
 
         # Track the instance if it's a new process (multiple-instances mode)
@@ -186,6 +196,19 @@ class PlayerManager:
         if not self.player:
             return {n: None for n in names}
         return self.player.get_properties(names, key=key)
+
+    def active_keys(self) -> list[str]:
+        """Return the instance keys whose player processes are currently alive.
+
+        Returns an empty list when no player is available or no instances are
+        running.  Delegates to ``MPVPlayer.active_keys()``.
+
+        Returns:
+            List of active instance key strings.
+        """
+        if not self.player:
+            return []
+        return self.player.active_keys()
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 

@@ -97,8 +97,14 @@ def test_metadata_no_raw_get_session():
 # 2. session_scope present in migrated handlers
 # ---------------------------------------------------------------------------
 
-def test_context_menu_handlers_use_session_scope():
-    """Key context-menu handlers must use session_scope (not raw get_session)."""
+def test_context_menu_handlers_are_thin_wrappers():
+    """Per-surface context-menu handlers must be thin wrappers delegating to _show_channel_menu.
+
+    The DB work (session_scope) now lives in ``_bg_fetch_ctx_data``
+    (``main_window.py``) via the unified ``_show_channel_menu`` seam.
+    These thin wrappers must NOT open their own session — that would be a
+    regression to the old per-handler DB pattern.
+    """
     handlers = [
         "_on_queue_channel_context_menu",
         "_on_rec_channel_context_menu",
@@ -106,9 +112,23 @@ def test_context_menu_handlers_use_session_scope():
         "_on_retry_context_menu_requested",
     ]
     for fn in handlers:
-        assert _method_contains("main_window_favorites.py", fn, "session_scope"), (
-            f"{fn} must use session_scope()"
+        src = _func_source("main_window_favorites.py", fn)
+        assert "_show_channel_menu" in src, (
+            f"{fn} must delegate to _show_channel_menu (thin wrapper)"
         )
+        assert "session_scope" not in src, (
+            f"{fn} must not open its own session (DB work moved to _bg_fetch_ctx_data)"
+        )
+
+
+def test_bg_fetch_ctx_data_uses_session_scope():
+    """The unified context-menu worker _bg_fetch_ctx_data must use session_scope."""
+    src = _source("main_window.py")
+    # Read the _bg_fetch_ctx_data method from main_window.py
+    assert "_bg_fetch_ctx_data" in src, "_bg_fetch_ctx_data must exist in main_window.py"
+    assert "session_scope" in _func_source("main_window.py", "_bg_fetch_ctx_data"), (
+        "_bg_fetch_ctx_data must use session_scope() for its DB work"
+    )
 
 
 def test_write_handlers_use_session_scope():
@@ -167,41 +187,22 @@ def test_metadata_workers_use_session_scope():
 # 3. Session-held-during-menu bug is fixed in _on_alert_channel_context_menu
 # ---------------------------------------------------------------------------
 
-def test_alert_context_menu_session_closed_before_exec():
-    """session_scope block must end before menu.exec() in _on_alert_channel_context_menu.
+def test_ctx_data_ready_session_closed_before_exec():
+    """The unified menu path must close the session before exec()-ing the menu.
 
-    We verify that 'menu.exec' appears after the session_scope with-block (i.e., at a
-    lower indentation than the with-block body or after it in the source).
+    After the unified refactor, DB work runs in ``_bg_fetch_ctx_data`` off the
+    main thread.  The session_scope is therefore closed before ``_ctx_data_ready``
+    fires — the signal/slot boundary is the isolation.  Verify structurally that
+    ``_on_ctx_data_ready`` (which receives the signal) does NOT open a session
+    itself, ensuring the session is always closed before ``menu.exec``.
     """
-    src = _func_source("main_window_favorites.py", "_on_alert_channel_context_menu")
-    lines = src.splitlines()
-
-    scope_end_line = None
-    exec_line = None
-    in_scope = False
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if "session_scope" in line:
-            in_scope = True
-            scope_indent = len(line) - len(line.lstrip())
-        if in_scope and stripped and not stripped.startswith("#"):
-            indent = len(line) - len(line.lstrip())
-            # The with-block body has indent > scope_indent.
-            # First line at scope_indent or less after entering the with-block
-            # marks the end of the scope (other than the with-line itself).
-            if indent <= scope_indent and "session_scope" not in line and i > 0:
-                scope_end_line = i
-                in_scope = False
-        if "menu.exec" in line:
-            exec_line = i
-
-    assert scope_end_line is not None, "Could not locate end of session_scope block"
-    assert exec_line is not None, "Could not locate menu.exec() call"
-    assert exec_line > scope_end_line, (
-        f"menu.exec() (line {exec_line}) must appear after session_scope block ends "
-        f"(line {scope_end_line}) — session must be closed before blocking menu display"
+    # _on_ctx_data_ready must not have any session_scope of its own
+    src = _func_source("main_window.py", "_on_ctx_data_ready")
+    assert "session_scope" not in src, (
+        "_on_ctx_data_ready must not open a session — the session is closed "
+        "in the worker thread before the signal fires (signal/slot = closed boundary)"
     )
+    assert "menu.exec" in src, "_on_ctx_data_ready must still call menu.exec()"
 
 
 # ---------------------------------------------------------------------------

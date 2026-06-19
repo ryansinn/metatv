@@ -120,6 +120,29 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
 
 
 from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
+from PyQt6.QtGui import QMouseEvent
+
+
+class _ClickableNavLabel(QLabel):
+    """A QLabel variant that emits ``clicked`` on left mouse-press.
+
+    Used for the playback-health readout in the bottom nav bar so the user
+    can click to cycle between open player windows.  Does NOT replicate the
+    clipboard behaviour of ``details_sections._ClickableLabel`` — it is purely
+    a click-event bridge.
+    """
+
+    clicked = _pyqtSignal()
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
 
 class _PrefixRescanThread(QThread):
     """Background thread that re-runs update_detected_prefixes and emits the count."""
@@ -158,8 +181,8 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     _episode_ready  = pyqtSignal(str, str, str, object)  # notif_id, url, title, queue_episodes
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
-    # Context menu async fetch: (channel, in_queue, rating, gx, gy, variant)
-    _ctx_data_ready = pyqtSignal(object, bool, object, int, int, str)
+    # Context menu async fetch: (ChannelMenuContext, gx, gy)
+    _ctx_data_ready = pyqtSignal(object, int, int)
     # Prefix migration: emitted from background worker when rescan completes
     _prefix_migration_done = pyqtSignal()
     # Stream validation result: emitted from background thread after validate_and_failover
@@ -251,6 +274,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.player_manager = PlayerManager(config)
         self._register_cleanable("player_manager", self.player_manager.cleanup)
         self.loading_channels = set()  # Track channels being loaded
+
+        # Playback-health readout state: None = follow the most-recently-used window;
+        # set to a provider_id key to pin the readout to a specific open player window.
+        self._health_view_key: str | None = None
         self.refreshing_providers = set()  # Track providers being refreshed
         
         # Navigation state for series browsing
@@ -680,13 +707,30 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)
         layout.addWidget(self._diagnose_btn)
 
+        # Split-streams toggle — one player window per source when ON.
+        self._split_toggle_btn = QPushButton(f"{_icons.split_icon} Split")
+        self._split_toggle_btn.setCheckable(True)
+        self._split_toggle_btn.setChecked(
+            getattr(self.config, "split_streams_by_source", False)
+        )
+        self._split_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._split_toggle_btn.setStyleSheet(_theme.NAV_TOGGLE_BTN)
+        self._split_toggle_btn.setToolTip(
+            "Split streams — keep one player window per source.\n"
+            "Off: each play replaces the shared window.\n"
+            "On: a different source opens in its own window."
+        )
+        self._split_toggle_btn.toggled.connect(self.on_split_toggle_clicked)
+        layout.addWidget(self._split_toggle_btn)
+
         # Live playback-health readout — only visible while mpv is actively playing.
-        self._playback_health_label = QLabel("")
+        self._playback_health_label = _ClickableNavLabel("")
         self._playback_health_label.setToolTip(
             "Live playback health (buffer · download speed · dropped frames)"
         )
         self._playback_health_label.setStyleSheet(_theme.NAV_HEALTH)
         self._playback_health_label.hide()
+        self._playback_health_label.clicked.connect(self._on_health_readout_clicked)
         layout.addWidget(self._playback_health_label)
 
         layout.addStretch(1)
@@ -714,6 +758,20 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             )
             return
         self.diagnose_channel_by_id(channel.id)
+
+    def on_split_toggle_clicked(self, checked: bool) -> None:
+        """Toggle the split-streams feature from the nav-bar button.
+
+        Persists the new state to config and shows a brief status-bar message.
+        """
+        self.config.split_streams_by_source = checked
+        self.config.save()
+        msg = (
+            "Split streams: on — one window per source"
+            if checked
+            else "Split streams: off — shared window"
+        )
+        self.status_bar.showMessage(msg, 4000)
 
     def create_content_area(self) -> QWidget:
         """Create main content area"""
@@ -1933,145 +1991,200 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             self.filter_panel.update_data(stats)
         logger.info(f"Initialized filter stats: {stats['channels_with_prefix']:,} channels with prefixes")
     
-    # ---- Context menu shared infrastructure ------------------------------------
+    # ---- Unified context menu infrastructure ----------------------------------
 
-    def _show_context_menu_for(self, channel_id: str, gx: int, gy: int,
-                               variant: str) -> None:
-        """Fetch context data in background and show the menu on the main thread."""
-        self.executor.submit(self._bg_fetch_ctx_data, channel_id, gx, gy, variant)
+    def _show_channel_menu(
+        self,
+        channel_ids: list[str],
+        surface: str,
+        gx: int,
+        gy: int,
+        entry_id: str = "",
+    ) -> None:
+        """Gather DB context off-thread, then build and exec the menu on the main thread.
 
-    def _bg_fetch_ctx_data(self, channel_id: str, gx: int, gy: int,
-                           variant: str) -> None:
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if not channel:
-                return
-            in_queue = repos.queue.is_queued(channel_id)
-            rating = repos.ratings.get(channel.id)
-        finally:
-            session.close()
-        self._ctx_data_ready.emit(channel, in_queue, rating, gx, gy, variant)
-
-    def _on_ctx_data_ready(self, channel, in_queue: bool, rating,
-                           gx: int, gy: int, variant: str) -> None:
-        from PyQt6.QtCore import QPoint
-        menu = self._build_channel_menu(channel, in_queue, rating, variant)
-        menu.exec(QPoint(gx, gy))
-
-    def _build_channel_menu(self, channel, in_queue: bool, rating, variant: str):
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-        channel_id = channel.id
-        menu = QMenu(self)
-
-        play_act = QAction("Play", self)
-        if variant == "history":
-            play_act.triggered.connect(lambda: self.play_from_history_id(channel_id))
-        elif variant == "favorites":
-            play_act.triggered.connect(lambda: self.play_favorite_id(channel_id))
-        else:
-            play_act.triggered.connect(lambda: self.play_channel_by_id(channel_id))
-        menu.addAction(play_act)
-
-        menu.addSeparator()
-
-        if channel.is_favorite:
-            fav_act = QAction(f"Remove from Favorites ({self.unfavorite_icon})", self)
-            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, False))
-        else:
-            fav_act = QAction(f"Add to Favorites ({self.favorite_icon})", self)
-            fav_act.triggered.connect(lambda: self._toggle_favorite_by_id(channel_id, True))
-        menu.addAction(fav_act)
-
-        queue_act = QAction(
-            f"{self.config.queue_icon} {'Remove from Queue' if in_queue else 'Add to Queue'}", self
+        This is the single entry point for all channel context menus in the
+        MainWindow family.  Multi-select passes all ids; single-select passes
+        a one-element list.  The DB worker builds a ``ChannelMenuContext``
+        with DB-derived fields and emits ``_ctx_data_ready``; the main-thread
+        handler finishes with config-derived fields and calls ``build_channel_menu``.
+        """
+        self.executor.submit(
+            self._bg_fetch_ctx_data,
+            channel_ids, surface, gx, gy, entry_id,
         )
-        queue_act.triggered.connect(
-            lambda: self._remove_from_queue(channel_id) if in_queue
-            else self._add_to_queue(channel_id)
-        )
-        menu.addAction(queue_act)
 
-        if variant == "history":
-            menu.addSeparator()
-            remove_act = QAction(f"Remove from History ({self.delete_icon})", self)
-            remove_act.triggered.connect(lambda: self.remove_from_history(channel_id))
-            menu.addAction(remove_act)
-            hide_act = QAction(f"{self.hide_icon} Hide channel", self)
-            hide_act.triggered.connect(lambda: self._hide_channel_from_history(channel_id))
-            menu.addAction(hide_act)
-        elif variant == "channel":
-            menu.addSeparator()
-            if channel.is_hidden:
-                unhide_act = QAction(f"{self.config.hide_icon} Unhide", self)
-                unhide_act.triggered.connect(lambda: self._unhide_channel(channel_id))
-                menu.addAction(unhide_act)
-            else:
-                if channel.id in self.config.epg_watchlist_channels:
-                    watch_act = QAction("Stop watching this channel", self)
-                    watch_act.triggered.connect(lambda: self._unwatch_channel_from_list(channel.id))
+    def _bg_fetch_ctx_data(
+        self,
+        channel_ids: list[str],
+        surface: str,
+        gx: int,
+        gy: int,
+        entry_id: str,
+    ) -> None:
+        """Worker: gather DB fields for context menu (runs off-thread)."""
+        from metatv.gui.channel_menu import ChannelMenuContext
+
+        if len(channel_ids) == 1:
+            cid = channel_ids[0]
+            with self.db.session_scope(commit=False) as session:
+                repos = RepositoryFactory(session)
+                channel = repos.channels.get_by_id(cid) if cid else None
+                if channel is None and surface != "retry":
+                    return
+                if channel is not None:
+                    ctx = ChannelMenuContext(
+                        channel_ids=channel_ids,
+                        surface=surface,
+                        media_type=channel.media_type or "",
+                        is_favorite=bool(channel.is_favorite),
+                        in_queue=repos.queue.is_queued(cid),
+                        rating=repos.ratings.get(cid) or 0,
+                        is_hidden=bool(channel.is_hidden),
+                        channel_name=channel.name or "",
+                        user_category=channel.user_category,
+                        entry_id=entry_id,
+                        channel_found=True,
+                    )
                 else:
-                    watch_act = QAction("Watch this channel (EPG alerts)", self)
-                    watch_act.triggered.connect(lambda: self._watch_channel_from_list(channel.id))
-                menu.addAction(watch_act)
-                track_act = QAction("Track keyword…", self)
-                track_act.triggered.connect(lambda: self._prompt_track_from_list(channel.name))
-                menu.addAction(track_act)
-                hide_act = QAction(f"{self.config.hide_icon} Hide", self)
-                hide_act.triggered.connect(lambda: self._hide_channel_from_recommendations(channel_id))
-                menu.addAction(hide_act)
-
-        if channel.media_type in ("movie", "series"):
-            menu.addSeparator()
-            like_act = QAction(f"{self.config.like_icon} Like", self)
-            like_act.setCheckable(True)
-            like_act.setChecked(rating == 1)
-            like_act.triggered.connect(lambda checked, cid=channel_id: self._toggle_rating(cid, 1))
-            menu.addAction(like_act)
-            dislike_act = QAction(f"{self.config.dislike_icon} Dislike", self)
-            dislike_act.setCheckable(True)
-            dislike_act.setChecked(rating == -1)
-            dislike_act.triggered.connect(lambda checked, cid=channel_id: self._toggle_rating(cid, -1))
-            menu.addAction(dislike_act)
-
-        # Category assignment — always available
-        menu.addSeparator()
-        cat_label = channel.user_category
-        if cat_label:
-            cat_act = QAction(
-                f"{self.config.queue_icon} Category: {cat_label}  (change…)", self
-            )
+                    # retry surface with no matching channel row
+                    ctx = ChannelMenuContext(
+                        channel_ids=channel_ids,
+                        surface=surface,
+                        entry_id=entry_id,
+                        channel_found=False,
+                    )
         else:
-            cat_act = QAction(
-                f"{self.config.queue_icon} Add to Category…", self
+            # Multi-select — no per-channel DB work needed
+            ctx = ChannelMenuContext(
+                channel_ids=channel_ids,
+                surface=surface,
+                entry_id=entry_id,
             )
-        cat_act.setToolTip(
-            "Assign this channel to a user-defined category.\n"
-            "Categories appear as shelves in the Discover view."
-        )
-        cat_act.triggered.connect(lambda: self._open_category_picker([channel_id]))
-        menu.addAction(cat_act)
 
-        # For the favorites list — append Clear Unavailable so the action is always
-        # discoverable from the per-item menu, not just the empty-space menu.
-        if variant == "favorites":
+        self._ctx_data_ready.emit(ctx, gx, gy)
+
+    def _on_ctx_data_ready(self, ctx, gx: int, gy: int) -> None:
+        """Main-thread handler: finish context, build menu, exec it."""
+        from PyQt6.QtCore import QPoint
+        from metatv.gui.channel_menu import build_channel_menu
+
+        # Finish with main-thread-only fields
+        cid = ctx.channel_id
+        if cid:
+            ctx.is_watched = cid in self.config.epg_watchlist_channels
+
+        surface = ctx.surface
+        if surface == "favorites":
             fav_section = (
                 self.sidebar_sections.get("favorites")
                 if hasattr(self, "sidebar_sections") else None
             )
-            has_unavail = fav_section.has_unavailable() if fav_section else False
-            menu.addSeparator()
-            clear_unavail_act = QAction("Clear Unavailable", self)
-            clear_unavail_act.setEnabled(has_unavail)
-            if not has_unavail:
-                clear_unavail_act.setToolTip("No unavailable content")
-            if fav_section:
-                clear_unavail_act.triggered.connect(fav_section.clearUnavailableClicked.emit)
-            menu.addAction(clear_unavail_act)
+            ctx.has_unavailable = fav_section.has_unavailable() if fav_section else False
+        elif surface == "queue":
+            queue_section = (
+                self.sidebar_sections.get("queue")
+                if hasattr(self, "sidebar_sections") else None
+            )
+            ctx.has_unavailable = queue_section.has_unavailable() if queue_section else False
 
-        return menu
+        handlers = self._build_handlers(ctx)
+        menu = build_channel_menu(ctx, handlers, parent=self)
+        menu.exec(QPoint(gx, gy))
+
+    def _build_handlers(self, ctx) -> dict:
+        """Build the handler dict for the given surface and context."""
+        surface = ctx.surface
+        cid = ctx.channel_id
+        ids = ctx.channel_ids
+
+        # Resolve the play handler by surface
+        if surface == "history":
+            play_fn = lambda: self.play_from_history_id(cid)
+        elif surface == "favorites":
+            play_fn = lambda: self.play_favorite_id(cid)
+        elif surface == "queue":
+            play_fn = lambda: self.play_queue_item_id(cid)
+        else:
+            play_fn = lambda: self.play_channel_by_id(cid)
+
+        # Hide handler varies by surface
+        if surface == "history":
+            hide_fn = lambda: self._hide_channel_from_history(cid)
+        elif surface == "alerts":
+            hide_fn = lambda: self._hide_channel_from_alerts(cid)
+        else:
+            # channel, queue, recommended
+            hide_fn = lambda: self._hide_channel_from_recommendations(cid)
+
+        # Clear-unavailable handler varies by surface
+        fav_section = (
+            self.sidebar_sections.get("favorites")
+            if hasattr(self, "sidebar_sections") else None
+        )
+        queue_section = (
+            self.sidebar_sections.get("queue")
+            if hasattr(self, "sidebar_sections") else None
+        )
+
+        handlers: dict = {
+            "play": play_fn,
+            "play_new_window": lambda: self.play_channel_new_window_by_id(cid),
+            "favorite": lambda: self._toggle_favorite_by_id(
+                cid, not ctx.is_favorite
+            ),
+            "queue": (
+                (lambda: self._remove_from_queue(cid))
+                if ctx.in_queue
+                else (lambda: self._add_to_queue(cid))
+            ),
+            "like": lambda: self._toggle_rating(cid, 1),
+            "dislike": lambda: self._toggle_rating(cid, -1),
+            "watch": (
+                (lambda: self._unwatch_channel_from_list(cid))
+                if ctx.is_watched
+                else (lambda: self._watch_channel_from_list(cid))
+            ),
+            "track": lambda: self._prompt_track_from_list(ctx.channel_name),
+            "unhide": lambda: self._unhide_channel(cid),
+            "hide": hide_fn,
+            "remove_history": lambda: self.remove_from_history(cid),
+            "not_interested": lambda: self._not_interested(cid),
+            "category": lambda: self._open_category_picker([cid]),
+            "remove_retry": lambda: self.stream_retry_manager.remove(ctx.entry_id),
+            "clear_retry": self.stream_retry_manager.clear_all,
+            # Multi-select quick-picks
+            "quickpick_trash": lambda: self._quick_assign_category(
+                ids, "Trash", "dislike", True
+            ),
+            "quickpick_watch_later": lambda: self._quick_assign_category(
+                ids, "Watch Later", None, False
+            ),
+            "quickpick_explore": lambda: self._quick_assign_category(
+                ids, "Explore", "curious", False
+            ),
+            "bulk_category": lambda: self._open_category_picker(ids),
+        }
+
+        if fav_section is not None:
+            handlers["clear_unavailable"] = fav_section.clearUnavailableClicked.emit
+        elif queue_section is not None:
+            handlers["clear_unavailable"] = queue_section.clearUnavailableClicked.emit
+
+        # For queue surface, override clear_unavailable to queue section's signal
+        if surface == "queue" and queue_section is not None:
+            handlers["clear_unavailable"] = queue_section.clearUnavailableClicked.emit
+        elif surface == "favorites" and fav_section is not None:
+            handlers["clear_unavailable"] = fav_section.clearUnavailableClicked.emit
+
+        return handlers
+
+    # ---- Context menu entry points (thin wrappers) ---------------------------
+
+    def _show_context_menu_for(self, channel_id: str, gx: int, gy: int,
+                               surface: str) -> None:
+        """Legacy single-channel entry point — delegates to _show_channel_menu."""
+        self._show_channel_menu([channel_id], surface, gx, gy)
 
     # ---- Context menu entry points ------------------------------------------
 
@@ -2610,6 +2723,14 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.exec()
         self._apply_sidebar_visibility()
+        # Re-sync the nav-bar Split toggle in case the user changed the setting
+        # via the Settings dialog's Playback tab checkbox.
+        if hasattr(self, "_split_toggle_btn"):
+            self._split_toggle_btn.blockSignals(True)
+            self._split_toggle_btn.setChecked(
+                getattr(self.config, "split_streams_by_source", False)
+            )
+            self._split_toggle_btn.blockSignals(False)
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""

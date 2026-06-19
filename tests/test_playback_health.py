@@ -185,6 +185,7 @@ class _FakeLabel:
     def __init__(self):
         self.text = None
         self.visible = False
+        self.tooltip = None
 
     def setText(self, t):
         self.text = t
@@ -194,6 +195,9 @@ class _FakeLabel:
 
     def hide(self):
         self.visible = False
+
+    def setToolTip(self, t):
+        self.tooltip = t
 
 
 class _FakeTimer:
@@ -218,35 +222,43 @@ class _FakeExecutor:
 
 
 class _FakePlayerManager:
-    def __init__(self, running=True):
+    def __init__(self, running=True, keys=None):
         self._running = running
+        self._keys = keys if keys is not None else []
+        self.player = None  # no real player
 
-    def is_running(self):
+    def is_running(self, key=None):
         return self._running
+
+    def active_keys(self):
+        return list(self._keys)
 
 
 # ---------------------------------------------------------------------------
 # 3. _on_playback_health_ready — main-thread result slot
+#
+# The slot now receives a ``(key, props)`` tuple instead of bare props.
 # ---------------------------------------------------------------------------
 
-def _host_for_result():
+def _host_for_result(keys=None):
     host = MainWindow.__new__(MainWindow)
     host._playback_health_label = _FakeLabel()
     host._playback_health_timer = _FakeTimer()
     host._health_query_inflight = True
     host._health_idle_ticks = 0
+    host.player_manager = _FakePlayerManager(running=True, keys=keys or [])
     return host
 
 
 def test_on_playback_health_ready_playing_sets_text_and_shows():
-    host = _host_for_result()
+    host = _host_for_result(keys=["__shared__"])
     props = {
         "path": "http://stream/url",
         "demuxer-cache-duration": 18.4,
         "cache-speed": 775000,
         "frame-drop-count": 0,
     }
-    MainWindow._on_playback_health_ready(host, props)
+    MainWindow._on_playback_health_ready(host, (None, props))
 
     assert host._playback_health_label.visible is True
     assert "18s buffer" in host._playback_health_label.text
@@ -259,7 +271,7 @@ def test_on_playback_health_ready_playing_sets_text_and_shows():
 
 def test_on_playback_health_ready_idle_hides_and_counts():
     host = _host_for_result()
-    MainWindow._on_playback_health_ready(host, {"path": None})
+    MainWindow._on_playback_health_ready(host, (None, {"path": None}))
 
     assert host._playback_health_label.visible is False
     assert host._health_idle_ticks == 1
@@ -270,7 +282,7 @@ def test_on_playback_health_ready_idle_hides_and_counts():
 def test_on_playback_health_ready_idle_grace_stops_timer():
     host = _host_for_result()
     host._health_idle_ticks = 7  # next idle tick reaches the grace threshold (8)
-    MainWindow._on_playback_health_ready(host, {"path": None})
+    MainWindow._on_playback_health_ready(host, (None, {"path": None}))
 
     assert host._health_idle_ticks == 8
     assert host._playback_health_timer.stopped is True
@@ -278,7 +290,7 @@ def test_on_playback_health_ready_idle_grace_stops_timer():
 
 def test_on_playback_health_ready_none_treated_as_idle():
     host = _host_for_result()
-    MainWindow._on_playback_health_ready(host, None)  # probe failure → idle, no crash
+    MainWindow._on_playback_health_ready(host, (None, None))  # probe failure → idle, no crash
 
     assert host._playback_health_label.visible is False
     assert host._health_idle_ticks == 1
@@ -295,8 +307,9 @@ def test_tick_process_gone_hides_and_stops_no_submit():
     host._playback_health_label.visible = True
     host._playback_health_timer = _FakeTimer()
     host.executor = _FakeExecutor()
-    host.player_manager = _FakePlayerManager(running=False)
+    host.player_manager = _FakePlayerManager(running=False, keys=[])
     host._health_query_inflight = False
+    host._health_view_key = None
 
     MainWindow._playback_health_tick(host)
 
@@ -310,8 +323,9 @@ def test_tick_running_submits_once_and_sets_inflight():
     host._playback_health_label = _FakeLabel()
     host._playback_health_timer = _FakeTimer()
     host.executor = _FakeExecutor()
-    host.player_manager = _FakePlayerManager(running=True)
+    host.player_manager = _FakePlayerManager(running=True, keys=["__shared__"])
     host._health_query_inflight = False
+    host._health_view_key = None
 
     MainWindow._playback_health_tick(host)
 
@@ -325,8 +339,9 @@ def test_tick_skips_when_already_inflight():
     host._playback_health_label = _FakeLabel()
     host._playback_health_timer = _FakeTimer()
     host.executor = _FakeExecutor()
-    host.player_manager = _FakePlayerManager(running=True)
+    host.player_manager = _FakePlayerManager(running=True, keys=["__shared__"])
     host._health_query_inflight = True  # a probe is already running
+    host._health_view_key = None
 
     MainWindow._playback_health_tick(host)
 
