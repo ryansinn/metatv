@@ -64,6 +64,17 @@ def test_icons_match_config_defaults():
     assert not mismatched, "Icons don't match Config defaults:\n" + "\n".join(mismatched)
 
 
+def test_events_icon_distinct_from_preferences_icons():
+    """events_icon must not collide with preferences_icon or preferred_version_icon (B9-3d)."""
+    import metatv.gui.icons as icons
+    assert icons.events_icon != icons.preferences_icon, (
+        f"events_icon {icons.events_icon!r} collides with preferences_icon — use a distinct glyph"
+    )
+    assert icons.events_icon != icons.preferred_version_icon, (
+        f"events_icon {icons.events_icon!r} collides with preferred_version_icon — use a distinct glyph"
+    )
+
+
 # Known colored-emoji candidates that must NOT be used as the diagnose icon
 # (they render in color on most platforms and would violate the monochrome requirement).
 _COLORED_EMOJI_DIAGNOSE_CANDIDATES = {"📶", "📡", "🩺", "🔍"}
