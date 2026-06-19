@@ -669,7 +669,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         nav_layout.addWidget(self.discover_chip)
 
         # Diagnose action — far-left, mirrors the Exclusions chip on the right
-        self._diagnose_btn = QPushButton(f"{_icons.diagnose_icon} Diagnose")
+        self._diagnose_btn = QPushButton(_icons.diagnose_icon)
         self._diagnose_btn.setFlat(True)
         self._diagnose_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._diagnose_btn.setToolTip(

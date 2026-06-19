@@ -29,7 +29,7 @@ watched_icon: str = "✓"
 
 # Actions
 play_icon: str = "▶"
-diagnose_icon: str = "📶"   # stream-diagnostics action (signal/connectivity glyph)
+diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
 close_icon: str = "×"
 delete_icon: str = "🗑"
 refresh_icon: str = "⟳"

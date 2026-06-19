@@ -62,3 +62,27 @@ def test_icons_match_config_defaults():
             if cfg_val != icon_val:
                 mismatched.append(f"{name}: config={cfg_val!r} icons={icon_val!r}")
     assert not mismatched, "Icons don't match Config defaults:\n" + "\n".join(mismatched)
+
+
+# Known colored-emoji candidates that must NOT be used as the diagnose icon
+# (they render in color on most platforms and would violate the monochrome requirement).
+_COLORED_EMOJI_DIAGNOSE_CANDIDATES = {"📶", "📡", "🩺", "🔍"}
+
+
+def test_diagnose_icon_is_monochrome_glyph():
+    """diagnose_icon must be a monochrome (non-emoji) text glyph.
+
+    The bottom-nav Diagnose button is icon-only; the glyph must render in the
+    widget's foreground color rather than as a colored emoji platform image.
+    Behavioral check: asserts the chosen value (U+223F SINE WAVE) and confirms
+    it is not any of the known colored-emoji candidates.
+    """
+    import metatv.gui.icons as icons
+
+    glyph = icons.diagnose_icon
+    assert glyph == "∿", (
+        f"diagnose_icon should be U+223F SINE WAVE '∿'; got {glyph!r}"
+    )
+    assert glyph not in _COLORED_EMOJI_DIAGNOSE_CANDIDATES, (
+        f"diagnose_icon {glyph!r} is a known colored emoji — use a monochrome glyph"
+    )
