@@ -119,6 +119,13 @@ class SettingsDialog(QDialog):
         prebuffer_wait_row.addStretch()
         player_form.addRow("Pre-buffer wait:", prebuffer_wait_row)
 
+        self._split_check = QCheckBox("Split streams — one player window per source")
+        self._split_check.setToolTip(
+            "When on, a stream from a different source opens in its own player window "
+            "instead of replacing the current one. Each source still allows only one connection."
+        )
+        player_form.addRow("", self._split_check)
+
         self._user_agent_view = QLineEdit()
         self._user_agent_view.setReadOnly(True)
         self._user_agent_view.setToolTip(
@@ -344,6 +351,7 @@ class SettingsDialog(QDialog):
         self._prebuffer_check.setChecked(getattr(c, "prebuffer_before_play", False))
         self._prebuffer_wait_spin.setValue(getattr(c, "prebuffer_wait_secs", 10))
         self._override_all_check.setChecked(getattr(c, "mpv_args_override_all", False))
+        self._split_check.setChecked(getattr(c, "split_streams_by_source", False))
 
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
@@ -400,6 +408,7 @@ class SettingsDialog(QDialog):
         c.prebuffer_before_play = self._prebuffer_check.isChecked()
         c.prebuffer_wait_secs = self._prebuffer_wait_spin.value()
         c.mpv_args_override_all = self._override_all_check.isChecked()
+        c.split_streams_by_source = self._split_check.isChecked()
 
         # EPG
         epg_val = self._epg_interval_combo.currentData()

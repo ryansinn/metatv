@@ -212,6 +212,16 @@ FLAT_NAV_BTN = (
     "; background: " + COLOR_BG_BAR + "; }"
     "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
 )
+# Checkable flat nav-bar toggle button (e.g. Split Streams).  Off state mirrors
+# FLAT_NAV_BTN; checked state highlights with the accent color so ON is obvious.
+NAV_TOGGLE_BTN = (
+    "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
+    "; padding: 7px 12px; border-top: 1px solid " + COLOR_LINE +
+    "; background: " + COLOR_BG_BAR + "; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; background: " + COLOR_LINE_DARK + "; }"
+    "QPushButton:checked { color: " + COLOR_ACCENT + "; border-top: 1px solid " + COLOR_ACCENT + "; }"
+    "QPushButton:checked:hover { color: " + COLOR_ACCENT_HOVER + "; background: " + COLOR_LINE_DARK + "; }"
+)
 RATING_BTN = (
     "QPushButton { border: none; border-radius: 3px; padding: 2px 6px;"
     " font-size: " + FONT_XL + "; color: " + COLOR_MUTED + "; }"

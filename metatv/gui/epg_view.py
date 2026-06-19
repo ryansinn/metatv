@@ -43,6 +43,7 @@ from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
+from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.content_view import ContentView
 from metatv.gui import theme as _theme
 
@@ -2237,49 +2238,135 @@ class EpgView(ContentView):
             if title or ch_id:
                 self._show_hide_dialog(title, ch_id, ch_name, category)
 
+    def _host(self):
+        """Return the MainWindow host (Qt top-level parent) for delegating core actions."""
+        return self.window()
+
     def _on_now_context_menu(self, pos) -> None:
-        from PyQt6.QtWidgets import QMenu
+        from metatv.core.repositories import RepositoryFactory
+
         items = self.on_now_list.selectedItems()
         if not items:
             return
-        n = len(items)
-        menu = QMenu(self)
-
-        assign_act = menu.addAction(f"Assign category… ({n} channel{'s' if n > 1 else ''})")
-        assign_act.triggered.connect(lambda: self._bulk_assign_category(items[:]))
 
         ch_ids = [i.data(0, Qt.ItemDataRole.UserRole) for i in items]
-        has_override = any(
-            cid in self.config.epg_category_overrides for cid in ch_ids if cid
+        valid_ch_ids = [cid for cid in ch_ids if cid]
+        is_single = len(items) == 1
+
+        # ── Build context ────────────────────────────────────────────────────
+        ctx_kwargs: dict = dict(
+            channel_ids=valid_ch_ids or ch_ids,
+            surface="epg_on_now",
         )
-        if has_override:
-            rm_act = menu.addAction("Remove category override")
-            rm_act.triggered.connect(lambda: self._remove_category_overrides(ch_ids[:]))
 
-        watched = [cid for cid in ch_ids if cid and cid in self.config.epg_watchlist_channels]
-        unwatched = [cid for cid in ch_ids if cid and cid not in self.config.epg_watchlist_channels]
+        if is_single and valid_ch_ids:
+            cid = valid_ch_ids[0]
+            with self.db.session_scope(commit=False) as session:
+                repos = RepositoryFactory(session)
+                ch = repos.channels.get_by_id(cid)
+                if ch:
+                    ctx_kwargs.update(
+                        media_type=ch.media_type or "",
+                        is_favorite=ch.is_favorite or False,
+                        in_queue=repos.queue.is_queued(cid),
+                        rating=repos.ratings.get(cid) or 0,
+                        is_hidden=ch.is_hidden or False,
+                        channel_name=ch.name or "",
+                        channel_found=True,
+                    )
+                else:
+                    ctx_kwargs["channel_found"] = False
+        else:
+            ctx_kwargs["channel_found"] = True
+
+        ctx = ChannelMenuContext(**ctx_kwargs)
+
+        # ── Build handlers ───────────────────────────────────────────────────
+        host = self._host()
+        handlers: dict = {}
+
+        # Core single-select handlers (only offered for single selection)
+        if is_single and valid_ch_ids:
+            cid = valid_ch_ids[0]
+            is_fav = ctx.is_favorite
+
+            def _play_h(c=cid):
+                if hasattr(host, "play_channel_by_id"):
+                    host.play_channel_by_id(c)
+                else:
+                    self._play_channel(c)
+
+            def _play_new_h(c=cid):
+                if hasattr(host, "play_channel_new_window_by_id"):
+                    host.play_channel_new_window_by_id(c)
+
+            def _fav_h(c=cid, f=is_fav):
+                if hasattr(host, "_toggle_favorite_by_id"):
+                    host._toggle_favorite_by_id(c, not f)
+
+            def _queue_h(c=cid, iq=ctx.in_queue):
+                if hasattr(host, "_add_to_queue") and hasattr(host, "_remove_from_queue"):
+                    if iq:
+                        host._remove_from_queue(c)
+                    else:
+                        host._add_to_queue(c)
+
+            handlers["play"] = _play_h
+            handlers["play_new_window"] = _play_new_h
+            handlers["favorite"] = _fav_h
+            handlers["queue"] = _queue_h
+
+            if ctx.media_type in ("movie", "series"):
+                def _like_h(c=cid):
+                    if hasattr(host, "_toggle_rating"):
+                        host._toggle_rating(c, 1)
+
+                def _dislike_h(c=cid):
+                    if hasattr(host, "_toggle_rating"):
+                        host._toggle_rating(c, -1)
+
+                handlers["like"] = _like_h
+                handlers["dislike"] = _dislike_h
+
+        # EPG-extra handlers
+        watched = [cid for cid in valid_ch_ids if cid in self.config.epg_watchlist_channels]
+        unwatched = [cid for cid in valid_ch_ids if cid not in self.config.epg_watchlist_channels]
+        items_snap = items[:]
+        valid_ids_snap = valid_ch_ids[:]
+
         if unwatched:
-            watch_act = menu.addAction(f"Watch channel{'s' if len(unwatched) > 1 else ''}…")
-            watch_act.triggered.connect(lambda: [self._watch_channel(cid) for cid in unwatched])
-        if watched:
-            unwatch_act = menu.addAction(f"Unwatch channel{'s' if len(watched) > 1 else ''}…")
-            unwatch_act.triggered.connect(lambda: [self._unwatch_channel(cid) for cid in watched])
+            _unwatched_snap = unwatched[:]
+            handlers["epg_watch"] = lambda ids=_unwatched_snap: [
+                self._watch_channel(c) for c in ids
+            ]
 
-        # Track show title as watchlist pattern
+        if watched:
+            _watched_snap = watched[:]
+            handlers["epg_unwatch"] = lambda ids=_watched_snap: [
+                self._unwatch_channel(c) for c in ids
+            ]
+
+        # Track show — only when there are recognizable show titles
         show_titles = list({
             i.text(3).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip() for i in items
         })
         if show_titles:
-            preview = show_titles[0] if len(show_titles) == 1 else f"{len(show_titles)} shows"
-            track_act = menu.addAction(f"Track show: '{preview}'…")
-            track_act.triggered.connect(lambda: self._track_shows_from_items(items[:]))
+            handlers["epg_track_show"] = lambda its=items_snap: self._track_shows_from_items(its)
 
-        menu.addSeparator()
-        hide_ch = menu.addAction(f"Hide channel{'s' if n > 1 else ''}…")
-        hide_ch.triggered.connect(lambda: self._bulk_hide_channels(ch_ids[:]))
-        hide_show = menu.addAction(f"Hide show{'s' if n > 1 else ''}…")
-        hide_show.triggered.connect(lambda: self._bulk_hide_titles(items[:]))
+        handlers["epg_assign_category"] = lambda its=items_snap: self._bulk_assign_category(its)
 
+        has_override = any(
+            cid in self.config.epg_category_overrides for cid in valid_ch_ids
+        )
+        if has_override:
+            handlers["epg_remove_override"] = lambda ids=valid_ids_snap: (
+                self._remove_category_overrides(ids)
+            )
+
+        handlers["epg_hide_channel"] = lambda ids=valid_ids_snap: self._bulk_hide_channels(ids)
+        handlers["epg_hide_show"] = lambda its=items_snap: self._bulk_hide_titles(its)
+
+        menu = build_channel_menu(ctx, handlers, parent=self)
         menu.exec(self.on_now_list.viewport().mapToGlobal(pos))
 
     def _bulk_assign_category(self, items: list[QTreeWidgetItem]) -> None:
@@ -2556,20 +2643,96 @@ class EpgView(ContentView):
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
 
     def _on_browse_context_menu(self, pos) -> None:
-        from PyQt6.QtWidgets import QMenu
+        from metatv.core.repositories import RepositoryFactory
+
         item = self.browse_list.itemAt(pos)
         if not item:
             return
+
         title = item.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
-        channel_db_id = item.data(0, Qt.ItemDataRole.UserRole)
-        menu = QMenu(self)
-        track_act = menu.addAction(f"Track: '{title}'…")
-        track_act.triggered.connect(lambda: self._prompt_track(title))
-        if channel_db_id and channel_db_id not in self.config.epg_watchlist_channels:
-            watch_act = menu.addAction("Watch this channel")
-            watch_act.triggered.connect(lambda: self._watch_channel(channel_db_id))
-        play_act = menu.addAction(f"{self.config.play_icon} Play")
-        play_act.triggered.connect(lambda: self._play_channel(channel_db_id))
+        cid = item.data(0, Qt.ItemDataRole.UserRole)
+
+        # ── Build context ────────────────────────────────────────────────────
+        ctx_kwargs: dict = dict(
+            channel_ids=[cid] if cid else [],
+            surface="epg_browse",
+        )
+
+        if cid:
+            with self.db.session_scope(commit=False) as session:
+                repos = RepositoryFactory(session)
+                ch = repos.channels.get_by_id(cid)
+                if ch:
+                    ctx_kwargs.update(
+                        media_type=ch.media_type or "",
+                        is_favorite=ch.is_favorite or False,
+                        in_queue=repos.queue.is_queued(cid),
+                        rating=repos.ratings.get(cid) or 0,
+                        is_hidden=ch.is_hidden or False,
+                        channel_name=ch.name or "",
+                        channel_found=True,
+                    )
+                else:
+                    ctx_kwargs["channel_found"] = False
+        else:
+            ctx_kwargs["channel_found"] = False
+
+        ctx = ChannelMenuContext(**ctx_kwargs)
+
+        # ── Build handlers ───────────────────────────────────────────────────
+        host = self._host()
+        handlers: dict = {}
+
+        if cid and ctx.channel_found:
+            is_fav = ctx.is_favorite
+
+            def _play_h(c=cid):
+                if hasattr(host, "play_channel_by_id"):
+                    host.play_channel_by_id(c)
+                else:
+                    self._play_channel(c)
+
+            def _play_new_h(c=cid):
+                if hasattr(host, "play_channel_new_window_by_id"):
+                    host.play_channel_new_window_by_id(c)
+
+            def _fav_h(c=cid, f=is_fav):
+                if hasattr(host, "_toggle_favorite_by_id"):
+                    host._toggle_favorite_by_id(c, not f)
+
+            def _queue_h(c=cid, iq=ctx.in_queue):
+                if hasattr(host, "_add_to_queue") and hasattr(host, "_remove_from_queue"):
+                    if iq:
+                        host._remove_from_queue(c)
+                    else:
+                        host._add_to_queue(c)
+
+            handlers["play"] = _play_h
+            handlers["play_new_window"] = _play_new_h
+            handlers["favorite"] = _fav_h
+            handlers["queue"] = _queue_h
+
+            if ctx.media_type in ("movie", "series"):
+                def _like_h(c=cid):
+                    if hasattr(host, "_toggle_rating"):
+                        host._toggle_rating(c, 1)
+
+                def _dislike_h(c=cid):
+                    if hasattr(host, "_toggle_rating"):
+                        host._toggle_rating(c, -1)
+
+                handlers["like"] = _like_h
+                handlers["dislike"] = _dislike_h
+
+            # epg_watch: only when not already watched
+            if cid not in self.config.epg_watchlist_channels:
+                handlers["epg_watch"] = lambda c=cid: self._watch_channel(c)
+
+        # epg_track_show is always offered when there's a title
+        if title:
+            handlers["epg_track_show"] = lambda t=title: self._prompt_track(t)
+
+        menu = build_channel_menu(ctx, handlers, parent=self)
         menu.exec(self.browse_list.viewport().mapToGlobal(pos))
 
     def _on_now_selection_changed(self, current, _) -> None:
