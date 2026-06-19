@@ -82,7 +82,7 @@ class _ActionBar(QWidget):
 
         # Row 3: Sentiment — compact, VOD only
         _STYLE = (
-            "QPushButton { border: none; border-radius: 3px; padding: 2px 6px; font-size: 14px; }"
+            f"QPushButton {{ border: none; border-radius: 3px; padding: 2px 6px; font-size: {_theme.FONT_2XL}; }}"
             f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
             f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
         )

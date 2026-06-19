@@ -101,7 +101,7 @@ class _PosterSection(QWidget):
         live_layout.addWidget(self._channel_icon_lbl)
 
         self._country_info_lbl = QLabel()
-        self._country_info_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_DISABLED}; font-style: italic;")
+        self._country_info_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED}; font-style: italic;")
         self._country_info_lbl.setWordWrap(True)
         self._country_info_lbl.hide()
         live_layout.addWidget(self._country_info_lbl, 1)
@@ -315,12 +315,12 @@ class _MetadataSection(QWidget):
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
         self.source_label = _ClickableLabel()
-        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         self.source_label.hide()
         badge_row.addWidget(self.source_label)
         self.adult_indicator = QLabel("🔞 Adult")
         self.adult_indicator.setStyleSheet(
-            f"color: {_theme.COLOR_ERR_2}; font-size: 11px; font-weight: 600;"
+            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
             f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
         )
         self.adult_indicator.hide()
@@ -340,7 +340,7 @@ class _MetadataSection(QWidget):
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
-        self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: 11px; font-style: italic;")
+        self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
         self.rec_reason_label.setWordWrap(True)
         self.rec_reason_label.hide()
         layout.addWidget(self.rec_reason_label)
@@ -349,7 +349,7 @@ class _MetadataSection(QWidget):
         self._media_row.setVisible(not is_live)
         self.genres_label.setVisible(not is_live)
         if is_live:
-            self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+            self.title_label.setStyleSheet(f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
             self._tagline_lbl.hide()
             self._rating_row.hide()
         else:

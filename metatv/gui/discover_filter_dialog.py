@@ -44,7 +44,7 @@ _ZONE_COLLAPSED = "collapsed"
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_DIM}; "
+        f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM}; "
         "padding: 6px 0 2px 0;"
     )
     return lbl
@@ -81,7 +81,7 @@ class _ShelfRow(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
             f"QPushButton {{ background: {_theme.COLOR_LINE}; border: 1px solid {_theme.COLOR_FAINT}; "
-            f"border-radius: 3px; color: {_theme.COLOR_TEXT}; font-size: 10px; padding: 1px 6px; }}"
+            f"border-radius: 3px; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI}; }}"
         )
         if tooltip:
@@ -313,7 +313,7 @@ class DiscoverManageDialog(QDialog):
     def _add_empty_label(self, container: QWidget) -> None:
         empty = QLabel("(none)")
         empty.setObjectName("_empty_placeholder")
-        empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 2px 0;")
+        empty.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 2px 0;")
         container.layout().addWidget(empty)
 
     def _sync_empty_label(self, container: QWidget) -> None:

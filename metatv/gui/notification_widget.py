@@ -60,7 +60,7 @@ class NotificationCard(QFrame):
                 color: {text_color};
                 background-color: transparent;
                 border: none;
-                font-size: 18px;
+                font-size: {_theme.FONT_3XL};
             }}
             QPushButton:hover {{
                 background-color: {_theme.OVERLAY_10};
@@ -112,7 +112,7 @@ class NotificationCard(QFrame):
             for label, callback in self.notification.actions:
                 btn = QPushButton(label)
                 btn.setStyleSheet(
-                    f"QPushButton {{ font-size: 11px; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
+                    f"QPushButton {{ font-size: {_theme.FONT_MD}; font-weight: bold; border: 1px solid {_theme.COLOR_MUTED_2};"
                     " border-radius: 3px; padding: 2px 8px; }"
                     f"QPushButton:hover {{ background: {_theme.OVERLAY_15}; }}"
                 )

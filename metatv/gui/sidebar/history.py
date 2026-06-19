@@ -36,7 +36,7 @@ class HistoryItemWidget(QWidget):
                     background-color: {_theme.OVERLAY_BLUE_20};
                     border: 1px solid {_theme.COLOR_ACCENT_BLUE};
                     border-radius: 3px;
-                    font-size: 11px;
+                    font-size: {_theme.FONT_MD};
                     font-weight: bold;
                     color: {_theme.COLOR_ACCENT_BLUE};
                 }}

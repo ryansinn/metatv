@@ -114,14 +114,14 @@ class _ContentCard(QWidget):
         self._icon_lbl = QLabel(icon, self._poster_frame)
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_lbl.setGeometry(0, _POSTER_H // 2 - 20, _CARD_W, 40)
-        self._icon_lbl.setStyleSheet("background: transparent; font-size: 24px;")
+        self._icon_lbl.setStyleSheet(f"background: transparent; font-size: {_theme.FONT_ICON_LG};")
 
         # Rating badge (bottom-left overlay)
         if card.rating:
             rating_lbl = QLabel(f"{config.rating_star_icon} {card.rating:.1f}", self._poster_frame)
             rating_lbl.setGeometry(4, _POSTER_H - 22, 60, 18)
             rating_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD}; font-size: 10px; "
+                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD}; font-size: {_theme.FONT_SM}; "
                 "border-radius: 3px; padding: 1px 4px;"
             )
 
@@ -130,7 +130,7 @@ class _ContentCard(QWidget):
             cat_lbl = QLabel(card.detected_prefix, self._poster_frame)
             cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cat_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT}; font-size: 9px; "
+                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT}; font-size: {_theme.FONT_XS}; "
                 "border-radius: 3px; padding: 1px 3px;"
             )
             cat_lbl.adjustSize()
@@ -146,7 +146,7 @@ class _ContentCard(QWidget):
             status_lbl = QLabel(" ".join(badges), self._poster_frame)
             status_lbl.setStyleSheet(
                 f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
-                " font-size: 9px; padding: 1px 3px; color: white;"
+                f" font-size: {_theme.FONT_XS}; padding: 1px 3px; color: white;"
             )
             status_lbl.adjustSize()
             status_lbl.move(_CARD_W - status_lbl.width() - 4, 4)
@@ -160,7 +160,7 @@ class _ContentCard(QWidget):
         self._title_lbl.setFixedHeight(38)
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._title_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_TEXT_2};")
+        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2};")
         self._title_lbl.setToolTip(card.title)
         vl.addWidget(self._title_lbl)
 

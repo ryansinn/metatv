@@ -129,24 +129,24 @@ class SimilarTitleLightbox(QWidget):
 
         self._back_btn = QPushButton("◀ Back")
         self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: 12px; border: none;")
+        self._back_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: {_theme.FONT_LG}; border: none;")
         self._back_btn.setToolTip("Go back to previous title")
         self._back_btn.clicked.connect(self._go_back)
         self._back_btn.hide()
         header_row.addWidget(self._back_btn)
 
         self._header_lbl = QLabel()
-        self._header_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: 12px; font-weight: bold;")
+        self._header_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_LG}; font-weight: bold;")
         header_row.addWidget(self._header_lbl, 1)
 
         self._counter_lbl = QLabel()
-        self._counter_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        self._counter_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         header_row.addWidget(self._counter_lbl)
 
         close_btn = QPushButton(self._config.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(22, 22)
-        close_btn.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 14px; border: none;")
+        close_btn.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL}; border: none;")
         close_btn.setToolTip("Close preview")
         close_btn.clicked.connect(self._close)
         header_row.addWidget(close_btn)
@@ -162,7 +162,7 @@ class SimilarTitleLightbox(QWidget):
         self._prev_btn.setFixedWidth(36)
         self._prev_btn.setFlat(True)
         self._prev_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 18px; border: none; }}"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_3XL}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
             f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
         )
@@ -190,7 +190,7 @@ class SimilarTitleLightbox(QWidget):
         self._next_btn.setFixedWidth(36)
         self._next_btn.setFlat(True)
         self._next_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: 18px; border: none; }}"
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_3XL}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
             f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
         )
@@ -213,7 +213,7 @@ class SimilarTitleLightbox(QWidget):
         self._poster_lbl.setFixedSize(110, 160)
         self._poster_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._poster_lbl.setStyleSheet(
-            f"background: {_theme.COLOR_BG_DEEP}; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: 10px;"
+            f"background: {_theme.COLOR_BG_DEEP}; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
         )
         top_row.addWidget(self._poster_lbl)
 
@@ -222,7 +222,7 @@ class SimilarTitleLightbox(QWidget):
 
         self._title_lbl = QLabel()
         self._title_lbl.setWordWrap(True)
-        self._title_lbl.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
+        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_INPUT}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         right_col.addWidget(self._title_lbl)
 
         self._meta_lbl = QLabel()
@@ -230,12 +230,12 @@ class SimilarTitleLightbox(QWidget):
         right_col.addWidget(self._meta_lbl)
 
         self._source_lbl = QLabel()
-        self._source_lbl.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_MUTED_2};")
+        self._source_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED_2};")
         right_col.addWidget(self._source_lbl)
 
         self._genres_lbl = QLabel()
         self._genres_lbl.setWordWrap(True)
-        self._genres_lbl.setStyleSheet("font-size: 11px; color: lightblue;")
+        self._genres_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: lightblue;")
         right_col.addWidget(self._genres_lbl)
 
         # Rating buttons (Like / Not Interested / Dislike)
@@ -307,19 +307,19 @@ class SimilarTitleLightbox(QWidget):
         # Overview section
         self._overview_header = QLabel("Overview")
         self._overview_header.setStyleSheet(
-            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 6px;"
+            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 6px;"
         )
         self._content_layout.addWidget(self._overview_header)
 
         self._plot_lbl = QLabel()
         self._plot_lbl.setWordWrap(True)
-        self._plot_lbl.setStyleSheet(f"font-size: 12px; color: {_theme.COLOR_TEXT};")
+        self._plot_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         self._content_layout.addWidget(self._plot_lbl)
 
         # Cast & Crew section
         self._cast_header = QLabel("Cast & Crew")
         self._cast_header.setStyleSheet(
-            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 4px;"
+            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 4px;"
         )
         self._content_layout.addWidget(self._cast_header)
 
@@ -330,7 +330,7 @@ class SimilarTitleLightbox(QWidget):
 
         self._similar_header_lbl = QLabel("Similar Titles:")
         self._similar_header_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: bold; color: {_theme.COLOR_MUTED}; margin-top: 6px;"
+            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_MUTED}; margin-top: 6px;"
         )
         self._similar_header_lbl.hide()
         self._content_layout.addWidget(self._similar_header_lbl)
@@ -520,7 +520,7 @@ class SimilarTitleLightbox(QWidget):
                 btn = QPushButton(item["name"])
                 btn.setFlat(True)
                 btn.setStyleSheet(
-                    f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: 11px;"
+                    f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};"
                     " border: none; padding: 1px 0; }"
                     f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
                 )

@@ -65,14 +65,14 @@ class _BrowseView(QWidget):
         self._back_btn.setFlat(True)
         self._back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 12px; }}"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
         )
         self._back_btn.clicked.connect(self.backRequested)
         top.addWidget(self._back_btn)
 
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
         top.addWidget(self._title_lbl)
         top.addStretch()
 
@@ -86,7 +86,7 @@ class _BrowseView(QWidget):
         self._toggle_btn.setFlat(True)
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: 11px; }}"
+            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}"
         )
         self._toggle_btn.clicked.connect(self._toggle_view)

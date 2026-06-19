@@ -61,7 +61,7 @@ class FilterPanel(QWidget):
         phl.setContentsMargins(10, 0, 8, 0)
         filters_lbl = QLabel("Includes:")
         filters_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
+            f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
         phl.addWidget(filters_lbl)
         phl.addStretch()
 

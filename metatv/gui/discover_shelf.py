@@ -61,13 +61,13 @@ class _Shelf(QWidget):
         header.setSpacing(2)
 
         self._title_lbl = QLabel(f"<b>{title}</b>")
-        self._title_lbl.setStyleSheet("font-size: 13px;")
+        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL};")
         header.addWidget(self._title_lbl)
         header.addStretch()
 
         btn_ss = (
             "QPushButton { background: transparent; border: none; "
-            f"color: {_theme.COLOR_DISABLED}; font-size: 11px; padding: 2px 4px; }}"
+            f"color: {_theme.COLOR_DISABLED}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
 
@@ -75,7 +75,7 @@ class _Shelf(QWidget):
         self._see_all_btn.setFlat(True)
         self._see_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._see_all_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 11px; padding: 2px 4px; }}"
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
         )
         self._see_all_btn.clicked.connect(lambda: self.seeAllRequested.emit(self._shelf_key))
@@ -153,7 +153,7 @@ class _Shelf(QWidget):
             self._collapse_btn.setToolTip("Expand")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_DIM_2}; font-size: 12px; padding: 2px 6px; }}"
+                f"color: {_theme.COLOR_DIM_2}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
             )
             self._pin_btn.setVisible(False)
@@ -165,7 +165,7 @@ class _Shelf(QWidget):
             self._collapse_btn.setToolTip("Collapse")
             self._collapse_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_DISABLED}; font-size: 12px; padding: 2px 6px; }}"
+                f"color: {_theme.COLOR_DISABLED}; font-size: {_theme.FONT_LG}; padding: 2px 6px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
             )
             self._pin_btn.setVisible(True)
@@ -177,7 +177,7 @@ class _Shelf(QWidget):
             self._pin_btn.setToolTip("Unpin")
             self._pin_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_GOLD}; font-size: 11px; padding: 2px 4px; }}"
+                f"color: {_theme.COLOR_GOLD}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_GOLD_LIGHT}; }}"
             )
         else:
@@ -185,7 +185,7 @@ class _Shelf(QWidget):
             self._pin_btn.setToolTip("Pin to top")
             self._pin_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                f"color: {_theme.COLOR_FAINT}; font-size: 11px; padding: 2px 4px; }}"
+                f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
             )
 
