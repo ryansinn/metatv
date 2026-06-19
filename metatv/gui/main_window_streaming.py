@@ -8,11 +8,6 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
-import json
-import os
-import socket
-import subprocess
-import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -509,91 +504,3 @@ class _StreamingMixin:
         self._playback_health_label.setText(text)
         self._playback_health_label.show()
 
-    def launch_new_mpv(self, url: str):
-        """Launch a new mpv instance"""
-        cmd = ["mpv"] + self.config.mpv_extra_args + [url]
-        logger.info(f"Launching new mpv: {' '.join(cmd)}")
-        # Use DEVNULL to prevent pipe buffer from filling and blocking
-        process = subprocess.Popen(cmd,
-                       stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL)
-        logger.info(f"mpv process started with PID: {process.pid}")
-
-    def ensure_single_mpv_running(self):
-        """Ensure single mpv instance is running with IPC"""
-        # Check if mpv is already running
-        if self.mpv_process and self.mpv_process.poll() is None:
-            logger.info("Single mpv instance already running")
-            return True
-
-        # Clean up old socket
-        if os.path.exists(self.mpv_socket):
-            try:
-                os.remove(self.mpv_socket)
-            except Exception as e:
-                logger.warning(f"Could not remove old socket: {e}")
-
-        # Start mpv with IPC and idle mode
-        cmd = [
-            "mpv",
-            "--idle",
-            "--force-window",
-            f"--input-ipc-server={self.mpv_socket}",
-            "--title=MetaTV Player"
-        ] + self.config.mpv_extra_args
-
-        try:
-            self.mpv_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            logger.info(f"Started single mpv instance with PID {self.mpv_process.pid}")
-
-            # Wait a moment for socket to be created
-            for i in range(10):
-                if os.path.exists(self.mpv_socket):
-                    logger.info(f"mpv IPC socket ready: {self.mpv_socket}")
-                    return True
-                time.sleep(0.1)
-
-            logger.warning("mpv socket not created in time")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to start single mpv instance: {e}")
-            return False
-
-    def play_in_single_mpv(self, url: str, title: str) -> bool:
-        """Send URL to single mpv instance via IPC"""
-        # Ensure mpv is running
-        if not self.ensure_single_mpv_running():
-            return False
-
-        # Check socket exists
-        if not os.path.exists(self.mpv_socket):
-            logger.warning(f"mpv socket not found: {self.mpv_socket}")
-            return False
-
-        try:
-            # Connect to mpv IPC socket
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.connect(self.mpv_socket)
-
-            # Send loadfile command
-            command = {
-                "command": ["loadfile", url, "replace"]
-            }
-            sock.send((json.dumps(command) + "\n").encode('utf-8'))
-
-            # Optional: Set media title
-            title_command = {
-                "command": ["set_property", "media-title", title]
-            }
-            sock.send((json.dumps(title_command) + "\n").encode('utf-8'))
-
-            sock.close()
-            logger.info(f"Sent URL to single mpv instance: {url}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to communicate with mpv: {e}")
-            return False
