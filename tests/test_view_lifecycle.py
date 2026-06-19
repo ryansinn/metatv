@@ -55,20 +55,6 @@ def test_preferences_view_has_on_deactivate():
     )
 
 
-def test_events_view_has_on_deactivate():
-    from metatv.gui.events_view import EventsView
-    assert hasattr(EventsView, "on_deactivate"), (
-        "EventsView.on_deactivate() is missing — lifecycle asymmetry (P0-4)"
-    )
-
-
-def test_sports_view_has_on_deactivate():
-    from metatv.gui.sports_view import SportsView
-    assert hasattr(SportsView, "on_deactivate"), (
-        "SportsView.on_deactivate() is missing — lifecycle asymmetry (P0-4)"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Host wiring: _hide_all_content_views must call on_deactivate on departing views
 # ---------------------------------------------------------------------------

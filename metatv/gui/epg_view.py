@@ -41,6 +41,7 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name, REGION_FULL_NAMES
 from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.repositories.dtos import LiveEventDTO
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
@@ -73,8 +74,6 @@ def _classify_event(dto, now: datetime):
         ``"active"`` for events within LIVE_EVENT_WINDOW (on-now + upcoming),
         ``"passed"`` for events older than LIVE_EVENT_WINDOW.
     """
-    from metatv.core.repositories.dtos import LiveEventDTO  # local import, avoid circular
-
     if dto.always_available or dto.start_time is None:
         return "always"
     if dto.start_time >= now - LIVE_EVENT_WINDOW:
