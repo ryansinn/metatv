@@ -64,6 +64,36 @@ WHATS_NEW: list[WhatsNewEntry] = [
             "EPG Discover: '+ Channel' adds the channel to My Channels, plus a Play button and an expandable list of upcoming matches.",
         ),
     ),
+    WhatsNewEntry(
+        id=5,
+        version="0.1.0",
+        date="2026-06-19",
+        title="Watchlist & alerts show up on their own",
+        items=(
+            "EPG Watch Alerts and the Watchlist tab now populate automatically — no more clicking Refresh to see what's on.",
+            "Channel-to-guide matching is rebuilt quietly on launch, so the right channels appear without re-downloading the guide.",
+        ),
+    ),
+    WhatsNewEntry(
+        id=6,
+        version="0.1.0",
+        date="2026-06-19",
+        title="Quicker source filtering",
+        items=(
+            "Click a source in the sidebar to filter the list to it; click the same source again to clear back to all sources.",
+        ),
+    ),
+    WhatsNewEntry(
+        id=7,
+        version="0.1.0",
+        date="2026-06-19",
+        title="Tidier categories & a browsable changelog",
+        items=(
+            "Adult channels labeled X, XXX, or ADULT now group under one 'Adult' filter category instead of scattering under 'Other'.",
+            "'MUTI' (a common typo for 'Multi') now folds into the Multi audio group.",
+            "This What's New window is now a carousel — use ‹ Newer / Older › to step back through past releases.",
+        ),
+    ),
 ]
 
 
