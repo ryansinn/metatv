@@ -439,6 +439,36 @@ class EpgRepository:
             .all()
         )
 
+    def has_unmatched_epg(self, provider_id: str) -> bool:
+        """Return True iff the provider has EPG rows but none are matched to a channel.
+
+        Uses two cheap existence checks on indexed columns — no full-row loading.
+
+        "Unmatched" means the guide was fetched (rows exist) but ``_build_match_map``
+        produced no links (all ``channel_db_id`` values are NULL). This happens when
+        the fetch ran before the channel list was loaded.  A provider with *no rows at
+        all* returns False — that is a "never fetched" state, not an unmatched state;
+        ``needs_refresh`` / the never-fetched branch already handles it.
+        """
+        # Any row at all?
+        has_any = (
+            self.session.query(EpgProgramDB.id)
+            .filter(EpgProgramDB.provider_id == provider_id)
+            .first()
+        )
+        if not has_any:
+            return False  # no rows → not an unmatched guide
+        # Any matched row?
+        has_matched = (
+            self.session.query(EpgProgramDB.id)
+            .filter(
+                EpgProgramDB.provider_id == provider_id,
+                EpgProgramDB.channel_db_id.isnot(None),
+            )
+            .first()
+        )
+        return has_matched is None  # rows exist but none are matched
+
     def get_channel_name_for_epg_id(self, channel_epg_id: str) -> str | None:
         """Resolve an epg_channel_id to a human-readable channel name."""
         prog = (
