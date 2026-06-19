@@ -422,6 +422,29 @@ DIAG_SAVED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 
 # Dim/muted at-a-glance line; only visible while mpv is actively playing.
 NAV_HEALTH = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
 
+# Discover / recommendation rows (EPG Watchlist tab)
+# DISCOVER_REC_NAME        — channel name label in a recommendation row
+# DISCOVER_REC_PILL_BTN    — "± Channel" and Play pill buttons (outlined accent pill)
+# DISCOVER_REC_SKIP_BTN    — ghost "skip" dismiss button
+# DISCOVER_REC_COUNT       — clickable "{n} matches" toggle label (pointing-hand cursor)
+# DISCOVER_REC_MATCH_ROW   — compact programme sub-row revealed on expand
+DISCOVER_REC_NAME = "font-size: " + FONT_LG + ";"
+DISCOVER_REC_PILL_BTN = (
+    "QPushButton { color: " + COLOR_ACCENT_HOVER + "; font-size: " + FONT_MD + ";"
+    " border: 1px solid " + COLOR_ACCENT_HOVER + "; border-radius: 3px;"
+    " padding: 1px 4px; background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + OVERLAY_BLUE_15 + "; }"
+)
+DISCOVER_REC_SKIP_BTN = (
+    "QPushButton { color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + ";"
+    " border: none; background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_DIM + "; }"
+)
+DISCOVER_REC_COUNT = (
+    "color: " + COLOR_ACCENT + "; font-size: " + FONT_MD + "; text-decoration: underline;"
+)
+DISCOVER_REC_MATCH_ROW = "color: " + COLOR_DIM_2 + "; font-size: " + FONT_MD + "; padding-left: 4px;"
+
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (
     "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"

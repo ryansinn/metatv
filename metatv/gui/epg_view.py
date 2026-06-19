@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QByteArray, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -39,12 +39,13 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.channel_name_utils import parse_channel_name
+from metatv.core.channel_name_utils import parse_channel_name, REGION_FULL_NAMES
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.badge_utils import make_audio_chip, make_quality_chip, make_region_chip, make_year_chip
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.content_view import ContentView
+from metatv.gui.details_versions import resolve_category_name
 from metatv.gui import theme as _theme
 
 _SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
@@ -249,6 +250,8 @@ class EpgView(ContentView):
         self._provider_ids: list[str] = []
         self._channel_name_map: dict[str, str] = {}    # channel_db_id → name
         self._channel_quality_map: dict[str, str] = {}  # channel_db_id → quality (e.g. "hd")
+        self._channel_prefix_map: dict[str, str] = {}   # channel_db_id → detected_prefix
+        self._channel_title_map: dict[str, str] = {}    # channel_db_id → detected_title
 
         # Cached data for tabs
         self._on_now_programs: list[EpgProgramDB] = []
@@ -492,6 +495,7 @@ class EpgView(ContentView):
         layout.addLayout(filter_row)
 
         # Programme tree: Category | Channel | Quality | Show | Progress | [hide]
+        # Logical columns: 0=Category(""), 1=Channel, 2=Quality, 3=Show, 4=Progress, 5=Hide
         self.on_now_list = QTreeWidget()
         self.on_now_list.setAlternatingRowColors(True)
         self.on_now_list.setRootIsDecorated(False)
@@ -506,7 +510,9 @@ class EpgView(ContentView):
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.on_now_list.setColumnWidth(1, 130)
+        hdr.setStretchLastSection(False)
+        hdr.setSectionsMovable(True)
+        hdr.resizeSection(1, 220)
         self.on_now_list.setColumnWidth(2, 44)
         self.on_now_list.setColumnWidth(4, 64)
         self.on_now_list.setColumnWidth(5, 22)
@@ -522,13 +528,31 @@ class EpgView(ContentView):
         self.on_now_list.itemDoubleClicked.connect(self._on_now_double_click)
         self.on_now_list.itemClicked.connect(self._on_now_item_clicked)
         self.on_now_list.currentItemChanged.connect(self._on_now_selection_changed)
+        # Restore persisted header state (column order + widths) or apply default visual order.
+        # Default visual order: [Category(0), Progress(4), Show(3), Channel(1), Hide(5), Quality(2)]
+        _saved_header = self.config.epg_filter_state.get("on_now_header_state")
+        if _saved_header:
+            try:
+                hdr.restoreState(QByteArray.fromBase64(_saved_header.encode("ascii")))
+                hdr.setStretchLastSection(False)  # re-assert after restoreState
+            except Exception:
+                _saved_header = None  # fall through to default order
+        if not _saved_header:
+            # Apply default visual order: logical indices [0, 4, 3, 1, 5, 2]
+            # moveSection(from_visual, to_visual) — apply in order to avoid conflicts
+            hdr.moveSection(hdr.visualIndex(4), 1)  # Progress → visual 1
+            hdr.moveSection(hdr.visualIndex(3), 2)  # Show    → visual 2
+            hdr.moveSection(hdr.visualIndex(1), 3)  # Channel → visual 3
+            hdr.moveSection(hdr.visualIndex(5), 4)  # Hide    → visual 4
+            # Quality ends up at visual 5 (last) naturally
         # Restore persisted sort; save whenever user clicks a header
         _col = self.config.epg_filter_state.get("on_now_sort_col", 0)
         _ord = Qt.SortOrder(self.config.epg_filter_state.get("on_now_sort_order", 0))
         self.on_now_list.sortByColumn(_col, _ord)
-        self.on_now_list.header().sortIndicatorChanged.connect(
+        hdr.sortIndicatorChanged.connect(
             lambda col, order: self._save_epg_sort("on_now", col, order)
         )
+        hdr.sectionMoved.connect(self._save_on_now_header_state)
         layout.addWidget(self.on_now_list)
 
         self.on_now_stats = QLabel("")
@@ -1022,7 +1046,7 @@ class EpgView(ContentView):
             hint4.setStyleSheet(_theme.SECTION_HINT)
             self._hidden_layout.addWidget(hint4)
             for prefix in hidden_prefixes:
-                full = self._CATEGORY_FULL_NAMES.get(prefix, "")
+                full = resolve_category_name(prefix, self.config)
                 label = f"{prefix}  —  {full}" if full else prefix
                 self._hidden_layout.addWidget(self._make_hidden_row(
                     label, "category",
@@ -1051,7 +1075,7 @@ class EpgView(ContentView):
             self._hidden_layout.addWidget(hint5)
             for ch_id, cat_code in overrides.items():
                 ch_name = self._get_channel_name_from_db(ch_id)
-                full = self._CATEGORY_FULL_NAMES.get(cat_code, "")
+                full = resolve_category_name(cat_code, self.config)
                 cat_label = f"{cat_code}  —  {full}" if full else cat_code
                 self._hidden_layout.addWidget(self._make_hidden_row(
                     ch_name, cat_label,
@@ -1327,9 +1351,11 @@ class EpgView(ContentView):
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
             logger.debug(f"EpgView on-now: {len(programs)} programmes from providers {provider_ids}")
-            # Build name + quality maps
+            # Build name + quality + prefix + title maps from stored DB fields
             name_map: dict[str, str] = {}
             quality_map: dict[str, str] = {}
+            prefix_map: dict[str, str] = {}
+            title_map: dict[str, str] = {}
             for p in programs:
                 if p.channel_db_id and p.channel_db_id not in name_map:
                     ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
@@ -1337,8 +1363,12 @@ class EpgView(ContentView):
                         name_map[p.channel_db_id] = ch.name
                         if ch.detected_quality:
                             quality_map[p.channel_db_id] = ch.detected_quality.upper()
+                        prefix_map[p.channel_db_id] = ch.detected_prefix or ""
+                        title_map[p.channel_db_id] = ch.detected_title or ch.name
             self._channel_name_map.update(name_map)
             self._channel_quality_map.update(quality_map)
+            self._channel_prefix_map.update(prefix_map)
+            self._channel_title_map.update(title_map)
 
             self._data_loaded.emit({"tab": "on_now", "programs": programs})
         except Exception as e:
@@ -1930,48 +1960,140 @@ class EpgView(ContentView):
         return w
 
     def _make_recommendation_item(self, channel_db_id: str, channel_name: str, count: int) -> QWidget:
-        w = QWidget()
-        layout = QHBoxLayout(w)
+        # Outer container holds header row + expandable matches sub-list.
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        # ── Header row (chips, name, count, buttons) ─────────────────────────
+        header_w = QWidget()
+        layout = QHBoxLayout(header_w)
         layout.setContentsMargins(10, 4, 10, 4)
         layout.setSpacing(8)
+
+        # Clicking the header row body → details pane
+        # (QPushButtons consume their own clicks, so buttons remain independent.)
+        header_w.setCursor(Qt.CursorShape.PointingHandCursor)
+        header_w.mousePressEvent = lambda e, cid=channel_db_id: self._emit_channel_selected(cid)
 
         p = parse_channel_name(channel_name)
         db_quality = self._channel_quality_map.get(channel_db_id, "")
         display_quality = db_quality or (p.quality[0] if p.quality else "")
 
         if p.region:
-            layout.addWidget(make_region_chip(p.region, w))
+            layout.addWidget(make_region_chip(p.region, header_w))
         if p.audio:
-            layout.addWidget(make_audio_chip(p.audio, w))
+            layout.addWidget(make_audio_chip(p.audio, header_w))
         if p.lang:
-            layout.addWidget(make_region_chip(p.lang, w))
+            layout.addWidget(make_region_chip(p.lang, header_w))
         name_lbl = QLabel(p.bare_name or channel_name)
-        name_lbl.setStyleSheet("font-size: 12px;")
+        name_lbl.setStyleSheet(_theme.DISCOVER_REC_NAME)
         layout.addWidget(name_lbl)
         if display_quality:
-            layout.addWidget(make_quality_chip(display_quality, w))
+            layout.addWidget(make_quality_chip(display_quality, header_w))
         if p.year:
-            layout.addWidget(make_year_chip(p.year, w))
-        count_lbl = QLabel(f"{count} matches")
-        count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            layout.addWidget(make_year_chip(p.year, header_w))
+
+        # Expandable count toggle label
+        _collapsed_state = [True]  # mutable cell to capture toggle state in closures
+
+        count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
+        count_lbl.setStyleSheet(_theme.DISCOVER_REC_COUNT)
+        count_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(count_lbl)
         layout.addStretch()
 
-        watch_btn = QPushButton("+ Watch")
-        watch_btn.setFixedWidth(70)
-        watch_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_HOVER}; border: 1px solid {_theme.COLOR_ACCENT_HOVER}; border-radius: 3px; padding: 1px 4px; font-size: 11px;")
-        watch_btn.setToolTip(f"Add '{channel_name}' to watchlist")
-        watch_btn.clicked.connect(lambda _=False, n=channel_name: self._add_pattern(n))
+        # + Channel button (pins to My Channels watch list)
+        watch_btn = QPushButton("+ Channel")
+        watch_btn.setFixedWidth(75)
+        watch_btn.setStyleSheet(_theme.DISCOVER_REC_PILL_BTN)
+        watch_btn.setToolTip("Add to My Channels")
+        watch_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._watch_channel(cid))
         layout.addWidget(watch_btn)
 
-        skip_btn = QPushButton(f"{self.config.close_icon} skip")
+        # Play button
+        play_btn = QPushButton(_icons.play_icon)
+        play_btn.setFixedWidth(28)
+        play_btn.setStyleSheet(_theme.DISCOVER_REC_PILL_BTN)
+        play_btn.setToolTip("Play this channel")
+        play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
+        layout.addWidget(play_btn)
+
+        # Skip / dismiss button
+        skip_btn = QPushButton(f"{_icons.close_icon} skip")
         skip_btn.setFixedWidth(55)
-        skip_btn.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; border: none; background: transparent; font-size: 11px;")
+        skip_btn.setStyleSheet(_theme.DISCOVER_REC_SKIP_BTN)
         skip_btn.setToolTip("Dismiss this recommendation for 7 days")
         skip_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._dismiss_channel(cid))
         layout.addWidget(skip_btn)
 
-        return w
+        outer_layout.addWidget(header_w)
+
+        # ── Expandable matches sub-list (lazy-loaded on first expand) ────────
+        sub_list = QWidget()
+        sub_list.hide()
+        sub_layout = QVBoxLayout(sub_list)
+        sub_layout.setContentsMargins(16, 2, 10, 4)
+        sub_layout.setSpacing(1)
+        outer_layout.addWidget(sub_list)
+
+        _loaded = [False]  # lazy-load flag
+
+        def _toggle_matches(_event=None) -> None:
+            if _collapsed_state[0]:
+                # Expand
+                _collapsed_state[0] = False
+                count_lbl.setText(f"{_icons.collapse_icon} {count} matches")
+                if not _loaded[0]:
+                    _loaded[0] = True
+                    self._load_rec_matches(channel_db_id, sub_layout)
+                sub_list.show()
+            else:
+                # Collapse
+                _collapsed_state[0] = True
+                count_lbl.setText(f"{_icons.expand_icon} {count} matches")
+                sub_list.hide()
+
+        count_lbl.mousePressEvent = _toggle_matches
+
+        return outer
+
+    def _load_rec_matches(self, channel_db_id: str, sub_layout: QVBoxLayout) -> None:
+        """Fetch and render matching upcoming programmes into the sub-list.
+
+        Runs inline (blocking) — the query is a tiny bounded single-channel
+        lookup (limit 10) and is only triggered by an explicit user click.
+        """
+        from metatv.core.repositories import RepositoryFactory
+
+        patterns = self.config.epg_watchlist_patterns
+        provider_ids = self._filtered_provider_ids()
+
+        try:
+            with self.db.session_scope(commit=False) as session:
+                repos = RepositoryFactory(session)
+                rows = repos.epg.get_matching_programs(
+                    channel_db_id=channel_db_id,
+                    patterns=patterns,
+                    provider_ids=provider_ids,
+                )
+        except Exception as exc:
+            logger.warning(f"EpgView: failed to load rec matches for {channel_db_id}: {exc}")
+            rows = []
+
+        if not rows:
+            lbl = QLabel("No upcoming matches found")
+            lbl.setStyleSheet(_theme.LABEL_MUTED)
+            sub_layout.addWidget(lbl)
+            return
+
+        for title, start_time in rows:
+            local_dt = _to_local(start_time)
+            time_str = _format_time(local_dt)
+            row_lbl = QLabel(f"{time_str}  ·  {title}")
+            row_lbl.setStyleSheet(_theme.DISCOVER_REC_MATCH_ROW)
+            sub_layout.addWidget(row_lbl)
 
     # ── On Now render ──────────────────────────────────────────────────
 
@@ -2022,46 +2144,6 @@ class EpgView(ContentView):
         "VENEZUELA": "VEN",
     }
 
-    # Maps category/prefix codes → human-readable name for tooltips.
-    # Covers common 2-letter ISO codes, 3-letter sport codes from _COUNTRY_ABBREV,
-    # and known competition codes. Best-effort — unknown codes show the raw code.
-    _CATEGORY_FULL_NAMES: dict[str, str] = {
-        # 2-letter ISO
-        "US": "United States", "UK": "United Kingdom", "GB": "United Kingdom",
-        "BE": "Belgium", "FR": "France", "DE": "Germany", "ES": "Spain",
-        "IT": "Italy", "PT": "Portugal", "NL": "Netherlands", "SE": "Sweden",
-        "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
-        "RO": "Romania", "HU": "Hungary", "CZ": "Czech Republic", "GR": "Greece",
-        "TR": "Turkey", "RU": "Russia", "UA": "Ukraine", "BR": "Brazil",
-        "MX": "Mexico", "CA": "Canada", "AU": "Australia", "NZ": "New Zealand",
-        "JP": "Japan", "KR": "South Korea", "CN": "China", "IN": "India",
-        "AR": "Argentina", "CL": "Chile", "CO": "Colombia", "PE": "Peru",
-        "VE": "Venezuela", "IR": "Iran", "SA": "Saudi Arabia", "AE": "UAE",
-        "EG": "Egypt", "MA": "Morocco", "IL": "Israel", "ZA": "South Africa",
-        "NG": "Nigeria", "PK": "Pakistan", "BD": "Bangladesh", "TH": "Thailand",
-        "VN": "Vietnam", "ID": "Indonesia", "PH": "Philippines", "AT": "Austria",
-        "CH": "Switzerland", "IE": "Ireland", "HR": "Croatia", "SK": "Slovakia",
-        "SI": "Slovenia", "BG": "Bulgaria", "RS": "Serbia", "BA": "Bosnia",
-        "AL": "Albania", "MK": "North Macedonia", "LU": "Luxembourg",
-        # 3-letter from _COUNTRY_ABBREV
-        "ARG": "Argentina", "AUS": "Australia", "AUT": "Austria", "BEL": "Belgium",
-        "BOL": "Bolivia", "BRA": "Brazil", "CAN": "Canada", "CHL": "Chile",
-        "COL": "Colombia", "HRV": "Croatia", "DEN": "Denmark", "ECU": "Ecuador",
-        "FIN": "Finland", "FRA": "France", "GER": "Germany", "GRE": "Greece",
-        "HUN": "Hungary", "IRL": "Ireland", "ITA": "Italy", "MEX": "Mexico",
-        "NED": "Netherlands", "NOR": "Norway", "PAR": "Paraguay", "PER": "Peru",
-        "POL": "Poland", "POR": "Portugal", "ROU": "Romania", "RUS": "Russia",
-        "ESP": "Spain", "SWE": "Sweden", "SUI": "Switzerland", "TUR": "Turkey",
-        "UKR": "Ukraine", "URY": "Uruguay", "VEN": "Venezuela",
-        # Common sports/competition leagues — displayed as-is in tooltip
-        "EPL": "English Premier League", "EFL": "English Football League",
-        "NBA": "NBA Basketball", "NFL": "NFL Football", "MLB": "MLB Baseball",
-        "NHL": "NHL Hockey", "UFC": "UFC / MMA", "WWE": "WWE Wrestling",
-        # Well-known brands — used for tooltip display when user manually assigns
-        "BEIN": "beIN Sports", "MBC": "MBC", "SKY": "Sky",
-        "ESPN": "ESPN", "FOX": "Fox", "CNN": "CNN",
-    }
-
     @staticmethod
     def _on_now_hidden_prefixes(config) -> set[str]:
         """Prefixes/categories hidden from the On Now grid.
@@ -2104,8 +2186,8 @@ class EpgView(ContentView):
                 category = override_cat
                 bare_name = ch_name
             else:
-                _p = parse_channel_name(ch_name)
-                category, bare_name = _p.region, _p.bare_name
+                category = self._channel_prefix_map.get(prog.channel_db_id or "", "")
+                bare_name = self._channel_title_map.get(prog.channel_db_id or "", ch_name)
 
             if category in hidden_prefixes:
                 continue
@@ -2135,8 +2217,7 @@ class EpgView(ContentView):
             item.setToolTip(5, "Click to hide…")
 
             if category:
-                full_name = self._CATEGORY_FULL_NAMES.get(category, "")
-                item.setToolTip(0, full_name if full_name else category)
+                item.setToolTip(0, resolve_category_name(category, self.config) or category)
 
             if any(pat in prog.title.lower() for pat in patterns):
                 for col in range(5):
@@ -2420,7 +2501,7 @@ class EpgView(ContentView):
             for i in range(self.on_now_list.topLevelItemCount())
             if self.on_now_list.topLevelItem(i).text(0)
         }
-        return sorted(existing | visible | set(self._CATEGORY_FULL_NAMES.keys()))
+        return sorted(existing | visible | set(REGION_FULL_NAMES.keys()))
 
     def _show_hide_dialog(self, title: str, ch_id: str | None, ch_name: str, category: str) -> None:
         dlg = QDialog(self)
@@ -2441,7 +2522,7 @@ class EpgView(ContentView):
             btn_ch.clicked.connect(lambda: (self._hide_channel(ch_id), dlg.accept()))
             lay.addWidget(btn_ch)
         if category:
-            full = self._CATEGORY_FULL_NAMES.get(category, "")
+            full = resolve_category_name(category, self.config)
             cat_label = f'Hide category: "{category}"' + (f" — {full}" if full else "")
             btn_cat = QPushButton(cat_label)
             btn_cat.clicked.connect(lambda: (self._hide_category(category), dlg.accept()))
@@ -2524,6 +2605,12 @@ class EpgView(ContentView):
     def _save_epg_sort(self, tab: str, col: int, order: Qt.SortOrder) -> None:
         self.config.epg_filter_state[f"{tab}_sort_col"] = col
         self.config.epg_filter_state[f"{tab}_sort_order"] = int(order.value)
+        self.config.save()
+
+    def _save_on_now_header_state(self) -> None:
+        """Persist On Now column order/widths so they survive restarts."""
+        raw = bytes(self.on_now_list.header().saveState().toBase64()).decode("ascii")
+        self.config.epg_filter_state["on_now_header_state"] = raw
         self.config.save()
 
     def _on_force_refresh(self) -> None:
