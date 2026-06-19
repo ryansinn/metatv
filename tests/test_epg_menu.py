@@ -379,7 +379,7 @@ def test_on_now_context_menu_builds_without_error(qapp, monkeypatch):
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -408,7 +408,7 @@ def test_on_now_context_menu_play_calls_host(qapp, monkeypatch):
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -441,7 +441,7 @@ def test_on_now_context_menu_epg_assign_category_calls_method(qapp, monkeypatch)
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -473,7 +473,7 @@ def test_on_now_context_menu_epg_hide_show_calls_method(qapp, monkeypatch):
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -506,7 +506,7 @@ def test_on_now_context_menu_epg_unwatch_absent_when_no_watched(qapp, monkeypatc
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -537,7 +537,7 @@ def test_on_now_context_menu_epg_remove_override_absent_when_no_override(qapp, m
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_on_now_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
