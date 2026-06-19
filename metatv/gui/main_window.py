@@ -1433,14 +1433,24 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         """Handle provider selection from modular sidebar.
 
         In provider edit mode, clicking a source switches the editor instead of
-        filtering the channel list.
+        filtering the channel list.  Otherwise clicking the already-active source
+        toggles the per-source filter OFF; clicking a different source switches to it.
         """
         if self._in_provider_edit_mode:
             self.provider_editor.load_provider(provider_id)
             return
-        self.selected_provider_id = provider_id
-        logger.info(f"Selected provider: {provider_id}")
-        self.load_channels(provider_id)
+        if provider_id and provider_id == self.selected_provider_id:
+            # Toggle OFF — clicking the active source again clears the filter.
+            self.selected_provider_id = None
+            self.load_channels(None)
+            src = self.sidebar_sections.get("sources")
+            if src is not None and hasattr(src, "clear_selection"):
+                src.clear_selection()
+            logger.info("Cleared source filter (toggled off)")
+        else:
+            self.selected_provider_id = provider_id
+            logger.info(f"Selected provider: {provider_id}")
+            self.load_channels(provider_id)
     
     def toggle_filters(self):
         """Toggle filter panel visibility via inner splitter collapse."""
@@ -1965,6 +1975,8 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         )
         # Chip state drives provider filtering; sidebar selection is set separately
         # via on_provider_selected_new which calls load_channels(provider_id) directly.
+        # Reset the cursor so a subsequent source click toggles on rather than off.
+        self.selected_provider_id = None
         self.load_channels(None)
     
     def initialize_filter_stats(self) -> None:

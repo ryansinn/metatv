@@ -383,3 +383,8 @@ class SourcesSection(CollapsibleSection):
         """Clear busy/spinner state for every provider row."""
         for pid in list(self._busy_ids):
             self.set_provider_busy(pid, False)
+
+    def clear_selection(self) -> None:
+        """Deselect any active source row (used when the per-source filter is toggled off)."""
+        self.sources_tree.clearSelection()
+        self.sources_tree.setCurrentItem(None)
