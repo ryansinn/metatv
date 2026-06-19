@@ -11,6 +11,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
+from metatv.core.http_headers import stream_user_agent
 from metatv.gui import theme as _theme
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
@@ -82,9 +83,31 @@ class SettingsDialog(QDialog):
         self._close_player_check = QCheckBox("Close player when stream finishes")
         player_form.addRow("", self._close_player_check)
 
-        self._cache_combo = QComboBox()
-        self._cache_combo.addItems(["auto", "50M", "100M", "250M"])
-        player_form.addRow("Stream cache size:", self._cache_combo)
+        self._buffer_combo = QComboBox()
+        self._buffer_combo.addItem("Reconnect only (no extra buffer)", userData="reconnect_only")
+        self._buffer_combo.addItem("Modest (~10s buffer)", userData="modest")
+        self._buffer_combo.addItem("Large (~30s buffer)", userData="large")
+        self._buffer_combo.setToolTip(
+            "Controls how much media mpv buffers ahead while playing.\n"
+            "\n"
+            "• Reconnect only — no extra buffer; lowest memory use.\n"
+            "• Modest (~10s) — default; absorbs brief network hiccups.\n"
+            "• Large (~30s) — useful on congested or high-latency links.\n"
+            "\n"
+            "Auto-reconnect is always on regardless of this setting."
+        )
+        player_form.addRow("Buffering:", self._buffer_combo)
+
+        buffer_hint = QLabel("Auto-reconnect is always on — streams resume after brief drops.")
+        buffer_hint.setStyleSheet(_theme.META_HINT)
+        player_form.addRow("", buffer_hint)
+
+        self._user_agent_view = QLineEdit()
+        self._user_agent_view.setReadOnly(True)
+        self._user_agent_view.setToolTip(
+            "Sent when validating, diagnosing, and playing streams (shared across all three)."
+        )
+        player_form.addRow("HTTP User-Agent:", self._user_agent_view)
 
         layout.addWidget(player_group)
 
@@ -124,8 +147,12 @@ class SettingsDialog(QDialog):
         mpv_layout.setSpacing(4)
         self._mpv_args_input = QLineEdit()
         self._mpv_args_input.setPlaceholderText("--cache=yes --demuxer-max-bytes=50M")
-        hint = QLabel("Space-separated flags passed directly to mpv.")
-        hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: 11px;")
+        hint = QLabel(
+            "Space-separated flags passed directly to mpv. "
+            "The Diagnose tool's “Apply tuning” writes its recommended cache flags here."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(_theme.META_HINT)
         mpv_layout.addWidget(self._mpv_args_input)
         mpv_layout.addWidget(hint)
         layout.addWidget(mpv_group)
@@ -281,8 +308,10 @@ class SettingsDialog(QDialog):
         self._timeout_spin.setValue(c.network_timeout)
         self._reconnect_spin.setValue(c.reconnect_attempts)
 
-        cache_idx = {"auto": 0, "50M": 1, "100M": 2, "250M": 3}.get(c.default_cache_size, 0)
-        self._cache_combo.setCurrentIndex(cache_idx)
+        buf_idx = self._buffer_combo.findData(c.buffer_profile)
+        self._buffer_combo.setCurrentIndex(buf_idx if buf_idx >= 0 else self._buffer_combo.findData("modest"))
+
+        self._user_agent_view.setText(stream_user_agent())
 
         self._mpv_args_input.setText(" ".join(c.mpv_extra_args))
 
@@ -331,7 +360,10 @@ class SettingsDialog(QDialog):
         c.close_player_when_finished = self._close_player_check.isChecked()
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()
-        c.default_cache_size = self._cache_combo.currentText()
+        c.buffer_profile = self._buffer_combo.currentData()
+        # Reset to "auto" so the buffer_profile (now the sole buffer control) takes effect;
+        # an explicit byte size in default_cache_size would bypass the profile entirely.
+        c.default_cache_size = "auto"
 
         raw_args = self._mpv_args_input.text().strip()
         c.mpv_extra_args = raw_args.split() if raw_args else []
