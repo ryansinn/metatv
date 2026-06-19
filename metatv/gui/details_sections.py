@@ -445,9 +445,14 @@ class _MetadataSection(QWidget):
         else:
             self._rating_row.hide()
 
-        # Show loading indicator for categories (will be populated by load_metadata)
-        self.genres_label.setText(f"{_icons.loading_icon} Loading categories...")
-        self.genres_label.show()
+        # Show loading indicator for categories (will be populated by load_metadata).
+        # LIVE channels have no metadata genres — hide the label; the version chips
+        # (set_versions) handle their category display instead.
+        if getattr(channel, "media_type", None) == "live":
+            self.genres_label.hide()
+        else:
+            self.genres_label.setText(f"{_icons.loading_icon} Loading categories...")
+            self.genres_label.show()
 
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
