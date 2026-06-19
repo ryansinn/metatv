@@ -407,18 +407,21 @@ class _MetadataSection(QWidget):
         self._media_type_lbl.setText(f"{media_icon} {(channel.media_type or 'unknown').title()}")
         self.runtime_label.hide()
 
-        if provider_map:
-            provider_info = provider_map.get(getattr(channel, "provider_id", None))
+        provider_id = getattr(channel, "provider_id", None)
+        if provider_id is not None:
+            provider_info = (provider_map or {}).get(provider_id)
             if provider_info:
                 icon = provider_info.get("icon", "")
                 name = provider_info.get("name", "")
                 badge = f"{icon} {name}".strip() if icon else name
-                if badge:
-                    self.source_label.setText(f"Source: {badge}")
-                    # Store channel ID for click-to-copy and add tooltip
-                    self.source_label.channel_id = channel.id
-                    self.source_label.setToolTip(f"ID: {channel.id}\n(Click to copy)")
-                    self.source_label.show()
+                label_text = f"Source: {badge}" if badge else f"Source: {provider_id}"
+            else:
+                label_text = f"Source: (source removed) [{provider_id}]"
+            self.source_label.setText(label_text)
+            # Store channel ID for click-to-copy and add tooltip
+            self.source_label.channel_id = channel.id
+            self.source_label.setToolTip(f"ID: {channel.id}\n(Click to copy)")
+            self.source_label.show()
 
         if getattr(channel, "is_adult", False):
             self.adult_indicator.show()
