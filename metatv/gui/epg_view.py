@@ -251,6 +251,8 @@ class EpgView(ContentView):
         self._channel_quality_map: dict[str, str] = {}  # channel_db_id → quality (e.g. "hd")
         self._channel_prefix_map: dict[str, str] = {}   # channel_db_id → detected_prefix
         self._channel_title_map: dict[str, str] = {}    # channel_db_id → detected_title
+        self._channel_region_map: dict[str, str] = {}   # channel_db_id → detected_region
+        self._channel_year_map: dict[str, str] = {}     # channel_db_id → detected_year
 
         # Cached data for tabs
         self._on_now_programs: list[EpgProgramDB] = []
@@ -1355,11 +1357,13 @@ class EpgView(ContentView):
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
             logger.debug(f"EpgView on-now: {len(programs)} programmes from providers {provider_ids}")
-            # Build name + quality + prefix + title maps from stored DB fields
+            # Build name + quality + prefix + title + region + year maps from stored DB fields
             name_map: dict[str, str] = {}
             quality_map: dict[str, str] = {}
             prefix_map: dict[str, str] = {}
             title_map: dict[str, str] = {}
+            region_map: dict[str, str] = {}
+            year_map: dict[str, str] = {}
             for p in programs:
                 if p.channel_db_id and p.channel_db_id not in name_map:
                     ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
@@ -1369,10 +1373,14 @@ class EpgView(ContentView):
                             quality_map[p.channel_db_id] = ch.detected_quality.upper()
                         prefix_map[p.channel_db_id] = ch.detected_prefix or ""
                         title_map[p.channel_db_id] = ch.detected_title or ch.name
+                        region_map[p.channel_db_id] = ch.detected_region or ""
+                        year_map[p.channel_db_id] = ch.detected_year or ""
             self._channel_name_map.update(name_map)
             self._channel_quality_map.update(quality_map)
             self._channel_prefix_map.update(prefix_map)
             self._channel_title_map.update(title_map)
+            self._channel_region_map.update(region_map)
+            self._channel_year_map.update(year_map)
 
             self._data_loaded.emit({"tab": "on_now", "programs": programs})
         except Exception as e:
@@ -1415,8 +1423,21 @@ class EpgView(ContentView):
             session.close()
 
     def _build_name_map(self, session, watchlist_data, live_data) -> dict[str, str]:
+        """Build channel display maps from stored detected_* fields.
+
+        Populates _channel_quality_map, _channel_prefix_map, _channel_title_map,
+        _channel_region_map, and _channel_year_map as a side-effect.  Returns the
+        raw name map for backwards compatibility with the caller.
+
+        Reads stored detected_* fields written at ingestion time — no parse_channel_name
+        call here (ingestion-only rule, CLAUDE.md).
+        """
         name_map: dict[str, str] = {}
         quality_map: dict[str, str] = {}
+        prefix_map: dict[str, str] = {}
+        title_map: dict[str, str] = {}
+        region_map: dict[str, str] = {}
+        year_map: dict[str, str] = {}
         all_progs: list[EpgProgramDB] = []
         for progs in watchlist_data.values():
             all_progs.extend(progs)
@@ -1429,7 +1450,15 @@ class EpgView(ContentView):
                     name_map[p.channel_db_id] = ch.name
                     if ch.detected_quality:
                         quality_map[p.channel_db_id] = ch.detected_quality.upper()
+                    prefix_map[p.channel_db_id] = ch.detected_prefix or ""
+                    title_map[p.channel_db_id] = ch.detected_title or ch.name
+                    region_map[p.channel_db_id] = ch.detected_region or ""
+                    year_map[p.channel_db_id] = ch.detected_year or ""
         self._channel_quality_map.update(quality_map)
+        self._channel_prefix_map.update(prefix_map)
+        self._channel_title_map.update(title_map)
+        self._channel_region_map.update(region_map)
+        self._channel_year_map.update(year_map)
         return name_map
 
     # ------------------------------------------------------------------
@@ -1634,17 +1663,24 @@ class EpgView(ContentView):
         _MAX_GROUPS = 4   # title groups shown per card before "more programs" toggle
 
         def _ch_row(prog):
-            """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]"""
-            raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            p = parse_channel_name(raw_name)
+            """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]
 
-            db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
-            display_quality = db_quality or (p.quality[0] if p.quality else "")
+            Reads stored detected_* maps (prefix/title/quality/region/year) — no
+            parse_channel_name() call (ingestion-only rule, CLAUDE.md).
+            Audio chips omitted: detected_audio has no stored column; dropped here
+            (see B10-2 deferred notes — adding detected_audio is a future ingestion task).
+            """
+            cid = prog.channel_db_id or ""
+            raw_name = self._channel_name_map.get(cid, prog.channel_epg_id)
+            category = self._channel_prefix_map.get(cid, "")
+            bare_name = self._channel_title_map.get(cid, raw_name)
+            region = self._channel_region_map.get(cid, "")
+            display_quality = self._channel_quality_map.get(cid, "")
+            year = self._channel_year_map.get(cid, "")
 
             row_w = QWidget()
-            cid = prog.channel_db_id
             row_w.setCursor(Qt.CursorShape.PointingHandCursor)
-            row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
+            row_w.mousePressEvent = lambda e, c=prog.channel_db_id: self._emit_channel_selected(c)
             row = QHBoxLayout(row_w)
             row.setContentsMargins(16, 0, 4, 0)
             row.setSpacing(4)
@@ -1655,26 +1691,24 @@ class EpgView(ContentView):
             time_lbl.setStyleSheet(_theme.TIME_LABEL)
             row.addWidget(time_lbl)
 
-            if p.region:
-                row.addWidget(make_region_chip(p.region, row_w))
-            if p.audio:
-                row.addWidget(make_audio_chip(p.audio, row_w))
-            if p.lang:
-                row.addWidget(make_region_chip(p.lang, row_w))
+            if category:
+                row.addWidget(make_region_chip(category, row_w))
+            if region:
+                row.addWidget(make_region_chip(region, row_w))
 
-            name_lbl = QLabel(p.bare_name or raw_name)
+            name_lbl = QLabel(bare_name)
             name_lbl.setStyleSheet(_theme.CHANNEL_NAME_LIVE)
             row.addWidget(name_lbl, 1)
 
             if display_quality:
                 row.addWidget(make_quality_chip(display_quality, row_w))
-            if p.year:
-                row.addWidget(make_year_chip(p.year, row_w))
+            if year:
+                row.addWidget(make_year_chip(year, row_w))
 
             pb = QPushButton(self.config.play_icon)
             pb.setFixedSize(22, 20)
             pb.setFlat(True)
-            pb.setToolTip(f"Play: {p.bare_name or raw_name}")
+            pb.setToolTip(f"Play: {bare_name}")
             pb.setStyleSheet(_theme.PLAY_BTN)
             cid = prog.channel_db_id
             pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
@@ -1788,10 +1822,19 @@ class EpgView(ContentView):
         )
 
         def _up_row(prog):
-            raw_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
-            p = parse_channel_name(raw_name)
-            db_quality = self._channel_quality_map.get(prog.channel_db_id or "")
-            display_quality = db_quality or (p.quality[0] if p.quality else "")
+            """Build one upcoming-row widget using stored detected_* maps.
+
+            Mirrors _ch_row: reads prefix/title/quality/region/year from pre-fetched
+            maps — no parse_channel_name() call (ingestion-only rule, CLAUDE.md).
+            Audio chips omitted: detected_audio has no stored column (deferred, B10-2).
+            """
+            cid = prog.channel_db_id or ""
+            raw_name = self._channel_name_map.get(cid, prog.channel_epg_id)
+            category = self._channel_prefix_map.get(cid, "")
+            bare_name = self._channel_title_map.get(cid, raw_name)
+            region = self._channel_region_map.get(cid, "")
+            display_quality = self._channel_quality_map.get(cid, "")
+            year = self._channel_year_map.get(cid, "")
 
             now = _now_utc()
             if prog.start_time <= now:
@@ -1806,9 +1849,8 @@ class EpgView(ContentView):
                     time_str = f"{_local_weekday(prog.start_time)} {_format_time(prog.start_time)}"
 
             row_w = QWidget()
-            cid = prog.channel_db_id
             row_w.setCursor(Qt.CursorShape.PointingHandCursor)
-            row_w.mousePressEvent = lambda e, c=cid: self._emit_channel_selected(c)
+            row_w.mousePressEvent = lambda e, c=prog.channel_db_id: self._emit_channel_selected(c)
             row = QHBoxLayout(row_w)
             row.setContentsMargins(16, 0, 4, 0)
             row.setSpacing(4)
@@ -1817,19 +1859,17 @@ class EpgView(ContentView):
             time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             time_lbl.setStyleSheet(_theme.TIME_LABEL_UPCOMING)
             row.addWidget(time_lbl)
-            if p.region:
-                row.addWidget(make_region_chip(p.region, row_w))
-            if p.audio:
-                row.addWidget(make_audio_chip(p.audio, row_w))
-            if p.lang:
-                row.addWidget(make_region_chip(p.lang, row_w))
-            name_lbl = QLabel(p.bare_name or raw_name)
+            if category:
+                row.addWidget(make_region_chip(category, row_w))
+            if region:
+                row.addWidget(make_region_chip(region, row_w))
+            name_lbl = QLabel(bare_name)
             name_lbl.setStyleSheet(_theme.CHANNEL_NAME_UPCOMING)
             row.addWidget(name_lbl, 1)
             if display_quality:
                 row.addWidget(make_quality_chip(display_quality, row_w))
-            if p.year:
-                row.addWidget(make_year_chip(p.year, row_w))
+            if year:
+                row.addWidget(make_year_chip(year, row_w))
             return row_w
 
         for title, progs in list(up_title_groups.items())[:3]:
