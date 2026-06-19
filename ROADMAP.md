@@ -26,11 +26,7 @@ What's left to build. Completed features live in git history.
 - [ ] **Compressed XMLTV** — gzip decompression for `.xml.gz` feeds via `gzip.open()` on response stream
 - [ ] **EPG data cleanup** — auto-delete `EpgProgramDB` rows where `stop_time < now - 24h` to prevent unbounded DB growth
 - [ ] **EPG content-type filter** — classify channels by name keywords (Sports/News/Kids/Movies/Music) since ProSat has no `<category>` tags; add `[All Types ▼]` dropdown in EPG header
-- [ ] **Right-click context on On Now rows** — "Hide show globally", "Add to watchlist", "Dismiss channel for 7 days"
-- [ ] **Channel-specific watchlist** — per-channel keyword entries alongside global patterns; two-tier Watchlist tab
 - [ ] **Watchlist match prioritization** — when a keyword matches many channels (e.g. "fifa world cup" → 40+), currently the display is arbitrary. Apply ranking: (1) highest quality (4K > FHD > HD > SD), (2) previously-watched channels float up, (3) user can hide/demote individual entries. Also add a "Show all in Search" button on the watchlist keyword card title to jump to the Search tab pre-filled with the keyword, showing all matching results without the card display limit.
-- [x] **Watchlist layout** — greedy 2-column layout implemented (2026-06-13): cards assigned to the shorter column using live match-count as height proxy; FIFA World Cup no longer monopolizes one column while the other sits empty. `_MAX_GROUPS = 4` cap prevents a single card from dominating full column height.
-- [x] **EPG Events tab** — platform-event channels (`special_view='live_event'`) surfaced in a new Events tab inside the EPG view (#17, 2026-06-14): Timeline sub-view (on-now/upcoming/passed groups) and By-Network sub-view with a network filter; both sub-views persist. `LiveEventDTO` + `ChannelRepository.get_live_events_dto()`.
 - [ ] **EPG Browse/Search view makeover** — restyle the Browse tab's search/filter UI to match the main Search chip view: clean title display using `detected_*` fields, quality badges, source indication. Candidate columns: Category | Channel | Quality | Source emoji | Show | Duration. Also align the Browse time-format and result-count footer with the On Now tab style.
 - [ ] **Guide channel player** — embedded mpv in EPG view (50/50 split), autoplay on channel browse with debounce
 - [ ] **Collapsible category groups in On Now** — group rows by channel prefix, allow collapse/expand; replace region dropdown
@@ -72,7 +68,6 @@ What's left to build. Completed features live in git history.
 ## UI / UX
 
 - [ ] **UI vocabulary standard** — define one canonical term per action across all surfaces: "Exclude" for filter/suppression (panel or global), "Hide" for per-channel hiding, retire "Block" as a synonym; document in UI_UX_GUIDELINES.md and enforce in new UI code
-- [ ] **Context menu standardization** — define a standard context menu structure for right-clicking on any channel or filter item; currently each view (channel list, EPG, details pane, filter panel, discover) has its own ad-hoc menu; centralize into a shared model
 - [~] **"Search this title" context menu action** — right-click on any channel list item populates the search box with `channel.detected_title`. Falls back to `channel.name` if `detected_title` is null. Partially landed: double-clicking a queue/favorites entry for an unavailable (expired/disabled) source opens Search pre-filled with the stripped title (#16, 2026-06-14). Right-click context-menu version on active channels is still open.
 - [ ] **"Copy title to clipboard" context menu action** — right-click copies `channel.detected_title` (or `channel.name` fallback) to the system clipboard via `QApplication.clipboard().setText(...)`. Zero side effects, useful for pasting titles into search engines or sharing. Both this and "Search this title" belong in `_show_context_menu_for` in `main_window_favorites.py`.
 - [ ] **Unified filter panel across views** — EPG, Discover, and Recommended each have their own filter controls; goal is a single FilterPanel (or shared filter state) across all views; migrate EPG sports filter bar, discover chips, recommendations filter to the same pattern; deprecate the legacy "quick filter" bar where it still appears
@@ -95,21 +90,15 @@ What's left to build. Completed features live in git history.
 
 ## Code Health / Refactor
 
-See **[docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md)** for the full prioritized,
-file:line-level task list (full-codebase review 2026-06-01).
+The big refactor work is **done** — Bands 1–8 (2026-06-01 → 06-14; details in git history)
+delivered the structural fixes (`session_scope`, `closeEvent` registry, `JSONEncoded`, `icons.py`,
+EPG conversion boundary), `theme.py` token migration, `main_window.py` decomposition into mixins,
+the `_run_query` async-read seam + repository DTOs, and the `BackgroundRefreshMixin` sidebar pattern.
+The unified channel-menu registry (2026-06-19) closed the long-standing context-menu duplication.
+What remains is small, not a "massive refactor":
 
-**Bands 1–6 complete** (2026-06-01 → 06-05; details in git history): P0 best-practice bug fixes,
-P1/P4 deduplication, Band 3 structural fixes (session_scope, closeEvent registry, JSONEncoded,
-icons.py, EPG conversion boundary), P2 inline-styles → `theme.py` tokens, P3 file splits
-(`sidebar_sections` → `gui/sidebar/`, `filter_panel` → `filter_group_row`, `provider_editor` →
-`provider_probe` + `url_row_widget`), and Band 6 — `main_window.py` passes 2–4 (nav/metadata/
-favorites mixins, 3950 → 2457), off-thread streaming, status-set dedup (merged as PR #7 squash
-`2e7ef5b`; 291 tests). Open:
-
-- [x] **Band 7 — responsiveness seam + finish decomposition** (merged 2026-06-13): `_run_query` async-read seam + repository DTOs (B7-1/2); EPG count, series tree, sidebar refresh (Favorites/History/Queue) off-thread (B7-3…B7-6); session_scope migration for main_window_favorites/metadata mixins. `load_channels` (B7-bespoke), epg_view tab split, and channel.py repo split deferred → see Band 9. See **[docs/REFACTOR_PLAN_BAND7.md](docs/REFACTOR_PLAN_BAND7.md)**.
-- [x] **Band 8 — seam cleanup + per-provider EPG config + EPG Events tab** (merged 2026-06-14): B8-1 N+1→batch in `build_history_dtos`; B8-2 DTO imports hoisted to module scope; B8-3 read-only seam uses `commit=False`; B8-5 `BackgroundRefreshMixin` unifies sidebar async pattern; B8-7 `WatchAlertsSection` migrated to mixin (off-thread, N+1 batched). Deferred: B8-4 (`load_channels`→seam) and B8-6 (expunge→DTO) require a display to smoke-test → carried into Band 9. See **[docs/REFACTOR_PLAN_BAND8.md](docs/REFACTOR_PLAN_BAND8.md)**.
-- [ ] **Band 9 — deferred seam items + EPG cosmetic cleanup** (planned): B9-1 `load_channels`→seam, B9-2 expunge→DTO in favorites/metadata mixins, B9-3 EPG cosmetic cleanups (dead local import, dormant view files, hex literal in alerts). See **[docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md)** (draft pending Opus review).
-- [ ] **Exclusions chip dead zone** (B7-11) — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown: `setCheckable(False)` and solid-fill hover did NOT fix it. Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
+- [ ] **Band 9 — deferred seam items + EPG cosmetic cleanup**: B9-1 `load_channels`→seam, B9-2 the few remaining `session.expunge` call sites → DTOs (favorites/metadata mixins), B9-3 EPG cosmetic cleanups (dead local import, dormant view files). See **[docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md)**.
+- [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown (`setCheckable(False)` and solid-fill hover did NOT fix it). Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
 
 ## Data & Storage
 
