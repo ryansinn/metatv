@@ -66,6 +66,27 @@ class EpisodeRepository:
             EpisodeDB.last_played.isnot(None)
         ).order_by(EpisodeDB.last_played.desc()).first()
 
+    def get_last_played_dto(self, series_id: str, provider_id: str) -> "Optional[PlayableEpisodeDTO]":
+        """Return a PlayableEpisodeDTO for the last played episode, or None.
+
+        Must be called inside a session_scope().  No ORM object escapes — the
+        returned frozen dataclass is safe to use after the session closes.
+        """
+        from metatv.core.repositories.dtos import PlayableEpisodeDTO
+        ep = self.get_last_played(series_id=series_id, provider_id=provider_id)
+        if ep is None:
+            return None
+        return PlayableEpisodeDTO(
+            id=ep.id,
+            title=ep.title,
+            stream_url=ep.stream_url,
+            series_id=ep.series_id,
+            provider_id=ep.provider_id,
+            season_id=ep.season_id,
+            episode_num=ep.episode_num,
+            season_num=ep.season_num,
+        )
+
     def get_last_played_codes_for_series(
         self, keys: "List[tuple[str, str]]"
     ) -> "Dict[tuple[str, str], str]":

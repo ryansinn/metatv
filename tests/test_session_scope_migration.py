@@ -1,19 +1,17 @@
-"""Tests for B7-6 — session_scope() migration in _FavoritesMixin / _MetadataMixin.
+"""Tests for B7-6 / B10-1 — session_scope() migration in _FavoritesMixin / _MetadataMixin.
 
 Pins three invariants:
 1. UI-thread handlers use session_scope (no raw get_session) → sessions always close.
-2. ORM objects passed out of session blocks are expunged before the block exits (so
-   the auto-commit on __exit__ does not expire their __dict__).
+2. ORM objects no longer cross the session boundary — replaced by PlayableChannelDTO /
+   PlayableEpisodeDTO (B10-1).  session.expunge() must be absent from the GUI mixins.
 3. _on_alert_channel_context_menu closes its session BEFORE calling menu.exec(),
    fixing the session-held-during-blocking-menu bug.
 
 The structural (AST/substring) tests below pin the *shape* of the migration. They are
-necessary but NOT sufficient: a test that only asserts `"session.expunge" in src` would
-still pass if expunge were placed where it doesn't actually prevent the expiry. Section 6
-therefore drives the REAL handlers against a REAL in-memory session and asserts the
-behavior that would actually regress — that a detached channel's columns are still readable
-after the scope commits-and-closes, and (the precondition) that a non-expunged object is
-not. Per CLAUDE.md "Tests must prove behavior, not shape."
+necessary but NOT sufficient. Section 6 therefore drives the REAL handlers against a REAL
+file-backed Database and asserts the behavior that would actually regress — that every DTO
+field is still readable after the session_scope commits-and-closes.
+Per CLAUDE.md "Tests must prove behavior, not shape."
 """
 
 from __future__ import annotations
@@ -206,26 +204,64 @@ def test_ctx_data_ready_session_closed_before_exec():
 
 
 # ---------------------------------------------------------------------------
-# 4. ORM-object escape: expunge used for play/details handlers
+# 4. B10-1 — expunge replaced by DTO; no ORM object may cross the boundary
 # ---------------------------------------------------------------------------
 
-def test_play_handlers_expunge_before_method_call():
-    """Handlers that pass ORM channel to play_media/drill_into_series must expunge first."""
-    for fn in ("play_queue_item_id", "play_favorite_id", "play_channel_by_id"):
+def test_play_handlers_use_dto_not_expunge():
+    """B10-1: play/queue/history handlers must use get_playable_dto, never session.expunge."""
+    for fn in ("play_queue_item_id", "play_favorite_id", "play_channel_by_id",
+               "play_channel_new_window_by_id"):
         src = _func_source("main_window_favorites.py", fn)
-        assert "session.expunge" in src, (
-            f"{fn} must call session.expunge(channel) before the session block exits "
-            "to prevent DetachedInstanceError after session_scope auto-commit"
+        assert "get_playable_dto" in src, (
+            f"{fn} must use get_playable_dto() (B10-1 DTO pattern)"
+        )
+        assert "session.expunge" not in src, (
+            f"{fn} must not call session.expunge — ORM boundary is now enforced by DTO"
         )
 
 
-def test_show_details_handlers_expunge():
-    """show_channel_details_by_id and on_channel_selection_changed must expunge."""
+def test_show_details_handlers_use_dto_not_expunge():
+    """B10-1: details-loading handlers must use get_playable_dto, never session.expunge."""
     for fn in ("show_channel_details_by_id", "on_channel_selection_changed"):
         src = _func_source("main_window_metadata.py", fn)
-        assert "session.expunge" in src, (
-            f"{fn} must expunge channel before session_scope exits"
+        assert "get_playable_dto" in src, (
+            f"{fn} must use get_playable_dto() (B10-1 DTO pattern)"
         )
+        assert "session.expunge" not in src, (
+            f"{fn} must not call session.expunge — ORM boundary is now enforced by DTO"
+        )
+
+
+def test_no_expunge_in_favorites_mixin():
+    """B10-1: session.expunge must not appear anywhere in _FavoritesMixin
+    (except _apply_favorite_toggle, which is a documented legacy exception)."""
+    src = _source("main_window_favorites.py")
+    lines = src.splitlines()
+    in_apply_toggle = False
+    violations = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if "def _apply_favorite_toggle" in stripped:
+            in_apply_toggle = True
+        elif stripped.startswith("def ") and in_apply_toggle:
+            in_apply_toggle = False
+        if "session.expunge" in line and not in_apply_toggle:
+            violations.append((i, line.strip()))
+    assert not violations, (
+        "Unexpected session.expunge() calls outside _apply_favorite_toggle:\n"
+        + "\n".join(f"  L{ln}: {text}" for ln, text in violations)
+    )
+
+
+def test_no_expunge_in_metadata_mixin():
+    """B10-1: session.expunge must not appear anywhere in _MetadataMixin."""
+    src = _source("main_window_metadata.py")
+    lines = src.splitlines()
+    violations = [(i, l.strip()) for i, l in enumerate(lines, 1) if "session.expunge" in l]
+    assert not violations, (
+        "Unexpected session.expunge() calls in main_window_metadata.py:\n"
+        + "\n".join(f"  L{ln}: {text}" for ln, text in violations)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +277,9 @@ def test_apply_favorite_toggle_documents_legacy_reason():
 
 
 # ---------------------------------------------------------------------------
-# 6. RUNTIME behavior — the half that actually regresses
-#    Drive the real handlers against a real in-memory session. These would
-#    catch a removed/misplaced expunge that the substring tests above cannot.
+# 6. RUNTIME behavior — the half that actually regresses (B10-1 DTO edition)
+#    Drive the real handlers against a real file-backed Database and assert every
+#    DTO field is readable after the session_scope commits-and-closes.
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -264,18 +300,57 @@ def _seed_movie(db, name="Blade Runner") -> str:
         session.add(ChannelDB(
             id=cid, source_id="s1", provider_id="p1",
             name=name, media_type="movie",
+            stream_url="http://example.com/stream",
+            is_favorite=False,
+            is_hidden=False,
+            is_adult=False,
         ))
     return cid
 
 
-def test_session_scope_expires_attributes_without_expunge(db):
-    """Precondition the whole expunge pattern rests on.
+def _seed_series(db, name="Breaking Bad") -> str:
+    """Insert a series channel; return its id."""
+    from metatv.core.database import ChannelDB
+    cid = str(uuid.uuid4())
+    with db.session_scope() as session:
+        session.add(ChannelDB(
+            id=cid, source_id="series1", provider_id="p1",
+            name=name, media_type="series",
+        ))
+    return cid
 
-    A channel left ATTACHED when session_scope commits-and-closes has its columns
-    expired (expire_on_commit defaults True) and is then detached — accessing any
-    column raises. This is *why* the handlers expunge. If this ever stops raising
-    (e.g. someone sets expire_on_commit=False), the expunge calls and their
-    documented rationale must be revisited.
+
+def _seed_episode(db, series_id: str, ep_num: int = 1) -> str:
+    """Insert an episode for the given series; return episode id."""
+    from metatv.core.database import EpisodeDB, SeasonDB
+    from datetime import datetime
+    season_id = f"{series_id}_s01"
+    ep_id = f"{series_id}_e{ep_num}"
+    with db.session_scope() as session:
+        # SeasonDB row needed for FK integrity
+        if not session.get(SeasonDB, season_id):
+            session.add(SeasonDB(
+                id=season_id, series_id=series_id, provider_id="p1",
+                season_number=1, name="Season 1",
+            ))
+        session.add(EpisodeDB(
+            id=ep_id, season_id=season_id, series_id=series_id,
+            provider_id="p1", episode_id=str(ep_num),
+            episode_num=ep_num, season_num=1,
+            title=f"Episode {ep_num}",
+            stream_url="http://example.com/ep",
+            last_played=datetime.utcnow(),
+        ))
+    return ep_id
+
+
+def test_session_scope_expires_attributes_without_dto(db):
+    """Precondition: a raw ORM object left attached when session_scope closes has its
+    columns expired (expire_on_commit=True by default) and raises DetachedInstanceError.
+
+    This is the exact failure mode that the B10-1 DTO pattern prevents. If this ever
+    stops raising (e.g. expire_on_commit=False), every get_playable_dto call site needs
+    re-auditing — the DTO would still be correct, but the motivation changes.
     """
     from metatv.core.database import ChannelDB
     from sqlalchemy.orm.exc import DetachedInstanceError
@@ -283,17 +358,105 @@ def test_session_scope_expires_attributes_without_expunge(db):
     cid = _seed_movie(db)
     leaked = {}
     with db.session_scope() as session:
-        leaked["ch"] = session.get(ChannelDB, cid)  # NOT expunged
+        leaked["ch"] = session.get(ChannelDB, cid)  # intentionally NOT converted to DTO
     with pytest.raises(DetachedInstanceError):
         _ = leaked["ch"].name
 
 
-def test_play_channel_by_id_detached_channel_is_readable(db):
-    """play_channel_by_id must hand play_media a channel whose columns are still
-    readable after session_scope exits — proving the real expunge line works.
+def test_get_playable_dto_all_fields_readable_after_session_close(db):
+    """get_playable_dto() must return a DTO whose every field is readable after
+    the session_scope closes — this is the exact regression the B10-1 migration fixes.
 
-    Drives the actual handler; if the expunge were removed or misplaced, accessing
-    channel.media_type / .name outside the block would raise DetachedInstanceError.
+    Before B10-1, handlers used session.expunge() to keep the ORM object alive; a
+    future relationship or deferred column would silently break that. The DTO has no
+    live session reference, so it is always safe to read.
+    """
+    from metatv.core.repositories import RepositoryFactory
+    from metatv.core.repositories.dtos import PlayableChannelDTO
+
+    cid = _seed_movie(db)
+    dto: PlayableChannelDTO | None = None
+    with db.session_scope() as session:
+        dto = RepositoryFactory(session).channels.get_playable_dto(cid)
+    # Session is now closed — every field access below would raise if the old
+    # expunge path regressed (i.e. if someone swapped back to get_by_id without expunge).
+    assert dto is not None
+    assert dto.id == cid
+    assert dto.name == "Blade Runner"
+    assert dto.source_id == "s1"
+    assert dto.provider_id == "p1"
+    assert dto.media_type == "movie"
+    assert dto.stream_url == "http://example.com/stream"
+    assert dto.is_favorite is False
+    assert dto.is_hidden is False
+    assert dto.is_adult is False
+
+
+def test_get_playable_dto_returns_none_for_unknown_id(db):
+    """get_playable_dto must return None (not raise) when channel_id does not exist."""
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        result = RepositoryFactory(session).channels.get_playable_dto("nonexistent-id")
+    assert result is None
+
+
+def test_get_last_played_dto_all_fields_readable_after_session_close(db):
+    """get_last_played_dto() must return a PlayableEpisodeDTO whose every field is
+    readable after the session_scope closes — B10-1 episode path.
+    """
+    from metatv.core.repositories import RepositoryFactory
+    from metatv.core.repositories.dtos import PlayableEpisodeDTO
+
+    cid = _seed_series(db)
+    _seed_episode(db, series_id="series1", ep_num=3)
+
+    dto: PlayableEpisodeDTO | None = None
+    with db.session_scope() as session:
+        dto = RepositoryFactory(session).episodes.get_last_played_dto(
+            series_id="series1", provider_id="p1"
+        )
+    # Session closed — must still read without DetachedInstanceError
+    assert dto is not None
+    assert dto.episode_num == 3
+    assert dto.season_num == 1
+    assert dto.title == "Episode 3"
+    assert dto.stream_url == "http://example.com/ep"
+    assert dto.provider_id == "p1"
+    assert dto.series_id == "series1"
+
+
+def test_get_last_played_dto_returns_none_for_unwatched_series(db):
+    """get_last_played_dto returns None when there are no played episodes."""
+    from metatv.core.repositories import RepositoryFactory
+
+    # Seed episode but do NOT set last_played (it's None by default)
+    from metatv.core.database import EpisodeDB, SeasonDB
+    cid = _seed_series(db)
+    with db.session_scope() as session:
+        session.add(SeasonDB(
+            id="series_unwatched_s01", series_id="series_unwatched", provider_id="p1",
+            season_number=1, name="Season 1",
+        ))
+        session.add(EpisodeDB(
+            id="series_unwatched_e1", season_id="series_unwatched_s01",
+            series_id="series_unwatched", provider_id="p1",
+            episode_id="1", episode_num=1, season_num=1,
+            title="Pilot", last_played=None,  # never watched
+        ))
+    with db.session_scope() as session:
+        result = RepositoryFactory(session).episodes.get_last_played_dto(
+            series_id="series_unwatched", provider_id="p1"
+        )
+    assert result is None
+
+
+def test_play_channel_by_id_dto_is_readable_after_session(db):
+    """play_channel_by_id must hand play_media a PlayableChannelDTO whose columns are
+    still readable after session_scope exits.
+
+    Drives the actual handler — if get_playable_dto were swapped back to get_by_id
+    without expunge, accessing ch.media_type / .name in play_media would raise.
     """
     from metatv.gui.main_window_favorites import _FavoritesMixin
 
@@ -303,7 +466,7 @@ def test_play_channel_by_id_detached_channel_is_readable(db):
             self.played = []
             self.drilled = []
 
-        def play_media(self, ch):
+        def play_media(self, ch, force_new_window=False):
             self.played.append((ch.id, ch.name, ch.media_type))
 
         def drill_into_series(self, ch):
@@ -316,9 +479,9 @@ def test_play_channel_by_id_detached_channel_is_readable(db):
     assert host.drilled == []
 
 
-def test_show_channel_details_by_id_detached_channel_is_readable(db):
-    """show_channel_details_by_id must hand a still-readable detached channel to the
-    details pane after the session closes (real expunge line, metadata mixin side)."""
+def test_show_channel_details_by_id_dto_is_readable_after_session(db):
+    """show_channel_details_by_id must hand a still-readable PlayableChannelDTO to
+    update_details_pane_for_channel after the session closes (B10-1 metadata side)."""
     from metatv.gui.main_window_metadata import _MetadataMixin
 
     class _MetaHost(_MetadataMixin):
@@ -333,3 +496,34 @@ def test_show_channel_details_by_id_detached_channel_is_readable(db):
     host = _MetaHost(db)
     host.show_channel_details_by_id(cid)
     assert host.shown == [(cid, "Blade Runner", "p1")]
+
+
+def test_play_from_history_id_series_opens_last_episode(db):
+    """play_from_history_id for a series with a played episode must call play_episode
+    with a PlayableEpisodeDTO (not an ORM object) — fields must be readable.
+    """
+    from metatv.gui.main_window_favorites import _FavoritesMixin
+
+    class _FavHost(_FavoritesMixin):
+        def __init__(self, db):
+            self.db = db
+            self.episodes_played = []
+            self.drilled = []
+
+        def play_episode(self, ep):
+            self.episodes_played.append((ep.id, ep.title, ep.episode_num))
+
+        def drill_into_series(self, ch):
+            self.drilled.append(ch.name)
+
+    cid = _seed_series(db)
+    _seed_episode(db, series_id="series1", ep_num=5)
+
+    host = _FavHost(db)
+    host.play_from_history_id(cid)
+    # The series has a played episode → play_episode must be called
+    assert len(host.episodes_played) == 1
+    _ep_id, title, ep_num = host.episodes_played[0]
+    assert title == "Episode 5"
+    assert ep_num == 5
+    assert not host.drilled

@@ -96,12 +96,9 @@ class _FavoritesMixin:
 
     def _on_retry_play_requested(self, channel_id: str, stream_url: str, channel_name: str) -> None:
         """Double-click on a Stream Monitoring item — try launching the stream again."""
-        from metatv.core.database import ChannelDB
         channel = None
         with self.db.session_scope() as session:
-            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if channel:
             self.play_media(channel)
         else:
@@ -236,10 +233,7 @@ class _FavoritesMixin:
         from metatv.core.models import MediaType
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
@@ -287,10 +281,7 @@ class _FavoritesMixin:
             return
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_db_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_db_id)
         if channel:
             self.details_pane.show_channel(channel)
 
@@ -335,22 +326,16 @@ class _FavoritesMixin:
         from metatv.core.models import MediaType
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
             last_episode = None
             with self.db.session_scope() as session:
-                repos = RepositoryFactory(session)
-                last_episode = repos.episodes.get_last_played(
+                last_episode = RepositoryFactory(session).episodes.get_last_played_dto(
                     series_id=channel.source_id,
                     provider_id=channel.provider_id,
                 )
-                if last_episode:
-                    session.expunge(last_episode)
             if last_episode:
                 logger.info(f"Playing last watched episode from history: {last_episode.title}")
                 self.play_episode(last_episode)
@@ -480,10 +465,7 @@ class _FavoritesMixin:
         from metatv.core.models import MediaType
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
@@ -562,10 +544,7 @@ class _FavoritesMixin:
         from metatv.core.models import MediaType
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
@@ -587,10 +566,7 @@ class _FavoritesMixin:
         from metatv.core.models import MediaType
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
