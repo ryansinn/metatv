@@ -18,6 +18,7 @@ from metatv.core.stream_diagnostics import (
     UNREACHABLE,
     _redact,
     classify,
+    recommend_buffer_profile,
     recommend_mpv_args,
     run_stream_diagnostic,
 )
@@ -126,6 +127,29 @@ class TestRecommendMpvArgs:
     def test_provider_limited_unknown_bitrate_default(self):
         args = recommend_mpv_args(PROVIDER_LIMITED, None)
         assert "--demuxer-max-bytes=256MiB" in args
+
+
+# --- recommend_buffer_profile() ---------------------------------------------
+class TestRecommendBufferProfile:
+    def test_jitter_returns_large_no_prebuffer(self):
+        assert recommend_buffer_profile(JITTER) == ("large", False)
+
+    def test_provider_limited_returns_large_with_prebuffer(self):
+        assert recommend_buffer_profile(PROVIDER_LIMITED) == ("large", True)
+
+    def test_healthy_returns_no_change(self):
+        assert recommend_buffer_profile(HEALTHY) == (None, False)
+
+    def test_internet_limited_returns_no_change(self):
+        # A bigger buffer can't fix a thin pipe.
+        assert recommend_buffer_profile(INTERNET_LIMITED) == (None, False)
+
+    def test_unreachable_returns_no_change(self):
+        assert recommend_buffer_profile(UNREACHABLE) == (None, False)
+
+    def test_unexpected_verdict_returns_no_change(self):
+        # Any unknown verdict must never crash and must return the safe no-op.
+        assert recommend_buffer_profile("totally-made-up") == (None, False)
 
 
 # --- _redact() ---------------------------------------------------------------

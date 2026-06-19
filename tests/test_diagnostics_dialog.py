@@ -2,10 +2,11 @@
 
 The worker half (off-thread probe) is the boring try/except over the headless
 engine — these pin the half that regresses: the main-thread render slot
-(verdict headline text + Apply enabled/disabled), the Apply handler
-(config.mpv_extra_args rewritten via merge_mpv_cache_args + save() called), the
-pure merge helper, and the bottom-nav on_diagnose_clicked handler (targets the
-selected channel; notifies + skips the lookup when nothing is selected).
+(verdict headline text, buffering recommendation text, Apply enabled/disabled),
+the Apply handler (config.buffer_profile + config.prebuffer_before_play written
++ save() called; config unchanged and save() NOT called when no profile change is
+warranted), and the bottom-nav on_diagnose_clicked handler (targets the selected
+channel; notifies + skips the lookup when nothing is selected).
 
 Widgets are constructed via __new__ (no full QDialog __init__) and handed real
 QLabels/QPushButtons through the module qapp fixture, so the slots run headless.
@@ -18,10 +19,6 @@ from PyQt6.QtWidgets import QLabel, QPushButton
 
 from metatv.core import stream_diagnostics as _diag
 from metatv.core.stream_diagnostics import DiagnosticResult
-from metatv.gui.diagnostics_dialog import (
-    StreamDiagnosticsDialog,
-    merge_mpv_cache_args,
-)
 
 
 @pytest.fixture(scope="module")
@@ -32,53 +29,13 @@ def qapp():
 
 
 # --------------------------------------------------------------------------- #
-# 1. merge_mpv_cache_args — the pure, idempotent merge helper                   #
+# Shared helpers                                                               #
 # --------------------------------------------------------------------------- #
 
-def test_merge_strips_existing_cache_args_keeps_others_appends_recommended():
-    existing = ["--foo", "--cache=no", "--demuxer-max-bytes=10MiB"]
-    recommended = ("--cache=yes", "--demuxer-max-bytes=128MiB", "--cache-secs=30")
-    assert merge_mpv_cache_args(existing, recommended) == [
-        "--foo",
-        "--cache=yes",
-        "--demuxer-max-bytes=128MiB",
-        "--cache-secs=30",
-    ]
-
-
-def test_merge_empty_existing_returns_recommended():
-    assert merge_mpv_cache_args([], ("--cache=yes",)) == ["--cache=yes"]
-
-
-def test_merge_keeps_only_non_cache_args_in_order():
-    existing = ["--foo", "--bar", "--volume=50"]
-    assert merge_mpv_cache_args(existing, ("--cache=yes",)) == [
-        "--foo",
-        "--bar",
-        "--volume=50",
-        "--cache=yes",
-    ]
-
-
-def test_merge_empty_recommended_returns_existing_non_cache_unchanged():
-    # No recommendation → strip cache args, keep the rest verbatim.
-    assert merge_mpv_cache_args(["--foo", "--bar"], ()) == ["--foo", "--bar"]
-
-
-def test_merge_is_idempotent():
-    recommended = ("--cache=yes", "--demuxer-max-bytes=128MiB")
-    once = merge_mpv_cache_args(["--foo"], recommended)
-    twice = merge_mpv_cache_args(once, recommended)
-    assert once == twice == ["--foo", "--cache=yes", "--demuxer-max-bytes=128MiB"]
-
-
-# --------------------------------------------------------------------------- #
-# 2. The result-render slot — verdict headline + Apply enable/disable           #
-# --------------------------------------------------------------------------- #
-
-def _bare_dialog(qapp) -> StreamDiagnosticsDialog:
+def _bare_dialog(qapp):
     """Construct a dialog without running QDialog.__init__ and wire the widgets
     the render slot touches (real Qt widgets via the qapp fixture)."""
+    from metatv.gui.diagnostics_dialog import StreamDiagnosticsDialog
     dlg = StreamDiagnosticsDialog.__new__(StreamDiagnosticsDialog)
     dlg._result = None
     dlg._run_button = QPushButton()
@@ -91,6 +48,22 @@ def _bare_dialog(qapp) -> StreamDiagnosticsDialog:
     dlg._apply_button.setEnabled(False)
     return dlg
 
+
+class _FakeConfig:
+    def __init__(self, *, buffer_profile="modest", prebuffer_before_play=False,
+                 mpv_args_override_all=False):
+        self.buffer_profile = buffer_profile
+        self.prebuffer_before_play = prebuffer_before_play
+        self.mpv_args_override_all = mpv_args_override_all
+        self.save_calls = 0
+
+    def save(self):
+        self.save_calls += 1
+
+
+# --------------------------------------------------------------------------- #
+# 1. The result-render slot — verdict headline + recommendation + Apply state  #
+# --------------------------------------------------------------------------- #
 
 def test_render_provider_limited_headline_and_apply_enabled(qapp):
     dlg = _bare_dialog(qapp)
@@ -110,25 +83,33 @@ def test_render_provider_limited_headline_and_apply_enabled(qapp):
     assert dlg._summary.text() == "Provider can't deliver this bitrate."
     assert dlg._apply_button.isEnabled() is True
     assert dlg._run_button.isEnabled() is True
-    # Metrics render the populated fields, not the None placeholder.
+    # Metrics render the populated fields.
     assert "6.0 Mbps" in dlg._metrics.text()
     assert "50.0 Mbps" in dlg._metrics.text()
+    # Recommendation text shows a profile label, not raw mpv flags.
+    rec = dlg._recommend.text()
+    assert "Large" in rec
+    assert "pre-buffer" in rec
+    assert "--cache=" not in rec
 
 
-def test_render_internet_limited_headline(qapp):
+def test_render_jitter_shows_profile_no_prebuffer(qapp):
     dlg = _bare_dialog(qapp)
     result = DiagnosticResult(
         reachable=True,
-        verdict=_diag.INTERNET_LIMITED,
-        summary="Pipe too thin.",
-        recommended_args=("--cache=yes",),
+        verdict=_diag.JITTER,
+        summary="Barely keeping up.",
+        recommended_args=("--cache=yes", "--demuxer-max-bytes=128MiB"),
     )
     dlg._on_result_ready(result)
-    assert dlg._headline.text() == "Your internet connection is the bottleneck"
+
     assert dlg._apply_button.isEnabled() is True
+    rec = dlg._recommend.text()
+    assert "Large" in rec
+    assert "pre-buffer" not in rec
 
 
-def test_render_healthy_headline_and_apply_enabled(qapp):
+def test_render_healthy_shows_no_change_and_disables_apply(qapp):
     dlg = _bare_dialog(qapp)
     result = DiagnosticResult(
         reachable=True,
@@ -137,8 +118,24 @@ def test_render_healthy_headline_and_apply_enabled(qapp):
         recommended_args=("--cache=yes",),
     )
     dlg._on_result_ready(result)
+
     assert dlg._headline.text() == "Stream looks healthy"
-    assert dlg._apply_button.isEnabled() is True
+    assert dlg._apply_button.isEnabled() is False
+    assert "No buffering change recommended." in dlg._recommend.text()
+
+
+def test_render_internet_limited_shows_no_change_and_disables_apply(qapp):
+    dlg = _bare_dialog(qapp)
+    result = DiagnosticResult(
+        reachable=True,
+        verdict=_diag.INTERNET_LIMITED,
+        summary="Pipe too thin.",
+        recommended_args=("--cache=yes",),
+    )
+    dlg._on_result_ready(result)
+
+    assert dlg._apply_button.isEnabled() is False
+    assert "No buffering change recommended." in dlg._recommend.text()
 
 
 def test_render_unreachable_keeps_apply_disabled(qapp):
@@ -150,6 +147,7 @@ def test_render_unreachable_keeps_apply_disabled(qapp):
         recommended_args=(),
     )
     dlg._on_result_ready(result)
+
     assert dlg._headline.text() == "Couldn't reach the stream"
     assert dlg._apply_button.isEnabled() is False
 
@@ -158,6 +156,7 @@ def test_render_none_result_shows_failure_and_disables_apply(qapp):
     dlg = _bare_dialog(qapp)
     dlg._apply_button.setEnabled(True)  # pretend a prior result enabled it
     dlg._on_result_ready(None)
+
     assert dlg._result is None
     assert dlg._apply_button.isEnabled() is False
     assert "failed" in dlg._summary.text().lower()
@@ -178,54 +177,114 @@ def test_render_metrics_show_dash_for_none_fields(qapp):
 
 
 # --------------------------------------------------------------------------- #
-# 3. The Apply handler — rewrites config.mpv_extra_args via merge + saves        #
+# 2. The Apply handler — writes structured config fields, calls save()         #
 # --------------------------------------------------------------------------- #
 
-class _FakeConfig:
-    def __init__(self, mpv_extra_args):
-        self.mpv_extra_args = mpv_extra_args
-        self.save_calls = 0
-
-    def save(self):
-        self.save_calls += 1
-
-
-def test_apply_rewrites_mpv_extra_args_and_saves(qapp):
+def test_apply_provider_limited_sets_large_and_prebuffer(qapp):
     dlg = _bare_dialog(qapp)
-    dlg._config = _FakeConfig(["--foo", "--cache=no"])
+    dlg._config = _FakeConfig()
     dlg._result = DiagnosticResult(
         reachable=True,
         verdict=_diag.PROVIDER_LIMITED,
         summary="x",
-        recommended_args=("--cache=yes", "--demuxer-max-bytes=256MiB"),
+        recommended_args=("--cache=yes",),
     )
 
     dlg._on_apply()
 
-    assert dlg._config.mpv_extra_args == [
-        "--foo",
-        "--cache=yes",
-        "--demuxer-max-bytes=256MiB",
-    ]
+    assert dlg._config.buffer_profile == "large"
+    assert dlg._config.prebuffer_before_play is True
     assert dlg._config.save_calls == 1
-    # Apply disables itself and shows the confirmation.
     assert dlg._apply_button.isEnabled() is False
-    assert dlg._saved.isVisible() or dlg._saved.text() != ""
+    saved = dlg._saved.text()
+    assert "Large" in saved
+    assert "pre-buffer on" in saved
 
 
-def test_apply_noop_without_recommended_args(qapp):
+def test_apply_jitter_sets_large_no_prebuffer(qapp):
     dlg = _bare_dialog(qapp)
-    dlg._config = _FakeConfig(["--foo"])
+    dlg._config = _FakeConfig()
     dlg._result = DiagnosticResult(
-        reachable=False, verdict=_diag.UNREACHABLE, summary="x", recommended_args=()
+        reachable=True,
+        verdict=_diag.JITTER,
+        summary="x",
+        recommended_args=("--cache=yes",),
     )
+
     dlg._on_apply()
-    assert dlg._config.mpv_extra_args == ["--foo"]
+
+    assert dlg._config.buffer_profile == "large"
+    assert dlg._config.prebuffer_before_play is False
+    assert dlg._config.save_calls == 1
+    saved = dlg._saved.text()
+    assert "Large" in saved
+    assert "pre-buffer on" not in saved
+
+
+def test_apply_healthy_noop(qapp):
+    """HEALTHY verdict: Apply must not write config or call save."""
+    dlg = _bare_dialog(qapp)
+    dlg._config = _FakeConfig(buffer_profile="modest")
+    dlg._result = DiagnosticResult(
+        reachable=True,
+        verdict=_diag.HEALTHY,
+        summary="x",
+        recommended_args=("--cache=yes",),
+    )
+
+    dlg._on_apply()
+
+    assert dlg._config.buffer_profile == "modest"   # unchanged
+    assert dlg._config.save_calls == 0
+
+
+def test_apply_unreachable_noop(qapp):
+    """UNREACHABLE verdict: Apply must not write config or call save."""
+    dlg = _bare_dialog(qapp)
+    dlg._config = _FakeConfig(buffer_profile="modest")
+    dlg._result = DiagnosticResult(
+        reachable=False,
+        verdict=_diag.UNREACHABLE,
+        summary="x",
+        recommended_args=(),
+    )
+
+    dlg._on_apply()
+
+    assert dlg._config.buffer_profile == "modest"   # unchanged
+    assert dlg._config.save_calls == 0
+
+
+def test_apply_override_all_appends_warning(qapp):
+    """When mpv_args_override_all is True the saved message includes a note."""
+    dlg = _bare_dialog(qapp)
+    dlg._config = _FakeConfig(mpv_args_override_all=True)
+    dlg._result = DiagnosticResult(
+        reachable=True,
+        verdict=_diag.JITTER,
+        summary="x",
+        recommended_args=("--cache=yes",),
+    )
+
+    dlg._on_apply()
+
+    assert dlg._config.save_calls == 1
+    assert "Override-all" in dlg._saved.text()
+
+
+def test_apply_noop_without_result(qapp):
+    """_on_apply with no result set must be a safe no-op."""
+    dlg = _bare_dialog(qapp)
+    dlg._config = _FakeConfig()
+    dlg._result = None
+
+    dlg._on_apply()
+
     assert dlg._config.save_calls == 0
 
 
 # --------------------------------------------------------------------------- #
-# 4. Nav-bar handler — on_diagnose_clicked targets the selected channel          #
+# 3. Nav-bar handler — on_diagnose_clicked targets the selected channel        #
 # --------------------------------------------------------------------------- #
 
 def test_nav_diagnose_targets_selected_channel(qapp):
