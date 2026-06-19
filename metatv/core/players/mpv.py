@@ -10,6 +10,7 @@ from loguru import logger
 
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.config import Config
+from metatv.core.http_headers import stream_user_agent
 
 
 class MPVPlayer(PlayerPlugin):
@@ -62,15 +63,19 @@ class MPVPlayer(PlayerPlugin):
         size = self.config.default_cache_size
         user_args = list(self.config.mpv_extra_args)
 
+        # Canonical User-Agent must come first so user's own --user-agent (in
+        # user_args) appears later and wins (mpv honours the last value).
+        header_args = [f"--user-agent={stream_user_agent()}"]
+
         if not size or size == "auto":
-            return user_args
+            return header_args + user_args
 
         byte_size = self._to_mpv_bytesize(size)
         if byte_size is None:
-            # Unrecognized value — don't crash, just use the user's args.
-            return user_args
+            # Unrecognized value — don't crash, just use header + user args.
+            return header_args + user_args
 
-        return [
+        return header_args + [
             "--cache=yes",
             f"--demuxer-max-bytes={byte_size}",
             "--demuxer-readahead-secs=30",
