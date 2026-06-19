@@ -459,6 +459,12 @@ class _StreamingMixin:
             )
 
         self._health_idle_ticks = 0
+        # A new play always follows the most-recently-used window. Without this,
+        # a readout the user clicked to cycle (pinning _health_view_key to some
+        # window) stays pinned forever — so after that window goes idle or they
+        # play elsewhere, the readout keeps polling the stale/idle instance and
+        # shows nothing. Reset to "follow latest" on every play.
+        self._health_view_key = None
         if not self._playback_health_timer.isActive():
             self._playback_health_timer.start()
 
