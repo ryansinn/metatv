@@ -71,6 +71,13 @@ class MPVPlayer(PlayerPlugin):
     def _compose_extra_args(self) -> list[str]:
         """Build the effective extra mpv args.
 
+        **Override-all shortcut:** when ``config.mpv_args_override_all`` is ``True``,
+        returns *only* ``config.mpv_extra_args`` — the caller takes full manual control
+        and all built-in flags (UA, reconnect, buffer, prebuffer) are skipped.
+
+        Otherwise the composed order is:
+        ``base_args`` (UA + reconnect) + ``buffer_args`` + ``prebuffer_args`` + ``user_args``.
+
         Always prepends the canonical User-Agent and the always-on reconnect flag
         so transient live-stream drops self-heal. The reconnect flag uses three
         conservative, long-stable ffmpeg/libavformat options.
@@ -83,6 +90,10 @@ class MPVPlayer(PlayerPlugin):
         - Otherwise (``"auto"``, empty, or an unrecognized size), buffer flags are
           derived from ``config.buffer_profile`` via :meth:`_buffer_profile_args`.
 
+        Prebuffer flags (``--cache-pause-initial=yes`` + ``--cache-pause-wait=<secs>``)
+        are injected after buffer flags when ``config.prebuffer_before_play`` is ``True``.
+        ``--cache=yes`` is also included (harmless if already present; mpv last-wins).
+
         User args (``config.mpv_extra_args``) are appended LAST so they win via
         mpv's last-value rule — including any user-supplied ``--user-agent`` or
         cache overrides applied by the Diagnose feature.
@@ -90,8 +101,13 @@ class MPVPlayer(PlayerPlugin):
         Returns:
             The composed list of extra args to pass on the mpv command line.
         """
-        size = self.config.default_cache_size
         user_args = list(self.config.mpv_extra_args)
+
+        # Override-all: user takes full manual control — skip all built-in flags.
+        if getattr(self.config, "mpv_args_override_all", False):
+            return user_args
+
+        size = self.config.default_cache_size
 
         # Canonical User-Agent must come first; user's own --user-agent in user_args
         # appears later and wins (mpv honours the last value).
@@ -110,7 +126,19 @@ class MPVPlayer(PlayerPlugin):
             # Auto / empty / unrecognized: use the profile-driven buffer flags.
             buffer_args = self._buffer_profile_args(self.config.buffer_profile)
 
-        return base_args + buffer_args + user_args
+        # Prebuffer: gate startup on cache pre-filling (mpv --cache-pause-initial).
+        prebuffer_args: list[str] = []
+        if getattr(self.config, "prebuffer_before_play", False):
+            wait = getattr(self.config, "prebuffer_wait_secs", 10)
+            # --cache=yes is required for cache-pause-initial to take effect
+            # (harmless if already in buffer_args; mpv last-wins).
+            prebuffer_args = [
+                "--cache=yes",
+                "--cache-pause-initial=yes",
+                f"--cache-pause-wait={wait}",
+            ]
+
+        return base_args + buffer_args + prebuffer_args + user_args
 
     @staticmethod
     def _to_mpv_bytesize(size: str) -> Optional[str]:

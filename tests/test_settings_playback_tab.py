@@ -12,7 +12,7 @@ qapp fixture.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtWidgets import QComboBox, QLineEdit
+from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox, QSpinBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent
@@ -28,7 +28,14 @@ def qapp():
 class _FakeConfig:
     """Minimal config stub covering the fields touched by Playback-tab load/save."""
 
-    def __init__(self, buffer_profile: str = "modest", default_cache_size: str = "auto"):
+    def __init__(
+        self,
+        buffer_profile: str = "modest",
+        default_cache_size: str = "auto",
+        prebuffer_before_play: bool = False,
+        prebuffer_wait_secs: int = 10,
+        mpv_args_override_all: bool = False,
+    ):
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
@@ -38,6 +45,9 @@ class _FakeConfig:
         self.buffer_profile = buffer_profile
         self.default_cache_size = default_cache_size
         self.mpv_extra_args: list[str] = []
+        self.prebuffer_before_play = prebuffer_before_play
+        self.prebuffer_wait_secs = prebuffer_wait_secs
+        self.mpv_args_override_all = mpv_args_override_all
         self.epg_default_refresh_interval = "3d"
         self.metadata_enabled = True
         self.metadata_auto_fetch = False
@@ -90,6 +100,15 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # MPV extra args
     dlg._mpv_args_input = QLineEdit()
+
+    # Prebuffer controls
+    dlg._prebuffer_check = QCheckBox()
+    dlg._prebuffer_wait_spin = QSpinBox()
+    dlg._prebuffer_wait_spin.setRange(1, 120)
+    dlg._prebuffer_wait_spin.setSuffix(" s")
+
+    # Override-all checkbox
+    dlg._override_all_check = QCheckBox()
 
     # EPG interval combo (needed by _load_values)
     dlg._epg_interval_combo = QComboBox()
@@ -217,3 +236,114 @@ def test_user_agent_field_is_read_only(qapp):
     dlg._load_values()
 
     assert dlg._user_agent_view.isReadOnly() is True
+
+
+# --------------------------------------------------------------------------- #
+# 4. Load: prebuffer + override-all controls reflect config                    #
+# --------------------------------------------------------------------------- #
+
+def test_load_prebuffer_check_reflects_config_true(qapp):
+    """prebuffer_before_play=True → _prebuffer_check is checked after load."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(prebuffer_before_play=True)
+    dlg._load_values()
+
+    assert dlg._prebuffer_check.isChecked() is True
+
+
+def test_load_prebuffer_check_reflects_config_false(qapp):
+    """prebuffer_before_play=False (default) → _prebuffer_check is unchecked after load."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(prebuffer_before_play=False)
+    dlg._load_values()
+
+    assert dlg._prebuffer_check.isChecked() is False
+
+
+def test_load_prebuffer_wait_spin_reflects_config(qapp):
+    """prebuffer_wait_secs=25 in config → spin shows 25 after load."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(prebuffer_wait_secs=25)
+    dlg._load_values()
+
+    assert dlg._prebuffer_wait_spin.value() == 25
+
+
+def test_load_override_all_check_reflects_config_true(qapp):
+    """mpv_args_override_all=True → _override_all_check is checked after load."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(mpv_args_override_all=True)
+    dlg._load_values()
+
+    assert dlg._override_all_check.isChecked() is True
+
+
+def test_load_override_all_check_reflects_config_false(qapp):
+    """mpv_args_override_all=False (default) → _override_all_check is unchecked after load."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(mpv_args_override_all=False)
+    dlg._load_values()
+
+    assert dlg._override_all_check.isChecked() is False
+
+
+# --------------------------------------------------------------------------- #
+# 5. Save: new widgets write back to config                                    #
+# --------------------------------------------------------------------------- #
+
+def test_save_prebuffer_before_play_written(qapp):
+    """Checking _prebuffer_check and saving writes prebuffer_before_play=True to config."""
+    dlg = _bare_dialog(qapp)
+    cfg = _FakeConfig(prebuffer_before_play=False)
+    dlg.config = cfg
+    dlg._load_values()
+
+    dlg._prebuffer_check.setChecked(True)
+    dlg._save_values()
+
+    assert cfg.prebuffer_before_play is True
+    assert cfg.save_calls == 1
+
+
+def test_save_prebuffer_wait_secs_written(qapp):
+    """Changing _prebuffer_wait_spin to 35 and saving writes prebuffer_wait_secs=35."""
+    dlg = _bare_dialog(qapp)
+    cfg = _FakeConfig(prebuffer_wait_secs=10)
+    dlg.config = cfg
+    dlg._load_values()
+
+    dlg._prebuffer_wait_spin.setValue(35)
+    dlg._save_values()
+
+    assert cfg.prebuffer_wait_secs == 35
+
+
+def test_save_override_all_written(qapp):
+    """Checking _override_all_check and saving writes mpv_args_override_all=True."""
+    dlg = _bare_dialog(qapp)
+    cfg = _FakeConfig(mpv_args_override_all=False)
+    dlg.config = cfg
+    dlg._load_values()
+
+    dlg._override_all_check.setChecked(True)
+    dlg._save_values()
+
+    assert cfg.mpv_args_override_all is True
+    assert cfg.save_calls == 1
+
+
+def test_save_all_three_new_fields_together(qapp):
+    """All three new fields are saved correctly in a single _save_values call."""
+    dlg = _bare_dialog(qapp)
+    cfg = _FakeConfig(prebuffer_before_play=False, prebuffer_wait_secs=10, mpv_args_override_all=False)
+    dlg.config = cfg
+    dlg._load_values()
+
+    dlg._prebuffer_check.setChecked(True)
+    dlg._prebuffer_wait_spin.setValue(20)
+    dlg._override_all_check.setChecked(True)
+    dlg._save_values()
+
+    assert cfg.prebuffer_before_play is True
+    assert cfg.prebuffer_wait_secs == 20
+    assert cfg.mpv_args_override_all is True

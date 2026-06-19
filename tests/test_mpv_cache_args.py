@@ -42,17 +42,26 @@ class _FakeConfig:
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
     buffer_profile: str = "modest"
+    prebuffer_before_play: bool = False
+    prebuffer_wait_secs: int = 10
+    mpv_args_override_all: bool = False
 
 
 def _player(
     cache_size: str = "auto",
     extra_args: list[str] | None = None,
     buffer_profile: str = "modest",
+    prebuffer_before_play: bool = False,
+    prebuffer_wait_secs: int = 10,
+    mpv_args_override_all: bool = False,
 ) -> MPVPlayer:
     return MPVPlayer(_FakeConfig(
         default_cache_size=cache_size,
         mpv_extra_args=extra_args if extra_args is not None else [],
         buffer_profile=buffer_profile,
+        prebuffer_before_play=prebuffer_before_play,
+        prebuffer_wait_secs=prebuffer_wait_secs,
+        mpv_args_override_all=mpv_args_override_all,
     ))
 
 
@@ -220,3 +229,71 @@ def test_garbage_size_reconnect_only_profile():
     assert RECONNECT_FLAG in args
     assert "--foo" in args
     assert not any(a.startswith("--cache=") or a.startswith("--cache-secs") for a in args)
+
+
+# ---------------------------------------------------------------------------
+# Prebuffer flags
+# ---------------------------------------------------------------------------
+
+def test_prebuffer_off_no_cache_pause_flags():
+    """prebuffer_before_play=False (default) → no --cache-pause-* flags in args."""
+    args = _player("auto", [], "modest", prebuffer_before_play=False)._compose_extra_args()
+    assert not any(a.startswith("--cache-pause-") for a in args)
+
+
+def test_prebuffer_on_includes_required_flags():
+    """prebuffer_before_play=True → --cache=yes, --cache-pause-initial=yes, --cache-pause-wait=<secs>."""
+    args = _player("auto", [], "modest", prebuffer_before_play=True, prebuffer_wait_secs=15)._compose_extra_args()
+    assert "--cache=yes" in args
+    assert "--cache-pause-initial=yes" in args
+    assert "--cache-pause-wait=15" in args
+
+
+def test_prebuffer_wait_respected():
+    """prebuffer_wait_secs is reflected in --cache-pause-wait value."""
+    args = _player("auto", [], "modest", prebuffer_before_play=True, prebuffer_wait_secs=30)._compose_extra_args()
+    assert "--cache-pause-wait=30" in args
+    args2 = _player("auto", [], "modest", prebuffer_before_play=True, prebuffer_wait_secs=5)._compose_extra_args()
+    assert "--cache-pause-wait=5" in args2
+
+
+def test_prebuffer_flags_after_buffer_flags_before_user_args():
+    """prebuffer flags appear AFTER buffer flags and BEFORE user_args."""
+    user_arg = "--foo"
+    args = _player("auto", [user_arg], "modest", prebuffer_before_play=True, prebuffer_wait_secs=15)._compose_extra_args()
+    cache_pause_idx = args.index("--cache-pause-initial=yes")
+    # A buffer flag (modest profile) must precede prebuffer flag
+    cache_secs_idx = args.index("--cache-secs=10")
+    user_arg_idx = args.index(user_arg)
+    assert cache_secs_idx < cache_pause_idx
+    assert cache_pause_idx < user_arg_idx
+
+
+# ---------------------------------------------------------------------------
+# Override-all
+# ---------------------------------------------------------------------------
+
+def test_override_all_returns_only_user_args():
+    """mpv_args_override_all=True → _compose_extra_args returns exactly mpv_extra_args."""
+    args = _player("auto", ["--foo"], "modest", mpv_args_override_all=True)._compose_extra_args()
+    assert args == ["--foo"]
+
+
+def test_override_all_strips_ua_reconnect_cache():
+    """With override_all=True, canonical UA, RECONNECT_FLAG, and cache flags are ALL absent."""
+    args = _player("auto", ["--foo"], "modest", mpv_args_override_all=True)._compose_extra_args()
+    assert _CANONICAL_UA not in args
+    assert RECONNECT_FLAG not in args
+    assert not any(a.startswith("--cache=") or a.startswith("--cache-secs") for a in args)
+
+
+def test_override_all_off_ua_present():
+    """With override_all=False (default), canonical UA is still present."""
+    args = _player("auto", ["--foo"], "modest", mpv_args_override_all=False)._compose_extra_args()
+    assert _CANONICAL_UA in args
+
+
+def test_override_all_empty_user_args():
+    """override_all=True with no user args → empty list (not a crash)."""
+    args = _player("auto", [], "modest", mpv_args_override_all=True)._compose_extra_args()
+    assert args == []
