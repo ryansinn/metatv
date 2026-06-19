@@ -102,6 +102,23 @@ class SettingsDialog(QDialog):
         buffer_hint.setStyleSheet(_theme.META_HINT)
         player_form.addRow("", buffer_hint)
 
+        self._prebuffer_check = QCheckBox("Pre-buffer before playing")
+        self._prebuffer_check.setToolTip(
+            "Wait until the buffer fills before starting — smoother start, slightly slower to begin."
+        )
+        player_form.addRow("", self._prebuffer_check)
+
+        prebuffer_wait_row = QHBoxLayout()
+        self._prebuffer_wait_spin = QSpinBox()
+        self._prebuffer_wait_spin.setRange(1, 120)
+        self._prebuffer_wait_spin.setSuffix(" s")
+        self._prebuffer_wait_spin.setToolTip(
+            "How many seconds of content to buffer before unpausing and starting playback."
+        )
+        prebuffer_wait_row.addWidget(self._prebuffer_wait_spin)
+        prebuffer_wait_row.addStretch()
+        player_form.addRow("Pre-buffer wait:", prebuffer_wait_row)
+
         self._user_agent_view = QLineEdit()
         self._user_agent_view.setReadOnly(True)
         self._user_agent_view.setToolTip(
@@ -155,6 +172,16 @@ class SettingsDialog(QDialog):
         hint.setStyleSheet(_theme.META_HINT)
         mpv_layout.addWidget(self._mpv_args_input)
         mpv_layout.addWidget(hint)
+
+        self._override_all_check = QCheckBox(
+            "Override all — use only these flags (ignore profile, reconnect, User-Agent)"
+        )
+        self._override_all_check.setToolTip(
+            "When enabled, mpv receives only the flags entered above.\n"
+            "Warning: this bypasses the canonical User-Agent and auto-reconnect.\n"
+            "Use only for advanced manual control."
+        )
+        mpv_layout.addWidget(self._override_all_check)
         layout.addWidget(mpv_group)
 
         layout.addStretch()
@@ -314,6 +341,9 @@ class SettingsDialog(QDialog):
         self._user_agent_view.setText(stream_user_agent())
 
         self._mpv_args_input.setText(" ".join(c.mpv_extra_args))
+        self._prebuffer_check.setChecked(getattr(c, "prebuffer_before_play", False))
+        self._prebuffer_wait_spin.setValue(getattr(c, "prebuffer_wait_secs", 10))
+        self._override_all_check.setChecked(getattr(c, "mpv_args_override_all", False))
 
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
@@ -367,6 +397,9 @@ class SettingsDialog(QDialog):
 
         raw_args = self._mpv_args_input.text().strip()
         c.mpv_extra_args = raw_args.split() if raw_args else []
+        c.prebuffer_before_play = self._prebuffer_check.isChecked()
+        c.prebuffer_wait_secs = self._prebuffer_wait_spin.value()
+        c.mpv_args_override_all = self._override_all_check.isChecked()
 
         # EPG
         epg_val = self._epg_interval_combo.currentData()
