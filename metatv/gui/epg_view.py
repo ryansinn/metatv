@@ -1583,7 +1583,7 @@ class EpgView(ContentView):
         if is_live:
             n = len(live)
             live_lbl = QLabel(f"ON NOW ({n})" if n > 1 else "ON NOW")
-            live_lbl.setStyleSheet("color: #4a4; font-size: 12px;")
+            live_lbl.setStyleSheet(f"color: {_theme.COLOR_OK}; font-size: 12px;")
             header.addWidget(live_lbl)
 
         remove_btn = QPushButton(self.config.close_icon)
@@ -1901,7 +1901,7 @@ class EpgView(ContentView):
             play_btn = QPushButton(f"{self.config.play_icon} Play")
             play_btn.setFixedWidth(70)
             play_btn.setStyleSheet(
-                "background: #2a6; color: white; border-radius: 3px; padding: 2px 6px;"
+                f"background: {_theme.COLOR_ACCENT_GREEN}; color: white; border-radius: 3px; padding: 2px 6px;"
             )
             play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
             header.addWidget(play_btn)
@@ -1958,7 +1958,7 @@ class EpgView(ContentView):
 
         watch_btn = QPushButton("+ Watch")
         watch_btn.setFixedWidth(70)
-        watch_btn.setStyleSheet("color: #4af; border: 1px solid #4af; border-radius: 3px; padding: 1px 4px; font-size: 11px;")
+        watch_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_HOVER}; border: 1px solid {_theme.COLOR_ACCENT_HOVER}; border-radius: 3px; padding: 1px 4px; font-size: 11px;")
         watch_btn.setToolTip(f"Add '{channel_name}' to watchlist")
         watch_btn.clicked.connect(lambda _=False, n=channel_name: self._add_pattern(n))
         layout.addWidget(watch_btn)
@@ -2139,7 +2139,7 @@ class EpgView(ContentView):
 
             if any(pat in prog.title.lower() for pat in patterns):
                 for col in range(5):
-                    item.setForeground(col, QColor("#4af"))
+                    item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
                 font = item.font(3)
                 font.setBold(True)
                 item.setFont(3, font)
@@ -2184,7 +2184,7 @@ class EpgView(ContentView):
 
             if any(pat in prog.title.lower() for pat in patterns):
                 for col in range(4):
-                    item.setForeground(col, QColor("#4af"))
+                    item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
                 font = item.font(2)
                 font.setBold(True)
                 item.setFont(2, font)

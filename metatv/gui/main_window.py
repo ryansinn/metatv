@@ -826,7 +826,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         _hb_lbl = QLabel(
             f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
         )
-        _hb_lbl.setStyleSheet("color: #cc8800; font-size: 11px;")
+        _hb_lbl.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: 11px;")
         _hb_layout.addWidget(_hb_lbl)
         _hb_layout.addStretch()
         self._manage_cats_btn = QPushButton("📁 Manage Categories")
@@ -834,14 +834,14 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._manage_cats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._manage_cats_btn.setStyleSheet(
             f"QPushButton {{ font-size: 11px; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
-            " border: 1px solid #4488ff44; border-radius: 4px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: #88aaff44; }}"
+            f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}"
         )
         self._manage_cats_btn.setToolTip("Browse and manage your user-defined categories")
         self._manage_cats_btn.clicked.connect(self._open_categories_dialog)
         _hb_layout.addWidget(self._manage_cats_btn)
         self._hidden_banner.setStyleSheet(
-            "background: rgba(204,136,0,0.08); border-radius: 4px;"
+            f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;"
         )
         self._hidden_banner.hide()
         self._list_layout.addWidget(self._hidden_banner)
@@ -1703,9 +1703,9 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
                         "Changing filters or searching again restores normal filtered view."
                     )
                     btn_widget.setStyleSheet(
-                        "QPushButton { background: #3a3a1a; color: #e8d44d; border: 1px solid #7a7a30;"
+                        f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG}; border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER};"
                         " border-radius: 4px; padding: 8px 16px; font-size: 12px; }"
-                        "QPushButton:hover { background: #4a4a22; border-color: #aaaa50; }"
+                        f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER}; border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
                     )
                     btn_widget.clicked.connect(self._show_filtered_results)
                     self.channels_list.addItem(btn_item)

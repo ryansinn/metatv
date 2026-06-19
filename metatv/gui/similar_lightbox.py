@@ -109,7 +109,7 @@ class SimilarTitleLightbox(QWidget):
         self._card = QFrame()
         self._card.setObjectName("lightbox_card")
         self._card.setStyleSheet(
-            f"#lightbox_card {{ background: #1e1e2e; border-radius: 10px;"
+            f"#lightbox_card {{ background: {_theme.COLOR_LIGHTBOX_BG}; border-radius: 10px;"
             f" border: 1px solid {_theme.COLOR_BORDER}; }}"
         )
         self._card.setFixedWidth(760)
@@ -122,14 +122,14 @@ class SimilarTitleLightbox(QWidget):
 
         # ---- header bar ----
         header_bar = QWidget()
-        header_bar.setStyleSheet("background: #2a2a3e; border-radius: 10px 10px 0 0;")
+        header_bar.setStyleSheet(f"background: {_theme.COLOR_LIGHTBOX_HEADER}; border-radius: 10px 10px 0 0;")
         header_row = QHBoxLayout(header_bar)
         header_row.setContentsMargins(14, 8, 10, 8)
         header_row.setSpacing(8)
 
         self._back_btn = QPushButton("◀ Back")
         self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet("color: #8aacf7; font-size: 12px; border: none;")
+        self._back_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: 12px; border: none;")
         self._back_btn.setToolTip("Go back to previous title")
         self._back_btn.clicked.connect(self._go_back)
         self._back_btn.hide()
@@ -213,7 +213,7 @@ class SimilarTitleLightbox(QWidget):
         self._poster_lbl.setFixedSize(110, 160)
         self._poster_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._poster_lbl.setStyleSheet(
-            f"background: #111; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: 10px;"
+            f"background: {_theme.COLOR_BG_DEEP}; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: 10px;"
         )
         top_row.addWidget(self._poster_lbl)
 
@@ -222,7 +222,7 @@ class SimilarTitleLightbox(QWidget):
 
         self._title_lbl = QLabel()
         self._title_lbl.setWordWrap(True)
-        self._title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #eee;")
+        self._title_lbl.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         right_col.addWidget(self._title_lbl)
 
         self._meta_lbl = QLabel()

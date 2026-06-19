@@ -52,19 +52,19 @@ class ToggleChip(QPushButton):
                     padding: 6px 14px;
                     font-weight: bold;
                 }}
-                QPushButton:hover {{ background-color: #5599ff; }}
+                QPushButton:hover {{ background-color: {_theme.COLOR_ACCENT_HOVER}; }}
             """)
         else:
             self.setText(f"{label_text} ○")
             self.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: #e0e0e0;
+                    background-color: {_theme.COLOR_SURFACE_LIGHT_2};
                     color: {_theme.COLOR_MUTED_2};
                     border: 1px solid {_theme.COLOR_TEXT};
                     border-radius: 12px;
                     padding: 6px 14px;
                 }}
-                QPushButton:hover {{ background-color: #d0d0d0; }}
+                QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT_3}; }}
             """)
 
     def is_enabled(self) -> bool:
@@ -164,7 +164,7 @@ class FilterDropdown(QPushButton):
                 padding: 6px 12px;
                 text-align: left;
             }}
-            QPushButton:hover {{ background-color: #f5f5f5; color: {_theme.COLOR_LINE}; }}
+            QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT}; color: {_theme.COLOR_LINE}; }}
         """)
 
         self.menu = QMenu(self)
@@ -394,10 +394,10 @@ class FilterBar(QWidget):
         self.clear_filters_btn.setToolTip("Reset all filters — show everything")
         self.clear_filters_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #e0e0e0; color: {_theme.COLOR_LINE};
+                background-color: {_theme.COLOR_SURFACE_LIGHT_2}; color: {_theme.COLOR_LINE};
                 border: 1px solid {_theme.COLOR_TEXT}; border-radius: 4px; padding: 6px 12px;
             }}
-            QPushButton:hover {{ background-color: #d0d0d0; color: {_theme.COLOR_LINE}; }}
+            QPushButton:hover {{ background-color: {_theme.COLOR_SURFACE_LIGHT_3}; color: {_theme.COLOR_LINE}; }}
         """)
         self.clear_filters_btn.clicked.connect(self.clear_filters)
         filter_row.addWidget(self.clear_filters_btn)

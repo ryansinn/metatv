@@ -50,7 +50,7 @@ class HierarchicalFilterDropdown(QPushButton):
                 text-align: left;
             }}
             QPushButton:hover {{
-                background-color: #f5f5f5;
+                background-color: {_theme.COLOR_SURFACE_LIGHT};
                 color: {_theme.COLOR_LINE};
             }}
         """)

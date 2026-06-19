@@ -66,7 +66,7 @@ class _BrowseView(QWidget):
         self._back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 12px; }}"
-            "QPushButton:hover { color: #66aaff; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
         )
         self._back_btn.clicked.connect(self.backRequested)
         top.addWidget(self._back_btn)

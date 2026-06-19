@@ -79,7 +79,7 @@ class _PosterSection(QWidget):
         self.poster_label.setMinimumHeight(400)
         self.poster_label.setMaximumHeight(600)
         self.poster_label.setStyleSheet(
-            f"QLabel {{ background-color: rgba(0,0,0,0.3); border-radius: 8px;"
+            f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
             f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
         )
         self.poster_label.setScaledContents(False)
@@ -320,8 +320,8 @@ class _MetadataSection(QWidget):
         badge_row.addWidget(self.source_label)
         self.adult_indicator = QLabel("🔞 Adult")
         self.adult_indicator.setStyleSheet(
-            "color: #cc4444; font-size: 11px; font-weight: 600;"
-            " background: rgba(204,68,68,0.15); border-radius: 3px; padding: 1px 5px;"
+            f"color: {_theme.COLOR_ERR_2}; font-size: 11px; font-weight: 600;"
+            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
         )
         self.adult_indicator.hide()
         badge_row.addWidget(self.adult_indicator)

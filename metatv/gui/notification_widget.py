@@ -31,19 +31,19 @@ class NotificationCard(QFrame):
 
         # Style based on type
         if self.notification.type == NotificationType.ERROR:
-            bg_color = "#2c1515"
-            border_color = "#ff4444"
+            bg_color = _theme.COLOR_NOTIFY_ERR_BG
+            border_color = _theme.COLOR_NOTIFY_ERR_BORDER
             text_color = _theme.COLOR_TEXT_HI
         elif self.notification.type == NotificationType.SUCCESS:
-            bg_color = "#152c15"
-            border_color = "#44ff44"
+            bg_color = _theme.COLOR_NOTIFY_OK_BG
+            border_color = _theme.COLOR_NOTIFY_OK_BORDER
             text_color = _theme.COLOR_TEXT_HI
         elif self.notification.type == NotificationType.WARNING:
-            bg_color = "#2c2415"
-            border_color = "#ffaa44"
+            bg_color = _theme.COLOR_NOTIFY_WARN_BG
+            border_color = _theme.COLOR_NOTIFY_WARN_BORDER
             text_color = _theme.COLOR_TEXT_HI
         else:  # INFO and PROGRESS
-            bg_color = "#1a1a2e"
+            bg_color = _theme.COLOR_NOTIFY_INFO_BG
             border_color = _theme.COLOR_ACCENT_BLUE
             text_color = _theme.COLOR_TEXT_HI
 
