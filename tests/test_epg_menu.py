@@ -566,7 +566,7 @@ def test_on_browse_context_menu_builds_without_error(qapp, monkeypatch):
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_browse_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -594,7 +594,7 @@ def test_on_browse_context_menu_play_calls_host(qapp, monkeypatch):
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_browse_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -627,7 +627,7 @@ def test_on_browse_context_menu_track_show_calls_prompt_track(qapp, monkeypatch)
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_browse_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
@@ -659,7 +659,7 @@ def test_on_browse_context_menu_watch_absent_when_already_watched(qapp, monkeypa
         lambda session: _FakeRepos(channel),
     )
     spy, captured = _spy_build_factory()
-    monkeypatch.setattr("metatv.gui.epg_view.build_channel_menu", spy)
+    monkeypatch.setattr("metatv.gui.epg_browse_mixin.build_channel_menu", spy)
 
     from PyQt6.QtWidgets import QMenu
     monkeypatch.setattr(QMenu, "exec", lambda self, *a, **kw: None)
