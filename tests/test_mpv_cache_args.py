@@ -1,13 +1,22 @@
-"""Regression: the "Stream cache size" setting (config.default_cache_size) must
-reach the mpv command line.
+"""Regression and behavioral tests for MPVPlayer._compose_extra_args().
 
-The bug: MPVPlayer launched mpv with only config.mpv_extra_args, so the saved
-default_cache_size control did nothing. MPVPlayer._compose_extra_args() now maps
-a non-"auto" cache size to --cache=yes / --demuxer-max-bytes=<N>iB /
---demuxer-readahead-secs=30 and appends the user's args last (so user args win).
+The "Stream cache size" setting (config.default_cache_size) must reach the mpv
+command line, and auto-reconnect + UA must be present in every branch.
 
 The canonical --user-agent is always prepended first so any user-supplied
 --user-agent in mpv_extra_args appears later and wins (mpv honours last value).
+The always-on RECONNECT_FLAG follows immediately after the UA — also before any
+cache or user args.
+
+Buffer flags when cache is "auto"/empty/unrecognized are determined by
+config.buffer_profile:
+  "reconnect_only" → no cache flags
+  "modest"         → --cache=yes --cache-secs=10 --demuxer-readahead-secs=20
+  "large"          → --cache=yes --cache-secs=30 --demuxer-readahead-secs=30
+  <unknown>        → treated as "modest"
+
+An explicit valid size (e.g. "100M") uses the legacy explicit-cache path
+(--demuxer-max-bytes) regardless of the profile.
 
 These tests execute _compose_extra_args() directly and assert the composed arg
 list — the real observable behavior, not a substring of the source.
@@ -18,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer
+from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -32,45 +41,153 @@ class _FakeConfig:
     mpv_socket_path: str = "/tmp/metatv-test.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
+    buffer_profile: str = "modest"
 
 
-def _player(cache_size: str, extra_args: list[str]) -> MPVPlayer:
-    return MPVPlayer(_FakeConfig(default_cache_size=cache_size, mpv_extra_args=extra_args))
+def _player(
+    cache_size: str = "auto",
+    extra_args: list[str] | None = None,
+    buffer_profile: str = "modest",
+) -> MPVPlayer:
+    return MPVPlayer(_FakeConfig(
+        default_cache_size=cache_size,
+        mpv_extra_args=extra_args if extra_args is not None else [],
+        buffer_profile=buffer_profile,
+    ))
 
 
-def test_auto_preserves_stock_behavior():
-    """'auto' adds only the canonical UA + user args — no cache flags."""
-    player = _player("auto", ["--foo"])
-    args = player._compose_extra_args()
+# ---------------------------------------------------------------------------
+# Reconnect flag presence — required in EVERY branch
+# ---------------------------------------------------------------------------
+
+def test_reconnect_flag_present_auto_modest():
+    """RECONNECT_FLAG is present when cache='auto' + profile='modest'."""
+    args = _player("auto", [], "modest")._compose_extra_args()
+    assert RECONNECT_FLAG in args
+
+
+def test_reconnect_flag_present_explicit_size():
+    """RECONNECT_FLAG is present when an explicit size is configured."""
+    args = _player("50M", [])._compose_extra_args()
+    assert RECONNECT_FLAG in args
+
+
+def test_reconnect_flag_present_garbage_size():
+    """RECONNECT_FLAG is present even for unrecognized cache sizes."""
+    args = _player("not-a-size", [])._compose_extra_args()
+    assert RECONNECT_FLAG in args
+
+
+# ---------------------------------------------------------------------------
+# UA ordering
+# ---------------------------------------------------------------------------
+
+def test_ua_is_first():
+    """Canonical UA must be the very first argument in every branch."""
+    assert _player("auto", [])._compose_extra_args()[0] == _CANONICAL_UA
+    assert _player("50M", [])._compose_extra_args()[0] == _CANONICAL_UA
+    assert _player("???", [])._compose_extra_args()[0] == _CANONICAL_UA
+
+
+def test_reconnect_flag_after_ua_before_cache():
+    """RECONNECT_FLAG must follow the UA and precede any cache flags."""
+    args = _player("auto", [], "modest")._compose_extra_args()
+    ua_idx = args.index(_CANONICAL_UA)
+    rc_idx = args.index(RECONNECT_FLAG)
+    cache_indices = [i for i, a in enumerate(args) if a.startswith("--cache=") or a.startswith("--cache-secs")]
+    assert ua_idx < rc_idx
+    if cache_indices:
+        assert rc_idx < min(cache_indices)
+
+
+def test_user_args_last_with_explicit_size():
+    """User args remain LAST (after cache flags) for an explicit size."""
+    args = _player("100M", ["--foo"])._compose_extra_args()
+    assert args[-1] == "--foo"
+    assert args[0] == _CANONICAL_UA
+
+
+def test_user_args_last_with_auto():
+    """User args remain LAST even in the auto/profile branch."""
+    args = _player("auto", ["--foo"], "modest")._compose_extra_args()
+    assert args[-1] == "--foo"
+
+
+# ---------------------------------------------------------------------------
+# Buffer profile: "modest" (default)
+# ---------------------------------------------------------------------------
+
+def test_auto_modest_profile_cache_flags():
+    """auto + modest → --cache=yes, --cache-secs=10, --demuxer-readahead-secs=20."""
+    args = _player("auto", [], "modest")._compose_extra_args()
+    assert "--cache=yes" in args
+    assert "--cache-secs=10" in args
+    assert "--demuxer-readahead-secs=20" in args
+    assert not any(a.startswith("--demuxer-max-bytes=") for a in args)
+
+
+# ---------------------------------------------------------------------------
+# Buffer profile: "reconnect_only"
+# ---------------------------------------------------------------------------
+
+def test_reconnect_only_profile_no_cache_flags():
+    """reconnect_only → UA + reconnect flag, but NO --cache= / --cache-secs= / --demuxer- flags."""
+    args = _player("auto", [], "reconnect_only")._compose_extra_args()
     assert _CANONICAL_UA in args
-    assert "--foo" in args
-    # No cache-related flags.
-    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
-    # User arg must come after the canonical UA.
-    assert args.index(_CANONICAL_UA) < args.index("--foo")
+    assert RECONNECT_FLAG in args
+    assert not any(
+        a.startswith("--cache=") or a.startswith("--cache-secs") or a.startswith("--demuxer-")
+        for a in args
+    )
 
 
-def test_falsy_cache_size_preserves_stock_behavior():
-    """An empty cache size behaves like 'auto' — canonical UA + user args, no cache flags."""
-    player = _player("", ["--foo"])
-    args = player._compose_extra_args()
-    assert _CANONICAL_UA in args
-    assert "--foo" in args
-    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
+# ---------------------------------------------------------------------------
+# Buffer profile: "large"
+# ---------------------------------------------------------------------------
 
+def test_large_profile_cache_flags():
+    """large → --cache=yes, --cache-secs=30, --demuxer-readahead-secs=30."""
+    args = _player("auto", [], "large")._compose_extra_args()
+    assert "--cache=yes" in args
+    assert "--cache-secs=30" in args
+    assert "--demuxer-readahead-secs=30" in args
+
+
+# ---------------------------------------------------------------------------
+# Buffer profile: unknown value falls back to "modest"
+# ---------------------------------------------------------------------------
+
+def test_unknown_profile_falls_back_to_modest():
+    """An unknown profile must not crash and must behave like 'modest'."""
+    args = _player("auto", [], "bogus-profile")._compose_extra_args()
+    assert "--cache=yes" in args
+    assert "--cache-secs=10" in args
+    assert "--demuxer-readahead-secs=20" in args
+
+
+# ---------------------------------------------------------------------------
+# Explicit size: legacy --demuxer-max-bytes path (profile is irrelevant)
+# ---------------------------------------------------------------------------
 
 def test_configured_size_prepends_cache_flags_user_args_last():
-    """A real size prepends cache-resilience flags; user args remain LAST so they win."""
-    player = _player("100M", ["--foo"])
-    args = player._compose_extra_args()
-
+    """A real size uses the legacy explicit-cache path; user args remain LAST."""
+    args = _player("100M", ["--foo"])._compose_extra_args()
     assert "--cache=yes" in args
     assert "--demuxer-max-bytes=100MiB" in args
     assert "--demuxer-readahead-secs=30" in args
-    # User override wins: their arg must be the final element.
     assert args[-1] == "--foo"
-    # Canonical UA must be first in the list.
     assert args[0] == _CANONICAL_UA
+
+
+def test_explicit_size_ignores_profile():
+    """An explicit size always uses the demuxer-max-bytes path, regardless of profile."""
+    args_modest = _player("50M", [], "modest")._compose_extra_args()
+    args_large = _player("50M", [], "large")._compose_extra_args()
+    assert "--demuxer-max-bytes=50MiB" in args_modest
+    assert "--demuxer-max-bytes=50MiB" in args_large
+    # Neither should have --cache-secs (that's the profile path, not the explicit path).
+    assert not any(a.startswith("--cache-secs") for a in args_modest)
+    assert not any(a.startswith("--cache-secs") for a in args_large)
 
 
 def test_size_suffix_conversion_variants():
@@ -81,17 +198,25 @@ def test_size_suffix_conversion_variants():
     assert "--demuxer-max-bytes=250MiB" in _player("250", [])._compose_extra_args()
 
 
-def test_garbage_size_falls_back_to_user_args():
-    """An unrecognized value must not raise; returns canonical UA + user args only."""
-    player = _player("not-a-size", ["--foo"])
-    args = player._compose_extra_args()
+# ---------------------------------------------------------------------------
+# Garbage size: falls back to profile-driven flags (not a crash)
+# ---------------------------------------------------------------------------
+
+def test_garbage_size_falls_back_to_profile():
+    """An unrecognized size must not raise; falls back to the profile flags."""
+    args = _player("not-a-size", ["--foo"], "modest")._compose_extra_args()
     assert _CANONICAL_UA in args
+    assert RECONNECT_FLAG in args
     assert "--foo" in args
-    assert not any(a.startswith("--cache=") or a.startswith("--demuxer-") for a in args)
+    # Profile flags present (modest fallback)
+    assert "--cache=yes" in args
+    assert "--cache-secs=10" in args
 
 
-def test_garbage_size_no_user_args_returns_only_ua():
-    """Garbage with no user args yields only the canonical UA (no crash, no cache flags)."""
-    player = _player("???", [])
-    args = player._compose_extra_args()
-    assert args == [_CANONICAL_UA]
+def test_garbage_size_reconnect_only_profile():
+    """Garbage size + reconnect_only → UA + reconnect, no cache flags, user args present."""
+    args = _player("not-a-size", ["--foo"], "reconnect_only")._compose_extra_args()
+    assert _CANONICAL_UA in args
+    assert RECONNECT_FLAG in args
+    assert "--foo" in args
+    assert not any(a.startswith("--cache=") or a.startswith("--cache-secs") for a in args)

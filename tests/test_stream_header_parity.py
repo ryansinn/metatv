@@ -55,6 +55,7 @@ class _FakeConfig:
     mpv_socket_path: str = "/tmp/metatv-test-headers.sock"
     player_mode: str = "single-instance"
     close_player_when_finished: bool = False
+    buffer_profile: str = "modest"
 
 
 def _player(cache_size: str = "auto", extra_args: list[str] | None = None) -> MPVPlayer:

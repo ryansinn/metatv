@@ -638,6 +638,7 @@ class Config(BaseModel):
     
     # Playback settings
     default_cache_size: str = "auto"  # "auto" or size like "50M", "100M"
+    buffer_profile: str = "modest"  # "reconnect_only" | "modest" | "large" — default buffer when default_cache_size is "auto"
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
     autoplay_season_episodes: bool = True  # Auto-queue subsequent episodes when playing from season

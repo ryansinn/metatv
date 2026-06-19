@@ -12,6 +12,11 @@ from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
 
+# Always-on reconnect for transient live-stream drops. These three options have
+# been stable across ffmpeg/libavformat for many years and are intentionally
+# conservative (no --hls-use-mpegts or newer opts that vary by build).
+RECONNECT_FLAG = "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30"
+
 
 class MPVPlayer(PlayerPlugin):
     """MPV media player implementation with single-instance IPC support"""
@@ -45,17 +50,42 @@ class MPVPlayer(PlayerPlugin):
             return False
         return self.process.poll() is None
 
+    @staticmethod
+    def _buffer_profile_args(profile: str) -> list[str]:
+        """Return mpv buffer flags for the given profile name.
+
+        Args:
+            profile: One of ``"reconnect_only"``, ``"modest"``, or ``"large"``.
+                     Any unknown value is treated as ``"modest"`` (safe default).
+
+        Returns:
+            List of mpv argument strings for the requested buffer profile.
+        """
+        if profile == "reconnect_only":
+            return []
+        if profile == "large":
+            return ["--cache=yes", "--cache-secs=30", "--demuxer-readahead-secs=30"]
+        # "modest" is the default; unknown values fall back here rather than crashing.
+        return ["--cache=yes", "--cache-secs=10", "--demuxer-readahead-secs=20"]
+
     def _compose_extra_args(self) -> list[str]:
         """Build the effective extra mpv args.
 
-        Prepends cache-resilience flags derived from ``config.default_cache_size``,
-        then appends the user's ``mpv_extra_args`` last so the user can override
-        the base (mpv applies the last value for a repeated option).
+        Always prepends the canonical User-Agent and the always-on reconnect flag
+        so transient live-stream drops self-heal. The reconnect flag uses three
+        conservative, long-stable ffmpeg/libavformat options.
 
-        For ``"auto"`` (or a falsy value) no cache flags are added — stock mpv
-        behavior is preserved. A configured size like ``"100M"`` is mapped to an
-        mpv ``<bytesize>`` suffix (``"100MiB"``) for ``--demuxer-max-bytes``. An
-        unrecognized size falls back to just the user args (never raises).
+        Buffer flags are determined as follows:
+        - If ``config.default_cache_size`` is an explicit, valid size (e.g. ``"100M"``),
+          the legacy explicit-cache path is used: ``--cache=yes``,
+          ``--demuxer-max-bytes=<N>iB``, ``--demuxer-readahead-secs=30``.  This is
+          the power-user override and is unchanged by the profile setting.
+        - Otherwise (``"auto"``, empty, or an unrecognized size), buffer flags are
+          derived from ``config.buffer_profile`` via :meth:`_buffer_profile_args`.
+
+        User args (``config.mpv_extra_args``) are appended LAST so they win via
+        mpv's last-value rule — including any user-supplied ``--user-agent`` or
+        cache overrides applied by the Diagnose feature.
 
         Returns:
             The composed list of extra args to pass on the mpv command line.
@@ -63,23 +93,24 @@ class MPVPlayer(PlayerPlugin):
         size = self.config.default_cache_size
         user_args = list(self.config.mpv_extra_args)
 
-        # Canonical User-Agent must come first so user's own --user-agent (in
-        # user_args) appears later and wins (mpv honours the last value).
-        header_args = [f"--user-agent={stream_user_agent()}"]
+        # Canonical User-Agent must come first; user's own --user-agent in user_args
+        # appears later and wins (mpv honours the last value).
+        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
 
-        if not size or size == "auto":
-            return header_args + user_args
+        byte_size = self._to_mpv_bytesize(size) if (size and size != "auto") else None
 
-        byte_size = self._to_mpv_bytesize(size)
-        if byte_size is None:
-            # Unrecognized value — don't crash, just use header + user args.
-            return header_args + user_args
+        if byte_size is not None:
+            # Power-user explicit size: preserve the existing demuxer-max-bytes path.
+            buffer_args = [
+                "--cache=yes",
+                f"--demuxer-max-bytes={byte_size}",
+                "--demuxer-readahead-secs=30",
+            ]
+        else:
+            # Auto / empty / unrecognized: use the profile-driven buffer flags.
+            buffer_args = self._buffer_profile_args(self.config.buffer_profile)
 
-        return header_args + [
-            "--cache=yes",
-            f"--demuxer-max-bytes={byte_size}",
-            "--demuxer-readahead-secs=30",
-        ] + user_args
+        return base_args + buffer_args + user_args
 
     @staticmethod
     def _to_mpv_bytesize(size: str) -> Optional[str]:
