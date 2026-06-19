@@ -17,6 +17,11 @@ from loguru import logger
 # ---------------------------------------------------------------------------
 
 BASE_PREFIX_GROUPS: dict[str, list[str]] = {
+    # Content-category group (not a locale) — adult-content prefixes grouped together
+    # instead of each surfacing separately under "Other". Note: bare "X" is ambiguous
+    # in general but confirmed adult in this library; remove via user_prefix_overrides
+    # if it ever mis-groups a non-adult "X …" channel.
+    "Adult":            ["X", "XXX", "ADULT"],
     "Albanian":         ["AL", "ALB"],
     # ── Arabic locale sub-groups ──────────────────────────────────────────────
     # "Arabic" = all Arabic-speaking regions (aggregate).
