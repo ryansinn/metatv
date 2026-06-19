@@ -70,6 +70,7 @@ class _MetadataMixin:
                 repos = RepositoryFactory(session)
                 queue_ids = repos.queue.get_queued_ids()
                 provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
+                hidden_provider_ids = set(repos.providers.get_hidden_provider_ids())
                 _filter_paused = self.config.global_filter_paused
                 excluded_cats = set() if _filter_paused else set(self.config.global_filter_excluded_categories)
                 blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
@@ -107,6 +108,7 @@ class _MetadataMixin:
                     versions_raw = [
                         ch for ch in candidates
                         if normalize_title(ch.name, ch.detected_prefix) == norm
+                        and ch.provider_id not in hidden_provider_ids
                     ]
                 else:
                     current_norm = normalize_title(channel.name, channel.detected_prefix)
@@ -130,6 +132,7 @@ class _MetadataMixin:
                         ch for ch in candidates
                         if normalize_title(ch.name, ch.detected_prefix) == current_norm
                         and _version_years_compatible(ch.name, channel.name)
+                        and ch.provider_id not in hidden_provider_ids
                     ]
 
                 current_score = _version_score(channel, self.config)
