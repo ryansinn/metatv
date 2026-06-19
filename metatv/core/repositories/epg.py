@@ -339,6 +339,56 @@ class EpgRepository:
 
         return results
 
+    def get_matching_programs(
+        self,
+        channel_db_id: str,
+        patterns: list[str],
+        provider_ids: list[str],
+        limit: int = 10,
+    ) -> list[tuple[str, datetime]]:
+        """Upcoming programmes on a specific channel whose titles match any watchlist pattern.
+
+        Mirrors ``get_recommendations``'s time window (now → +168 h) and provider filter.
+        Returns plain ``(title, start_time)`` tuples so callers are safe after the session
+        closes — never ORM objects.
+
+        Args:
+            channel_db_id: The channel whose schedule to search.
+            patterns: Watchlist keyword patterns; at least one must match ``title ILIKE``.
+            provider_ids: EPG-active provider IDs to restrict the search to.
+            limit: Maximum number of rows returned.
+
+        Returns:
+            List of ``(title, start_time)`` tuples ordered by ``start_time`` ascending.
+        """
+        if not patterns or not provider_ids:
+            return []
+
+        from sqlalchemy import or_
+        now = _now_utc()
+        cutoff = now + timedelta(hours=168)
+
+        pattern_conditions = [
+            EpgProgramDB.title.ilike(f"%{p}%") for p in patterns
+        ]
+
+        rows = (
+            self.session.query(EpgProgramDB.title, EpgProgramDB.start_time)
+            .filter(
+                EpgProgramDB.provider_id.in_(provider_ids),
+                EpgProgramDB.channel_db_id == channel_db_id,
+                EpgProgramDB.start_time >= now,
+                EpgProgramDB.start_time <= cutoff,
+                or_(*pattern_conditions),
+            )
+            .order_by(EpgProgramDB.start_time)
+            .limit(limit)
+            .all()
+        )
+
+        # Return plain tuples — never expose ORM objects across the session boundary.
+        return [(title, start_time) for title, start_time in rows]
+
     # ------------------------------------------------------------------
     # Per-channel schedule (for details pane agenda)
     # ------------------------------------------------------------------
