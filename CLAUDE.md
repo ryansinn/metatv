@@ -103,6 +103,12 @@ _p = parse_channel_name(channel.name)
 year_str = f" · {_p.year}" if _p.year else ""
 ```
 
+**Documented exception:** `_make_recommendation_item` in `gui/epg_view.py` (the EPG Discover
+recommendation card) still calls `parse_channel_name` at render — it derives audio/lang chips, and
+audio/lang have **no stored `detected_*` field** to read. This is the one accepted render-time parse;
+the audit should not flag it. Every other surface reads stored fields (the EPG On-Now render was
+migrated off `parse_channel_name` for exactly this rule).
+
 ### Lookup tables — single source of truth, no duplicates
 Region/country codes, quality tokens, audio format maps, and similar lookup data must live in exactly one place. The canonical location for channel-name parsing data is `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, etc.). All other modules (GUI, details pane, sidebar) must import from there — never define their own parallel dicts.
 
@@ -283,6 +289,51 @@ panel's inclusive genre logic (which has a no-data passthrough). The full patter
 - Text search and an active chip coexist — typing narrows *within* the chip filter; it does NOT dismiss the chip.
 - All chip styles come from `theme.CONTEXT_FILTER_CHIP*` constants — no inline hex.
 - State lives in `_details_*_filter` vars on `MainWindow`; passed through `load_channels()` params → `get_all()`.
+
+### Channel context menus — compose through `channel_menu.py`, never hand-roll a `QMenu`
+Every channel context menu (the channel list, History, Favorites, sidebar Queue/Recommended/Alerts/
+Retry, multi-select, and EPG On-Now/Browse) is built by the **unified registry** in
+`metatv/gui/channel_menu.py`: `ChannelMenuContext` + the `ACTIONS` registry + `SURFACE_LAYOUTS` +
+`build_channel_menu(ctx, handlers, parent)`. This replaced ~9 hand-rolled, drifting menus — **do not
+regrow them.**
+
+- To add an action: define it once in `ACTIONS` (label/icon/tooltip/`applies`) and list its id in the
+  relevant `SURFACE_LAYOUTS` entry; supply a handler in the call site's `handlers` dict. An action id
+  absent from a site's `handlers` is silently skipped — that is how surfaces opt in/out.
+- The MainWindow family gathers context **off-thread** through the single `_show_channel_menu` seam
+  (`_bg_fetch_ctx_data` → `_ctx_data_ready` → `_on_ctx_data_ready`). New MainWindow-family menus go
+  through it, not a bespoke `executor.submit` + inline `QMenu`.
+- EPG/Preferences views build locally via `build_channel_menu` and delegate **core** handlers (play /
+  favorite / queue / rate) to the MainWindow host (`self.window()`), supplying their own extras.
+- Never construct a `QMenu` of channel actions by hand. (Non-channel menus — filter dropdowns, column
+  headers, details chips — are out of scope and stay as-is.)
+
+### Player instance keying — thread `provider_id`; never bypass `PlayerManager`
+mpv runs as a **per-source instance registry** (Split Streams). `PlayerManager.play(url, title,
+provider_id=…, force_new_window=…)` resolves the instance key — `"__shared__"` when split is off, the
+`provider_id` when `config.split_streams_by_source` is on or when `force_new_window=True` — and
+`MPVPlayer` owns the `dict[key → _Inst]`.
+
+- Every play path **must thread the channel's `provider_id`** through: `play_media(channel, …)` →
+  `_bg_validate_and_play` → the `_stream_ready` payload → `_on_stream_ready` →
+  `player_manager.play(provider_id=…)`. A play path that drops `provider_id` breaks Split Streams.
+- `is_running` / `stop` / `get_properties` / `active_keys` all go through `PlayerManager(..., key=…)`.
+  Never reach into `MPVPlayer`'s process/socket directly or hardcode an instance.
+- `force_new_window=True` is how "Play in New Window" opens a per-source window regardless of the
+  toggle. `config.split_streams_by_source` is the only user toggle.
+
+### EPG `channel_name` must be populated at fetch — the relink depends on it
+`EpgProgramDB.channel_name` stores each programme's XMLTV **display-name**, written at fetch time
+(`_fetch_worker` builds `chan_name_map` from the parsed channels). The DB-only
+`EpgManager.relink_all()` re-matches existing rows against the current channel table — using this name
+for the **fuzzy** match tiers — which is what makes the watchlist / Watch-Alerts populate **without a
+manual Refresh** (channel matching is rebuilt on EPG activation + after channel loads).
+
+- **Never stop populating `channel_name`** at fetch. Without it the relink loses fuzzy matching and
+  the "watchlist empty until you click Refresh" bug returns.
+- Legacy rows lacking a name trigger a one-time re-fetch via
+  `EpgRepository.has_unmatched_unnamed_epg()`; relink reuses `_build_match_map` (all three tiers) and
+  emits `refresh_finished` so the views reload.
 
 ### Early returns must clean up acquired state
 Any resource or set membership acquired before a guard check must be released on every early return path — not just the happy path.
