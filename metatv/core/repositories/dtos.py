@@ -17,6 +17,55 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Playable DTOs — replace session.expunge() anti-pattern (B10-1)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PlayableChannelDTO:
+    """Union of all ChannelDB fields consumed by play_media, drill_into_series,
+    update_details_pane_for_channel, details_pane.show_channel, and load_basic.
+
+    Built inside a session_scope() by ChannelRepository.get_playable_dto() so
+    that no ORM object crosses the session boundary.  Field names intentionally
+    mirror ChannelDB so consumers need no code changes — only type-hint updates.
+    """
+    id: str
+    source_id: str
+    provider_id: str
+    name: str
+    stream_url: Optional[str]
+    media_type: Optional[str]
+    is_favorite: bool
+    is_hidden: bool
+    is_adult: bool
+    logo_url: Optional[str]
+    detected_prefix: Optional[str]
+    detected_quality: Optional[str]
+    detected_region: Optional[str]
+    detected_title: Optional[str]
+    detected_year: Optional[str]
+    raw_data: Optional[dict]
+    metadata_id: Optional[str]
+
+
+@dataclass(frozen=True)
+class PlayableEpisodeDTO:
+    """Fields from EpisodeDB consumed by play_episode() and play_from_history_id().
+
+    Built inside a session_scope() by EpisodeRepository.get_last_played_dto() so
+    that no EpisodeDB object crosses the session boundary.
+    """
+    id: str
+    title: str
+    stream_url: Optional[str]
+    series_id: str
+    provider_id: str
+    season_id: str
+    episode_num: int
+    season_num: int
+
+
+# ---------------------------------------------------------------------------
 # Sidebar DTOs
 # ---------------------------------------------------------------------------
 

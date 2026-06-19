@@ -34,7 +34,37 @@ class ChannelRepository(_ChannelStatsMixin):
     def get_by_id(self, channel_id: str) -> Optional[ChannelDB]:
         """Get channel by ID"""
         return self.session.query(ChannelDB).filter_by(id=channel_id).first()
-    
+
+    def get_playable_dto(self, channel_id: str) -> "Optional[PlayableChannelDTO]":
+        """Return a PlayableChannelDTO for *channel_id*, or None if not found.
+
+        Must be called inside a session_scope().  No ORM object escapes — the
+        returned frozen dataclass is safe to use after the session closes.
+        """
+        from metatv.core.repositories.dtos import PlayableChannelDTO
+        ch = self.get_by_id(channel_id)
+        if ch is None:
+            return None
+        return PlayableChannelDTO(
+            id=ch.id,
+            source_id=ch.source_id,
+            provider_id=ch.provider_id,
+            name=ch.name,
+            stream_url=ch.stream_url,
+            media_type=ch.media_type,
+            is_favorite=bool(ch.is_favorite),
+            is_hidden=bool(ch.is_hidden),
+            is_adult=bool(ch.is_adult),
+            logo_url=ch.logo_url,
+            detected_prefix=ch.detected_prefix,
+            detected_quality=ch.detected_quality,
+            detected_region=ch.detected_region,
+            detected_title=ch.detected_title,
+            detected_year=ch.detected_year,
+            raw_data=ch.raw_data,
+            metadata_id=ch.metadata_id,
+        )
+
     def get_by_source_id(self, provider_id: str, source_id: str) -> Optional[ChannelDB]:
         """Get channel by provider and source ID"""
         return self.session.query(ChannelDB).filter_by(

@@ -340,10 +340,7 @@ class _MetadataMixin:
         """Show channel details in details pane (for sidebar selections)."""
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if channel:
             self.update_details_pane_for_channel(channel)
 
@@ -359,10 +356,7 @@ class _MetadataMixin:
 
         channel = None
         with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            channel = repos.channels.get_by_id(channel_id)
-            if channel:
-                session.expunge(channel)
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
         if channel:
             self.update_details_pane_for_channel(channel)
 
