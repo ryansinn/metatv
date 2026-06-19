@@ -459,6 +459,18 @@ WHATS_NEW_CARD = (
     "QWidget { background: " + OVERLAY_04 + "; border: 1px solid " + COLOR_LINE + ";"
     " border-radius: 6px; }"
 )
+# What's New carousel — navigation chevron buttons (large, monochrome, minimal border)
+WHATS_NEW_NAV_BTN = (
+    "QPushButton { font-size: " + FONT_3XL + "; color: " + COLOR_DIM + ";"
+    " background: transparent; border: 1px solid " + COLOR_LINE + "; border-radius: 4px;"
+    " padding: 2px 10px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_BORDER + "; }"
+    "QPushButton:disabled { color: " + COLOR_FAINT + "; border-color: " + COLOR_LINE_DARK + "; }"
+)
+# What's New carousel — "1 / 4" position indicator label
+WHATS_NEW_POS_LABEL = (
+    "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+)
 
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (

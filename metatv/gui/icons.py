@@ -51,6 +51,9 @@ move_up_icon: str = "▲"
 move_down_icon: str = "▼"
 prev_icon: str = "◀"
 next_icon: str = "▶"
+# Carousel / single-axis navigation (monochrome single chevrons — no colour bleed)
+nav_prev_icon: str = "‹"   # U+2039 SINGLE LEFT-POINTING ANGLE QUOTATION MARK — "newer / forward"
+nav_next_icon: str = "›"   # U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK — "older / back"
 
 # State
 loading_icon: str = "⟳"
