@@ -48,6 +48,7 @@ class EpgManager(QObject):
         self._progress_done.connect(self._do_progress_done)
         self._progress_error.connect(self._do_progress_error)
         self._active_refreshes: set[str] = set()  # provider IDs currently refreshing
+        self._unmatched_refresh_attempted: set[str] = set()  # per-session unmatched-relink guard
 
     def _do_notify(self, title: str, message: str, type_: str, auto_dismiss_ms: int) -> None:
         if self.notifications:
@@ -182,19 +183,43 @@ class EpgManager(QObject):
         Providers with ``epg_enabled=False`` are skipped — the user has explicitly
         opted out of EPG fetching for those sources. NULL is treated as enabled for
         backwards compatibility with rows predating the column.
+
+        In addition to the normal time-staleness check, this method detects the
+        "unmatched guide" case: EPG rows exist but all have ``channel_db_id=NULL``
+        because the fetch ran before the channel list was loaded.  For such providers
+        a one-time re-fetch is triggered per session (guarded by
+        ``_unmatched_refresh_attempted``) so the link is rebuilt against the now-
+        loaded channel table without the user having to click Refresh manually.
         """
         if not self.config.epg_auto_refresh:
             return
 
         session = self.db.get_session()
         try:
+            from metatv.core.repositories.epg import EpgRepository
+            epg_repo = EpgRepository(session)
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
             for provider in providers:
                 if not getattr(provider, "epg_enabled", True):
                     continue  # user disabled EPG for this provider
                 self._ensure_epg_url(provider, session)
                 eff_url = self.effective_epg_url(provider)
-                if eff_url and provider.id not in self._active_refreshes and self.needs_refresh(provider):
+                if not eff_url or provider.id in self._active_refreshes:
+                    continue
+                if self.needs_refresh(provider):
+                    self._start_refresh(provider.id, eff_url, provider.name, force=False)
+                elif (
+                    provider.id not in self._unmatched_refresh_attempted
+                    and epg_repo.has_unmatched_epg(provider.id)
+                ):
+                    # Guide is time-fresh but all programme rows have channel_db_id=NULL
+                    # (fetch ran before channels were loaded). Re-fetch once this session
+                    # to rebuild the match map now that channels are available.
+                    logger.info(
+                        f"EPG: provider {provider.name!r} has unmatched guide data "
+                        f"— triggering one-time re-fetch to rebuild channel links"
+                    )
+                    self._unmatched_refresh_attempted.add(provider.id)
                     self._start_refresh(provider.id, eff_url, provider.name, force=False)
         finally:
             session.close()
