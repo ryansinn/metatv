@@ -12,6 +12,9 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **Stream Validation**: Automatic URL health checks with geo-blocking failover
 - **Single-Instance mpv Player**: Persistent player window with IPC control
 - **External Player Support**: Fallback to VLC, ffplay, or other players
+- **Auto-Reconnect & Buffer Profiles**: mpv auto-reconnects after brief network drops; selectable buffering (reconnect-only / modest / large) plus optional pre-buffer-before-play, all in Settings → Playback
+- **Stream Diagnostics**: one-click Diagnose probes a troubled stream (is it the provider or your connection?) and applies the recommended tuning; consistent HTTP User-Agent across validation, diagnostics, ffprobe, and mpv (fixes UA-gated providers)
+- **Split Streams**: optionally give each source its own player window — watch two sources at once; "Play in New Window" from any channel; click the live playback-health readout (buffer · speed · dropped frames) to cycle open windows
 - **Episode Auto-Queue**: Automatically queue subsequent episodes in a season
 
 **Content Organization**
@@ -36,6 +39,11 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **EPG System**: XMLTV feed parsing (140 MB+ supported), background fetch, channel matching
 - **EPG Watchlist**: Keyword-based pattern matching; live 🔴 and upcoming ⏰ alerts in sidebar
 - **EPG On Now / Browse**: See what's airing now or browse the full schedule by channel/time
+- **Auto-Relink (no manual Refresh)**: watchlist and Watch Alerts populate automatically — channel↔guide links are rebuilt on launch from existing data, without re-downloading the feed
+- **Active-Source Scoping**: On Now and watchlist surfaces show only your enabled, non-expired sources; categories read from stored fields (no render-time re-parsing)
+- **EPG Events Tab**: platform live-events surfaced in Timeline / By-Network sub-views
+- **EPG Discover**: actionable recommendation rows — add to My Channels, Play, and expand to see upcoming matches
+- **Persistent On Now Columns**: drag to reorder; layout remembered across restarts
 
 **Special Content**
 - **PPV View**: Pay-per-view event detection with countdown timers
@@ -52,13 +60,16 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **Advanced Filtering**: Prefix detection for language, quality, and platform grouping
 - **Language / Quality / Platform Filters**: EN, ES, 4K, HD, Netflix, etc.
 - **Collapsible Filter Section**: Expandable filter controls with persistent visibility state
+- **Per-Source Filter Toggle**: click a source in the sidebar to filter the list to it; click it again to clear back to all sources
 
 **UI & Platform**
 - **Smart Notifications**: Auto-dismissing progress notifications for background operations
 - **SQLite Database**: Fast local caching with background loading and WAL mode
 - **Persistent UI State**: All sidebar sizes, section states, and filter selections remembered
 - **Resizable Sections**: Draggable sidebar sections with saved heights
-- **Context Menus**: Rich right-click menus across all content surfaces
+- **Unified Context-Menu Registry**: one consistent right-click action set (Play, Play in New Window, Favorite, Queue, rate, hide…) across every channel surface — list, history, favorites, sidebar sections, and EPG
+- **What's New**: in-app changelog shown once after each update (and from the Help menu) — a navigable carousel stepping through releases
+- **Async-Read Architecture**: heavy DB reads run off the UI thread via a single `_run_query` seam + frozen DTOs, keeping the window responsive on 240k+ channel libraries
 - **Repository Pattern**: Clean data access layer separating business logic from UI
 - **Player / Provider Abstraction**: Plugin-based systems ready for additional backends
 
