@@ -169,6 +169,32 @@ def classify(
     return INTERNET_LIMITED
 
 
+def recommend_buffer_profile(verdict: str) -> tuple[str | None, bool]:
+    """Map a diagnostic verdict to (buffer_profile, prebuffer_before_play).
+
+    Returns ``(None, False)`` when no buffering change is warranted (the caller
+    then offers nothing to apply). A bigger buffer only helps when the stream is
+    jittery or the provider is the bottleneck; it can't fix a too-thin pipe.
+
+    Args:
+        verdict: One of the module ``VERDICT_*`` / short-name constants.
+
+    Returns:
+        ``(buffer_profile, prebuffer_before_play)`` where ``buffer_profile`` is
+        one of ``"reconnect_only"`` / ``"modest"`` / ``"large"`` (or ``None``),
+        and ``prebuffer_before_play`` is a bool.
+    """
+    if verdict == JITTER:
+        return ("large", False)
+    if verdict == PROVIDER_LIMITED:
+        # Pre-fill helps a slow-but-steady provider build a cushion before play
+        # starts, reducing the chance of an initial stall.
+        return ("large", True)
+    # HEALTHY, INTERNET_LIMITED, UNREACHABLE, or anything unexpected:
+    # a bigger buffer won't help (or there's nothing to tune).
+    return (None, False)
+
+
 def recommend_mpv_args(
     verdict: str, bitrate_mbps: float | None
 ) -> tuple[str, ...]:

@@ -7,8 +7,9 @@ in a Qt modal. The probe runs off the main thread on the MainWindow's shared
 renders it on the main thread (Qt widgets are not thread-safe).
 
 The dialog answers one question in plain language — *is buffering my provider or my
-connection?* — and offers an "Apply tuning & Save" action that merges the engine's
-recommended mpv cache args into ``config.mpv_extra_args`` idempotently.
+connection?* — and offers an "Apply tuning & Save" action that writes the structured
+Playback settings (``config.buffer_profile`` and ``config.prebuffer_before_play``) so
+the Settings → Playback tab remains the single source of truth.
 """
 
 from __future__ import annotations
@@ -21,44 +22,17 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core import stream_diagnostics as _diag
-from metatv.core.stream_diagnostics import DiagnosticResult
+from metatv.core.stream_diagnostics import DiagnosticResult, recommend_buffer_profile
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
-# mpv cache-tuning flags this dialog manages. Any of these present in the user's
-# existing args is dropped before appending the recommended set, so Apply is
-# idempotent and never duplicates a flag.
-_CACHE_ARG_PREFIXES = (
-    "--cache=",
-    "--cache-secs=",
-    "--demuxer-max-bytes=",
-    "--demuxer-readahead-secs=",
-)
-
-
-def merge_mpv_cache_args(
-    existing: list[str], recommended: tuple[str, ...]
-) -> list[str]:
-    """Merge recommended mpv cache args into an existing arg list, idempotently.
-
-    Drops any existing cache-tuning args (anything matching ``_CACHE_ARG_PREFIXES``),
-    keeps all other user args in their original order, then appends the recommended
-    args. Applying the same recommendation twice yields the same list — no duplicate
-    flags accumulate.
-
-    Args:
-        existing: The user's current ``mpv_extra_args``.
-        recommended: The engine's recommended cache args.
-
-    Returns:
-        A new list: non-cache user args (order preserved) followed by ``recommended``.
-    """
-    kept = [
-        arg for arg in existing
-        if not any(arg.startswith(p) for p in _CACHE_ARG_PREFIXES)
-    ]
-    return kept + list(recommended)
+# Human-readable labels for buffer_profile values.
+_PROFILE_LABELS: dict[str, str] = {
+    "reconnect_only": "Reconnect-only",
+    "modest": "Modest",
+    "large": "Large",
+}
 
 
 # Plain-language headline per verdict — answers the user's question directly.
@@ -282,14 +256,17 @@ class StreamDiagnosticsDialog(QDialog):
         self._metrics.setText(metrics)
         self._metrics.show()
 
-        if result.recommended_args:
-            self._recommend.setText(
-                "Recommended mpv settings: " + " ".join(result.recommended_args)
-            )
+        profile, prebuffer = recommend_buffer_profile(result.verdict)
+        if profile is not None:
+            label = _PROFILE_LABELS.get(profile, profile)
+            rec_text = f"Recommended buffering: {label}"
+            if prebuffer:
+                rec_text += " + pre-buffer"
+            self._recommend.setText(rec_text)
             self._recommend.show()
             self._apply_button.setEnabled(True)
         else:
-            self._recommend.setText("No tuning changes recommended.")
+            self._recommend.setText("No buffering change recommended.")
             self._recommend.show()
             self._apply_button.setEnabled(False)
 
@@ -298,15 +275,30 @@ class StreamDiagnosticsDialog(QDialog):
     # ------------------------------------------------------------------ #
 
     def _on_apply(self) -> None:
-        """Merge recommended args into config.mpv_extra_args and persist."""
-        if not self._result or not self._result.recommended_args:
+        """Write the recommended buffer profile to structured Playback config and persist."""
+        if not self._result:
             return
-        merged = merge_mpv_cache_args(
-            list(self._config.mpv_extra_args), self._result.recommended_args
-        )
-        self._config.mpv_extra_args = merged
+        profile, prebuffer = recommend_buffer_profile(self._result.verdict)
+        if profile is None:
+            return
+        self._config.buffer_profile = profile
+        self._config.prebuffer_before_play = prebuffer
         self._config.save()
-        logger.info("Applied diagnostic tuning to mpv_extra_args")
-        self._saved.setText("Saved — takes effect on the next stream you play.")
+        label = _PROFILE_LABELS.get(profile, profile)
+        prebuf_str = ", pre-buffer on" if prebuffer else ""
+        saved_msg = (
+            f"Saved — buffering set to {label}{prebuf_str}. "
+            "Takes effect on the next stream you play."
+        )
+        if getattr(self._config, "mpv_args_override_all", False):
+            saved_msg += (
+                " (Override-all is on — this change won't take effect until "
+                "Override-all is turned off in Settings → Playback.)"
+            )
+        logger.info(
+            f"Applied diagnostic tuning: buffer_profile={profile!r} "
+            f"prebuffer_before_play={prebuffer}"
+        )
+        self._saved.setText(saved_msg)
         self._saved.show()
         self._apply_button.setEnabled(False)
