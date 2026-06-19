@@ -339,6 +339,7 @@ class _StreamingMixin:
                 "final_url": final_url or "",
                 "stream_err": stream_err or "",
                 "notif_id": notif_id,
+                "provider_id": provider_id,
             })
         except Exception as e:
             logger.error(f"Error in _bg_validate_and_play: {e}")
@@ -350,6 +351,7 @@ class _StreamingMixin:
                 "final_url": "",
                 "stream_err": str(e),
                 "notif_id": notif_id,
+                "provider_id": provider_id,
             })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -389,7 +391,7 @@ class _StreamingMixin:
 
         self.status_bar.showMessage(f"Loading: {channel_name}...")
 
-        if self.player_manager.play(final_url, channel_name):
+        if self.player_manager.play(final_url, channel_name, provider_id=data.get("provider_id")):
             # Record playback — mark_played is a DB write; run off-thread
             self.executor.submit(self._bg_mark_played, channel_id)
 

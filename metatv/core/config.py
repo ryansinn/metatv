@@ -627,6 +627,7 @@ class Config(BaseModel):
     player_mode: str = "single-instance"  # "single-instance" or "multiple-instances"
     close_player_when_finished: bool = True  # Close player when stream finishes (mpv --keep-open=no)
     max_player_instances: int = 1  # Max player instances (0 = use provider's max_connections, -1 = unlimited)
+    split_streams_by_source: bool = False  # one mpv window per source (keyed by provider_id) when True
     player_args: dict = Field(default_factory=dict)
     
     # MPV-specific settings
