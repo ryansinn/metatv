@@ -346,3 +346,25 @@ def test_tick_skips_when_already_inflight():
     MainWindow._playback_health_tick(host)
 
     assert host.executor.submits == []  # did not pile up
+
+
+# ---------------------------------------------------------------------------
+# 5. _start_playback_health resets the readout view-key (stale-pin regression)
+# ---------------------------------------------------------------------------
+
+def test_start_playback_health_resets_view_key():
+    """A new play follows the latest window: _health_view_key resets to None.
+
+    Regression: clicking the readout to cycle pins _health_view_key to a window;
+    it was never reset, so after that window went idle / the user played
+    elsewhere the readout kept polling the stale instance and showed nothing.
+    """
+    host = MainWindow.__new__(MainWindow)
+    host._playback_health_timer = _FakeTimer()      # already active → no start()
+    host._health_query_inflight = False
+    host._health_view_key = "stale-provider-key"     # pinned by a prior readout click
+    host._start_playback_health()
+    assert host._health_view_key is None, (
+        "_start_playback_health must reset the pinned view-key so a new play "
+        "follows the most-recently-used window"
+    )
