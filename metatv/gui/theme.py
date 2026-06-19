@@ -445,6 +445,21 @@ DISCOVER_REC_COUNT = (
 )
 DISCOVER_REC_MATCH_ROW = "color: " + COLOR_DIM_2 + "; font-size: " + FONT_MD + "; padding-left: 4px;"
 
+# What's New dialog
+WHATS_NEW_TITLE = (
+    "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"
+)
+WHATS_NEW_META = (
+    "font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+)
+WHATS_NEW_ITEM = (
+    "font-size: " + FONT_LG + "; color: " + COLOR_TEXT + ";"
+)
+WHATS_NEW_CARD = (
+    "QWidget { background: " + OVERLAY_04 + "; border: 1px solid " + COLOR_LINE + ";"
+    " border-radius: 6px; }"
+)
+
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (
     "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
