@@ -95,9 +95,11 @@ delivered the structural fixes (`session_scope`, `closeEvent` registry, `JSONEnc
 EPG conversion boundary), `theme.py` token migration, `main_window.py` decomposition into mixins,
 the `_run_query` async-read seam + repository DTOs, and the `BackgroundRefreshMixin` sidebar pattern.
 The unified channel-menu registry (2026-06-19) closed the long-standing context-menu duplication.
-What remains is small, not a "massive refactor":
+What remains is small, not a "massive refactor" — see the **[2026-06-19 audit](docs/AUDIT_2026-06-19.md)**
+for the full findings + the **Band 10** remediation plan (P1: `expunge`→DTO, render-parse cleanup;
+P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 
-- [ ] **Band 9 — deferred seam items + EPG cosmetic cleanup**: B9-1 `load_channels`→seam, B9-2 the few remaining `session.expunge` call sites → DTOs (favorites/metadata mixins), B9-3 EPG cosmetic cleanups (dead local import, dormant view files). See **[docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md)**.
+- [ ] **Band 9 — deferred seam items + EPG cosmetic cleanup**: B9-1 `load_channels`→seam, B9-2 the few remaining `session.expunge` call sites → DTOs (favorites/metadata mixins). B9-3 (cosmetics) done (#59). See **[docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md)**.
 - [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown (`setCheckable(False)` and solid-fill hover did NOT fix it). Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
 
 ## Data & Storage
