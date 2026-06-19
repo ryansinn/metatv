@@ -1,7 +1,14 @@
-"""What's New dialog — displays changelog entries to the user.
+"""What's New dialog — carousel view, one release per screen.
 
-Shows a scrollable list of ``WhatsNewEntry`` cards (newest first), one card per
-entry, each with a title, version/date meta line, and bulleted item list.
+Presents ``WhatsNewEntry`` records one at a time.  Navigation arrows let the
+user step back through history (older releases) or forward again to the newest.
+The arrow direction follows the user's mental model:
+
+- **left / "‹" arrow** → newer releases (forward in recency; disabled at index 0)
+- **right / "›" arrow** → older releases (back in history; disabled at the last index)
+
+Entries are expected newest-first (as returned by ``entries_since`` and
+``WHATS_NEW``).  The dialog opens showing index 0 (the newest entry).
 """
 
 from __future__ import annotations
@@ -10,6 +17,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -25,10 +33,12 @@ from metatv.whats_new import WhatsNewEntry
 
 
 class WhatsNewDialog(QDialog):
-    """Modal dialog that presents a list of What's New changelog entries.
+    """Modal dialog that presents What's New changelog entries as a carousel.
 
     Args:
-        entries: Entries to display, typically newest-first.
+        entries: Entries to display, newest-first.  If empty the empty-state
+            card is shown.  If only one entry is passed the navigation controls
+            are hidden.
         parent: Optional parent widget.
     """
 
@@ -40,6 +50,7 @@ class WhatsNewDialog(QDialog):
         self.setMinimumHeight(460)
         self.resize(540, 520)
         self._entries = entries
+        self._index: int = 0
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -51,7 +62,7 @@ class WhatsNewDialog(QDialog):
         root.setSpacing(0)
         root.setContentsMargins(0, 0, 0, 0)
 
-        # Header strip
+        # ── Header strip ──────────────────────────────────────────────
         header_widget = QWidget()
         header_widget.setStyleSheet(_theme.HEADER_TINT)
         header_layout = QVBoxLayout(header_widget)
@@ -63,35 +74,53 @@ class WhatsNewDialog(QDialog):
             f"font-size: {_theme.FONT_3XL}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};"
         )
         header_layout.addWidget(icon_label)
-
         root.addWidget(header_widget)
 
-        # Scrollable card area
+        # ── Card area (swapped by _show_index) ───────────────────────
+        self._card_area = QWidget()
+        card_area_layout = QVBoxLayout(self._card_area)
+        card_area_layout.setContentsMargins(16, 12, 16, 12)
+        card_area_layout.setSpacing(0)
+        self._card_layout = card_area_layout
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(16, 12, 16, 12)
-        content_layout.setSpacing(12)
-
-        if self._entries:
-            for entry in self._entries:
-                card = self._build_entry_card(entry)
-                content_layout.addWidget(card)
-        else:
-            empty = QLabel("No new changes to show.")
-            empty.setStyleSheet(_theme.EMPTY_LABEL)
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            content_layout.addWidget(empty)
-
-        content_layout.addStretch()
-        scroll.setWidget(content_widget)
+        scroll.setWidget(self._card_area)
         root.addWidget(scroll, stretch=1)
 
-        # Footer with "Got it" button
+        # ── Navigation strip (arrows + position indicator) ────────────
+        self._nav_widget = QWidget()
+        nav_layout = QHBoxLayout(self._nav_widget)
+        nav_layout.setContentsMargins(16, 8, 16, 8)
+        nav_layout.setSpacing(8)
+
+        self._btn_newer = QPushButton(_icons.nav_prev_icon)
+        self._btn_newer.setStyleSheet(_theme.WHATS_NEW_NAV_BTN)
+        self._btn_newer.setToolTip("Newer")
+        self._btn_newer.setFixedWidth(44)
+        self._btn_newer.clicked.connect(self._go_newer)
+
+        self._pos_label = QLabel()
+        self._pos_label.setStyleSheet(_theme.WHATS_NEW_POS_LABEL)
+        self._pos_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._btn_older = QPushButton(_icons.nav_next_icon)
+        self._btn_older.setStyleSheet(_theme.WHATS_NEW_NAV_BTN)
+        self._btn_older.setToolTip("Older")
+        self._btn_older.setFixedWidth(44)
+        self._btn_older.clicked.connect(self._go_older)
+
+        nav_layout.addStretch()
+        nav_layout.addWidget(self._btn_newer)
+        nav_layout.addWidget(self._pos_label)
+        nav_layout.addWidget(self._btn_older)
+        nav_layout.addStretch()
+
+        root.addWidget(self._nav_widget)
+
+        # ── Footer with "Got it" button ───────────────────────────────
         footer_widget = QWidget()
         footer_widget.setStyleSheet(
             f"background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE};"
@@ -109,6 +138,73 @@ class WhatsNewDialog(QDialog):
         footer_layout.addWidget(btn_box)
 
         root.addWidget(footer_widget)
+
+        # ── Initial render ────────────────────────────────────────────
+        if not self._entries:
+            self._nav_widget.hide()
+            self._render_empty()
+        elif len(self._entries) == 1:
+            self._nav_widget.hide()
+            self._show_index(0)
+        else:
+            self._show_index(0)
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+
+    def _go_newer(self) -> None:
+        """Step forward (toward index 0, the newest entry)."""
+        if self._index > 0:
+            self._show_index(self._index - 1)
+
+    def _go_older(self) -> None:
+        """Step backward (toward the last index, the oldest entry)."""
+        if self._index < len(self._entries) - 1:
+            self._show_index(self._index + 1)
+
+    def _show_index(self, index: int) -> None:
+        """Render entries[index] in the card area and update navigation state."""
+        if index < 0 or index >= len(self._entries):
+            logger.warning(
+                "WhatsNewDialog._show_index called with out-of-range index {}", index
+            )
+            return
+
+        self._index = index
+
+        # Clear previous card
+        while self._card_layout.count():
+            item = self._card_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Render current entry
+        card = self._build_entry_card(self._entries[index])
+        self._card_layout.addWidget(card)
+        self._card_layout.addStretch()
+
+        # Update position indicator
+        total = len(self._entries)
+        self._pos_label.setText(f"{index + 1} / {total}")
+
+        # Enable/disable arrows based on bounds
+        # "newer" (left) arrow — disabled when already at the newest (index 0)
+        self._btn_newer.setEnabled(index > 0)
+        # "older" (right) arrow — disabled when already at the oldest (last index)
+        self._btn_older.setEnabled(index < total - 1)
+
+    # ------------------------------------------------------------------
+    # Card construction
+    # ------------------------------------------------------------------
+
+    def _render_empty(self) -> None:
+        """Show the empty-state label when no entries are passed."""
+        empty = QLabel("No new changes to show.")
+        empty.setStyleSheet(_theme.EMPTY_LABEL)
+        empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._card_layout.addWidget(empty)
+        self._card_layout.addStretch()
 
     def _build_entry_card(self, entry: WhatsNewEntry) -> QWidget:
         """Build a single entry card widget."""

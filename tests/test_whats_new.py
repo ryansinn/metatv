@@ -101,45 +101,167 @@ def test_whats_new_dialog_constructs_headlessly(qapp):
     assert dlg is not None
 
 
-def test_whats_new_dialog_renders_entry_titles(qapp):
-    """Each entry's title appears in a QLabel child of the dialog."""
+def _visible_label_texts(dlg) -> str:
+    """Return all QLabel texts in dlg joined by newline (helper for content assertions)."""
     from PyQt6.QtWidgets import QLabel
+    return "\n".join(w.text() for w in dlg.findChildren(QLabel))
 
+
+def test_whats_new_dialog_renders_entry_titles(qapp):
+    """The newest entry's title appears in the dialog on construction (carousel starts at index 0)."""
     entries = entries_since(0)
     dlg = WhatsNewDialog(entries)
 
-    all_label_texts = [
-        w.text() for w in dlg.findChildren(QLabel)
-    ]
-    combined = "\n".join(all_label_texts)
-
-    for entry in entries:
-        assert entry.title in combined, (
-            f"Title '{entry.title}' not found in any QLabel"
-        )
+    combined = _visible_label_texts(dlg)
+    newest = entries[0]
+    assert newest.title in combined, (
+        f"Newest entry title '{newest.title}' not found in any QLabel"
+    )
 
 
 def test_whats_new_dialog_renders_bullet_items(qapp):
-    """At least one item string per entry appears as a QLabel child."""
-    from PyQt6.QtWidgets import QLabel
-
+    """The newest entry's bullet items appear in the dialog on construction."""
     entries = entries_since(0)
     dlg = WhatsNewDialog(entries)
 
-    all_label_texts = "\n".join(w.text() for w in dlg.findChildren(QLabel))
-
-    for entry in entries:
-        # At least one bullet item text must appear
-        found = any(item in all_label_texts for item in entry.items)
-        assert found, (
-            f"No item from entry id={entry.id} found in any QLabel"
-        )
+    combined = _visible_label_texts(dlg)
+    newest = entries[0]
+    found = any(item in combined for item in newest.items)
+    assert found, (
+        f"No item from newest entry id={newest.id} found in any QLabel"
+    )
 
 
 def test_whats_new_dialog_empty_list(qapp):
     """WhatsNewDialog with an empty entry list constructs without raising."""
     dlg = WhatsNewDialog([])
     assert dlg is not None
+
+
+# ---------------------------------------------------------------------------
+# 2b. Carousel behavioral tests
+# ---------------------------------------------------------------------------
+
+def _make_entries(n: int) -> list[WhatsNewEntry]:
+    """Return n synthetic entries, newest-first (highest id first)."""
+    return [
+        WhatsNewEntry(
+            id=n - i,
+            version="0.1.0",
+            date="2026-06-01",
+            title=f"Release {n - i}",
+            items=(f"Item A for release {n - i}", f"Item B for release {n - i}"),
+        )
+        for i in range(n)
+    ]
+
+
+def test_carousel_starts_at_newest(qapp):
+    """On construction the dialog shows the newest (index-0) entry's title."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    combined = _visible_label_texts(dlg)
+    assert entries[0].title in combined, "Newest entry title not shown on open"
+
+
+def test_carousel_position_indicator_initial(qapp):
+    """Position indicator reads '1 / N' after construction with N entries."""
+    n = 4
+    entries = _make_entries(n)
+    dlg = WhatsNewDialog(entries)
+
+    assert dlg._pos_label.text() == f"1 / {n}"
+
+
+def test_carousel_newer_arrow_disabled_at_start(qapp):
+    """The 'Newer' (left) arrow is disabled when the newest entry is shown."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    assert not dlg._btn_newer.isEnabled(), "'Newer' arrow should be disabled at index 0"
+
+
+def test_carousel_older_arrow_enabled_at_start(qapp):
+    """The 'Older' (right) arrow is enabled when there are older entries."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    assert dlg._btn_older.isEnabled(), "'Older' arrow should be enabled at index 0 with 3 entries"
+
+
+def test_carousel_navigate_to_older(qapp):
+    """Clicking the 'Older' arrow advances to the next-older entry and updates indicator."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    # Navigate to the second entry (index 1 = one step older)
+    dlg._btn_older.click()
+
+    combined = _visible_label_texts(dlg)
+    assert entries[1].title in combined, "Second entry title not shown after one step back"
+    assert dlg._pos_label.text() == "2 / 3"
+    assert dlg._btn_newer.isEnabled(), "'Newer' arrow should be enabled at index 1"
+
+
+def test_carousel_older_arrow_disabled_at_oldest(qapp):
+    """The 'Older' (right) arrow is disabled when the oldest entry is shown."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    # Navigate to the last entry
+    dlg._go_older()  # index 1
+    dlg._go_older()  # index 2 (oldest)
+
+    assert not dlg._btn_older.isEnabled(), "'Older' arrow should be disabled at last index"
+    assert dlg._pos_label.text() == "3 / 3"
+    combined = _visible_label_texts(dlg)
+    assert entries[2].title in combined, "Oldest entry title not shown at last index"
+
+
+def test_carousel_navigate_back_to_newest(qapp):
+    """After navigating to oldest, stepping forward returns to newest and disables newer arrow."""
+    entries = _make_entries(3)
+    dlg = WhatsNewDialog(entries)
+
+    dlg._go_older()  # → index 1
+    dlg._go_older()  # → index 2
+    dlg._go_newer()  # → index 1
+    dlg._go_newer()  # → index 0
+
+    combined = _visible_label_texts(dlg)
+    assert entries[0].title in combined, "Newest entry title not restored after forward navigation"
+    assert dlg._pos_label.text() == "1 / 3"
+    assert not dlg._btn_newer.isEnabled(), "'Newer' arrow should be disabled back at index 0"
+    assert dlg._btn_older.isEnabled(), "'Older' arrow should be enabled at index 0"
+
+
+def test_carousel_single_entry_hides_nav(qapp):
+    """With a single entry both arrows are hidden and no position indicator is shown."""
+    entries = _make_entries(1)
+    dlg = WhatsNewDialog(entries)
+
+    # The nav widget (parent of both buttons and pos label) should be hidden
+    assert dlg._nav_widget.isHidden(), "Nav widget should be hidden for a single entry"
+
+
+def test_carousel_single_entry_renders_content(qapp):
+    """With a single entry the entry's title and items still render."""
+    entries = _make_entries(1)
+    dlg = WhatsNewDialog(entries)
+
+    combined = _visible_label_texts(dlg)
+    assert entries[0].title in combined, "Single entry title not rendered"
+    assert any(item in combined for item in entries[0].items), "Single entry items not rendered"
+
+
+def test_carousel_empty_hides_nav(qapp):
+    """With an empty list the nav widget is hidden and the empty-state text is shown."""
+    dlg = WhatsNewDialog([])
+
+    assert dlg._nav_widget.isHidden(), "Nav widget should be hidden for empty entry list"
+    combined = _visible_label_texts(dlg)
+    assert "No new changes" in combined, "Empty-state text not rendered"
 
 
 # ---------------------------------------------------------------------------
