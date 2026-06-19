@@ -32,11 +32,11 @@ MOOD_DISLIKE      = "dislike"
 _MOOD_ORDER = [MOOD_LIKE, MOOD_CURIOUS, MOOD_NONE, MOOD_NOT_FOR_ME, MOOD_DISLIKE]
 
 _MOOD_COLORS = {
-    MOOD_LIKE:       ("#2ecc71", "#1a7a43"),       # bright green bg, dark text
-    MOOD_CURIOUS:    ("#27ae60", "#155a2e"),        # forest green
-    MOOD_NONE:       (_theme.COLOR_FAINT, _theme.COLOR_TEXT),  # mid grey
-    MOOD_NOT_FOR_ME: ("#c0392b", "#f5a5a0"),       # brick red
-    MOOD_DISLIKE:    ("#e74c3c", _theme.COLOR_TEXT_HI),  # bright red
+    MOOD_LIKE:       (_theme.COLOR_MOOD_LIKE_BG, _theme.COLOR_MOOD_LIKE_FG),       # bright green bg, dark text
+    MOOD_CURIOUS:    (_theme.COLOR_MOOD_CURIOUS_BG, _theme.COLOR_MOOD_CURIOUS_FG),  # forest green
+    MOOD_NONE:       (_theme.COLOR_FAINT, _theme.COLOR_TEXT),                        # mid grey
+    MOOD_NOT_FOR_ME: (_theme.COLOR_MOOD_NOTFORME_BG, _theme.COLOR_MOOD_NOTFORME_FG),  # brick red
+    MOOD_DISLIKE:    (_theme.COLOR_MOOD_DISLIKE_BG, _theme.COLOR_TEXT_HI),           # bright red
 }
 
 _MOOD_SELECTED_STYLE = (
@@ -174,9 +174,9 @@ class CategoryPickerDialog(QDialog):
         quick_row.addWidget(quick_lbl)
 
         _quick_picks = [
-            ("🗑 Trash",       "Trash",       MOOD_DISLIKE,    True,  "#5a1a1a", "#ff8888"),
-            ("👀 Watch Later", "Watch Later", MOOD_NONE,       False, "#1a3a5a", _theme.COLOR_ACCENT_BLUE_2),
-            ("❓ Explore",     "Explore",     MOOD_CURIOUS,    False, "#1a3a1a", "#88cc88"),
+            ("🗑 Trash",       "Trash",       MOOD_DISLIKE,    True,  _theme.COLOR_MOOD_TRASH_BG,   _theme.COLOR_RED_BRIGHT),
+            ("👀 Watch Later", "Watch Later", MOOD_NONE,       False, _theme.COLOR_MOOD_WATCH_BG,   _theme.COLOR_ACCENT_BLUE_2),
+            ("❓ Explore",     "Explore",     MOOD_CURIOUS,    False, _theme.COLOR_MOOD_EXPLORE_BG, _theme.COLOR_MOOD_EXPLORE_FG),
         ]
         for label, name, mood, exclude, bg, fg in _quick_picks:
             btn = QPushButton(label)

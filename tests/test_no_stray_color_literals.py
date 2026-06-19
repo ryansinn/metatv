@@ -1,20 +1,24 @@
 """Regression guard: no stray color literals in metatv/gui/**/*.py.
 
-Each token listed here was previously a bare hex or rgba literal in widget
-code and has been migrated to an existing token in theme.py.  This test
-catches any future edit that re-introduces one of those exact literals
-outside of theme.py itself.
+Two tiers of coverage:
 
-Contract: the test imports every modified module (smoke-import) and then
-performs a source-text scan for the specific values that were migrated.
+1. ``_MIGRATED`` list — each entry was once a bare hex/rgba literal in widget
+   code and has been migrated to a named token in theme.py.  The
+   ``test_no_migrated_literals_remain`` test fires on exact matches so that
+   any future copy-paste of a literal is caught immediately.
+
+2. ``test_no_raw_color_literals_anywhere`` — a broader scan that catches NEW
+   stray literals that are not yet in the ``_MIGRATED`` list.  It looks for
+   any line that contains a color keyword (``color``, ``background``,
+   ``border``, ``QColor``, ``style=``) together with a bare hex or rgba value.
+   The allowlist ``_KNOWN_NON_COLOR_MATCHES`` documents every exemption.
+
 A failure means either:
-  (a) someone copy-pasted a hex literal instead of using the token, or
-  (b) the token was removed from theme.py without updating call sites.
+  (a) a hex/rgba literal was introduced where a token should be used, or
+  (b) a token was removed from theme.py without updating call sites.
 
-NOT tested here:
-  - Unmapped / deferred values (B2 follow-up list)
-  - Literals that live inside badge_utils._QUALITY_COLORS (canonical data table)
-  - Literals inside theme.py itself (that is where they belong)
+Literals inside theme.py itself are intentional (that is where they belong)
+and are excluded from all scans.
 """
 
 from __future__ import annotations
@@ -79,12 +83,65 @@ _MIGRATED: list[tuple[str, str]] = [
     ("rgba(255, 255, 255, 0.15)", "OVERLAY_15"),
     ("rgba(68,136,255,0.2)",    "OVERLAY_BLUE_20"),
     ("rgba(68, 136, 255, 0.2)", "OVERLAY_BLUE_20"),
+    # B2 — quality/badge palette (badge_utils)
+    ("#7755cc",   "COLOR_QUALITY_UHD"),
+    ("#3388dd",   "COLOR_QUALITY_FHD"),
+    ("#229977",   "COLOR_QUALITY_HD"),
+    ("#cc8822",   "COLOR_QUALITY_RAW"),
+    ("#bb9900",   "COLOR_QUALITY_LIVE"),
+    ("#556633",   "COLOR_AUDIO_BADGE"),
+    # B2 — mood palette (category_picker)
+    ("#2ecc71",   "COLOR_MOOD_LIKE_BG"),
+    ("#1a7a43",   "COLOR_MOOD_LIKE_FG"),
+    ("#27ae60",   "COLOR_MOOD_CURIOUS_BG"),
+    ("#155a2e",   "COLOR_MOOD_CURIOUS_FG"),
+    ("#c0392b",   "COLOR_MOOD_NOTFORME_BG"),
+    ("#f5a5a0",   "COLOR_MOOD_NOTFORME_FG"),
+    ("#e74c3c",   "COLOR_MOOD_DISLIKE_BG"),
+    ("#5a1a1a",   "COLOR_MOOD_TRASH_BG"),
+    ("#1a3a5a",   "COLOR_MOOD_WATCH_BG"),
+    ("#1a3a1a",   "COLOR_MOOD_EXPLORE_BG"),
+    ("#88cc88",   "COLOR_MOOD_EXPLORE_FG"),
+    # B2 — notification severity
+    ("#2c1515",   "COLOR_NOTIFY_ERR_BG"),
+    ("#ff4444",   "COLOR_NOTIFY_ERR_BORDER"),
+    ("#152c15",   "COLOR_NOTIFY_OK_BG"),
+    ("#44ff44",   "COLOR_NOTIFY_OK_BORDER"),
+    ("#2c2415",   "COLOR_NOTIFY_WARN_BG"),
+    ("#ffaa44",   "COLOR_NOTIFY_WARN_BORDER"),
+    ("#1a1a2e",   "COLOR_NOTIFY_INFO_BG"),
+    # B2 — lightbox
+    ("#1e1e2e",   "COLOR_LIGHTBOX_BG"),
+    ("#2a2a3e",   "COLOR_LIGHTBOX_HEADER"),
+    # B2 — yellow banner
+    ("#3a3a1a",   "COLOR_BANNER_YEL_BG"),
+    ("#e8d44d",   "COLOR_BANNER_YEL_FG"),
+    ("#7a7a30",   "COLOR_BANNER_YEL_BORDER"),
+    ("#4a4a22",   "COLOR_BANNER_YEL_BG_HOVER"),
+    ("#aaaa50",   "COLOR_BANNER_YEL_BORDER_HOVER"),
+    # B2 — PPV
+    ("#ff6b35",   "COLOR_PPV_ACCENT"),
+    # B2 — misc accents
+    ("#ff8888",   "COLOR_RED_BRIGHT"),
+    ("#8fca8f",   "COLOR_PREF_NUDGE"),
+    ("#aad4ff",   "COLOR_ACCENT_BLUE_LIGHT"),
+    ("#252525",   "COLOR_BG_CARD"),
+    ("#111111",   "COLOR_BG_DEEP"),
+    ("#f5f5f5",   "COLOR_SURFACE_LIGHT"),
+    ("#e0e0e0",   "COLOR_SURFACE_LIGHT_2"),
+    ("#d0d0d0",   "COLOR_SURFACE_LIGHT_3"),
+    # B2 — rgba integer-alpha bugs (now fixed to float)
+    ("rgba(0,0,0,150)",    "OVERLAY_BLACK_60"),
+    ("rgba(255,255,255,8)",  "OVERLAY_08"),
+    ("rgba(255,255,255,16)", "OVERLAY_15"),
+    ("rgba(255,255,255,18)", "OVERLAY_18"),
 ]
 
 # Files explicitly excluded from the scan (canonical data tables or theme itself)
 _EXCLUDED_FILES: set[str] = {
     "theme.py",
-    "badge_utils.py",   # _QUALITY_COLORS is a canonical data table
+    # badge_utils.py was previously excluded because _QUALITY_COLORS held raw literals.
+    # Those are now migrated to tokens (B2), so badge_utils is no longer excluded.
 }
 
 
@@ -130,6 +187,7 @@ _MODULES_TO_SMOKE = [
     "metatv.gui.sports_filter_bar",
     "metatv.gui.sports_view",
     "metatv.gui.sidebar.alerts",
+    "metatv.gui.sidebar.favorites",
     "metatv.gui.sidebar.history",
     "metatv.gui.sidebar.sources",
 ]
@@ -211,4 +269,79 @@ def test_no_migrated_literals_remain() -> None:
     pytest.fail(
         f"Found {len(violations)} stray color literal(s) that should use a theme token:"
         + "".join(lines)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Broad new-literal guard — catches stray hex/rgba values not yet in _MIGRATED
+# ---------------------------------------------------------------------------
+
+# Lines that match the pattern but are NOT color literals.
+# Each entry: (file_relative, line_substring_or_pattern) — the line must contain
+# the substring for the exemption to apply.  Use the minimal unique fragment.
+_BROAD_ALLOWLIST: list[tuple[str, str]] = [
+    # sidebar/sources.py: dynamic rgba/rgb computed from provider icon color at runtime;
+    # {r}, {g}, {b} are Python format-string placeholders, NOT literal values.
+    ("metatv/gui/sidebar/sources.py", "rgba({r},{g},{b},"),
+    ("metatv/gui/sidebar/sources.py", "rgb({r},{g},{b})"),
+]
+
+# Regex: matches a hex color (#RGB, #RRGGBB, #RRGGBBAA) or rgba()/rgb() in a
+# context that looks like CSS/Qt stylesheet (the line also mentions one of the
+# color-context keywords).
+_COLOR_CONTEXT_KEYWORDS = re.compile(
+    r"\b(?:color|background|border|QColor|style=|setStyleSheet|rgba?\()",
+    re.IGNORECASE,
+)
+_HEX_OR_RGBA = re.compile(
+    r"(?:#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))",
+    re.IGNORECASE,
+)
+
+
+def _is_allowlisted(rel: str, line: str) -> bool:
+    """Return True if (file, line) matches a known-safe allowlist entry."""
+    for allowed_file, allowed_fragment in _BROAD_ALLOWLIST:
+        if allowed_file in rel and allowed_fragment in line:
+            return True
+    return False
+
+
+def test_no_raw_color_literals_anywhere() -> None:
+    """No raw hex / rgba color literal should appear in widget code outside theme.py.
+
+    Scans every line that contains a color-context keyword (color, background,
+    border, QColor, style=) for an inline hex or rgba value.  Fires on NEW
+    stray literals that haven't been added to _MIGRATED yet.
+
+    The allowlist (_BROAD_ALLOWLIST) documents every intentional exemption with
+    a comment explaining why it cannot be a token.
+    """
+    violations: list[tuple[str, int, str]] = []
+    for path in _source_files():
+        rel = _relative(path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            # Skip blank lines and pure comments
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            # Only inspect lines that have a color context keyword
+            if not _COLOR_CONTEXT_KEYWORDS.search(line):
+                continue
+            # Look for a hex or rgba literal
+            if _HEX_OR_RGBA.search(line):
+                if not _is_allowlisted(rel, line):
+                    violations.append((rel, lineno, line.rstrip()))
+
+    if not violations:
+        return
+
+    report = "\n".join(
+        f"  {rel}:{lineno}  →  {snippet}"
+        for rel, lineno, snippet in violations
+    )
+    pytest.fail(
+        f"Found {len(violations)} raw color literal(s) outside theme.py "
+        f"(add a token or update _BROAD_ALLOWLIST):\n{report}"
     )

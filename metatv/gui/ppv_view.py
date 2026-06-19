@@ -55,7 +55,7 @@ class PPVEventCard(QFrame):
         layout.addWidget(self.datetime_label)
 
         self.countdown_label = QLabel()
-        self.countdown_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #ff6b35;")
+        self.countdown_label.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};")
         layout.addWidget(self.countdown_label)
 
         badges_layout = QHBoxLayout()
@@ -71,7 +71,7 @@ class PPVEventCard(QFrame):
         if sport_type:
             s = QLabel(sport_type.capitalize())
             s.setStyleSheet(
-                "background-color: #2196F3; color: white; padding: 2px 8px; "
+                f"background-color: {_theme.COLOR_ACCENT}; color: white; padding: 2px 8px; "
                 "border-radius: 3px; font-size: 10px; font-weight: bold;"
             )
             badges_layout.addWidget(s)
@@ -81,7 +81,7 @@ class PPVEventCard(QFrame):
         play_button = QPushButton("▶ Play")
         play_button.clicked.connect(lambda: self.play_requested.emit(self.channel))
         play_button.setStyleSheet(
-            "background-color: #ff6b35; color: white; border: none; "
+            f"background-color: {_theme.COLOR_PPV_ACCENT}; color: white; border: none; "
             "padding: 8px; border-radius: 4px; font-weight: bold;"
         )
         layout.addWidget(play_button)
@@ -118,7 +118,7 @@ class PPVEventCard(QFrame):
                 countdown = f"Starting in {seconds}s"
             self.countdown_label.setText(countdown)
             self.countdown_label.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #ff6b35;"
+                f"font-size: 12px; font-weight: bold; color: {_theme.COLOR_PPV_ACCENT};"
             )
 
 

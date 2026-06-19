@@ -49,7 +49,7 @@ class _CategorySection(QWidget):
         # ── Header ─────────────────────────────────────────────────────────────
         hdr = QWidget()
         hdr.setStyleSheet(
-            "QWidget { background: #252525; border-radius: 4px; }"
+            f"QWidget {{ background: {_theme.COLOR_BG_CARD}; border-radius: 4px; }}"
         )
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(8, 6, 8, 6)
@@ -75,8 +75,8 @@ class _CategorySection(QWidget):
         if self._is_excluded:
             badge = QLabel("globally excluded")
             badge.setStyleSheet(
-                "color: #cc5555; font-size: 10px; padding: 2px 6px;"
-                " background: rgba(204,85,85,0.15); border-radius: 3px;"
+                f"color: {_theme.COLOR_ERR_2}; font-size: 10px; padding: 2px 6px;"
+                f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px;"
             )
             badge.setToolTip(
                 "Channels in this category are hidden everywhere.\n"
@@ -160,8 +160,8 @@ class _CategorySection(QWidget):
         remove_btn.setFlat(True)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.setStyleSheet(
-            "QPushButton { font-size: 10px; color: #cc5555; padding: 1px 6px; }"
-            "QPushButton:hover { color: #ff8888; }"
+            f"QPushButton {{ font-size: 10px; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"
         )
         remove_btn.setToolTip(
             "Remove from this category — channel returns to normal visibility"

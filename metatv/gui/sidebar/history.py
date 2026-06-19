@@ -41,10 +41,10 @@ class HistoryItemWidget(QWidget):
                     color: {_theme.COLOR_ACCENT_BLUE};
                 }}
                 QPushButton:hover {{
-                    background-color: rgba(68, 136, 255, 0.4);
+                    background-color: {_theme.OVERLAY_BLUE_40};
                 }}
                 QPushButton:pressed {{
-                    background-color: rgba(68, 136, 255, 0.6);
+                    background-color: {_theme.OVERLAY_BLUE_60};
                 }}
             """)
             layout.addWidget(next_btn)

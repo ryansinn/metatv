@@ -22,9 +22,7 @@ _CARD_W = 120
 _CARD_H = 220
 _POSTER_H = 175
 
-_PLACEHOLDER_COLORS = [
-    "#1a3a5c", "#2d4a1e", "#4a1e2d", "#2d1e4a", "#1e4a3a", "#3a2d1e",
-]
+_PLACEHOLDER_COLORS = _theme.BACKDROP_TINTS
 
 
 class _FlowLayout:
@@ -123,7 +121,7 @@ class _ContentCard(QWidget):
             rating_lbl = QLabel(f"{config.rating_star_icon} {card.rating:.1f}", self._poster_frame)
             rating_lbl.setGeometry(4, _POSTER_H - 22, 60, 18)
             rating_lbl.setStyleSheet(
-                "background: rgba(0,0,0,0.65); color: #ffd700; font-size: 10px; "
+                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD}; font-size: 10px; "
                 "border-radius: 3px; padding: 1px 4px;"
             )
 
@@ -132,7 +130,7 @@ class _ContentCard(QWidget):
             cat_lbl = QLabel(card.detected_prefix, self._poster_frame)
             cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cat_lbl.setStyleSheet(
-                "background: rgba(0,0,0,0.55); color: #aad4ff; font-size: 9px; "
+                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT}; font-size: 9px; "
                 "border-radius: 3px; padding: 1px 3px;"
             )
             cat_lbl.adjustSize()
@@ -147,7 +145,7 @@ class _ContentCard(QWidget):
         if badges:
             status_lbl = QLabel(" ".join(badges), self._poster_frame)
             status_lbl.setStyleSheet(
-                "background: rgba(0,0,0,150); border-radius: 3px;"
+                f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
                 " font-size: 9px; padding: 1px 3px; color: white;"
             )
             status_lbl.adjustSize()

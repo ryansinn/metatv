@@ -55,7 +55,7 @@ class FilterPanel(QWidget):
 
         # Panel header
         ph = QWidget()
-        ph.setStyleSheet("background: #111111;")
+        ph.setStyleSheet(f"background: {_theme.COLOR_BG_DEEP};")
         ph.setFixedHeight(36)
         phl = QHBoxLayout(ph)
         phl.setContentsMargins(10, 0, 8, 0)
@@ -87,7 +87,7 @@ class FilterPanel(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(f"""
             QScrollArea {{ border:none; background:{_theme.COLOR_BG_SECTION}; }}
-            QScrollBar:vertical {{ background:#222; width:6px; border-radius:3px; }}
+            QScrollBar:vertical {{ background:{_theme.COLOR_BG_BAR}; width:6px; border-radius:3px; }}
             QScrollBar::handle:vertical {{ background:{_theme.COLOR_BORDER}; border-radius:3px; }}
         """)
 
@@ -554,7 +554,7 @@ class FilterPanel(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet(
             f"QMenu {{ background:{_theme.COLOR_LINE_DARK}; color:{_theme.COLOR_TEXT}; border:1px solid {_theme.COLOR_BORDER}; }}"
-            "QMenu::item:selected { background:#3a3a3a; }"
+            f"QMenu::item:selected {{ background:{_theme.COLOR_BORDER}; }}"
         )
 
         solo_act = menu.addAction(f"Check only '{item_key}'")

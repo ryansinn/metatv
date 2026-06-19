@@ -87,7 +87,7 @@ class _AttrRow(QWidget):
                 palette.setColor(QPalette.ColorRole.WindowText, gray)
                 w.setPalette(palette)
             bar.setStyleSheet(
-                f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: #222; }}"
+                f"QProgressBar {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px; background: {_theme.COLOR_BG_BAR}; }}"
                 f"QProgressBar::chunk {{ background: {_theme.COLOR_FAINT}; border-radius: 2px; }}"
             )
 
@@ -726,7 +726,7 @@ class PreferencesView(QWidget):
         change_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; text-decoration: underline; border: none; "
             "background: transparent; padding: 0; font-size: 11px; }"
-            "QPushButton:hover { color: #66aaff; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
         )
         change_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         change_btn.clicked.connect(on_restore)

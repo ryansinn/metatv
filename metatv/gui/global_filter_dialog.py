@@ -600,7 +600,7 @@ class GlobalFilterDialog(QDialog):
         reset_btn = QPushButton("Reset Category Overrides")
         reset_btn.setFlat(True)
         reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        reset_btn.setStyleSheet("font-size: 11px; color: #a66;")
+        reset_btn.setStyleSheet(f"font-size: 11px; color: {_theme.COLOR_ERR_MUTED};")
         reset_btn.setToolTip(
             "Clear all your custom category assignments and restore built-in defaults.\n"
             "Provider-specific overrides are not affected."

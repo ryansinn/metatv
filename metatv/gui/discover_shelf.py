@@ -76,7 +76,7 @@ class _Shelf(QWidget):
         self._see_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._see_all_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: 11px; padding: 2px 4px; }}"
-            "QPushButton:hover { color: #66aaff; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
         )
         self._see_all_btn.clicked.connect(lambda: self.seeAllRequested.emit(self._shelf_key))
         header.addWidget(self._see_all_btn)
@@ -177,8 +177,8 @@ class _Shelf(QWidget):
             self._pin_btn.setToolTip("Unpin")
             self._pin_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; "
-                "color: #ffd700; font-size: 11px; padding: 2px 4px; }"
-                "QPushButton:hover { color: #ffe566; }"
+                f"color: {_theme.COLOR_GOLD}; font-size: 11px; padding: 2px 4px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_GOLD_LIGHT}; }}"
             )
         else:
             self._pin_btn.setText(self._config.pin_icon)
@@ -205,7 +205,7 @@ class _Shelf(QWidget):
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
             self.setStyleSheet(
-                "QWidget { background: rgba(255,255,255,18); border-radius: 4px; }"
+                f"QWidget {{ background: {_theme.OVERLAY_18}; border-radius: 4px; }}"
             )
         super().enterEvent(event)
 

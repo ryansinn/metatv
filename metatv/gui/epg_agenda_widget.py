@@ -126,12 +126,12 @@ class EpgAgendaWidget(QWidget):
     def _build_now_card(self, prog, now: datetime) -> QWidget:
         card = QWidget()
         card.setObjectName("nowCard")
-        card.setStyleSheet("""
-            QWidget#nowCard {
-                background: rgba(255, 200, 0, 0.06);
-                border-left: 3px solid #ffc800;
+        card.setStyleSheet(f"""
+            QWidget#nowCard {{
+                background: {_theme.OVERLAY_WARN_06};
+                border-left: 3px solid {_theme.COLOR_WARN};
                 border-radius: 4px;
-            }
+            }}
         """)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(10, 8, 8, 8)
@@ -142,7 +142,7 @@ class EpgAgendaWidget(QWidget):
         # Ignored horizontal policy: layout skips minimumSizeHint() for this widget,
         # preventing a long show title from expanding the scroll area content width.
         title_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #f0f0f0;")
+        title_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
         layout.addWidget(title_lbl)
 
         time_str = f"{_fmt_time(prog.start_time)} — {_fmt_time(prog.stop_time)}  ·  {_fmt_duration(prog.start_time, prog.stop_time)}"
