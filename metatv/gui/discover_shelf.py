@@ -42,10 +42,16 @@ class _Shelf(QWidget):
         super().__init__(parent)
         self._shelf_key = shelf_key
         self._config = config
+        self._image_cache = image_cache
         self._cards_widgets: list[_ContentCard] = []
         self._pinned = pinned
         self._collapsed = collapsed
         self._scroll_area: QScrollArea | None = None
+        self._inner_layout = None   # set by _build_ui
+        self._inner_widget = None   # set by _build_ui
+        # List of (on_clicked, on_double_clicked, on_context_menu) tuples so
+        # set_cards() can wire late-added card widgets to the same slots.
+        self._pending_wires: list[tuple] = []
 
         self._build_ui(title, cards, image_cache, config)
         self._apply_state()
@@ -136,6 +142,9 @@ class _Shelf(QWidget):
         inner.adjustSize()
         scroll.setWidget(inner)
         vl.addWidget(scroll)
+
+        self._inner_layout = inner_hl
+        self._inner_widget = inner
 
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
         if not self._collapsed:
@@ -246,7 +255,55 @@ class _Shelf(QWidget):
             if left + card.width() >= scroll_x and left <= scroll_x + vp_w:
                 card.request_image()
 
+    def set_cards(self, cards: list, image_cache=None, config=None) -> None:
+        """Populate this shelf with *cards* after construction (lazy-expand path).
+
+        Safe to call on a header-only stripped shelf that was created with an
+        empty card list.  The existing scroll-area inner widget is reused —
+        cards are appended before the trailing stretch.
+
+        Args:
+            cards:       The ``ContentCard`` list fetched by ``_ShelfCardsWorker``.
+            image_cache: The ``ImageCache`` instance.  When *None* the instance
+                         stored at construction time is reused (pass it if you
+                         have it, otherwise the shelf stores it).
+            config:      The ``Config`` instance.  Same fallback.
+        """
+        if not hasattr(self, "_inner_layout") or self._inner_layout is None:
+            return  # layout not yet built (should not happen in practice)
+
+        _ic  = image_cache if image_cache is not None else self._image_cache
+        _cfg = config      if config      is not None else self._config
+
+        # Remove the trailing stretch so we can append cards before it.
+        count = self._inner_layout.count()
+        if count > 0:
+            last = self._inner_layout.itemAt(count - 1)
+            if last and last.spacerItem():
+                self._inner_layout.removeItem(last)
+
+        for card in cards:
+            w = _ContentCard(card, _ic, _cfg, self._inner_widget)
+            self._inner_layout.addWidget(w)
+            self._cards_widgets.append(w)
+
+        self._inner_layout.addStretch()
+        self._inner_widget.adjustSize()
+
+        # Wire the new card widgets to any already-connected slots.
+        for slot in self._pending_wires:
+            on_clicked, on_double_clicked, on_context_menu = slot
+            for w in self._cards_widgets[-len(cards):]:
+                w.clicked.connect(on_clicked)
+                w.doubleClicked.connect(on_double_clicked)
+                w.contextMenuRequested.connect(on_context_menu)
+
+        # Trigger image loading for the newly added cards if we're expanded.
+        if not self._collapsed:
+            QTimer.singleShot(120, self._load_visible)
+
     def wire(self, on_clicked, on_double_clicked, on_context_menu) -> None:
+        self._pending_wires.append((on_clicked, on_double_clicked, on_context_menu))
         for w in self._cards_widgets:
             w.clicked.connect(on_clicked)
             w.doubleClicked.connect(on_double_clicked)

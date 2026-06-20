@@ -1,4 +1,4 @@
-"""Discover view must stop BOTH loader threads on deactivate — the exit-crash fix.
+"""Discover view must stop ALL loader threads on deactivate — the exit-crash fix.
 
 Regression guard for `QThread: Destroyed while thread is still running` (core
 dump on close): `on_deactivate` used to stop only `_thread` and not
@@ -7,9 +7,9 @@ worker — but the worker's `run()` monopolizes the thread's event loop, so
 `quit()` never landed and `wait(2000)` timed out, leaving the thread running
 when it got destroyed.
 
-The fix: a cooperative `cancel()` flag on both workers (so `run()` bails between
+The fix: a cooperative `cancel()` flag on all workers (so `run()` bails between
 shelf queries and returns, letting `quit()` take effect) and `on_deactivate`
-stopping both threads.
+stopping all three threads (shelf loader, see-all, and lazy-expand).
 """
 
 from __future__ import annotations
@@ -34,25 +34,31 @@ def _running_thread() -> MagicMock:
 
 
 def test_on_deactivate_stops_both_threads_and_cancels_workers():
-    """Both the shelf loader and the see-all loader must be cancelled + stopped."""
+    """All three loaders (shelf, see-all, lazy-expand) must be cancelled + stopped."""
     from metatv.gui.discover_view import DiscoverView
 
     view = DiscoverView.__new__(DiscoverView)
     view._worker = MagicMock()
     view._see_all_worker = MagicMock()
+    view._expand_worker = MagicMock()
     view._thread = _running_thread()
     view._see_all_thread = _running_thread()
+    view._expand_thread = _running_thread()
+    view._inflight_expand = None
 
     view.on_deactivate()
 
     # Workers cancelled FIRST (so quit() can actually land).
     view._worker.cancel.assert_called_once()
     view._see_all_worker.cancel.assert_called_once()
-    # Both threads quit + waited.
+    view._expand_worker.cancel.assert_called_once()
+    # All three threads quit + waited.
     view._thread.quit.assert_called_once()
     view._thread.wait.assert_called_once()
     view._see_all_thread.quit.assert_called_once()
     view._see_all_thread.wait.assert_called_once()
+    view._expand_thread.quit.assert_called_once()
+    view._expand_thread.wait.assert_called_once()
 
 
 def test_on_deactivate_is_safe_before_any_load():
@@ -62,11 +68,14 @@ def test_on_deactivate_is_safe_before_any_load():
     view = DiscoverView.__new__(DiscoverView)
     view._thread = None
     view._see_all_thread = None
-    # In production, on_deactivate's getattr(self, "_worker", None) yields None on a
-    # properly-initialized QObject before any load; set None to exercise that path.
+    view._expand_thread = None
+    # In production, on_deactivate's getattr yields None on a properly-initialized
+    # QObject before any load; set None to exercise that path.
     view._worker = None
     view._see_all_worker = None
-    view.on_deactivate()  # must not raise (both _stop_loader calls are no-ops)
+    view._expand_worker = None
+    view._inflight_expand = None
+    view.on_deactivate()  # must not raise (all _stop_loader calls are no-ops)
 
 
 def test_see_all_worker_suppresses_ready_emit_when_cancelled(tmp_path, qapp):

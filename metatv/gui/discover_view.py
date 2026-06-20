@@ -16,6 +16,15 @@ Zone model
 
 Hidden shelves are not added to the layout at all; only restorable via
 the Manage dialog.
+
+Lazy-load design
+----------------
+Cold-start only fetches cards for pinned/expanded shelves (~4–6 queries).
+Collapsed shelves are emitted as header-only strips (no card query at all).
+When the user expands a collapsed strip, ``_on_expand_requested`` kicks a
+``_ShelfCardsWorker`` that fetches the 30 cards for that shelf, then
+``_Shelf.set_cards()`` populates the scroll row.  A ``_loaded_shelf_keys``
+set prevents double-fetch.
 """
 
 from __future__ import annotations
@@ -34,7 +43,10 @@ from metatv.core.database import Database
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_browse import _BrowseView
 from metatv.gui.discover_shelf import _Shelf
-from metatv.gui.discover_workers import _LoaderWorker, _SeeAllWorker, _ShelfData
+from metatv.gui.discover_workers import (
+    _LoaderWorker, _SeeAllWorker, _ShelfCardsWorker, _ShelfData,
+    _ZoneSnapshot, determine_zone,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -65,8 +77,13 @@ class DiscoverView(QWidget):
         self._thread: QThread | None = None
         self._see_all_thread: QThread | None = None
         self._see_all_worker: "_SeeAllWorker | None" = None
+        # Lazy-expand state
+        self._expand_thread: QThread | None = None
+        self._expand_worker: "_ShelfCardsWorker | None" = None
+        self._inflight_expand: str | None = None  # shelf_key being fetched right now
         self._loaded = False
         self._shelf_data_cache: dict[str, list[ContentCard]] = {}
+        self._loaded_shelf_keys: set[str] = set()  # keys whose cards are fetched
         self._shelf_widgets: dict[str, _Shelf] = {}
         self._shelf_zones: dict[str, str] = {}
         self._setup_ui()
@@ -181,17 +198,30 @@ class DiscoverView(QWidget):
                 and not cfg.discover_collapsed_shelves
                 and not cfg.discover_hidden_shelves)
 
-    def _determine_zone(self, shelf_key: str) -> str:
+    def _build_zone_snapshot(self) -> _ZoneSnapshot:
+        """Build a thread-safe zone snapshot from the current config."""
         cfg = self._config
-        if shelf_key in cfg.discover_pinned_shelves:
-            return _ZONE_PINNED
-        if shelf_key in cfg.discover_expanded_shelves:
-            return _ZONE_EXPANDED
-        if shelf_key in cfg.discover_collapsed_shelves:
-            return _ZONE_COLLAPSED
-        if self._is_first_launch():
-            return _ZONE_EXPANDED if shelf_key in _DEFAULT_EXPANDED else _ZONE_COLLAPSED
-        return _ZONE_COLLAPSED
+        return _ZoneSnapshot(
+            pinned=frozenset(cfg.discover_pinned_shelves),
+            expanded=frozenset(cfg.discover_expanded_shelves),
+            collapsed=frozenset(cfg.discover_collapsed_shelves),
+            hidden=frozenset(cfg.discover_hidden_shelves),
+            default_expanded=frozenset(_DEFAULT_EXPANDED),
+            first_launch=self._is_first_launch(),
+        )
+
+    def _determine_zone(self, shelf_key: str) -> str:
+        """Route a shelf_key to its zone — delegates to the shared helper."""
+        cfg = self._config
+        return determine_zone(
+            shelf_key,
+            pinned=frozenset(cfg.discover_pinned_shelves),
+            expanded=frozenset(cfg.discover_expanded_shelves),
+            collapsed=frozenset(cfg.discover_collapsed_shelves),
+            hidden=frozenset(cfg.discover_hidden_shelves),
+            default_expanded=_DEFAULT_EXPANDED,
+            first_launch=self._is_first_launch(),
+        )
 
     def _zone_layout(self, zone: str):
         return {
@@ -273,8 +303,58 @@ class DiscoverView(QWidget):
         self._save_zone_config()
 
     def _on_expand_requested(self, shelf_key: str) -> None:
+        """Expand a shelf — fetching its cards first if not yet loaded."""
+        # Always move the widget to the expanded zone immediately so the UI
+        # responds instantly.  The card row will fill in asynchronously if
+        # the shelf was header-only.
         self._move_shelf(shelf_key, _ZONE_EXPANDED)
         self._save_zone_config()
+
+        if shelf_key in self._loaded_shelf_keys:
+            # Cards already present — nothing more to do.
+            return
+
+        if self._inflight_expand == shelf_key:
+            # Fetch already in flight for this key — don't double-submit.
+            return
+
+        # Kick a lazy card fetch for this shelf.
+        self._start_expand_fetch(shelf_key)
+
+    def _start_expand_fetch(self, shelf_key: str) -> None:
+        """Start a background ``_ShelfCardsWorker`` for *shelf_key*."""
+        # Cancel any previous expand fetch (user expanded a second shelf before
+        # the first one finished — keep the most recent request).
+        self._stop_loader(
+            getattr(self, "_expand_worker", None), self._expand_thread
+        )
+        self._expand_thread = None
+        self._expand_worker = None
+
+        self._inflight_expand = shelf_key
+        self._expand_thread = QThread()
+        self._expand_worker = _ShelfCardsWorker(self._db, self._config, shelf_key, limit=30)
+        self._expand_worker.moveToThread(self._expand_thread)
+        self._expand_thread.started.connect(self._expand_worker.run)
+        self._expand_worker.ready.connect(self._on_expand_cards_ready)
+        self._expand_worker.ready.connect(lambda *_: self._expand_thread.quit())
+        self._expand_thread.start()
+
+    def _on_expand_cards_ready(self, shelf_key: str, cards: list) -> None:
+        """Called on the main thread when the lazy-expand fetch finishes."""
+        self._inflight_expand = None
+
+        shelf = self._shelf_widgets.get(shelf_key)
+        if shelf is None:
+            return  # shelf was hidden/removed while we were fetching
+
+        # Populate the shelf with its newly fetched cards.
+        shelf.set_cards(cards, image_cache=self._image_cache, config=self._config)
+        self._shelf_data_cache[shelf_key] = cards
+        self._loaded_shelf_keys.add(shelf_key)
+
+        # Trigger image loading for the newly visible cards.
+        QTimer.singleShot(120, shelf._load_visible)
 
     def _on_hide_requested(self, shelf_key: str) -> None:
         shelf = self._shelf_widgets.pop(shelf_key, None)
@@ -283,6 +363,7 @@ class DiscoverView(QWidget):
         old_zone = self._shelf_zones.pop(shelf_key, None)
         if old_zone:
             self._remove_from_zone(shelf, old_zone)
+        self._loaded_shelf_keys.discard(shelf_key)
         shelf.deleteLater()
         cfg = self._config
         if shelf_key not in cfg.discover_hidden_shelves:
@@ -300,18 +381,23 @@ class DiscoverView(QWidget):
             self.refresh()
 
     def on_deactivate(self) -> None:
-        """Stop BOTH background loader threads so neither is destroyed mid-run.
+        """Stop ALL background loader threads so none is destroyed mid-run.
 
         A QThread destroyed while its thread is still running aborts the whole
         process ("QThread: Destroyed while thread is still running" → core dump).
-        Both the shelf loader and the see-all loader must be stopped here — this
-        runs on view-switch (via the host's _hide_all_content_views) and on app
-        close (the closeEvent deactivation loop). Cancelling the worker first is
-        what makes quit()/wait() actually succeed: the worker loops monopolize
-        the thread event loop, so quit() alone never lands.
+        The shelf loader, the see-all loader, AND the lazy-expand loader must
+        all be stopped here — this runs on view-switch (via the host's
+        _hide_all_content_views) and on app close (the closeEvent deactivation
+        loop).  Cancelling the worker first is what makes quit()/wait() actually
+        succeed: the worker loops monopolize the thread event loop, so quit()
+        alone never lands.
         """
-        self._stop_loader(getattr(self, "_worker", None), self._thread)
-        self._stop_loader(getattr(self, "_see_all_worker", None), self._see_all_thread)
+        self._stop_loader(getattr(self, "_worker", None), getattr(self, "_thread", None))
+        self._stop_loader(getattr(self, "_see_all_worker", None), getattr(self, "_see_all_thread", None))
+        self._stop_loader(getattr(self, "_expand_worker", None), getattr(self, "_expand_thread", None))
+        # Clear inflight marker so a re-expand of the same key isn't blocked.
+        if hasattr(self, "_inflight_expand"):
+            self._inflight_expand = None
 
     @staticmethod
     def _stop_loader(worker, thread) -> None:
@@ -336,6 +422,7 @@ class DiscoverView(QWidget):
             return
         self._loaded = False
         self._shelf_data_cache.clear()
+        self._loaded_shelf_keys.clear()
         self._shelf_widgets.clear()
         self._shelf_zones.clear()
 
@@ -352,8 +439,10 @@ class DiscoverView(QWidget):
         self._loading_lbl.setVisible(True)
         self._loading_lbl.setText("Loading…")
 
+        zone_snapshot = self._build_zone_snapshot()
+
         self._thread = QThread()
-        self._worker = _LoaderWorker(self._db, self._config)
+        self._worker = _LoaderWorker(self._db, self._config, zone_snapshot=zone_snapshot)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.shelfReady.connect(self._on_shelf_ready)
@@ -365,15 +454,28 @@ class DiscoverView(QWidget):
         if self._loading_lbl.isVisible():
             self._loading_lbl.setVisible(False)
 
-        self._shelf_data_cache[data.shelf_key] = data.cards
         zone = self._determine_zone(data.shelf_key)
 
-        shelf = _Shelf(
-            data.title, data.shelf_key, data.cards,
-            self._image_cache, self._config,
-            pinned=(zone == _ZONE_PINNED),
-            collapsed=(zone == _ZONE_COLLAPSED),
-        )
+        if data.header_only:
+            # Collapsed strip — no cards yet.  Build the shelf collapsed with
+            # an empty card list; cards are fetched on first expand.
+            shelf = _Shelf(
+                data.title, data.shelf_key, [],
+                self._image_cache, self._config,
+                pinned=False,
+                collapsed=True,
+            )
+        else:
+            # Full shelf with cards.
+            self._shelf_data_cache[data.shelf_key] = data.cards
+            self._loaded_shelf_keys.add(data.shelf_key)
+            shelf = _Shelf(
+                data.title, data.shelf_key, data.cards,
+                self._image_cache, self._config,
+                pinned=(zone == _ZONE_PINNED),
+                collapsed=(zone == _ZONE_COLLAPSED),
+            )
+
         shelf.seeAllRequested.connect(self._on_see_all)
         shelf.pinRequested.connect(self._on_pin_requested)
         shelf.unpinRequested.connect(self._on_unpin_requested)
