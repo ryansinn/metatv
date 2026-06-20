@@ -38,6 +38,7 @@ def _bare_window(qapp):
     win.status_bar = MagicMock()
     win.notification_manager = MagicMock()
     win.loading_channels = set()
+    win._provider_icons = {}                             # source-glyph cache for the readout
     win.stream_retry_manager = MagicMock()               # failure path records here
     win.load_history = MagicMock()
     win.load_favorites = MagicMock()

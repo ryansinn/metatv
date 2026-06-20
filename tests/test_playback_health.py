@@ -222,16 +222,25 @@ class _FakeExecutor:
 
 
 class _FakePlayerManager:
-    def __init__(self, running=True, keys=None):
+    def __init__(self, running=True, keys=None, last_key=None, providers=None):
+        from types import SimpleNamespace
+
         self._running = running
         self._keys = keys if keys is not None else []
-        self.player = None  # no real player
+        # Real MPVPlayer exposes ._last_key; the readout reaches through to it.
+        self.player = SimpleNamespace(_last_key=last_key)
+        self._providers = providers or {}  # instance key → provider_id
 
     def is_running(self, key=None):
         return self._running
 
     def active_keys(self):
         return list(self._keys)
+
+    def provider_for_key(self, key=None):
+        if key is None:
+            return None
+        return self._providers.get(key)
 
 
 # ---------------------------------------------------------------------------
@@ -240,13 +249,16 @@ class _FakePlayerManager:
 # The slot now receives a ``(key, props)`` tuple instead of bare props.
 # ---------------------------------------------------------------------------
 
-def _host_for_result(keys=None):
+def _host_for_result(keys=None, last_key=None, providers=None, icons=None):
     host = MainWindow.__new__(MainWindow)
     host._playback_health_label = _FakeLabel()
     host._playback_health_timer = _FakeTimer()
     host._health_query_inflight = True
     host._health_idle_ticks = 0
-    host.player_manager = _FakePlayerManager(running=True, keys=keys or [])
+    host._provider_icons = icons or {}
+    host.player_manager = _FakePlayerManager(
+        running=True, keys=keys or [], last_key=last_key, providers=providers
+    )
     return host
 
 
@@ -295,6 +307,53 @@ def test_on_playback_health_ready_none_treated_as_idle():
     assert host._playback_health_label.visible is False
     assert host._health_idle_ticks == 1
     assert host._health_query_inflight is False
+
+
+_PLAYING = {
+    "path": "http://stream/url",
+    "demuxer-cache-duration": 18.4,
+    "cache-speed": 775000,
+    "frame-drop-count": 0,
+}
+
+
+def test_on_playback_health_ready_single_prefixes_source_icon():
+    """One window: the readout leads with the source glyph (which stream), no [i/n]."""
+    host = _host_for_result(
+        keys=["__shared__"],
+        last_key="__shared__",
+        providers={"__shared__": "p1"},
+        icons={"p1": "🔵"},
+    )
+    MainWindow._on_playback_health_ready(host, ("__shared__", _PLAYING))
+
+    text = host._playback_health_label.text
+    assert text.startswith("🔵 ")          # source glyph leads
+    assert "[" not in text                 # no position marker for a single window
+    assert "18s buffer" in text
+
+
+def test_on_playback_health_ready_multi_shows_index_and_source_icon():
+    """Two windows: [i/n] count/position AND the per-stream source glyph."""
+    host = _host_for_result(
+        keys=["p1", "p2"],
+        providers={"p1": "p1", "p2": "p2"},  # split on → key IS provider_id
+        icons={"p1": "🔵", "p2": "🔴"},
+    )
+    MainWindow._on_playback_health_ready(host, ("p2", _PLAYING))
+
+    text = host._playback_health_label.text
+    assert text.startswith("[2/2] 🔴 ")     # position + the glyph for THIS stream
+    assert "18s buffer" in text
+    assert "cycle between 2" in host._playback_health_label.tooltip
+
+
+def test_on_playback_health_ready_unknown_source_omits_glyph():
+    """No cached glyph for the source → readout is still well-formed (no leading space)."""
+    host = _host_for_result(keys=["__shared__"], last_key="__shared__")
+    MainWindow._on_playback_health_ready(host, ("__shared__", _PLAYING))
+
+    assert host._playback_health_label.text.startswith(_icons.play_icon)
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +405,42 @@ def test_tick_skips_when_already_inflight():
     MainWindow._playback_health_tick(host)
 
     assert host.executor.submits == []  # did not pile up
+
+
+def test_tick_closing_one_window_keeps_readout_on_survivor():
+    """Regression: closing the most-recent window must not blank the readout.
+
+    Two windows were open (p1, p2); the user closes p2 — the most-recently-used
+    one — so active_keys() drops to [p1] but the player's stale _last_key still
+    points at the dead p2. The tick must keep polling (not hide/stop) and probe a
+    *live* key (p1), not None/p2 which would resolve to the dead window and read
+    as idle.
+    """
+    host = MainWindow.__new__(MainWindow)
+    host._playback_health_label = _FakeLabel()
+    host._playback_health_label.visible = True
+    host._playback_health_timer = _FakeTimer()
+    host.executor = _FakeExecutor()
+    host.player_manager = _FakePlayerManager(
+        running=True, keys=["p1"], last_key="p2"  # p2 closed; _last_key stale
+    )
+    host._health_query_inflight = False
+    host._health_view_key = None
+
+    MainWindow._playback_health_tick(host)
+
+    assert host._playback_health_label.visible is True   # not blanked
+    assert host._playback_health_timer.stopped is False  # still polling
+    assert len(host.executor.submits) == 1
+    assert host.executor.submits[0][1] == ("p1",)        # probes the LIVE key
+
+
+def test_resolve_health_key_falls_back_to_live_key_when_pin_dead():
+    """A pinned view whose window closed falls back to a live key, never returns dead."""
+    host = MainWindow.__new__(MainWindow)
+    host.player_manager = _FakePlayerManager(keys=["p1"], last_key="p2")
+    host._health_view_key = "p2"  # was pinned to the now-closed window
+    assert MainWindow._resolve_health_key(host, ["p1"]) == "p1"
 
 
 # ---------------------------------------------------------------------------
