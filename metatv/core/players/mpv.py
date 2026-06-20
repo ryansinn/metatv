@@ -557,7 +557,9 @@ class MPVPlayer(PlayerPlugin):
 
         Prebuffer flags (``--cache-pause-initial=yes`` + ``--cache-pause-wait=<secs>``)
         are injected after buffer flags when ``config.prebuffer_before_play`` is ``True``.
-        ``--cache=yes`` is also included (harmless if already present; mpv last-wins).
+        ``--cache=yes`` is prepended to them *only* when ``buffer_args`` did not already
+        emit it (i.e. the ``"reconnect_only"`` profile), so the command never carries a
+        duplicate ``--cache=yes``.
 
         User args (``config.mpv_extra_args``) are appended LAST so they win via
         mpv's last-value rule — including any user-supplied ``--user-agent`` or
@@ -595,10 +597,13 @@ class MPVPlayer(PlayerPlugin):
         prebuffer_args: list[str] = []
         if getattr(self.config, "prebuffer_before_play", False):
             wait = getattr(self.config, "prebuffer_wait_secs", 10)
-            # --cache=yes is required for cache-pause-initial to take effect
-            # (harmless if already in buffer_args; mpv last-wins).
-            prebuffer_args = [
-                "--cache=yes",
+            # --cache=yes is required for cache-pause-initial to take effect, but
+            # only add it when buffer_args didn't already (every profile except
+            # "reconnect_only" emits it, as does the explicit-size path) — otherwise
+            # the launch command carries a redundant duplicate "--cache=yes".
+            if "--cache=yes" not in buffer_args:
+                prebuffer_args.append("--cache=yes")
+            prebuffer_args += [
                 "--cache-pause-initial=yes",
                 f"--cache-pause-wait={wait}",
             ]
