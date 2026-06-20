@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
-from metatv.core.channel_name_utils import parse_channel_name
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, resolve_category_name
@@ -113,9 +112,9 @@ class _SimilarSection(QWidget):
     # ------------------------------------------------------------------ #
 
     def _make_row(self, v: ChannelVersion) -> QWidget:
-        parsed = parse_channel_name(v.name)
-        clean_title = parsed.bare_name or v.name
-        year_str = parsed.year or ""
+        # Read stored ingestion fields — no render-time parse (CLAUDE.md ingestion-only rule).
+        clean_title = v.detected_title or v.name
+        year_str = v.detected_year or ""
         prefix = v.detected_prefix
 
         row_w = QWidget()
