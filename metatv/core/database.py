@@ -251,7 +251,7 @@ class SeasonDB(Base):
     """Season database model - for TV series hierarchy"""
     __tablename__ = "seasons"
     
-    id = Column(String, primary_key=True)  # {series_id}_s{season_num}
+    id = Column(String, primary_key=True)  # {provider_id}_{series_id}_s{season_num} (provider-scoped)
     series_id = Column(String, nullable=False, index=True)  # Links to ChannelDB.id
     provider_id = Column(String, nullable=False, index=True)
     
