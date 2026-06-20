@@ -34,6 +34,7 @@ class DetailsPaneWidget(QWidget):
     # Public signals — wired by main_window (unchanged API)
     play_requested             = pyqtSignal(str)        # channel_id
     favorite_toggled           = pyqtSignal(str)        # channel_id
+    monitor_toggled            = pyqtSignal(str)        # channel_id (series monitor toggle)
     queue_toggled              = pyqtSignal(str)        # channel_id
     rating_requested           = pyqtSignal(str, int)   # channel_id, ±1
     suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
@@ -115,6 +116,12 @@ class DetailsPaneWidget(QWidget):
         # Tier 1: instant display from channel attributes
         self._meta.load_basic(channel, self._provider_map)
         self._action_bar.update_favorite(channel.is_favorite)
+        _is_series = getattr(channel, "media_type", None) == MediaType.SERIES
+        _is_mon = False
+        _check = getattr(self.config, "is_series_monitored", None)
+        if _is_series and callable(_check):
+            _is_mon = bool(_check(channel.id))
+        self._action_bar.set_monitorable(_is_series, _is_mon)
 
         if is_live:
             self._poster.set_country_info(channel.name)
@@ -233,6 +240,7 @@ class DetailsPaneWidget(QWidget):
         ab.hide_clicked.connect(self._on_hide)
         ab.unhide_clicked.connect(self._on_unhide)
         ab.watchlist_clicked.connect(self._on_watchlist)
+        ab.monitor_clicked.connect(self._on_monitor)
 
         # Collapse state persistence
         self._tech._toggle_btn.clicked.connect(self._save_tech_state)
@@ -315,6 +323,10 @@ class DetailsPaneWidget(QWidget):
     def _on_favorite(self) -> None:
         if self.current_channel:
             self.favorite_toggled.emit(self.current_channel.id)
+
+    def _on_monitor(self) -> None:
+        if self.current_channel:
+            self.monitor_toggled.emit(self.current_channel.id)
 
     def _on_queue(self) -> None:
         if self.current_channel:

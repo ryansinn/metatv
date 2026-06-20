@@ -94,6 +94,18 @@ WHATS_NEW: list[WhatsNewEntry] = [
             "This What's New window is now a carousel — use ‹ Newer / Older › to step back through past releases.",
         ),
     ),
+    WhatsNewEntry(
+        id=8,
+        version="0.1.0",
+        date="2026-06-20",
+        title="Monitor a series for new episodes",
+        items=(
+            "Right-click any series → 'Monitor for new episodes' to track it.",
+            "When new episodes are detected after a source refresh or on startup, a toast notification appears.",
+            "A new 'New Episodes' sidebar section lists every monitored series with unseen episodes.",
+            "Click a row to open the series, or 'Mark seen' to clear the badge.",
+        ),
+    ),
 ]
 
 
