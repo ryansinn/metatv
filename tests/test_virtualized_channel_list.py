@@ -358,6 +358,43 @@ def test_update_favorite_unknown_id_is_noop(qapp):
     assert model.rowCount() == 1
 
 
+def test_stats_label_grows_as_pages_are_appended(qapp):
+    """"Showing N of M" updates live as fetchMore() pages stream in.
+
+    Regression: the label was set once at page-1 load and never updated, so it
+    stayed frozen at the first page's count as the user scrolled.
+    """
+    from metatv.gui.main_window import MainWindow
+    from metatv.gui.channel_list_model import ChannelListModel
+
+    class _FakeLabel:
+        def __init__(self): self.text = ""
+        def setText(self, t): self.text = t
+
+    host = MainWindow.__new__(MainWindow)
+    host.channel_model = ChannelListModel()
+    host.stats_label = _FakeLabel()
+    host._stats_total_channels = 10_000
+    host._stats_hidden_only = False
+    host._stats_panel_filtering = False
+
+    # Page 1: 1,000 rows loaded.
+    host.channel_model.set_channels(
+        [_make_dto(id=f"p1-{i}") for i in range(1000)],
+        provider_icon_map={}, show_provider_icon=False,
+        has_more=True, query_params={}, next_offset=1000,
+    )
+    host._refresh_channel_stats_label()
+    assert host.stats_label.text == "Showing 1,000 of 10,000 channels"
+
+    # A fetched page lands → label must grow to reflect the new loaded count.
+    gen = host.channel_model.generation
+    page2 = [_make_dto(id=f"p2-{i}") for i in range(1000)]
+    host._on_channel_page_loaded((page2, True, 1000), gen)
+    assert host.channel_model.rowCount() == 2000
+    assert host.stats_label.text == "Showing 2,000 of 10,000 channels"
+
+
 # ---------------------------------------------------------------------------
 # 3. Context menu id mapping — single vs multi-select
 # ---------------------------------------------------------------------------

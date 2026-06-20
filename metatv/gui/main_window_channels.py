@@ -413,29 +413,47 @@ class _ChannelListMixin:
             get_media_type_icon=self.get_media_type_icon,
         )
 
+        # Stash the stats context so _refresh_channel_stats_label() can recompute
+        # the "Showing N of M" label live as fetchMore() streams in more pages.
+        self._stats_total_channels = total_channels
+        self._stats_hidden_only = bool(params.get('hidden_only'))
+        self._stats_panel_filtering = any([
+            params.get('language_prefixes'),
+            params.get('region_prefixes'),
+            params.get('quality_prefixes'),
+            params.get('platform_prefixes'),
+        ])
+        self._refresh_channel_stats_label()
+
         if params.get('hidden_only'):
-            self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
             self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
+        elif given_provider_id:
+            self.status_bar.showMessage(f"{shown:,} channels from selected provider")
         else:
-            panel_filtering = any([
-                params.get('language_prefixes'),
-                params.get('region_prefixes'),
-                params.get('quality_prefixes'),
-                params.get('platform_prefixes'),
-            ])
-            if panel_filtering:
-                excluded = total_channels - shown
-                self.stats_label.setText(
-                    f"Showing {shown:,} of {total_channels:,} · {excluded:,} filtered out"
-                )
-            else:
-                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
-            if given_provider_id:
-                self.status_bar.showMessage(f"{shown:,} channels from selected provider")
-            else:
-                self.status_bar.showMessage(f"{shown:,} channels from active providers")
+            self.status_bar.showMessage(f"{shown:,} channels from active providers")
 
         self.filter_channels()
+
+    def _refresh_channel_stats_label(self) -> None:
+        """Set the stats label from the current loaded row count.
+
+        Called on the initial load and again after every fetchMore() page so the
+        "Showing N of M" count grows as the user scrolls (N = rows loaded so far;
+        M = the provider's total). Reads the context stashed by the last load.
+        """
+        if not hasattr(self, 'channel_model'):
+            return
+        shown = self.channel_model.rowCount()
+        total = getattr(self, '_stats_total_channels', shown)
+        if getattr(self, '_stats_hidden_only', False):
+            self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
+        elif getattr(self, '_stats_panel_filtering', False):
+            excluded = max(0, total - shown)
+            self.stats_label.setText(
+                f"Showing {shown:,} of {total:,} · {excluded:,} filtered out"
+            )
+        else:
+            self.stats_label.setText(f"Showing {shown:,} of {total:,} channels")
 
     def filter_channels(self, _unused: str = "") -> None:
         """Update banner/status state after a channel load completes.
@@ -927,3 +945,5 @@ class _ChannelListMixin:
         self.channel_model.append_page(
             dtos, has_more=has_more, raw_count=raw_count, generation=generation
         )
+        # Reflect the grown loaded count in the "Showing N of M" label.
+        self._refresh_channel_stats_label()
