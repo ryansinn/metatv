@@ -53,6 +53,7 @@ class ChannelMenuContext:
     rating: int = 0
     is_hidden: bool = False
     is_watched: bool = False          # channel_id in config.epg_watchlist_channels
+    is_series_monitored: bool = False  # channel_id in config.monitored_series
     has_unavailable: bool = False     # favorites/queue Clear-Unavailable enablement
     channel_name: str = ""
     user_category: str | None = None
@@ -117,6 +118,10 @@ def _watch_label(c: ChannelMenuContext) -> str:
     return "Stop watching this channel" if c.is_watched else "Watch this channel (EPG alerts)"
 
 
+def _monitor_label(c: ChannelMenuContext) -> str:
+    return "Unmonitor series" if c.is_series_monitored else "Monitor for new episodes"
+
+
 def _category_label(c: ChannelMenuContext) -> str:
     if c.user_category:
         return f"Category: {c.user_category}  (change…)"
@@ -176,6 +181,18 @@ ACTIONS: dict[str, ChannelAction] = {
         checkable=True,
         checked=lambda c: c.rating == -1,
         applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
+    ),
+    # ── Series monitor ──────────────────────────────────────────────────────
+    "monitor_series": ChannelAction(
+        id="monitor_series",
+        label=_monitor_label,
+        icon=_icons.monitor_series_icon,
+        tooltip="Monitor this series and get notified when new episodes appear",
+        applies=lambda c: (
+            c.is_single and c.channel_found
+            and not c.is_hidden
+            and c.media_type == "series"
+        ),
     ),
     # ── Channel extras ──────────────────────────────────────────────────────
     "watch": ChannelAction(
@@ -365,6 +382,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
+        "monitor_series",
+        "sep",
         "watch", "track", "unhide", "hide",
         "sep",
         "category",
@@ -409,6 +428,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "favorite", "queue",
         "sep",
         "like", "dislike",
+        "sep",
+        "monitor_series",
         "sep",
         "not_interested", "hide",
     ],

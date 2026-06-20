@@ -682,6 +682,8 @@ class _ChannelListMixin:
         cid = ctx.channel_id
         if cid:
             ctx.is_watched = cid in self.config.epg_watchlist_channels
+            _is_mon = getattr(self.config, "is_series_monitored", None)
+            ctx.is_series_monitored = bool(_is_mon(cid)) if callable(_is_mon) else False
 
         surface = ctx.surface
         if surface == "favorites":
@@ -753,6 +755,11 @@ class _ChannelListMixin:
                 (lambda: self._unwatch_channel_from_list(cid))
                 if ctx.is_watched
                 else (lambda: self._watch_channel_from_list(cid))
+            ),
+            "monitor_series": (
+                (lambda: self._unmonitor_series(cid))
+                if ctx.is_series_monitored
+                else (lambda: self._monitor_series(cid))
             ),
             "track": lambda: self._prompt_track_from_list(ctx.channel_name),
             "unhide": lambda: self._unhide_channel(cid),

@@ -58,9 +58,11 @@ from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
 from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
+from metatv.core.series_monitor import SeriesMonitorManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
+from metatv.gui.sidebar.new_episodes import NewEpisodesSection
 
 # Increment this when the prefix detection logic changes to trigger a one-time
 # background re-scan for all users who have an older detected version stored in config.
@@ -284,6 +286,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.stream_retry_manager = StreamRetryManager(self.db, self.validate_stream_url, parent=self)
         self._register_cleanable("stream_retry_manager", self.stream_retry_manager.stop)
 
+        # Series monitor — checks monitored series for new episodes after each provider refresh
+        # and on startup.  Constructed before setup_ui() so the sidebar section can connect.
+        self.series_monitor = SeriesMonitorManager(
+            self.db, self.config,
+            notifications=None,  # injected after NotificationManager is set up
+            parent=self,
+        )
+        self._register_cleanable("series_monitor", self.series_monitor.shutdown)
+
         self.setup_ui()
         self.setup_notifications()
 
@@ -334,6 +345,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False
         QTimer.singleShot(0, self.maybe_show_whats_new)
+
+        # Series monitor startup check — runs after channels are loaded (deferred 0ms
+        # yields to the event loop so channel load and UI paint happen first).
+        QTimer.singleShot(0, self.series_monitor.check_all)
 
         logger.info("Main window initialized")
     
@@ -480,7 +495,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.sidebar_sections = {}
 
         # Determine full ordered list: saved order first, then any new sections not yet in it
-        _known = ["alerts", "recommended", "queue", "favorites", "history", "sources"]
+        _known = ["new_episodes", "alerts", "recommended", "queue", "favorites", "history", "sources"]
         ordered = list(self.config.sidebar_sections or _known)
         for sid in _known:
             if sid not in ordered:
@@ -531,7 +546,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     
     def create_section(self, section_id: str):
         """Create a sidebar section by ID"""
-        if section_id == "sources":
+        if section_id == "new_episodes":
+            section = NewEpisodesSection(self.config, self)
+            section.seriesClicked.connect(self.show_channel_details_by_id)
+            section.markSeenClicked.connect(self._on_mark_series_seen)
+            self.series_monitor.new_episodes_found.connect(
+                lambda _cid, _n: section.refresh()
+            )
+            return section
+
+        elif section_id == "sources":
             section = SourcesSection(self.config, self.db, self)
             section.providerSelected.connect(self.on_provider_selected_new)
             section.providerRefreshClicked.connect(self.refresh_provider)
@@ -623,6 +647,53 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.config.epg_watchlist_channels.remove(channel_id)
             self.config.save()
             self._refresh_watch_alerts()
+
+    # ------------------------------------------------------------------
+    # Series monitor helpers
+    # ------------------------------------------------------------------
+
+    def _refresh_new_episodes_section(self) -> None:
+        """Refresh the New Episodes sidebar section."""
+        section = self.sidebar_sections.get("new_episodes")
+        if section:
+            section.refresh()
+
+    def _monitor_series(self, channel_id: str) -> None:
+        """Start monitoring a series for new episodes.
+
+        Reads the channel from the DB to populate the config entry, then
+        tells SeriesMonitorManager to compute and store the baseline episode count.
+        """
+        with self.db.session_scope(commit=False) as session:
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            channel = repos.channels.get_by_id(channel_id)
+            if not channel:
+                logger.warning(f"_monitor_series: channel {channel_id} not found")
+                return
+            entry = {
+                "series_channel_id": channel_id,
+                "source_id": channel.source_id or "",
+                "provider_id": channel.provider_id or "",
+                "title": channel.name or "",
+                "baseline_episode_count": None,  # None = not yet established (set by set_baseline)
+                "unseen_new": 0,
+                "last_checked": None,
+            }
+
+        self.config.add_monitored_series(entry)
+        self.series_monitor.set_baseline(channel_id)
+        self._refresh_new_episodes_section()
+
+    def _unmonitor_series(self, channel_id: str) -> None:
+        """Stop monitoring a series."""
+        self.config.remove_monitored_series(channel_id)
+        self._refresh_new_episodes_section()
+
+    def _on_mark_series_seen(self, channel_id: str) -> None:
+        """Clear unseen count for the given series (main thread)."""
+        self.config.clear_unseen(channel_id)
+        self._refresh_new_episodes_section()
 
     def _prompt_track_from_list(self, channel_name: str) -> None:
         from PyQt6.QtWidgets import QInputDialog
@@ -914,6 +985,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # EPG manager + view (hidden by default)
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
         self._register_cleanable("epg_manager", self.epg_manager.shutdown)
+
+        # Inject the now-constructed notification_manager into series_monitor
+        # (constructed earlier in __init__ before setup_ui, before notifications existed)
+        self.series_monitor.notifications = self.notification_manager
         # Provider IDs that should get a one-time EPG fetch once their channel load
         # completes — populated by AddProviderDialog when "Enable EPG" is checked.
         self._epg_fetch_after_add: set[str] = set()

@@ -304,6 +304,11 @@ class _ProviderMixin:
             if getattr(self, "epg_manager", None):
                 self.epg_manager.relink_all()
 
+            # Check monitored series for new episodes now that this provider's
+            # channel corpus is freshly loaded.
+            if provider_id and "series_monitor" in self.__dict__:
+                self.series_monitor.check_provider(provider_id)
+
             # Freshly-added provider with EPG enabled → kick off its first EPG pull
             # now (alongside the channel data), so the user never has to open Source
             # Settings to get the initial guide. force_refresh_provider bypasses the

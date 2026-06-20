@@ -794,7 +794,70 @@ class Config(BaseModel):
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0
-    
+
+    # Series monitor — user-opted series tracked for new episode arrivals.
+    # Each entry is a plain dict:
+    #   {"series_channel_id": str,   # ChannelDB.id of the series
+    #    "source_id": str,           # xtream series id, for fetch_series_info
+    #    "provider_id": str,
+    #    "title": str,
+    #    "baseline_episode_count": int | None,  # None = baseline not yet established
+    #    "unseen_new": int,          # new episodes since last cleared
+    #    "last_checked": str | None} # ISO timestamp
+    monitored_series: list = Field(default_factory=list)
+
+    def add_monitored_series(self, entry: dict) -> None:
+        """Add a series to the monitor list (no-op if already present)."""
+        cid = entry.get("series_channel_id")
+        if not cid:
+            return
+        if not self.is_series_monitored(cid):
+            self.monitored_series = list(self.monitored_series) + [entry]
+            self.save()
+
+    def remove_monitored_series(self, series_channel_id: str) -> None:
+        """Remove a series from the monitor list."""
+        self.monitored_series = [
+            e for e in self.monitored_series
+            if e.get("series_channel_id") != series_channel_id
+        ]
+        self.save()
+
+    def is_series_monitored(self, series_channel_id: str) -> bool:
+        """Return True if the given series_channel_id is in the monitor list."""
+        return any(
+            e.get("series_channel_id") == series_channel_id
+            for e in self.monitored_series
+        )
+
+    def get_monitored_series(self) -> list:
+        """Return a copy of the monitored series list."""
+        return list(self.monitored_series)
+
+    def get_monitored_for_provider(self, provider_id: str) -> list:
+        """Return monitored series entries belonging to the given provider."""
+        return [
+            e for e in self.monitored_series
+            if e.get("provider_id") == provider_id
+        ]
+
+    def update_monitored_series(self, series_channel_id: str, **fields) -> None:
+        """Update fields on an existing monitored series entry (in-place, then save)."""
+        updated = []
+        for e in self.monitored_series:
+            if e.get("series_channel_id") == series_channel_id:
+                merged = dict(e)
+                merged.update(fields)
+                updated.append(merged)
+            else:
+                updated.append(e)
+        self.monitored_series = updated
+        self.save()
+
+    def clear_unseen(self, series_channel_id: str) -> None:
+        """Reset unseen_new to 0 for the given series."""
+        self.update_monitored_series(series_channel_id, unseen_new=0)
+
     # ── Computed views of the base lookup tables ─────────────────────────────
     # These are NOT stored in config.yaml — they're computed from the base
     # constants + user/provider overrides at access time.
