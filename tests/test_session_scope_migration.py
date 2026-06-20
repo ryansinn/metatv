@@ -121,10 +121,10 @@ def test_context_menu_handlers_are_thin_wrappers():
 
 def test_bg_fetch_ctx_data_uses_session_scope():
     """The unified context-menu worker _bg_fetch_ctx_data must use session_scope."""
-    src = _source("main_window.py")
-    # Read the _bg_fetch_ctx_data method from main_window.py
-    assert "_bg_fetch_ctx_data" in src, "_bg_fetch_ctx_data must exist in main_window.py"
-    assert "session_scope" in _func_source("main_window.py", "_bg_fetch_ctx_data"), (
+    # B10-8: _bg_fetch_ctx_data moved to main_window_channels.py (_ChannelListMixin)
+    src = _source("main_window_channels.py")
+    assert "_bg_fetch_ctx_data" in src, "_bg_fetch_ctx_data must exist in main_window_channels.py"
+    assert "session_scope" in _func_source("main_window_channels.py", "_bg_fetch_ctx_data"), (
         "_bg_fetch_ctx_data must use session_scope() for its DB work"
     )
 
@@ -194,8 +194,9 @@ def test_ctx_data_ready_session_closed_before_exec():
     ``_on_ctx_data_ready`` (which receives the signal) does NOT open a session
     itself, ensuring the session is always closed before ``menu.exec``.
     """
+    # B10-8: _on_ctx_data_ready moved to main_window_channels.py (_ChannelListMixin)
     # _on_ctx_data_ready must not have any session_scope of its own
-    src = _func_source("main_window.py", "_on_ctx_data_ready")
+    src = _func_source("main_window_channels.py", "_on_ctx_data_ready")
     assert "session_scope" not in src, (
         "_on_ctx_data_ready must not open a session — the session is closed "
         "in the worker thread before the signal fires (signal/slot = closed boundary)"

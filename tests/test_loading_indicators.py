@@ -278,14 +278,16 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
     host.db = MagicMock()
     host.db.get_session.return_value = fake_session
 
-    import metatv.gui.main_window as mw_module
+    # B10-8: load_channels moved to _ChannelListMixin in main_window_channels.py,
+    # so RepositoryFactory is resolved from that module's namespace.
+    import metatv.gui.main_window_channels as mw_channels_module
 
     class _FakeRepos:
         def __init__(self, _session):
             self.providers = MagicMock()
             self.providers.get_all.return_value = []
 
-    monkeypatch.setattr(mw_module, "RepositoryFactory", _FakeRepos)
+    monkeypatch.setattr(mw_channels_module, "RepositoryFactory", _FakeRepos)
 
     host.load_channels()
 
