@@ -69,6 +69,7 @@ preferred_version_icon: str = "🎯"
 # Series monitor
 new_episodes_icon: str = "🆕"   # "new episodes available" indicator
 monitor_series_icon: str = "📡"  # "monitor this series" action
+manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage monitored series)
 
 # Section / navigation labels
 history_icon: str = "🕒"

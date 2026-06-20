@@ -119,7 +119,7 @@ def _watch_label(c: ChannelMenuContext) -> str:
 
 
 def _monitor_label(c: ChannelMenuContext) -> str:
-    return "Unmonitor series" if c.is_series_monitored else "Monitor for new episodes"
+    return "Stop monitoring" if c.is_series_monitored else "Monitor for new episodes"
 
 
 def _category_label(c: ChannelMenuContext) -> str:

@@ -695,7 +695,8 @@ class TestMonitorSeriesMenuAction:
         from metatv.gui.channel_menu import ACTIONS
         ctx = self._ctx("series", is_monitored=True)
         label = ACTIONS["monitor_series"].label(ctx)
-        assert "Unmonitor" in label, f"Expected 'Unmonitor', got {label!r}"
+        assert "Stop monitoring" in label, f"Expected 'Stop monitoring …', got {label!r}"
+        assert "Monitor for new" not in label
 
     def test_monitor_action_present_in_channel_surface_layout(self):
         from metatv.gui.channel_menu import SURFACE_LAYOUTS
@@ -801,3 +802,56 @@ class TestActionBarMonitorButton:
         assert bar._is_monitored is True
         assert "Monitoring" in bar.monitor_button.text()
         assert emitted, "monitor_clicked must emit on toggle"
+
+
+# ===========================================================================
+# Part 6: Monitored Series management dialog (see-all + stop)
+# ===========================================================================
+
+class TestMonitoredSeriesDialog:
+    """Behavioral tests for the see-all / stop-monitoring dialog."""
+
+    def _cfg(self, n: int):
+        cfg = _FakeConfig()
+        for i in range(n):
+            cfg.add_monitored_series({
+                "series_channel_id": f"ch{i}",
+                "source_id": f"s{i}",
+                "provider_id": "p1",
+                "title": f"Series {i}",
+                "baseline_episode_count": 10,
+                "unseen_new": (3 if i == 0 else 0),
+                "last_checked": None,
+            })
+        return cfg
+
+    def _rows(self, dlg) -> list:
+        return [
+            dlg._scroll_vl.itemAt(i).widget()
+            for i in range(dlg._scroll_vl.count())
+            if dlg._scroll_vl.itemAt(i).widget() is not None
+        ]
+
+    def test_lists_every_monitored_series(self, qapp):
+        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
+        dlg = MonitoredSeriesDialog(self._cfg(3))
+        assert len(self._rows(dlg)) == 3, "one row per monitored series"
+
+    def test_empty_state_when_nothing_monitored(self, qapp):
+        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
+        dlg = MonitoredSeriesDialog(_FakeConfig())
+        assert len(self._rows(dlg)) == 1, "a single empty-state row"
+
+    def test_stop_removes_entry_refreshes_and_emits_changed(self, qapp):
+        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
+        cfg = self._cfg(2)
+        dlg = MonitoredSeriesDialog(cfg)
+        changed: list[bool] = []
+        dlg.changed.connect(lambda: changed.append(True))
+
+        dlg._stop("ch0")
+
+        assert not cfg.is_series_monitored("ch0"), "stopped series must be removed"
+        assert cfg.is_series_monitored("ch1"), "other series must remain"
+        assert changed, "changed must emit so the host refreshes its views"
+        assert len(self._rows(dlg)) == 1, "list refreshes to the remaining series"

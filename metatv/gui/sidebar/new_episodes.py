@@ -25,6 +25,8 @@ class NewEpisodesSection(CollapsibleSection):
     seriesClicked = pyqtSignal(str)
     # Emitted when the user clicks "Mark seen" for a series (channel_id)
     markSeenClicked = pyqtSignal(str)
+    # Emitted when the user clicks "Manage monitored…" — host opens the dialog
+    manageRequested = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__("New Episodes", _icons.new_episodes_icon, config, parent)
@@ -34,12 +36,25 @@ class NewEpisodesSection(CollapsibleSection):
         return "new_episodes"
 
     def create_content(self) -> None:
-        """Create the list widget."""
+        """Create the list widget + a persistent 'Manage monitored…' affordance."""
         self._list = QListWidget()
         self._list.setToolTip("Series with new episodes since your last visit")
         self._list.currentItemChanged.connect(self._on_selection_changed)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.content_layout.addWidget(self._list)
+
+        # Always-visible entry to the see-all / stop-monitoring dialog.
+        self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage monitored…")
+        self._manage_btn.setFlat(True)
+        self._manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manage_btn.setToolTip("See every series you're monitoring and stop any of them")
+        self._manage_btn.setStyleSheet(
+            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
+            f" border: none; padding: 2px; text-align: left; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
+        )
+        self._manage_btn.clicked.connect(lambda: self.manageRequested.emit())
+        self.content_layout.addWidget(self._manage_btn)
 
     # ------------------------------------------------------------------
     # Refresh (synchronous — reads in-memory config)

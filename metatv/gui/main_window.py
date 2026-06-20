@@ -551,6 +551,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = NewEpisodesSection(self.config, self)
             section.seriesClicked.connect(self.show_channel_details_by_id)
             section.markSeenClicked.connect(self._on_mark_series_seen)
+            section.manageRequested.connect(self._open_monitored_dialog)
             self.series_monitor.new_episodes_found.connect(
                 lambda _cid, _n: section.refresh()
             )
@@ -658,6 +659,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         section = self.sidebar_sections.get("new_episodes")
         if section:
             section.refresh()
+
+    def _open_monitored_dialog(self) -> None:
+        """Open the 'Monitored Series' management dialog (see-all + stop monitoring)."""
+        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
+        dlg = MonitoredSeriesDialog(self.config, self)
+        dlg.changed.connect(self._refresh_new_episodes_section)
+        dlg.exec()
 
     def _monitor_series(self, channel_id: str) -> None:
         """Start monitoring a series for new episodes.
