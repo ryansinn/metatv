@@ -97,6 +97,7 @@ def _build_mock_window(engine):
     win.db = db
     win.status_bar = MagicMock()
     win.channels_list = MagicMock()
+    win.channel_model = MagicMock()   # virtualized model — update_favorite called by toggle
     win.all_channels = []
     win.favorite_icon = "★"
     win.unfavorite_icon = "☆"

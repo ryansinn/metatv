@@ -93,7 +93,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 strict_genre_filter: Optional[str] = None,
                 person_filter: Optional[str] = None,
                 excluded_provider_ids: Optional[List[str]] = None,
-                limit: Optional[int] = None) -> List[ChannelDB]:
+                limit: Optional[int] = None,
+                offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
 
         Args:
@@ -294,6 +295,8 @@ class ChannelRepository(_ChannelStatsMixin):
 
         query = query.order_by(ChannelDB.name)
 
+        if offset is not None:
+            query = query.offset(offset)
         if limit is not None:
             return query.limit(limit).all()
         return query.all()

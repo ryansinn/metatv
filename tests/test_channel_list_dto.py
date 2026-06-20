@@ -124,16 +124,21 @@ def test_channel_list_dto_is_frozen():
 
 def _make_render_host(qapp):
     """Real MainWindow via __new__ with the minimal widgets the render loop touches."""
-    from PyQt6.QtWidgets import QListWidget
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
     from metatv.gui import main_window as mw_module
+    from metatv.gui.channel_list_model import ChannelListModel
 
     win = mw_module.MainWindow.__new__(mw_module.MainWindow)
     win.all_channels = []
-    win.channels_list = QListWidget()
+    win.channel_model = ChannelListModel()
+    win.channels_list = QListView()
+    win.channels_list.setModel(win.channel_model)
+    # Banner widgets (stubbed)
+    win._channel_banner = QLabel()
+    win._channel_filter_btn = QPushButton()
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
-    win.max_display_limit = 1000
-    win._search_page_size = 5000
+    win._search_page_size = 1000
     win._currently_bypassing = False
     win._clear_provider_busy = MagicMock()
 
@@ -144,6 +149,11 @@ def _make_render_host(qapp):
     win.movie_icon = "M"
     win.series_icon = "S"
     win.unknown_icon = "?"
+
+    # get_media_type_icon is called by the render loop and channel_model.set_channels
+    def _get_media_type_icon(media_type):
+        return {"live": "L", "movie": "M", "series": "S"}.get(media_type or "", "?")
+    win.get_media_type_icon = _get_media_type_icon
     return win
 
 
