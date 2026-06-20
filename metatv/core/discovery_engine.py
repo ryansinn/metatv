@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from sqlalchemy import text
+from sqlalchemy import literal_column, text
 from loguru import logger
 
 from metatv.core.content_dedup import _PREFIX_NOISE_RE, _YEAR_EXTRACT_RE
@@ -393,22 +393,27 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
             actor = max(positive, key=lambda k: positive[k])
 
     if not actor:
+        # Perf: select only the cast string via json_extract() in SQL so we
+        # don't materialise full ORM objects with the entire raw_data blob.
+        _cast_col = literal_column("json_extract(channels.raw_data, '$.cast')").label("cast")
         q = (
-            session.query(ChannelDB)
+            session.query(_cast_col)
+            .select_from(ChannelDB)
             .filter(
                 ChannelDB.media_type == "series",
                 ChannelDB.is_hidden == False,  # noqa: E712
                 ChannelDB.raw_data.isnot(None),
-                text("CAST(json_extract(raw_data, '$.rating') AS REAL) >= 7.5"),
+                text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) >= 7.5"),
+                text("json_extract(channels.raw_data, '$.cast') IS NOT NULL"),
+                text("json_extract(channels.raw_data, '$.cast') != ''"),
             )
         )
         q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
         q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
         q = _apply_provider_exclusion(q, excluded_provider_ids)
         counter: Counter = Counter()
-        for ch in q.all():
-            cast_str = (ch.raw_data or {}).get("cast") or ""
-            for name in [n.strip() for n in cast_str.split(",") if n.strip()]:
+        for (cast_str,) in q.yield_per(5000):
+            for name in [n.strip() for n in (cast_str or "").split(",") if n.strip()]:
                 counter[name] += 1
         if counter:
             actor = counter.most_common(1)[0][0]
@@ -470,27 +475,33 @@ def get_all_genres(session, min_count: int = 10,
     strings like 'Action & Adventure / Drama' or 'Animation, Mystery' yield
     individual genre counts rather than counting the compound string as-is.
     Only counts genres from channels that pass the global category filter.
+
+    Perf: selects only the genre field via json_extract() in SQL — no full
+    ORM objects, no Python-side JSON parsing — then streams with yield_per.
     """
     from metatv.core.database import ChannelDB
+    _genre_col = literal_column("json_extract(channels.raw_data, '$.genre')").label("genre")
     q = (
-        session.query(ChannelDB)
+        session.query(_genre_col)
+        .select_from(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text("json_extract(raw_data, '$.genre') IS NOT NULL"),
-            text("json_extract(raw_data, '$.genre') != ''"),
+            text("json_extract(channels.raw_data, '$.genre') IS NOT NULL"),
+            text("json_extract(channels.raw_data, '$.genre') != ''"),
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
+    # Bogus sentinel values that providers occasionally store — skip them.
+    _BAD_GENRE_TOKENS = frozenset({"null", "undefined", "none"})
     counter: Counter = Counter()
-    for ch in q.all():
-        genre_str = (ch.raw_data or {}).get("genre") or ""
-        for g in _GENRE_SEP_RE.split(genre_str):
+    for (genre_str,) in q.yield_per(5000):
+        for g in _GENRE_SEP_RE.split(genre_str or ""):
             g = g.strip()
-            if g:
+            if g and g.lower() not in _BAD_GENRE_TOKENS:
                 counter[g] += 1
     return [g for g, cnt in counter.most_common() if cnt >= min_count]
 
@@ -500,10 +511,19 @@ def get_all_decades(session,
                     adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                     excluded_provider_ids: list[str] | None = None,
                     ) -> list[int]:
-    """Return decades (as start year) that have ≥ 5 entries with a known year."""
+    """Return decades (as start year) that have ≥ 5 entries with a known year.
+
+    Perf: selects only releaseDate/release_date (JSON) + name in SQL, avoiding
+    full ORM object materialisation.  Year derivation runs in Python on those
+    three small strings rather than on the whole raw_data blob.
+    """
     from metatv.core.database import ChannelDB
+    _rd_col   = literal_column("json_extract(channels.raw_data, '$.releaseDate')").label("release_date")
+    _rd2_col  = literal_column("json_extract(channels.raw_data, '$.release_date')").label("release_date2")
+    _name_col = ChannelDB.name.label("name")
     q = (
-        session.query(ChannelDB)
+        session.query(_rd_col, _rd2_col, _name_col)
+        .select_from(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
@@ -514,8 +534,18 @@ def get_all_decades(session,
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     decade_counts: Counter = Counter()
-    for ch in q.all():
-        yr = _raw_year(ch)
+    for (rd, rd2, name) in q.yield_per(5000):
+        yr: int | None = None
+        for val in (rd, rd2):
+            if val:
+                m = re.match(r"(\d{4})", str(val))
+                if m:
+                    yr = int(m.group(1))
+                    break
+        if yr is None and name:
+            m = _YEAR_EXTRACT_RE.search(name)
+            if m:
+                yr = int(m.group(1))
         if yr and 1950 <= yr <= 2030:
             decade_counts[(yr // 10) * 10] += 1
     return sorted(
@@ -529,16 +559,24 @@ def _rank_genres_by_preference(genres: list[str], liked_ids: set,
                                 excluded_prefixes=None,
                                 include_uncategorized: bool = True,
                                 ) -> list[str]:
-    """Sort genres so those with more liked content appear first."""
+    """Sort genres so those with more liked content appear first.
+
+    Perf: selects only the genre field via json_extract() in SQL, avoiding
+    full ORM object materialisation for the liked-channel genre pass.
+    """
     if not liked_ids:
         return genres
     from metatv.core.database import ChannelDB
     genre_score: dict[str, int] = {g: 0 for g in genres}
-    q = session.query(ChannelDB).filter(ChannelDB.id.in_(liked_ids))
+    _genre_col = literal_column("json_extract(channels.raw_data, '$.genre')").label("genre")
+    q = (
+        session.query(_genre_col)
+        .select_from(ChannelDB)
+        .filter(ChannelDB.id.in_(liked_ids))
+    )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
-    for ch in q.all():
-        genre_str = (ch.raw_data or {}).get("genre") or ""
-        for g in _GENRE_SEP_RE.split(genre_str):
+    for (genre_str,) in q.yield_per(5000):
+        for g in _GENRE_SEP_RE.split(genre_str or ""):
             g = g.strip()
             if g in genre_score:
                 genre_score[g] += 1
