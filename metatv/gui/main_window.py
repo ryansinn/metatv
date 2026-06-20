@@ -946,7 +946,13 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # completes — populated by AddProviderDialog when "Enable EPG" is checked.
         self._epg_fetch_after_add: set[str] = set()
         self.epg_view = EpgView(self.config, self.db, self.epg_manager, self)
-        self.epg_view.play_channel_requested.connect(self.play_special_event)
+        # EPG "play this channel" routes through the one rich play chokepoint
+        # (play_media) — same as the channel list — so it gets URL failover, the
+        # buffering notification, live list refreshes, and the playback-health
+        # readout. There is nothing special about a "special event" stream; the
+        # old play_special_event was a stripped-down duplicate that silently
+        # dropped all of the above (most visibly the live stats readout).
+        self.epg_view.play_channel_requested.connect(self.play_media)
         self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
         self.epg_view.channel_selected.connect(self._on_view_channel_selected)
         self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
@@ -2600,7 +2606,10 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
         if self.player_manager.play(stream_url, title):
-            
+            # Begin polling mpv for the live playback-health readout (the episode
+            # path doesn't go through play_media, so it must arm the readout too).
+            self._start_playback_health()
+
             # Queue subsequent episodes if provided
             if queue_episodes:
                 from metatv.core.players.base import QueueMode
