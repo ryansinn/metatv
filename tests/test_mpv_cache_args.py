@@ -257,6 +257,37 @@ def test_prebuffer_wait_respected():
     assert "--cache-pause-wait=5" in args2
 
 
+def test_prebuffer_does_not_duplicate_cache_yes_with_profile():
+    """prebuffer + a cache-emitting profile must yield exactly ONE --cache=yes.
+
+    Regression: buffer_args already emits --cache=yes for every profile except
+    reconnect_only, and prebuffer used to prepend its own unconditionally, so the
+    launch command carried a redundant duplicate (seen in the app log as
+    '--cache=yes ... --cache=yes --demuxer-max-bytes=...').
+    """
+    args = _player("auto", [], "modest", prebuffer_before_play=True)._compose_extra_args()
+    assert args.count("--cache=yes") == 1
+    # The prebuffer machinery is still wired up.
+    assert "--cache-pause-initial=yes" in args
+
+
+def test_prebuffer_does_not_duplicate_cache_yes_with_explicit_size():
+    """prebuffer + an explicit size (which also emits --cache=yes) → ONE --cache=yes."""
+    args = _player("100M", [], prebuffer_before_play=True)._compose_extra_args()
+    assert args.count("--cache=yes") == 1
+    assert "--demuxer-max-bytes=100MiB" in args
+    assert "--cache-pause-initial=yes" in args
+
+
+def test_prebuffer_still_adds_cache_yes_for_reconnect_only():
+    """reconnect_only emits no cache flags, so prebuffer must supply --cache=yes itself."""
+    args = _player(
+        "auto", [], "reconnect_only", prebuffer_before_play=True
+    )._compose_extra_args()
+    assert args.count("--cache=yes") == 1
+    assert "--cache-pause-initial=yes" in args
+
+
 def test_prebuffer_flags_after_buffer_flags_before_user_args():
     """prebuffer flags appear AFTER buffer flags and BEFORE user_args."""
     user_arg = "--foo"
