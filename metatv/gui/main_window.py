@@ -1145,9 +1145,19 @@ class MainWindow(_ProviderMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _Fa
         # Stop any pending debounce timer so we don't queue a second load
         self._search_debounce.stop()
 
-        # Show loading state immediately so the user knows something is happening
+        # Show loading state immediately so the user knows something is happening.
+        # A non-selectable placeholder item (and stats text) occupy the load window so
+        # the list never shows a stale empty/zero state while the async query runs;
+        # filter_channels() / the no-channels and error slots all clear it before they
+        # render their own state.
         self.channels_list.clear()
         self.all_channels = []
+        from PyQt6.QtWidgets import QListWidgetItem as _LoadingItem
+        from metatv.gui import icons as _icons
+        _loading_item = _LoadingItem(f"{_icons.loading_icon} Loading channels…")
+        _loading_item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.channels_list.addItem(_loading_item)
+        self.stats_label.setText("Loading channels…")
         self.status_bar.showMessage("Loading channels…")
 
         # --- All UI-state reads must happen here on the main thread ---
@@ -1390,6 +1400,8 @@ class MainWindow(_ProviderMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _Fa
         """Main thread: clear the loading state when the channel query fails."""
         logger.error(f"Channel query failed: {exc}")
         self._clear_provider_busy()
+        # Drop the transient "Loading channels…" placeholder so the spinner doesn't hang.
+        self.channels_list.clear()
         self.stats_label.setText("Couldn't load channels")
         self.status_bar.showMessage("Couldn't load channels")
 
@@ -1417,6 +1429,9 @@ class MainWindow(_ProviderMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _Fa
 
         if not channels:
             logger.warning("No channels match current filters!")
+            # Drop the transient "Loading channels…" placeholder before rendering the
+            # empty/zero state (this branch returns without calling filter_channels()).
+            self.channels_list.clear()
             if params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")

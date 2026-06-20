@@ -62,6 +62,11 @@ class RecommendedSection(CollapsibleSection):
 
     def refresh(self):
         self._list.clear()
+        # Show a loading row so the section never displays its stale empty/"rate to
+        # get recommendations" state during the load window. _on_rec_data_ready clears
+        # the list first, which replaces this placeholder. (RecommendedSection is the
+        # documented BackgroundRefreshMixin exception, so it sets this up itself.)
+        self.show_loading(self._list, "Loading recommendations…")
         self._executor.submit(self._bg_refresh)
 
     def _bg_refresh(self) -> None:
