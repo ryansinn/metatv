@@ -262,6 +262,24 @@ class CollapsibleSection(QFrame):
         list_widget.addItem(item)
         self.set_empty(False)
 
+    def show_loading(self, list_widget, message: str = "Loading…") -> None:
+        """Render a transient, non-selectable loading row while a background load runs.
+
+        Mirrors ``show_load_error`` exactly (same non-selectable row, same set_empty
+        bookkeeping) but uses ``icons.loading_icon`` instead of the warning icon. Keeps
+        the section expanded so the placeholder is visible instead of the section
+        showing its stale empty/zero state during the load window. Replaced when the
+        result slot clears the list and renders rows.
+        """
+        from PyQt6.QtWidgets import QListWidgetItem
+        from metatv.gui import icons as _icons
+
+        list_widget.clear()
+        item = QListWidgetItem(f"{_icons.loading_icon} {message}")
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        list_widget.addItem(item)
+        self.set_empty(False)
+
     def set_empty(self, empty: bool):
         """Set empty state and auto-collapse if empty"""
         was_empty = self.is_empty

@@ -36,9 +36,20 @@ class BackgroundRefreshMixin:
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._data_ready.connect(self._on_data_ready)
 
+    def _loading_message(self) -> str:
+        """Text for the transient loading placeholder. Sections MAY override."""
+        return "Loading…"
+
     def refresh(self) -> None:
-        """Kick off an off-thread load; clears the list immediately."""
-        self._refresh_list().clear()
+        """Kick off an off-thread load; clears the list and shows a loading row.
+
+        The placeholder occupies the load window so the section never shows its
+        stale empty/zero state while the background read runs. ``_on_data_ready``
+        clears the list before rendering, which replaces the placeholder.
+        """
+        lst = self._refresh_list()
+        lst.clear()
+        self.show_loading(lst, self._loading_message())
         self._executor.submit(self._bg_refresh)
 
     def _bg_refresh(self) -> None:

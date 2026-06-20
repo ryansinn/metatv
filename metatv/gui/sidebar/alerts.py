@@ -198,6 +198,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def _load_error_message(self) -> str:
         return "Couldn't load watch alerts"
 
+    def _loading_message(self) -> str:
+        return "Loading alerts…"
+
     def show_load_error(self, tree, message: str) -> None:
         """Override for QTreeWidget: render a non-selectable error row.
 
@@ -207,6 +210,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         """
         tree.clear()
         item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        tree.addTopLevelItem(item)
+        self.set_empty(False)
+
+    def show_loading(self, tree, message: str = "Loading…") -> None:
+        """Override for QTreeWidget: render a transient, non-selectable loading row.
+
+        The base CollapsibleSection.show_loading uses QListWidgetItem + addItem,
+        which does not exist on QTreeWidget. Mirrors the QTreeWidget show_load_error
+        override but uses icons.loading_icon.
+        """
+        tree.clear()
+        item = QTreeWidgetItem([f"{_icons.loading_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
         self.set_empty(False)

@@ -203,7 +203,28 @@ class _EpgWatchlistMixin:
     def _reload_watchlist(self) -> None:
         patterns = self.config.epg_watchlist_patterns
         provider_ids = self._filtered_provider_ids()
+        self._show_watchlist_loading()
         self._executor.submit(self._fetch_watchlist, patterns, provider_ids)
+
+    def _show_watchlist_loading(self) -> None:
+        """Swap a transient loading placeholder into the watchlist scroll area.
+
+        The watchlist scroll's widget is fully rebuilt each render via takeWidget();
+        this occupies the load window so the tab never shows its stale prior/empty
+        content while the background fetch runs. ``_render_watchlist`` replaces it.
+        """
+        old = self.watchlist_scroll.takeWidget()
+        if old:
+            old.deleteLater()
+        placeholder = QWidget()
+        layout = QVBoxLayout(placeholder)
+        layout.setContentsMargins(12, 20, 12, 12)
+        loading = QLabel(f"{_icons.loading_icon} Loading watchlist…")
+        loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading.setStyleSheet(_theme.LOADING_TEXT)
+        layout.addWidget(loading)
+        layout.addStretch()
+        self.watchlist_scroll.setWidget(placeholder)
 
     def _fetch_watchlist(self, patterns: list[str], provider_ids: list[str]) -> None:
         session = self.db.get_session()

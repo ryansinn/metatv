@@ -497,6 +497,10 @@ class PreferencesView(QWidget):
         self._active = False
 
     def refresh(self) -> None:
+        # Show a loading header so the stale "No ratings yet" never displays during
+        # the (often multi-second) background load. _on_pref_data_ready → _render
+        # overwrites this on both the has-ratings and genuinely-no-ratings branches.
+        self._header_label.setText("Loading recommendations…")
         self._executor.submit(self._bg_refresh)
 
     def _bg_refresh(self) -> None:
