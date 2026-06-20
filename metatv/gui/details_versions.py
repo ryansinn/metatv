@@ -41,6 +41,8 @@ class ChannelVersion:
     name: str
     in_queue: bool
     detected_prefix: str | None = None
+    detected_title: str | None = None   # stored bare title (ingestion) — render without re-parse
+    detected_year: str | None = None    # stored year (ingestion)
     is_preferred: bool = False
     is_filtered: bool = False
     is_hidden: bool = False
