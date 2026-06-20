@@ -633,8 +633,28 @@ class SeriesLoadThread(QThread):
                     continue
                 
                 season_num = season_data.get("season_number", 0)
-                season_id = f"{self.series_id}_s{season_num}"
-                
+                # Provider-scope the season PK (mirror the episode key built below).
+                # Without the provider prefix two sources that host the same series under
+                # the same Xtream source_id (small per-provider integers — collisions are
+                # common) would write seasons under the SAME id; the second source's load
+                # would hit the first's row in the UPDATE branch and silently keep the
+                # first provider's provider_id, so the provider-scoped read
+                # (get_by_series) returns nothing for the second source.
+                season_id = f"{self.provider.id}_{self.series_id}_s{season_num}"
+
+                # Self-heal pre-fix rows: a season stored under the old non-scoped
+                # "{series_id}_s{n}" key that belongs to THIS provider would otherwise
+                # coexist with the new scoped row and double up in get_by_series. Drop it;
+                # its episodes re-link to the scoped id via the episode upsert below.
+                legacy_season_id = f"{self.series_id}_s{season_num}"
+                if legacy_season_id != season_id:
+                    legacy_season = session.query(SeasonDB).filter_by(
+                        id=legacy_season_id, provider_id=self.provider.id
+                    ).first()
+                    if legacy_season is not None:
+                        session.delete(legacy_season)
+                        session.flush()
+
                 # Check if season exists
                 existing_season = session.query(SeasonDB).filter_by(id=season_id).first()
                 
@@ -691,6 +711,9 @@ class SeriesLoadThread(QThread):
                         existing_episode.cover_url = info.get("movie_image", "")
                         existing_episode.container_extension = container
                         existing_episode.raw_data = episode_data
+                        # Re-link to the (now provider-scoped) season id so episodes stored
+                        # under a pre-fix non-scoped season key follow the season on reload.
+                        existing_episode.season_id = season_id
                     else:
                         # Create new
                         episode = EpisodeDB(
