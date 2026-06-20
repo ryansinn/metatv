@@ -70,6 +70,7 @@ def _make_manager(config: _FakeConfig | None = None) -> PlayerManager:
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
     mgr.running_instances = []
+    mgr._key_provider = {}
     mgr.player = _make_player(cfg)
     return mgr
 
@@ -315,6 +316,31 @@ def test_split_on_none_provider_uses_shared(_patched_manager):
 
     mgr.play("http://a", "A", provider_id=None)
     assert list(mgr.player._instances.keys()) == ["__shared__"]
+
+
+def test_provider_for_key_split_on_maps_each_window_to_its_source(_patched_manager):
+    """Split ON: each window key resolves back to the source that played into it."""
+    mgr, procs = _patched_manager
+    mgr.config.split_streams_by_source = True
+
+    mgr.play("http://a", "A", provider_id="p1")
+    mgr.play("http://b", "B", provider_id="p2")
+
+    assert mgr.provider_for_key("p1") == "p1"
+    assert mgr.provider_for_key("p2") == "p2"
+    assert mgr.provider_for_key("unknown") is None
+    assert mgr.provider_for_key(None) is None
+
+
+def test_provider_for_key_shared_tracks_latest_source(_patched_manager):
+    """Split OFF: the shared window resolves to the most-recently-played source."""
+    mgr, procs = _patched_manager
+    mgr.config.split_streams_by_source = False
+
+    mgr.play("http://a", "A", provider_id="p1")
+    assert mgr.provider_for_key("__shared__") == "p1"
+    mgr.play("http://b", "B", provider_id="p2")
+    assert mgr.provider_for_key("__shared__") == "p2"  # follows the latest play
 
 
 # ---------------------------------------------------------------------------
