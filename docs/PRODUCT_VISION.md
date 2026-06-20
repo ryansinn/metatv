@@ -42,6 +42,14 @@ simplicity is in the output.)
 - **Discover = a grocery store where you know the butcher.** *You* shop (full agency), but with
   trusted relationships and knowledgeable guidance, not a cold supermarket. Active browsing
   *scaffolded* by curation — the go-to place to just browse.
+- **Similar Titles = the chef tapping your shoulder.** A *contextual, in-the-moment* adjacency surface
+  — "more like this, right where you're looking" — not a destination you navigate to. It augments the
+  item in front of you (the details-pane "micro" view) rather than being a place you go. **Real use
+  shows it punches far above its footprint** — nearly as much value as the whole Discover destination,
+  out of a single modal — which says the **contextual/micro discovery vector is undervalued relative to
+  its payoff** and deserves first-class investment. It is the most *ambient* form of discovery (woven
+  into the moment, not a place you visit), which is exactly the companion thesis. It shares the card
+  components and adjacency engine with Discover, so perfecting that surface upgrades both at once.
 
 **Two axes, not one:**
 - *Comfort ↔ explore* — the **mood** axis (what headspace you're in):
@@ -51,7 +59,15 @@ simplicity is in the output.)
     going stale.
   - **Exploration** — curious / mentally-open phases that want something *new*. Recommendations
     favor *novelty* — adjacent-but-unfamiliar, taste-expanding — and deliberately *relax* the
-    "already seen / known affinity" pull.
+    "already seen / known affinity" pull. The Similar-Titles **rabbit hole** — drilling *crude
+    title-linked* adjacency until you land somewhere surprising, far from where you started — is a
+    quintessential *explore* experience and a deliberate **feature.** Its **crudeness is the point:**
+    a weak, almost-random shared-title link jumps *across* genres/styles, which is exactly what
+    metadata-similarity (biased toward *more of the same*) cannot do. It is the orthogonal twin of
+    metadata-similar **Recommendations** and a concrete *cage-breaker* (principle #8 below) — keep it
+    raw; do **not** homogenize it into content similarity (see DESIGN_RATIONALE DR-0003). A legible
+    breadcrumb keeps a deep drift reversible and self-revealing, but a "just a shared word" link is the
+    feature working, not noise.
 - *Chef ↔ grocery* — the **agency** axis (served vs. choose-with-help).
 
 The axes are independent — you can want the chef to surprise you (explore, served), or browse
@@ -60,6 +76,21 @@ comfort food at the grocery (comfort, self-serve). Meeting the user means modeli
 letting the user **signal** it ("surprise me"). The engine already holds the raw materials —
 attribute weights, implicit signals, recency decay, impression tracking; the work is treating these
 dualities as explicit dimensions over them.
+
+## The mirror: reading the user — and helping them read themselves
+
+The mind-reading Discover (above) is only half the loop. Its raw material is **History** — every
+play, every rating, and the *when* of it. Today that evidence is a flat list and only the *inference*
+(Recommendations) is rich. The intent is to make History a first-class **context engine and
+self-reflection surface:** not just "what you watched" but "how often, whether you liked it, and
+*when*" — surfacing patterns the user may not have noticed (a Friday-night sci-fi habit; comfort TV
+late, exploration early). **History is the *evidence*; Recommendations is the *inference*; they are
+the two ends of one loop** (and twins in the UI — see DESIGN_RATIONALE DR-0001).
+
+This serves a second, more humane goal alongside the mind-reading one: **the app reads the user, and
+also helps the user read themselves.** A taste mirror lets people navigate their own likes/dislikes
+*without the app being the sole authority on them* — self-awareness they can carry outside the app,
+not a black box that just decides for them.
 
 ## Design principles (the soul)
 
@@ -83,6 +114,20 @@ dualities as explicit dimensions over them.
 6. **Lean & native.** Efficiency is a stated value. No Electron, no browser, no bloat. <2 GB.
 7. **Cross-platform desktop, keyboard-driven.** PyQt6 + Python → runs on **Windows, macOS, and
    Linux** (any desktop with Qt + Python). The audience is keyboard-driven media systems.
+8. **A mirror, never a cage — no self-fulfilling prophecy.** The engine may *deepen comfort* when it
+   detects the user is in that mood (the Friday-night sci-fi habit), but it must not quietly collapse
+   the *explore* lane into a feedback loop that only ever feeds back the user's predicted choices.
+   The honest move is to **show** the user their patterns (a mirror they can act on) rather than
+   silently **pre-filter** their options (a cage that manufactures the very behavior it predicted).
+   Keep the user in the driver's seat of their own taste — surface, don't steer.
+9. **Minimize clicks — no "clicking layer hell."** Reducing interaction friction is a *feature*, not
+   polish. Prefer **continuous low-effort gestures (scroll, progressive disclosure, in-place reveal)
+   over click-gated navigation (tabs, drill-down, modal stacks)** that make users hunt through layers.
+   The details pane *scrolls* rather than tabbing for exactly this reason; the rail is a one-click
+   *launcher*; adjacency exploration lives in an overlay whose *close* is the back. The test is total
+   friction to the user's goal, not a literal click count — but every avoidable click is friction
+   between the user and their content, and the ambient-companion loop dies by a thousand clicks.
+   (See DESIGN_RATIONALE DR-0004.)
 
 ## v1 — the focus
 
