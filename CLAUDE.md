@@ -176,22 +176,31 @@ finally:
     session.close()
 ```
 
-### ORM objects must not outlive their session — prefer a DTO, expunge is the fragile fallback
-`session_scope()` **commits on `__exit__`**, and the session is created with `expire_on_commit=True`
-(the SQLAlchemy default). So any ORM object still attached when the block closes has its
-attributes *expired*; the next attribute access reloads against a now-closed session and raises
-`DetachedInstanceError`. Two consequences:
+### ORM objects must not outlive their session — cross the boundary with a DTO
+**Why this rule exists (intent, not a taboo):** an ORM object (`ChannelDB`, …) is a *live handle* to
+a row — bound to its session, it can lazy-load or raise the instant that session closes. Carrying one
+across a thread/session boundary makes the UI depend on (a) a live session and (b) the unwritten
+"relationship-free" invariant that lets a *detached* object keep working. A **DTO** (a frozen
+`@dataclass` in `core/repositories/dtos.py`) is a *value* — an immutable snapshot with no session, no
+behavior, no hidden dependency — so it severs both. The deeper payoff is the real point: **with the
+boundary DTO-clean, the schema is free to evolve** (add a `relationship()` / `deferred()` column)
+without silently breaking the UI. That freedom is the goal; the rule is how you keep it.
 
-- **The right answer is a DTO.** If data must cross the `with` boundary (passed to a play/details
-  handler, returned, emitted), map ORM → a frozen dataclass / plain dict *inside* the block and
-  return that. This is the same boundary `_run_query` enforces (see "Never return ORM objects").
-- **`session.expunge(obj)` before the block exits is a fallback, not a default.** It detaches the
-  object before the commit so its already-loaded columns survive. It is **only safe while the model
-  has no `relationship()` and no `deferred()` columns** — the moment one is added, every detached
-  call site silently regresses (relationship/deferred access on a detached object raises). The
-  MetaTV ORM is deliberately relationship-free today, which is the *only* reason the play/details
-  handlers in `_FavoritesMixin`/`_MetadataMixin` can pass a bare `ChannelDB` across the boundary.
-  If you add a relationship to a model, you own auditing every `session.expunge` call site.
+Mechanically: `session_scope()` commits on `__exit__` with `expire_on_commit=True`, so any ORM object
+still attached when the block closes has its attributes *expired* → the next access raises
+`DetachedInstanceError`. Therefore:
+
+- **Cross the boundary with a DTO.** Map ORM → a frozen dataclass / plain dict *inside* the block and
+  return that — the boundary `_run_query` enforces ("Never return ORM objects"). The hot paths are
+  already converted: play / details via `PlayableChannelDTO` / `PlayableEpisodeDTO` (B10-1), the
+  channel list via `ChannelListDTO` (B10-5). **No ORM object crosses the worker→main boundary
+  anymore, so the relationship-free invariant is no longer load-bearing for the UI** — that was the
+  goal. Keep it that way: every new cross-boundary read returns a DTO.
+- **`session.expunge(obj)` is the fragile fallback, not a default.** It detaches before the commit so
+  loaded columns survive, but is **only** safe while the model has no `relationship()` / `deferred()`
+  columns — add one and every detached site silently regresses. Now that the boundary is DTO-clean
+  this should be essentially unused; reach for a DTO instead. If you do keep an `expunge` site (or add
+  a relationship to a model), you own auditing it.
 - **`_apply_favorite_toggle` is the documented exception:** it keeps legacy `try/finally` because
   `toggle_favorite()` commits internally and `session.refresh()` repopulates *before*
   `session.close()` detaches — `session_scope`'s exit-commit would re-expire after the refresh.

@@ -174,7 +174,6 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
     metadata_loaded = pyqtSignal(object, object)
-    _channels_loaded = pyqtSignal(list, dict)        # (channels, params) — worker → main thread
     _category_assigned = pyqtSignal()               # emitted from worker after category DB write commits
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
@@ -244,7 +243,7 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         self._in_provider_edit_mode = False
         
         # Store channel data for display
-        self.all_channels = []  # List of (display_text, channel_db_obj)
+        self.all_channels = []  # List of (display_text, ChannelListDTO)
         self.max_display_limit = 10000  # Max QListWidgetItems to render at once
         self._search_page_size = 5_000   # Max rows returned by get_all() per load
 
@@ -319,13 +318,12 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
         # Initialize before load_channels() which uses these
         self.executor = ThreadPoolExecutor(max_workers=4)
         self._register_cleanable("executor", lambda: self.executor.shutdown(wait=False))
-        self._load_channels_token: int = 0
+        self._load_channels_token: list[int] = [0]
         self._epg_count_token: list[int] = [0]
         self._filter_stats_token: list[int] = [0]
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
-        self._channels_loaded.connect(self._on_channels_loaded)
         self._category_assigned.connect(self.load_channels)
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
@@ -1507,7 +1505,6 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
 
     def load_channels(self, provider_id=None):
         """Load channels from database into the list (non-blocking)."""
-        from metatv.core.database import ChannelDB
         from metatv.core.filter_utils import get_active_content_type_filter
 
         # Stop any pending debounce timer so we don't queue a second load
@@ -1642,118 +1639,132 @@ class MainWindow(_StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _A
             bypassing_tier1=_bypassing,
         )
 
-        # Stamp a token so stale results from a previous query are discarded
-        self._load_channels_token += 1
-        token = self._load_channels_token
-        self.executor.submit(self._bg_load_channels, params, token)
+        # Run the heavy query off the UI thread via the async seam; stale results
+        # are dropped by the seam's token_ref. _on_channels_loaded receives the
+        # (dtos, params) tuple the query_fn returns and renders on the main thread.
+        self._run_query(
+            lambda repos: self._query_channels(repos, params),
+            self._on_channels_loaded,
+            token_ref=self._load_channels_token,
+            on_error=self._on_channels_load_error,
+        )
 
-    def _bg_load_channels(self, params: dict, token: int) -> None:
-        """Worker thread: run the heavy DB query, then signal back to main thread."""
-        session = self.db.get_session()
-        try:
-            from metatv.core.database import ChannelDB
-            repos = RepositoryFactory(session)
+    @staticmethod
+    def _query_channels(repos, params: dict) -> tuple[list, dict]:
+        """Worker (off-thread): run the heavy DB query and return (dtos, params).
 
-            force_adult_ids = params['force_adult_ids']
-            hidden_only = params.get('hidden_only', False)
-            _page_size = params.get('page_size', 5_000)
-            # Canonical provider scoping: hide inactive + expired sources (see
-            # ProviderRepository.get_hidden_provider_ids — single source of truth).
-            providers_to_exclude = repos.providers.get_hidden_provider_ids()
-            if hidden_only:
-                channels = repos.channels.get_hidden_channels(
-                    excluded_user_categories=params.get('excluded_user_categories'),
-                    search_query=params.get('search_query'),
-                    provider_id=params['provider_id'],
-                    excluded_provider_ids=providers_to_exclude or None,
-                )
-            else:
-                channels = repos.channels.get_all(
-                    provider_id=params['provider_id'],
-                    media_types=params['media_types'],
-                    language_prefixes=params['language_prefixes'],
-                    region_prefixes=params.get('region_prefixes'),
-                    quality_prefixes=params['quality_prefixes'],
-                    platform_prefixes=params.get('platform_prefixes'),
-                    genre_filters=params.get('genre_filters'),
-                    invert_prefix_filters=params['invert_prefix_filters'],
-                    include_untagged=params['include_untagged'],
-                    include_untagged_quality=params.get('include_untagged_quality', True),
-                    adult_mode=params['adult_mode'],
-                    force_adult_provider_ids=force_adult_ids or None,
-                    source_categories=params['source_categories'],
-                    include_uncategorized_content_types=True,
-                    hidden_only=False,
-                    include_hidden=False,
-                    search_query=params.get('search_query'),
-                    strict_genre_filter=params.get('strict_genre_filter'),
-                    person_filter=params.get('person_filter'),
-                    excluded_provider_ids=providers_to_exclude or None,
-                    limit=_page_size,
-                )
-            total = repos.channels.count(provider_id=params['provider_id'])
-            has_adult = bool(force_adult_ids) or session.query(ChannelDB).filter(
-                ChannelDB.is_adult == True
-            ).limit(1).count() > 0
-            if not hidden_only:
-                excluded_prefixes = params.get('excluded_prefixes', set())
-                if excluded_prefixes:
-                    channels = [
-                        c for c in channels
-                        if c.detected_prefix not in excluded_prefixes
-                        and c.detected_region not in excluded_prefixes
-                    ]
-                excluded_user_cats = params.get('excluded_user_categories', set())
-                if excluded_user_cats:
-                    channels = [
-                        c for c in channels
-                        if c.user_category not in excluded_user_cats
-                    ]
+        Receives the seam's RepositoryFactory; reads only. Maps the surviving
+        ChannelDB rows to ChannelListDTOs so no ORM object crosses the boundary.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories.dtos import ChannelListDTO
 
-            # When zero results + Tier 1 filters active, count what exists without
-            # those filters so we can tell the user "X results are filtered out".
-            filtered_out_count = 0
-            tier1_active = any([
-                params.get('language_prefixes'),
-                params.get('region_prefixes'),
-                params.get('quality_prefixes'),
-                params.get('platform_prefixes'),
-            ])
-            if not hidden_only and len(channels) == 0 and tier1_active:
-                unfiltered = repos.channels.get_all(
-                    provider_id=params['provider_id'],
-                    media_types=params.get('media_types'),
-                    adult_mode=params.get('adult_mode', 'all'),
-                    force_adult_provider_ids=force_adult_ids or None,
-                    source_categories=params.get('source_categories'),
-                    search_query=params.get('search_query'),
-                    limit=_page_size,
-                )
-                # Apply global exclusions to the unfiltered set too
-                if excluded_prefixes:
-                    unfiltered = [
-                        c for c in unfiltered
-                        if c.detected_prefix not in excluded_prefixes
-                        and c.detected_region not in excluded_prefixes
-                    ]
-                filtered_out_count = len(unfiltered)
+        force_adult_ids = params['force_adult_ids']
+        hidden_only = params.get('hidden_only', False)
+        _page_size = params.get('page_size', 5_000)
+        # Canonical provider scoping: hide inactive + expired sources (see
+        # ProviderRepository.get_hidden_provider_ids — single source of truth).
+        providers_to_exclude = repos.providers.get_hidden_provider_ids()
+        if hidden_only:
+            channels = repos.channels.get_hidden_channels(
+                excluded_user_categories=params.get('excluded_user_categories'),
+                search_query=params.get('search_query'),
+                provider_id=params['provider_id'],
+                excluded_provider_ids=providers_to_exclude or None,
+            )
+        else:
+            channels = repos.channels.get_all(
+                provider_id=params['provider_id'],
+                media_types=params['media_types'],
+                language_prefixes=params['language_prefixes'],
+                region_prefixes=params.get('region_prefixes'),
+                quality_prefixes=params['quality_prefixes'],
+                platform_prefixes=params.get('platform_prefixes'),
+                genre_filters=params.get('genre_filters'),
+                invert_prefix_filters=params['invert_prefix_filters'],
+                include_untagged=params['include_untagged'],
+                include_untagged_quality=params.get('include_untagged_quality', True),
+                adult_mode=params['adult_mode'],
+                force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
+                hidden_only=False,
+                include_hidden=False,
+                search_query=params.get('search_query'),
+                strict_genre_filter=params.get('strict_genre_filter'),
+                person_filter=params.get('person_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
+                limit=_page_size,
+            )
+        total = repos.channels.count(provider_id=params['provider_id'])
+        has_adult = bool(force_adult_ids) or repos.session.query(ChannelDB).filter(
+            ChannelDB.is_adult == True
+        ).limit(1).count() > 0
+        if not hidden_only:
+            excluded_prefixes = params.get('excluded_prefixes', set())
+            if excluded_prefixes:
+                channels = [
+                    c for c in channels
+                    if c.detected_prefix not in excluded_prefixes
+                    and c.detected_region not in excluded_prefixes
+                ]
+            excluded_user_cats = params.get('excluded_user_categories', set())
+            if excluded_user_cats:
+                channels = [
+                    c for c in channels
+                    if c.user_category not in excluded_user_cats
+                ]
 
-            # get_all() now returns results sorted and limited — no extra sort needed
-            params['total_channels']    = total
-            params['has_adult']         = has_adult
-            params['token']             = token
-            params['filtered_out_count'] = filtered_out_count
-            self._channels_loaded.emit(channels, params)
-        except Exception as e:
-            logger.error(f"Channel query failed: {e}")
-        finally:
-            session.close()
+        # When zero results + Tier 1 filters active, count what exists without
+        # those filters so we can tell the user "X results are filtered out".
+        filtered_out_count = 0
+        tier1_active = any([
+            params.get('language_prefixes'),
+            params.get('region_prefixes'),
+            params.get('quality_prefixes'),
+            params.get('platform_prefixes'),
+        ])
+        if not hidden_only and len(channels) == 0 and tier1_active:
+            unfiltered = repos.channels.get_all(
+                provider_id=params['provider_id'],
+                media_types=params.get('media_types'),
+                adult_mode=params.get('adult_mode', 'all'),
+                force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params.get('source_categories'),
+                search_query=params.get('search_query'),
+                limit=_page_size,
+            )
+            # Apply global exclusions to the unfiltered set too
+            if excluded_prefixes:
+                unfiltered = [
+                    c for c in unfiltered
+                    if c.detected_prefix not in excluded_prefixes
+                    and c.detected_region not in excluded_prefixes
+                ]
+            filtered_out_count = len(unfiltered)
 
-    def _on_channels_loaded(self, channels: list, params: dict) -> None:
-        """Main thread: build the channel list UI from query results."""
-        # Discard results from a superseded query
-        if params.get('token') != self._load_channels_token:
-            return
+        # get_all() now returns results sorted and limited — no extra sort needed
+        params['total_channels']    = total
+        params['has_adult']         = has_adult
+        params['filtered_out_count'] = filtered_out_count
+        # Map surviving ORM rows → DTOs so no ChannelDB crosses the boundary.
+        dtos = [ChannelListDTO.from_orm(c) for c in channels]
+        return dtos, params
+
+    def _on_channels_load_error(self, exc: Exception) -> None:
+        """Main thread: clear the loading state when the channel query fails."""
+        logger.error(f"Channel query failed: {exc}")
+        self._clear_provider_busy()
+        self.stats_label.setText("Couldn't load channels")
+        self.status_bar.showMessage("Couldn't load channels")
+
+    def _on_channels_loaded(self, result) -> None:
+        """Main thread: build the channel list UI from query results.
+
+        ``result`` is the ``(dtos, params)`` tuple returned by ``_query_channels``.
+        Stale results are already dropped by the seam's ``token_ref``.
+        """
+        channels, params = result
 
         # A current channel load finished — the visible result of a provider toggle's
         # canonical refresh. Clear any provider busy/spinner state now.

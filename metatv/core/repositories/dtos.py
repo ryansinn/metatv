@@ -66,6 +66,53 @@ class PlayableEpisodeDTO:
 
 
 # ---------------------------------------------------------------------------
+# Channel-list DTO — central channel-list view (B10-5)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ChannelListDTO:
+    """One row in the main channel list.
+
+    Holds exactly the ChannelDB fields the main thread reads off the cached
+    ``all_channels`` entries: the render loop in ``_on_channels_loaded`` (icon,
+    prefix/region/quality/year, title, provider badge, category), the favorites
+    cache update in ``_apply_favorite_toggle`` (name/category/quality), and
+    ``filter_channels`` (``id``). Built inside a session_scope() by
+    :meth:`from_orm`, so no ORM object crosses the worker→main-thread boundary.
+    """
+    id: str
+    name: str
+    media_type: str | None
+    provider_id: str
+    is_favorite: bool
+    category: str | None
+    quality: str | None
+    detected_prefix: str | None
+    detected_region: str | None
+    detected_quality: str | None
+    detected_year: str | None
+    detected_title: str | None
+
+    @classmethod
+    def from_orm(cls, ch) -> "ChannelListDTO":
+        """Build a ChannelListDTO from a ChannelDB row (call inside a session)."""
+        return cls(
+            id=ch.id,
+            name=ch.name,
+            media_type=ch.media_type,
+            provider_id=ch.provider_id,
+            is_favorite=bool(ch.is_favorite),
+            category=ch.category,
+            quality=ch.quality,
+            detected_prefix=ch.detected_prefix,
+            detected_region=ch.detected_region,
+            detected_quality=ch.detected_quality,
+            detected_year=ch.detected_year,
+            detected_title=ch.detected_title,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Sidebar DTOs
 # ---------------------------------------------------------------------------
 
