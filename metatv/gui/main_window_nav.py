@@ -144,23 +144,6 @@ class _NavMixin:
         """Navigate back from series view to channel list."""
         self.switch_to_list_view()
 
-    # ── Special-content playback ────────────────────────────────────────────
-
-    def play_special_event(self, channel):
-        """Play a channel from a special content view."""
-        logger.info(f"Playing special event: {channel.name}")
-        if not channel.stream_url:
-            self.status_bar.showMessage(f"No stream URL available for {channel.name}")
-            return
-        self.player_manager.play(channel.stream_url, channel.name, provider_id=channel.provider_id)
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.channels.mark_played(channel.id)
-        finally:
-            session.close()
-        self.status_bar.showMessage(f"Playing: {channel.name}")
-
     # ── View/chip wiring ────────────────────────────────────────────────────
 
     def _on_view_channel_selected(self, channel):
