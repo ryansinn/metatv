@@ -600,6 +600,47 @@ docs call a deliberate compromise):
   always preferable to inventing a third pattern. Curiosity and a clarifying question cost one
   message; an undiscussed architectural shortcut costs a review cycle and a follow-up band.
 
+### Reuse before reinvent — find the existing path before adding a sibling
+**The proactive form of the chokepoint rules.** Before writing a new function / handler / view / play
+path for a feature, **search for code that already performs the same or an overlapping operation**, and
+default to routing through (or extending) it. Add a parallel path only when you can name a real, durable
+difference — and even then, factor the shared core into one place both call. Reinventing a primitive
+that already exists is how silent divergence starts.
+
+**The cautionary tale (why this rule exists):** `play_special_event` was a stripped-down duplicate of
+`play_media`. A "special event" stream is not special — it's a channel with a URL — but the EPG view was
+wired to its own simplified play slot instead of the real one. The duplicate silently dropped URL
+failover, the buffering notification, the double-click guard, the live history/queue refreshes, **and**
+the playback-health readout. Then it *drifted*: the readout fix landed on `play_media`; the duplicate
+never got it, so the live stats went blank for every special-event/episode play. A "strictly-worse
+subset" reinvention rots — every fix and feature lands on the canonical path and never reaches the copy.
+
+**How to apply — before you add the new thing:**
+- **Grep the verb/noun and the primitive.** Searching `def play` / `player_manager.play(` immediately
+  shows three play paths and that only one armed the readout. Search the cluster (`play_*`, `load_*`,
+  `refresh_*`, `fetch_*`, `_on_*_ready`) and the low-level call you're about to make (the repo method,
+  the manager method, `session_scope`) before writing a new one.
+- **A core primitive invoked from >1 UI site is a chokepoint smell.** One entry, every caller gets the
+  full behavior. `play_media` (and its thin `*_id` lookup wrappers, which correctly route through it) is
+  the model; the episode path is the one justified exception (multi-episode queueing) and even it should
+  *share* the play-side effects, not copy them.
+- **If you need a variant, share the core** — extract the common body into one helper both call; never
+  copy-paste a path and trim it.
+- **If you genuinely must reinvent, make the case in the PR** — a real difference, not "couldn't find
+  the existing one." Make the argument, don't make the duplicate.
+
+Same instinct as "Provider/source mutations → one canonical refresh" and "Active-source scoping → one
+helper" (one chokepoint per cross-cutting concern), and the self-documenting-modularity goal
+(compartmentalize, don't duplicate) — applied at the moment you're about to *add* code, not after the
+spread already happened.
+
+**Audit lens (why the rule-compliance audits miss this):** grepping for `session.expunge`, render-time
+`parse_channel_name`, hex literals, or file size **cannot** catch semantic duplication — two functions
+that *do* the same thing via different code are not a syntactic pattern; you have to read behavior. A
+redundancy pass needs its own lens: cluster methods by verb, list every call site of each core primitive
+(manager / repo / seam method), and for each sibling ask *"is one a subset of the other?"* This lens is
+now a standing part of the audit (see `docs/AUDIT_2026-06-19.md`).
+
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.
 
