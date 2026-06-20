@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from loguru import logger
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QScrollArea, QStackedWidget,
@@ -299,10 +300,31 @@ class DiscoverView(QWidget):
             self.refresh()
 
     def on_deactivate(self) -> None:
-        """Stop the background loader thread if it is still running."""
-        if self._thread and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(2000)
+        """Stop BOTH background loader threads so neither is destroyed mid-run.
+
+        A QThread destroyed while its thread is still running aborts the whole
+        process ("QThread: Destroyed while thread is still running" → core dump).
+        Both the shelf loader and the see-all loader must be stopped here — this
+        runs on view-switch (via the host's _hide_all_content_views) and on app
+        close (the closeEvent deactivation loop). Cancelling the worker first is
+        what makes quit()/wait() actually succeed: the worker loops monopolize
+        the thread event loop, so quit() alone never lands.
+        """
+        self._stop_loader(getattr(self, "_worker", None), self._thread)
+        self._stop_loader(getattr(self, "_see_all_worker", None), self._see_all_thread)
+
+    @staticmethod
+    def _stop_loader(worker, thread) -> None:
+        """Cooperatively cancel *worker*, then quit+wait its *thread*."""
+        if worker is not None:
+            worker.cancel()
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            if not thread.wait(5000):
+                # Cancel bounds run() to the current shelf query, so this should
+                # not happen; log rather than terminate() (which risks SQLite
+                # corruption mid-query).
+                logger.warning("Discover loader thread did not stop within 5s")
 
     def reload(self) -> None:
         """Force a full reload — used when global filters change."""

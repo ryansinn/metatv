@@ -35,6 +35,11 @@ class _SeeAllWorker(QObject):
         self._db = db
         self._config = config
         self._shelf_key = shelf_key
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Request cancellation — suppresses the ``ready`` emit into a torn-down view."""
+        self._cancelled = True
 
     def run(self) -> None:
         from metatv.core.discovery_engine import (
@@ -80,7 +85,8 @@ class _SeeAllWorker(QObject):
             cards = []
         finally:
             session.close()
-        self.ready.emit(self._shelf_key, cards)
+        if not self._cancelled:
+            self.ready.emit(self._shelf_key, cards)
 
 
 class _LoaderWorker(QObject):
@@ -91,6 +97,17 @@ class _LoaderWorker(QObject):
         super().__init__()
         self._db = db
         self._config = config
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Request cooperative cancellation.
+
+        ``run()`` is a long loop over every genre/decade and monopolizes the
+        thread's event loop, so ``QThread.quit()`` cannot interrupt it. Setting
+        this flag lets ``run()`` bail out between shelf queries so the thread
+        actually stops (and isn't destroyed mid-run on close — which aborts).
+        """
+        self._cancelled = True
 
     def run(self) -> None:
         from metatv.core.discovery_engine import (
@@ -136,6 +153,8 @@ class _LoaderWorker(QObject):
                 session, excluded_user_categories=excluded_user_cats
             )
             for cat in user_cats:
+                if self._cancelled:
+                    return
                 key = f"user_cat:{cat['name']}"
                 if key not in hidden:
                     cards = get_by_user_category(
@@ -144,6 +163,8 @@ class _LoaderWorker(QObject):
                     emit(_ShelfData(cat["name"], key, cards, is_user_category=True))
 
             # Fixed shelves
+            if self._cancelled:
+                return
             emit(_ShelfData(
                 "Recently Added", "recently_added",
                 get_recently_added(session, limit=30, **sk, **fk, **af, **ek),
@@ -158,6 +179,8 @@ class _LoaderWorker(QObject):
             ))
 
             # Featured Actor
+            if self._cancelled:
+                return
             try:
                 from metatv.core.preference_engine import compute_weights
                 weights = compute_weights(session)
@@ -172,6 +195,8 @@ class _LoaderWorker(QObject):
             genres = get_all_genres(session, min_count=10, **fk, **af, **ek)
             genres = _rank_genres_by_preference(genres, ss.liked_ids, session, **fk)
             for genre in genres:
+                if self._cancelled:
+                    return
                 key = f"genre:{genre}"
                 if key not in hidden:
                     cards = get_by_genre(session, genre, limit=30, **sk, **fk, **af, **ek)
@@ -179,6 +204,8 @@ class _LoaderWorker(QObject):
 
             # Decade shelves — no hard cap
             for decade in get_all_decades(session, **fk, **af, **ek):
+                if self._cancelled:
+                    return
                 key = f"decade:{decade}"
                 if key not in hidden:
                     cards = get_by_decade(session, decade, limit=30, **sk, **fk, **af, **ek)
@@ -188,4 +215,8 @@ class _LoaderWorker(QObject):
             logger.exception("DiscoverView loader error")
         finally:
             session.close()
-        self.finished.emit()
+            # In finally so a cancel-triggered early return still fires it —
+            # the thread's started→run slot returns, letting QThread.quit() take
+            # effect (the finished→quit connection) so on_deactivate's wait()
+            # succeeds instead of timing out on a still-running thread.
+            self.finished.emit()
