@@ -417,7 +417,7 @@ class TestChRowStoredMaps:
         prog = _FakeWatchlistProg(channel_db_id=cid, title="SportsCenter")
 
         with patch(
-            "metatv.gui.epg_view.parse_channel_name",
+            "metatv.gui.epg_watchlist_mixin.parse_channel_name",
             side_effect=AssertionError("parse_channel_name must not be called — B10-2 violation"),
         ):
             card = EpgView._make_watchlist_item(host, "SportsCenter", live=[prog], upcoming=[])

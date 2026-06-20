@@ -113,8 +113,9 @@ _p = parse_channel_name(channel.name)
 year_str = f" · {_p.year}" if _p.year else ""
 ```
 
-**Documented exception:** `_make_recommendation_item` in `gui/epg_view.py` (the EPG Discover
-recommendation card) still calls `parse_channel_name` at render — it derives audio/lang chips, and
+**Documented exception:** `_make_recommendation_item` (and `_make_channel_item`) in
+`gui/epg_watchlist_mixin.py` (the EPG Discover / My-Channels cards) still call `parse_channel_name`
+at render — they derive audio/lang chips, and
 audio/lang have **no stored `detected_*` field** to read. This is the one accepted render-time parse;
 the audit should not flag it. Every other surface reads stored fields (the EPG On-Now render was
 migrated off `parse_channel_name` for exactly this rule).
