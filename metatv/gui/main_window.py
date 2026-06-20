@@ -400,6 +400,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.rating_requested.connect(self._toggle_rating)
         self.details_pane.suppression_requested.connect(self._on_suppression_requested)
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
+        self.details_pane.monitor_toggled.connect(self._on_details_monitor_toggled)
         self.details_pane.unhide_requested.connect(self._unhide_channel)
         self.details_pane.channel_versions_requested.connect(self._fetch_channel_versions)
         self.details_pane.version_selected.connect(self.show_channel_details_by_id)
@@ -689,6 +690,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Stop monitoring a series."""
         self.config.remove_monitored_series(channel_id)
         self._refresh_new_episodes_section()
+
+    def _on_details_monitor_toggled(self, channel_id: str) -> None:
+        """Toggle series monitoring from the details-pane Monitor button."""
+        if self.config.is_series_monitored(channel_id):
+            self._unmonitor_series(channel_id)
+        else:
+            self._monitor_series(channel_id)
 
     def _on_mark_series_seen(self, channel_id: str) -> None:
         """Clear unseen count for the given series (main thread)."""

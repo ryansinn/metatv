@@ -400,6 +400,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
+        "monitor_series",
+        "sep",
         "remove_history", "hide",
     ],
     "favorites": [
@@ -409,6 +411,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
+        "monitor_series",
+        "sep",
         "clear_unavailable",
     ],
     "queue": [
@@ -417,6 +421,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "favorite", "queue",
         "sep",
         "like", "dislike",
+        "sep",
+        "monitor_series",
         "sep",
         "hide",
         "sep",

@@ -642,11 +642,11 @@ class TestMonitorSeriesMenuAction:
     """Behavioral tests for the monitor_series action in channel_menu."""
 
     def _ctx(self, media_type: str, is_monitored: bool = False,
-             is_hidden: bool = False) -> "ChannelMenuContext":
+             is_hidden: bool = False, surface: str = "channel") -> "ChannelMenuContext":
         from metatv.gui.channel_menu import ChannelMenuContext
         return ChannelMenuContext(
             channel_ids=["ch1"],
-            surface="channel",
+            surface=surface,
             media_type=media_type,
             is_favorite=False,
             in_queue=False,
@@ -707,6 +707,29 @@ class TestMonitorSeriesMenuAction:
         assert "monitor_series" in SURFACE_LAYOUTS["recommended"], \
             "'monitor_series' must be listed in the 'recommended' surface layout"
 
+    def test_monitor_action_present_in_all_engaged_surfaces(self):
+        """Regression: action must appear on EVERY series-bearing surface, not only
+        the main channel list (was reported missing on history/favorites/queue)."""
+        from metatv.gui.channel_menu import SURFACE_LAYOUTS
+        for surface in ("history", "favorites", "queue", "recommended"):
+            assert "monitor_series" in SURFACE_LAYOUTS[surface], \
+                f"'monitor_series' must be in the '{surface}' surface layout"
+
+    def test_monitor_menu_built_for_series_on_engaged_surfaces(self, qapp):
+        """build_channel_menu on history/favorites/queue includes Monitor for a series
+        ctx (the shared seam supplies handler + media_type for all surfaces)."""
+        from metatv.gui.channel_menu import build_channel_menu
+        handlers = {a: (lambda: None) for a in (
+            "play", "play_new_window", "favorite", "queue", "like", "dislike",
+            "monitor_series", "hide", "remove_history", "clear_unavailable",
+        )}
+        for surface in ("history", "favorites", "queue"):
+            ctx = self._ctx("series", surface=surface)
+            menu = build_channel_menu(ctx, handlers, parent=None)
+            texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+            assert any("Monitor" in t for t in texts), \
+                f"Monitor action missing on '{surface}' surface; got {texts}"
+
     def test_monitor_menu_action_triggers_handler(self, qapp):
         """build_channel_menu wires up the monitor_series handler correctly."""
         from metatv.gui.channel_menu import build_channel_menu
@@ -735,3 +758,46 @@ class TestMonitorSeriesMenuAction:
             f"Expected a monitor action in menu; actions: {[a.text() for a in acts]}"
         monitor_act.trigger()
         assert called, "monitor_series handler should have been called"
+
+
+# ===========================================================================
+# Part 5: details-pane action-bar Monitor button (series only)
+# ===========================================================================
+
+class TestActionBarMonitorButton:
+    """Behavioral tests for the details-pane Monitor toggle button."""
+
+    def _bar(self):
+        from metatv.core.config import Config
+        from metatv.gui.details_actions import _ActionBar
+        return _ActionBar(Config())
+
+    def test_monitor_button_hidden_for_non_series(self, qapp):
+        bar = self._bar()
+        bar.set_monitorable(is_series=False, is_monitored=False)
+        assert bar.monitor_button.isHidden(), \
+            "Monitor button must be hidden for non-series channels"
+
+    def test_monitor_button_shown_for_series_with_label(self, qapp):
+        bar = self._bar()
+        bar.set_monitorable(is_series=True, is_monitored=False)
+        assert not bar.monitor_button.isHidden(), \
+            "Monitor button must be shown for series"
+        assert "Monitor" in bar.monitor_button.text()
+        assert "Monitoring" not in bar.monitor_button.text()
+
+    def test_monitor_button_reflects_monitored_state(self, qapp):
+        bar = self._bar()
+        bar.set_monitorable(is_series=True, is_monitored=True)
+        assert "Monitoring" in bar.monitor_button.text(), \
+            "Monitored series must show the 'Monitoring' label"
+
+    def test_monitor_click_toggles_and_emits(self, qapp):
+        bar = self._bar()
+        bar.set_monitorable(is_series=True, is_monitored=False)
+        emitted: list[bool] = []
+        bar.monitor_clicked.connect(lambda: emitted.append(True))
+        bar._on_monitor_clicked()
+        assert bar._is_monitored is True
+        assert "Monitoring" in bar.monitor_button.text()
+        assert emitted, "monitor_clicked must emit on toggle"

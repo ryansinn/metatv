@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -32,6 +33,7 @@ class _ActionBar(QWidget):
     hide_clicked            = pyqtSignal()
     unhide_clicked          = pyqtSignal()
     watchlist_clicked       = pyqtSignal()
+    monitor_clicked         = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -41,6 +43,7 @@ class _ActionBar(QWidget):
         self._rating: int = 0
         self._suppressed: bool = False
         self._is_hidden: bool = False
+        self._is_monitored: bool = False
         self._current_epg_title: str = ""
         self._setup()
 
@@ -74,6 +77,12 @@ class _ActionBar(QWidget):
         self.watchlist_button.clicked.connect(self.watchlist_clicked)
         self.watchlist_button.hide()
         row2.addWidget(self.watchlist_button, 1)
+
+        self.monitor_button = QPushButton(f"{_icons.monitor_series_icon} Monitor")
+        self.monitor_button.setToolTip("Monitor this series for new episodes")
+        self.monitor_button.clicked.connect(self._on_monitor_clicked)
+        self.monitor_button.hide()
+        row2.addWidget(self.monitor_button, 1)
 
         self.hide_button = QPushButton(f"{self.config.hide_icon} Hide")
         self.hide_button.setToolTip("Hide this channel from all views")
@@ -144,6 +153,12 @@ class _ActionBar(QWidget):
         self.dislike_button.setVisible(not is_live)
         self.watchlist_button.setVisible(is_live)
 
+    def set_monitorable(self, is_series: bool, is_monitored: bool) -> None:
+        """Show the Monitor button for series only; reflect the monitored state."""
+        self.monitor_button.setVisible(is_series)
+        self._is_monitored = is_monitored
+        self._sync_monitor_button()
+
     def update_favorite(self, is_favorite: bool) -> None:
         if is_favorite:
             self.favorite_button.setText(f"{self.config.favorite_icon} Favorited")
@@ -167,7 +182,9 @@ class _ActionBar(QWidget):
         self._rating = 0
         self._suppressed = False
         self._is_hidden = False
+        self._is_monitored = False
         self._current_epg_title = ""
+        self.monitor_button.setVisible(False)
         self._sync_all()
 
     # ------------------------------------------------------------------ #
@@ -198,6 +215,11 @@ class _ActionBar(QWidget):
         self._is_hidden = True
         self._sync_hide_button()
         self.hide_clicked.emit()
+
+    def _on_monitor_clicked(self) -> None:
+        self._is_monitored = not self._is_monitored
+        self._sync_monitor_button()
+        self.monitor_clicked.emit()
 
     def _on_unhide_clicked(self) -> None:
         self._is_hidden = False
@@ -238,3 +260,11 @@ class _ActionBar(QWidget):
             self.hide_button.setText(f"{self.config.hide_icon} Hide")
             self.hide_button.setToolTip("Hide this channel from all views")
             self.hide_button.clicked.connect(self._on_hide_clicked)
+
+    def _sync_monitor_button(self) -> None:
+        if self._is_monitored:
+            self.monitor_button.setText(f"{_icons.monitor_series_icon} Monitoring")
+            self.monitor_button.setToolTip("Stop monitoring this series for new episodes")
+        else:
+            self.monitor_button.setText(f"{_icons.monitor_series_icon} Monitor")
+            self.monitor_button.setToolTip("Monitor this series for new episodes")
