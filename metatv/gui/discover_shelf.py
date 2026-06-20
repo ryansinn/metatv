@@ -288,7 +288,13 @@ class _Shelf(QWidget):
             self._cards_widgets.append(w)
 
         self._inner_layout.addStretch()
-        self._inner_widget.adjustSize()
+
+        # Re-size the inner widget so the scroll area reflects the true content
+        # width.  When the shelf was built header-only (cards=[]) the inner
+        # widget was sized to ~0; activateLayout() + resize() mirrors what
+        # _build_ui does for the eager path so both render identically.
+        self._inner_layout.activate()
+        self._inner_widget.resize(self._inner_widget.sizeHint())
 
         # Wire the new card widgets to any already-connected slots.
         for slot in self._pending_wires:
