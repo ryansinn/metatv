@@ -14,15 +14,34 @@ via ``self``/MRO at runtime, so the split is behaviour-preserving.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QTreeWidgetItem
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.provider_loader import SeriesLoadThread
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 import re
 
 _SXXEXX = re.compile(r'[-–\s]+S(\d{1,3})E(\d{1,4})[-–\s]*(.*)$', re.IGNORECASE)
+
+
+def _fmt_missing_ranges(nums: list[int]) -> str:
+    """Compress a sorted int list into range labels, e.g. ``[5,6,7,8,9,12] -> "5–9, 12"``."""
+    if not nums:
+        return ""
+    parts: list[str] = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+            continue
+        parts.append(str(start) if start == prev else f"{start}–{prev}")
+        start = prev = n
+    parts.append(str(start) if start == prev else f"{start}–{prev}")
+    return ", ".join(parts)
 
 
 def _clean_episode_title(raw: str, season_num: int, ep_num: int, series_name: str | None) -> str:
@@ -195,6 +214,22 @@ class _SeriesMixin:
             )
 
             logger.info(f"Found {len(seasons)} seasons in database for series {self.current_series.source_id}")
+
+            # Non-contiguous season numbers (e.g. 1-4 then jumps to 10) are genuine
+            # provider catalog gaps — verified via `inspect_series --live`, not a load
+            # error. Surface a muted note so the jump isn't mysterious to the user.
+            _nums = sorted({s.season_number for s in seasons})
+            _missing = [n for n in range(_nums[0], _nums[-1] + 1) if n not in set(_nums)] if _nums else []
+            if _missing:
+                gap_item = QTreeWidgetItem(self.series_tree)
+                gap_item.setFirstColumnSpanned(True)
+                gap_item.setText(
+                    0,
+                    f"{_icons.notification_warning_icon}  Seasons {_fmt_missing_ranges(_missing)} "
+                    f"not provided by this source",
+                )
+                gap_item.setForeground(0, QColor(_theme.COLOR_MUTED))
+                gap_item.setFlags(gap_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
 
             total_episodes = 0
 

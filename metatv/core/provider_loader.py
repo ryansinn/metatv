@@ -579,6 +579,19 @@ class SeriesLoadThread(QThread):
 
             logger.info(f"Found {season_count} seasons and {total_episodes} episodes for {self.series_name}")
 
+            # Surface episode-group keys we can't map to a numeric season. Both the
+            # synthetic-season path and the gap-fill path below key on ``isdigit()``,
+            # so a provider grouping under a non-numeric key (e.g. "Temporada N")
+            # would have those episodes silently dropped. Logging makes the quirk
+            # diagnosable instead of an invisible season gap later.
+            _nonnumeric_keys = [k for k in episodes_by_season.keys() if not str(k).isdigit()]
+            if _nonnumeric_keys:
+                logger.warning(
+                    f"{self.series_name}: {len(_nonnumeric_keys)} episode-group key(s) "
+                    f"are non-numeric and will NOT become seasons (their episodes are "
+                    f"dropped) — provider may group seasons differently: {_nonnumeric_keys}"
+                )
+
             # Handle case where there are episodes but no seasons metadata
             # Create a default season so episodes can be stored and displayed
             if season_count == 0 and total_episodes > 0:
@@ -739,5 +752,7 @@ class SeriesLoadThread(QThread):
         finally:
             session.close()
 
-        self.finished.emit(True, f"Loaded {season_count} seasons", series_data)
+        # Message is shown by on_series_loaded as "Loaded {message}" — don't repeat
+        # the word here (was producing "Loaded Loaded N seasons").
+        self.finished.emit(True, f"{season_count} seasons", series_data)
 

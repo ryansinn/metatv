@@ -23,7 +23,7 @@ from metatv.core.database import ChannelDB, Database, EpisodeDB, ProviderDB, Sea
 
 def _get_db() -> Database:
     from metatv.core.config import Config
-    config = Config.load()
+    config, _ = Config.load()  # Config.load() returns (config, recovered_from_backup)
     return Database(config.database_url)
 
 
@@ -153,13 +153,119 @@ def inspect(title_fragment: str) -> None:
         session.close()
 
 
+def dump_raw(title_fragment: str) -> None:
+    """Re-fetch ``get_series_info`` LIVE and dump the raw season/episode key structure.
+
+    Answers the question stored data cannot: does the provider actually *send*
+    seasons we silently drop? The synthetic-season path keys on the ``episodes``
+    dict and only creates a season for keys where ``str(k).isdigit()`` — so a
+    provider that groups under non-numeric keys (e.g. ``"Temporada 5"``) would have
+    those episodes discarded and never written to the DB, making them invisible to
+    every stored-data check.
+
+    Prints only structural keys/counts and each episode's own ``season`` fields
+    (the hypothesis: a numeric season may survive on the episode even when the
+    grouping key is non-numeric) — never stream URLs or credentials.
+
+    Note: this performs a live provider API call per matched series using the
+    stored provider credentials.
+    """
+    import asyncio
+
+    from metatv.core.repositories import RepositoryFactory
+    from metatv.providers.factory import get_provider
+
+    db = _get_db()
+    session = db.get_session()
+    try:
+        repos = RepositoryFactory(session)
+        channels = (
+            session.query(ChannelDB)
+            .filter(
+                ChannelDB.media_type == "series",
+                ChannelDB.name.ilike(f"%{title_fragment}%"),
+            )
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        if not channels:
+            print(f'No series found matching "{title_fragment}"')
+            return
+
+        for ch in channels:
+            provider_db = repos.providers.get_by_id(ch.provider_id)
+            print(f"\n[{ch.detected_prefix or '?'}] {ch.name}  source_id={ch.source_id}")
+            if not provider_db:
+                print(f"  (provider {ch.provider_id} not found)")
+                continue
+            provider = repos.providers.to_model(provider_db)
+            plugin = get_provider(provider.type)
+            if not plugin:
+                print(f"  (no plugin for provider type {provider.type})")
+                continue
+            try:
+                data = asyncio.run(plugin.fetch_series_info(provider, ch.source_id))
+            except Exception as e:  # noqa: BLE001 - diagnostic tool, surface any error
+                print(f"  fetch error: {e}")
+                continue
+            if not isinstance(data, dict):
+                print(f"  unexpected response type: {type(data)}")
+                continue
+
+            seasons = data.get("seasons", [])
+            episodes = data.get("episodes", {})
+
+            # Raw seasons metadata — look for "Temporada"/non-numeric names.
+            n = len(seasons) if isinstance(seasons, list) else "N/A"
+            print(f"  raw seasons[] count={n}")
+            if isinstance(seasons, list):
+                for s in seasons:
+                    if isinstance(s, dict):
+                        print(f"    season_number={s.get('season_number')!r}  name={s.get('name')!r}")
+
+            # Raw episodes grouping — the keys the synthetic-season path keys on.
+            if isinstance(episodes, dict):
+                keys = [str(k) for k in episodes.keys()]
+                numeric = sorted(int(k) for k in keys if k.isdigit())
+                nonnumeric = [k for k in keys if not k.isdigit()]
+                print(f"  raw episodes{{}} keys (numeric, kept): {numeric}")
+                if nonnumeric:
+                    print(f"    *** NON-NUMERIC keys DROPPED by s.isdigit(): {nonnumeric} ***")
+                # The hypothesis: does an episode keep a numeric season field even
+                # when its grouping key is non-numeric?
+                for k, eps in episodes.items():
+                    if isinstance(eps, list) and eps and isinstance(eps[0], dict):
+                        ep = eps[0]
+                        info = ep.get("info") if isinstance(ep.get("info"), dict) else {}
+                        print(f"    key={str(k)!r} -> {len(eps)} eps; sample season fields: "
+                              f"season={ep.get('season')!r} season_num={ep.get('season_num')!r} "
+                              f"info.season={info.get('season')!r}")
+            elif isinstance(episodes, list):
+                print(f"  raw episodes is a LIST (len={len(episodes)})")
+                if episodes and isinstance(episodes[0], dict):
+                    ep = episodes[0]
+                    print(f"    sample season fields: season={ep.get('season')!r} "
+                          f"season_num={ep.get('season_num')!r}")
+    finally:
+        session.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Inspect series episode data across providers"
     )
     parser.add_argument("title", help="Title substring to search for")
+    parser.add_argument(
+        "--live", action="store_true",
+        help="Re-fetch get_series_info live and dump the raw season/episode key "
+             "structure (surfaces non-numeric/Temporada keys we'd drop). Makes a "
+             "live provider API call per matched series.",
+    )
     args = parser.parse_args()
-    inspect(args.title)
+    if args.live:
+        dump_raw(args.title)
+    else:
+        inspect(args.title)
 
 
 if __name__ == "__main__":
