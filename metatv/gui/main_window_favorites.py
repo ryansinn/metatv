@@ -8,6 +8,8 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from loguru import logger
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QMessageBox
@@ -525,18 +527,20 @@ class _FavoritesMixin:
             updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
         item.setText(updated_text)
 
-        # Also update in all_channels cache for filtering
+        # Also update in all_channels cache for filtering. The cached entries are
+        # frozen ChannelListDTOs, so build a new one with the flipped flag rather
+        # than mutating in place (a frozen dataclass would raise on assignment).
         for i, (text, ch) in enumerate(self.all_channels):
             if ch.id == channel_id:
-                ch.is_favorite = channel.is_favorite
-                media_icon = self.get_media_type_icon(ch.media_type)
-                fav_icon = self.favorite_icon if ch.is_favorite else self.unfavorite_icon
-                display_text = f"{media_icon}{fav_icon} {ch.name}"
-                if ch.category:
-                    display_text += f" [{ch.category}]"
-                if ch.quality and ch.quality != "unknown":
-                    display_text += f" ({ch.quality})"
-                self.all_channels[i] = (display_text, ch)
+                new_ch = replace(ch, is_favorite=channel.is_favorite)
+                media_icon = self.get_media_type_icon(new_ch.media_type)
+                fav_icon = self.favorite_icon if new_ch.is_favorite else self.unfavorite_icon
+                display_text = f"{media_icon}{fav_icon} {new_ch.name}"
+                if new_ch.category:
+                    display_text += f" [{new_ch.category}]"
+                if new_ch.quality and new_ch.quality != "unknown":
+                    display_text += f" ({new_ch.quality})"
+                self.all_channels[i] = (display_text, new_ch)
                 break
 
     def play_channel_by_id(self, channel_id: str):
