@@ -186,7 +186,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "monitor_series": ChannelAction(
         id="monitor_series",
         label=_monitor_label,
-        icon=_icons.episode_alert_icon,
+        icon=_icons.alert_icon,
         tooltip="Alert me when this series has new episodes",
         applies=lambda c: (
             c.is_single and c.channel_found

@@ -78,7 +78,7 @@ class _ActionBar(QWidget):
         self.watchlist_button.hide()
         row2.addWidget(self.watchlist_button, 1)
 
-        self.monitor_button = QPushButton(f"{_icons.episode_alert_icon} Alert")
+        self.monitor_button = QPushButton(f"{_icons.alert_icon} Alert")
         self.monitor_button.setToolTip("Alert me to new episodes of this series")
         self.monitor_button.clicked.connect(self._on_monitor_clicked)
         self.monitor_button.hide()
@@ -263,8 +263,8 @@ class _ActionBar(QWidget):
 
     def _sync_monitor_button(self) -> None:
         if self._is_monitored:
-            self.monitor_button.setText(f"{_icons.episode_alert_icon} Alerting")
+            self.monitor_button.setText(f"{_icons.alert_icon} Alerting")
             self.monitor_button.setToolTip("Stop new-episode alerts for this series")
         else:
-            self.monitor_button.setText(f"{_icons.episode_alert_icon} Alert")
+            self.monitor_button.setText(f"{_icons.alert_icon} Alert")
             self.monitor_button.setToolTip("Alert me to new episodes of this series")

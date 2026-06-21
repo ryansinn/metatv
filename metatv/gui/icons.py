@@ -66,9 +66,10 @@ watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"
 
-# New-episode alerts
+# Alerts (siren — used for the Alerts sidebar section AND the new-episode alert action;
+# not 📡, which is live/provider/events, nor ⚠, which stays for warnings)
 new_episodes_icon: str = "🆕"   # "new episodes available" indicator
-episode_alert_icon: str = "🚨"  # "alert me to new episodes" action (siren — not 📡, which is live/provider/events)
+alert_icon: str = "🚨"          # the alert affordance — Alerts section header + "alert me to new episodes"
 manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage alerts)
 
 # Section / navigation labels
