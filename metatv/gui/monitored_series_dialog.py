@@ -1,7 +1,7 @@
-"""Monitored Series management dialog — see and stop monitoring tracked series.
+"""Episode Alerts management dialog — see and stop new-episode alerts.
 
-Adding a series happens through the native flow (right-click → "Monitor for new
-episodes", or the details-pane Monitor button).  This dialog is the see-all +
+Adding an alert happens through the native flow (right-click → "Alert me to new
+episodes", or the details-pane Alert button).  This dialog is the see-all +
 remove surface, opened from the "New Episodes" sidebar section.
 """
 
@@ -19,7 +19,7 @@ from metatv.gui import theme as _theme
 
 
 class MonitoredSeriesDialog(QDialog):
-    """List every monitored series with a Stop button. Config-only (no DB)."""
+    """List every series you're alerting on with a Stop button. Config-only (no DB)."""
 
     # Emitted after a series is removed so the host can refresh dependent views.
     changed = pyqtSignal()
@@ -27,7 +27,7 @@ class MonitoredSeriesDialog(QDialog):
     def __init__(self, config, parent=None) -> None:
         super().__init__(parent)
         self._config = config
-        self.setWindowTitle("Monitored Series")
+        self.setWindowTitle("Episode Alerts")
         self.setMinimumSize(460, 420)
         self._setup_ui()
         self._load()
@@ -38,7 +38,7 @@ class MonitoredSeriesDialog(QDialog):
         vl.setSpacing(8)
 
         hdr_row = QHBoxLayout()
-        hdr = QLabel(f"{_icons.new_episodes_icon}  Monitored Series")
+        hdr = QLabel(f"{_icons.new_episodes_icon}  Episode Alerts")
         hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
@@ -81,12 +81,12 @@ class MonitoredSeriesDialog(QDialog):
                 w.deleteLater()
 
         entries = self._config.get_monitored_series()
-        self._count_lbl.setText(f"{len(entries)} monitored" if entries else "")
+        self._count_lbl.setText(f"{len(entries)} active" if entries else "")
 
         if not entries:
             empty = QLabel(
-                "No series monitored yet.\n\n"
-                'Right-click a series → "Monitor for new episodes" to start tracking it.'
+                "No episode alerts yet.\n\n"
+                'Right-click a series → "Alert me to new episodes" to start.'
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet(
@@ -128,7 +128,7 @@ class MonitoredSeriesDialog(QDialog):
             badge.setToolTip(f"{unseen} new {ep_word} since you last looked")
             hl.addWidget(badge)
 
-        stop_btn = QPushButton(f"{_icons.close_icon} Stop monitoring")
+        stop_btn = QPushButton(f"{_icons.close_icon} Stop alerts")
         stop_btn.setFlat(True)
         stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         stop_btn.setStyleSheet(
@@ -136,7 +136,7 @@ class MonitoredSeriesDialog(QDialog):
             f" padding: 1px 6px; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"
         )
-        stop_btn.setToolTip(f"Stop monitoring {title}")
+        stop_btn.setToolTip(f"Stop new-episode alerts for {title}")
         stop_btn.clicked.connect(lambda _checked=False, c=cid: self._stop(c))
         hl.addWidget(stop_btn)
 
@@ -145,6 +145,6 @@ class MonitoredSeriesDialog(QDialog):
     # ── Actions ──────────────────────────────────────────────────────────────
     def _stop(self, channel_id: str) -> None:
         self._config.remove_monitored_series(channel_id)
-        logger.info(f"Stopped monitoring series {channel_id}")
+        logger.info(f"Stopped new-episode alerts for series {channel_id}")
         self._load()
         self.changed.emit()

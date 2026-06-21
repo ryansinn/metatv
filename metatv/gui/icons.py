@@ -66,10 +66,11 @@ watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"
 
-# Series monitor
+# Alerts (siren — used for the Alerts sidebar section AND the new-episode alert action;
+# not 📡, which is live/provider/events, nor ⚠, which stays for warnings)
 new_episodes_icon: str = "🆕"   # "new episodes available" indicator
-monitor_series_icon: str = "📡"  # "monitor this series" action
-manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage monitored series)
+alert_icon: str = "🚨"          # the alert affordance — Alerts section header + "alert me to new episodes"
+manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage alerts)
 
 # Section / navigation labels
 history_icon: str = "🕒"

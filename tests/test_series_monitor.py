@@ -687,16 +687,16 @@ class TestMonitorSeriesMenuAction:
         from metatv.gui.channel_menu import ACTIONS
         ctx = self._ctx("series", is_monitored=False)
         label = ACTIONS["monitor_series"].label(ctx)
-        assert "Monitor" in label, f"Expected 'Monitor …', got {label!r}"
-        assert "Unmonitor" not in label, \
-            f"Expected NOT 'Unmonitor …' for unmonitored, got {label!r}"
+        assert "Alert" in label, f"Expected 'Alert …', got {label!r}"
+        assert "Stop" not in label, \
+            f"Expected NOT a 'Stop …' label when un-alerted, got {label!r}"
 
     def test_monitor_label_when_already_monitored(self, qapp):
         from metatv.gui.channel_menu import ACTIONS
         ctx = self._ctx("series", is_monitored=True)
         label = ACTIONS["monitor_series"].label(ctx)
-        assert "Stop monitoring" in label, f"Expected 'Stop monitoring …', got {label!r}"
-        assert "Monitor for new" not in label
+        assert "Stop new-episode alerts" in label, f"Expected 'Stop new-episode alerts', got {label!r}"
+        assert "Alert me to new" not in label
 
     def test_monitor_action_present_in_channel_surface_layout(self):
         from metatv.gui.channel_menu import SURFACE_LAYOUTS
@@ -728,8 +728,8 @@ class TestMonitorSeriesMenuAction:
             ctx = self._ctx("series", surface=surface)
             menu = build_channel_menu(ctx, handlers, parent=None)
             texts = [a.text() for a in menu.actions() if not a.isSeparator()]
-            assert any("Monitor" in t for t in texts), \
-                f"Monitor action missing on '{surface}' surface; got {texts}"
+            assert any("Alert" in t for t in texts), \
+                f"Alert action missing on '{surface}' surface; got {texts}"
 
     def test_monitor_menu_action_triggers_handler(self, qapp):
         """build_channel_menu wires up the monitor_series handler correctly."""
@@ -752,11 +752,11 @@ class TestMonitorSeriesMenuAction:
         menu = build_channel_menu(ctx, handlers, parent=None)
         acts = [a for a in menu.actions() if not a.isSeparator()]
         monitor_act = next(
-            (a for a in acts if "Monitor" in a.text() or "monitor" in a.text().lower()),
+            (a for a in acts if "Alert" in a.text() or "alert" in a.text().lower()),
             None
         )
         assert monitor_act is not None, \
-            f"Expected a monitor action in menu; actions: {[a.text() for a in acts]}"
+            f"Expected an alert action in menu; actions: {[a.text() for a in acts]}"
         monitor_act.trigger()
         assert called, "monitor_series handler should have been called"
 
@@ -783,15 +783,15 @@ class TestActionBarMonitorButton:
         bar = self._bar()
         bar.set_monitorable(is_series=True, is_monitored=False)
         assert not bar.monitor_button.isHidden(), \
-            "Monitor button must be shown for series"
-        assert "Monitor" in bar.monitor_button.text()
-        assert "Monitoring" not in bar.monitor_button.text()
+            "Alert button must be shown for series"
+        assert "Alert" in bar.monitor_button.text()
+        assert "Alerting" not in bar.monitor_button.text()
 
     def test_monitor_button_reflects_monitored_state(self, qapp):
         bar = self._bar()
         bar.set_monitorable(is_series=True, is_monitored=True)
-        assert "Monitoring" in bar.monitor_button.text(), \
-            "Monitored series must show the 'Monitoring' label"
+        assert "Alerting" in bar.monitor_button.text(), \
+            "An alerting series must show the 'Alerting' label"
 
     def test_monitor_click_toggles_and_emits(self, qapp):
         bar = self._bar()
@@ -800,7 +800,7 @@ class TestActionBarMonitorButton:
         bar.monitor_clicked.connect(lambda: emitted.append(True))
         bar._on_monitor_clicked()
         assert bar._is_monitored is True
-        assert "Monitoring" in bar.monitor_button.text()
+        assert "Alerting" in bar.monitor_button.text()
         assert emitted, "monitor_clicked must emit on toggle"
 
 

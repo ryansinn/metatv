@@ -77,7 +77,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Alerts", config.watch_alerts_icon, config, parent)
+        super().__init__("Alerts", _icons.alert_icon, config, parent)
         self._init_background_refresh()
 
     def get_section_id(self):
