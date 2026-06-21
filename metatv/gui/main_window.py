@@ -669,14 +669,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.refresh()
 
     def _open_monitored_dialog(self) -> None:
-        """Open the 'Monitored Series' management dialog (see-all + stop monitoring)."""
+        """Open the 'Episode Alerts' management dialog (see-all + stop alerts)."""
         from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
         dlg = MonitoredSeriesDialog(self.config, self)
         dlg.changed.connect(self._refresh_new_episodes_section)
         dlg.exec()
 
     def _monitor_series(self, channel_id: str) -> None:
-        """Start monitoring a series for new episodes.
+        """Start a new-episode alert for a series.
 
         Reads the channel from the DB to populate the config entry, then
         tells SeriesMonitorManager to compute and store the baseline episode count.
@@ -703,12 +703,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._refresh_new_episodes_section()
 
     def _unmonitor_series(self, channel_id: str) -> None:
-        """Stop monitoring a series."""
+        """Stop the new-episode alert for a series."""
         self.config.remove_monitored_series(channel_id)
         self._refresh_new_episodes_section()
 
     def _on_details_monitor_toggled(self, channel_id: str) -> None:
-        """Toggle series monitoring from the details-pane Monitor button."""
+        """Toggle the new-episode alert from the details-pane Alert button."""
         if self.config.is_series_monitored(channel_id):
             self._unmonitor_series(channel_id)
         else:

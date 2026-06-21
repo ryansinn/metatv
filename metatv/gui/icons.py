@@ -66,10 +66,10 @@ watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"
 
-# Series monitor
+# New-episode alerts
 new_episodes_icon: str = "🆕"   # "new episodes available" indicator
-monitor_series_icon: str = "📡"  # "monitor this series" action
-manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage monitored series)
+episode_alert_icon: str = "🚨"  # "alert me to new episodes" action (siren — not 📡, which is live/provider/events)
+manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage alerts)
 
 # Section / navigation labels
 history_icon: str = "🕒"
