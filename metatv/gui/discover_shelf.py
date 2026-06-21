@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
-from metatv.gui.discover_card import _ContentCard, _CARD_H
+from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -95,14 +95,6 @@ class _Shelf(QWidget):
         self._pin_btn.clicked.connect(self._on_pin_clicked)
         header.addWidget(self._pin_btn)
 
-        self._collapse_btn = QPushButton(config.collapse_icon)
-        self._collapse_btn.setFixedSize(24, 22)
-        self._collapse_btn.setFlat(True)
-        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._collapse_btn.setStyleSheet(btn_ss)
-        self._collapse_btn.clicked.connect(self._on_collapse_clicked)
-        header.addWidget(self._collapse_btn)
-
         self._hide_btn = QPushButton(config.hide_icon)
         self._hide_btn.setFixedSize(24, 22)
         self._hide_btn.setFlat(True)
@@ -111,6 +103,17 @@ class _Shelf(QWidget):
         self._hide_btn.clicked.connect(lambda: self.hideRequested.emit(self._shelf_key))
         self._hide_btn.setToolTip("Hide this shelf")
         header.addWidget(self._hide_btn)
+
+        # collapse_btn is added LAST so it is always the rightmost control.
+        # pin_btn and hide_btn are hover-revealed to its left — this prevents the
+        # expand click target from shifting when the hover controls appear (D3).
+        self._collapse_btn = QPushButton(config.collapse_icon)
+        self._collapse_btn.setFixedSize(24, 22)
+        self._collapse_btn.setFlat(True)
+        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setStyleSheet(btn_ss)
+        self._collapse_btn.clicked.connect(self._on_collapse_clicked)
+        header.addWidget(self._collapse_btn)
 
         vl.addLayout(header)
 
@@ -132,23 +135,38 @@ class _Shelf(QWidget):
         inner_hl.setContentsMargins(0, 0, 16, 0)
         inner_hl.setSpacing(8)
 
+        # Assign refs early so _size_card_row() can be called below.
+        self._inner_layout = inner_hl
+        self._inner_widget = inner
+
         for card in cards:
             w = _ContentCard(card, image_cache, config, inner)
             inner_hl.addWidget(w)
             self._cards_widgets.append(w)
         inner_hl.addStretch()
 
-        inner.setFixedHeight(_CARD_H + 4)
-        inner.adjustSize()
+        self._size_card_row()
         scroll.setWidget(inner)
         vl.addWidget(scroll)
-
-        self._inner_layout = inner_hl
-        self._inner_widget = inner
 
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
         if not self._collapsed:
             QTimer.singleShot(120, self._load_visible)
+
+    def _size_card_row(self) -> None:
+        """Size the inner card row from the fixed card dimensions (timing-independent).
+
+        Uses deterministic math rather than ``sizeHint()`` so the result is
+        correct whether called from the eager build path or from ``set_cards()``
+        after layout activation.  Both paths converge here, eliminating the
+        divergence that caused smooshed cards (D1).
+        """
+        n = len(self._cards_widgets)
+        m = self._inner_layout.contentsMargins()
+        spacing = self._inner_layout.spacing()
+        width = m.left() + m.right() + n * _CARD_W + max(0, n - 1) * spacing
+        self._inner_widget.setFixedHeight(_CARD_H + 4)
+        self._inner_widget.resize(width, _CARD_H + 4)
 
     def _apply_state(self) -> None:
         """Sync button icons and scroll-area visibility to current state."""
@@ -290,11 +308,11 @@ class _Shelf(QWidget):
         self._inner_layout.addStretch()
 
         # Re-size the inner widget so the scroll area reflects the true content
-        # width.  When the shelf was built header-only (cards=[]) the inner
-        # widget was sized to ~0; activateLayout() + resize() mirrors what
-        # _build_ui does for the eager path so both render identically.
+        # width.  Uses the deterministic _size_card_row() helper (same math as
+        # the eager build path) instead of sizeHint() whose value is unreliable
+        # before the layout has fully settled — that was the smoosh bug (D1).
         self._inner_layout.activate()
-        self._inner_widget.resize(self._inner_widget.sizeHint())
+        self._size_card_row()
 
         # Wire the new card widgets to any already-connected slots.
         for slot in self._pending_wires:
