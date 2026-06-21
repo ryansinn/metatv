@@ -13,7 +13,7 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStatusBar, QSplitter,
-    QTreeWidget, QListWidget, QMenuBar, QMenu,
+    QTreeWidget, QListView, QMenuBar, QMenu,
     QCheckBox, QLineEdit
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
@@ -217,9 +217,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._in_provider_edit_mode = False
         
         # Store channel data for display
+        # all_channels is kept as a parallel list for legacy callers (filter_channels,
+        # favorites toggle in all_channels cache).  With the virtualized model it is
+        # no longer the primary data source; channel_model is.
         self.all_channels = []  # List of (display_text, ChannelListDTO)
-        self.max_display_limit = 10000  # Max QListWidgetItems to render at once
-        self._search_page_size = 5_000   # Max rows returned by get_all() per load
+        # Page size for the virtualized model's initial SQL fetch and incremental pages.
+        # Chosen to be small enough to land quickly and large enough that the user
+        # rarely triggers a second page for average-sized categories.
+        self._search_page_size = 1_000   # First page / subsequent pages
 
         # When True, Tier 1 filters (language/quality/platform) are bypassed for one
         # load — so the user can see what exists in filtered categories without having
@@ -975,16 +980,57 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._hidden_banner.hide()
         self._list_layout.addWidget(self._hidden_banner)
 
-        # Channels list
-        self.channels_list = QListWidget()
+        # Banner strip — shown above the channel list for transient states:
+        # loading placeholder, "N filtered" actionable button, bypass banner.
+        # Hidden by default; _ChannelListMixin shows/hides it as needed.
+        self._channel_banner = QLabel()
+        self._channel_banner.setVisible(False)
+        self._channel_banner.setWordWrap(True)
+        self._channel_banner.setStyleSheet(
+            f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+            f" font-size: {_theme.FONT_MD}; }}"
+        )
+        self._list_layout.addWidget(self._channel_banner)
+
+        # Banner strip for the "N filtered — click to show" actionable button.
+        # A QPushButton rather than a label so it is keyboard-focusable and
+        # respects the theme's pointer cursor.  Hidden by default.
+        self._channel_filter_btn = QPushButton()
+        self._channel_filter_btn.setVisible(False)
+        self._channel_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._channel_filter_btn.setStyleSheet(
+            f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
+            f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
+            f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
+            f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
+            f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
+        )
+        self._channel_filter_btn.setToolTip(
+            "Your current Category / Quality / Platform filters are hiding these results.\n"
+            "Click to temporarily show them. Filters are not changed.\n"
+            "Changing filters or searching again restores normal filtered view."
+        )
+        self._channel_filter_btn.clicked.connect(self._show_filtered_results)
+        self._list_layout.addWidget(self._channel_filter_btn)
+
+        # Virtualized channel list — QListView backed by ChannelListModel
+        from metatv.gui.channel_list_model import ChannelListModel
         from PyQt6.QtWidgets import QAbstractItemView
+        self.channel_model = ChannelListModel(self)
+        # Wire page requests from the model through the async seam.
+        # The lambda captures self (MainWindow) so it can call _run_query.
+        self.channel_model.page_requested.connect(self._on_channel_page_requested)
+        self.channels_list = QListView()
+        self.channels_list.setModel(self.channel_model)
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
-        self.channels_list.itemDoubleClicked.connect(self.play_channel)
-        self.channels_list.currentItemChanged.connect(self.on_channel_selection_changed)
+        self.channels_list.doubleClicked.connect(self._on_channel_double_clicked)
+        self.channels_list.selectionModel().currentChanged.connect(
+            self.on_channel_selection_changed
+        )
         self._list_layout.addWidget(self.channels_list)
 
         # Series tree view (hidden by default)

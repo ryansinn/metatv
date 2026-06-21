@@ -241,11 +241,19 @@ def test_preferences_render_overwrites_loading_header_no_ratings(qapp):
 # ---------------------------------------------------------------------------
 
 def _make_load_channels_host(qapp):
-    from PyQt6.QtWidgets import QListWidget
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
+    from PyQt6.QtCore import Qt
     from metatv.gui import main_window as mw_module
+    from metatv.gui.channel_list_model import ChannelListModel
 
     win = mw_module.MainWindow.__new__(mw_module.MainWindow)
-    win.channels_list = QListWidget()
+    # Virtualized model + view replace the old QListWidget
+    win.channel_model = ChannelListModel()
+    win.channels_list = QListView()
+    win.channels_list.setModel(win.channel_model)
+    # Banner widgets (created in setup_ui; stub them for the test)
+    win._channel_banner = QLabel()
+    win._channel_filter_btn = QPushButton()
     win.all_channels = ["stale"]
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
@@ -261,7 +269,7 @@ def _make_load_channels_host(qapp):
     win._bypass_tier1_filters = False
     win._details_genre_filter = None
     win._details_person_filter = None
-    win._search_page_size = 5000
+    win._search_page_size = 1000
     win._hidden_mode = False
     win._load_channels_token = [0]
     win._run_query = MagicMock()  # no-op: we only test the placeholder being set
@@ -269,7 +277,6 @@ def _make_load_channels_host(qapp):
 
 
 def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
-    from PyQt6.QtCore import Qt
     host = _make_load_channels_host(qapp)
 
     # Resolve the provider list without a real DB: a minimal fake DB returning no
@@ -291,13 +298,13 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
 
     host.load_channels()
 
-    # The placeholder item is present immediately (and stale all_channels was reset).
+    # all_channels was reset; model has 0 rows (channel_model received empty set_channels).
     assert host.all_channels == []
-    items = [host.channels_list.item(i) for i in range(host.channels_list.count())]
-    assert len(items) == 1
-    assert _icons.loading_icon in items[0].text()
-    assert "Loading channels" in items[0].text()
-    assert items[0].flags() == Qt.ItemFlag.NoItemFlags
+    assert host.channel_model.rowCount() == 0
+    # Loading banner is visible and contains the loading text.
+    assert host._channel_banner.isVisible()
+    assert _icons.loading_icon in host._channel_banner.text()
+    assert "Loading" in host._channel_banner.text()
     # Stats label was set to the loading text.
     stats_texts = [c.args[0] for c in host.stats_label.setText.call_args_list]
     assert any("Loading" in t for t in stats_texts)
@@ -306,26 +313,28 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
 
 
 def test_channels_load_error_clears_loading_placeholder(qapp):
-    from PyQt6.QtWidgets import QListWidget, QListWidgetItem
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
     from metatv.gui import main_window as mw_module
+    from metatv.gui.channel_list_model import ChannelListModel
 
     win = mw_module.MainWindow.__new__(mw_module.MainWindow)
-    win.channels_list = QListWidget()
+    win.channel_model = ChannelListModel()
+    win.channels_list = QListView()
+    win.channels_list.setModel(win.channel_model)
+    win._channel_banner = QLabel()
+    win._channel_filter_btn = QPushButton()
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
     win._clear_provider_busy = MagicMock()
 
-    # Seed a loading placeholder like load_channels would.
-    li = QListWidgetItem(f"{_icons.loading_icon} Loading channels…")
-    li.setFlags(Qt.ItemFlag.NoItemFlags)
-    win.channels_list.addItem(li)
-    assert win.channels_list.count() == 1
+    # Seed the loading banner like load_channels would.
+    win._channel_banner.setText(f"{_icons.loading_icon} Loading channels…")
+    win._channel_banner.setVisible(True)
 
     win._on_channels_load_error(RuntimeError("boom"))
 
-    # Placeholder removed; error stats set.
-    assert win.channels_list.count() == 0
+    # Loading banner hidden; error stats set.
+    assert not win._channel_banner.isVisible()
     win.stats_label.setText.assert_called()
     assert any("Couldn't load" in c.args[0] for c in win.stats_label.setText.call_args_list)
 

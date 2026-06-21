@@ -80,18 +80,14 @@ class _NavMixin:
         self.search_input.setEnabled(True)
         self.search_input.setPlaceholderText("Filter channels by name, category...")
 
-        if hasattr(self, 'all_channels') and self.all_channels:
-            total_channels = len(self.all_channels)
-            shown = self.channels_list.count()
-            for i in range(self.channels_list.count()):
-                item = self.channels_list.item(i)
-                if not item.data(1):  # Qt.ItemDataRole.UserRole == 1
-                    shown -= 1
-            filtered = total_channels - shown
-            if filtered > 0:
-                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} · {filtered:,} filtered out")
-            else:
-                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
+        if hasattr(self, 'channel_model') and self.channel_model.rowCount() > 0:
+            # Banners are now in the banner strip, not in the model, so rowCount()
+            # equals the number of real channel rows. It reflects what's loaded so
+            # far (paging loads more on scroll), so report the loaded count plainly
+            # — the legacy `all_channels` cache only holds page 1 and would make
+            # "of Y / filtered out" go negative once more pages stream in.
+            shown = self.channel_model.rowCount()
+            self.stats_label.setText(f"Showing {shown:,} channels")
 
         self.current_series = None
         self.series_data = None
