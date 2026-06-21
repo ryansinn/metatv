@@ -235,3 +235,89 @@ friction between the user and their content, and the ambient-companion loop dies
 literal click count. A control that genuinely *reduces* total friction — a chip that jumps straight to a
 view you'd otherwise scroll forever to find — still serves the principle. The enemy is *layered
 hunting*, not the existence of buttons. Distill into a CLAUDE.md UI rule once a second surface needs it.
+
+---
+
+### DR-0005 — Everything is a *tag*: unify attributes, views, and filters into one composable query over a tag corpus
+**Status:** Accepted in principle (2026-06-21, user steer). The **model** and the **storage shape** are
+decided; schema-level sub-decisions (namespace cardinality, the rule definition shape, the exact
+derived-cache mechanism) are open and will be locked during implementation.
+
+**Context — the schema sprawl is N names for one idea.** Content today carries a pile of parallel,
+hand-authored columns: `detected_prefix`, `detected_region`, `detected_quality`, `detected_year`,
+`detected_title`, plus `genre`, `category`, `user_category`, `is_adult`, and friends. They are all the
+*same shape* — a value, in a group, attached to a channel — yet each is its own column, its own
+detection code, its own filter axis, its own bespoke UI. Worse, re-running detection
+(`update_detected_prefixes`) **overwrites the columns in place**: there is no separation between *the
+machine guessed this* and *the human asserted this*, so improving the rules risks trampling user
+curation. And the things built *on top* — the two-tier filter, the Discover genre/decade shelves, the
+Categories, the recommendation "attribute weights" — are parallel systems doing the same job by
+different names. We kept adding "different names for the same thing" (user's framing) instead of naming
+the thing.
+
+**The decision has three parts.**
+
+**1. The thing is a tag.** Model every attribute as a **tag** = `(namespace, value, canonical_id)` —
+`region:US`, `quality:4K`, `genre:drama`, `lang:en`, `content_type:adult|movie|live`, `decade:1980s`,
+`user:cozy-saturday`. A channel↔tag link (`ContentTag`) carries a **provenance**
+(`source ∈ {generated, user}`) and, for generated tags, the **rule + version** that produced it. The
+detection logic (prefix/suffix/regex on the name, `raw_data` field maps, metadata-derived) generalizes
+from hardcoded column-writers into **versioned rules that "massage content into qualifying" for a tag**
+(user's words). Cross-language/alias unification (Drama/Drame/Dramma/دراما → `genre:drama`; EN↔MULTI;
+region codes) is just **tag canonicalization** — many surface aliases resolving to one `canonical_id`.
+
+**2. Tags are the single source of truth; the fast columns become a *derived cache*.** The trap: the
+current sprawl is *fast* precisely because it is denormalized — `WHERE detected_prefix IN (…)` is an
+indexed scan over 1M+ channels, whereas a pure M:N tag table (≈5–10M rows) turns the hot multi-facet
+filter ("drama AND 4K AND english from an active source") into an intersection / `GROUP BY HAVING`.
+**Chosen reconciliation (user, 2026-06-21): hybrid.** Tags are canonical (with provenance,
+reprocessable); the denormalized fast-filter columns/bitmap are a **generated index derived from
+tags**, regenerated when tags change — *not* hand-authored schema. This answers the real complaint (you
+stop *authoring* `detected_*`; they become an index, like a search index) while keeping filter latency.
+*Rejected: pure tags-only / fully-normalized* — conceptually cleanest but regresses the hot path without
+a heavy indexing/caching strategy; the hybrid gets the clean model **and** the speed.
+
+**3. Views, filters, and shelves are all one query (the keystone — user steer).** Once content is
+tagged, **a View is just a saved preset tag-predicate plus a presentation**: "Movies" =
+`content_type:movie`; "Sports" = `genre:sports`; "Live" = `content_type:live`; EPG = "has guide data";
+Favorites/History = engagement tags; a user's "Cozy Saturday" = `user:cozy-saturday`. **The filter
+panel is a bolt-on modifier** — transient predicates AND-ed onto the *current view's base predicate*,
+not a separate system. **A Discover shelf is a group-by over a tag namespace.** User-created
+views/shelves are just **saved predicates**. So Views + Filters + Shelves + Categories collapse into one
+primitive: **(base predicate) ∘ (modifier predicates) → over the tag corpus → (presentation)**. This is
+the same one-chokepoint instinct as the rest of the architecture, applied to *navigation itself*.
+
+**The contract that makes reprocessing safe (user requirement).** **User tags are sacred; generated
+tags are disposable.** Reprocess = `DELETE ContentTag WHERE source='generated'` → re-run the rules;
+user assignments are never touched. As the rules improve, scrub-and-reapply the entire generated layer
+at full fidelity, and the user's curation survives intact. This is strictly better than today's in-place
+column overwrite, and it is the reason the work pays for itself.
+
+**What this unifies / supersedes.** It folds the two-tier filter axes, the `detected_*` authored
+columns, Categories/`user_category`, the Discover facet shelves, `content_dedup` canonicalization, and
+the recommendation engine's "attribute weights" (tags *are* the attributes) into one model. It does
+**not** discard them — most become either *rules that emit tags* or *queries that read tags*. Genre
+unification (**D5**, in flight) is deliberately the **first canonicalization rule** — the pilot that
+seeds the alias layer. (Note: `normalize_genre()` / `_GENRE_NORM` already exist in
+`repositories/channel.py`; D5 is wiring that existing canonicalizer into the Discover shelf path, which
+is exactly the tag-alias pattern in miniature.)
+
+**Sequencing (user steer, 2026-06-21): structure before skin.** Resolve the functional architecture —
+tags, the view/filter/shelf query model, and the layout/interaction design — **before** any visual
+reskin / "modern look." Reskinning a moving structure is wasted motion (echoes DR-0002 — *don't
+standardize a moving target* — and the function-over-form north star). The reskin is a *later, separate*
+effort layered on a settled structure, not interleaved with it.
+
+**Phased, no big-bang (detail in ROADMAP).** D5 pilot → lock the schema (Tag / ContentTag / namespace
+cardinality / rule versioning / the reprocess contract) → **shadow-build** the tag store + rules engine
+by *deriving* tags from today's `detected_*` + `raw_data` (nothing cuts over) → migrate read surfaces
+one at a time (filter → Discover → details → recs) with the columns kept as the derived cache → user
+tags + the scrub-and-reapply loop → retire the redundant authored columns (or keep them purely as the
+cache). Distill the enforceable invariants (the provenance rule; "reads go through the tag query, not
+bespoke columns") into CLAUDE.md **once the schema is locked**, not before.
+
+**Open sub-decisions.** Namespace cardinality (is `quality` single-valued, or can a channel be both
+`HD` and `HEVC`?); the rule-definition shape (declarative table vs. code); the exact derived-cache
+mechanism (keep `detected_*` columns vs. a per-channel tag-id bitmap / inverted index); how the current
+filter's `is_filtered` / no-data-passthrough semantics map onto tag predicates; whether saved user
+views live in `config` or the DB.
