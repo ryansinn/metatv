@@ -86,6 +86,9 @@ class DiscoverView(QWidget):
         self._loaded_shelf_keys: set[str] = set()  # keys whose cards are fetched
         self._shelf_widgets: dict[str, _Shelf] = {}
         self._shelf_zones: dict[str, str] = {}
+        # D2 — collapsed strip buffering to eliminate per-item stutter
+        self._pending_collapsed: list[_ShelfData] = []
+        self._batch_timer: QTimer | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -230,8 +233,12 @@ class DiscoverView(QWidget):
             _ZONE_COLLAPSED: self._collapsed_layout,
         }[zone]
 
-    def _add_to_zone(self, shelf: _Shelf, zone: str) -> None:
-        self._zone_layout(zone).addWidget(shelf)
+    def _add_to_zone(self, shelf: _Shelf, zone: str, at_top: bool = False) -> None:
+        layout = self._zone_layout(zone)
+        if zone == _ZONE_COLLAPSED and at_top:
+            layout.insertWidget(0, shelf)
+        else:
+            layout.addWidget(shelf)
         if zone == _ZONE_PINNED:
             self._pinned_zone.setVisible(True)
         elif zone == _ZONE_EXPANDED:
@@ -250,8 +257,15 @@ class DiscoverView(QWidget):
             self._update_more_btn()
 
     def _update_more_btn(self) -> None:
-        """Sync the More Categories button label and visibility."""
-        count = self._collapsed_layout.count()
+        """Sync the More Categories button label and visibility.
+
+        The count includes both built (already in _collapsed_layout) and
+        pending (buffered but not yet built — D2 deferral) collapsed strips so
+        the label shows the correct total immediately during streaming load.
+        """
+        built_count = self._collapsed_layout.count()
+        pending_count = len(self._pending_collapsed)
+        count = built_count + pending_count
         visible = count > 0
         self._more_btn.setVisible(visible)
         if not visible:
@@ -268,6 +282,14 @@ class DiscoverView(QWidget):
         self._update_more_btn()
 
     def _move_shelf(self, shelf_key: str, new_zone: str) -> None:
+        """Move a shelf widget to a new zone.
+
+        If *new_zone* is the collapsed zone and ``config.discover_collapse_to_top``
+        is set, the shelf is inserted at position 0 (top) so the user can find
+        their recently collapsed item immediately (D4).  Initial-load placement
+        always uses ``at_top=False`` (only ``_move_shelf`` calls this for a user
+        gesture, and ``_add_collapsed_strip`` handles initial load directly).
+        """
         shelf = self._shelf_widgets.get(shelf_key)
         if shelf is None:
             return
@@ -279,7 +301,8 @@ class DiscoverView(QWidget):
         self._shelf_zones[shelf_key] = new_zone
         shelf.set_collapsed(new_zone == _ZONE_COLLAPSED)
         shelf.set_pinned(new_zone == _ZONE_PINNED)
-        self._add_to_zone(shelf, new_zone)
+        at_top = (new_zone == _ZONE_COLLAPSED and self._config.discover_collapse_to_top)
+        self._add_to_zone(shelf, new_zone, at_top=at_top)
 
     def _save_zone_config(self) -> None:
         cfg = self._config
@@ -290,7 +313,25 @@ class DiscoverView(QWidget):
 
     # ---- Shelf signal handlers ----------------------------------------------
 
+    def _flush_if_pending(self, shelf_key: str) -> None:
+        """If *shelf_key* is in the D2 pending buffer, flush the whole batch now.
+
+        Pending strips have no widget yet, so any interaction that targets a
+        pending key (expand, hide, pin via the Manage dialog) would silently
+        no-op without this guard.  Flushing early is safe: the batch builder
+        is idempotent and the timer will then find nothing to do when it fires.
+        """
+        if not self._pending_collapsed:
+            return
+        is_pending = any(d.shelf_key == shelf_key for d in self._pending_collapsed)
+        if not is_pending:
+            return
+        if self._batch_timer is not None:
+            self._batch_timer.stop()
+        self._flush_pending_collapsed()
+
     def _on_pin_requested(self, shelf_key: str) -> None:
+        self._flush_if_pending(shelf_key)
         self._move_shelf(shelf_key, _ZONE_PINNED)
         self._save_zone_config()
 
@@ -303,7 +344,12 @@ class DiscoverView(QWidget):
         self._save_zone_config()
 
     def _on_expand_requested(self, shelf_key: str) -> None:
-        """Expand a shelf — fetching its cards first if not yet loaded."""
+        """Expand a shelf — fetching its cards first if not yet loaded.
+
+        If the shelf is still in the D2 pending buffer (not yet built into a
+        widget), flush the batch immediately so ``_move_shelf`` finds the widget.
+        """
+        self._flush_if_pending(shelf_key)
         # Always move the widget to the expanded zone immediately so the UI
         # responds instantly.  The card row will fill in asynchronously if
         # the shelf was header-only.
@@ -357,6 +403,25 @@ class DiscoverView(QWidget):
         QTimer.singleShot(120, shelf._load_visible)
 
     def _on_hide_requested(self, shelf_key: str) -> None:
+        # If this shelf is still pending (D2 buffer), remove it from the buffer
+        # directly rather than flushing the whole batch just to delete it.
+        still_pending = [d for d in self._pending_collapsed if d.shelf_key == shelf_key]
+        if still_pending:
+            self._pending_collapsed = [
+                d for d in self._pending_collapsed if d.shelf_key != shelf_key
+            ]
+            self._update_more_btn()
+            # Persist the hide immediately.
+            cfg = self._config
+            if shelf_key not in cfg.discover_hidden_shelves:
+                cfg.discover_hidden_shelves.append(shelf_key)
+            for lst in (cfg.discover_pinned_shelves, cfg.discover_expanded_shelves,
+                        cfg.discover_collapsed_shelves):
+                if shelf_key in lst:
+                    lst.remove(shelf_key)
+            cfg.save()
+            return
+
         shelf = self._shelf_widgets.pop(shelf_key, None)
         if shelf is None:
             return
@@ -425,6 +490,10 @@ class DiscoverView(QWidget):
         self._loaded_shelf_keys.clear()
         self._shelf_widgets.clear()
         self._shelf_zones.clear()
+        # Cancel any pending D2 batch timer and clear the buffer.
+        if self._batch_timer is not None:
+            self._batch_timer.stop()
+        self._pending_collapsed.clear()
 
         for layout in (self._pinned_layout, self._expanded_layout, self._collapsed_layout):
             while layout.count():
@@ -450,32 +519,33 @@ class DiscoverView(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
-    def _on_shelf_ready(self, data: _ShelfData) -> None:
-        if self._loading_lbl.isVisible():
-            self._loading_lbl.setVisible(False)
+    # ---- Shelf creation helper -----------------------------------------------
 
-        zone = self._determine_zone(data.shelf_key)
+    def _create_and_wire_shelf(
+        self,
+        data: _ShelfData,
+        zone: str,
+        *,
+        collapsed: bool,
+    ) -> _Shelf:
+        """Create a ``_Shelf`` widget, wire its signals, and register it.
 
-        if data.header_only:
-            # Collapsed strip — no cards yet.  Build the shelf collapsed with
-            # an empty card list; cards are fetched on first expand.
-            shelf = _Shelf(
-                data.title, data.shelf_key, [],
-                self._image_cache, self._config,
-                pinned=False,
-                collapsed=True,
-            )
-        else:
-            # Full shelf with cards.
+        This is the *single* place a shelf widget is constructed so the wiring
+        is never accidentally duplicated between ``_on_shelf_ready`` (eager
+        path) and ``_flush_pending_collapsed`` (D2 batch path).
+
+        Callers are responsible for calling ``_add_to_zone`` afterwards.
+        """
+        if not data.header_only:
             self._shelf_data_cache[data.shelf_key] = data.cards
             self._loaded_shelf_keys.add(data.shelf_key)
-            shelf = _Shelf(
-                data.title, data.shelf_key, data.cards,
-                self._image_cache, self._config,
-                pinned=(zone == _ZONE_PINNED),
-                collapsed=(zone == _ZONE_COLLAPSED),
-            )
 
+        shelf = _Shelf(
+            data.title, data.shelf_key, data.cards,
+            self._image_cache, self._config,
+            pinned=(zone == _ZONE_PINNED),
+            collapsed=collapsed,
+        )
         shelf.seeAllRequested.connect(self._on_see_all)
         shelf.pinRequested.connect(self._on_pin_requested)
         shelf.unpinRequested.connect(self._on_unpin_requested)
@@ -487,12 +557,75 @@ class DiscoverView(QWidget):
 
         self._shelf_widgets[data.shelf_key] = shelf
         self._shelf_zones[data.shelf_key] = zone
+        return shelf
+
+    def _on_shelf_ready(self, data: _ShelfData) -> None:
+        if self._loading_lbl.isVisible():
+            self._loading_lbl.setVisible(False)
+
+        zone = self._determine_zone(data.shelf_key)
+
+        if data.header_only:
+            # D2 — buffer collapsed strips; build them in one batch after the
+            # stream settles so the "counting up" stutter never happens.
+            # Restart a debounce timer; when it fires (≈120 ms of silence) the
+            # batch builder creates all pending strips in a single relayout pass.
+            self._pending_collapsed.append(data)
+            self._update_more_btn()  # shows correct count from pending list
+            if self._batch_timer is None:
+                self._batch_timer = QTimer(self)
+                self._batch_timer.setSingleShot(True)
+                self._batch_timer.timeout.connect(self._flush_pending_collapsed)
+            self._batch_timer.start(120)
+            return
+
+        # Full shelf with cards — build and add immediately (these are the few
+        # pinned/expanded shelves the user sees first; they must appear right away).
+        shelf = self._create_and_wire_shelf(data, zone, collapsed=(zone == _ZONE_COLLAPSED))
         self._add_to_zone(shelf, zone)
+
+    # ---- D2 batch builder ---------------------------------------------------
+
+    def _flush_pending_collapsed(self) -> None:
+        """Build all buffered collapsed strips in one batch (D2).
+
+        Called by the debounce timer after the loader stream settles.  Wraps
+        the layout in a single ``setUpdatesEnabled(False/True)`` pass so Qt
+        does one relayout instead of one per strip.
+
+        D4 note: these strips come from *initial load*, so they always append
+        (``at_top=False``) — only an explicit user collapse uses ``at_top``.
+        """
+        if not self._pending_collapsed:
+            return
+
+        pending = self._pending_collapsed[:]
+        self._pending_collapsed.clear()
+
+        self._collapsed_zone.setUpdatesEnabled(False)
+        try:
+            for data in pending:
+                zone = self._determine_zone(data.shelf_key)
+                shelf = self._create_and_wire_shelf(data, zone, collapsed=True)
+                self._add_to_zone(shelf, zone, at_top=False)
+        finally:
+            self._collapsed_zone.setUpdatesEnabled(True)
+
+        # Single relayout + button update after all strips are built.
+        self._update_more_btn()
+        if self._more_expanded:
+            self._collapsed_zone.setVisible(True)
 
     def _on_load_finished(self) -> None:
         self._loaded = True
         if self._loading_lbl.isVisible():
             self._loading_lbl.setText("No content found")
+        # Ensure any buffered collapsed strips are built even if the debounce
+        # timer hasn't fired yet (e.g. very fast load that finishes before 120 ms).
+        if self._pending_collapsed:
+            if self._batch_timer is not None:
+                self._batch_timer.stop()
+            self._flush_pending_collapsed()
         self._update_more_btn()
         QTimer.singleShot(300, self._trigger_image_load_all)
 

@@ -591,7 +591,8 @@ class Config(BaseModel):
     discover_collapsed_shelves: list = Field(default_factory=list)
     discover_hidden_shelves: list = Field(default_factory=list)
     discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
-    discover_more_expanded: bool = False  # "More Categories" accordion — collapsed by default
+    discover_more_expanded: bool = False   # "More Categories" accordion — collapsed by default
+    discover_collapse_to_top: bool = True  # re-collapsed shelves jump to top of collapsed zone
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
