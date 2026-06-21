@@ -25,7 +25,6 @@ split is behaviour-preserving.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QListWidgetItem
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
@@ -62,17 +61,18 @@ class _ChannelListMixin:
         self._search_debounce.stop()
 
         # Show loading state immediately so the user knows something is happening.
-        # A non-selectable placeholder item (and stats text) occupy the load window so
-        # the list never shows a stale empty/zero state while the async query runs;
-        # filter_channels() / the no-channels and error slots all clear it before they
-        # render their own state.
-        self.channels_list.clear()
+        # Reset the model (clears the list) and show a banner; the result/error
+        # slots clear the banner before rendering their own state.
         self.all_channels = []
-        from PyQt6.QtWidgets import QListWidgetItem as _LoadingItem
+        self.channel_model.set_channels(
+            [],
+            provider_icon_map={},
+            show_provider_icon=False,
+            has_more=False,
+            query_params={},
+        )
         from metatv.gui import icons as _icons
-        _loading_item = _LoadingItem(f"{_icons.loading_icon} Loading channels…")
-        _loading_item.setFlags(Qt.ItemFlag.NoItemFlags)
-        self.channels_list.addItem(_loading_item)
+        self._show_channel_banner(f"{_icons.loading_icon} Loading channels…")
         self.stats_label.setText("Loading channels…")
         self.status_bar.showMessage("Loading channels…")
 
@@ -257,6 +257,11 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
                 limit=_page_size,
             )
+        # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
+        # below. Paging (has_more + the next OFFSET) must be based on this, not on
+        # the surviving count — otherwise an active exclusion makes page 1 look
+        # short (has_more=False → list dead-ends early) and would overlap rows.
+        params['raw_fetched'] = len(channels)
         total = repos.channels.count(provider_id=params['provider_id'])
         has_adult = bool(force_adult_ids) or repos.session.query(ChannelDB).filter(
             ChannelDB.is_adult == True
@@ -316,13 +321,13 @@ class _ChannelListMixin:
         """Main thread: clear the loading state when the channel query fails."""
         logger.error(f"Channel query failed: {exc}")
         self._clear_provider_busy()
-        # Drop the transient "Loading channels…" placeholder so the spinner doesn't hang.
-        self.channels_list.clear()
+        # Clear the loading banner so the spinner doesn't hang.
+        self._hide_channel_banners()
         self.stats_label.setText("Couldn't load channels")
         self.status_bar.showMessage("Couldn't load channels")
 
     def _on_channels_loaded(self, result) -> None:
-        """Main thread: build the channel list UI from query results.
+        """Main thread: populate the virtualized channel model from query results.
 
         ``result`` is the ``(dtos, params)`` tuple returned by ``_query_channels``.
         Stale results are already dropped by the seam's ``token_ref``.
@@ -332,50 +337,26 @@ class _ChannelListMixin:
         # A current channel load finished — the visible result of a provider toggle's
         # canonical refresh. Clear any provider busy/spinner state now.
         self._clear_provider_busy()
+        self._hide_channel_banners()
 
         total_channels    = params.get('total_channels', 0)
-        has_adult         = params.get('has_adult', False)
         show_provider_icon = params.get('show_provider_icon', False)
         provider_icon_map  = params.get('provider_icon_map', {})
         given_provider_id  = params.get('given_provider_id')
-
-        # Adult filter now lives in filter panel (no separate toggle needed)
 
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
         if not channels:
             logger.warning("No channels match current filters!")
-            # Drop the transient "Loading channels…" placeholder before rendering the
-            # empty/zero state (this branch returns without calling filter_channels()).
-            self.channels_list.clear()
             if params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
             else:
                 filtered_out = params.get('filtered_out_count', 0)
                 if filtered_out > 0:
-                    # Results exist but are hidden by Tier 1 filters — show an
-                    # actionable button so the user can expose them without touching settings.
-                    from PyQt6.QtWidgets import QListWidgetItem, QPushButton, QWidget, QHBoxLayout
-                    btn_item = QListWidgetItem()
-                    btn_item.setFlags(Qt.ItemFlag.NoItemFlags)
-                    btn_widget = QPushButton(
-                        f"{filtered_out:,} result{'s' if filtered_out != 1 else ''} filtered  —  click to show"
-                    )
-                    btn_widget.setToolTip(
-                        "Your current Category / Quality / Platform filters are hiding these results.\n"
-                        "Click to temporarily show them. Filters are not changed.\n"
-                        "Changing filters or searching again restores normal filtered view."
-                    )
-                    btn_widget.setStyleSheet(
-                        f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG}; border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER};"
-                        f" border-radius: 4px; padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
-                        f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER}; border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
-                    )
-                    btn_widget.clicked.connect(self._show_filtered_results)
-                    self.channels_list.addItem(btn_item)
-                    self.channels_list.setItemWidget(btn_item, btn_widget)
-                    btn_item.setSizeHint(btn_widget.sizeHint())
+                    # Results exist but are hidden by Tier 1 filters — show the
+                    # actionable button in the banner area.
+                    self._show_channel_filter_button(filtered_out)
                     self.status_bar.showMessage(
                         f"No results — {filtered_out:,} match{'es' if filtered_out == 1 else ''} hidden by current filters"
                     )
@@ -388,13 +369,15 @@ class _ChannelListMixin:
         # Track bypass state so filter_channels() can show the banner
         self._currently_bypassing = params.get('bypassing_tier1', False)
 
+        # Build legacy all_channels cache (still used by toggle_favorite / the
+        # favorites cache update in _apply_favorite_toggle path).
+        self.all_channels = []
         for channel in channels:
             media_icon = self.get_media_type_icon(channel.media_type)
             fav_icon   = self.favorite_icon if channel.is_favorite else self.unfavorite_icon
             src_badge  = ""
             if show_provider_icon and channel.provider_id in provider_icon_map:
                 src_badge = provider_icon_map[channel.provider_id] + " "
-
             prefix_str   = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
             lang_str     = f"[{channel.detected_region}] " if channel.detected_region else ""
             prefix_group = prefix_str + lang_str
@@ -407,86 +390,126 @@ class _ChannelListMixin:
                 display_text += f" [{channel.category}]"
             self.all_channels.append((display_text, channel))
 
-        shown    = len(channels)
+        shown = len(channels)
+        # Paging is keyed off the RAW SQL rows fetched (before Python exclusions),
+        # not the surviving `shown` — otherwise an active exclusion shortens page 1
+        # and wrongly reports exhaustion. hidden_only loads everything in one shot
+        # (no offset/limit), so it never pages.
+        raw_fetched = params.get('raw_fetched', shown)
+        page_size = params.get('page_size', self._search_page_size)
+        has_more = (not params.get('hidden_only')) and (raw_fetched >= page_size)
+
+        # Populate the virtualized model — this replaces the old addItem loop.
+        # Pass through display helpers so the model can compose identical text.
+        self.channel_model.set_channels(
+            channels,
+            provider_icon_map=provider_icon_map,
+            show_provider_icon=show_provider_icon,
+            has_more=has_more,
+            next_offset=raw_fetched,
+            query_params=params,
+            favorite_icon=self.favorite_icon,
+            unfavorite_icon=self.unfavorite_icon,
+            get_media_type_icon=self.get_media_type_icon,
+        )
+
+        # Stash the stats context so _refresh_channel_stats_label() can recompute
+        # the "Showing N of M" label live as fetchMore() streams in more pages.
+        self._stats_total_channels = total_channels
+        self._stats_hidden_only = bool(params.get('hidden_only'))
+        self._stats_panel_filtering = any([
+            params.get('language_prefixes'),
+            params.get('region_prefixes'),
+            params.get('quality_prefixes'),
+            params.get('platform_prefixes'),
+        ])
+        self._refresh_channel_stats_label()
+
         if params.get('hidden_only'):
-            self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
             self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
+        elif given_provider_id:
+            self.status_bar.showMessage(f"{shown:,} channels from selected provider")
         else:
-            panel_filtering = any([
-                params.get('language_prefixes'),
-                params.get('region_prefixes'),
-                params.get('quality_prefixes'),
-                params.get('platform_prefixes'),
-            ])
-            if panel_filtering:
-                excluded = total_channels - shown
-                self.stats_label.setText(
-                    f"Showing {shown:,} of {total_channels:,} · {excluded:,} filtered out"
-                )
-            else:
-                self.stats_label.setText(f"Showing {shown:,} of {total_channels:,} channels")
-            if given_provider_id:
-                self.status_bar.showMessage(f"{shown:,} channels from selected provider")
-            else:
-                self.status_bar.showMessage(f"{shown:,} channels from active providers")
+            self.status_bar.showMessage(f"{shown:,} channels from active providers")
 
         self.filter_channels()
 
-    def filter_channels(self, _unused: str = "") -> None:
-        """Render the currently-loaded channels into the list widget.
+    def _refresh_channel_stats_label(self) -> None:
+        """Set the stats label from the current loaded row count.
 
-        Search filtering is now pushed to SQL (in load_channels), so this method
-        only handles rendering. The _unused parameter is kept for any callers that
-        still pass a text argument.
+        Called on the initial load and again after every fetchMore() page so the
+        "Showing N of M" count grows as the user scrolls (N = rows loaded so far;
+        M = the provider's total). Reads the context stashed by the last load.
         """
-        self.channels_list.setUpdatesEnabled(False)
-        self.channels_list.clear()
+        if not hasattr(self, 'channel_model'):
+            return
+        shown = self.channel_model.rowCount()
+        total = getattr(self, '_stats_total_channels', shown)
+        if getattr(self, '_stats_hidden_only', False):
+            self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
+        elif getattr(self, '_stats_panel_filtering', False):
+            excluded = max(0, total - shown)
+            self.stats_label.setText(
+                f"Showing {shown:,} of {total:,} · {excluded:,} filtered out"
+            )
+        else:
+            self.stats_label.setText(f"Showing {shown:,} of {total:,} channels")
 
-        # If this is a bypass load, show a sticky banner at the top so the user
-        # knows their normal filters are suspended for this result set.
+    def filter_channels(self, _unused: str = "") -> None:
+        """Update banner/status state after a channel load completes.
+
+        With the virtualized model, SQL-side filtering is the only filter and
+        the model itself renders visible rows.  This method now manages only the
+        bypass banner (shown above the list when Tier 1 filters are suspended)
+        and the status bar message.  The _unused parameter is kept for callers
+        that still pass a text argument (e.g., search-input signal connections).
+        """
+        from metatv.gui import icons as _icons
+
         if self._currently_bypassing:
-            from PyQt6.QtWidgets import QListWidgetItem as _LI
-            banner = _LI("⚠  Showing results from filtered categories — filters suspended. Change search or filters to restore.")
-            banner.setFlags(Qt.ItemFlag.NoItemFlags)
-            banner.setForeground(self.channels_list.palette().color(
-                self.channels_list.palette().ColorRole.Mid
-            ))
-            self.channels_list.addItem(banner)
+            self._show_channel_banner(
+                f"{_icons.watch_alerts_icon}  Showing results from filtered categories — "
+                "filters suspended. Change search or filters to restore."
+            )
+        else:
+            self._hide_channel_banners()
 
-        total = len(self.all_channels)
-        shown = min(total, self.max_display_limit)
-
-        for display_text, channel in self.all_channels[:shown]:
-            item = QListWidgetItem(display_text)
-            item.setData(Qt.ItemDataRole.UserRole, channel.id)
-            self.channels_list.addItem(item)
-
-        if shown < total:
-            notice = QListWidgetItem(
-                f"⚠  Showing first {shown:,} of {total:,} — refine search to see more"
-            )
-            notice.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.channels_list.addItem(notice)
-            self.status_bar.showMessage(
-                f"Showing {shown:,} of {total:,} channels — type to search"
-            )
-        elif total == self._search_page_size:
-            # We hit the SQL page cap — there may be more in the DB
-            notice = QListWidgetItem(
-                f"⚠  Showing {total:,} channels — use search to narrow results"
-            )
-            notice.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.channels_list.addItem(notice)
-            self.status_bar.showMessage(
-                f"{total:,} channels loaded (page cap reached — search to narrow)"
-            )
-        elif total == 0:
+        total = self.channel_model.rowCount()
+        logger.debug(f"filter_channels: model has {total} rows")
+        if total == 0:
             self.status_bar.showMessage("No channels match — try a different search or filter")
         else:
             self.status_bar.showMessage(f"{total:,} channels loaded")
 
-        logger.debug(f"filter_channels: rendered {shown} of {total} items")
-        self.channels_list.setUpdatesEnabled(True)
+    # ---- Banner helpers (main thread only) ------------------------------------
+
+    def _show_channel_banner(self, text: str) -> None:
+        """Show the info banner strip above the channel list."""
+        if not hasattr(self, '_channel_banner'):
+            return
+        self._channel_banner.setText(text)
+        self._channel_banner.setVisible(True)
+        if hasattr(self, '_channel_filter_btn'):
+            self._channel_filter_btn.setVisible(False)
+
+    def _show_channel_filter_button(self, filtered_out: int) -> None:
+        """Show the actionable 'N filtered — click to show' button in the banner area."""
+        if not hasattr(self, '_channel_filter_btn'):
+            return
+        label = (
+            f"{filtered_out:,} result{'s' if filtered_out != 1 else ''} filtered  —  click to show"
+        )
+        self._channel_filter_btn.setText(label)
+        self._channel_filter_btn.setVisible(True)
+        if hasattr(self, '_channel_banner'):
+            self._channel_banner.setVisible(False)
+
+    def _hide_channel_banners(self) -> None:
+        """Hide both the info banner and the filter button."""
+        if hasattr(self, '_channel_banner'):
+            self._channel_banner.setVisible(False)
+        if hasattr(self, '_channel_filter_btn'):
+            self._channel_filter_btn.setVisible(False)
 
     def get_enabled_media_types(self) -> list:
         """Get list of enabled media types from the filter panel."""
@@ -801,3 +824,126 @@ class _ChannelListMixin:
                                surface: str) -> None:
         """Legacy single-channel entry point — delegates to _show_channel_menu."""
         self._show_channel_menu([channel_id], surface, gx, gy)
+
+    # ---- QListView / ChannelListModel adapters --------------------------------
+
+    def _on_channel_double_clicked(self, index) -> None:
+        """Handle double-click on a QListView item (replaces itemDoubleClicked).
+
+        Derives the channel_id from the model index and delegates to
+        ``play_channel_by_id`` (which already handles series drill-in).  The
+        old ``play_channel(item)`` takes a ``QListWidgetItem``; since we now
+        use a ``QListView`` we extract the id here and call the by-id path.
+        """
+        from PyQt6.QtCore import Qt
+        channel_id = index.data(Qt.ItemDataRole.UserRole)
+        if not channel_id:
+            return
+        self.play_channel_by_id(channel_id)
+
+    def _on_channel_page_requested(self, query_params: dict, offset: int, page_size: int) -> None:
+        """Handle a ``page_requested`` signal from ChannelListModel (main thread).
+
+        Captures the model's current generation so the arriving page can be
+        compared and dropped if a newer set_channels() was called in the
+        meantime.  The actual DB read runs off-thread via ``_run_query``; the
+        result is delivered to ``_on_channel_page_loaded`` on the main thread.
+        """
+        generation = self.channel_model.generation
+        self._run_query(
+            lambda repos: self._query_channels_page(repos, query_params, offset, page_size),
+            lambda result: self._on_channel_page_loaded(result, generation),
+            # No token_ref: we want ALL page results (older pages are guarded by
+            # the generation int, not by a supersede token).
+        )
+
+    @staticmethod
+    def _query_channels_page(repos, query_params: dict, offset: int, page_size: int):
+        """Worker (off-thread): fetch one incremental page, return (dtos, has_more).
+
+        Mirrors ``_query_channels`` but is simpler — no count / adult / filtered-out
+        logic needed for subsequent pages (that info was already shown for page 1).
+        """
+        from metatv.core.repositories.dtos import ChannelListDTO
+
+        hidden_only = query_params.get('hidden_only', False)
+        force_adult_ids = query_params.get('force_adult_ids', [])
+        providers_to_exclude = repos.providers.get_hidden_provider_ids()
+
+        if hidden_only:
+            # get_hidden_channels does not support offset/limit — use get_all
+            # with hidden_only=True which routes through the same SQL filter.
+            rows = repos.channels.get_all(
+                provider_id=query_params.get('provider_id'),
+                hidden_only=True,
+                include_hidden=True,
+                search_query=query_params.get('search_query'),
+                excluded_provider_ids=providers_to_exclude or None,
+                adult_mode='all',
+                limit=page_size,
+                offset=offset,
+            )
+        else:
+            rows = repos.channels.get_all(
+                provider_id=query_params.get('provider_id'),
+                media_types=query_params.get('media_types'),
+                language_prefixes=query_params.get('language_prefixes'),
+                region_prefixes=query_params.get('region_prefixes'),
+                quality_prefixes=query_params.get('quality_prefixes'),
+                platform_prefixes=query_params.get('platform_prefixes'),
+                genre_filters=query_params.get('genre_filters'),
+                invert_prefix_filters=query_params.get('invert_prefix_filters', False),
+                include_untagged=query_params.get('include_untagged', True),
+                include_untagged_quality=query_params.get('include_untagged_quality', True),
+                adult_mode=query_params.get('adult_mode', 'hide'),
+                force_adult_provider_ids=force_adult_ids or None,
+                source_categories=query_params.get('source_categories'),
+                include_uncategorized_content_types=True,
+                hidden_only=False,
+                include_hidden=False,
+                search_query=query_params.get('search_query'),
+                strict_genre_filter=query_params.get('strict_genre_filter'),
+                person_filter=query_params.get('person_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
+                limit=page_size,
+                offset=offset,
+            )
+        # Raw SQL count BEFORE Python-side exclusion. has_more and the next OFFSET
+        # advance by this — never by the surviving count — so exclusions can't
+        # stall paging or cause the next page to overlap already-shown rows.
+        raw_count = len(rows)
+        has_more = raw_count >= page_size
+
+        # Apply global exclusions (same as _query_channels)
+        excluded_prefixes = query_params.get('excluded_prefixes', set())
+        excluded_user_cats = query_params.get('excluded_user_categories', set())
+        if excluded_prefixes:
+            rows = [
+                c for c in rows
+                if c.detected_prefix not in excluded_prefixes
+                and c.detected_region not in excluded_prefixes
+            ]
+        if excluded_user_cats and not hidden_only:
+            rows = [c for c in rows if c.user_category not in excluded_user_cats]
+
+        dtos = [ChannelListDTO.from_orm(c) for c in rows]
+        return dtos, has_more, raw_count
+
+    def _on_channel_page_loaded(self, result, generation: int) -> None:
+        """Main-thread: deliver a fetched page to the model.
+
+        ``result`` is the ``(dtos, has_more)`` tuple from ``_query_channels_page``.
+        The ``generation`` is compared inside ``channel_model.append_page`` and
+        dropped if it no longer matches the current model generation.
+        """
+        if result is None:
+            # Error already logged by _run_query; clear the fetching flag so a
+            # later scroll can retry.
+            self.channel_model.mark_fetch_failed()
+            return
+        dtos, has_more, raw_count = result
+        self.channel_model.append_page(
+            dtos, has_more=has_more, raw_count=raw_count, generation=generation
+        )
+        # Reflect the grown loaded count in the "Showing N of M" label.
+        self._refresh_channel_stats_label()

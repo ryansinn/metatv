@@ -399,20 +399,23 @@ class _FavoritesMixin:
         self._show_context_menu_for(channel_id, gp.x(), gp.y(), "favorites")
 
     def show_channel_context_menu(self, position):
-        item = self.channels_list.itemAt(position)
-        if not item or not item.data(Qt.ItemDataRole.UserRole):
+        # QListView uses indexAt() instead of itemAt()
+        index = self.channels_list.indexAt(position)
+        if not index.isValid():
+            return
+        channel_id = index.data(Qt.ItemDataRole.UserRole)
+        if not channel_id:
             return
 
         # Collect all selected channel IDs (multi-select aware)
         selected_ids = [
-            i.data(Qt.ItemDataRole.UserRole)
-            for i in self.channels_list.selectedItems()
-            if i.data(Qt.ItemDataRole.UserRole)
+            idx.data(Qt.ItemDataRole.UserRole)
+            for idx in self.channels_list.selectionModel().selectedIndexes()
+            if idx.data(Qt.ItemDataRole.UserRole)
         ]
         if not selected_ids:
-            selected_ids = [item.data(Qt.ItemDataRole.UserRole)]
+            selected_ids = [channel_id]
 
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
         gp = self.channels_list.mapToGlobal(position)
 
         if len(selected_ids) > 1:
@@ -619,14 +622,7 @@ class _FavoritesMixin:
         if not (hasattr(self, '_lightbox') and self._lightbox.isVisible()):
             self.update_details_pane_for_channel(channel)
 
-        # Update channel list display if visible
-        for i in range(self.channels_list.count()):
-            item = self.channels_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == channel_id:
-                current_text = item.text()
-                if channel.is_favorite:
-                    updated_text = current_text.replace(self.unfavorite_icon, self.favorite_icon)
-                else:
-                    updated_text = current_text.replace(self.favorite_icon, self.unfavorite_icon)
-                item.setText(updated_text)
-                break
+        # Update channel list model in-place — the model emits dataChanged so
+        # only that one row re-renders (no full reload needed).
+        if hasattr(self, 'channel_model'):
+            self.channel_model.update_favorite(channel_id, channel.is_favorite)
