@@ -258,6 +258,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Playback-health readout state: None = follow the most-recently-used window;
         # set to a provider_id key to pin the readout to a specific open player window.
         self._health_view_key: str | None = None
+        # provider_id → source glyph, warmed at play time so the readout can label
+        # which stream its data refers to without per-tick DB reads.
+        self._provider_icons: dict[str, str] = {}
         self.refreshing_providers = set()  # Track providers being refreshed
         
         # Navigation state for series browsing

@@ -416,6 +416,12 @@ class _StreamingMixin:
             self.load_favorites()
             self._refresh_queue_section()
 
+            # Warm the source-glyph cache so the health readout can label which
+            # stream its data refers to (one trivial PK read per new source).
+            pid = data.get("provider_id")
+            if pid and pid not in self._provider_icons:
+                self._provider_icons[pid] = self._lookup_provider_icon(pid)
+
             # Begin polling mpv for the live playback-health readout (main thread).
             self._start_playback_health()
 
@@ -434,6 +440,32 @@ class _StreamingMixin:
                 repos.channels.mark_played(channel_id)
         except Exception as e:
             logger.error(f"Error marking channel played: {e}")
+
+    def _lookup_provider_icon(self, provider_id: str) -> str:
+        """Return a source's display glyph (trivial PK read; cached by caller).
+
+        Args:
+            provider_id: The provider whose icon to fetch.
+
+        Returns:
+            The provider's configured icon, the default provider glyph as a
+            fallback, or "" on any error.
+        """
+        try:
+            with self.db.session_scope(commit=False) as session:
+                p = RepositoryFactory(session).providers.get_by_id(provider_id)
+                if p:
+                    return getattr(p, "icon", "") or self.config.provider_icon
+        except Exception as e:
+            logger.debug(f"provider-icon lookup failed for {provider_id}: {e}")
+        return ""
+
+    def _source_icon_for_key(self, key: str | None) -> str:
+        """Return the cached source glyph for the player window keyed by *key*."""
+        pid = self.player_manager.provider_for_key(key)
+        if not pid:
+            return ""
+        return self._provider_icons.get(pid, "")
 
     # ---- Live playback-health indicator -------------------------------------
     #
@@ -471,15 +503,17 @@ class _StreamingMixin:
     def _playback_health_tick(self) -> None:
         """Timer tick (main thread): kick off an off-thread mpv probe.
 
-        Stops polling if the player process is gone, and never lets probes pile
-        up if one is still in flight.
+        Stops polling only when *no* instance is alive, and never lets probes
+        pile up if one is still in flight.
 
-        Resolves which instance key to poll: the pinned ``_health_view_key`` if
-        it is still alive, otherwise the most-recently-used window (key=None,
-        which MPVPlayer resolves to ``_last_key``).
+        Liveness is decided from ``active_keys()`` (every live window), not from
+        ``is_running()`` (which checks only ``_last_key``): closing the most-
+        recent window must not blank the readout while other windows still play.
+        The probed key is always a *live* one (see ``_resolve_health_key``).
         """
-        if not self.player_manager.is_running():
-            # Process gone — hide the readout and stop polling (restarts on play).
+        keys = self.player_manager.active_keys()
+        if not keys:
+            # No live instance at all — hide and stop polling (restarts on play).
             self._playback_health_label.hide()
             self._playback_health_timer.stop()
             return
@@ -487,14 +521,32 @@ class _StreamingMixin:
         if getattr(self, "_health_query_inflight", False):
             return  # a probe is still running — don't pile up
 
-        # Determine which instance to poll.
-        keys = self.player_manager.active_keys()
-        view = getattr(self, "_health_view_key", None)
-        key = view if (view and view in keys) else None
+        key = self._resolve_health_key(keys)
         self._health_querying_key = key
 
         self._health_query_inflight = True
         self.executor.submit(self._bg_query_playback_health, key)
+
+    def _resolve_health_key(self, keys: list[str]) -> str:
+        """Pick which live player window the readout should display.
+
+        Honours a pinned view (click-to-cycle) while its window is still alive;
+        otherwise follows the most-recently-used window, falling back to the
+        first live key when that window has been closed. The returned key is
+        always currently alive, so closing one window never blanks the readout
+        for the windows still playing.
+
+        Args:
+            keys: The currently-live instance keys (non-empty).
+
+        Returns:
+            A key guaranteed to be present in *keys*.
+        """
+        view = getattr(self, "_health_view_key", None)
+        if view and view in keys:
+            return view
+        last = getattr(getattr(self.player_manager, "player", None), "_last_key", None)
+        return last if last in keys else keys[0]
 
     def _bg_query_playback_health(self, key: str | None = None) -> None:
         """Worker (executor — NO widget access): query mpv, marshal result back.
@@ -545,21 +597,27 @@ class _StreamingMixin:
             props.get("frame-drop-count"),
         )
 
-        # Multi-window position marker and cycling tooltip.
+        # Resolve which window this reading belongs to.
+        shown_key = key
+        if shown_key is None:
+            shown_key = getattr(
+                getattr(self.player_manager, "player", None), "_last_key", None
+            )
+
+        # Source glyph labels *which* stream the data refers to (shown whether one
+        # or many windows are open). The [i/n] marker (multi only) adds count +
+        # position; the glyph is what tells the two apart at a glance.
+        src_icon = self._source_icon_for_key(shown_key)
+        prefix = f"{src_icon} " if src_icon else ""
+
         keys = self.player_manager.active_keys()
         n = len(keys)
         if n > 1:
-            # Resolve which key is actually being shown.
-            shown_key = key
-            if shown_key is None:
-                shown_key = getattr(
-                    getattr(self.player_manager, "player", None), "_last_key", None
-                )
             try:
                 idx = keys.index(shown_key) + 1
             except (ValueError, TypeError):
                 idx = 1
-            text = f"[{idx}/{n}] {text}"
+            prefix = f"[{idx}/{n}] {prefix}"
             self._playback_health_label.setToolTip(
                 f"Click to cycle between {n} open players · buffer · download speed · dropped frames"
             )
@@ -568,7 +626,7 @@ class _StreamingMixin:
                 "Live playback health (buffer · download speed · dropped frames)"
             )
 
-        self._playback_health_label.setText(text)
+        self._playback_health_label.setText(prefix + text)
         self._playback_health_label.show()
 
     def _on_health_readout_clicked(self) -> None:

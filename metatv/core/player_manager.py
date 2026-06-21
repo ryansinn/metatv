@@ -21,6 +21,11 @@ class PlayerManager:
         self.config = config
         self.player: Optional[PlayerPlugin] = None
         self.running_instances: List[subprocess.Popen] = []  # Track all player processes
+        # Instance key → provider_id of the content last played into it. Lets the
+        # UI label each player window's health readout with its source (the key is
+        # the provider_id when split is on, but "__shared__" when off — this map
+        # resolves the shared window too).
+        self._key_provider: dict[str, str] = {}
         self._initialize_player()
 
     def _initialize_player(self):
@@ -128,6 +133,10 @@ class PlayerManager:
         key = self._resolve_instance_key(provider_id, force_split=force_new_window)
         result = self.player.play(url, title, instance_key=key)
 
+        # Remember which source is playing in this window (for the health readout).
+        if result and provider_id:
+            self._key_provider[key] = provider_id
+
         # Track the instance if it's a new process (multiple-instances mode)
         if result and self.config.player_mode == "multiple-instances":
             # For multiple instances, we'd need to track each process.
@@ -209,6 +218,20 @@ class PlayerManager:
         if not self.player:
             return []
         return self.player.active_keys()
+
+    def provider_for_key(self, key: str | None) -> str | None:
+        """Return the provider_id of the content last played into instance *key*.
+
+        Args:
+            key: Instance key (provider_id when split is on, ``"__shared__"``
+                when off). None returns None.
+
+        Returns:
+            The provider_id last played into that window, or None if unknown.
+        """
+        if key is None:
+            return None
+        return self._key_provider.get(key)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 

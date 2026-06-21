@@ -48,6 +48,7 @@ def _make_manager(split: bool = False) -> PlayerManager:
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
     mgr.running_instances = []
+    mgr._key_provider = {}
     mgr.player = None  # overridden per-test as needed
     return mgr
 
@@ -122,15 +123,20 @@ class _FakeExecutor:
 class _FakePlayerMgr:
     """Fake PlayerManager for main-window slot tests."""
 
-    def __init__(self, keys: list[str] | None = None, last_key: str | None = None):
+    def __init__(self, keys: list[str] | None = None, last_key: str | None = None,
+                 providers: dict | None = None):
         self._keys = keys if keys is not None else []
         self.player = SimpleNamespace(_last_key=last_key)
+        self._providers = providers or {}
 
     def active_keys(self) -> list[str]:
         return list(self._keys)
 
     def is_running(self, key=None) -> bool:
         return bool(self._keys)
+
+    def provider_for_key(self, key=None):
+        return self._providers.get(key) if key is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +433,7 @@ def _host_for_health(keys: list[str], last_key: str | None = None) -> MainWindow
     host._playback_health_timer = _FakeTimer()
     host._health_query_inflight = True
     host._health_idle_ticks = 0
+    host._provider_icons = {}
     host.player_manager = _FakePlayerMgr(keys=keys, last_key=last_key)
     return host
 
