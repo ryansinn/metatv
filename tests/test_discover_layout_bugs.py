@@ -273,3 +273,56 @@ class TestCollapseButtonIsRightmost:
             "collapse_btn must not be hidden when shelf is collapsed — "
             "it is the only always-visible header control in collapsed state"
         )
+
+
+# ---------------------------------------------------------------------------
+# Hover background must not stick when a collapsed strip is expanded
+# ---------------------------------------------------------------------------
+
+class TestHoverBackgroundClearedOnExpand:
+    """Regression: expanding a hovered collapsed strip left a gray hover bg stuck.
+
+    enterEvent applies a hover background only to collapsed rows; leaveEvent's
+    clear was guarded by _collapsed, which is already False by the time the mouse
+    leaves an expanded shelf — so the gray strip persisted on the now-expanded
+    shelf (visible on lazy-expanded shelves, absent on never-collapsed ones).
+    """
+
+    def test_expanding_hovered_collapsed_shelf_clears_hover_bg(self, qapp):
+        from metatv.core.config import Config
+        from metatv.gui.discover_shelf import _Shelf
+        from metatv.gui import theme as _theme
+
+        cfg = Config()
+        ic = _make_image_cache()
+        shelf = _Shelf("Test", "genre:Test", [], ic, cfg, collapsed=True)
+
+        # Simulate the collapsed-row hover background that enterEvent applies.
+        shelf.setStyleSheet(
+            f"QWidget {{ background: {_theme.OVERLAY_18}; border-radius: 4px; }}"
+        )
+        assert shelf.styleSheet() != ""
+
+        # Expand it (user clicks expand) while still hovered → bg must clear.
+        shelf.set_collapsed(False)
+        assert shelf.styleSheet() == "", (
+            "expanding a hovered collapsed strip must clear the hover background"
+        )
+
+    def test_leave_event_clears_bg_even_after_expand(self, qapp):
+        """leaveEvent clears the hover bg unconditionally (not guarded by _collapsed)."""
+        from PyQt6.QtCore import QEvent
+        from metatv.core.config import Config
+        from metatv.gui.discover_shelf import _Shelf
+        from metatv.gui import theme as _theme
+
+        cfg = Config()
+        ic = _make_image_cache()
+        shelf = _Shelf("T", "genre:T", [], ic, cfg, collapsed=True)
+        shelf.setStyleSheet(
+            f"QWidget {{ background: {_theme.OVERLAY_18}; border-radius: 4px; }}"
+        )
+        # State flips to expanded mid-hover, then the mouse leaves.
+        shelf._collapsed = False
+        shelf.leaveEvent(QEvent(QEvent.Type.Leave))
+        assert shelf.styleSheet() == ""

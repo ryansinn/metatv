@@ -198,6 +198,10 @@ class _Shelf(QWidget):
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
             self._title_lbl.setCursor(Qt.CursorShape.ArrowCursor)
+            # Clear any collapsed-row hover background left over from expanding
+            # while hovered — leaveEvent's clear is guarded by _collapsed, which
+            # is already False by the time the mouse leaves, so it would stick.
+            self.setStyleSheet("")
 
         if self._pinned:
             self._pin_btn.setText(self._config.pin_icon)
@@ -240,7 +244,9 @@ class _Shelf(QWidget):
         if self._collapsed:
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
-            self.setStyleSheet("")
+        # Always clear the hover background — never guard this on _collapsed, or
+        # a shelf expanded mid-hover keeps the gray strip (the reported bug).
+        self.setStyleSheet("")
         super().leaveEvent(event)
 
     def _on_pin_clicked(self) -> None:
