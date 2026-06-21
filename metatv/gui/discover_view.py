@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QScrollArea, QStackedWidget,
+    QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -96,12 +96,37 @@ class DiscoverView(QWidget):
         vl.setContentsMargins(0, 0, 0, 0)
         vl.setSpacing(0)
 
-        # Header bar (manage button)
+        # Header bar — zoom slider (left of stretch) + Manage button (right)
         header_bar = QWidget()
         header_bar.setFixedHeight(36)
         hbl = QHBoxLayout(header_bar)
         hbl.setContentsMargins(8, 4, 8, 4)
+        hbl.setSpacing(6)
+
+        # Zoom icon label
+        zoom_lbl = QLabel(_icons.zoom_icon)
+        zoom_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        zoom_lbl.setToolTip("Resize Discover cards")
+        hbl.addWidget(zoom_lbl)
+
+        # Zoom slider — integer range [60, 180], value = round(zoom * 100)
+        self._zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self._zoom_slider.setRange(60, 180)
+        self._zoom_slider.setFixedWidth(110)
+        self._zoom_slider.setToolTip("Resize Discover cards")
+        # Initialise from persisted config; block signals during restore.
+        self._zoom_slider.blockSignals(True)
+        self._zoom_slider.setValue(round(self._config.discover_zoom * 100))
+        self._zoom_slider.blockSignals(False)
+        # Debounce timer — fire 300 ms after the user stops dragging
+        self._zoom_timer = QTimer(self)
+        self._zoom_timer.setSingleShot(True)
+        self._zoom_timer.timeout.connect(self._apply_zoom)
+        self._zoom_slider.valueChanged.connect(self._on_zoom_slider_changed)
+        hbl.addWidget(self._zoom_slider)
+
         hbl.addStretch()
+
         manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         manage_btn.setFlat(True)
         manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -678,6 +703,45 @@ class DiscoverView(QWidget):
 
     def _on_browse_back(self) -> None:
         self._stack.setCurrentIndex(0)
+
+    # ---- Zoom slider --------------------------------------------------------
+
+    def _on_zoom_slider_changed(self, value: int) -> None:
+        """Restart the debounce timer on every slider tick — apply after 300 ms of silence."""
+        self._zoom_timer.start(300)
+
+    def _apply_zoom(self) -> None:
+        """Clamp, persist, and rebuild shelves at the new zoom level.
+
+        Rebuilds existing shelves' card rows from ``_shelf_data_cache`` without
+        re-querying the database — a pure size change should not reorder content.
+        Shelves whose cards haven't been fetched yet (header-only collapsed strips)
+        just get their scroll-area height updated when they're next expanded.
+        """
+        raw = self._zoom_slider.value() / 100.0
+        zoom = max(0.6, min(1.8, raw))
+        if abs(zoom - self._config.discover_zoom) < 0.005:
+            return  # no meaningful change
+
+        self._config.discover_zoom = zoom
+        self._config.save()
+        logger.debug(f"Discover zoom changed to {zoom:.2f}")
+
+        # Rebuild each loaded shelf's card row in-place at the new zoom, reusing
+        # the shelf's own set_cards(replace=True) — the single card-build path —
+        # so the build/wire/size logic is never duplicated here. Header-only /
+        # not-yet-fetched strips are skipped; they pick up the zoom on expand.
+        for shelf_key, shelf in list(self._shelf_widgets.items()):
+            cards = self._shelf_data_cache.get(shelf_key)
+            if cards is None:
+                continue
+            shelf.set_cards(
+                cards, image_cache=self._image_cache, config=self._config,
+                replace=True,
+            )
+
+        # Trigger image loading for visible cards in non-collapsed shelves.
+        QTimer.singleShot(120, self._trigger_image_load_all)
 
     # ---- Manage dialog ------------------------------------------------------
 

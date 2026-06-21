@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QContextMenuEvent, QPixmap
@@ -21,6 +21,37 @@ if TYPE_CHECKING:
 _CARD_W = 120
 _CARD_H = 220
 _POSTER_H = 175
+
+_ZOOM_MIN = 0.6
+_ZOOM_MAX = 1.8
+
+
+class CardMetrics(NamedTuple):
+    """Zoomed card dimensions derived from the base constants."""
+
+    card_w: int
+    card_h: int
+    poster_h: int
+
+
+def card_metrics(zoom: float) -> CardMetrics:
+    """Return card dimensions for the given zoom factor.
+
+    The zoom is clamped to [0.6, 1.8] before scaling.  All three values are
+    rounded to the nearest pixel so geometry stays crisp.
+
+    Args:
+        zoom: Zoom factor requested by the user (e.g. from ``config.discover_zoom``).
+
+    Returns:
+        A :class:`CardMetrics` with integer pixel dimensions.
+    """
+    z = max(_ZOOM_MIN, min(_ZOOM_MAX, zoom))
+    return CardMetrics(
+        card_w=round(_CARD_W * z),
+        card_h=round(_CARD_H * z),
+        poster_h=round(_POSTER_H * z),
+    )
 
 _PLACEHOLDER_COLORS = _theme.BACKDROP_TINTS
 
@@ -60,7 +91,12 @@ class _FlowLayout:
 
 
 class _ContentCard(QWidget):
-    """120 × 220 px poster card with shimmer, status overlay, and title."""
+    """Poster card with shimmer, status overlay, and title.
+
+    The card dimensions are derived from ``card_metrics(config.discover_zoom)``
+    so cards scale with the user's zoom preference.  Pass a ``Config`` instance
+    (already a constructor arg) and the zoom is read from there automatically.
+    """
 
     clicked              = pyqtSignal(str)          # channel_id
     doubleClicked        = pyqtSignal(str)
@@ -74,7 +110,12 @@ class _ContentCard(QWidget):
         self._config = config
         self._image_requested = False
 
-        self.setFixedSize(_CARD_W, _CARD_H)
+        # Derive all geometry from the zoom-aware metrics so card + shelf stay in sync.
+        m = card_metrics(config.discover_zoom)
+        cw, ch, ph = m.card_w, m.card_h, m.poster_h
+        z = max(_ZOOM_MIN, min(_ZOOM_MAX, config.discover_zoom))
+
+        self.setFixedSize(cw, ch)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         vl = QVBoxLayout(self)
@@ -83,7 +124,7 @@ class _ContentCard(QWidget):
 
         # Poster frame
         self._poster_frame = QFrame()
-        self._poster_frame.setFixedSize(_CARD_W, _POSTER_H)
+        self._poster_frame.setFixedSize(cw, ph)
         color = _PLACEHOLDER_COLORS[hash(card.channel_id) % len(_PLACEHOLDER_COLORS)]
         self._poster_frame.setStyleSheet(
             f"background: {color}; border-radius: 4px;"
@@ -91,9 +132,13 @@ class _ContentCard(QWidget):
 
         # Poster image label (fills the frame)
         self._poster_lbl = QLabel(self._poster_frame)
-        self._poster_lbl.setGeometry(0, 0, _CARD_W, _POSTER_H)
+        self._poster_lbl.setGeometry(0, 0, cw, ph)
         self._poster_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._poster_lbl.setStyleSheet("background: transparent; border-radius: 4px;")
+
+        # Remember the zoomed poster dimensions for image-loaded crop math.
+        self._zoomed_cw = cw
+        self._zoomed_ph = ph
 
         # Shimmer animation — created here but only STARTED in request_image()
         # so collapsed-shelf cards don't burn CPU with hundreds of idle animations.
@@ -109,34 +154,41 @@ class _ContentCard(QWidget):
         else:
             self._shimmer = None
 
-        # Placeholder media-type icon (centered)
+        # Placeholder media-type icon (centered) — font size scales with zoom.
         icon = config.movie_icon if card.media_type == "movie" else config.series_icon
         self._icon_lbl = QLabel(icon, self._poster_frame)
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._icon_lbl.setGeometry(0, _POSTER_H // 2 - 20, _CARD_W, 40)
-        self._icon_lbl.setStyleSheet(f"background: transparent; font-size: {_theme.FONT_ICON_LG};")
+        icon_h = round(40 * z)
+        self._icon_lbl.setGeometry(0, ph // 2 - icon_h // 2, cw, icon_h)
+        self._icon_lbl.setFont(_theme.zoomed_font(_theme.FONT_ICON_LG, z))
+        self._icon_lbl.setStyleSheet("background: transparent;")
 
-        # Rating badge (bottom-left overlay)
+        # Rating badge (bottom-left overlay) — magic numbers scaled by zoom.
         if card.rating:
             rating_lbl = QLabel(f"{config.rating_star_icon} {card.rating:.1f}", self._poster_frame)
-            rating_lbl.setGeometry(4, _POSTER_H - 22, 60, 18)
+            badge_y = ph - round(22 * z)
+            badge_h = round(18 * z)
+            badge_w = round(60 * z)
+            rating_lbl.setGeometry(round(4 * z), badge_y, badge_w, badge_h)
+            rating_lbl.setFont(_theme.zoomed_font(_theme.FONT_SM, z))
             rating_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD}; font-size: {_theme.FONT_SM}; "
-                "border-radius: 3px; padding: 1px 4px;"
+                f"background: {_theme.OVERLAY_BLACK_65}; color: {_theme.COLOR_GOLD};"
+                " border-radius: 3px; padding: 1px 4px;"
             )
 
-        # Category badge (bottom-right overlay) — provider's prefix label
+        # Category badge (bottom-right overlay) — provider's prefix label.
         if card.detected_prefix:
             cat_lbl = QLabel(card.detected_prefix, self._poster_frame)
             cat_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cat_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
             cat_lbl.setStyleSheet(
-                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT}; font-size: {_theme.FONT_XS}; "
-                "border-radius: 3px; padding: 1px 3px;"
+                f"background: {_theme.OVERLAY_BLACK_55}; color: {_theme.COLOR_ACCENT_BLUE_LIGHT};"
+                " border-radius: 3px; padding: 1px 3px;"
             )
             cat_lbl.adjustSize()
-            cat_lbl.move(_CARD_W - cat_lbl.width() - 4, _POSTER_H - 22)
+            cat_lbl.move(cw - cat_lbl.width() - round(4 * z), ph - round(22 * z))
 
-        # Status overlay (top-right corner)
+        # Status overlay (top-right corner) — badges scale with zoom.
         badges = []
         if card.is_liked:        badges.append(config.like_icon)
         if card.is_favorite:     badges.append(config.favorite_icon)
@@ -144,23 +196,26 @@ class _ContentCard(QWidget):
         if card.already_watched: badges.append(config.watched_icon)
         if badges:
             status_lbl = QLabel(" ".join(badges), self._poster_frame)
+            status_lbl.setFont(_theme.zoomed_font(_theme.FONT_XS, z))
             status_lbl.setStyleSheet(
                 f"background: {_theme.OVERLAY_BLACK_60}; border-radius: 3px;"
-                f" font-size: {_theme.FONT_XS}; padding: 1px 3px; color: white;"
+                " padding: 1px 3px; color: white;"
             )
             status_lbl.adjustSize()
-            status_lbl.move(_CARD_W - status_lbl.width() - 4, 4)
+            status_lbl.move(cw - status_lbl.width() - round(4 * z), round(4 * z))
             status_lbl.raise_()
 
         vl.addWidget(self._poster_frame)
 
-        # Title label (2 lines, word-wrapped)
+        # Title label (2 lines, word-wrapped) — width and font scale with zoom.
+        title_h = ch - ph - 4  # card_h − poster_h − spacing; ≈38px at 1.0×
         self._title_lbl = QLabel(card.title)
-        self._title_lbl.setFixedWidth(_CARD_W)
-        self._title_lbl.setFixedHeight(38)
+        self._title_lbl.setFixedWidth(cw)
+        self._title_lbl.setFixedHeight(max(24, title_h))
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT_2};")
+        self._title_lbl.setFont(_theme.zoomed_font(_theme.FONT_MD, z))
+        self._title_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT_2};")
         self._title_lbl.setToolTip(card.title)
         vl.addWidget(self._title_lbl)
 
@@ -193,14 +248,17 @@ class _ContentCard(QWidget):
         self._image_cache.image_loaded.disconnect(self._on_image_loaded)
         self._image_cache.image_failed.disconnect(self._on_image_failed)
         self._stop_shimmer()
+        # Crop to the zoomed card dimensions (stored at construction time so we
+        # don't re-derive from config here — the card is already the right size).
+        cw, ph = self._zoomed_cw, self._zoomed_ph
         scaled = pixmap.scaled(
-            _CARD_W, _POSTER_H,
+            cw, ph,
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation,
         )
-        x = (scaled.width() - _CARD_W) // 2
-        y = (scaled.height() - _POSTER_H) // 2
-        cropped = scaled.copy(x, y, _CARD_W, _POSTER_H)
+        x = (scaled.width() - cw) // 2
+        y = (scaled.height() - ph) // 2
+        cropped = scaled.copy(x, y, cw, ph)
         self._poster_lbl.setPixmap(cropped)
         self._icon_lbl.setVisible(False)
 
