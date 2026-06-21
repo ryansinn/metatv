@@ -84,6 +84,9 @@ preferences_icon: str = "🎯"
 queue_icon: str = "📋"
 events_icon: str = "📡"         # EPG Events tab (platform-event / scheduled feeds)
 
+# Discover zoom slider
+zoom_icon: str = "⊞"   # card-resize affordance in the Discover header bar
+
 # What's New
 whats_new_icon: str = "✦"   # U+2726 BLACK FOUR POINTED STAR — monochrome, menu + dialog header
 bullet_icon: str = "•"       # U+2022 BULLET — used in What's New item lists

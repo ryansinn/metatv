@@ -62,6 +62,7 @@ def _make_card(
     config.favorite_icon = "❤️"
     config.queue_icon = "🕒"
     config.watched_icon = "✓"
+    config.discover_zoom = 1.0  # required by card_metrics()
 
     card_data = ContentCard(
         channel_id="ch-001",

@@ -593,6 +593,7 @@ class Config(BaseModel):
     discover_shelf_order: list = Field(default_factory=list)  # manual order within expanded zone
     discover_more_expanded: bool = False   # "More Categories" accordion — collapsed by default
     discover_collapse_to_top: bool = True  # re-collapsed shelves jump to top of collapsed zone
+    discover_zoom: float = 1.0             # content card zoom factor (0.6–1.8); persisted
 
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
-from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W
+from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W, card_metrics
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -121,9 +121,12 @@ class _Shelf(QWidget):
         self._title_lbl.mousePressEvent = self._on_title_click
 
         # --- Horizontal scroll area ---
+        # Height is derived from the zoomed card height so the scroll row scales
+        # with the user's zoom preference — same source-of-truth as _size_card_row().
+        _m = card_metrics(config.discover_zoom)
         scroll = QScrollArea()
         scroll.setWidgetResizable(False)
-        scroll.setFixedHeight(_CARD_H + 16)
+        scroll.setFixedHeight(_m.card_h + 16)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -154,19 +157,22 @@ class _Shelf(QWidget):
             QTimer.singleShot(120, self._load_visible)
 
     def _size_card_row(self) -> None:
-        """Size the inner card row from the fixed card dimensions (timing-independent).
+        """Size the inner card row from the zoomed card dimensions (timing-independent).
 
         Uses deterministic math rather than ``sizeHint()`` so the result is
         correct whether called from the eager build path or from ``set_cards()``
-        after layout activation.  Both paths converge here, eliminating the
-        divergence that caused smooshed cards (D1).
+        after layout activation.  Both paths converge here and both read the
+        same ``card_metrics(config.discover_zoom)`` helper, eliminating both
+        the smoosh bug (D1) and any card/shelf divergence when zoom changes.
         """
         n = len(self._cards_widgets)
         m = self._inner_layout.contentsMargins()
         spacing = self._inner_layout.spacing()
-        width = m.left() + m.right() + n * _CARD_W + max(0, n - 1) * spacing
-        self._inner_widget.setFixedHeight(_CARD_H + 4)
-        self._inner_widget.resize(width, _CARD_H + 4)
+        metrics = card_metrics(self._config.discover_zoom)
+        width = m.left() + m.right() + n * metrics.card_w + max(0, n - 1) * spacing
+        inner_h = metrics.card_h + 4
+        self._inner_widget.setFixedHeight(inner_h)
+        self._inner_widget.resize(width, inner_h)
 
     def _apply_state(self) -> None:
         """Sync button icons and scroll-area visibility to current state."""
@@ -279,12 +285,15 @@ class _Shelf(QWidget):
             if left + card.width() >= scroll_x and left <= scroll_x + vp_w:
                 card.request_image()
 
-    def set_cards(self, cards: list, image_cache=None, config=None) -> None:
-        """Populate this shelf with *cards* after construction (lazy-expand path).
+    def set_cards(self, cards: list, image_cache=None, config=None,
+                  replace: bool = False) -> None:
+        """Populate this shelf with *cards* after construction.
 
-        Safe to call on a header-only stripped shelf that was created with an
-        empty card list.  The existing scroll-area inner widget is reused —
-        cards are appended before the trailing stretch.
+        The single card-build path used by both the lazy-expand flow (on a
+        header-only shelf created empty) and the zoom-rebuild flow (``replace``).
+        The existing scroll-area inner widget is reused — cards are added before
+        the trailing stretch, the row is re-sized via ``_size_card_row()``, and
+        the new widgets are wired to any connected slots.
 
         Args:
             cards:       The ``ContentCard`` list fetched by ``_ShelfCardsWorker``.
@@ -292,12 +301,22 @@ class _Shelf(QWidget):
                          stored at construction time is reused (pass it if you
                          have it, otherwise the shelf stores it).
             config:      The ``Config`` instance.  Same fallback.
+            replace:     When True, drop any existing card widgets first (used
+                         when re-rendering the same cards at a new zoom level).
         """
         if not hasattr(self, "_inner_layout") or self._inner_layout is None:
             return  # layout not yet built (should not happen in practice)
 
         _ic  = image_cache if image_cache is not None else self._image_cache
         _cfg = config      if config      is not None else self._config
+
+        if replace:
+            # Zoom rebuild: discard the current card widgets (the trailing
+            # stretch is removed below) before adding the re-sized ones.
+            for w in self._cards_widgets:
+                self._inner_layout.removeWidget(w)
+                w.deleteLater()
+            self._cards_widgets.clear()
 
         # Remove the trailing stretch so we can append cards before it.
         count = self._inner_layout.count()
@@ -327,6 +346,10 @@ class _Shelf(QWidget):
                 w.clicked.connect(on_clicked)
                 w.doubleClicked.connect(on_double_clicked)
                 w.contextMenuRequested.connect(on_context_menu)
+
+        # Keep the scroll-area height in sync with the (possibly re-zoomed) cards.
+        if self._scroll_area is not None:
+            self._scroll_area.setFixedHeight(card_metrics(_cfg.discover_zoom).card_h + 16)
 
         # Trigger image loading for the newly added cards if we're expanded.
         if not self._collapsed:

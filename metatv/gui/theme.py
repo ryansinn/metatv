@@ -20,6 +20,37 @@ Rules (also in CLAUDE.md; rationale in docs/UI_UX_GUIDELINES.md → "Theming & s
   site — that is fine; the literal still comes from a token.
 """
 
+from __future__ import annotations
+
+from PyQt6.QtGui import QFont
+
+
+def zoomed_font(token: str, zoom: float, *, bold: bool = False) -> QFont:
+    """Return a QFont whose pixel size is the token's px value scaled by *zoom*.
+
+    The token must be one of the ``FONT_*`` constants defined below (e.g.
+    ``FONT_MD = "11px"``).  This is the sanctioned way to scale fonts by the
+    Discover zoom level without violating the "no inline px literals" rule —
+    the token remains the base/source-of-truth; zoom is a user transform
+    applied via QFont (not a stray stylesheet literal).
+
+    Args:
+        token: A ``FONT_*`` constant string, e.g. ``FONT_MD``.
+        zoom:  Zoom multiplier (will be clamped to the card-zoom range 0.6–1.8
+               by the caller; no clamping here).
+        bold:  When True, the returned font is bold.
+
+    Returns:
+        A ``QFont`` with ``pixelSize`` set to ``max(6, round(px * zoom))``.
+    """
+    px = int(token.replace("px", ""))
+    f = QFont()
+    f.setPixelSize(max(6, round(px * zoom)))
+    if bold:
+        f.setBold(True)
+    return f
+
+
 # ── 1. Design tokens ────────────────────────────────────────────────────────────
 # Text colors, light → faint
 COLOR_TEXT_HI   = "#fff"        # emphasized / active text
