@@ -438,8 +438,16 @@ class _SeriesMixin:
             episode = data["data"]
             self.play_episode(episode)
 
-    def play_episode(self, episode):
-        """Play an episode and optionally queue subsequent episodes"""
+    def play_episode(self, episode, queue_season: bool | None = None):
+        """Play an episode and optionally queue subsequent episodes.
+
+        Args:
+            episode: The :class:`~metatv.core.repositories.dtos.EpisodeDTO` to play.
+            queue_season: Per-play override for season autoplay.
+                ``None`` (default) → respect ``config.autoplay_season_episodes``.
+                ``False`` → play this episode only, no queue regardless of config.
+                ``True`` → always queue subsequent episodes regardless of config.
+        """
         logger.info(f"Playing episode: {episode.title}")
 
         if not episode.stream_url:
@@ -447,6 +455,13 @@ class _SeriesMixin:
             return
 
         self.status_bar.showMessage(f"Playing: {episode.title}")
+
+        # Resolve the effective season-queue flag:
+        #   explicit True/False overrides config; None defers to config.
+        if queue_season is None:
+            _should_queue = self.config.autoplay_season_episodes
+        else:
+            _should_queue = queue_season
 
         # Record playback
         session = self.db.get_session()
@@ -471,7 +486,7 @@ class _SeriesMixin:
                 logger.warning(f"Could not find parent channel for episode. series_id={episode.series_id}, provider_id={episode.provider_id}")
 
             episodes_to_queue = []
-            if self.config.autoplay_season_episodes and episode.season_id:
+            if _should_queue and episode.season_id:
                 # Use DTOs — no ORM objects escape the session boundary
                 all_episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=episode.season_id)
                 episodes_to_queue = [
@@ -770,6 +785,15 @@ class _SeriesMixin:
             if len(selected_episode_items) == 1:
                 # Single selection — offer Play at the top.
                 menu.insertAction(mark_action, self._make_play_episode_action(menu, episode))
+                # "Play this episode only" appears below "Play Episode" when
+                # autoplay_season_episodes is on — it's the per-play opt-out of
+                # the autoqueue.  When autoplay is off, the primary action already
+                # plays a single episode so the extra action would be redundant.
+                if self.config.autoplay_season_episodes:
+                    menu.insertAction(
+                        mark_action,
+                        self._make_play_episode_only_action(menu, episode),
+                    )
                 menu.insertSeparator(mark_action)
             else:
                 # Multi-select: offer Play All Selected above the mark action.
@@ -830,6 +854,18 @@ class _SeriesMixin:
         play_action = QAction(f"{_icons.play_icon} Play Episode", parent_menu)
         play_action.triggered.connect(lambda: self.play_episode(episode))
         return play_action
+
+    def _make_play_episode_only_action(self, parent_menu, episode: "EpisodeDTO"):
+        """Create a 'Play this episode only' action — per-play autoqueue opt-out.
+
+        Calls :meth:`play_episode` with ``queue_season=False`` so the rest of the
+        season is NOT queued regardless of the ``autoplay_season_episodes`` setting.
+        """
+        from PyQt6.QtGui import QAction
+        action = QAction(f"{_icons.play_icon} Play This Episode Only", parent_menu)
+        action.setToolTip("Play just this episode without queuing the rest of the season")
+        action.triggered.connect(lambda: self.play_episode(episode, queue_season=False))
+        return action
 
     def _play_all_selected_episodes(
         self,
