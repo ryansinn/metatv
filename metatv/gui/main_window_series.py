@@ -305,7 +305,8 @@ class _SeriesMixin:
             if child_data and child_data.get("type") == "episode":
                 child_dtos.append(child_data["data"])
         season_data = season_item.data(0, Qt.ItemDataRole.UserRole)
-        season_name = season_data.get("name") if season_data else None
+        season_dto = season_data.get("data") if season_data else None
+        season_name = season_dto.name if season_dto is not None else None
         season_item.setText(0, self._season_label(season_name, child_dtos))
 
     def _find_episode_items(self) -> "list[tuple[QTreeWidgetItem, QTreeWidgetItem]]":
@@ -334,7 +335,9 @@ class _SeriesMixin:
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            seasons = repos.seasons.get_by_series(
+            # Use get_seasons_dto so no live ORM object crosses the session boundary —
+            # the returned SeasonDTOs are plain frozen dataclasses, safe post-session.
+            seasons = repos.seasons.get_seasons_dto(
                 series_id=self.current_series.source_id,
                 provider_id=self.current_series.provider_id
             )
@@ -344,7 +347,7 @@ class _SeriesMixin:
             # Non-contiguous season numbers (e.g. 1-4 then jumps to 10) are genuine
             # provider catalog gaps — verified via `inspect_series --live`, not a load
             # error. Surface a muted note so the jump isn't mysterious to the user.
-            _nums = sorted({s.season_number for s in seasons})
+            _nums = sorted({s.season_num for s in seasons})
             _missing = [n for n in range(_nums[0], _nums[-1] + 1) if n not in set(_nums)] if _nums else []
             if _missing:
                 gap_item = QTreeWidgetItem(self.series_tree)
@@ -369,16 +372,14 @@ class _SeriesMixin:
                 season_item.setText(0, self._season_label(season.name, episode_dtos))
                 season_item.setText(1, f"{season.episode_count} episodes")
 
-                # Extract rating from season raw_data if available.
-                if season.raw_data and isinstance(season.raw_data, dict):
-                    rating = season.raw_data.get("rating", "")
-                    if rating:
-                        season_item.setText(3, f"{self.rating_star_icon} {rating}")
+                # Pre-extracted rating lives directly on the DTO (no raw_data access needed).
+                if season.rating:
+                    season_item.setText(3, f"{self.rating_star_icon} {season.rating}")
 
-                # Store name alongside season DTO so in-place refresh can read it.
+                # Store the SeasonDTO directly — no live ORM object in UserRole data.
                 season_item.setData(
                     0, Qt.ItemDataRole.UserRole,
-                    {"type": "season", "data": season, "name": season.name}
+                    {"type": "season", "data": season}
                 )
 
                 logger.debug(f"Added season: {season.name} ({season.episode_count} episodes)")

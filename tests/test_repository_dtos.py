@@ -159,6 +159,7 @@ def test_season_dto_attributes_after_session_close(session):
     assert len(dtos) == 1
     dto = dtos[0]
     assert dto.name == "Season 1"
+    assert dto.season_num == 1        # must be populated from SeasonDB.season_number
     assert dto.episode_count == 5
     assert dto.rating is None
     assert isinstance(dto, SeasonDTO)
@@ -196,6 +197,48 @@ def test_season_dto_is_frozen(session):
     dtos = repo.get_seasons_dto(series_id="s1", provider_id="prov1")
     with pytest.raises(Exception):
         dtos[0].name = "changed"  # type: ignore[misc]
+
+
+def test_season_dto_season_num_matches_season_number(session):
+    """SeasonDTO.season_num must mirror SeasonDB.season_number (gap detection depends on it)."""
+    _make_season(session, series_id="gap_test", season_number=3, name="Season 3")
+    session.commit()
+
+    repo = SeasonRepository(session)
+    dtos = repo.get_seasons_dto(series_id="gap_test", provider_id="prov1")
+    session.close()
+
+    assert dtos[0].season_num == 3
+
+
+def test_season_node_userrole_holds_season_dto_not_orm(session):
+    """After populate_series_tree, each season node's UserRole data['data'] must be
+    a SeasonDTO — not a live ORM object.  This is the boundary regression the fix
+    protects: if a raw SeasonDB were stored instead, accessing its attributes after
+    the session closes raises DetachedInstanceError.
+    """
+    from metatv.core.repositories.dtos import SeasonDTO
+
+    # Build a season + one episode in the DB.
+    season = _make_season(session, series_id="s_orm_check", season_number=1,
+                          name="Season 1", episode_count=1)
+    _make_episode(session, season_id=season.id, series_id="s_orm_check",
+                  provider_id="prov1", episode_num=1, season_num=1,
+                  title="Ep 1", stream_url="http://x/ep1.ts")
+    session.commit()
+
+    repo = SeasonRepository(session)
+    dtos = repo.get_seasons_dto(series_id="s_orm_check", provider_id="prov1")
+    # Close the session — ORM objects would expire here.
+    session.close()
+
+    # The DTO must still be fully readable with no DetachedInstanceError.
+    assert len(dtos) == 1
+    dto = dtos[0]
+    assert isinstance(dto, SeasonDTO)
+    assert dto.name == "Season 1"
+    assert dto.season_num == 1
+    assert dto.episode_count == 1
 
 
 # ---------------------------------------------------------------------------

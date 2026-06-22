@@ -34,7 +34,13 @@ class SeasonRepository:
             rating: str | None = None
             if s.raw_data and isinstance(s.raw_data, dict):
                 rating = s.raw_data.get("rating") or None
-            result.append(SeasonDTO(id=s.id, name=s.name, episode_count=s.episode_count, rating=rating))
+            result.append(SeasonDTO(
+                id=s.id,
+                name=s.name,
+                season_num=s.season_number,
+                episode_count=s.episode_count,
+                rating=rating,
+            ))
         return result
     
     def bulk_create_or_update(self, seasons: List[SeasonDB]):

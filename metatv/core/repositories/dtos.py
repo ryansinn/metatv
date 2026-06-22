@@ -156,6 +156,7 @@ class SeasonDTO:
     """One season row in the series tree widget."""
     id: str
     name: str | None
+    season_num: int               # SeasonDB.season_number — used for gap detection in the tree
     episode_count: int
     rating: str | None           # pre-extracted from raw_data["rating"]
 
