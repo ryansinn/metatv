@@ -66,12 +66,15 @@ def _make_config(
         filter_regional_groups={"North America": ["US", "CA"]},
         filter_platform_groups={"Netflix": ["NF"]},
         filter_quality_groups={"HD": ["HD"], "SD": ["SD"]},
-        # Persisted selections — the values under test
-        filter_included_languages=filter_included_languages or [],
-        filter_included_regions=filter_included_regions or [],
-        filter_included_qualities=filter_included_qualities or [],
-        filter_included_platforms=filter_included_platforms or [],
-        filter_included_genres=filter_included_genres or [],
+        # Persisted selections — the values under test.
+        # None = never configured (leave at all-selected default).
+        # []   = explicitly none (uncheck all).
+        # [...] = restore those items.
+        filter_included_languages=filter_included_languages,
+        filter_included_regions=filter_included_regions,
+        filter_included_qualities=filter_included_qualities,
+        filter_included_platforms=filter_included_platforms,
+        filter_included_genres=filter_included_genres,
         filter_section_states={},
         filter_enabled_media_types=["live", "movie", "series"],
         filter_untagged_selected=(
@@ -249,15 +252,15 @@ def test_live_refresh_preserves_in_memory_quality(qapp):
 # ---------------------------------------------------------------------------
 
 def test_genre_fresh_install_selects_all(qapp):
-    """When no genre selection is persisted, update_data must select all genres."""
-    cfg = _make_config(filter_included_genres=[])  # nothing saved
+    """When no genre selection is persisted (None), update_data must select all genres."""
+    cfg = _make_config(filter_included_genres=None)  # never configured = None
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5, "Comedy": 3}))
 
     selected = set(panel._genre_sec.get_selected_keys())
     assert selected == {"Action", "Drama", "Comedy"}, (
-        "fresh install: all genres should be selected when nothing is persisted; "
+        "fresh install (None): all genres should be selected when nothing is persisted; "
         f"got {selected!r}"
     )
 

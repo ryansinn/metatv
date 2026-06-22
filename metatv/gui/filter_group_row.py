@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -54,6 +55,7 @@ class _TriCheckbox(QCheckBox):
 class _ItemRow(QWidget):
     toggled = pyqtSignal(str, bool)
     right_clicked = pyqtSignal(str, QPoint)   # key, global position
+    only_clicked = pyqtSignal(str)            # key — user wants panel-wide "Only this"
 
     def __init__(self, key: str, label: str, count: int,
                  indent: int = 0, parent=None):
@@ -81,6 +83,14 @@ class _ItemRow(QWidget):
             cnt.setStyleSheet(_theme.ITEM_COUNT)
             cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(cnt)
+
+        # "Only" link-button — shows only this item across all facet sections
+        self._only_btn = QPushButton(_icons.filter_only_icon)
+        self._only_btn.setFixedSize(16, 16)
+        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        self._only_btn.setToolTip("Show only this group")
+        self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._key))
+        layout.addWidget(self._only_btn)
 
         self._cb.stateChanged.connect(
             lambda state: self.toggled.emit(self._key,
@@ -115,12 +125,14 @@ class _ItemRow(QWidget):
 class _GroupRow(QWidget):
     changed = pyqtSignal()
     child_right_clicked = pyqtSignal(str, QPoint)   # item key, global position
+    only_clicked = pyqtSignal(str)                  # group_name — panel-wide "Only this group"
 
     def __init__(self, group_name: str, total_count: int,
                  child_items: list[tuple[str, str, int]],
                  indent: int = 0, *, config, parent=None):
         super().__init__(parent)
         self._config = config
+        self._group_name = group_name
         self._children: list[_ItemRow] = []
         self._expanded = False
 
@@ -157,6 +169,14 @@ class _GroupRow(QWidget):
             cnt.setStyleSheet(_theme.ITEM_COUNT)
             cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             hl.addWidget(cnt)
+
+        # "Only" link-button — shows only this group's channels across all facet sections
+        only_btn = QPushButton(_icons.filter_only_icon)
+        only_btn.setFixedSize(16, 16)
+        only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        only_btn.setToolTip("Show only this group")
+        only_btn.clicked.connect(lambda: self.only_clicked.emit(self._group_name))
+        hl.addWidget(only_btn)
 
         outer.addWidget(header)
 
@@ -229,8 +249,9 @@ class _GroupRow(QWidget):
 
 class _Section(QWidget):
     changed = pyqtSignal()
-    collapse_toggled = pyqtSignal()          # collapse/expand only — does NOT mean filter changed
-    item_right_clicked = pyqtSignal(str, str, QPoint)  # item_key, section_key, global_pos
+    collapse_toggled = pyqtSignal()                     # collapse/expand only — does NOT mean filter changed
+    item_right_clicked = pyqtSignal(str, str, QPoint)   # item_key, section_key, global_pos
+    item_only_requested = pyqtSignal(str, str)          # item_key, section_key — "Only" button/action
 
     def __init__(self, section_key: str, title: str,
                  and_axis: bool = False,
@@ -357,6 +378,9 @@ class _Section(QWidget):
             row.right_clicked.connect(
                 lambda k, pos, sk=self._key: self.item_right_clicked.emit(k, sk, pos)
             )
+            row.only_clicked.connect(
+                lambda k, sk=self._key: self.item_only_requested.emit(k, sk)
+            )
             self._content_layout.addWidget(row)
             self._rows.append(row)
         self._update_ui()
@@ -369,6 +393,9 @@ class _Section(QWidget):
             g.changed.connect(self._on_group_changed)
             g.child_right_clicked.connect(
                 lambda k, pos, sk=self._key: self.item_right_clicked.emit(k, sk, pos)
+            )
+            g.only_clicked.connect(
+                lambda k, sk=self._key: self.item_only_requested.emit(k, sk)
             )
             self._content_layout.addWidget(g)
             self._groups.append(g)
@@ -429,6 +456,34 @@ class _Section(QWidget):
             g._update_tri()
         self._update_ui()
         self.changed.emit()
+
+    def select_only_group(self, key: str) -> None:
+        """Select all children of the group named *key*; uncheck everything else.
+
+        Used by the panel-level "Only" action for grouped (hierarchical) sections
+        like Region. For flat sections, ``key`` matches an item directly and this
+        behaves identically to ``check_only(key)``.
+
+        Does NOT emit ``changed`` — the panel emits ``filter_changed`` once after
+        calling this across all sections.
+        """
+        group_names = {g._group_name for g in self._groups}
+        if key in group_names:
+            # Key is a group header: check all its children, uncheck all others
+            for g in self._groups:
+                is_target = (g._group_name == key)
+                for child in g._children:
+                    child.set_checked(is_target)
+                g._update_tri()
+        else:
+            # Key is a flat item (or a child code inside a group)
+            for r in self._rows:
+                r.set_checked(r.key() == key)
+            for g in self._groups:
+                for child in g._children:
+                    child.set_checked(child.key() == key)
+                g._update_tri()
+        self._update_ui()
 
     # ── private ────────────────────────────────────────────────────────────
 
