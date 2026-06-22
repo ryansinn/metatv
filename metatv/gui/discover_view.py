@@ -550,8 +550,56 @@ class DiscoverView(QWidget):
 
     # ---- Load lifecycle -----------------------------------------------------
 
+    def _normalize_shelf_config(self) -> None:
+        """Canonicalize HTML-entity-encoded genre shelf keys in the persisted config.
+
+        Before bug A was fixed, provider genre strings like "Action &amp; Adventure"
+        were stored as-is, creating shelf keys like "genre:Action &amp; Adventure".
+        After the fix, get_all_genres() returns canonical "Action & Adventure" which
+        produces "genre:Action & Adventure" — a different key.  The two variants
+        would both appear in the zone lists, causing the same shelf to show twice.
+
+        This method runs once before the first load and sanitizes all four
+        discover_*_shelves lists by:
+          1. Unescaping HTML entities in any "genre:*" key.
+          2. De-duplicating while preserving original order (first occurrence wins
+             so the user's pinned/expanded/collapsed/order state is kept).
+
+        The config is saved only if any list changed.
+        """
+        import html as _html
+
+        def _clean(key: str) -> str:
+            if key.startswith("genre:"):
+                return "genre:" + _html.unescape(key[6:])
+            return key
+
+        def _dedup_ordered(lst: list) -> list:
+            seen: set = set()
+            out: list = []
+            for item in lst:
+                if item not in seen:
+                    seen.add(item)
+                    out.append(item)
+            return out
+
+        cfg = self._config
+        changed = False
+        for attr in ("discover_pinned_shelves", "discover_expanded_shelves",
+                     "discover_collapsed_shelves", "discover_hidden_shelves",
+                     "discover_shelf_order"):
+            raw: list = list(getattr(cfg, attr, []))
+            normalized = _dedup_ordered([_clean(k) for k in raw])
+            if normalized != raw:
+                setattr(cfg, attr, normalized)
+                changed = True
+        if changed:
+            logger.debug("DiscoverView: migrated HTML-entity genre keys in shelf config")
+            cfg.save()
+
     def on_activate(self) -> None:
         if not self._loaded:
+            self._normalize_shelf_config()
             self.refresh()
 
     def on_deactivate(self) -> None:
