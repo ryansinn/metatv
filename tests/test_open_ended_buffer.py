@@ -4,14 +4,20 @@ Covers:
 1. _compose_open_ended_buffer_args produces the correct disk-backed cache args
    (cache-on-disk, 3600s readahead, 2GiB max-bytes) and NOT bounded profile args.
 2. open_ended_buffer=False uses the normal _compose_extra_args path (unchanged).
-3. open_ended_buffer=True always launches a standalone process (not IPC loadfile),
-   even in single-instance mode.
-4. start_seconds + open_ended_buffer compose correctly (--start= flag appended).
-5. mpv_args_override_all=True is honoured by _compose_open_ended_buffer_args.
-6. user mpv_extra_args are appended last in open-ended mode.
-7. RECONNECT_FLAG and canonical UA are present in open-ended mode.
-8. The context-menu action is registered in ACTIONS and listed in the correct surfaces.
-9. The action handler calls play_media with open_ended_buffer=True.
+3. open_ended_buffer=True in single-instance mode relaunches the SAME instance key
+   in-place (_relaunch_instance) and sends loadfile over IPC — NOT a new standalone
+   process.  This ensures the playback-health readout (keyed by instance key) works.
+4. open_ended_buffer=True in multiple-instances mode still uses a standalone process
+   (_launch_new_instance), since there is no IPC/keying in that mode.
+5. open_ended_buffer=True resolves the SAME instance key as a normal play would
+   (shared when split off, provider_id when split on) — never a throwaway key.
+6. start_seconds + open_ended_buffer compose correctly (start= per-file option in
+   loadfile, --start= flag when falling back to standalone process).
+7. mpv_args_override_all=True is honoured by _compose_open_ended_buffer_args.
+8. user mpv_extra_args are appended last in open-ended mode.
+9. RECONNECT_FLAG and canonical UA are present in open-ended mode.
+10. The context-menu action is registered in ACTIONS and listed in the correct surfaces.
+11. The action handler calls play_media with open_ended_buffer=True.
 """
 
 from __future__ import annotations
@@ -138,29 +144,163 @@ def test_normal_path_uses_profile_not_open_ended():
 
 
 # ---------------------------------------------------------------------------
-# MPVPlayer.play dispatch — open_ended_buffer=True always launches new process
+# MPVPlayer.play dispatch — open_ended_buffer=True relaunch in single-instance mode
 # ---------------------------------------------------------------------------
 
-def test_play_open_ended_buffer_calls_launch_new_instance():
-    """open_ended_buffer=True must call _launch_new_instance even in single-instance mode."""
+def test_play_open_ended_buffer_single_instance_calls_relaunch():
+    """open_ended_buffer=True in single-instance mode calls _relaunch_instance, not _launch_new_instance."""
     p = _player()
-    with patch.object(p, "_launch_new_instance", return_value=True) as mock_launch, \
-         patch.object(p, "_ensure_instance_running", return_value=True) as mock_ensure, \
+    with patch.object(p, "_relaunch_instance", return_value=True) as mock_relaunch, \
+         patch.object(p, "_launch_new_instance", return_value=True) as mock_launch, \
          patch.object(p, "_send_ipc_command", return_value=True):
         result = p.play("http://example.com/stream", "Test", open_ended_buffer=True)
 
     assert result is True
-    mock_launch.assert_called_once()
-    # The IPC path (_ensure_instance_running) must NOT have been called for open-ended.
-    mock_ensure.assert_not_called()
+    mock_relaunch.assert_called_once()
+    # _launch_new_instance must NOT be called when the relaunch succeeds.
+    mock_launch.assert_not_called()
 
 
-def test_play_open_ended_buffer_passes_flag_to_launch():
-    """open_ended_buffer=True is forwarded to _launch_new_instance."""
+def test_play_open_ended_buffer_relaunch_uses_same_key_shared():
+    """open_ended_buffer=True resolves the SAME key as a normal play (shared when split off)."""
     p = _player()
-    with patch.object(p, "_launch_new_instance", return_value=True) as mock_launch:
-        p.play("http://example.com/stream", "Test", open_ended_buffer=True)
+    relaunch_key: str | None = None
 
+    def capture_relaunch(key, extra_args):
+        nonlocal relaunch_key
+        relaunch_key = key
+        return True
+
+    with patch.object(p, "_relaunch_instance", side_effect=capture_relaunch), \
+         patch.object(p, "_send_ipc_command", return_value=True):
+        # No instance_key override → defaults to _SHARED_KEY
+        p.play("http://x/s", "Test", instance_key="__shared__", open_ended_buffer=True)
+
+    assert relaunch_key == "__shared__", (
+        "open_ended_buffer relaunch must target the SAME key as a normal play — got "
+        f"{relaunch_key!r}, expected '__shared__'"
+    )
+
+
+def test_play_open_ended_buffer_relaunch_uses_same_key_provider():
+    """open_ended_buffer=True passes the provider_id key when split is on."""
+    p = _player()
+    relaunch_key: str | None = None
+
+    def capture_relaunch(key, extra_args):
+        nonlocal relaunch_key
+        relaunch_key = key
+        return True
+
+    with patch.object(p, "_relaunch_instance", side_effect=capture_relaunch), \
+         patch.object(p, "_send_ipc_command", return_value=True):
+        p.play("http://x/s", "Test", instance_key="provider-abc", open_ended_buffer=True)
+
+    assert relaunch_key == "provider-abc", (
+        "open_ended_buffer relaunch must use the resolved provider key — got "
+        f"{relaunch_key!r}"
+    )
+
+
+def test_play_open_ended_buffer_relaunch_passes_open_ended_args():
+    """_relaunch_instance receives the open-ended buffer args, not the normal profile."""
+    p = _player(buffer_profile="modest")
+    relaunch_args: list[str] | None = None
+
+    def capture_relaunch(key, extra_args):
+        nonlocal relaunch_args
+        relaunch_args = extra_args
+        return True
+
+    with patch.object(p, "_relaunch_instance", side_effect=capture_relaunch), \
+         patch.object(p, "_send_ipc_command", return_value=True):
+        p.play("http://x/s", "Test", open_ended_buffer=True)
+
+    assert relaunch_args is not None
+    assert "--cache-on-disk=yes" in relaunch_args
+    assert "--demuxer-max-bytes=2GiB" in relaunch_args
+    assert "--demuxer-readahead-secs=3600" in relaunch_args
+    # Must NOT carry the bounded profile --cache-secs flag
+    assert not any(a.startswith("--cache-secs") for a in relaunch_args)
+
+
+def test_play_open_ended_buffer_sends_loadfile_over_ipc():
+    """After relaunch, play sends loadfile over IPC to the SAME instance key."""
+    p = _player()
+    ipc_commands: list[tuple[dict, str]] = []
+
+    def capture_ipc(command, key):
+        ipc_commands.append((command, key))
+        return True
+
+    with patch.object(p, "_relaunch_instance", return_value=True), \
+         patch.object(p, "_send_ipc_command", side_effect=capture_ipc):
+        p.play("http://example.com/stream", "Test", instance_key="__shared__",
+               open_ended_buffer=True)
+
+    # First IPC command must be loadfile
+    assert ipc_commands, "No IPC commands were sent"
+    first_cmd, first_key = ipc_commands[0]
+    assert first_cmd["command"][0] == "loadfile"
+    assert first_cmd["command"][1] == "http://example.com/stream"
+    assert first_key == "__shared__"
+
+
+def test_play_open_ended_buffer_loadfile_includes_start_seconds():
+    """loadfile for open-ended buffer + start_seconds > 0 includes start= per-file option."""
+    p = _player()
+    ipc_commands: list[tuple[dict, str]] = []
+
+    def capture_ipc(command, key):
+        ipc_commands.append((command, key))
+        return True
+
+    with patch.object(p, "_relaunch_instance", return_value=True), \
+         patch.object(p, "_send_ipc_command", side_effect=capture_ipc):
+        p.play("http://x/s", "Test", start_seconds=120, open_ended_buffer=True)
+
+    assert ipc_commands
+    first_cmd, _ = ipc_commands[0]
+    assert first_cmd["command"][0] == "loadfile"
+    # Per-file options string includes start=120
+    opts = first_cmd["command"][-1] if len(first_cmd["command"]) > 3 else ""
+    assert "start=120" in str(opts)
+
+
+def test_play_open_ended_buffer_sets_last_key():
+    """After a successful open-ended buffer play, _last_key is set to the resolved key."""
+    p = _player()
+
+    with patch.object(p, "_relaunch_instance", return_value=True), \
+         patch.object(p, "_send_ipc_command", return_value=True):
+        p.play("http://x/s", "Test", instance_key="__shared__", open_ended_buffer=True)
+
+    assert p._last_key == "__shared__"
+
+
+def test_play_open_ended_buffer_multiple_instances_mode_uses_launch_new():
+    """open_ended_buffer=True in multiple-instances mode falls through to _launch_new_instance."""
+    cfg = _FakeConfig(player_mode="multiple-instances")
+    p = MPVPlayer(cfg)
+    with patch.object(p, "_launch_new_instance", return_value=True) as mock_launch, \
+         patch.object(p, "_relaunch_instance", return_value=True) as mock_relaunch:
+        result = p.play("http://x/s", "Test", open_ended_buffer=True)
+
+    assert result is True
+    mock_launch.assert_called_once()
+    # _relaunch_instance must NOT be called in multiple-instances mode.
+    mock_relaunch.assert_not_called()
+
+
+def test_play_open_ended_buffer_relaunch_failure_falls_back_to_standalone():
+    """If _relaunch_instance fails, open-ended buffer falls back to a standalone process."""
+    p = _player()
+    with patch.object(p, "_relaunch_instance", return_value=False), \
+         patch.object(p, "_launch_new_instance", return_value=True) as mock_launch:
+        result = p.play("http://x/s", "Test", open_ended_buffer=True)
+
+    assert result is True
+    mock_launch.assert_called_once()
     call_kwargs = mock_launch.call_args.kwargs
     assert call_kwargs.get("open_ended_buffer") is True
 
@@ -178,6 +318,7 @@ def test_play_normal_does_not_call_launch_new_instance_when_ipc_ok():
 
 # ---------------------------------------------------------------------------
 # start_seconds + open_ended_buffer compose correctly in _launch_new_instance
+# (fallback path — standalone process for multiple-instances mode or relaunch failure)
 # ---------------------------------------------------------------------------
 
 def test_launch_new_instance_open_ended_uses_open_ended_args():
