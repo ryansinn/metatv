@@ -276,7 +276,11 @@ class ChannelListModel(QAbstractListModel):
         """Compose the visible row text for *channel*.
 
         Preserves the exact format from the old ``_on_channels_loaded`` loop:
-        ``{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
+        ``{src_badge}{media_icon}{fav_icon}{watch_badge} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
+
+        Watch badges (VOD only — never shown for live channels):
+        - ``✓`` when ``watch_completed`` is True.
+        - No partial-progress badge in the list (the progress bar lives in the details pane).
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -290,6 +294,11 @@ class ChannelListModel(QAbstractListModel):
         if self._show_provider_icon and channel.provider_id in self._provider_icon_map:
             src_badge = self._provider_icon_map[channel.provider_id] + " "
 
+        # Watch-completion badge: ✓ for completed VOD; empty for live or unwatched.
+        watch_badge = ""
+        if channel.media_type != "live" and channel.watch_completed:
+            watch_badge = _icons.watched_icon
+
         prefix_str = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
         lang_str = f"[{channel.detected_region}] " if channel.detected_region else ""
         prefix_group = prefix_str + lang_str
@@ -298,7 +307,7 @@ class ChannelListModel(QAbstractListModel):
         year_str = f" · {channel.detected_year}" if channel.detected_year else ""
         bare = channel.detected_title or channel.name
         display_text = (
-            f"{src_badge}{media_icon}{fav_icon} "
+            f"{src_badge}{media_icon}{fav_icon}{watch_badge} "
             f"{prefix_group}{dot_sep}{bare}{quality_str}{year_str}"
         )
         if channel.category:

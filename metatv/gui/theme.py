@@ -308,6 +308,9 @@ INFO_LABEL       = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + "; padd
 
 # Provider editor
 META_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+# Watch-completion status lines in the details pane
+WATCH_STATUS_DONE     = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
+WATCH_STATUS_PROGRESS = "color: " + COLOR_ACCENT_ORANGE + "; font-size: " + FONT_MD + ";"
 STATUS_OK   = "color: " + COLOR_OK + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_WARN = "color: " + COLOR_WARN + "; font-size: " + FONT_LG + "; font-weight: 600;"
 STATUS_ERR  = "color: " + COLOR_ERR + "; font-size: " + FONT_LG + "; font-weight: 600;"

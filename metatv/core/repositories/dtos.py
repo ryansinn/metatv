@@ -92,6 +92,9 @@ class ChannelListDTO:
     detected_quality: str | None
     detected_year: str | None
     detected_title: str | None
+    # Watch-completion fields (VOD only; both default False/0 for live channels)
+    watch_completed: bool = False   # sticky "finished" flag — shown as ✓ in list
+    watch_progress: int = 0         # resume position in seconds (0 when completed or unwatched)
 
     @classmethod
     def from_orm(cls, ch) -> "ChannelListDTO":
@@ -109,6 +112,8 @@ class ChannelListDTO:
             detected_quality=ch.detected_quality,
             detected_year=ch.detected_year,
             detected_title=ch.detected_title,
+            watch_completed=bool(getattr(ch, "watch_completed", False)),
+            watch_progress=int(getattr(ch, "watch_progress", 0) or 0),
         )
 
 

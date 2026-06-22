@@ -306,6 +306,7 @@ class _FakeDlgConfig:
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
+        self.watch_complete_threshold = 0.9
         self.close_player_when_finished = False
         self.network_timeout = 10
         self.reconnect_attempts = 3
@@ -350,6 +351,12 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()
+
+    # Watch-completion threshold (Slice 2)
+    dlg._watch_threshold_spin = QSpinBox()
+    dlg._watch_threshold_spin.setRange(50, 100)
+    dlg._watch_threshold_spin.setSuffix("%")
+
     dlg._close_player_check = QCheckBox()
 
     dlg._buffer_combo = QComboBox()

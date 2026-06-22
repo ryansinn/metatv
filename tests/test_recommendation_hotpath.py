@@ -41,6 +41,8 @@ def _make_channel(session, name: str, media_type: str = "movie",
                   is_favorite: bool = False,
                   is_hidden: bool = False,
                   last_played: datetime | None = None,
+                  watch_completed: bool = False,
+                  watch_progress: int = 0,
                   provider_id: str = "p1") -> ChannelDB:
     ch = ChannelDB(
         id=str(uuid.uuid4()),
@@ -53,6 +55,8 @@ def _make_channel(session, name: str, media_type: str = "movie",
         is_favorite=is_favorite,
         is_hidden=is_hidden,
         last_played=last_played,
+        watch_completed=watch_completed,
+        watch_progress=watch_progress,
     )
     session.add(ch)
     session.flush()
@@ -547,19 +551,32 @@ class TestBuildStatusSetsEquivalence:
         db.close()
 
     def test_watched_ids_correct(self, tmp_path):
+        """watched_ids contains channels where watch_completed=True (Slice 2).
+
+        Note: The previous implementation used last_played.isnot(None) — i.e. any
+        channel that was ever *started*.  Slice 2 tightens this to watch_completed
+        so the Discover ✓ badge and channel-list ✓ marker only appear on titles the
+        user actually *finished*, not merely launched.  Channels with only
+        last_played set (no watch_completed) must NOT be in watched_ids.
+        """
         from metatv.core.discovery_engine import build_status_sets
 
         db = _make_db(tmp_path / "watched_ids.db")
         Session = sessionmaker(bind=db.engine)
         session = Session()
 
-        ch_watched = _make_channel(session, "Watched Channel",
-                                    last_played=datetime(2024, 6, 1))
+        ch_completed = _make_channel(session, "Completed Channel",
+                                     last_played=datetime(2024, 6, 1),
+                                     watch_completed=True)
+        ch_started = _make_channel(session, "Started Channel",
+                                   last_played=datetime(2024, 6, 1),
+                                   watch_completed=False)
         ch_fresh = _make_channel(session, "Fresh Channel")
         session.commit()
 
         result = build_status_sets(session)
-        assert ch_watched.id in result.watched_ids
+        assert ch_completed.id in result.watched_ids       # finished → ✓ badge
+        assert ch_started.id not in result.watched_ids    # started but not finished → no badge
         assert ch_fresh.id not in result.watched_ids
 
         session.close()
@@ -575,7 +592,9 @@ class TestBuildStatusSetsEquivalence:
         session = Session()
 
         ch_fav = _make_channel(session, "Fav", is_favorite=True)
-        ch_watched = _make_channel(session, "Watched", last_played=datetime(2024, 1, 1))
+        ch_watched = _make_channel(session, "Watched",
+                                   last_played=datetime(2024, 1, 1),
+                                   watch_completed=True)
         ch_queued = _make_channel(session, "Queued")
         ch_liked = _make_channel(session, "Liked")
         ch_plain = _make_channel(session, "Plain")
