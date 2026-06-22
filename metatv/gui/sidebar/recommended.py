@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from loguru import logger
 
@@ -29,15 +29,8 @@ class RecommendedSection(CollapsibleSection):
         return "recommended"
 
     def create_header(self):
-        header = QWidget()
-        header.setStyleSheet(_theme.HEADER_TINT)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(5, 3, 5, 3)
-
-        self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(20, 20)
-        self.toggle_btn.clicked.connect(self.toggle_collapse)
-        hl.addWidget(self.toggle_btn)
+        header = self._build_clickable_header()
+        hl = header.layout()
 
         self.title_label = QLabel(f"{self.config.preferences_icon} <b>Recommended</b>")
         hl.addWidget(self.title_label)
