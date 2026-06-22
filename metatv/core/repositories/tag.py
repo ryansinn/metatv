@@ -230,6 +230,58 @@ class TagRepository:
         return deleted
 
     # ------------------------------------------------------------------
+    # Faceted stats
+    # ------------------------------------------------------------------
+
+    def get_facet_value_counts(
+        self,
+        excluded_provider_ids: Optional[List[str]] = None,
+    ) -> dict[str, dict[str, int]]:
+        """Return per-facet value counts for the filter panel.
+
+        Executes a single SQL GROUP BY over ``content_tags JOIN tags JOIN channels``
+        scoped to visible (is_hidden=False), non-category-header channels on active
+        sources. No Python-side materialisation — safe over 1M+ rows.
+
+        Args:
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
+                sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
+
+        Returns:
+            Nested dict ``{facet_type: {value: channel_count}}`` where
+            ``channel_count`` is the number of **distinct channels** carrying that
+            (type, value) tag from active sources.  Only types with at least one
+            count are included; zero-count values are omitted.
+        """
+        from sqlalchemy import func as _func
+        from metatv.core.database import ChannelDB
+
+        q = (
+            self.session.query(
+                TagDB.type,
+                TagDB.value,
+                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
+            .filter(
+                ChannelDB.is_hidden == False,       # noqa: E712
+                ChannelDB.name.notlike("##%"),      # exclude provider category headers
+            )
+            .group_by(TagDB.type, TagDB.value)
+        )
+        if excluded_provider_ids:
+            q = q.filter(
+                ChannelDB.provider_id.notin_(excluded_provider_ids)
+            )
+
+        result: dict[str, dict[str, int]] = {}
+        for tag_type, value, cnt in q.all():
+            if cnt > 0:
+                result.setdefault(tag_type, {})[value] = int(cnt)
+        return result
+
+    # ------------------------------------------------------------------
     # Faceted query engine
     # ------------------------------------------------------------------
 

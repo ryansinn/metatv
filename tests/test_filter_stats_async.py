@@ -8,9 +8,14 @@ Pins these invariants on the REAL ``MainWindow`` methods (bound via ``__new__``
 2. initialize_filter_stats passes a token_ref so stale results are dropped.
 3. initialize_filter_stats passes on_error so failures are logged rather than
    swallowed silently.
-4. _on_filter_stats_loaded sets _filter_unmapped_prefixes from the stats dict.
-5. _on_filter_stats_loaded calls filter_panel.update_data with the full stats
-   dict when filter_panel is present.
+4. _on_filter_stats_loaded always resets _filter_unmapped_prefixes to [] (the
+   tag model has no unmapped-prefix concept).
+5. _on_filter_stats_loaded calls filter_panel.update_data with the tag_counts
+   dict ({facet_type: {value: count}}) when filter_panel is present.
+
+Slice B (tag-filter): initialize_filter_stats now calls
+TagRepository.get_facet_value_counts() instead of
+ChannelRepository.get_prefix_stats().
 
 Note: The "filter_panel absent" branch (``hasattr(self, 'filter_panel')`` returning
 False) cannot be tested via ``__new__`` on an uninit'd Qt object — PyQt6 raises
@@ -50,7 +55,7 @@ def _make_host() -> MainWindow:
     """
     host = MainWindow.__new__(MainWindow)
 
-    # Minimal config with the four group dicts + excluded categories
+    # Minimal config — only needed for the host object, not for the tag stats query
     class _FakeConfig:
         filter_language_groups: dict = {"EN": ["EN"]}
         filter_quality_groups: dict = {"HD": ["HD"]}
@@ -58,7 +63,7 @@ def _make_host() -> MainWindow:
         filter_regional_groups: dict = {}
         global_filter_excluded_user_categories: list = []
 
-    host.config = _FakeConfig()
+    host.config = _FakeConfig()  # still present for other MainWindow paths
 
     # Token list (normally created in __init__ at line ~289)
     host._filter_stats_token = [0]
@@ -139,12 +144,13 @@ def test_initialize_filter_stats_on_result_is_handler():
     assert call["on_result"] == host._on_filter_stats_loaded
 
 
-def test_initialize_filter_stats_query_fn_captures_config_values():
-    """query_fn must forward all config-derived args to get_prefix_stats.
+def test_initialize_filter_stats_query_fn_calls_get_facet_value_counts():
+    """query_fn must call TagRepository.get_facet_value_counts with excluded_provider_ids.
 
-    We run the lambda against a fake repos to confirm the right keyword args are
-    passed — this catches a regression where a config group is accidentally dropped,
-    and also verifies excluded_provider_ids is forwarded from repos.providers.
+    Slice B: initialize_filter_stats uses the tag-model query instead of
+    get_prefix_stats.  We run the lambda against a fake repos to confirm:
+    - get_facet_value_counts is called (not get_prefix_stats)
+    - excluded_provider_ids from providers.get_hidden_provider_ids() is forwarded
     """
     host = _make_host()
     host.initialize_filter_stats()
@@ -153,80 +159,74 @@ def test_initialize_filter_stats_query_fn_captures_config_values():
 
     received_kwargs: list[dict] = []
 
-    class _FakeChannelRepo:
-        def get_prefix_stats(self, **kwargs) -> dict:
+    class _FakeTagRepo:
+        def get_facet_value_counts(self, **kwargs) -> dict:
             received_kwargs.append(kwargs)
-            return {"channels_with_prefix": 0, "unmapped_prefixes": [], "prefix_counts": {}}
+            return {"language": {"EN": 100}, "quality": {"HD": 50}}
 
     class _FakeProviderRepo:
         def get_hidden_provider_ids(self) -> list[str]:
             return ["hidden-p1", "hidden-p2"]
 
     class _FakeRepos:
-        channels = _FakeChannelRepo()
+        tags = _FakeTagRepo()
         providers = _FakeProviderRepo()
 
-    query_fn(_FakeRepos())
+    result = query_fn(_FakeRepos())
 
     assert len(received_kwargs) == 1
     kw = received_kwargs[0]
-    assert kw.get("provider_id") is None
-    assert "language_groups" in kw
-    assert "quality_groups" in kw
-    assert "platform_groups" in kw
-    assert "regional_groups" in kw
-    assert "excluded_user_categories" in kw
     # Active-source scoping: hidden provider IDs must be forwarded
     assert "excluded_provider_ids" in kw, (
         "excluded_provider_ids must be passed so stats agree with the channel list"
     )
     assert set(kw["excluded_provider_ids"]) == {"hidden-p1", "hidden-p2"}
+    # Return value is the tag_counts dict
+    assert result == {"language": {"EN": 100}, "quality": {"HD": 50}}
 
 
 # ---------------------------------------------------------------------------
 # _on_filter_stats_loaded — main-thread handler (the half that regresses)
 # ---------------------------------------------------------------------------
 
-_SAMPLE_STATS = {
-    "channels_with_prefix": 12345,
-    "unmapped_prefixes": ["FOO", "BAR"],
-    "prefix_counts": {"EN": 100, "DE": 50},
-    "language_groups": {"English": 1000},
-    "region_groups": {},
-    "quality_groups": {},
+# Slice B: _on_filter_stats_loaded receives a tag_counts dict
+# {facet_type: {value: count}} from TagRepository.get_facet_value_counts().
+_SAMPLE_TAG_COUNTS = {
+    "language": {"English": 1000, "French": 200},
+    "region": {"US": 500, "CA": 150},
+    "quality": {"HD": 800},
 }
 
 
-def test_on_filter_stats_loaded_sets_unmapped_prefixes():
-    """_on_filter_stats_loaded must set _filter_unmapped_prefixes from the stats dict."""
+def test_on_filter_stats_loaded_sets_unmapped_prefixes_empty():
+    """_on_filter_stats_loaded must set _filter_unmapped_prefixes to [] (tag model has none)."""
     host = _make_host()
-    host._on_filter_stats_loaded(_SAMPLE_STATS)
-    assert host._filter_unmapped_prefixes == ["FOO", "BAR"]
+    host._on_filter_stats_loaded(_SAMPLE_TAG_COUNTS)
+    # Tag model never produces unmapped prefixes; the field is always reset to []
+    assert host._filter_unmapped_prefixes == []
 
 
-def test_on_filter_stats_loaded_unmapped_prefixes_default_empty():
-    """When 'unmapped_prefixes' key is absent, _filter_unmapped_prefixes must be []."""
+def test_on_filter_stats_loaded_unmapped_prefixes_empty_for_empty_dict():
+    """Empty tag_counts dict → _filter_unmapped_prefixes is []."""
     host = _make_host()
-    host._on_filter_stats_loaded({"channels_with_prefix": 0})
+    host._on_filter_stats_loaded({})
     assert host._filter_unmapped_prefixes == []
 
 
 def test_on_filter_stats_loaded_calls_filter_panel_update_data():
-    """_on_filter_stats_loaded must call filter_panel.update_data with the full dict."""
+    """_on_filter_stats_loaded must call filter_panel.update_data with the tag_counts dict."""
     host = _make_host()
-    host._on_filter_stats_loaded(_SAMPLE_STATS)
-    assert host.filter_panel.update_data_calls == [_SAMPLE_STATS]
+    host._on_filter_stats_loaded(_SAMPLE_TAG_COUNTS)
+    assert host.filter_panel.update_data_calls == [_SAMPLE_TAG_COUNTS]
 
 
-def test_on_filter_stats_loaded_updates_unmapped_when_no_panel_key_in_stats():
-    """_on_filter_stats_loaded must still set _filter_unmapped_prefixes from a
-    stats dict that lacks 'unmapped_prefixes', defaulting to [].
+def test_on_filter_stats_loaded_calls_update_data_even_for_empty_counts():
+    """_on_filter_stats_loaded calls filter_panel.update_data even when counts are empty.
 
     (The 'filter_panel absent' branch cannot be exercised via __new__ on a Qt
-    object — see module docstring. This test covers a different edge: empty dict.)
+    object — see module docstring.  This test covers the empty-dict edge case.)
     """
     host = _make_host()
-    host._on_filter_stats_loaded({"channels_with_prefix": 0})
+    host._on_filter_stats_loaded({})
     assert host._filter_unmapped_prefixes == []
-    # filter_panel.update_data must still be called with the dict
-    assert host.filter_panel.update_data_calls == [{"channels_with_prefix": 0}]
+    assert host.filter_panel.update_data_calls == [{}]

@@ -66,17 +66,17 @@ def _make_config(
 
 
 def _make_stats(*, genre_counts: dict | None = None) -> dict:
+    """Tag-counts dict for FilterPanel.update_data() (Slice B format).
+
+    Shape: {facet_type: {value: channel_count}} from get_facet_value_counts().
+    Region values are individual ISO codes; language/platform/quality are group names.
+    """
     return {
-        "prefix_counts": {"EN": 100, "FR": 50, "DE": 30, "US": 80, "CA": 20, "GB": 10,
-                          "NF": 30, "DP": 15, "HD": 70, "SD": 40},
-        "language_groups": {"EN": 100, "FR": 50, "DE": 30},
-        "region_groups": {"North America": 100, "Europe": 40},
-        "platform_groups": {"Netflix": 30, "Disney+": 15},
-        "quality_groups": {"HD": 70, "SD": 40},
-        "genre_counts": genre_counts if genre_counts is not None else {"Action": 10, "Drama": 5, "Comedy": 3},
-        "unmapped_prefixes": [],
-        "channels_without_prefix": 5,
-        "channels_without_quality": 3,
+        "language": {"EN": 100, "FR": 50, "DE": 30},
+        "region": {"US": 80, "CA": 20, "GB": 10},
+        "platform": {"Netflix": 30, "Disney+": 15},
+        "quality": {"HD": 70, "SD": 40},
+        "genre": genre_counts if genre_counts is not None else {"Action": 10, "Drama": 5, "Comedy": 3},
     }
 
 

@@ -103,18 +103,18 @@ def _make_stats(
     quality_groups: dict | None = None,
     genre_counts: dict | None = None,
 ) -> dict:
-    """Minimal stats dict for FilterPanel.update_data()."""
+    """Tag-counts dict for FilterPanel.update_data() (Slice B format).
+
+    Shape: {facet_type: {value: channel_count}} as returned by
+    TagRepository.get_facet_value_counts().  Region values are individual ISO
+    codes (e.g. "US", "CA"), not group names.
+    """
     return {
-        "prefix_counts": {"EN": 100, "FR": 50, "US": 80, "CA": 20, "NF": 30,
-                          "HD": 70, "SD": 40},
-        "language_groups": lang_groups or {"EN": 100, "FR": 50},
-        "region_groups": region_groups or {"North America": 100},
-        "platform_groups": platform_groups or {"Netflix": 30},
-        "quality_groups": quality_groups or {"HD": 70, "SD": 40},
-        "genre_counts": genre_counts or {"Action": 10, "Drama": 5},
-        "unmapped_prefixes": [],
-        "channels_without_prefix": 5,
-        "channels_without_quality": 3,
+        "language": lang_groups or {"EN": 100, "FR": 50},
+        "region": region_groups or {"US": 80, "CA": 20},
+        "platform": platform_groups or {"Netflix": 30},
+        "quality": quality_groups or {"HD": 70, "SD": 40},
+        "genre": genre_counts or {"Action": 10, "Drama": 5},
     }
 
 
