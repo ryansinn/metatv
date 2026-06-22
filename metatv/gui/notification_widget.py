@@ -169,15 +169,8 @@ class NotificationCard(QFrame):
                 action_layout.addWidget(btn)
             layout.addLayout(action_layout)
 
-        # Steps checklist — shown instead of the raw progress bar when steps are present.
-        if self.notification.steps is not None:
-            self._steps_container = QVBoxLayout()
-            self._steps_container.setSpacing(2)
-            self._steps_container.setContentsMargins(0, 4, 0, 0)
-            self._build_step_rows(self.notification.steps)
-            layout.addLayout(self._steps_container)
-        elif self.notification.type == NotificationType.PROGRESS:
-            # Fall back to the classic progress bar when no steps are defined.
+        # Progress bar — shown for all PROGRESS notifications (with or without steps).
+        if self.notification.type == NotificationType.PROGRESS:
             progress_layout = QHBoxLayout()
 
             self.progress_bar = QProgressBar()
@@ -192,6 +185,14 @@ class NotificationCard(QFrame):
             self.progress_label = QLabel("")
             self.progress_label.setVisible(False)
             layout.addWidget(self.progress_label)
+
+        # Steps checklist — shown beneath the progress bar when steps are present.
+        if self.notification.steps is not None:
+            self._steps_container = QVBoxLayout()
+            self._steps_container.setSpacing(2)
+            self._steps_container.setContentsMargins(0, 4, 0, 0)
+            self._build_step_rows(self.notification.steps)
+            layout.addLayout(self._steps_container)
 
         # Record the type used to style this card — used to detect changes in update_notifications
         self._notification_type = self.notification.type
@@ -234,7 +235,19 @@ class NotificationCard(QFrame):
         if hasattr(self, 'message_label') and notification.message:
             self.message_label.setText(notification.message)
 
-        # Update steps checklist when present
+        # Update progress bar when present (all PROGRESS notifications).
+        if hasattr(self, 'progress_bar') and notification.progress is not None:
+            self.progress_bar.setValue(int(notification.progress * 100))
+
+        if hasattr(self, 'progress_label'):
+            if notification.progress_current is not None and notification.progress_total is not None:
+                progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
+                percentage = int(notification.progress * 100) if notification.progress else 0
+                self.progress_label.setText(f"{progress_text} ({percentage}%)")
+                if not self.progress_label.isVisible():
+                    self.progress_label.setVisible(True)
+
+        # Update steps checklist when present.
         if notification.steps is not None and self._steps_container is not None:
             if len(notification.steps) != len(self._step_rows):
                 # Step count changed (e.g. EPG steps added) — rebuild the rows.
@@ -243,18 +256,6 @@ class NotificationCard(QFrame):
                 # Fast path: update each row's glyph in-place.
                 for row, (_, status) in zip(self._step_rows, notification.steps):
                     row.update_status(status)
-        elif notification.steps is None:
-            # No steps — update classic progress bar if present.
-            if hasattr(self, 'progress_bar') and notification.progress is not None:
-                self.progress_bar.setValue(int(notification.progress * 100))
-
-            if hasattr(self, 'progress_label'):
-                if notification.progress_current is not None and notification.progress_total is not None:
-                    progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
-                    percentage = int(notification.progress * 100) if notification.progress else 0
-                    self.progress_label.setText(f"{progress_text} ({percentage}%)")
-                    if not self.progress_label.isVisible():
-                        self.progress_label.setVisible(True)
 
         self.updateGeometry()
         self.adjustSize()
