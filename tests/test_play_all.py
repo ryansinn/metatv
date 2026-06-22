@@ -338,3 +338,28 @@ def test_play_all_tracking_shape_is_queue_list_compatible(db):
         assert "content_id" in entry, "each queue entry must have content_id key"
     # last_seen_pos must be 0 (playlist-pos not yet advanced)
     assert info["last_seen_pos"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: _do_launch_episode must not assume episode_num on its queue items.
+# Play All queues _PlayAllItem objects (which have NO episode_num); the real
+# launcher's debug log read ep.episode_num and crashed with AttributeError.
+# The existing tests mock launch_player_for_episode, so this drives the REAL
+# _do_launch_episode to exercise the crash path.
+# ---------------------------------------------------------------------------
+def test_do_launch_episode_play_all_items_no_episode_num(db):
+    """_do_launch_episode tolerates queue items without episode_num (Play All)."""
+    host = _make_series_host(db)
+    host.player_manager.play.return_value = True
+    host.player_manager.queue.return_value = True
+    host._start_playback_health = MagicMock()
+
+    queue_items = [
+        _make_play_all_item("http://x/2.mp4", "A Christmas Carol 1977", "c2", media_type="movie"),
+        _make_play_all_item("http://x/3.mp4", "Scrooge 1970", "c3", media_type="movie"),
+    ]
+
+    # Must NOT raise AttributeError on ep.episode_num in the queue-loop debug log.
+    host._do_launch_episode("notif_1", "http://x/1.mp4", "A Christmas Carol 1954", queue_items)
+
+    assert host.player_manager.queue.call_count == 2
