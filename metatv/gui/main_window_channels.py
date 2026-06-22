@@ -676,6 +676,9 @@ class _ChannelListMixin:
                         in_queue=repos.queue.is_queued(cid),
                         rating=repos.ratings.get(cid) or 0,
                         is_hidden=bool(channel.is_hidden),
+                        is_vod_watched=bool(
+                            getattr(channel, "watch_completed", False)
+                        ),
                         channel_name=channel.name or "",
                         user_category=channel.user_category,
                         entry_id=entry_id,
@@ -786,6 +789,11 @@ class _ChannelListMixin:
                 (lambda: self._unmonitor_series(cid))
                 if ctx.is_series_monitored
                 else (lambda: self._monitor_series(cid))
+            ),
+            "mark_watched": (
+                (lambda: self._mark_channel_unwatched(cid))
+                if ctx.is_vod_watched
+                else (lambda: self._mark_channel_watched(cid))
             ),
             "track": lambda: self._prompt_track_from_list(ctx.channel_name),
             "unhide": lambda: self._unhide_channel(cid),

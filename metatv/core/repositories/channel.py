@@ -406,6 +406,66 @@ class ChannelRepository(_ChannelStatsMixin):
             self.session.commit()
             logger.info(f"Marked channel as played: {channel.name} (count: {channel.play_count})")
 
+    def mark_watched(self, channel_id: str, watched: bool = True) -> bool:
+        """Mark a channel (movie/series) as watched/unwatched, setting all watch fields coherently.
+
+        ChannelDB uses ``watch_completed`` as the "finished" flag (there is no
+        ``is_watched`` column on channels — that is episode-only).  The field
+        semantics parallel :meth:`EpisodeRepository.mark_watched` so the two
+        paths never drift:
+
+        watched=True  → watch_completed=True,  watch_percent=100,
+                         last_played_via="manual"
+                         (manual mark = deliberate → renders SOLID, not muted).
+        watched=False → watch_completed=False, watch_percent=0,
+                         watch_progress=0  (clear resume; item is truly unwatched).
+
+        Returns True if the channel was found and updated, False if not found.
+        """
+        channel = self.get_by_id(channel_id)
+        if channel is None:
+            return False
+        if watched:
+            channel.watch_completed = True
+            channel.watch_percent = 100
+            channel.last_played_via = "manual"
+        else:
+            channel.watch_completed = False
+            channel.watch_percent = 0
+            channel.watch_progress = 0
+        channel.updated_at = datetime.now()
+        self.session.commit()
+        logger.info(f"Marked channel {channel.name} as {'watched' if watched else 'unwatched'}")
+        return True
+
+    def mark_watched_bulk(self, channel_ids: "List[str]", watched: bool = True) -> int:
+        """Mark multiple channels as watched/unwatched atomically.
+
+        Same field semantics as :meth:`mark_watched`. Commits once for the batch.
+        Returns the number of channels actually updated.
+        """
+        if not channel_ids:
+            return 0
+        updated = 0
+        for channel_id in channel_ids:
+            channel = self.get_by_id(channel_id)
+            if channel is None:
+                continue
+            if watched:
+                channel.watch_completed = True
+                channel.watch_percent = 100
+                channel.last_played_via = "manual"
+            else:
+                channel.watch_completed = False
+                channel.watch_percent = 0
+                channel.watch_progress = 0
+            channel.updated_at = datetime.now()
+            updated += 1
+        if updated:
+            self.session.commit()
+        logger.info(f"Bulk marked {updated} channel(s) as {'watched' if watched else 'unwatched'}")
+        return updated
+
     def record_watch_progress(
         self,
         channel_id: str,

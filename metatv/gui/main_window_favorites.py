@@ -63,6 +63,20 @@ class _FavoritesMixin:
     def _on_hide_from_details_pane(self, channel_id: str) -> None:
         self._hide_channel_from_recommendations(channel_id)
 
+    # --- VOD Mark-as-Watched helpers (channel list / history / favorites) ---
+
+    def _mark_channel_watched(self, channel_id: str) -> None:
+        """Mark a movie or series channel as watched and refresh the list row."""
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.mark_watched(channel_id, watched=True)
+        self.load_channels()
+
+    def _mark_channel_unwatched(self, channel_id: str) -> None:
+        """Mark a movie or series channel as unwatched and refresh the list row."""
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.mark_watched(channel_id, watched=False)
+        self.load_channels()
+
     # --- Watch Queue helpers ---
 
     def _add_to_queue(self, channel_id: str) -> None:

@@ -136,7 +136,7 @@ class EpisodeRepository:
         """Mark episode as watched/unwatched, setting all watch fields coherently.
 
         watched=True  → is_watched=True,  watch_completed=True,  watch_percent=100,
-                         watch_progress unchanged (resume point left as-is).
+                         last_played_via="manual" (manual mark = deliberate → SOLID icon).
         watched=False → is_watched=False, watch_completed=False, watch_percent=0,
                          watch_progress=0  (clear resume point — item is truly unwatched).
 
@@ -149,6 +149,7 @@ class EpisodeRepository:
             episode.is_watched = True
             episode.watch_completed = True
             episode.watch_percent = 100
+            episode.last_played_via = "manual"
         else:
             episode.is_watched = False
             episode.watch_completed = False
@@ -162,7 +163,8 @@ class EpisodeRepository:
     def mark_watched_bulk(self, episode_ids: "List[str]", watched: bool = True) -> int:
         """Mark multiple episodes as watched/unwatched atomically.
 
-        Sets all watch fields coherently (same semantics as :meth:`mark_watched`).
+        Sets all watch fields coherently (same semantics as :meth:`mark_watched`,
+        including ``last_played_via="manual"`` so manually-marked items render SOLID).
         Commits once for the whole batch.
 
         Returns the number of episodes actually updated.
@@ -178,6 +180,7 @@ class EpisodeRepository:
                 episode.is_watched = True
                 episode.watch_completed = True
                 episode.watch_percent = 100
+                episode.last_played_via = "manual"
             else:
                 episode.is_watched = False
                 episode.watch_completed = False

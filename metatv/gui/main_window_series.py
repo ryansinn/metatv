@@ -234,7 +234,7 @@ class _SeriesMixin:
             episode.title, episode.season_num, episode.episode_num, episode.series_name
         )
 
-    def _episode_watch_icon(self, episode: "EpisodeDTO") -> "QIcon | None":
+    def _episode_watch_icon(self, episode: "EpisodeDTO") -> "QIcon":
         """Return the watch-state QIcon for the episode's icon lane (column 0 icon).
 
         Graduated glyph driven by watch_percent, colored by provenance:
@@ -246,12 +246,10 @@ class _SeriesMixin:
 
         MUST be called on the main thread (builds QIcon via QPixmap on first use).
         """
-        _ep_pct = episode.watch_percent or (1 if episode.watch_progress > 0 else 0)
+        _ep_pct = _icons.effective_watch_pct(episode.watch_percent, episode.watch_progress)
         _glyph = _icons.watch_progress_glyph(_ep_pct, episode.watch_completed, self._partial_pct())
         if _glyph:
-            icon = _icons.watch_icon_for_channel(_glyph, episode.last_played_via)
-            if icon is not None:
-                return icon
+            return _icons.watch_icon_for_channel(_glyph, episode.last_played_via)
         # Unwatched: render the plain episode_icon (play-triangle) as the lane icon.
         return _icons.watch_icon(_icons.episode_icon, muted=True)
 
@@ -935,6 +933,10 @@ class _SeriesMixin:
                     watch_progress=0 if not watched else old_dto.watch_progress,
                     watch_completed=watched,
                     watch_percent=100 if watched else 0,
+                    # Manual toggle = deliberate action → SOLID icon (not muted/gray).
+                    # Must match EpisodeRepository.mark_watched_bulk which also sets
+                    # last_played_via="manual" — the in-place DTO must not disagree.
+                    last_played_via="manual" if watched else None,
                 )
                 ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
                 self._update_episode_item_icon(ep_item, new_dto)

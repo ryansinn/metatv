@@ -53,6 +53,7 @@ class ChannelMenuContext:
     rating: int = 0
     is_hidden: bool = False
     is_watched: bool = False          # channel_id in config.epg_watchlist_channels
+    is_vod_watched: bool = False      # channel.watch_completed (VOD manual-watched state)
     is_series_monitored: bool = False  # channel_id in config.monitored_series
     has_unavailable: bool = False     # favorites/queue Clear-Unavailable enablement
     channel_name: str = ""
@@ -120,6 +121,10 @@ def _watch_label(c: ChannelMenuContext) -> str:
 
 def _monitor_label(c: ChannelMenuContext) -> str:
     return "Stop new-episode alerts" if c.is_series_monitored else "Alert me to new episodes"
+
+
+def _mark_watched_label(c: ChannelMenuContext) -> str:
+    return "Mark as Unwatched" if c.is_vod_watched else "Mark as Watched"
 
 
 def _category_label(c: ChannelMenuContext) -> str:
@@ -192,6 +197,18 @@ ACTIONS: dict[str, ChannelAction] = {
             c.is_single and c.channel_found
             and not c.is_hidden
             and c.media_type == "series"
+        ),
+    ),
+    # ── VOD mark watched ────────────────────────────────────────────────────
+    "mark_watched": ChannelAction(
+        id="mark_watched",
+        label=_mark_watched_label,
+        icon=_icons.watched_icon,
+        tooltip="Mark this movie or series as watched / unwatched",
+        applies=lambda c: (
+            c.is_single and c.channel_found
+            and not c.is_hidden
+            and c.media_type in ("movie", "series")
         ),
     ),
     # ── Channel extras ──────────────────────────────────────────────────────
@@ -389,6 +406,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "favorite", "queue",
         "sep",
         "like", "dislike",
+        "sep",
+        "mark_watched",
         "sep",
         "monitor_series",
         "sep",

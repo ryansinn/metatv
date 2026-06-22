@@ -127,6 +127,23 @@ def pick_next_icon(used_icons: list[str]) -> str:
     return provider_icon_palette[len(used_icons) % len(provider_icon_palette)]
 
 
+def effective_watch_pct(watch_percent: int, watch_progress: int) -> int:
+    """Return the effective watch percentage for glyph selection.
+
+    When ``watch_percent`` is 0 but ``watch_progress`` is nonzero, the item has
+    started but no explicit % was captured (e.g. very short progress).  Promote
+    it to 1 so the partial glyph shows rather than leaving the row blank.
+
+    Args:
+        watch_percent: 0–100 stored percentage.
+        watch_progress: Resume position in seconds (0 = unwatched or completed).
+
+    Returns:
+        int: Effective percentage for ``watch_progress_glyph()``.
+    """
+    return watch_percent or (1 if watch_progress > 0 else 0)
+
+
 def watch_progress_glyph(
     watch_percent: int,
     watch_completed: bool,
@@ -172,6 +189,15 @@ def watch_progress_glyph(
 _WATCH_ICON_CACHE: dict[tuple[str, bool], object] = {}  # (glyph, muted) -> QIcon
 
 
+def _clear_watch_icon_cache() -> None:
+    """Discard all cached QIcon entries.
+
+    Called after ``QApplication`` teardown (e.g. between tests) so stale
+    QIcon objects from a previous ``QApplication`` instance are never reused.
+    """
+    _WATCH_ICON_CACHE.clear()
+
+
 def watch_icon(glyph: str, muted: bool) -> object:
     """Return a QIcon rendering *glyph* in solid or muted color.
 
@@ -196,18 +222,25 @@ def watch_icon(glyph: str, muted: bool) -> object:
 
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+    from PyQt6.QtWidgets import QApplication
 
     color_str = _theme.COLOR_MUTED if muted else _theme.COLOR_TEXT
     color = QColor(color_str)
 
-    # Render the glyph at 12 px into a 14x14 transparent pixmap.
+    # Render the glyph HiDPI-aware: create the pixmap at physical resolution
+    # and set the device pixel ratio so Qt renders it crisply on Retina displays.
     size = 14
-    pixmap = QPixmap(size, size)
+    screen = QApplication.primaryScreen()
+    dpr = screen.devicePixelRatio() if screen is not None else 1.0
+    phys = int(size * dpr)
+    pixmap = QPixmap(phys, phys)
+    pixmap.setDevicePixelRatio(dpr)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
     font = QFont()
-    font.setPixelSize(12)
+    # Use the FONT_LG token (12px) — never a raw pixel literal.
+    font.setPixelSize(int(_theme.FONT_LG.replace("px", "")))
     painter.setFont(font)
     painter.setPen(color)
     painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
