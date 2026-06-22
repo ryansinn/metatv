@@ -702,9 +702,9 @@ class _SeriesMixin:
                             provider_id=provider_id,
                         ):
                             queued_count += 1
-                            logger.debug(f"Queued E{ep.episode_num}: {ep.title}")
+                            logger.debug(f"Queued E{getattr(ep, 'episode_num', '?')}: {ep.title}")
                         else:
-                            logger.warning(f"Failed to queue E{ep.episode_num}: {ep.title}")
+                            logger.warning(f"Failed to queue E{getattr(ep, 'episode_num', '?')}: {ep.title}")
 
                 if queued_count > 0:
                     status_msg = f"Playing: {title} (+{queued_count} queued)"
