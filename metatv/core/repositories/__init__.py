@@ -12,6 +12,7 @@ from .rating import RatingRepository
 from .queue import WatchQueueRepository
 from .epg import EpgRepository
 from .analytics import AnalyticsRepository
+from .tag import TagRepository
 
 
 class RepositoryFactory:
@@ -29,6 +30,7 @@ class RepositoryFactory:
         self._queue = None
         self._epg = None
         self._analytics = None
+        self._tags = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -100,6 +102,13 @@ class RepositoryFactory:
             self._analytics = AnalyticsRepository(self.session)
         return self._analytics
 
+    @property
+    def tags(self) -> TagRepository:
+        """Get tag repository"""
+        if self._tags is None:
+            self._tags = TagRepository(self.session)
+        return self._tags
+
 
 # Export all repositories and factory for convenience
 __all__ = [
@@ -114,4 +123,5 @@ __all__ = [
     'WatchQueueRepository',
     'EpgRepository',
     'AnalyticsRepository',
+    'TagRepository',
 ]
