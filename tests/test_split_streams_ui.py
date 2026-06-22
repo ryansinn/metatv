@@ -307,6 +307,7 @@ class _FakeDlgConfig:
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.watch_complete_threshold = 0.9
+        self.watch_partial_threshold = 0.10
         self.close_player_when_finished = False
         self.network_timeout = 10
         self.reconnect_attempts = 3
@@ -356,6 +357,11 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
     dlg._watch_threshold_spin.setSuffix("%")
+
+    # Watch-partial threshold (graduated glyphs)
+    dlg._watch_partial_spin = QSpinBox()
+    dlg._watch_partial_spin.setRange(1, 49)
+    dlg._watch_partial_spin.setSuffix("%")
 
     dlg._close_player_check = QCheckBox()
 

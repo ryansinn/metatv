@@ -411,6 +411,9 @@ class _ChannelListMixin:
             favorite_icon=self.favorite_icon,
             unfavorite_icon=self.unfavorite_icon,
             get_media_type_icon=self.get_media_type_icon,
+            partial_threshold_pct=int(
+                getattr(self.config, "watch_partial_threshold", 0.10) * 100
+            ),
         )
 
         # Stash the stats context so _refresh_channel_stats_label() can recompute

@@ -36,11 +36,13 @@ class _FakeConfig:
         prebuffer_wait_secs: int = 10,
         mpv_args_override_all: bool = False,
         watch_complete_threshold: float = 0.9,
+        watch_partial_threshold: float = 0.10,
     ):
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.watch_complete_threshold = watch_complete_threshold
+        self.watch_partial_threshold = watch_partial_threshold
         self.close_player_when_finished = False
         self.network_timeout = 10
         self.reconnect_attempts = 3
@@ -88,6 +90,11 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
     dlg._watch_threshold_spin.setSuffix("%")
+
+    # Watch-partial threshold spinner (graduated glyphs)
+    dlg._watch_partial_spin = QSpinBox()
+    dlg._watch_partial_spin.setRange(1, 49)
+    dlg._watch_partial_spin.setSuffix("%")
 
     dlg._close_player_check = _bool_check(qapp)
 

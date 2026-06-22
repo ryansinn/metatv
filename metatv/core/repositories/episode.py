@@ -60,6 +60,7 @@ class EpisodeRepository:
                 season_id=ep.season_id,
                 watch_progress=int(getattr(ep, "watch_progress", 0) or 0),
                 watch_completed=bool(getattr(ep, "watch_completed", False)),
+                watch_percent=int(getattr(ep, "watch_percent", 0) or 0),
             ))
         return result
     
@@ -168,8 +169,14 @@ class EpisodeRepository:
         if episode is None:
             return False
         completed = bool(duration_s and duration_s > 0 and (position_s / duration_s) >= threshold)
+        pct = (
+            min(100, max(0, round(position_s / duration_s * 100)))
+            if duration_s and duration_s > 0
+            else 0
+        )
         episode.last_played = datetime.now()
         episode.last_played_via = played_via
+        episode.watch_percent = 100 if completed else pct
         if completed:
             episode.is_watched = True
             episode.watch_completed = True

@@ -150,6 +150,11 @@ def _make_render_host(qapp):
     win.series_icon = "S"
     win.unknown_icon = "?"
 
+    # Minimal config stub — only fields touched by _on_channels_loaded.
+    _cfg = MagicMock()
+    _cfg.watch_partial_threshold = 0.10
+    win.config = _cfg
+
     # get_media_type_icon is called by the render loop and channel_model.set_channels
     def _get_media_type_icon(media_type):
         return {"live": "L", "movie": "M", "series": "S"}.get(media_type or "", "?")

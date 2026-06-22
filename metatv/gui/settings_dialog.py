@@ -92,6 +92,19 @@ class SettingsDialog(QDialog):
         threshold_row.addStretch()
         player_form.addRow("Mark as watched at:", threshold_row)
 
+        partial_threshold_row = QHBoxLayout()
+        self._watch_partial_spin = QSpinBox()
+        self._watch_partial_spin.setRange(1, 49)
+        self._watch_partial_spin.setSuffix("%")
+        self._watch_partial_spin.setToolTip(
+            "Minimum amount watched before a progress glyph (◔ / ◐ / ◕) appears in the\n"
+            "channel list and series view.\n"
+            "Below this percentage the item is treated as untouched (no indicator shown)."
+        )
+        partial_threshold_row.addWidget(self._watch_partial_spin)
+        partial_threshold_row.addStretch()
+        player_form.addRow("Mark as partially-watched after:", partial_threshold_row)
+
         self._close_player_check = QCheckBox("Close player when stream finishes")
         player_form.addRow("", self._close_player_check)
 
@@ -353,6 +366,9 @@ class SettingsDialog(QDialog):
         self._watch_threshold_spin.setValue(
             int(round(getattr(c, "watch_complete_threshold", 0.9) * 100))
         )
+        self._watch_partial_spin.setValue(
+            int(round(getattr(c, "watch_partial_threshold", 0.10) * 100))
+        )
         self._close_player_check.setChecked(c.close_player_when_finished)
         self._timeout_spin.setValue(c.network_timeout)
         self._reconnect_spin.setValue(c.reconnect_attempts)
@@ -411,6 +427,7 @@ class SettingsDialog(QDialog):
         )
         c.autoplay_season_episodes = self._autoplay_check.isChecked()
         c.watch_complete_threshold = self._watch_threshold_spin.value() / 100.0
+        c.watch_partial_threshold = self._watch_partial_spin.value() / 100.0
         c.close_player_when_finished = self._close_player_check.isChecked()
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()

@@ -430,8 +430,14 @@ class ChannelRepository(_ChannelStatsMixin):
         if channel is None:
             return False
         completed = bool(duration_s and duration_s > 0 and (position_s / duration_s) >= threshold)
+        pct = (
+            min(100, max(0, round(position_s / duration_s * 100)))
+            if duration_s and duration_s > 0
+            else 0
+        )
         channel.last_played = datetime.now()
         channel.last_played_via = played_via
+        channel.watch_percent = 100 if completed else pct
         if completed:
             channel.watch_completed = True
             channel.watch_progress = 0
@@ -440,7 +446,7 @@ class ChannelRepository(_ChannelStatsMixin):
         channel.updated_at = datetime.now()
         self.session.commit()
         return completed
-    
+
     def clear_history(self):
         """Clear all playback history"""
         count = self.session.query(ChannelDB).filter(
