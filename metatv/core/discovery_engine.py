@@ -15,10 +15,11 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from sqlalchemy import literal_column, text
+from sqlalchemy import literal_column, or_, text
 from loguru import logger
 
 from metatv.core.content_dedup import _PREFIX_NOISE_RE, _YEAR_EXTRACT_RE
+from metatv.core.filter_utils import normalize_genre, _GENRE_NORM
 
 
 # Splits comma- or slash-delimited genre strings into individual genres.
@@ -106,11 +107,12 @@ def _primary_genre(channel) -> str | None:
     genre_str = (rd.get("genre") or "").strip()
     if not genre_str:
         return None
-    # Take first segment from either delimiter
+    # Take first segment from either delimiter, canonicalised so cross-language
+    # aliases (Drame/Dramma/دراما) render under one genre (D5 / DR-0005).
     for seg in _GENRE_SEP_RE.split(genre_str):
         seg = seg.strip()
         if seg:
-            return seg
+            return normalize_genre(seg)
     return None
 
 
@@ -318,8 +320,23 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  excluded_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
-    """Content matching a genre string (partial match), sorted by rating."""
+    """Content matching a genre (partial match), sorted by rating.
+
+    *genre* is the **canonical** label (from ``get_all_genres``); match every raw
+    alias that normalises to it so a "Drama" shelf also pulls in "Drame" /
+    "Dramma" / "دراما" rows, not just the English ones (D5 / DR-0005).
+    """
     from metatv.core.database import ChannelDB, MetadataDB
+    # Raw aliases (lowercase) that canonicalise to this genre, plus the genre
+    # itself — SQLite LIKE is ASCII-case-insensitive so lowercase patterns match.
+    _target = normalize_genre(genre)
+    _aliases = {raw for raw, canon in _GENRE_NORM.items() if canon == _target}
+    _aliases.add(genre.lower())
+    _genre_json = "json_extract(channels.raw_data, '$.genre')"
+    _alias_match = or_(*[
+        text(f"{_genre_json} LIKE :g{i}").bindparams(**{f"g{i}": f"%{a}%"})
+        for i, a in enumerate(sorted(_aliases))
+    ])
     q = (
         session.query(ChannelDB, MetadataDB)
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
@@ -327,9 +344,7 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            text("json_extract(channels.raw_data, '$.genre') LIKE :pat").bindparams(
-                pat=f"%{genre}%"
-            ),
+            _alias_match,
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized)
@@ -502,7 +517,9 @@ def get_all_genres(session, min_count: int = 10,
         for g in _GENRE_SEP_RE.split(genre_str or ""):
             g = g.strip()
             if g and g.lower() not in _BAD_GENRE_TOKENS:
-                counter[g] += 1
+                # Count by canonical genre so cross-language aliases collapse into
+                # a single shelf (Drame/Dramma/دراما → "Drama") (D5 / DR-0005).
+                counter[normalize_genre(g)] += 1
     return [g for g, cnt in counter.most_common() if cnt >= min_count]
 
 
