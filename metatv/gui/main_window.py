@@ -59,6 +59,7 @@ from metatv.gui.preferences_view import PreferencesView
 from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.series_monitor import SeriesMonitorManager
+from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
 from metatv.core.migration_manager import MigrationManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
@@ -279,6 +280,17 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._register_cleanable("series_monitor", self.series_monitor.shutdown)
 
+        # VOD watch-alert manager — checks keyword/title rules against the channel corpus.
+        # Constructed before setup_ui() so the alerts sidebar section can connect signals.
+        self.vod_watch_alert_manager = VodWatchAlertManager(
+            self.db, self.config,
+            notifications=None,  # injected after NotificationManager is set up
+            parent=self,
+        )
+        self._register_cleanable(
+            "vod_watch_alert_manager", self.vod_watch_alert_manager.shutdown
+        )
+
         # Migration manager — runs one-time background migrations sequentially.
         # Registered for clean cancellation on closeEvent before the pool drains.
         self.migration_manager = MigrationManager(self.config, self.db, parent=self)
@@ -342,6 +354,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Series monitor startup check — runs after channels are loaded (deferred 0ms
         # yields to the event loop so channel load and UI paint happen first).
         QTimer.singleShot(0, self.series_monitor.check_all)
+
+        # VOD watch-alert startup check — same deferred strategy as series_monitor.
+        QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
 
         logger.info("Main window initialized")
     
@@ -576,6 +591,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.retryClearAllRequested.connect(self.stream_retry_manager.clear_all)
             section.retryPlayRequested.connect(self._on_retry_play_requested)
             section.retryContextMenuRequested.connect(self._on_retry_context_menu_requested)
+            # VOD watch-for wiring
+            section.addWatchForClicked.connect(self._on_add_watch_for)
+            section.manageWatchForClicked.connect(self._open_vod_alerts_dialog)
+            section.vodAlertClicked.connect(self.show_channel_details_by_id)
+            self.vod_watch_alert_manager.new_matches_found.connect(
+                lambda: self._refresh_vod_alerts_section()
+            )
+            # Populate the rule list on startup (rules come from config, synchronous)
+            QTimer.singleShot(0, self._refresh_vod_alerts_section)
             return section
         
         elif section_id == "history":
@@ -708,6 +732,37 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Clear unseen count for the given series (main thread)."""
         self.config.clear_unseen(channel_id)
         self._refresh_new_episodes_section()
+
+    # ------------------------------------------------------------------
+    # VOD watch-alert helpers
+    # ------------------------------------------------------------------
+
+    def _refresh_vod_alerts_section(self) -> None:
+        """Refresh the VOD watch-for sub-list in the Alerts sidebar section."""
+        section = self.sidebar_sections.get("alerts")
+        if section and hasattr(section, "refresh_vod_rules"):
+            section.refresh_vod_rules()
+
+    def _on_add_watch_for(self) -> None:
+        """Open the 'Watch for…' dialog; add rule to config + run a check on confirm."""
+        from metatv.gui.vod_watch_alert_dialog import WatchForDialog
+        dlg = WatchForDialog(self)
+
+        def _on_rule_added(rule: dict) -> None:
+            self.config.add_vod_watch_alert(rule)
+            self._refresh_vod_alerts_section()
+            # Immediately scan the corpus so the user gets any instant matches
+            self.vod_watch_alert_manager.check_all()
+
+        dlg.rule_added.connect(_on_rule_added)
+        dlg.exec()
+
+    def _open_vod_alerts_dialog(self) -> None:
+        """Open the manage-rules dialog (see-all + remove)."""
+        from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
+        dlg = ManageVodAlertsDialog(self.config, self)
+        dlg.changed.connect(self._refresh_vod_alerts_section)
+        dlg.exec()
 
     def _prompt_track_from_list(self, channel_name: str) -> None:
         from PyQt6.QtWidgets import QInputDialog
@@ -1044,9 +1099,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.epg_manager = EpgManager(self.db, self.config, self.notification_manager, parent=self)
         self._register_cleanable("epg_manager", self.epg_manager.shutdown)
 
-        # Inject the now-constructed notification_manager into series_monitor
-        # (constructed earlier in __init__ before setup_ui, before notifications existed)
+        # Inject the now-constructed notification_manager into series_monitor and
+        # vod_watch_alert_manager (both constructed before setup_ui/notifications).
         self.series_monitor.notifications = self.notification_manager
+        self.vod_watch_alert_manager.notifications = self.notification_manager
         # Provider IDs that should get a one-time EPG fetch once their channel load
         # completes — populated by AddProviderDialog when "Enable EPG" is checked.
         self._epg_fetch_after_add: set[str] = set()
