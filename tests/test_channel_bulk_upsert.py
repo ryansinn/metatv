@@ -262,6 +262,41 @@ def test_hash_header_source_category_propagates(store_thread, tmp_db):
     )
 
 
+def test_hash_header_channels_are_not_stored(store_thread, tmp_db):
+    """##...## header rows are positional markers (bumper/loop streams), not
+    content — they must NOT be stored as channels, while their label still
+    propagates as source_category to the channels that follow.  Covers the
+    trailing-token form (``#### X ##### · UHD``) the old end-anchored regex missed.
+    """
+    channels = [
+        _make_channel("h1", name="## SPORTS ##", media_type="live"),                   # header
+        _make_channel("ch1", name="Match 1", media_type="live"),
+        _make_channel("h2", name="#### BAMBINI HD/4K ##### · UHD", media_type="live"),  # trailing-token header
+        _make_channel("ch2", name="Cartoon", media_type="live"),
+    ]
+
+    _store(store_thread, tmp_db, channels)
+
+    # Header rows are skipped — never stored as browsable channels.
+    assert _read_channel(tmp_db, "h1") == {}, "## SPORTS ## header must not be stored"
+    assert _read_channel(tmp_db, "h2") == {}, (
+        "trailing-token header '#### BAMBINI HD/4K ##### · UHD' must not be stored"
+    )
+
+    # …but the channels that follow still inherit each header's label.
+    assert _read_channel(tmp_db, "ch1").get("source_category") == "SPORTS"
+    assert _read_channel(tmp_db, "ch2").get("source_category") == "BAMBINI HD/4K"
+
+
+def test_parse_hash_header_matches_trailing_token_form():
+    """Regex guard: a closing-hash run may be followed by a trailing token."""
+    from metatv.core.provider_loader import _parse_hash_header
+    assert _parse_hash_header("#### BAMBINI HD/4K ##### · UHD") == ("BAMBINI HD/4K", "")
+    assert _parse_hash_header("### M. LIGA DE CAMPEONES ###")[0] == "M. LIGA DE CAMPEONES"
+    assert _parse_hash_header("Real Channel HD") is None       # not a header
+    assert _parse_hash_header("CNN ## breaking") is None        # leading text, not a header
+
+
 # ---------------------------------------------------------------------------
 # Test 5 — is_adult extracted from raw_data correctly
 # ---------------------------------------------------------------------------

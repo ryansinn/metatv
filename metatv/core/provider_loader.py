@@ -43,7 +43,11 @@ _CATALOG_UPDATE_COLS: tuple[str, ...] = tuple(c for c in _CATALOG_COLS if c != "
 # parameters — well inside either limit and far fewer commits than every-100.
 _STORE_BATCH = 500
 
-_HASH_HEADER_RE = re.compile(r'^#{2,}\s*(.*?)\s*#{2,}$')
+# A ##...## category header: 2+ leading hashes, a label, 2+ closing hashes.
+# The closing run is NOT anchored to end-of-string — some providers append a
+# trailing token after it (e.g. "#### BAMBINI HD/4K ##### · UHD"), which the
+# old end-anchored pattern missed, leaking those headers in as channels.
+_HASH_HEADER_RE = re.compile(r'^#{2,}\s*(.*?)\s*#{2,}\s*(.*)$')
 
 # Superscript quality markers embedded in ## category headers ##
 _SUPERSCRIPT_QUALITY: list[tuple[str, str]] = [
@@ -243,6 +247,12 @@ class ProviderLoadThread(QThread):
                     if parsed is not None:
                         current_source_category = parsed[0] or None
                         current_source_quality = parsed[1] or None
+                        # The ##...## header is a positional *marker* labelling the
+                        # channels that follow it — not real content (its "stream"
+                        # is a bumper / few-second loop). Its label is already
+                        # captured above, so skip storing it as a browsable channel.
+                        processed += 1
+                        continue
 
                 batch.append({
                     "id": channel.id,
