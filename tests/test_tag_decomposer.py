@@ -399,6 +399,32 @@ class TestGenreDecompose:
     def test_empty_genre(self, cfg):
         assert decompose("genre", "", config=cfg) == []
 
+    def test_sci_fi_abbreviation_normalizes(self, cfg):
+        """'Sci-Fi' collapses to the same canonical as 'Science Fiction'."""
+        tags_abbr = decompose("genre", "Sci-Fi", config=cfg)
+        tags_full = decompose("genre", "Science Fiction", config=cfg)
+        assert tags_abbr == [("genre", "Science Fiction", CONF_DENOTED)]
+        assert tags_full == [("genre", "Science Fiction", CONF_DENOTED)]
+        # Both spellings must yield the identical canonical value.
+        assert tags_abbr == tags_full
+
+    def test_html_entity_genre_collapses(self, cfg):
+        """'Action &amp; Adventure' (HTML-encoded) → same canonical as 'Action & Adventure'."""
+        tags_encoded = decompose("genre", "Action &amp; Adventure", config=cfg)
+        tags_plain = decompose("genre", "Action & Adventure", config=cfg)
+        assert tags_encoded == tags_plain, (
+            f"HTML-encoded genre should collapse to same canonical; "
+            f"got {tags_encoded!r} vs {tags_plain!r}"
+        )
+
+    def test_backfill_version_is_bumped(self):
+        """CURRENT_TAG_BACKFILL_VERSION must be > 1 (genre normalization rerun)."""
+        from metatv.core.migrations.tag_backfill import CURRENT_TAG_BACKFILL_VERSION
+        assert CURRENT_TAG_BACKFILL_VERSION >= 2, (
+            "Bump CURRENT_TAG_BACKFILL_VERSION to at least 2 so genre "
+            "normalization is re-derived for all channels on next launch."
+        )
+
 
 # --------------------------------------------------------------------------- #
 #  epg feeder                                                                  #

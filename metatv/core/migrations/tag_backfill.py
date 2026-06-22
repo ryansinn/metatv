@@ -55,7 +55,10 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial backfill: populate content_tags from provider_category,
 #       header (source_category), name_parse, and genre feeders.
-CURRENT_TAG_BACKFILL_VERSION = 1
+#   2 — genre normalization: Sci-Fi/Science Fiction collapse, HTML-entity
+#       unescaping (`Action &amp; Adventure` → canonical), and cross-language
+#       aliases now applied at the decomposer level via normalize_genre().
+CURRENT_TAG_BACKFILL_VERSION = 2
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
