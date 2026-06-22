@@ -338,6 +338,12 @@ class _MetadataSection(QWidget):
         )
         layout.addWidget(self.genres_label)
 
+        # Watch-completion status (VOD only) — "✓ Watched" or "Resume at M:SS"
+        self._watch_status_lbl = QLabel()
+        self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_DONE)
+        self._watch_status_lbl.hide()
+        layout.addWidget(self._watch_status_lbl)
+
         # Recommendation reason
         self.rec_reason_label = QLabel()
         self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
@@ -427,6 +433,29 @@ class _MetadataSection(QWidget):
             self.adult_indicator.show()
         else:
             self.adult_indicator.hide()
+
+        # Watch-completion status (VOD movies only — never shown for live/series).
+        # Reads stored watch_completed / watch_progress fields; never recomputes.
+        is_movie = getattr(channel, "media_type", None) == "movie"
+        if is_movie:
+            watch_completed = bool(getattr(channel, "watch_completed", False))
+            watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
+            if watch_completed:
+                self._watch_status_lbl.setText(f"{_icons.watched_icon} Watched")
+                self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_DONE)
+                self._watch_status_lbl.setToolTip("You have finished watching this title.")
+                self._watch_status_lbl.show()
+            elif watch_progress > 0:
+                minutes, secs = divmod(watch_progress, 60)
+                resume_str = f"{minutes}:{secs:02d}"
+                self._watch_status_lbl.setText(f"{_icons.episode_icon} Resume at {resume_str}")
+                self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_PROGRESS)
+                self._watch_status_lbl.setToolTip(f"Playback paused at {resume_str}. Resume from here.")
+                self._watch_status_lbl.show()
+            else:
+                self._watch_status_lbl.hide()
+        else:
+            self._watch_status_lbl.hide()
 
         # Show rating from raw_data immediately (don't wait for metadata)
         if channel.raw_data:
@@ -541,6 +570,7 @@ class _MetadataSection(QWidget):
         self.source_label.clear()
         self.source_label.hide()
         self.adult_indicator.hide()
+        self._watch_status_lbl.hide()
         self.rec_reason_label.hide()
 
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QContextMenuEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget,
 )
 
 from loguru import logger
@@ -204,6 +204,26 @@ class _ContentCard(QWidget):
             status_lbl.adjustSize()
             status_lbl.move(cw - status_lbl.width() - round(4 * z), round(4 * z))
             status_lbl.raise_()
+
+        # Resume-progress bar — thin strip at the very bottom of the poster frame.
+        # Shown only when the movie has been partially watched (not completed).
+        # Already-watched cards use the ✓ badge above instead.
+        if card.progress_fraction > 0.0 and not card.already_watched:
+            bar_h = max(3, round(4 * z))
+            progress_bar = QProgressBar(self._poster_frame)
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(round(card.progress_fraction * 100))
+            progress_bar.setFixedSize(cw, bar_h)
+            progress_bar.setTextVisible(False)
+            progress_bar.setGeometry(0, ph - bar_h, cw, bar_h)
+            progress_bar.setToolTip(f"Resume at {round(card.progress_fraction * 100)}% watched")
+            progress_bar.setStyleSheet(
+                f"QProgressBar {{ background: {_theme.OVERLAY_BLACK_60}; border: none;"
+                f" border-radius: 0px; }}"
+                f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_ORANGE};"
+                f" border-radius: 0px; }}"
+            )
+            progress_bar.raise_()
 
         vl.addWidget(self._poster_frame)
 

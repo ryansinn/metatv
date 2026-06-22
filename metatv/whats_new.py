@@ -154,7 +154,7 @@ WHATS_NEW: list[WhatsNewEntry] = [
         date="2026-06-22",
         title="Per-type Select All in Global Exclusions",
         items=(
-            "Each type — Languages, Platforms, Content Types, User Categories — now has its own “all / none” control.",
+            "Each type — Languages, Platforms, Content Types, User Categories — now has its own 'all / none' control.",
             "Exclude every Language but two without unpicking unrelated Platforms: select all in one type, leave the others untouched.",
         ),
     ),
@@ -164,8 +164,20 @@ WHATS_NEW: list[WhatsNewEntry] = [
         date="2026-06-22",
         title="Refreshing a source now updates its EPG too",
         items=(
-            "Refreshing a source pulls current guide data as a second step — no separate “Refresh EPG” needed.",
+            "Refreshing a source pulls current guide data as a second step — no separate 'Refresh EPG' needed.",
             "Sources with EPG turned off are skipped automatically.",
+        ),
+    ),
+    WhatsNewEntry(
+        id=15,
+        version="0.7.0",
+        date="2026-06-21",
+        title="Watch completion — see what you've watched",
+        items=(
+            "Movies you've finished show a ✓ badge in the Discover cards and a ✓ symbol in the channel list.",
+            "Partially-watched movies show a thin orange progress bar at the bottom of the Discover card.",
+            "The details pane shows '✓ Watched' or 'Resume at M:SS' for any movie.",
+            "Configure the completion threshold in Settings → Playback → 'Mark as watched at' (default 90%).",
         ),
     ),
 ]

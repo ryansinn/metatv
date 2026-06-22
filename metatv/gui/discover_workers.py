@@ -201,7 +201,8 @@ class _SeeAllWorker(QObject):
             fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
-                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
+                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids,
+                      progress_map=ss.progress_map)
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
             # Canonical provider scoping: hide inactive + expired sources.
@@ -255,7 +256,8 @@ class _ShelfCardsWorker(QObject):
             fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
-                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
+                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids,
+                      progress_map=ss.progress_map)
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)
             _excl_ids = RepositoryFactory(session).providers.get_hidden_provider_ids()
@@ -308,7 +310,8 @@ class _LoaderWorker(QObject):
         try:
             ss = build_status_sets(session)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
-                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids)
+                      watched_ids=ss.watched_ids, liked_ids=ss.liked_ids,
+                      progress_map=ss.progress_map)
 
             cat_excluded, include_uncategorized = get_active_category_filter(self._config)
             per_prefix = get_excluded_prefixes(self._config)

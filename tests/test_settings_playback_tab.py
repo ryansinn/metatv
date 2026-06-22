@@ -35,10 +35,12 @@ class _FakeConfig:
         prebuffer_before_play: bool = False,
         prebuffer_wait_secs: int = 10,
         mpv_args_override_all: bool = False,
+        watch_complete_threshold: float = 0.9,
     ):
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
+        self.watch_complete_threshold = watch_complete_threshold
         self.close_player_when_finished = False
         self.network_timeout = 10
         self.reconnect_attempts = 3
@@ -81,6 +83,12 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = _bool_check(qapp)
+
+    # Watch-completion threshold spinner (Slice 2)
+    dlg._watch_threshold_spin = QSpinBox()
+    dlg._watch_threshold_spin.setRange(50, 100)
+    dlg._watch_threshold_spin.setSuffix("%")
+
     dlg._close_player_check = _bool_check(qapp)
 
     # New Buffering combo (mirrors _build_playback_tab)

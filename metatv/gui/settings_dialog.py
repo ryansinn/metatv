@@ -80,6 +80,18 @@ class SettingsDialog(QDialog):
         self._autoplay_check = QCheckBox("Autoplay next episode when playing from a season")
         player_form.addRow("", self._autoplay_check)
 
+        threshold_row = QHBoxLayout()
+        self._watch_threshold_spin = QSpinBox()
+        self._watch_threshold_spin.setRange(50, 100)
+        self._watch_threshold_spin.setSuffix("%")
+        self._watch_threshold_spin.setToolTip(
+            "How much of a movie or episode must be watched before it counts as finished.\n"
+            "Shows ✓ in the channel list and a Watched badge in the Discover view."
+        )
+        threshold_row.addWidget(self._watch_threshold_spin)
+        threshold_row.addStretch()
+        player_form.addRow("Mark as watched at:", threshold_row)
+
         self._close_player_check = QCheckBox("Close player when stream finishes")
         player_form.addRow("", self._close_player_check)
 
@@ -338,6 +350,9 @@ class SettingsDialog(QDialog):
         self._player_mode_combo.setCurrentIndex(mode_idx)
 
         self._autoplay_check.setChecked(c.autoplay_season_episodes)
+        self._watch_threshold_spin.setValue(
+            int(round(getattr(c, "watch_complete_threshold", 0.9) * 100))
+        )
         self._close_player_check.setChecked(c.close_player_when_finished)
         self._timeout_spin.setValue(c.network_timeout)
         self._reconnect_spin.setValue(c.reconnect_attempts)
@@ -395,6 +410,7 @@ class SettingsDialog(QDialog):
             else "multiple-instances"
         )
         c.autoplay_season_episodes = self._autoplay_check.isChecked()
+        c.watch_complete_threshold = self._watch_threshold_spin.value() / 100.0
         c.close_player_when_finished = self._close_player_check.isChecked()
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()

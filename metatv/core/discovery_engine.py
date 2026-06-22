@@ -45,6 +45,7 @@ class ContentCard:
     already_watched: bool = False
     is_liked: bool = False
     detected_prefix: str | None = None  # provider category label (e.g. "DE", "KU")
+    progress_fraction: float = 0.0      # 0.0 = none or completed; 0–1 = partial resume
 
 
 # ---------------------------------------------------------------------------
@@ -117,12 +118,18 @@ def _primary_genre(channel) -> str | None:
 
 
 def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
-             watched_ids=None, liked_ids=None) -> ContentCard:
+             watched_ids=None, liked_ids=None,
+             progress_map: "dict[str, float] | None" = None) -> ContentCard:
     title = display_title(channel)
     # Fallback to MetadataDB title when display_title yields a non-alpha string (e.g. "2013")
     if meta and meta.title and not any(c.isalpha() for c in title):
         title = meta.title
     _r = _raw_rating(channel)
+    already_watched = channel.id in (watched_ids or set())
+    # progress_fraction: non-zero only when partially watched (not completed).
+    # Completed items show the ✓ badge instead; a completed channel has watch_progress=0
+    # (cleared by record_watch_progress), so we read it from the progress_map only.
+    frac = (progress_map or {}).get(channel.id, 0.0) if not already_watched else 0.0
     return ContentCard(
         channel_id=channel.id,
         title=title,
@@ -133,9 +140,10 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
         genre=_primary_genre(channel),
         is_favorite=channel.id in (fav_ids or set()),
         in_queue=channel.id in (queue_ids or set()),
-        already_watched=channel.id in (watched_ids or set()),
+        already_watched=already_watched,
         is_liked=channel.id in (liked_ids or set()),
         detected_prefix=channel.detected_prefix or None,
+        progress_fraction=frac,
     )
 
 
@@ -232,10 +240,11 @@ def build_adult_filter(session, config) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 class StatusSets(NamedTuple):
-    fav_ids:     set[str]
-    queue_ids:   set[str]
-    watched_ids: set[str]
-    liked_ids:   set[str]
+    fav_ids:      set[str]
+    queue_ids:    set[str]
+    watched_ids:  set[str]          # channels where watch_completed is True
+    liked_ids:    set[str]
+    progress_map: dict[str, float]  # channel_id → fraction (0–1) for partial watches
 
 
 def build_status_sets(session) -> StatusSets:
@@ -246,9 +255,43 @@ def build_status_sets(session) -> StatusSets:
     # Column-only queries: only need ids, not full ORM objects (avoids loading raw_data JSON)
     fav_ids     = {cid for (cid,) in session.query(ChannelDB.id).filter(ChannelDB.is_favorite == True).all()}  # noqa: E712
     queue_ids   = repos.queue.get_queued_ids()
-    watched_ids = {cid for (cid,) in session.query(ChannelDB.id).filter(ChannelDB.last_played.isnot(None)).all()}
+    # watched_ids: channels that have been fully watched (watch_completed=True).
+    # This is intentionally different from "ever played" (last_played) — the Discover
+    # view shows a ✓ badge only on genuinely completed titles, not merely started ones.
+    watched_ids = {
+        cid for (cid,) in session.query(ChannelDB.id)
+        .filter(ChannelDB.watch_completed == True)  # noqa: E712
+        .all()
+    }
+    # progress_map: partially-watched channels (watch_progress > 0, not completed).
+    # Duration comes from MetadataDB.runtime (minutes→seconds) or raw_data["info"]["duration"].
+    # Rows with watch_completed=True already have watch_progress cleared to 0, so they
+    # never appear here.
+    from metatv.core.database import MetadataDB
+    from sqlalchemy import and_
+    partial_rows = (
+        session.query(ChannelDB.id, ChannelDB.watch_progress, ChannelDB.metadata_id)
+        .filter(
+            ChannelDB.watch_progress > 0,
+            ChannelDB.watch_completed == False,  # noqa: E712
+            ChannelDB.media_type == "movie",
+        )
+        .all()
+    )
+    # Batch-fetch runtimes for partial channels that have metadata
+    meta_ids = {mid for _, _, mid in partial_rows if mid}
+    runtime_by_meta_id: dict[str, int] = {}
+    if meta_ids:
+        for row in session.query(MetadataDB.id, MetadataDB.runtime).filter(MetadataDB.id.in_(meta_ids)).all():
+            if row.runtime:
+                runtime_by_meta_id[row.id] = row.runtime * 60  # minutes → seconds
+    progress_map: dict[str, float] = {}
+    for cid, progress_s, meta_id in partial_rows:
+        duration_s = runtime_by_meta_id.get(meta_id or "", 0)
+        if duration_s > 0 and progress_s > 0:
+            progress_map[cid] = min(1.0, progress_s / duration_s)
     liked_ids   = {r.channel_id for r in session.query(UserRatingDB).filter(UserRatingDB.rating > 0).all()}
-    return StatusSets(fav_ids, queue_ids, watched_ids, liked_ids)
+    return StatusSets(fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +299,7 @@ def build_status_sets(session) -> StatusSets:
 # ---------------------------------------------------------------------------
 
 def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
-                       watched_ids=None, liked_ids=None,
+                       watched_ids=None, liked_ids=None, progress_map=None,
                        excluded_prefixes=None, include_uncategorized: bool = True,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        excluded_provider_ids: list[str] | None = None,
@@ -278,14 +321,14 @@ def get_recently_added(session, limit: int = 30, fav_ids=None, queue_ids=None,
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.added') AS REAL) DESC")
     ).limit(limit * 5).all()
-    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
     return _dedup_cards(cards)[:limit]
 
 
 def get_top_rated(session, media_type: str = "movie", limit: int = 30,
                   min_rating: float = 5.0, fav_ids=None, queue_ids=None,
-                  watched_ids=None, liked_ids=None,
+                  watched_ids=None, liked_ids=None, progress_map=None,
                   excluded_prefixes=None, include_uncategorized: bool = True,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   excluded_provider_ids: list[str] | None = None,
@@ -309,13 +352,13 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
-    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
     return _dedup_cards(cards)[:limit]
 
 
 def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
-                 queue_ids=None, watched_ids=None, liked_ids=None,
+                 queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
                  excluded_prefixes=None, include_uncategorized: bool = True,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  excluded_provider_ids: list[str] | None = None,
@@ -353,13 +396,13 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
-    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
     return _dedup_cards(cards)[:limit]
 
 
 def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
-                  queue_ids=None, watched_ids=None, liked_ids=None,
+                  queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
                   excluded_prefixes=None, include_uncategorized: bool = True,
                   adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                   excluded_provider_ids: list[str] | None = None,
@@ -385,14 +428,14 @@ def get_by_decade(session, decade: int, limit: int = 30, fav_ids=None,
     for ch, meta in q.all():
         yr = _raw_year(ch)
         if yr and start <= yr <= end:
-            results.append(_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids))
+            results.append(_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map))
     results.sort(key=lambda c: c.rating or 0, reverse=True)
     results = _dedup_cards(results)
     return results[:limit]
 
 
 def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
-                       watched_ids=None, liked_ids=None,
+                       watched_ids=None, liked_ids=None, progress_map=None,
                        excluded_prefixes=None, include_uncategorized: bool = True,
                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                        excluded_provider_ids: list[str] | None = None,
@@ -439,6 +482,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
     cards = get_by_actor(session, actor, limit=30,
                          fav_ids=fav_ids, queue_ids=queue_ids,
                          watched_ids=watched_ids, liked_ids=liked_ids,
+                         progress_map=progress_map,
                          excluded_prefixes=excluded_prefixes,
                          include_uncategorized=include_uncategorized,
                          adult_mode=adult_mode,
@@ -449,7 +493,7 @@ def get_featured_actor(session, weights=None, fav_ids=None, queue_ids=None,
 
 
 def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
-                 queue_ids=None, watched_ids=None, liked_ids=None,
+                 queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
                  excluded_prefixes=None, include_uncategorized: bool = True,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  excluded_provider_ids: list[str] | None = None,
@@ -474,7 +518,7 @@ def get_by_actor(session, actor: str, limit: int = 30, fav_ids=None,
     rows = q.order_by(
         text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
     ).limit(limit * 5).all()
-    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
              for ch, meta in rows]
     return _dedup_cards(cards)[:limit]
 
@@ -637,6 +681,7 @@ def get_all_user_categories(session, excluded_user_categories: list[str] | None 
 
 def get_by_user_category(session, category: str, limit: int = 30,
                           fav_ids=None, queue_ids=None, watched_ids=None, liked_ids=None,
+                          progress_map=None,
                           excluded_prefixes=None, include_uncategorized: bool = True,
                           adult_mode: str = "all",
                           force_adult_provider_ids: list[str] | None = None,
@@ -657,6 +702,6 @@ def get_by_user_category(session, category: str, limit: int = 30,
     q = _apply_provider_exclusion(q, excluded_provider_ids)
     rows = q.order_by(ChannelDB.name).limit(limit).all()
     return [
-        _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids)
+        _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
         for ch, meta in rows
     ]
