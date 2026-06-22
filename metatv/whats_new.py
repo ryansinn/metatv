@@ -181,13 +181,14 @@ WHATS_NEW: list[WhatsNewEntry] = [
         ),
     ),
     WhatsNewEntry(
-        id=18,
+        id=16,
         version="0.7.0",
         date="2026-06-21",
-        title="Partial-watched indicator in the channel list",
+        title="Source refresh shows a step-by-step checklist",
         items=(
-            "Movies and series you've started but not finished now show a ◐ symbol in the channel list.",
-            "Completed content keeps the ✓ badge; unwatched items show nothing — three states at a glance.",
+            "The 'Refreshing {source}' toast now shows a labeled checklist — Fetching channels, Storing channels, Parsing & detecting — instead of an opaque progress bar.",
+            "Sources with EPG enabled show two additional steps: Downloading EPG and Parsing EPG.",
+            "Each step shows its status at a glance: pending (◻), active (⟳), or done (✓).",
         ),
     ),
 ]

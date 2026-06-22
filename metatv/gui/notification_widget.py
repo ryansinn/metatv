@@ -6,10 +6,56 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 
-from metatv.core.notifications import Notification, NotificationType
+from metatv.core.notifications import Notification, NotificationType, StepStatus
 from metatv.core.config import Config
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+
+# Status glyph for each step state — reuses migration icons for visual consistency.
+_STEP_GLYPH: dict[StepStatus, str] = {
+    StepStatus.PENDING: _icons.migration_pending_icon,
+    StepStatus.ACTIVE:  _icons.notification_progress_icon,
+    StepStatus.DONE:    _icons.migration_done_icon,
+}
+
+# Color for each glyph state
+_STEP_COLOR: dict[StepStatus, str] = {
+    StepStatus.PENDING: _theme.COLOR_DIM,
+    StepStatus.ACTIVE:  _theme.COLOR_ACCENT_BLUE,
+    StepStatus.DONE:    _theme.COLOR_OK,
+}
+
+
+class _StepRow(QWidget):
+    """Single step row: ``[glyph]  label``."""
+
+    def __init__(self, label: str, status: StepStatus, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 1, 0, 1)
+        layout.setSpacing(5)
+
+        self._glyph = QLabel(_STEP_GLYPH[status])
+        self._glyph.setFixedWidth(14)
+        self._glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._glyph.setStyleSheet(
+            f"color: {_STEP_COLOR[status]}; font-size: {_theme.FONT_MD};"
+        )
+        layout.addWidget(self._glyph)
+
+        self._label = QLabel(label)
+        self._label.setStyleSheet(
+            f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};"
+        )
+        self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addWidget(self._label)
+
+    def update_status(self, status: StepStatus) -> None:
+        """Update the glyph and its color for the new status."""
+        self._glyph.setText(_STEP_GLYPH[status])
+        self._glyph.setStyleSheet(
+            f"color: {_STEP_COLOR[status]}; font-size: {_theme.FONT_MD};"
+        )
 
 
 class NotificationCard(QFrame):
@@ -19,6 +65,8 @@ class NotificationCard(QFrame):
         super().__init__(parent)
         self.notification = notification
         self.config = config
+        self._step_rows: list[_StepRow] = []
+        self._steps_container: QVBoxLayout | None = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -121,8 +169,15 @@ class NotificationCard(QFrame):
                 action_layout.addWidget(btn)
             layout.addLayout(action_layout)
 
-        # Progress bar for progress notifications
-        if self.notification.type == NotificationType.PROGRESS:
+        # Steps checklist — shown instead of the raw progress bar when steps are present.
+        if self.notification.steps is not None:
+            self._steps_container = QVBoxLayout()
+            self._steps_container.setSpacing(2)
+            self._steps_container.setContentsMargins(0, 4, 0, 0)
+            self._build_step_rows(self.notification.steps)
+            layout.addLayout(self._steps_container)
+        elif self.notification.type == NotificationType.PROGRESS:
+            # Fall back to the classic progress bar when no steps are defined.
             progress_layout = QHBoxLayout()
 
             self.progress_bar = QProgressBar()
@@ -140,6 +195,25 @@ class NotificationCard(QFrame):
 
         # Record the type used to style this card — used to detect changes in update_notifications
         self._notification_type = self.notification.type
+
+    def _build_step_rows(self, steps: list) -> None:
+        """Populate (or repopulate) ``_step_rows`` from the step list.
+
+        Clears any existing rows from ``_steps_container`` first so this can be
+        called both at construction and when the step count changes.
+        """
+        # Remove old rows from layout
+        while self._steps_container.count():
+            item = self._steps_container.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._step_rows.clear()
+
+        for label, status in steps:
+            row = _StepRow(label, status, self)
+            self._step_rows.append(row)
+            self._steps_container.addWidget(row)
 
     def update_notification(self, notification: Notification):
         """Update notification display"""
@@ -160,17 +234,27 @@ class NotificationCard(QFrame):
         if hasattr(self, 'message_label') and notification.message:
             self.message_label.setText(notification.message)
 
-        # Update progress
-        if hasattr(self, 'progress_bar') and notification.progress is not None:
-            self.progress_bar.setValue(int(notification.progress * 100))
+        # Update steps checklist when present
+        if notification.steps is not None and self._steps_container is not None:
+            if len(notification.steps) != len(self._step_rows):
+                # Step count changed (e.g. EPG steps added) — rebuild the rows.
+                self._build_step_rows(notification.steps)
+            else:
+                # Fast path: update each row's glyph in-place.
+                for row, (_, status) in zip(self._step_rows, notification.steps):
+                    row.update_status(status)
+        elif notification.steps is None:
+            # No steps — update classic progress bar if present.
+            if hasattr(self, 'progress_bar') and notification.progress is not None:
+                self.progress_bar.setValue(int(notification.progress * 100))
 
-        if hasattr(self, 'progress_label'):
-            if notification.progress_current is not None and notification.progress_total is not None:
-                progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
-                percentage = int(notification.progress * 100) if notification.progress else 0
-                self.progress_label.setText(f"{progress_text} ({percentage}%)")
-                if not self.progress_label.isVisible():
-                    self.progress_label.setVisible(True)
+            if hasattr(self, 'progress_label'):
+                if notification.progress_current is not None and notification.progress_total is not None:
+                    progress_text = f"{notification.progress_current:,} / {notification.progress_total:,}"
+                    percentage = int(notification.progress * 100) if notification.progress else 0
+                    self.progress_label.setText(f"{progress_text} ({percentage}%)")
+                    if not self.progress_label.isVisible():
+                        self.progress_label.setVisible(True)
 
         self.updateGeometry()
         self.adjustSize()
