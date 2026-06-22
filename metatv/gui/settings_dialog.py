@@ -216,6 +216,28 @@ class SettingsDialog(QDialog):
         mpv_layout.addWidget(self._override_all_check)
         layout.addWidget(mpv_group)
 
+        search_group = QGroupBox("Search")
+        search_form = QFormLayout(search_group)
+        search_form.setSpacing(8)
+
+        self._remember_search_check = QCheckBox("Remember last search")
+        self._remember_search_check.setToolTip(
+            "When on, MetaTV saves your search query, source filter, and active\n"
+            "context chips when you change them, and restores them the next time\n"
+            "you launch the app or return to the channel list."
+        )
+        search_form.addRow("", self._remember_search_check)
+
+        search_hint = QLabel(
+            "Restores the query text, source filter (if any), All/Hidden toggle, "
+            "and genre/person chips from your last session."
+        )
+        search_hint.setWordWrap(True)
+        search_hint.setStyleSheet(_theme.META_HINT)
+        search_form.addRow("", search_hint)
+
+        layout.addWidget(search_group)
+
         layout.addStretch()
         return tab
 
@@ -384,6 +406,11 @@ class SettingsDialog(QDialog):
         self._override_all_check.setChecked(getattr(c, "mpv_args_override_all", False))
         self._split_check.setChecked(getattr(c, "split_streams_by_source", False))
 
+        # Search
+        self._remember_search_check.blockSignals(True)
+        self._remember_search_check.setChecked(getattr(c, "remember_search", True))
+        self._remember_search_check.blockSignals(False)
+
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
         self._epg_interval_combo.setCurrentIndex(epg_idx if epg_idx >= 0 else 0)
@@ -442,6 +469,9 @@ class SettingsDialog(QDialog):
         c.prebuffer_wait_secs = self._prebuffer_wait_spin.value()
         c.mpv_args_override_all = self._override_all_check.isChecked()
         c.split_streams_by_source = self._split_check.isChecked()
+
+        # Search
+        c.remember_search = self._remember_search_check.isChecked()
 
         # EPG
         epg_val = self._epg_interval_combo.currentData()

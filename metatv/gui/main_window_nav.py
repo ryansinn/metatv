@@ -194,6 +194,7 @@ class _NavMixin:
         self._tab_all_btn.setChecked(not hidden)
         self._tab_hidden_btn.setChecked(hidden)
         self._hidden_mode = hidden
+        self._save_search_state()
         if hidden:
             self.view_mode = "hidden"
             self._hidden_banner.setVisible(True)
@@ -261,6 +262,7 @@ class _NavMixin:
         self._details_genre_filter = genre
         self._context_filter_label.setText(f"Genre: {genre}")
         self._context_filter_chip.show()
+        self._save_search_state()
         self.switch_to_list_view()
         self.load_channels()
 
@@ -270,6 +272,7 @@ class _NavMixin:
         self._details_person_filter = name
         self._context_filter_label.setText(f"Cast/Crew: {name}")
         self._context_filter_chip.show()
+        self._save_search_state()
         self.switch_to_list_view()
         self.load_channels()
 
@@ -278,5 +281,6 @@ class _NavMixin:
         self._details_genre_filter = None
         self._details_person_filter = None
         self._context_filter_chip.hide()
+        self._save_search_state()
         self.load_channels()
 

@@ -95,6 +95,7 @@ class _FakeThresholdConfig:
         self.metadata_omdb_api_key = ""
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
+        self.remember_search: bool = True
         self._saved = False
 
     def save(self) -> None:
@@ -137,6 +138,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._prebuffer_wait_spin.setSuffix(" s")
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
+    dlg._remember_search_check = QCheckBox()
     dlg._timeout_spin = QSpinBox()
     dlg._timeout_spin.setRange(1, 60)
     dlg._reconnect_spin = QSpinBox()
