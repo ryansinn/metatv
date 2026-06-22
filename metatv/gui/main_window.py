@@ -414,6 +414,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._lightbox.rating_requested.connect(self._toggle_rating)
         self._lightbox.suppression_requested.connect(self._on_suppression_requested)
 
+        # Poster lightbox — full-res image overlay, hidden by default
+        from metatv.gui.poster_lightbox import PosterLightbox
+        self._poster_lightbox = PosterLightbox(self)
+        self.details_pane.poster_enlarged.connect(self._poster_lightbox.show_pixmap)
+
         # Center panel gets all extra space when window is resized
         self.main_splitter.setStretchFactor(0, 0)  # sidebar: fixed
         self.main_splitter.setStretchFactor(1, 1)  # center: stretches
@@ -1173,6 +1178,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.migration_progress_widget.reposition()
         if hasattr(self, '_lightbox') and self._lightbox.isVisible():
             self._lightbox.resize(self.size())
+        if hasattr(self, '_poster_lightbox') and self._poster_lightbox.isVisible():
+            self._poster_lightbox.resize(self.size())
 
     def _show_similar_lightbox(
         self,
