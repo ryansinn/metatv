@@ -796,6 +796,11 @@ class Config(BaseModel):
     # Incremented when the parsing logic changes so the app can auto-rescan on startup.
     prefix_parse_version: int = 0
 
+    # Internal migration version for the stale-metadata backfill.
+    # Bump CURRENT_METADATA_RESCAN_VERSION in metatv/core/migrations/metadata_rescan.py
+    # to trigger a one-time background re-derivation of stale metadata links.
+    metadata_rescan_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

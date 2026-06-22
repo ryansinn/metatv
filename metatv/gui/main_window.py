@@ -280,6 +280,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager = MigrationManager(self.config, self.db, parent=self)
         from metatv.core.migrations.prefix_rescan import PrefixRescanTask
         self.migration_manager.register(PrefixRescanTask(self.db))
+        from metatv.core.migrations.metadata_rescan import MetadataRescanTask
+        self.migration_manager.register(MetadataRescanTask(self.db, self.metadata_manager))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
 
         self.setup_ui()

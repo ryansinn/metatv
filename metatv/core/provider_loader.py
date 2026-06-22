@@ -292,11 +292,28 @@ class ProviderLoadThread(QThread):
         to insert new rows and update only catalog columns on conflict.
         Derived/user columns (``is_favorite``, ``play_count``, ``detected_*``,
         ``user_category``, etc.) are NOT in the SET clause and are preserved.
+
+        **Stream-ID reuse guard:** IPTV providers occasionally recycle stream IDs
+        for completely different content.  When the incoming ``name`` differs from
+        the stored row's ``name``, the linked ``MetadataDB`` row belongs to the
+        previous occupant and must be invalidated so it re-derives from the new
+        ``raw_data``.  This is expressed as a CASE in the DO UPDATE clause so it
+        happens atomically inside the same bulk upsert — no extra query needed.
         """
+        from sqlalchemy import case, literal
+
         stmt = _sqlite_insert(ChannelDB).values(batch)
+        update_set = {col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS}
+        # Clear stale metadata when the channel name changes (stream-ID reuse).
+        # new rows (INSERT path) have metadata_id=NULL by default — this only fires
+        # for the DO UPDATE branch (existing rows), and only when the name actually changed.
+        update_set["metadata_id"] = case(
+            (stmt.excluded.name != ChannelDB.name, literal(None)),
+            else_=ChannelDB.metadata_id,
+        )
         stmt = stmt.on_conflict_do_update(
             index_elements=["id"],
-            set_={col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS},
+            set_=update_set,
         )
         session.execute(stmt)
         session.commit()
