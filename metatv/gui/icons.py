@@ -220,7 +220,7 @@ def watch_icon(glyph: str, muted: bool) -> object:
     if cache_key in _WATCH_ICON_CACHE:
         return _WATCH_ICON_CACHE[cache_key]
 
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import QRect, Qt
     from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
     from PyQt6.QtWidgets import QApplication
 
@@ -243,7 +243,11 @@ def watch_icon(glyph: str, muted: bool) -> object:
     font.setPixelSize(int(_theme.FONT_LG.replace("px", "")))
     painter.setFont(font)
     painter.setPen(color)
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
+    # Draw into the LOGICAL-size rect (size×size), not pixmap.rect() (which is
+    # the device rect, e.g. 28×28 at dpr=2).  With setDevicePixelRatio the
+    # painter works in logical coords, so using the device rect centers the
+    # glyph in a box twice too big and pushes it into a corner.
+    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, glyph)
     painter.end()
 
     icon = QIcon(pixmap)
