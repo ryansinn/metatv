@@ -14,7 +14,7 @@ from metatv.core.repositories import RepositoryFactory
 
 
 class _NavMixin:
-    """Mixin: view switching, chip activation, filter controls, prefix migration."""
+    """Mixin: view switching, chip activation, filter controls."""
 
     # ── Content-area blanking ───────────────────────────────────────────────
 
@@ -280,24 +280,3 @@ class _NavMixin:
         self._context_filter_chip.hide()
         self.load_channels()
 
-    # ── Compound-prefix migration ───────────────────────────────────────────
-
-    _PREFIX_PARSE_VERSION = 6  # bumped: [4K][US] bracket quality parsing, numeric prefix guard, 24/7 title strip, Guard-3 prefix clear, · display format
-
-    def _check_prefix_migration(self) -> None:
-        """Run a one-time background rescan if prefix parsing logic has been updated."""
-        if getattr(self.config, "prefix_parse_version", 0) < self._PREFIX_PARSE_VERSION:
-            self.executor.submit(self._bg_prefix_migration)
-
-    def _bg_prefix_migration(self) -> None:
-        """Worker: reparse all channels' detected_prefix/quality for compound prefixes."""
-        with self.db.session_scope() as session:
-            repos = RepositoryFactory(session)
-            repos.channels.update_detected_prefixes()
-        self._prefix_migration_done.emit()
-
-    def _on_prefix_migration_done(self) -> None:
-        """Called on main thread when the background prefix migration finishes."""
-        self.config.prefix_parse_version = self._PREFIX_PARSE_VERSION
-        self.config.save()
-        self.load_channels()

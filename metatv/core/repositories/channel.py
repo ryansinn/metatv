@@ -548,6 +548,8 @@ class ChannelRepository(_ChannelStatsMixin):
         self,
         provider_id: Optional[str] = None,
         separators: list[str] | None = None,
+        progress_cb=None,
+        is_cancelled=None,
     ):
         """Update detected_prefix, detected_quality, and detected_region for all channels.
 
@@ -559,6 +561,15 @@ class ChannelRepository(_ChannelStatsMixin):
             provider_id: Only update channels for this provider, or None for all.
             separators: Ordered list of separator strings to try. Defaults to
                 ``DEFAULT_PREFIX_SEPARATORS`` from filter_utils when None.
+            progress_cb: Optional ``(done: int, total: int) -> None`` called after
+                each batch commit.  ``done`` is non-decreasing and ends at
+                ``total`` on full completion.  Pass ``None`` (default) to skip
+                progress reporting (existing callers are unaffected).
+            is_cancelled: Optional ``() -> bool`` checked at the top of each
+                batch iteration.  When it returns True the loop exits early;
+                already-committed batches are durable but the task is not marked
+                complete (version not bumped by the manager).  Pass ``None``
+                (default) to run without cancellation support.
         """
         _BATCH = 2000
 
@@ -566,11 +577,21 @@ class ChannelRepository(_ChannelStatsMixin):
         if provider_id:
             id_query = id_query.filter(ChannelDB.provider_id == provider_id)
         all_ids = [row[0] for row in id_query.all()]
+        total = len(all_ids)
 
         updated = 0
         processed = 0
 
-        for batch_start in range(0, len(all_ids), _BATCH):
+        for batch_start in range(0, total, _BATCH):
+            # Check for cancellation before starting each batch
+            if is_cancelled is not None and is_cancelled():
+                logger.info(
+                    "update_detected_prefixes: cancelled at batch_start={}/{}",
+                    batch_start,
+                    total,
+                )
+                break
+
             chunk_ids = all_ids[batch_start : batch_start + _BATCH]
             channels = self.session.query(ChannelDB).filter(
                 ChannelDB.id.in_(chunk_ids)
@@ -692,8 +713,12 @@ class ChannelRepository(_ChannelStatsMixin):
             # loading the next chunk.  After the last batch there is nothing to
             # free, so we skip the expunge to leave any caller-held references
             # in a usable state (expunge_all would detach them).
-            if batch_start + _BATCH < len(all_ids):
+            if batch_start + _BATCH < total:
                 self.session.expunge_all()
+
+            # Report progress after each committed batch
+            if progress_cb is not None:
+                progress_cb(min(batch_start + _BATCH, total), total)
 
         logger.info(f"Updated parsed name fields for {updated} of {processed} channels")
         return updated
