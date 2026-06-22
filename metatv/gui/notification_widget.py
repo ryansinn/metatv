@@ -205,7 +205,10 @@ class NotificationWidget(QWidget):
         self._layout.addStretch()
 
         self.setFixedWidth(420)
-        self.reposition()
+        # Start hidden: an empty overlay positioned bottom-right would otherwise sit
+        # over the Exclusions chip (far-right of the bottom nav bar) and, being raised,
+        # swallow its clicks. Shown only when there is a notification to display.
+        self.hide()
 
     def _schedule_reposition(self):
         """Queue a reposition on the next event loop tick, coalescing rapid calls."""
@@ -258,6 +261,8 @@ class NotificationWidget(QWidget):
             # so that adjustSize() sees the correct child geometry.
             self._schedule_reposition()
         else:
+            # Nothing to show — hide so the empty overlay stops covering (and
+            # intercepting clicks for) the Exclusions chip beneath it.
             self.hide()
 
     def dismiss_notification(self, notification_id: str):
