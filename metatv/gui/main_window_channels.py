@@ -178,49 +178,15 @@ class _ChannelListMixin:
             else {}
         )
 
-        # Filter panel provides pre-resolved prefix lists — use them directly.
-        # Falls back to old group-resolution logic when filter_panel is unavailable.
-        if '_language_prefixes' in filter_state:
-            language_prefixes = filter_state['_language_prefixes'] or []
-            region_prefixes   = filter_state['_region_prefixes']   or []
-            platform_prefixes = filter_state['_platform_prefixes'] or []
-            quality_prefixes  = filter_state['_quality_prefixes']  or []
-        else:
-            _all_lang_groups  = set(self.config.filter_language_groups.keys()) | (
-                {"Other"} if self._filter_unmapped_prefixes else set()
-            )
-            _sel_lang_groups  = set(filter_state.get('language_groups', []))
-            if _all_lang_groups and _sel_lang_groups >= _all_lang_groups:
-                language_prefixes = []
-            else:
-                language_prefixes = []
-                for group_name in _sel_lang_groups:
-                    if group_name == "Other":
-                        language_prefixes.extend(self._filter_unmapped_prefixes)
-                    else:
-                        language_prefixes.extend(
-                            self.config.filter_language_groups.get(group_name, []))
-
-            _all_qual_groups = set(self.config.filter_quality_groups.keys())
-            _sel_qual_groups = set(filter_state.get('quality_groups', []))
-            quality_prefixes = [] if _all_qual_groups and _sel_qual_groups >= _all_qual_groups else [
-                p for g in _sel_qual_groups
-                for p in self.config.filter_quality_groups.get(g, [])
-            ]
-
-            _all_plat_groups = set(self.config.filter_platform_groups.keys())
-            _sel_plat_groups = set(filter_state.get('platform_groups', []))
-            platform_prefixes = [] if _all_plat_groups and _sel_plat_groups >= _all_plat_groups else [
-                p for g in _sel_plat_groups
-                for p in self.config.filter_platform_groups.get(g, [])
-            ]
-
-            _all_region_groups = set(self.config.filter_regional_groups.keys())
-            _sel_region_groups = set(filter_state.get('region_groups', []))
-            region_prefixes = [] if _all_region_groups and _sel_region_groups >= _all_region_groups else [
-                p for g in _sel_region_groups
-                for p in self.config.filter_regional_groups.get(g, [])
-            ]
+        # Tag-model (Slice B): tag_includes from get_filter_state() replaces the old
+        # prefix-list resolution.  The legacy '_language_prefixes' etc. fields are
+        # kept in the state dict as None so the params block below still compiles;
+        # they are not passed to get_all() when tag_includes is present.
+        tag_includes = filter_state.get('tag_includes')  # dict[str, set[str]] | None
+        language_prefixes: list = []
+        region_prefixes:   list = []
+        platform_prefixes: list = []
+        quality_prefixes:  list = []
 
         # Resolve provider filter on main thread (tiny queries)
         session = self.db.get_session()
@@ -270,16 +236,21 @@ class _ChannelListMixin:
         params = dict(
             provider_id=target_provider_id,
             media_types=filter_state.get('media_types', ['live', 'movie', 'series']),
-            language_prefixes=None if _bypassing else (language_prefixes or None),
-            region_prefixes=None if _bypassing else (region_prefixes or None),
-            quality_prefixes=None if _bypassing else (quality_prefixes or None),
-            platform_prefixes=None if _bypassing else (platform_prefixes or None),
+            # Legacy prefix lists — now always empty (tag_includes is the active path).
+            # Kept in params so _query_channels_page (pagination) still has these keys.
+            language_prefixes=None,
+            region_prefixes=None,
+            quality_prefixes=None,
+            platform_prefixes=None,
             genre_filters=None if _bypassing else _genre_filters,
             invert_prefix_filters=False,
             include_untagged=filter_state.get('include_untagged', True),
             include_untagged_quality=filter_state.get('include_untagged_quality', True),
             adult_mode=filter_state.get('adult_mode', 'hide'),
             force_adult_ids=force_adult_ids,
+            # Tag facet filter — the active filter path (Slice B).
+            # None when bypassing or no facet is constrained.
+            tag_includes=None if _bypassing else tag_includes,
             # Global filter — bypassed when paused so the user can see everything
             source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
             excluded_prefixes=_global_excluded_prefixes,
@@ -332,9 +303,9 @@ class _ChannelListMixin:
             channels = repos.channels.get_all(
                 provider_id=params['provider_id'],
                 media_types=params['media_types'],
-                language_prefixes=params['language_prefixes'],
+                language_prefixes=params.get('language_prefixes'),
                 region_prefixes=params.get('region_prefixes'),
-                quality_prefixes=params['quality_prefixes'],
+                quality_prefixes=params.get('quality_prefixes'),
                 platform_prefixes=params.get('platform_prefixes'),
                 genre_filters=params.get('genre_filters'),
                 invert_prefix_filters=params['invert_prefix_filters'],
@@ -350,6 +321,7 @@ class _ChannelListMixin:
                 strict_genre_filter=params.get('strict_genre_filter'),
                 person_filter=params.get('person_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
+                tag_includes=params.get('tag_includes'),
                 limit=_page_size,
             )
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
@@ -379,12 +351,8 @@ class _ChannelListMixin:
         # When zero results + Tier 1 filters active, count what exists without
         # those filters so we can tell the user "X results are filtered out".
         filtered_out_count = 0
-        tier1_active = any([
-            params.get('language_prefixes'),
-            params.get('region_prefixes'),
-            params.get('quality_prefixes'),
-            params.get('platform_prefixes'),
-        ])
+        # tag_includes is the active filter path (Slice B); legacy prefix lists are now always None.
+        tier1_active = bool(params.get('tag_includes'))
         if not hidden_only and len(channels) == 0 and tier1_active:
             unfiltered = repos.channels.get_all(
                 provider_id=params['provider_id'],
@@ -515,12 +483,8 @@ class _ChannelListMixin:
         # the "Showing N of M" label live as fetchMore() streams in more pages.
         self._stats_total_channels = total_channels
         self._stats_hidden_only = bool(params.get('hidden_only'))
-        self._stats_panel_filtering = any([
-            params.get('language_prefixes'),
-            params.get('region_prefixes'),
-            params.get('quality_prefixes'),
-            params.get('platform_prefixes'),
-        ])
+        # tag_includes is the active filter indicator (Slice B).
+        self._stats_panel_filtering = bool(params.get('tag_includes'))
         self._refresh_channel_stats_label()
 
         if params.get('hidden_only'):
@@ -687,39 +651,32 @@ class _ChannelListMixin:
         self.load_channels(None)
 
     def initialize_filter_stats(self) -> None:
-        """Kick off a background load of prefix statistics for the filter bar.
+        """Kick off a background load of tag-facet statistics for the filter bar.
 
-        The heavy GROUP-BY over the full channels table runs off the UI thread via
-        ``_run_query``; ``_on_filter_stats_loaded`` applies the result on the main
-        thread once it arrives.
+        Runs ``TagRepository.get_facet_value_counts`` off the UI thread via
+        ``_run_query``; ``_on_filter_stats_loaded`` applies the result on the
+        main thread once it arrives.
+
+        The query is a single GROUP BY over content_tags JOIN tags JOIN channels,
+        scoped to visible channels on active sources — memory-safe over 1M+ rows.
         """
-        lang_groups = self.config.filter_language_groups
-        quality_groups = self.config.filter_quality_groups
-        platform_groups = self.config.filter_platform_groups
-        regional_groups = self.config.filter_regional_groups
-        excluded = set(self.config.global_filter_excluded_user_categories)
-
         self._run_query(
-            lambda repos: repos.channels.get_prefix_stats(
-                provider_id=None,
-                language_groups=lang_groups,
-                quality_groups=quality_groups,
-                platform_groups=platform_groups,
-                regional_groups=regional_groups,
-                excluded_user_categories=excluded,
-                excluded_provider_ids=set(repos.providers.get_hidden_provider_ids()),
+            lambda repos: repos.tags.get_facet_value_counts(
+                excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,
             on_error=lambda e: logger.error(f"Failed to load filter stats: {e}"),
         )
 
-    def _on_filter_stats_loaded(self, stats: dict) -> None:
-        """Main-thread handler: apply prefix statistics to the filter bar."""
-        self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
+    def _on_filter_stats_loaded(self, tag_counts: dict) -> None:
+        """Main-thread handler: apply tag-facet counts to the filter panel."""
+        # Legacy prefix field — now always empty since we use the tag model.
+        self._filter_unmapped_prefixes = []
         if hasattr(self, 'filter_panel'):
-            self.filter_panel.update_data(stats)
-        logger.info(f"Initialized filter stats: {stats['channels_with_prefix']:,} channels with prefixes")
+            self.filter_panel.update_data(tag_counts)
+        total = sum(sum(v.values()) for v in tag_counts.values())
+        logger.info(f"Initialized filter stats (tag model): {total:,} total tag-value occurrences")
 
     # ---- Unified context menu infrastructure ----------------------------------
 
@@ -1023,6 +980,7 @@ class _ChannelListMixin:
                 strict_genre_filter=query_params.get('strict_genre_filter'),
                 person_filter=query_params.get('person_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
+                tag_includes=query_params.get('tag_includes'),
                 limit=page_size,
                 offset=offset,
             )

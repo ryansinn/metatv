@@ -240,8 +240,12 @@ class FilterPanel(QWidget):
 
     # ── public API ──────────────────────────────────────────────────────────
 
-    def update_data(self, stats: dict):
-        """Populate sections from get_prefix_stats() result dict.
+    def update_data(self, tag_counts: dict[str, dict[str, int]]):
+        """Populate dynamic sections from ``TagRepository.get_facet_value_counts()``.
+
+        ``tag_counts`` is a nested dict ``{facet_type: {value: channel_count}}``
+        returned by the tag-facet stats query.  Recognised facet types:
+        ``language``, ``region``, ``platform``, ``quality``, ``genre``.
 
         On first call (startup), the in-memory ``prev`` selections are all empty
         because the items don't exist yet when ``restore_state()`` runs at init.
@@ -256,8 +260,6 @@ class FilterPanel(QWidget):
         """
         # Capture whether this is the first call BEFORE any state is modified.
         was_first = not self._stats_loaded
-
-        prefix_counts: dict[str, int] = stats.get('prefix_counts', {})
 
         # Build the startup fallback: config_attr → persisted set of keys.
         # Uses the same (config_attr, section) mapping as restore_state() so there
@@ -284,30 +286,43 @@ class FilterPanel(QWidget):
                 if saved is not None:
                     sec.restore_selection(set(saved))
 
-        # ── Media — update counts only (items are static)
+        # ── Media — static items (no change needed)
 
-        # ── Language — flat, sorted by count
-        lang_groups = stats.get('language_groups', {})
+        # ── Language — tag values are group names (e.g. "English", "French")
+        lang_values: dict[str, int] = tag_counts.get('language', {})
         lang_items = sorted(
-            [(k, k, v) for k, v in lang_groups.items() if v > 0],
+            [(k, k, v) for k, v in lang_values.items() if v > 0],
             key=lambda x: (-x[2], x[1]),
         )
         prev_lang = set(self._lang_sec.get_selected_keys())
         self._lang_sec.set_flat_items(lang_items)
         _restore(self._lang_sec, prev_lang)
 
-        # ── Region — hierarchical: group → individual prefix codes
+        # ── Region — tag values are individual ISO codes (e.g. "US", "CA").
+        # Display hierarchically using config.filter_regional_groups: each group is a
+        # parent, and children are only the ISO codes present in the tag counts.
+        region_values: dict[str, int] = tag_counts.get('region', {})
         regional_groups = self.config.filter_regional_groups
-        region_counts = stats.get('region_groups', {})
+        # Build reverse lookup: ISO code (uppercased) → group name(s)
+        code_to_groups: dict[str, list[str]] = {}
+        for group_name, codes in regional_groups.items():
+            for code in codes:
+                code_to_groups.setdefault(code.upper(), []).append(group_name)
+        # Accumulate group totals from tag counts
+        group_totals: dict[str, int] = {}
+        for code, cnt in region_values.items():
+            for grp in code_to_groups.get(code.upper(), []):
+                group_totals[grp] = group_totals.get(grp, 0) + cnt
+        # Build region_data for set_grouped_items
         region_data: list[tuple[str, int, list[tuple[str, str, int]]]] = []
         for group_name in sorted(regional_groups.keys()):
-            total = region_counts.get(group_name, 0)
+            total = group_totals.get(group_name, 0)
             if total == 0:
                 continue
-            children = [
-                (code, self._region_label(code), prefix_counts.get(code, 0))
+            children: list[tuple[str, str, int]] = [
+                (code, self._region_label(code), region_values.get(code, 0))
                 for code in regional_groups[group_name]
-                if prefix_counts.get(code, 0) > 0
+                if region_values.get(code, 0) > 0
             ]
             children.sort(key=lambda x: -x[2])
             if children:
@@ -316,35 +331,35 @@ class FilterPanel(QWidget):
         self._region_sec.set_grouped_items(region_data)
         _restore(self._region_sec, prev_region)
 
-        # ── Platform — flat, sorted by count
-        platform_groups = stats.get('platform_groups', {})
+        # ── Platform — tag values are group names (e.g. "Netflix", "Disney+")
+        platform_values: dict[str, int] = tag_counts.get('platform', {})
         plat_items = sorted(
-            [(k, k, v) for k, v in platform_groups.items() if v > 0],
+            [(k, k, v) for k, v in platform_values.items() if v > 0],
             key=lambda x: (-x[2], x[1]),
         )
         prev_plat = set(self._platform_sec.get_selected_keys())
         self._platform_sec.set_flat_items(plat_items)
         _restore(self._platform_sec, prev_plat)
 
-        # ── Quality — fixed tier order
+        # ── Quality — tag values are group names (e.g. "HD", "4K / UHD"); fixed display order
         quality_order = ["RAW", "4K / UHD", "HD", "HQ", "SD", "LQ",
                          "CAM / Pre-release"]
-        quality_groups = stats.get('quality_groups', {})
+        quality_values: dict[str, int] = tag_counts.get('quality', {})
         qual_items = [
-            (n, n, quality_groups[n]) for n in quality_order
-            if n in quality_groups and quality_groups[n] > 0
+            (n, n, quality_values[n]) for n in quality_order
+            if n in quality_values and quality_values[n] > 0
         ]
-        for n, v in quality_groups.items():
+        for n, v in quality_values.items():
             if n not in quality_order and v > 0:
                 qual_items.append((n, n, v))
         prev_qual = set(self._quality_sec.get_selected_keys())
         self._quality_sec.set_flat_items(qual_items)
         _restore(self._quality_sec, prev_qual)
 
-        # ── Genre — flat, sorted by count descending (alphabetically within same count)
-        genre_counts: dict[str, int] = stats.get('genre_counts', {})
+        # ── Genre — tag values are canonical genre names (e.g. "Drama")
+        genre_values: dict[str, int] = tag_counts.get('genre', {})
         genre_items = sorted(
-            [(g, g, c) for g, c in genre_counts.items()],
+            [(g, g, c) for g, c in genre_values.items() if c > 0],
             key=lambda x: (-x[2], x[1]),
         )
         prev_genre = set(self._genre_sec.get_selected_keys())
@@ -360,26 +375,20 @@ class FilterPanel(QWidget):
                 # Fresh install / no saved selection (None): show everything
                 self._genre_sec.select_all()
 
-        # ── Unidentified — individual prefix codes, sorted by count
-        # (Not persisted — dynamic content that varies by channel library)
-        unmapped: list[str] = stats.get('unmapped_prefixes', [])
-        unid_items = sorted(
-            [(p, p, prefix_counts.get(p, 0)) for p in unmapped
-             if prefix_counts.get(p, 0) > 0],
-            key=lambda x: -x[2],
-        )
+        # ── Unidentified — no direct tag equivalent; clear section (tag model has no
+        # "unknown prefix" concept — every prefix is classified or omitted from tags).
         prev_unid = set(self._unid_sec.get_selected_keys())
-        self._unid_sec.set_flat_items(unid_items)
+        self._unid_sec.set_flat_items([])
         if prev_unid:
             self._unid_sec.restore_selection(prev_unid)
 
-        # ── Untagged — update counts; items are static (set in __init__)
-        no_prefix_count  = stats.get('channels_without_prefix',  0)
-        no_quality_count = stats.get('channels_without_quality', 0)
+        # ── Untagged — static items (no count source in tag model; counts stay at 0).
+        # This section controls whether channels with NO prefix/quality tag pass through
+        # the filter. It remains functional even without accurate counts.
         prev_untagged = set(self._untagged_sec.get_selected_keys())
         self._untagged_sec.set_flat_items([
-            ("no_prefix",  "Region / Language", no_prefix_count),
-            ("no_quality", "Playback Quality",  no_quality_count),
+            ("no_prefix",  "Region / Language", 0),
+            ("no_quality", "Playback Quality",  0),
         ])
         if prev_untagged:
             self._untagged_sec.restore_selection(prev_untagged)
@@ -395,10 +404,9 @@ class FilterPanel(QWidget):
         self._stats_loaded = True
 
         logger.debug(
-            f"FilterPanel updated: {len(lang_items)} lang groups, "
-            f"{len(region_data)} region groups, {len(plat_items)} platform, "
-            f"{len(qual_items)} quality, {len(genre_items)} genres, "
-            f"{len(unid_items)} unidentified"
+            f"FilterPanel updated (tag model): {len(lang_items)} languages, "
+            f"{len(region_data)} region groups, {len(plat_items)} platforms, "
+            f"{len(qual_items)} quality tiers, {len(genre_items)} genres"
         )
 
         # On the very first call the channel list was loaded before dynamic
@@ -412,76 +420,68 @@ class FilterPanel(QWidget):
             self.filter_changed.emit()
 
     def get_filter_state(self) -> dict:
-        """Return resolved filter state for main_window.load_channels()."""
+        """Return resolved filter state for main_window.load_channels().
+
+        Tag-model (Slice B): sections are now driven by tag facet values.  The
+        resolved state includes a ``tag_includes`` dict — one entry per constrained
+        facet — that ``_query_channels`` passes directly to
+        ``ChannelRepository.get_all(tag_includes=…)``.
+
+        A facet is *unconstrained* (= show all values) when its section is
+        all-selected or has no items.  Unconstrained facets are omitted from
+        ``tag_includes`` so the EXISTS subquery is not generated and no channels
+        are excluded on that axis.
+
+        Cross-axis expansion is no longer needed: each facet is an independent
+        AND axis — selecting Language=English AND Platform=Disney+ returns only
+        channels that carry *both* tags (intersection), which is the correct
+        behaviour.  The old expansion was required to work around the OR-pool
+        identity model; it is deleted here.
+        """
         media_sel = set(self._media_sec.get_selected_keys())
         media_all = {"live", "movie", "series"}
         media_types = list(media_sel) if media_sel != media_all else list(media_all)
-
-        lang_all   = self._lang_sec.is_all_selected()
-        region_all = self._region_sec.is_all_selected()
-        plat_all   = self._platform_sec.is_all_selected()
-        qual_all   = self._quality_sec.is_all_selected()
-        genre_all  = self._genre_sec.is_all_selected()
-        unid_all   = self._unid_sec.is_all_selected()
-
-        # Resolve language prefix codes from selected group names
-        language_prefixes: list[str] = []
-        if not lang_all:
-            for grp in self._lang_sec.get_selected_keys():
-                language_prefixes.extend(
-                    self.config.filter_language_groups.get(grp, []))
-
-        # Region: already individual prefix codes from the hierarchical selection
-        region_prefixes: list[str] = (
-            [] if region_all else self._region_sec.get_selected_keys()
-        )
-
-        # Platform prefix codes from selected group names
-        platform_prefixes: list[str] = []
-        if not plat_all:
-            for grp in self._platform_sec.get_selected_keys():
-                platform_prefixes.extend(
-                    self.config.filter_platform_groups.get(grp, []))
-
-        # Snapshot whether any *named* axis is restricted BEFORE adding unid codes.
-        # Unid-only selection must NOT trigger cross-axis expansion — expansion would
-        # add all language/region/platform codes and make the filter a no-op.
-        named_axis_active = bool(language_prefixes or region_prefixes or platform_prefixes)
-
-        # Unidentified codes join the language pool (same OR logic).
-        if not unid_all:
-            language_prefixes.extend(self._unid_sec.get_selected_keys())
-
-        # Cross-axis expansion: when a named axis (lang/region/plat) is restricted, the
-        # SQL identity filter activates and unrestricted axes must be explicitly expanded
-        # so their channels aren't excluded (e.g. platform channels when filtering language).
-        # When ONLY unidentified codes are selected this expansion is skipped — the
-        # intent is "show only these specific prefixes", not "show everything else too".
-        if named_axis_active:
-            if lang_all:
-                for codes in self.config.filter_language_groups.values():
-                    language_prefixes.extend(codes)
-            if unid_all:
-                language_prefixes.extend(self._unid_sec.get_all_keys())
-            if region_all:
-                for codes in self.config.filter_regional_groups.values():
-                    region_prefixes.extend(codes)
-            if plat_all:
-                for codes in self.config.filter_platform_groups.values():
-                    platform_prefixes.extend(codes)
-
-        # Quality prefix codes
-        quality_prefixes: list[str] = []
-        if not qual_all:
-            for grp in self._quality_sec.get_selected_keys():
-                quality_prefixes.extend(
-                    self.config.filter_quality_groups.get(grp, []))
 
         untagged_selected = set(self._untagged_sec.get_selected_keys())
         include_untagged         = "no_prefix"  in untagged_selected
         include_untagged_quality = "no_quality" in untagged_selected
 
+        # ── Build tag_includes: {facet_type: set(selected_values)} ──────────────
+        # Facet is constrained only when NOT all items are selected AND the section
+        # has items (empty section = no data for that facet → no constraint).
+        tag_includes: dict[str, set[str]] = {}
+
+        # Language facet
+        if not self._lang_sec.is_all_selected() and self._lang_sec.get_all_keys():
+            selected = set(self._lang_sec.get_selected_keys())
+            if selected:
+                tag_includes["language"] = selected
+
+        # Region facet — selected keys are individual ISO codes (leaf-level)
+        if not self._region_sec.is_all_selected() and self._region_sec.get_all_keys():
+            selected = set(self._region_sec.get_selected_keys())
+            if selected:
+                tag_includes["region"] = selected
+
+        # Platform facet
+        if not self._platform_sec.is_all_selected() and self._platform_sec.get_all_keys():
+            selected = set(self._platform_sec.get_selected_keys())
+            if selected:
+                tag_includes["platform"] = selected
+
+        # Quality facet
+        if not self._quality_sec.is_all_selected() and self._quality_sec.get_all_keys():
+            selected = set(self._quality_sec.get_selected_keys())
+            if selected:
+                tag_includes["quality"] = selected
+
+        # Genre facet
+        genre_all = self._genre_sec.is_all_selected()
         genre_filters = None if genre_all else self._genre_sec.get_selected_keys()
+        if not genre_all and self._genre_sec.get_all_keys():
+            selected = set(self._genre_sec.get_selected_keys())
+            if selected:
+                tag_includes["genre"] = selected
 
         return {
             'media_types':        media_types,
@@ -494,11 +494,16 @@ class FilterPanel(QWidget):
             'include_untagged_quality':  include_untagged_quality,
             'adult_mode':         getattr(self.config, 'filter_adult_mode', 'hide'),
             'excluded_provider_ids': [],
-            # Resolved for SQL — used directly by load_channels
-            '_language_prefixes': language_prefixes or None,
-            '_region_prefixes':   region_prefixes or None,
-            '_platform_prefixes': platform_prefixes or None,
-            '_quality_prefixes':  quality_prefixes or None,
+            # Tag-facet includes — used by _query_channels → get_all(tag_includes=…).
+            # None means no tag filter active (all channels pass on this axis).
+            'tag_includes': tag_includes or None,
+            # Legacy prefix fields — kept so the old fallback path in load_channels
+            # (no filter_panel) still has these keys; they are now always None when
+            # routing through the tag model.
+            '_language_prefixes': None,
+            '_region_prefixes':   None,
+            '_platform_prefixes': None,
+            '_quality_prefixes':  None,
             '_genre_filters':     genre_filters,
         }
 

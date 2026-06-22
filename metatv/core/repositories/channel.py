@@ -95,6 +95,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 strict_genre_filter: Optional[str] = None,
                 person_filter: Optional[str] = None,
                 excluded_provider_ids: Optional[List[str]] = None,
+                tag_includes: Optional[Dict[str, Set[str]]] = None,
+                tag_excludes: Optional[Dict[str, Set[str]]] = None,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -114,15 +116,24 @@ class ChannelRepository(_ChannelStatsMixin):
                 None = no filter (show all). Only meaningful when querying live channels.
             include_uncategorized_content_types: When source_categories is set, also
                 include live channels with no source_category (True by default).
+            tag_includes: Faceted tag filter — ``{facet_type: set(values)}``.  A channel
+                must carry at least one value in *each* constrained facet (AND across
+                facets, OR within).  An empty or None set for a facet key is ignored.
+                Implemented as per-facet correlated EXISTS subqueries so pagination
+                and row counts stay entirely in SQL (no id-set materialisation).
+            tag_excludes: Faceted tag exclusion — same shape as tag_includes.  A channel
+                is rejected if it carries *any* matching tag.  Currently unused (reserved
+                for the tri-state slice).
 
         Returns:
             List of channels matching all filters.
 
         Filter logic:
             identity_pool = (language_prefixes OR region_prefixes OR platform_prefixes)
-            result        = identity_pool AND quality_prefixes
+            result        = identity_pool AND quality_prefixes AND tag_includes
             Language, Region, Platform all OR together — selecting more always grows the
             result set. Quality is the only restrictive axis (AND).
+            Tag facets are AND across facets, OR within each facet.
         """
         query = self.session.query(ChannelDB)
 
@@ -299,6 +310,32 @@ class ChannelRepository(_ChannelStatsMixin):
                     ).bindparams(_person_dir=f"%{person_filter}%"),
                 )
             )
+
+        # ── Tag facet filter: per-facet correlated EXISTS (AND across, OR within) ──
+        # Each constrained facet gets one EXISTS subquery against content_tags JOIN tags.
+        # No id-set materialisation — the subqueries are ANDed into the outer WHERE so
+        # pagination (LIMIT/OFFSET) and row counts remain in SQL.
+        if tag_includes:
+            from sqlalchemy import exists as _exists, select as _sa_select
+            from sqlalchemy.orm import aliased as _aliased
+            from metatv.core.database import ContentTagDB as _ContentTagDB, TagDB as _TagDB
+
+            for _ftype, _allowed in tag_includes.items():
+                if not _allowed:
+                    continue   # empty set = no constraint for this facet
+                _ct = _aliased(_ContentTagDB, flat=True)
+                _t  = _aliased(_TagDB, flat=True)
+                _subq = (
+                    _sa_select(_ct.channel_id)
+                    .join(_t, _t.id == _ct.tag_id)
+                    .where(
+                        _ct.channel_id == ChannelDB.id,
+                        _t.type == _ftype,
+                        _t.value.in_(list(_allowed)),
+                    )
+                    .correlate(ChannelDB)
+                )
+                query = query.filter(_exists(_subq))
 
         query = query.order_by(ChannelDB.name)
 
