@@ -13,6 +13,8 @@ config.buffer_profile:
   "reconnect_only" → no cache flags
   "modest"         → --cache=yes --cache-secs=10 --demuxer-readahead-secs=20
   "large"          → --cache=yes --cache-secs=30 --demuxer-readahead-secs=30
+  "open_ended"     → --cache=yes --cache-on-disk=yes --demuxer-readahead-secs=3600
+                     --demuxer-max-bytes=2GiB
   <unknown>        → treated as "modest"
 
 An explicit valid size (e.g. "100M") uses the legacy explicit-cache path
@@ -27,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from metatv.core.http_headers import stream_user_agent
-from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG
+from metatv.core.players.mpv import MPVPlayer, RECONNECT_FLAG, _OPEN_ENDED_BUFFER_ARGS
 
 _CANONICAL_UA = f"--user-agent={stream_user_agent()}"
 
@@ -328,3 +330,58 @@ def test_override_all_empty_user_args():
     """override_all=True with no user args → empty list (not a crash)."""
     args = _player("auto", [], "modest", mpv_args_override_all=True)._compose_extra_args()
     assert args == []
+
+
+# ---------------------------------------------------------------------------
+# Buffer profile: "open_ended" — new default profile
+# ---------------------------------------------------------------------------
+
+def test_open_ended_profile_via_compose_extra_args_has_cache_on_disk():
+    """open_ended profile → _compose_extra_args includes --cache-on-disk=yes."""
+    args = _player("auto", [], "open_ended")._compose_extra_args()
+    assert "--cache-on-disk=yes" in args
+
+
+def test_open_ended_profile_via_compose_extra_args_has_readahead_3600():
+    """open_ended profile → _compose_extra_args includes --demuxer-readahead-secs=3600."""
+    args = _player("auto", [], "open_ended")._compose_extra_args()
+    assert "--demuxer-readahead-secs=3600" in args
+
+
+def test_open_ended_profile_via_compose_extra_args_has_max_bytes_2gib():
+    """open_ended profile → _compose_extra_args includes --demuxer-max-bytes=2GiB."""
+    args = _player("auto", [], "open_ended")._compose_extra_args()
+    assert "--demuxer-max-bytes=2GiB" in args
+
+
+def test_open_ended_profile_via_compose_extra_args_no_bounded_cache_secs():
+    """open_ended profile must NOT include bounded --cache-secs= flags."""
+    args = _player("auto", [], "open_ended")._compose_extra_args()
+    assert not any(a.startswith("--cache-secs") for a in args)
+
+
+def test_open_ended_profile_args_match_compose_open_ended_buffer_args():
+    """_buffer_profile_args('open_ended') and _compose_open_ended_buffer_args()
+    must produce the same buffer-flag set — proving they share the single constant.
+
+    This is the regression guard: if the two paths diverge, this test catches it.
+    """
+    p = _player("auto", [], "open_ended")
+    # Extract only the buffer-specific flags (strip UA and RECONNECT_FLAG)
+    profile_buffer = MPVPlayer._buffer_profile_args("open_ended")
+    open_ended_buffer = [
+        a for a in p._compose_open_ended_buffer_args()
+        if not a.startswith("--user-agent=") and a != RECONNECT_FLAG
+    ]
+    assert sorted(profile_buffer) == sorted(open_ended_buffer), (
+        "open_ended profile args and _compose_open_ended_buffer_args diverged — "
+        "both must use _OPEN_ENDED_BUFFER_ARGS"
+    )
+
+
+def test_open_ended_constant_all_flags_present():
+    """_OPEN_ENDED_BUFFER_ARGS must contain all four expected flags."""
+    assert "--cache=yes" in _OPEN_ENDED_BUFFER_ARGS
+    assert "--cache-on-disk=yes" in _OPEN_ENDED_BUFFER_ARGS
+    assert "--demuxer-readahead-secs=3600" in _OPEN_ENDED_BUFFER_ARGS
+    assert "--demuxer-max-bytes=2GiB" in _OPEN_ENDED_BUFFER_ARGS
