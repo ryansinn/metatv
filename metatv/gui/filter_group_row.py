@@ -2,6 +2,18 @@
 
 These are implementation details of FilterPanel; import FilterPanel from
 metatv.gui.filter_panel, not these classes directly.
+
+Top-N cap for large sections
+─────────────────────────────
+When a flat section has more than ``_SHOW_ALL_THRESHOLD`` items (default 40),
+``set_flat_items`` renders only the top ``_SHOW_ALL_TOP_N`` rows (default 30)
+and appends a "Show all (N) ⋯" button.  Activating the button reveals all
+remaining rows and changes the button to "Show less".  Collapsing again
+restores the capped view.
+
+The cap is display-only: every item is tracked in ``self._rows``, so
+``get_selected_keys``, ``get_all_keys``, ``restore_selection`` etc. always
+cover the full set.  The overflow rows are simply hidden, not deleted.
 """
 
 from __future__ import annotations
@@ -27,6 +39,12 @@ _ACCENT = {
     "unidentified": _theme.COLOR_ACCENT_BROWN,
     "untagged":     _theme.COLOR_MUTED_2,
 }
+
+# Top-N cap configuration — display-only, no values are dropped.
+# Sections with more than _SHOW_ALL_THRESHOLD items render only _SHOW_ALL_TOP_N
+# rows; the rest are hidden behind a "Show all (N)" expander button.
+_SHOW_ALL_THRESHOLD: int = 40
+_SHOW_ALL_TOP_N:     int = 30
 
 
 def _fmt(n: int) -> str:
@@ -268,6 +286,13 @@ class _Section(QWidget):
         self._groups: list[_GroupRow] = []
         self._expanded = initially_expanded
 
+        # Show-all expander state — only used when the section is capped.
+        # _overflow_rows tracks rows hidden behind the expander button.
+        # _show_all_btn is the QPushButton inserted after the top-N rows.
+        self._overflow_rows: list[_ItemRow] = []
+        self._show_all_btn: QPushButton | None = None
+        self._show_all_expanded: bool = False
+
         accent = _ACCENT.get(section_key, _theme.COLOR_ACCENT_BLUE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -371,8 +396,22 @@ class _Section(QWidget):
         self._collapse_btn.setText(glyph)
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
+        """Populate the section with a sorted flat list of (key, label, count) tuples.
+
+        When ``len(items) > _SHOW_ALL_THRESHOLD``, only the first
+        ``_SHOW_ALL_TOP_N`` rows are shown initially; a "Show all (N) ⋯"
+        button is appended that reveals the remaining rows on click.  Small
+        sections (≤ threshold) are rendered without any cap.
+
+        The cap is display-only — all items are tracked in ``self._rows`` so
+        that ``get_selected_keys``, ``get_all_keys``, ``restore_selection``,
+        etc. always cover the full set.
+        """
         self._clear()
-        for key, label, count in items:
+        total = len(items)
+        needs_cap = total > _SHOW_ALL_THRESHOLD
+
+        for idx, (key, label, count) in enumerate(items):
             row = _ItemRow(key, label, count)
             row.toggled.connect(self._on_item_toggled)
             row.right_clicked.connect(
@@ -383,6 +422,26 @@ class _Section(QWidget):
             )
             self._content_layout.addWidget(row)
             self._rows.append(row)
+
+            if needs_cap and idx >= _SHOW_ALL_TOP_N:
+                # Overflow: hidden until the user expands
+                row.hide()
+                self._overflow_rows.append(row)
+
+        if needs_cap:
+            overflow_count = total - _SHOW_ALL_TOP_N
+            self._show_all_btn = QPushButton(
+                f"{_icons.show_all_icon} Show all ({total})"
+            )
+            self._show_all_btn.setStyleSheet(_theme.FILTER_SHOW_ALL_BTN)
+            self._show_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._show_all_btn.setToolTip(
+                f"Show all {total} values — {overflow_count} more below the top {_SHOW_ALL_TOP_N}"
+            )
+            self._show_all_btn.clicked.connect(self._toggle_show_all)
+            self._content_layout.addWidget(self._show_all_btn)
+            self._show_all_expanded = False
+
         self._update_ui()
 
     def set_grouped_items(self,
@@ -492,10 +551,32 @@ class _Section(QWidget):
             w.deleteLater()
         self._rows.clear()
         self._groups.clear()
+        self._overflow_rows.clear()
+        if self._show_all_btn is not None:
+            self._show_all_btn.deleteLater()
+            self._show_all_btn = None
+        self._show_all_expanded = False
 
     def _toggle_collapse(self):
         self.set_expanded(not self._expanded)
         self.collapse_toggled.emit()  # save collapse state without triggering a filter reload
+
+    def _toggle_show_all(self) -> None:
+        """Show or hide the overflow rows when the 'Show all' button is clicked."""
+        self._show_all_expanded = not self._show_all_expanded
+        for row in self._overflow_rows:
+            row.setVisible(self._show_all_expanded)
+        if self._show_all_btn is not None:
+            total = len(self._rows)
+            if self._show_all_expanded:
+                self._show_all_btn.setText(f"{_icons.collapse_icon} Show less")
+                self._show_all_btn.setToolTip(f"Collapse back to top {_SHOW_ALL_TOP_N}")
+            else:
+                self._show_all_btn.setText(f"{_icons.show_all_icon} Show all ({total})")
+                self._show_all_btn.setToolTip(
+                    f"Show all {total} values — "
+                    f"{total - _SHOW_ALL_TOP_N} more below the top {_SHOW_ALL_TOP_N}"
+                )
 
     def _on_select_all(self, state_val: int):
         state = Qt.CheckState(state_val)
