@@ -1,0 +1,550 @@
+"""Behavioral tests for the VOD Watch-Alert feature.
+
+Covers:
+- Config helpers: add/remove/record_match/get_matches round-trip.
+- VodWatchAlertManager._worker_check_rules: fires _notify_match for new matches,
+  skips already-alerted ids, skips channels filtered by media_type gate.
+- VodWatchAlertManager._on_new_match: persists the alert + shows a notification.
+- _matches_rule logic: media-type gate (movie-rule ignores series), live channels
+  always skip, "any" type matches both movie and series.
+- WatchAlertsSection.refresh_vod_rules renders active rules correctly.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Minimal Qt fixture (headless)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def qapp():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+# ---------------------------------------------------------------------------
+# Helpers: minimal Config stub and DB factory
+# ---------------------------------------------------------------------------
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class _FakeConfig:
+    """In-memory Config stub implementing the vod_watch_alerts helpers."""
+
+    def __init__(self):
+        self.vod_watch_alerts = []
+
+    def save(self):
+        pass  # no-op
+
+    def get_vod_watch_alerts(self) -> list:
+        return list(self.vod_watch_alerts)
+
+    def add_vod_watch_alert(self, rule: dict) -> None:
+        rule_id = rule.get("created", "")
+        if rule_id and any(r.get("created") == rule_id for r in self.vod_watch_alerts):
+            return
+        self.vod_watch_alerts = list(self.vod_watch_alerts) + [rule]
+
+    def remove_vod_watch_alert(self, rule_created: str) -> None:
+        self.vod_watch_alerts = [
+            r for r in self.vod_watch_alerts if r.get("created") != rule_created
+        ]
+
+    def record_vod_alert_match(self, rule_created: str, channel_id: str) -> None:
+        updated = []
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                merged = dict(r)
+                ids = list(merged.get("alerted_ids") or [])
+                if channel_id not in ids:
+                    ids.append(channel_id)
+                merged["alerted_ids"] = ids
+                updated.append(merged)
+            else:
+                updated.append(r)
+        self.vod_watch_alerts = updated
+
+    def get_vod_alert_matches(self, rule_created: str) -> list:
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                return list(r.get("alerted_ids") or [])
+        return []
+
+    # Stubs for get_hidden_provider_ids (needed by the manager's worker)
+    # delegated via repos; not actually called on Config directly.
+
+
+def _make_file_backed_db(tmp_path: Path):
+    """File-backed Database (not :memory: — each connection would get an empty DB)."""
+    from metatv.core.database import Database
+    db_path = tmp_path / "test.db"
+    db = Database(f"sqlite:///{db_path}")
+    db.create_tables()
+    return db
+
+
+def _make_provider(session, provider_id: str = "p1"):
+    from metatv.core.database import ProviderDB
+    p = ProviderDB(
+        id=provider_id,
+        name="Test",
+        type="xtream",
+        url="http://test.example.com",
+        urls='[{"url": "http://test.example.com", "primary": true}]',
+        username="u",
+        password="pw",
+        is_active=True,
+    )
+    session.add(p)
+    session.flush()
+    return p
+
+
+def _make_channel(session, channel_id: str = "ch1", name: str = "Dune (2021)",
+                  detected_title: str | None = "Dune", media_type: str = "movie",
+                  provider_id: str = "p1"):
+    from metatv.core.database import ChannelDB
+    ch = ChannelDB(
+        id=channel_id,
+        source_id=channel_id,
+        provider_id=provider_id,
+        name=name,
+        detected_title=detected_title,
+        media_type=media_type,
+        is_hidden=False,
+    )
+    session.add(ch)
+    session.flush()
+    return ch
+
+
+# ===========================================================================
+# Part 1: Config helpers
+# ===========================================================================
+
+class TestConfigHelpers:
+
+    def _rule(self, text: str = "Dune", match_type: str = "any") -> dict:
+        return {
+            "text": text,
+            "match_type": match_type,
+            "created": _now_iso(),
+            "alerted_ids": [],
+        }
+
+    def test_add_and_get(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Dune")
+        cfg.add_vod_watch_alert(rule)
+        rules = cfg.get_vod_watch_alerts()
+        assert len(rules) == 1
+        assert rules[0]["text"] == "Dune"
+
+    def test_add_is_idempotent_by_created_key(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Dune")
+        cfg.add_vod_watch_alert(rule)
+        cfg.add_vod_watch_alert(rule)  # same created timestamp → no-op
+        assert len(cfg.get_vod_watch_alerts()) == 1
+
+    def test_remove_deletes_rule(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Dune")
+        cfg.add_vod_watch_alert(rule)
+        cfg.remove_vod_watch_alert(rule["created"])
+        assert len(cfg.get_vod_watch_alerts()) == 0
+
+    def test_remove_nonexistent_is_noop(self):
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert(self._rule("Dune"))
+        cfg.remove_vod_watch_alert("does_not_exist")
+        assert len(cfg.get_vod_watch_alerts()) == 1
+
+    def test_record_match_appends_channel_id(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Dune")
+        cfg.add_vod_watch_alert(rule)
+        cfg.record_vod_alert_match(rule["created"], "ch1")
+        assert "ch1" in cfg.get_vod_alert_matches(rule["created"])
+
+    def test_record_match_is_deduped(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Dune")
+        cfg.add_vod_watch_alert(rule)
+        cfg.record_vod_alert_match(rule["created"], "ch1")
+        cfg.record_vod_alert_match(rule["created"], "ch1")  # second call — no-op
+        assert cfg.get_vod_alert_matches(rule["created"]).count("ch1") == 1
+
+    def test_record_multiple_matches(self):
+        cfg = _FakeConfig()
+        rule = self._rule("Star Wars")
+        cfg.add_vod_watch_alert(rule)
+        cfg.record_vod_alert_match(rule["created"], "ch1")
+        cfg.record_vod_alert_match(rule["created"], "ch2")
+        matches = cfg.get_vod_alert_matches(rule["created"])
+        assert "ch1" in matches
+        assert "ch2" in matches
+
+    def test_get_returns_copy(self):
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert(self._rule("Test"))
+        lst = cfg.get_vod_watch_alerts()
+        lst.clear()
+        assert len(cfg.get_vod_watch_alerts()) == 1
+
+
+# ===========================================================================
+# Part 2: _matches_rule logic
+# ===========================================================================
+
+class TestMatchesRule:
+
+    def _rule(self, text: str, match_type: str = "any") -> dict:
+        return {"text": text, "match_type": match_type, "created": _now_iso(), "alerted_ids": []}
+
+    def test_live_channels_always_skip(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("CNN", "any")
+        assert not _matches_rule("CNN News", "CNN News", "live", rule), \
+            "live channels must never match any VOD rule"
+
+    def test_movie_rule_matches_movie(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Dune", "movie")
+        assert _matches_rule("EN - Dune (2021)", "Dune", "movie", rule)
+
+    def test_movie_rule_ignores_series(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Dune", "movie")
+        assert not _matches_rule("EN - Dune: Part One S01", "Dune", "series", rule), \
+            "movie-typed rule must not match a series channel"
+
+    def test_series_rule_matches_series(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Severance", "series")
+        assert _matches_rule("EN - Severance S02", "Severance", "series", rule)
+
+    def test_series_rule_ignores_movie(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Severance", "series")
+        assert not _matches_rule("EN - Severance (2022)", "Severance", "movie", rule), \
+            "series-typed rule must not match a movie channel"
+
+    def test_any_matches_movie(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Inception", "any")
+        assert _matches_rule("Inception (2010)", "Inception", "movie", rule)
+
+    def test_any_matches_series(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Inception", "any")
+        assert _matches_rule("Inception S01", "Inception", "series", rule)
+
+    def test_case_insensitive_match(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("DUNE", "any")
+        assert _matches_rule("EN - Dune (2021)", "dune", "movie", rule)
+
+    def test_no_match_for_unrelated_title(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Dune", "any")
+        assert not _matches_rule("Blade Runner 2049", "Blade Runner 2049", "movie", rule)
+
+    def test_falls_back_to_full_name_when_detected_title_is_none(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = self._rule("Dune", "any")
+        # detected_title is None — matcher should use channel_name
+        assert _matches_rule("EN - Dune (2021)", None, "movie", rule)
+
+    def test_empty_keyword_never_matches(self):
+        from metatv.core.vod_watch_alert_manager import _matches_rule
+        rule = {"text": "", "match_type": "any", "created": _now_iso(), "alerted_ids": []}
+        assert not _matches_rule("Dune (2021)", "Dune", "movie", rule)
+
+
+# ===========================================================================
+# Part 3: VodWatchAlertManager worker + main-thread slot
+# ===========================================================================
+
+class TestVodWatchAlertManagerWorker:
+
+    def test_worker_emits_notify_for_new_match(self, tmp_path):
+        """Worker emits _notify_match when a channel matches and is not yet alerted."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule = {
+            "text": "Dune",
+            "match_type": "movie",
+            "created": _now_iso(),
+            "alerted_ids": [],
+        }
+        cfg.add_vod_watch_alert(rule)
+
+        with db.session_scope() as session:
+            _make_provider(session, "p1")
+            _make_channel(session, "ch1", "EN - Dune (2021)", "Dune", "movie", "p1")
+
+        fired: list[tuple] = []
+        manager = VodWatchAlertManager(db, cfg, notifications=None)
+        manager._notify_match.connect(
+            lambda rc, cid, cname, rt: fired.append((rc, cid, cname, rt))
+        )
+
+        manager._worker_check_rules(cfg.get_vod_watch_alerts())
+        if QCoreApplication.instance():
+            QCoreApplication.instance().processEvents()
+
+        assert len(fired) == 1
+        _rc, cid, cname, rt = fired[0]
+        assert cid == "ch1"
+        assert "Dune" in cname
+        assert rt == "Dune"
+
+        manager.shutdown()
+
+    def test_worker_skips_already_alerted_channel(self, tmp_path):
+        """Worker does NOT emit _notify_match for a channel already in alerted_ids."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule = {
+            "text": "Dune",
+            "match_type": "any",
+            "created": _now_iso(),
+            "alerted_ids": ["ch1"],  # already alerted
+        }
+        cfg.add_vod_watch_alert(rule)
+
+        with db.session_scope() as session:
+            _make_provider(session, "p1")
+            _make_channel(session, "ch1", "EN - Dune (2021)", "Dune", "movie", "p1")
+
+        fired: list = []
+        manager = VodWatchAlertManager(db, cfg, notifications=None)
+        manager._notify_match.connect(lambda *a: fired.append(a))
+
+        manager._worker_check_rules(cfg.get_vod_watch_alerts())
+        if QCoreApplication.instance():
+            QCoreApplication.instance().processEvents()
+
+        assert len(fired) == 0, \
+            "Already-alerted channel must NOT produce a second notification"
+
+        manager.shutdown()
+
+    def test_worker_skips_live_channels(self, tmp_path):
+        """Worker does not match live channels regardless of keyword match."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule = {
+            "text": "CNN",
+            "match_type": "any",
+            "created": _now_iso(),
+            "alerted_ids": [],
+        }
+        cfg.add_vod_watch_alert(rule)
+
+        with db.session_scope() as session:
+            _make_provider(session, "p1")
+            # The DB query filters on media_type IN ('movie', 'series'), so live
+            # channels are excluded at the SQL level — make a live channel.
+            _make_channel(session, "ch1", "CNN News", "CNN News", "live", "p1")
+
+        fired: list = []
+        manager = VodWatchAlertManager(db, cfg, notifications=None)
+        manager._notify_match.connect(lambda *a: fired.append(a))
+
+        manager._worker_check_rules(cfg.get_vod_watch_alerts())
+        if QCoreApplication.instance():
+            QCoreApplication.instance().processEvents()
+
+        assert len(fired) == 0, "Live channels must never be matched by VOD rules"
+
+        manager.shutdown()
+
+    def test_worker_movie_rule_ignores_series_channel(self, tmp_path):
+        """A movie-typed rule must not produce an alert for a series channel."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule = {
+            "text": "Dune",
+            "match_type": "movie",  # movie only
+            "created": _now_iso(),
+            "alerted_ids": [],
+        }
+        cfg.add_vod_watch_alert(rule)
+
+        with db.session_scope() as session:
+            _make_provider(session, "p1")
+            _make_channel(session, "ch1", "Dune: The Series", "Dune", "series", "p1")
+
+        fired: list = []
+        manager = VodWatchAlertManager(db, cfg, notifications=None)
+        manager._notify_match.connect(lambda *a: fired.append(a))
+
+        manager._worker_check_rules(cfg.get_vod_watch_alerts())
+        if QCoreApplication.instance():
+            QCoreApplication.instance().processEvents()
+
+        assert len(fired) == 0, "movie-typed rule must ignore series channels"
+
+        manager.shutdown()
+
+    def test_on_new_match_persists_and_notifies(self, qapp, tmp_path):
+        """_on_new_match records the match in config and calls NotificationManager."""
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule_created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Dune",
+            "match_type": "any",
+            "created": rule_created,
+            "alerted_ids": [],
+        })
+
+        notif_mock = MagicMock()
+        found_signal_args: list = []
+
+        manager = VodWatchAlertManager(db, cfg, notifications=notif_mock)
+        manager.new_matches_found.connect(lambda: found_signal_args.append(True))
+
+        # Drive the main-thread slot directly
+        manager._on_new_match(rule_created, "ch1", "Dune (2021)", "Dune")
+
+        # Channel id must be recorded in config
+        assert "ch1" in cfg.get_vod_alert_matches(rule_created), \
+            "Alerted channel_id must be persisted in config"
+
+        # Notification must have been shown
+        assert notif_mock.show.called, "NotificationManager.show() must be called"
+        call_str = str(notif_mock.show.call_args)
+        assert "Dune" in call_str
+
+        # Public signal must have been emitted
+        assert found_signal_args, "new_matches_found must emit after a new match"
+
+        manager.shutdown()
+
+    def test_on_new_match_no_duplicate_config_write(self, qapp, tmp_path):
+        """Calling _on_new_match twice for the same channel_id only records it once."""
+        from metatv.core.vod_watch_alert_manager import VodWatchAlertManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        rule_created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Dune",
+            "match_type": "any",
+            "created": rule_created,
+            "alerted_ids": [],
+        })
+
+        manager = VodWatchAlertManager(db, cfg, notifications=MagicMock())
+        manager._on_new_match(rule_created, "ch1", "Dune (2021)", "Dune")
+        manager._on_new_match(rule_created, "ch1", "Dune (2021)", "Dune")  # dup
+
+        matches = cfg.get_vod_alert_matches(rule_created)
+        assert matches.count("ch1") == 1, "Same channel must appear only once in alerted_ids"
+
+        manager.shutdown()
+
+
+# ===========================================================================
+# Part 4: WatchAlertsSection.refresh_vod_rules rendering
+# ===========================================================================
+
+class TestWatchAlertsSectionVodRules:
+    """Test that refresh_vod_rules correctly renders active rules."""
+
+    def _make_section(self, config, qapp):
+        """Build a minimal WatchAlertsSection-like object with _vod_list only."""
+        from PyQt6.QtWidgets import QListWidget
+
+        # Use __new__ + manually patch what refresh_vod_rules needs.
+        # We don't instantiate the full section (it needs a real DB) — we verify
+        # only the main-thread render path (that's the half that regresses).
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+
+        section = WatchAlertsSection.__new__(WatchAlertsSection)
+        section.config = config
+        section._vod_collapsed = False
+        section._vod_list = QListWidget()
+        # Stub the show/hide helpers — they touch real Qt widgets but we just
+        # need to validate list content.
+        section._vod_hdr_container = MagicMock()
+        section._update_vod_toggle_label = MagicMock()
+        return section
+
+    def test_no_rules_hides_sub_section(self, qapp):
+        cfg = _FakeConfig()
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        assert section._vod_list.count() == 0, "Empty rule list must leave vod_list empty"
+        section._vod_hdr_container.hide.assert_called()
+
+    def test_one_rule_renders_one_item(self, qapp):
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert({
+            "text": "Dune",
+            "match_type": "movie",
+            "created": _now_iso(),
+            "alerted_ids": [],
+        })
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        assert section._vod_list.count() == 1, "One rule must render one list item"
+        item_text = section._vod_list.item(0).text()
+        assert "Dune" in item_text
+
+    def test_match_count_shown_when_nonzero(self, qapp):
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Star Wars",
+            "match_type": "any",
+            "created": created,
+            "alerted_ids": ["ch1", "ch2", "ch3"],  # 3 matches
+        })
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        item_text = section._vod_list.item(0).text()
+        assert "3" in item_text, f"Match count 3 must appear in row text: {item_text!r}"
+
+    def test_multiple_rules_render_multiple_items(self, qapp):
+        cfg = _FakeConfig()
+        for title in ("Dune", "Severance", "Inception"):
+            cfg.add_vod_watch_alert({
+                "text": title,
+                "match_type": "any",
+                "created": _now_iso(),
+                "alerted_ids": [],
+            })
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        assert section._vod_list.count() == 3, "Three rules must produce three rows"

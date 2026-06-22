@@ -530,6 +530,10 @@ class _ProviderMixin:
             if provider_id and "series_monitor" in self.__dict__:
                 self.series_monitor.check_provider(provider_id)
 
+            # Check VOD watch-for rules against this provider's freshly-loaded content.
+            if provider_id and "vod_watch_alert_manager" in self.__dict__:
+                self.vod_watch_alert_manager.check_provider(provider_id)
+
             # A source refresh is step 1 (channel data); step 2 is pulling current
             # EPG so the guide is fresh without a separate manual refresh from the
             # EPG screen. Applies to EVERY user-initiated refresh — newly-added or

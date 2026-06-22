@@ -64,7 +64,7 @@ class _AlertRow(QWidget):
 
 
 class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
-    """Alerts section — EPG watch alerts + stream retry monitoring."""
+    """Alerts section — EPG watch alerts + VOD watch-for rules + stream retry monitoring."""
 
     alertClicked    = pyqtSignal(str)        # channel_db_id — play (double-click or play button)
     channel_selected = pyqtSignal(str)      # channel_db_id — single click → load details pane
@@ -73,6 +73,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     retryClearAllRequested = pyqtSignal()
     retryPlayRequested = pyqtSignal(str, str, str)            # channel_id, stream_url, channel_name
     retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
+    # VOD watch-for signals
+    addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
+    manageWatchForClicked = pyqtSignal()     # "Manage…" link → open manage dialog
+    vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
     _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
 
     def __init__(self, config, db, parent=None):
@@ -98,6 +102,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)
         hl.addStretch()
+
+        _btn_style = (
+            "QPushButton {{ font-size: {fs}; border: 1px solid {c};"
+            " border-radius: 3px; color: {c}; background: {bg}; }}"
+            "QPushButton:hover {{ background: {hbg}; }}"
+        )
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(22, 20)
+        add_btn.setToolTip("Watch for new content…")
+        add_btn.setStyleSheet(_btn_style.format(
+            fs=_theme.FONT_LG,
+            c=_theme.COLOR_DIM,
+            bg=_theme.OVERLAY_05,
+            hbg=_theme.OVERLAY_15,
+        ))
+        add_btn.clicked.connect(self.addWatchForClicked.emit)
+        hl.addWidget(add_btn)
+
         self.main_layout.addWidget(header)
 
     def create_content(self):
@@ -112,6 +134,53 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
         self.content_layout.addWidget(self.alerts_tree)
+
+        # ── VOD Watch-For sub-section ──────────────────────────────────────
+        self._vod_collapsed = False
+
+        vod_hdr_row = QHBoxLayout()
+        vod_hdr_row.setContentsMargins(0, 4, 0, 2)
+        vod_hdr_row.setSpacing(4)
+
+        self._vod_toggle = QPushButton()
+        self._vod_toggle.setFlat(True)
+        self._vod_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._vod_toggle.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;"
+            " border: none; text-align: left; padding: 0 2px; }"
+            f"QPushButton:hover {{ color: {_theme.COLOR_DIM}; }}"
+        )
+        self._vod_toggle.clicked.connect(self._toggle_vod_watching)
+        vod_hdr_row.addWidget(self._vod_toggle)
+        vod_hdr_row.addStretch()
+
+        self._vod_manage_btn = QPushButton("Manage…")
+        self._vod_manage_btn.setFlat(True)
+        self._vod_manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._vod_manage_btn.setToolTip("View and remove watch-for rules")
+        self._vod_manage_btn.setStyleSheet(
+            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
+            f" border: none; padding: 0 2px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
+        )
+        self._vod_manage_btn.clicked.connect(self.manageWatchForClicked.emit)
+        vod_hdr_row.addWidget(self._vod_manage_btn)
+
+        self._vod_hdr_container = QWidget()
+        self._vod_hdr_container.setLayout(vod_hdr_row)
+        self._vod_hdr_container.hide()
+        self.content_layout.addWidget(self._vod_hdr_container)
+
+        self._vod_list = QListWidget()
+        self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self._vod_list.setMaximumHeight(150)
+        self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
+        self._vod_list.hide()
+        self.content_layout.addWidget(self._vod_list)
+
+        self._update_vod_toggle_label(0)
+        # ── end VOD Watch-For sub-section ─────────────────────────────────
 
         # Stream Monitoring collapsible sub-section
         self._retry_collapsed = False
@@ -158,6 +227,81 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._update_retry_toggle_label(0)
         self.set_empty(True)
+
+    # ------------------------------------------------------------------
+    # VOD Watch-For helpers
+    # ------------------------------------------------------------------
+
+    def _update_vod_toggle_label(self, count: int) -> None:
+        arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
+        label = f"Watching for  ({count})" if count else "Watching for"
+        self._vod_toggle.setText(f"{arrow}  {label}")
+
+    def _toggle_vod_watching(self) -> None:
+        self._vod_collapsed = not self._vod_collapsed
+        if self._vod_collapsed:
+            self._vod_list.hide()
+        else:
+            self._vod_list.show()
+        self._update_vod_toggle_label(self._vod_list.count())
+
+    def refresh_vod_rules(self) -> None:
+        """Repopulate the VOD watch-for sub-list from config rules.
+
+        Reads ``config.get_vod_watch_alerts()`` synchronously (config is
+        in-memory), then for each rule fetches matching channel names from the
+        DB to show a per-rule match count.  Called on startup, after a rule is
+        added/removed, and after ``VodWatchAlertManager.new_matches_found``.
+        """
+        rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
+        self._vod_list.clear()
+
+        if not rules:
+            self._vod_hdr_container.hide()
+            self._vod_list.hide()
+            return
+
+        # Build a channel-id → rule mapping for match count display.
+        # We query alerted_ids from config (already stored) — no DB needed here.
+        from metatv.gui import icons as _icons  # local import avoids circular at top
+
+        type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
+
+        for rule in rules:
+            text = rule.get("text") or "?"
+            match_type = rule.get("match_type", "any")
+            alerted_ids = rule.get("alerted_ids") or []
+            count = len(alerted_ids)
+
+            type_icon = type_icons.get(match_type, "")
+            type_suffix = f"  ({match_type})" if match_type != "any" else ""
+            count_badge = f"  · {count}" if count > 0 else ""
+            label = f"{type_icon}{_icons.alert_icon} {text}{type_suffix}{count_badge}"
+
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, rule.get("created", ""))
+            count_tip = f"{count} match{'es' if count != 1 else ''} found" if count else "No matches yet"
+            item.setToolTip(
+                f"Watching for: {text}\nType: {match_type}\n{count_tip}"
+            )
+            if count == 0:
+                from PyQt6.QtGui import QColor
+                item.setForeground(QColor(_theme.COLOR_MUTED))
+            self._vod_list.addItem(item)
+
+        count = self._vod_list.count()
+        self._update_vod_toggle_label(count)
+        self._vod_hdr_container.show()
+        if not self._vod_collapsed:
+            self._vod_list.show()
+
+    def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
+        """Double-clicking a rule row opens the manage dialog."""
+        self.manageWatchForClicked.emit()
+
+    # ------------------------------------------------------------------
+    # Retry helpers
+    # ------------------------------------------------------------------
 
     def _update_retry_toggle_label(self, count: int) -> None:
         arrow = self.config.expand_icon if self._retry_collapsed else self.config.collapse_icon

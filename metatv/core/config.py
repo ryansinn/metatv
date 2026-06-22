@@ -828,6 +828,14 @@ class Config(BaseModel):
     remember_search: bool = True
     last_search_state: dict = Field(default_factory=dict)
 
+    # VOD Watch Alerts — keyword/title rules that fire when matching content appears.
+    # Each entry is a plain dict:
+    #   {"text": str,              # keyword / title to watch for
+    #    "match_type": str,        # "movie" | "series" | "any"
+    #    "created": str,           # ISO timestamp (used as stable id)
+    #    "alerted_ids": list[str]} # channel_db_ids already alerted (dedup)
+    vod_watch_alerts: list = Field(default_factory=list)
+
     def add_monitored_series(self, entry: dict) -> None:
         """Add a series to the monitor list (no-op if already present)."""
         cid = entry.get("series_channel_id")
@@ -879,6 +887,51 @@ class Config(BaseModel):
     def clear_unseen(self, series_channel_id: str) -> None:
         """Reset unseen_new to 0 for the given series."""
         self.update_monitored_series(series_channel_id, unseen_new=0)
+
+    # ── VOD Watch Alert helpers ───────────────────────────────────────────────
+
+    def get_vod_watch_alerts(self) -> list:
+        """Return a copy of the VOD watch-alert rule list."""
+        return list(self.vod_watch_alerts)
+
+    def add_vod_watch_alert(self, rule: dict) -> None:
+        """Add a watch-for rule (no-op if a rule with the same created id already exists)."""
+        rule_id = rule.get("created", "")
+        if rule_id and any(r.get("created") == rule_id for r in self.vod_watch_alerts):
+            return
+        self.vod_watch_alerts = list(self.vod_watch_alerts) + [rule]
+        self.save()
+
+    def remove_vod_watch_alert(self, rule_created: str) -> None:
+        """Remove the rule with the given ``created`` timestamp id."""
+        self.vod_watch_alerts = [
+            r for r in self.vod_watch_alerts
+            if r.get("created") != rule_created
+        ]
+        self.save()
+
+    def record_vod_alert_match(self, rule_created: str, channel_id: str) -> None:
+        """Append *channel_id* to the rule's ``alerted_ids`` list and save."""
+        updated = []
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                merged = dict(r)
+                ids = list(merged.get("alerted_ids") or [])
+                if channel_id not in ids:
+                    ids.append(channel_id)
+                merged["alerted_ids"] = ids
+                updated.append(merged)
+            else:
+                updated.append(r)
+        self.vod_watch_alerts = updated
+        self.save()
+
+    def get_vod_alert_matches(self, rule_created: str) -> list[str]:
+        """Return the list of alerted channel ids for a given rule."""
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                return list(r.get("alerted_ids") or [])
+        return []
 
     # ── Computed views of the base lookup tables ─────────────────────────────
     # These are NOT stored in config.yaml — they're computed from the base
