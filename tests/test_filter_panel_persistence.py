@@ -279,3 +279,125 @@ def test_startup_untagged_selection_applied(qapp):
         "startup: only the saved untagged key 'no_prefix' should be selected; "
         f"got {selected!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. Clobber regression — save_state() before update_data() must NOT wipe
+#    persisted dynamic-section config attrs with empty selections.
+# ---------------------------------------------------------------------------
+
+def test_early_save_state_does_not_clobber_language(qapp):
+    """save_state() called before update_data() must leave filter_included_languages intact.
+
+    Regression: MainWindow.restore_search_state() (and any early filter_changed) could
+    fire _on_changed → save_state() while Language/Region/etc. had no items yet.
+    get_selected_keys() returns [] for empty sections, so config.filter_included_languages
+    would be overwritten with [] before update_data() ran — silently wiping the saved
+    subset.  The _stats_loaded guard prevents this.
+    """
+    cfg = _make_config(filter_included_languages=["FR"])  # persisted subset
+    panel = _build_panel(qapp, cfg)
+
+    # Simulate an early filter_changed → save_state() before update_data()
+    panel.save_state()
+
+    # The persisted value must be untouched — NOT emptied
+    assert cfg.filter_included_languages == ["FR"], (
+        "early save_state() must not clobber filter_included_languages; "
+        f"got {cfg.filter_included_languages!r}"
+    )
+
+
+def test_early_save_state_does_not_clobber_regions(qapp):
+    """save_state() before update_data() must leave filter_included_regions intact."""
+    cfg = _make_config(filter_included_regions=["CA"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.save_state()
+
+    assert cfg.filter_included_regions == ["CA"], (
+        "early save_state() must not clobber filter_included_regions; "
+        f"got {cfg.filter_included_regions!r}"
+    )
+
+
+def test_early_save_state_does_not_clobber_qualities(qapp):
+    """save_state() before update_data() must leave filter_included_qualities intact."""
+    cfg = _make_config(filter_included_qualities=["HD"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.save_state()
+
+    assert cfg.filter_included_qualities == ["HD"], (
+        "early save_state() must not clobber filter_included_qualities; "
+        f"got {cfg.filter_included_qualities!r}"
+    )
+
+
+def test_early_save_state_does_not_clobber_platforms(qapp):
+    """save_state() before update_data() must leave filter_included_platforms intact."""
+    cfg = _make_config(filter_included_platforms=["Netflix"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.save_state()
+
+    assert cfg.filter_included_platforms == ["Netflix"], (
+        "early save_state() must not clobber filter_included_platforms; "
+        f"got {cfg.filter_included_platforms!r}"
+    )
+
+
+def test_early_save_state_does_not_clobber_genres(qapp):
+    """save_state() before update_data() must leave filter_included_genres intact."""
+    cfg = _make_config(filter_included_genres=["Drama"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.save_state()
+
+    assert cfg.filter_included_genres == ["Drama"], (
+        "early save_state() must not clobber filter_included_genres; "
+        f"got {cfg.filter_included_genres!r}"
+    )
+
+
+def test_clobber_then_update_data_restores_language(qapp):
+    """After an early save_state() (would have clobbered), update_data() still restores the saved subset.
+
+    The full clobber scenario end-to-end: construct panel (empty dynamic sections),
+    call save_state() (simulating early filter_changed), then call update_data().
+    The language section must end up with the persisted subset, not all items selected.
+    """
+    cfg = _make_config(filter_included_languages=["FR"])
+    panel = _build_panel(qapp, cfg)
+
+    # Simulate early save (before update_data)
+    panel.save_state()
+
+    # Now update_data runs (as it does at startup after the channel load finishes)
+    panel.update_data(_make_stats())
+
+    selected = set(panel._lang_sec.get_selected_keys())
+    assert selected == {"FR"}, (
+        "after early save_state() + update_data(), language section must restore "
+        f"the persisted 'FR' subset; got {selected!r}"
+    )
+
+
+def test_normal_save_after_update_data_writes_correctly(qapp):
+    """After update_data() populates sections, save_state() must write the current selection.
+
+    Verifies the happy path is unaffected by the clobber guard: once _stats_loaded
+    is True, save_state() must update config attrs normally.
+    """
+    cfg = _make_config(filter_included_languages=["EN", "FR"])
+    panel = _build_panel(qapp, cfg)
+    panel.update_data(_make_stats())
+
+    # User narrows to FR only
+    panel._lang_sec.restore_selection({"FR"})
+    panel.save_state()
+
+    assert cfg.filter_included_languages == ["FR"], (
+        "after update_data(), save_state() must write the current selection; "
+        f"got {cfg.filter_included_languages!r}"
+    )

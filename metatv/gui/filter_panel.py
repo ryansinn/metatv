@@ -43,6 +43,12 @@ class FilterPanel(QWidget):
         super().__init__(parent)
         self.config = config
         self._restoring = False
+        # Set True at the END of the first update_data() call.  Until then, dynamic
+        # sections (Language, Region, Platform, Quality, Genre) have no items, so
+        # save_state() must NOT overwrite their persisted config values with an empty
+        # list.  Static sections (Media, Untagged) are populated in __init__ and are
+        # always safe to save.
+        self._stats_loaded = False
 
         self.setMinimumWidth(160)
         self.setMaximumWidth(400)
@@ -368,6 +374,9 @@ class FilterPanel(QWidget):
             )
             self._untagged_sec.restore_selection(saved_untagged)
 
+        # Dynamic sections are now populated — safe for save_state() to persist them.
+        self._stats_loaded = True
+
         logger.debug(
             f"FilterPanel updated: {len(lang_items)} lang groups, "
             f"{len(region_data)} region groups, {len(plat_items)} platform, "
@@ -499,12 +508,19 @@ class FilterPanel(QWidget):
     def save_state(self):
         try:
             state = self.get_filter_state()
-            self.config.filter_included_languages  = state['language_groups']
-            self.config.filter_included_regions    = state['region_groups']
-            self.config.filter_included_qualities  = state['quality_groups']
-            self.config.filter_included_platforms  = state['platform_groups']
-            self.config.filter_included_genres     = state['genre_filters']
-            self.config.filter_adult_mode          = state['adult_mode']
+
+            # Dynamic sections (Language/Region/Quality/Platform/Genre) have no items
+            # between __init__ and the first update_data() call.  Writing empty lists
+            # to config here would clobber a persisted subset before update_data() can
+            # restore it — the exact bug this guard prevents.  Static sections (Media,
+            # Untagged) are always safe to save because they are populated in __init__.
+            if self._stats_loaded:
+                self.config.filter_included_languages  = state['language_groups']
+                self.config.filter_included_regions    = state['region_groups']
+                self.config.filter_included_qualities  = state['quality_groups']
+                self.config.filter_included_platforms  = state['platform_groups']
+                self.config.filter_included_genres     = state['genre_filters']
+            self.config.filter_adult_mode = state['adult_mode']
 
             # Save per-section collapse states
             self.config.filter_section_states = {
