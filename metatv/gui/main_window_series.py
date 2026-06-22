@@ -204,17 +204,40 @@ class _SeriesMixin:
         """Return the partial-watched threshold as an integer percentage (0–100)."""
         return int(getattr(self.config, "watch_partial_threshold", 0.10) * 100)
 
-    def _episode_icon_text(self, episode: "EpisodeDTO") -> str:
-        """Return the text column-0 value for an episode tree item."""
-        display_title = _clean_episode_title(
+    def _episode_display_title(self, episode: "EpisodeDTO") -> str:
+        """Return the cleaned display title for an episode tree item (column 0 text)."""
+        return _clean_episode_title(
             episode.title, episode.season_num, episode.episode_num, episode.series_name
         )
-        # Graduated watch indicator — fallback to 1% for pre-migration rows that
-        # have watch_progress > 0 but watch_percent == 0 so they show ◔ not ▶.
+
+    def _episode_watch_icon(self, episode: "EpisodeDTO") -> "QIcon | None":
+        """Return the watch-state QIcon for the episode's icon lane (column 0 icon).
+
+        Graduated glyph driven by watch_percent, colored by provenance:
+        - solid for manual/deliberate watch (last_played_via != 'queue')
+        - muted/gray for queue-auto-advanced (last_played_via == 'queue')
+        - ``episode_icon`` (plain triangle) for unwatched episodes (no glyph yet)
+        - None is never returned — unwatched gets the episode_icon so the lane is
+          always meaningful.
+
+        MUST be called on the main thread (builds QIcon via QPixmap on first use).
+        """
         _ep_pct = episode.watch_percent or (1 if episode.watch_progress > 0 else 0)
         _glyph = _icons.watch_progress_glyph(_ep_pct, episode.watch_completed, self._partial_pct())
-        ep_icon = _glyph if _glyph else _icons.episode_icon
-        return f"  {ep_icon} {display_title}"
+        if _glyph:
+            icon = _icons.watch_icon_for_channel(_glyph, episode.last_played_via)
+            if icon is not None:
+                return icon
+        # Unwatched: render the plain episode_icon (play-triangle) as the lane icon.
+        return _icons.watch_icon(_icons.episode_icon, muted=True)
+
+    def _episode_icon_text(self, episode: "EpisodeDTO") -> str:
+        """Return the text column-0 value for an episode tree item (title only).
+
+        The watch indicator is no longer embedded in the text -- it is rendered
+        as a QIcon via column 0's icon slot (see _episode_watch_icon).
+        """
+        return self._episode_display_title(episode)
 
     def _season_glyph(self, episode_dtos: "list[EpisodeDTO]") -> str:
         """Derive the season-level watch indicator from its episodes.
@@ -245,6 +268,7 @@ class _SeriesMixin:
         the item's UserRole data stays consistent with what's displayed.
         """
         item.setText(0, self._episode_icon_text(episode))
+        item.setIcon(0, self._episode_watch_icon(episode))
 
     def _update_season_item_icon(self, season_item: "QTreeWidgetItem") -> None:
         """Re-derive the season-level watch glyph and rewrite column-0 in-place.
@@ -341,6 +365,7 @@ class _SeriesMixin:
                 for episode in episode_dtos:
                     episode_item = QTreeWidgetItem(season_item)
                     episode_item.setText(0, self._episode_icon_text(episode))
+                    episode_item.setIcon(0, self._episode_watch_icon(episode))
                     episode_item.setToolTip(0, episode.title)
                     episode_item.setText(1, f"E{episode.episode_num}")
                     if episode.duration:

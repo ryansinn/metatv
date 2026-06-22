@@ -237,7 +237,7 @@ def test_glyph_one_below_threshold_empty():
 
 
 # ---------------------------------------------------------------------------
-# 7. _compose_display_text uses graduated glyph — not the flat ◐
+# 7. Graduated glyph goes to DecorationRole (not display text) — icon lane migration
 # ---------------------------------------------------------------------------
 
 def _make_channel_list_dto(watch_percent: int, watch_completed: bool, watch_progress: int = 0):
@@ -282,47 +282,93 @@ def _build_model(partial_threshold_pct: int = 10):
 
 
 def test_compose_display_text_quarter_glyph():
-    """20% → ◔ in the channel list display text."""
+    """20% → glyph in DecorationRole (not text); text must NOT contain the glyph."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
-    model = _build_model(partial_threshold_pct=10)
+    from metatv.gui.channel_list_model import ChannelListModel
+    qapp = __import__('PyQt6.QtWidgets', fromlist=['QApplication']).QApplication
+    app = qapp.instance() or qapp([])
+
+    model = ChannelListModel()
     dto = _make_channel_list_dto(watch_percent=20, watch_completed=False)
-    text = model._compose_display_text(dto)
-    assert _icons.partial_watched_q1_icon in text, (
-        f"Expected ◔ in display text for 20%, got: {text!r}"
+    model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
+                       has_more=False, query_params={}, partial_threshold_pct=10)
+    idx = model.index(0, 0)
+    text = idx.data(Qt.ItemDataRole.DisplayRole)
+    icon = idx.data(Qt.ItemDataRole.DecorationRole)
+    # Glyph must NOT appear in text (it lives in the icon lane now)
+    assert _icons.partial_watched_q1_icon not in text, (
+        f"Glyph must be in icon lane, not text; got: {text!r}"
     )
+    # DecorationRole must return a QIcon for this partially-watched row
+    assert isinstance(icon, QIcon), f"Expected QIcon for 20% watched, got: {icon!r}"
 
 
 def test_compose_display_text_half_glyph():
-    """50% → ◐ in the channel list display text."""
+    """50% → glyph in DecorationRole (not text); text must NOT contain the glyph."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
-    model = _build_model(partial_threshold_pct=10)
+    from metatv.gui.channel_list_model import ChannelListModel
+    qapp = __import__('PyQt6.QtWidgets', fromlist=['QApplication']).QApplication
+    app = qapp.instance() or qapp([])
+
+    model = ChannelListModel()
     dto = _make_channel_list_dto(watch_percent=50, watch_completed=False)
-    text = model._compose_display_text(dto)
-    assert _icons.partial_watched_icon in text, (
-        f"Expected ◐ in display text for 50%, got: {text!r}"
+    model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
+                       has_more=False, query_params={}, partial_threshold_pct=10)
+    idx = model.index(0, 0)
+    text = idx.data(Qt.ItemDataRole.DisplayRole)
+    icon = idx.data(Qt.ItemDataRole.DecorationRole)
+    assert _icons.partial_watched_icon not in text, (
+        f"Glyph must be in icon lane, not text; got: {text!r}"
     )
+    assert isinstance(icon, QIcon), f"Expected QIcon for 50% watched, got: {icon!r}"
 
 
 def test_compose_display_text_three_quarter_glyph():
-    """80% → ◕ in the channel list display text."""
+    """80% → glyph in DecorationRole (not text); text must NOT contain the glyph."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
-    model = _build_model(partial_threshold_pct=10)
+    from metatv.gui.channel_list_model import ChannelListModel
+    qapp = __import__('PyQt6.QtWidgets', fromlist=['QApplication']).QApplication
+    app = qapp.instance() or qapp([])
+
+    model = ChannelListModel()
     dto = _make_channel_list_dto(watch_percent=80, watch_completed=False)
-    text = model._compose_display_text(dto)
-    assert _icons.partial_watched_q3_icon in text, (
-        f"Expected ◕ in display text for 80%, got: {text!r}"
+    model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
+                       has_more=False, query_params={}, partial_threshold_pct=10)
+    idx = model.index(0, 0)
+    text = idx.data(Qt.ItemDataRole.DisplayRole)
+    icon = idx.data(Qt.ItemDataRole.DecorationRole)
+    assert _icons.partial_watched_q3_icon not in text, (
+        f"Glyph must be in icon lane, not text; got: {text!r}"
     )
+    assert isinstance(icon, QIcon), f"Expected QIcon for 80% watched, got: {icon!r}"
 
 
 def test_compose_display_text_completed_check():
-    """Completed → ✓ in the channel list display text."""
+    """Completed → checkmark icon in DecorationRole (not embedded in text)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
-    model = _build_model(partial_threshold_pct=10)
+    from metatv.gui.channel_list_model import ChannelListModel
+    qapp = __import__('PyQt6.QtWidgets', fromlist=['QApplication']).QApplication
+    app = qapp.instance() or qapp([])
+
+    model = ChannelListModel()
     dto = _make_channel_list_dto(watch_percent=100, watch_completed=True)
-    text = model._compose_display_text(dto)
-    assert _icons.watched_icon in text, (
-        f"Expected ✓ in display text for completed, got: {text!r}"
+    model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
+                       has_more=False, query_params={}, partial_threshold_pct=10)
+    idx = model.index(0, 0)
+    text = idx.data(Qt.ItemDataRole.DisplayRole)
+    icon = idx.data(Qt.ItemDataRole.DecorationRole)
+    assert _icons.watched_icon not in text, (
+        f"Check-mark must be in icon lane, not text; got: {text!r}"
     )
+    assert isinstance(icon, QIcon), f"Expected QIcon for completed row, got: {icon!r}"
 
 
 def test_compose_display_text_untouched_no_glyph():

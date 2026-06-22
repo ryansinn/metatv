@@ -112,6 +112,17 @@ class ChannelListModel(QAbstractListModel):
             return self._compose_display_text(channel)
         if role == Qt.ItemDataRole.UserRole:
             return channel.id
+        if role == Qt.ItemDataRole.DecorationRole:
+            # Watch indicator icon in a reserved leading slot (non-live VOD only).
+            # Solid for deliberately-watched (last_played_via != "queue");
+            # muted/gray for queue-auto-advanced; blank for live or unwatched.
+            if channel.media_type != "live":
+                pct = channel.watch_percent or (1 if channel.watch_progress else 0)
+                glyph = _icons.watch_progress_glyph(
+                    pct, channel.watch_completed, self._partial_threshold_pct
+                )
+                return _icons.watch_icon_for_channel(glyph, channel.last_played_via)
+            return None
         if role == Qt.ItemDataRole.ForegroundRole:
             # Dim fully-watched non-live rows so finished content recedes visually.
             # Live channels never carry watch state, so they are always full-strength.
@@ -292,15 +303,11 @@ class ChannelListModel(QAbstractListModel):
     def _compose_display_text(self, channel: ChannelListDTO) -> str:
         """Compose the visible row text for *channel*.
 
-        Preserves the exact format from the old ``_on_channels_loaded`` loop:
-        ``{src_badge}{media_icon}{fav_icon}{watch_badge} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
+        Format: ``{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
 
-        Watch badges (VOD only — never shown for live channels):
-        - ``✓`` (``watched_icon``)       when ``watch_completed`` is True.
-        - ``◔`` (``partial_watched_q1_icon``) when < 37% watched (above partial threshold).
-        - ``◐`` (``partial_watched_icon``)    when 37–62% watched.
-        - ``◕`` (``partial_watched_q3_icon``) when 63–99% watched.
-        - Nothing (untouched) when below ``_partial_threshold_pct`` or truly unwatched.
+        The watch indicator is no longer embedded in the title text.  It is
+        rendered as a QIcon via ``DecorationRole`` in a reserved leading slot so
+        titles align regardless of watch state.
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -314,15 +321,7 @@ class ChannelListModel(QAbstractListModel):
         if self._show_provider_icon and channel.provider_id in self._provider_icon_map:
             src_badge = self._provider_icon_map[channel.provider_id] + " "
 
-        # Watch badge (VOD only — never for live):
-        # Graduated glyphs driven by watch_percent; fallback to watch_progress>0 for
-        # rows populated before watch_percent was introduced (percent=0, progress>0).
-        watch_badge = ""
-        if channel.media_type != "live":
-            pct = channel.watch_percent or (1 if channel.watch_progress else 0)
-            watch_badge = _icons.watch_progress_glyph(
-                pct, channel.watch_completed, self._partial_threshold_pct
-            )
+        # Watch indicator removed from text; see data() DecorationRole branch.
 
         prefix_str = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
         lang_str = f"[{channel.detected_region}] " if channel.detected_region else ""
@@ -332,7 +331,7 @@ class ChannelListModel(QAbstractListModel):
         year_str = f" · {channel.detected_year}" if channel.detected_year else ""
         bare = channel.detected_title or channel.name
         display_text = (
-            f"{src_badge}{media_icon}{fav_icon}{watch_badge} "
+            f"{src_badge}{media_icon}{fav_icon} "
             f"{prefix_group}{dot_sep}{bare}{quality_str}{year_str}"
         )
         if channel.category:

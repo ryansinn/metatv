@@ -250,32 +250,67 @@ def test_season_glyph_empty_list():
 
 
 # ---------------------------------------------------------------------------
-# 7. _episode_icon_text — correct glyph in column-0 text
+# 7. _episode_icon_text returns clean title text; _episode_watch_icon returns QIcon
 # ---------------------------------------------------------------------------
 
 def test_episode_icon_text_completed():
+    """_episode_icon_text returns the clean display title — no glyph."""
     from metatv.gui import icons as _icons
     mixin = _make_mixin()
     dto = _make_episode_dto(watch_completed=True, watch_percent=100)
     text = mixin._episode_icon_text(dto)
-    assert _icons.watched_icon in text, f"Completed episode must show ✓, got: {text!r}"
+    # Glyph lives in the icon lane (_episode_watch_icon), not the text.
+    assert _icons.watched_icon not in text, (
+        f"watch glyph must be in icon lane, not text; got: {text!r}"
+    )
 
 
 def test_episode_icon_text_untouched():
+    """_episode_icon_text returns clean title; no play-triangle in text."""
     from metatv.gui import icons as _icons
     mixin = _make_mixin()
     dto = _make_episode_dto(watch_completed=False, watch_percent=0)
     text = mixin._episode_icon_text(dto)
-    assert _icons.episode_icon in text, f"Untouched episode must show ▶, got: {text!r}"
+    # The play-triangle icon now lives in setIcon(0, ...), not the text.
+    assert _icons.episode_icon not in text, (
+        f"episode icon must be in icon column, not text; got: {text!r}"
+    )
     assert _icons.watched_icon not in text
 
 
 def test_episode_icon_text_partial():
+    """_episode_icon_text returns clean title for partial-watched episodes."""
     from metatv.gui import icons as _icons
     mixin = _make_mixin()
     dto = _make_episode_dto(watch_completed=False, watch_percent=50)
     text = mixin._episode_icon_text(dto)
-    assert _icons.partial_watched_icon in text, f"50% episode must show ◐, got: {text!r}"
+    assert _icons.partial_watched_icon not in text, (
+        f"partial glyph must be in icon lane, not text; got: {text!r}"
+    )
+
+
+def test_episode_watch_icon_completed_returns_qicon():
+    """_episode_watch_icon returns a QIcon for a completed episode."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QIcon
+    app = QApplication.instance() or QApplication([])
+    mixin = _make_mixin()
+    dto = _make_episode_dto(watch_completed=True, watch_percent=100)
+    icon = mixin._episode_watch_icon(dto)
+    assert isinstance(icon, QIcon), f"Expected QIcon for completed episode, got {icon!r}"
+
+
+def test_episode_watch_icon_untouched_returns_qicon():
+    """_episode_watch_icon returns the episode_icon (play-triangle) for unwatched episodes."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QIcon
+    app = QApplication.instance() or QApplication([])
+    mixin = _make_mixin()
+    dto = _make_episode_dto(watch_completed=False, watch_percent=0)
+    icon = mixin._episode_watch_icon(dto)
+    assert isinstance(icon, QIcon), (
+        f"Unwatched episode must still get an icon (play-triangle), got {icon!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

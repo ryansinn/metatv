@@ -158,3 +158,86 @@ def watch_progress_glyph(
     if watch_percent >= partial_threshold_pct:
         return partial_watched_q1_icon
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Watch-indicator icon helpers (QIcon cache, lazily built on the main thread)
+# ---------------------------------------------------------------------------
+# The small set of watch state x provenance combinations (~8 entries) is cached
+# so QPixmap/QIcon construction happens once per glyph x muted pair.  QPixmap is a
+# GUI object and MUST be created on the main thread -- these helpers are only ever
+# called from the model's data() method which runs on the main thread.
+
+_WATCH_ICON_CACHE: dict[tuple[str, bool], object] = {}  # (glyph, muted) -> QIcon
+
+
+def watch_icon(glyph: str, muted: bool) -> object:
+    """Return a QIcon rendering *glyph* in solid or muted color.
+
+    MUST be called on the main thread -- builds a QPixmap on first use.
+
+    The color is taken from ``theme.COLOR_TEXT`` (solid, deliberate watch) or
+    ``theme.COLOR_MUTED`` (muted, auto-advanced via queue).  Both come from
+    design tokens -- no inline hex literals.
+
+    Args:
+        glyph: One of the watch-progress glyphs (checkmark and circle variants).
+        muted: True -> muted/gray (queue-watched); False -> solid (manually-watched).
+
+    Returns:
+        A cached ``QIcon`` instance.
+    """
+    from metatv.gui import theme as _theme  # local import to avoid circular at module load
+
+    cache_key = (glyph, muted)
+    if cache_key in _WATCH_ICON_CACHE:
+        return _WATCH_ICON_CACHE[cache_key]
+
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+
+    color_str = _theme.COLOR_MUTED if muted else _theme.COLOR_TEXT
+    color = QColor(color_str)
+
+    # Render the glyph at 12 px into a 14x14 transparent pixmap.
+    size = 14
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    font = QFont()
+    font.setPixelSize(12)
+    painter.setFont(font)
+    painter.setPen(color)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.end()
+
+    icon = QIcon(pixmap)
+    _WATCH_ICON_CACHE[cache_key] = icon
+    return icon
+
+
+def watch_icon_for_channel(
+    glyph: str | None,
+    last_played_via: str | None,
+) -> object | None:
+    """Return a QIcon for a channel's watch state, or None if unwatched.
+
+    Wraps ``watch_icon`` with the provenance mapping:
+    - ``last_played_via == "queue"`` -> muted/gray icon (auto-advanced, passive).
+    - anything else (manual, alert, None with a glyph) -> solid icon.
+    - ``glyph`` is empty or None -> None (no icon; slot stays blank for unwatched rows).
+
+    MUST be called on the main thread.
+
+    Args:
+        glyph: Result of ``watch_progress_glyph(...)``; empty-string or None = unwatched.
+        last_played_via: Provenance string from the DTO (manual / queue / None).
+
+    Returns:
+        A ``QIcon`` or ``None``.
+    """
+    if not glyph:
+        return None
+    muted = (last_played_via == "queue")
+    return watch_icon(glyph, muted)

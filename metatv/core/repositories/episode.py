@@ -61,6 +61,7 @@ class EpisodeRepository:
                 watch_progress=int(getattr(ep, "watch_progress", 0) or 0),
                 watch_completed=bool(getattr(ep, "watch_completed", False)),
                 watch_percent=int(getattr(ep, "watch_percent", 0) or 0),
+                last_played_via=getattr(ep, "last_played_via", None),
             ))
         return result
     
