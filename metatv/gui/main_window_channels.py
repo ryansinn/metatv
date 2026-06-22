@@ -806,6 +806,8 @@ class _ChannelListMixin:
                 ids, "Explore", "curious", False
             ),
             "bulk_category": lambda: self._open_category_picker(ids),
+            # Multi-select Play All — look up playable DTOs off-thread, then delegate
+            "play_all": lambda: self._trigger_play_all_channels(ids),
         }
 
         if fav_section is not None:
@@ -950,3 +952,59 @@ class _ChannelListMixin:
         )
         # Reflect the grown loaded count in the "Showing N of M" label.
         self._refresh_channel_stats_label()
+
+    # ---- Multi-select Play All -----------------------------------------------
+
+    def _trigger_play_all_channels(self, channel_ids: list[str]) -> None:
+        """Kick off a Play-All for the selected channel IDs.
+
+        Looks up each channel's playable DTO off the main thread (same pattern as
+        ``play_channel_by_id`` but batched), converts non-series channels to
+        :class:`_PlayAllItem` values in selection order, and delegates to
+        :meth:`_play_all_items`.  Series channels are skipped with a log warning —
+        they have no single stream URL and are not playable via Play All.
+
+        Args:
+            channel_ids: Ordered list of channel IDs as they appear in the
+                multi-select (selection order = play order).
+        """
+        from metatv.gui.main_window_series import _PlayAllItem
+
+        def _bg_fetch(repos) -> list:
+            """Off-thread: look up playable DTOs for channel_ids in selection order."""
+            from metatv.core.models import MediaType
+            items: list[_PlayAllItem] = []
+            for cid in channel_ids:
+                dto = repos.channels.get_playable_dto(cid)
+                if dto is None:
+                    logger.warning(f"Play All: channel {cid!r} not found, skipping")
+                    continue
+                if dto.media_type == MediaType.SERIES:
+                    logger.info(
+                        f"Play All: skipping series channel {dto.name!r} "
+                        f"(series have no direct stream URL)"
+                    )
+                    continue
+                if not dto.stream_url:
+                    logger.warning(f"Play All: {dto.name!r} has no stream URL, skipping")
+                    continue
+                items.append(_PlayAllItem(
+                    stream_url=dto.stream_url,
+                    title=dto.name,
+                    content_id=dto.id,
+                    provider_id=dto.provider_id,
+                    media_type=dto.media_type or "live",
+                ))
+            return items
+
+        def _on_items_ready(items: list) -> None:
+            if not items:
+                self.status_bar.showMessage("No playable streams in selection")
+                return
+            self._play_all_items(items)
+
+        self._run_query(
+            _bg_fetch,
+            _on_items_ready,
+            on_error=lambda e: logger.error(f"Play All channel lookup failed: {e}"),
+        )
