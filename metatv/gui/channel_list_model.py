@@ -26,10 +26,15 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSignal,
 )
+from PyQt6.QtGui import QBrush, QColor
 from loguru import logger
 
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
+
+# Pre-built brush for fully-watched non-live rows (built once, reused each data() call).
+_WATCHED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_WATCHED_FG))
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +112,11 @@ class ChannelListModel(QAbstractListModel):
             return self._compose_display_text(channel)
         if role == Qt.ItemDataRole.UserRole:
             return channel.id
+        if role == Qt.ItemDataRole.ForegroundRole:
+            # Dim fully-watched non-live rows so finished content recedes visually.
+            # Live channels never carry watch state, so they are always full-strength.
+            if channel.watch_completed and channel.media_type != "live":
+                return _WATCHED_DIM_BRUSH
         return None
 
     def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:  # type: ignore[override]
