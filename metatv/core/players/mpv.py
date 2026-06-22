@@ -371,29 +371,38 @@ class MPVPlayer(PlayerPlugin):
             # Multiple-instances mode: every play = new window.
             return self._launch_new_instance(url, title)
 
-    def queue(self, url: str, title: str, mode: QueueMode = QueueMode.APPEND_PLAY) -> bool:
-        """Add URL to playlist queue in the most-recently-used instance.
+    def queue(
+        self,
+        url: str,
+        title: str,
+        mode: QueueMode = QueueMode.APPEND_PLAY,
+        instance_key: str = "__shared__",
+    ) -> bool:
+        """Add URL to playlist queue in the specified instance.
+
+        Passes ``title`` as a per-file ``force-media-title`` option on the
+        ``loadfile`` command so the mpv window title updates when this item
+        starts playing, not only when the first episode starts.
 
         Args:
             url: Stream URL to queue.
-            title: Title to display.
+            title: Per-item title; embedded as a ``force-media-title`` option
+                in the ``loadfile`` command.
             mode: How to add to queue.
+            instance_key: Target player instance.  Defaults to the shared key
+                (single-window mode).  When Split Streams is active, pass the
+                provider's key so the append lands in the correct window.
 
         Returns:
             True if successful, False otherwise.
-
-        Note:
-            mpv's IPC protocol doesn't support setting titles for queued
-            playlist items.  All queued items will show the currently playing
-            item's title until they start playing.
         """
-        logger.info(f"MPVPlayer.queue: {title} (mode: {mode.value})")
+        logger.info(f"MPVPlayer.queue: {title} (mode: {mode.value}, key={instance_key})")
 
         if not self.single_instance:
             logger.warning("Queue mode requires single-instance mode")
-            return self.play(url, title)
+            return self.play(url, title, instance_key=instance_key)
 
-        key = self._last_key or _SHARED_KEY
+        key = instance_key if instance_key != "__shared__" else (self._last_key or _SHARED_KEY)
         if not self._ensure_instance_running(key):
             logger.warning(f"Could not start instance [{key}]")
             return False
@@ -406,7 +415,14 @@ class MPVPlayer(PlayerPlugin):
         }
         mpv_mode = mode_map.get(mode, "append-play")
 
-        command = {"command": ["loadfile", url, mpv_mode], "request_id": 1}
+        # Escape the title for inclusion in mpv's per-file options string.
+        # mpv uses a comma-separated key=value list; we only need to escape
+        # the handful of characters that are structurally significant there.
+        safe_title = title.replace("\\", "\\\\").replace(",", "\\,").replace("=", "\\=")
+        command = {
+            "command": ["loadfile", url, mpv_mode, 0, f"force-media-title={safe_title}"],
+            "request_id": 1,
+        }
 
         if self._send_ipc_command(command, key):
             logger.info(f"Queued to mpv [{key}]: {title}")

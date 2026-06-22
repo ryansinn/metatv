@@ -249,41 +249,41 @@ class _SeriesMixin:
 
                 logger.debug(f"Added season: {season.name} ({season.episode_count} episodes)")
 
-                # Get episodes for this season
-                repos = RepositoryFactory(session)
-                episodes = repos.episodes.get_by_season(season_id=season.id)
-                total_episodes += len(episodes)
+                # Get episodes as DTOs — safe post-session, includes watch-state fields
+                episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=season.id)
+                total_episodes += len(episode_dtos)
 
-                logger.debug(f"Found {len(episodes)} episodes for {season.name}")
+                logger.debug(f"Found {len(episode_dtos)} episodes for {season.name}")
 
-                for episode in episodes:
+                for episode in episode_dtos:
                     # Create episode item
                     episode_item = QTreeWidgetItem(season_item)
                     display_title = _clean_episode_title(
                         episode.title, episode.season_num, episode.episode_num, episode.series_name
                     )
-                    # Use history icon for watched episodes so the icon replaces the play indicator
-                    ep_icon = self.history_icon if episode.is_watched else self.episode_icon
+                    # Three-state watch indicator (mirrors channel-list logic from PR #116):
+                    #   ✓  watch_completed — fully watched
+                    #   ◐  watch_progress > 0, not completed — partially watched (in-progress)
+                    #   ▶  neither — unwatched
+                    if episode.watch_completed:
+                        ep_icon = _icons.watched_icon
+                    elif episode.watch_progress > 0:
+                        ep_icon = _icons.partial_watched_icon
+                    else:
+                        ep_icon = _icons.episode_icon
                     episode_item.setText(0, f"  {ep_icon} {display_title}")
                     episode_item.setToolTip(0, episode.title)
 
                     # Episode number
                     episode_item.setText(1, f"E{episode.episode_num}")
 
-                    # Duration — stored field first, fall back to raw_data["info"]["duration"]
-                    dur_raw = episode.duration or (
-                        (episode.raw_data or {}).get("info", {}).get("duration", "")
-                    )
-                    if dur_raw:
-                        episode_item.setText(2, _format_episode_duration(dur_raw))
+                    # Duration — stored field only (DTOs don't carry raw_data)
+                    if episode.duration:
+                        episode_item.setText(2, _format_episode_duration(episode.duration))
 
-                    # Rating from episode raw_data
-                    if episode.raw_data and isinstance(episode.raw_data, dict):
-                        info = episode.raw_data.get("info", {})
-                        if isinstance(info, dict):
-                            rating = info.get("rating", "")
-                            if rating:
-                                episode_item.setText(3, f"{self.rating_star_icon} {rating}")
+                    # Rating from DTO (pre-extracted at build time)
+                    if episode.rating:
+                        episode_item.setText(3, f"{self.rating_star_icon} {episode.rating}")
 
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
 
@@ -341,7 +341,6 @@ class _SeriesMixin:
         self.status_bar.showMessage(f"Playing: {episode.title}")
 
         # Record playback
-        from datetime import datetime
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -365,9 +364,10 @@ class _SeriesMixin:
 
             episodes_to_queue = []
             if self.config.autoplay_season_episodes and episode.season_id:
-                all_episodes = repos.episodes.get_by_season(season_id=episode.season_id)
+                # Use DTOs — no ORM objects escape the session boundary
+                all_episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=episode.season_id)
                 episodes_to_queue = [
-                    ep for ep in all_episodes
+                    ep for ep in all_episode_dtos
                     if ep.episode_num > episode.episode_num
                 ]
                 episodes_to_queue.sort(key=lambda ep: ep.episode_num)
@@ -378,19 +378,44 @@ class _SeriesMixin:
         finally:
             session.close()
 
+        # Register this episode for watch-progress capture (same seam as movies, Slice 3a).
+        # The checkpoint timer samples mpv every 20s and writes progress via
+        # EpisodeRepository.record_watch_progress — the episode path is the documented
+        # multi-episode exception (CLAUDE.md: "reuse before reinvent") that routes through
+        # the same _bg_capture_watch worker as movies.
+        if not hasattr(self, "_watch_tracking"):
+            self._watch_tracking = {}
+        _watch_key = self.player_manager.resolve_key(episode.provider_id)
+        self._watch_tracking[_watch_key] = {
+            "content_id": episode.id,
+            "media_type": "episode",
+            "played_via": "manual",
+        }
+        self._start_watch_capture()
+
         # Update UI lists in real-time
         self.load_history()
         self.load_favorites()
 
         # Launch player with first episode
-        self.launch_player_for_episode(episode.stream_url, episode.title, episodes_to_queue)
+        self.launch_player_for_episode(
+            episode.stream_url, episode.title, episodes_to_queue,
+            provider_id=episode.provider_id,
+        )
 
-    def launch_player_for_episode(self, stream_url, title, queue_episodes=None):
+    def launch_player_for_episode(self, stream_url, title, queue_episodes=None, provider_id: str = ""):
         """Launch media player for an episode and queue subsequent episodes.
 
         Pre-flight validates the stream URL in a background thread before handing
         off to mpv, so text error responses (e.g. "not available") surface as an
         in-app notification rather than a black mpv window.
+
+        Args:
+            stream_url: The episode's playback URL.
+            title: Episode title used for the mpv window title and notification.
+            queue_episodes: Optional list of subsequent EpisodeDTOs to append-play.
+            provider_id: The episode's source provider id — threaded to
+                player_manager.play() to honour Split-Streams keying.
         """
         if not self.player_manager.is_available():
             logger.error("No media player available")
@@ -427,6 +452,8 @@ class _SeriesMixin:
 
         future = self.executor.submit(_preflight)
         future.add_done_callback(_on_preflight_done)
+        # Stash the provider_id so _do_launch_episode can thread it to player_manager.play()
+        self._pending_episode_provider_id = provider_id
 
     def _on_episode_stream_unavailable(self, notif_id: str, title: str, detail: str, stream_url: str = "") -> None:
         from PyQt6.QtWidgets import QApplication
@@ -454,10 +481,17 @@ class _SeriesMixin:
             self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
     def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes) -> None:
-        """Actually launch mpv after a successful preflight check (called on main thread)."""
+        """Actually launch mpv after a successful preflight check (called on main thread).
+
+        Threads the provider_id stashed by launch_player_for_episode to
+        player_manager.play() so Split-Streams keying works correctly.
+        Also passes per-item titles to the queue so the mpv window title updates
+        as each episode starts — not just for the first one.
+        """
         self.notification_manager.dismiss(notif_id)
+        provider_id = self.__dict__.get("_pending_episode_provider_id", "")
         logger.info(f"Playing first episode: {title}")
-        if self.player_manager.play(stream_url, title):
+        if self.player_manager.play(stream_url, title, provider_id=provider_id):
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
             self._start_playback_health()
@@ -470,7 +504,10 @@ class _SeriesMixin:
                 logger.info(f"Queueing {len(queue_episodes)} subsequent episodes...")
                 for ep in queue_episodes:
                     if ep.stream_url:
-                        if self.player_manager.queue(ep.stream_url, ep.title, QueueMode.APPEND):
+                        if self.player_manager.queue(
+                            ep.stream_url, ep.title, QueueMode.APPEND,
+                            provider_id=provider_id,
+                        ):
                             queued_count += 1
                             logger.debug(f"Queued E{ep.episode_num}: {ep.title}")
                         else:
@@ -479,7 +516,6 @@ class _SeriesMixin:
                 if queued_count > 0:
                     status_msg = f"Playing: {title} (+{queued_count} queued)"
                     logger.info(f"Successfully queued {queued_count}/{len(queue_episodes)} episodes")
-                    logger.warning(f"Note: mpv limitation - queued episodes will show current title until they start playing")
                 else:
                     status_msg = f"Playing: {title}"
             else:

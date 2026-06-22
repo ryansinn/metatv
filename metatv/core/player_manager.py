@@ -146,22 +146,34 @@ class PlayerManager:
 
         return result
 
-    def queue(self, url: str, title: str, mode: QueueMode = QueueMode.APPEND_PLAY) -> bool:
-        """Add URL to playlist queue
+    def queue(
+        self,
+        url: str,
+        title: str,
+        mode: QueueMode = QueueMode.APPEND_PLAY,
+        provider_id: str | None = None,
+    ) -> bool:
+        """Add URL to playlist queue.
 
         Args:
-            url: Stream URL to queue
-            title: Title to display
-            mode: How to add to queue
+            url: Stream URL to queue.
+            title: Title to display.  Passed as a per-item ``force-media-title``
+                so the mpv window title updates as each queued item starts.
+            mode: How to add to queue.
+            provider_id: The episode's source provider id — used to resolve the
+                correct instance key under Split Streams (must match the key of
+                the currently-playing episode so the append lands in the right
+                window).
 
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise.
         """
         if not self.player:
             logger.error("No player available")
             return False
 
-        return self.player.queue(url, title, mode)
+        key = self._resolve_instance_key(provider_id)
+        return self.player.queue(url, title, mode, instance_key=key)
 
     def stop(self, key: str | None = None) -> bool:
         """Stop playback
