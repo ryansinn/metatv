@@ -122,6 +122,33 @@ class _ProviderMixin:
         if sources is not None:
             sources.set_provider_epg_refreshing(provider_id, False)
 
+    def _maybe_refresh_provider_epg(self, provider_id: str) -> None:
+        """Step 2 of a source refresh: pull current EPG — unless EPG is off.
+
+        Gated on the per-provider ``epg_enabled`` flag and a usable EPG URL, so a
+        source whose EPG the user turned off is skipped entirely. Reuses the
+        canonical EPG-refresh path (sidebar spinner + status + force_refresh), so a
+        refreshed source's guide is fresh without a separate manual EPG refresh.
+        """
+        if getattr(self, "epg_manager", None) is None:
+            return
+        from metatv.core.database import ProviderDB
+        session = self.db.get_session()
+        try:
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if provider is None:
+                return
+            if not getattr(provider, "epg_enabled", True):
+                logger.info(f"EPG disabled for {provider_id} — skipping post-refresh EPG fetch")
+                return
+            if not self.epg_manager.effective_epg_url(provider):
+                logger.info(f"No EPG URL for {provider_id} — skipping post-refresh EPG fetch")
+                return
+        finally:
+            session.close()
+        logger.info(f"Source refresh complete for {provider_id} — fetching current EPG")
+        self._on_provider_epg_refresh(provider_id)
+
     def _on_provider_epg_refreshed(self, provider_id: str, *_args) -> None:
         """EPG fetch finished/errored — rebuild Sources so the indicator recolors with
         the new date range and the spinner clears."""
@@ -309,15 +336,14 @@ class _ProviderMixin:
             if provider_id and "series_monitor" in self.__dict__:
                 self.series_monitor.check_provider(provider_id)
 
-            # Freshly-added provider with EPG enabled → kick off its first EPG pull
-            # now (alongside the channel data), so the user never has to open Source
-            # Settings to get the initial guide. force_refresh_provider bypasses the
-            # throttle and no-ops if a fetch is already running.
-            if provider_id and provider_id in self._epg_fetch_after_add:
+            # A source refresh is step 1 (channel data); step 2 is pulling current
+            # EPG so the guide is fresh without a separate manual refresh from the
+            # EPG screen. Applies to EVERY user-initiated refresh — newly-added or
+            # existing — and is skipped when the source has EPG disabled. (The
+            # add-time flag is now just bookkeeping; the trigger below covers both.)
+            if provider_id:
                 self._epg_fetch_after_add.discard(provider_id)
-                if getattr(self, "epg_manager", None):
-                    logger.info(f"First EPG fetch for newly-added provider {provider_id}")
-                    self.epg_manager.force_refresh_provider(provider_id)
+                self._maybe_refresh_provider_epg(provider_id)
         else:
             # Channel load failed — drop any pending add-time EPG flag.
             if provider_id:

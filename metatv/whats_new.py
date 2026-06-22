@@ -158,6 +158,16 @@ WHATS_NEW: list[WhatsNewEntry] = [
             "Exclude every Language but two without unpicking unrelated Platforms: select all in one type, leave the others untouched.",
         ),
     ),
+    WhatsNewEntry(
+        id=14,
+        version="0.6.0",
+        date="2026-06-22",
+        title="Refreshing a source now updates its EPG too",
+        items=(
+            "Refreshing a source pulls current guide data as a second step — no separate “Refresh EPG” needed.",
+            "Sources with EPG turned off are skipped automatically.",
+        ),
+    ),
 ]
 
 
