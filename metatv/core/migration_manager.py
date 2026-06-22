@@ -118,7 +118,7 @@ class MigrationManager(QObject):
         self._cancel_event.clear()
         self._running = True
         logger.info(
-            "MigrationManager: queuing %d task(s): %s",
+            "MigrationManager: queuing {} task(s): {}",
             len(pending),
             [t.id for t in pending],
         )
@@ -154,11 +154,11 @@ class MigrationManager(QObject):
             for task in pending:
                 if self._cancel_event.is_set():
                     logger.info(
-                        "MigrationManager: cancelled before starting task %s", task.id
+                        "MigrationManager: cancelled before starting task {}", task.id
                     )
                     break
 
-                logger.info("MigrationManager: starting task %s (%s)", task.id, task.label)
+                logger.info("MigrationManager: starting task {} ({})", task.id, task.label)
                 self._task_started.emit(task.id, task.label)
 
                 def _progress_cb(done: int, total: int, _id=task.id) -> None:
@@ -171,7 +171,7 @@ class MigrationManager(QObject):
                     task.run(_progress_cb, _is_cancelled)
                 except Exception:
                     logger.exception(
-                        "MigrationManager: task %s raised an exception", task.id
+                        "MigrationManager: task {} raised an exception", task.id
                     )
                     # Emit finished anyway so the widget updates; the version
                     # was not bumped so the task will retry next launch.
@@ -184,15 +184,15 @@ class MigrationManager(QObject):
                         task.on_completed(self.config)
                     except Exception:
                         logger.exception(
-                            "MigrationManager: task %s on_completed failed", task.id
+                            "MigrationManager: task {} on_completed failed", task.id
                         )
                     self._task_finished.emit(task.id)
-                    logger.info("MigrationManager: task %s finished", task.id)
+                    logger.info("MigrationManager: task {} finished", task.id)
                 else:
                     # Emit finished so the widget can clean up, but do NOT bump version
                     self._task_finished.emit(task.id)
                     logger.info(
-                        "MigrationManager: task %s interrupted by cancellation", task.id
+                        "MigrationManager: task {} interrupted by cancellation", task.id
                     )
                     break
 

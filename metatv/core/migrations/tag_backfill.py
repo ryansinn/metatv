@@ -127,7 +127,7 @@ class TagBackfillTask:
             config = _Config.load()
 
         logger.info(
-            "TagBackfillTask: starting (version=%d)", CURRENT_TAG_BACKFILL_VERSION
+            "TagBackfillTask: starting (version={})", CURRENT_TAG_BACKFILL_VERSION
         )
 
         channel_ids = self._collect_channel_ids()
@@ -138,13 +138,13 @@ class TagBackfillTask:
             progress_cb(0, 0)
             return
 
-        logger.info("TagBackfillTask: processing %d channels", total)
+        logger.info("TagBackfillTask: processing {} channels", total)
 
         done = 0
         for batch_start in range(0, total, _BATCH_SIZE):
             if is_cancelled():
                 logger.info(
-                    "TagBackfillTask: cancelled after %d/%d", done, total
+                    "TagBackfillTask: cancelled after {}/{}", done, total
                 )
                 return
 
@@ -152,12 +152,12 @@ class TagBackfillTask:
             self._process_batch(chunk, config)
             done = batch_start + len(chunk)
             logger.debug(
-                "TagBackfillTask: committed batch %d–%d", batch_start, done
+                "TagBackfillTask: committed batch {}–{}", batch_start, done
             )
             progress_cb(done, total)
 
         logger.info(
-            "TagBackfillTask: completed — tagged %d channels", total
+            "TagBackfillTask: completed — tagged {} channels", total
         )
 
     def on_completed(self, config: "Config") -> None:
@@ -169,7 +169,7 @@ class TagBackfillTask:
         config.tag_backfill_version = CURRENT_TAG_BACKFILL_VERSION
         config.save()
         logger.debug(
-            "TagBackfillTask: bumped tag_backfill_version=%d",
+            "TagBackfillTask: bumped tag_backfill_version={}",
             CURRENT_TAG_BACKFILL_VERSION,
         )
 

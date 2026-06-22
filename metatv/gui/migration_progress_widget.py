@@ -173,7 +173,7 @@ class MigrationProgressWidget(QFrame):
 
     def on_task_started(self, task_id: str, label: str) -> None:
         """Add a new task row and show the panel."""
-        logger.debug("MigrationProgressWidget: task_started task_id=%s", task_id)
+        logger.debug("MigrationProgressWidget: task_started task_id={}", task_id)
         if task_id in self._rows:
             return  # idempotent
         row = _TaskRow(task_id, label, self)
@@ -192,7 +192,7 @@ class MigrationProgressWidget(QFrame):
 
     def on_task_finished(self, task_id: str) -> None:
         """Flip the glyph to done for *task_id*."""
-        logger.debug("MigrationProgressWidget: task_finished task_id=%s", task_id)
+        logger.debug("MigrationProgressWidget: task_finished task_id={}", task_id)
         row = self._rows.get(task_id)
         if row is not None:
             row.on_finished()

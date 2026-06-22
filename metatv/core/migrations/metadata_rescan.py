@@ -131,7 +131,7 @@ class MetadataRescanTask:
         """
         logger.info(
             "MetadataRescanTask: scanning for stale metadata links "
-            "(version=%s)", CURRENT_METADATA_RESCAN_VERSION,
+            "(version={})", CURRENT_METADATA_RESCAN_VERSION,
         )
 
         stale_ids = self._find_stale_channel_ids()
@@ -142,13 +142,13 @@ class MetadataRescanTask:
             progress_cb(0, 0)
             return
 
-        logger.info("MetadataRescanTask: found %d stale metadata link(s)", total)
+        logger.info("MetadataRescanTask: found {} stale metadata link(s)", total)
 
         done = 0
         for batch_start in range(0, total, _BATCH_SIZE):
             if is_cancelled():
                 logger.info(
-                    "MetadataRescanTask: cancelled after %d/%d", done, total
+                    "MetadataRescanTask: cancelled after {}/{}", done, total
                 )
                 return
 
@@ -156,13 +156,13 @@ class MetadataRescanTask:
             refreshed = self._refresh_batch(chunk)
             done = min(batch_start + len(chunk), total)
             logger.info(
-                "MetadataRescanTask: batch %d–%d: refreshed %d channel(s)",
+                "MetadataRescanTask: batch {}–{}: refreshed {} channel(s)",
                 batch_start, done, refreshed,
             )
             progress_cb(done, total)
 
         logger.info(
-            "MetadataRescanTask: completed — processed %d stale link(s)", total
+            "MetadataRescanTask: completed — processed {} stale link(s)", total
         )
 
     def on_completed(self, config: "Config") -> None:
@@ -170,7 +170,7 @@ class MetadataRescanTask:
         config.metadata_rescan_version = CURRENT_METADATA_RESCAN_VERSION
         config.save()
         logger.debug(
-            "MetadataRescanTask: bumped metadata_rescan_version=%d",
+            "MetadataRescanTask: bumped metadata_rescan_version={}",
             CURRENT_METADATA_RESCAN_VERSION,
         )
 
@@ -221,7 +221,7 @@ class MetadataRescanTask:
                     refreshed += 1
             except Exception:
                 logger.warning(
-                    "MetadataRescanTask: failed to refresh channel %s",
+                    "MetadataRescanTask: failed to refresh channel {}",
                     channel_id,
                     exc_info=True,
                 )
