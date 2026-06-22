@@ -207,6 +207,26 @@ class TagRepository:
         logger.info("reprocess_delete_generated: removed {} content_tag rows", deleted)
         return deleted
 
+    def delete_generated_for_channel(self, channel_id: str) -> int:
+        """Delete only the ``source="generated"`` content-tag links for *channel_id*.
+
+        User tags (``source="user"``) for the same channel are left intact.
+        This is the per-channel non-destructive scrub used by the backfill task
+        before re-deriving tags for each channel.
+
+        Args:
+            channel_id: The ``ChannelDB.id`` whose generated tags should be cleared.
+
+        Returns:
+            Number of rows deleted.
+        """
+        deleted = (
+            self.session.query(ContentTagDB)
+            .filter_by(channel_id=channel_id, source="generated")
+            .delete(synchronize_session="fetch")
+        )
+        return deleted
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
