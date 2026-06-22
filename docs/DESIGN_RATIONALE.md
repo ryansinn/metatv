@@ -321,3 +321,45 @@ bespoke columns") into CLAUDE.md **once the schema is locked**, not before.
 mechanism (keep `detected_*` columns vs. a per-channel tag-id bitmap / inverted index); how the current
 filter's `is_filtered` / no-data-passthrough semantics map onto tag predicates; whether saved user
 views live in `config` or the DB.
+
+**Refined / extended (2026-06-21 design session).** Five clarifications that sharpen the model:
+
+1. **Config is *disposable*; curation lives in the DB.** The litmus test for *where* a value belongs:
+   you should be able to `rm config.yaml`, relaunch, and lose at most a few minutes of re-setting
+   preferences — never any actual *work*. If deleting it would lose something you'd be upset about,
+   that thing is mis-homed. **Stays in config** (settings whose loss is a mild annoyance): environment/
+   paths, the playback engine, app-behaviour toggles, **UI chrome** (splitter/panel sizes, collapse
+   state, zoom, theme, sidebar order), and app-state markers (What's-New cursor, migration versions).
+   **Moves to the DB** (curation — loss is real work): global exclusions, user categories,
+   monitored-series alerts, the EPG watchlist, and the Discover shelf-zone layout. The axis is **not**
+   "user-set vs. default" (splitter sizes are user-set but trivial) — it's *"does losing it hurt?"* This
+   is *why* the exclusion-wipe incident hurt: precious curation was living in a wholesale-rewritten YAML.
+   The first curation-to-DB slice is **global exclusions → `source=user` tags**, which makes a wipe like
+   that *structurally impossible* (row-level writes, no whole-file rewrite).
+
+2. **"Type" is the user's word for *namespace*; each tag is single-type.** A tag *is* `type:value`, so it
+   belongs to exactly one type — **one type → many tags**, never a multi-typed tag. The
+   "could a tag be several types?" intuition actually lives in **cross-type *relationships*** (a compound
+   locale `UK-NOWTV` implies a region *and* a platform; a region can imply a language) — links **between**
+   single-type tags, not multi-typing. Single-type tags are what keep filtering/grouping unambiguous.
+
+3. **Select-All is *per type*.** Because types are **orthogonal axes**, one Select-All spanning them
+   (exclude platforms *and* languages at once) is a category error. The correct shape — which falls
+   straight out of (2) — is each **type** rendered as its own group with its own Select-All + count. The
+   cross-type select-all disappears; this is how the exclusions/filter UI renders once it's tag-native.
+
+4. **One background-ops progress surface.** The Migration Center (visible, cancellable, multi-task
+   progress panel) is not migration-specific — **source add/refresh is the same shape** (a long
+   background pass over the corpus) and routes through the same panel. The tag-reprocessing loop is just
+   another task on it.
+
+5. **`##...##` provider headers are a tag source — a `collection` type.** The provider-injected
+   category headers (`### WOW SPORT ###`, `#### BAMBINI HD/4K ##### · UHD`) are organizational markers
+   whose *rows* are junk (bumper streams — skipped at load) but whose *labels* are gold: a
+   provider-defined grouping. The stateful loader **already** propagates the label to the channels
+   beneath it (`source_category`) and splits embedded quality markers into `source_quality_flags` — so
+   those two columns are the **pre-tag denormalized shadow** of a generated **`collection`-type tag** +
+   **quality tags**, applied by the hash-header rule (`source=generated`, scrub-and-reapplied). They need
+   the same **canonicalization** as genres (noisy labels; the same collection spelled differently across
+   providers) — i.e. another instance of D5's pattern. "Collection" is thus one of the predicted
+   "other types." Net: **discard the header row, keep the label as a tag.**
