@@ -10,6 +10,7 @@ avoid pulling 300K+ rows into Python for sorting.
 
 from __future__ import annotations
 
+import html
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -357,29 +358,106 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
     return _dedup_cards(cards)[:limit]
 
 
+def _genre_segment_conditions(genre_json_expr: str, aliases: set[str]) -> list:
+    """Build SQLAlchemy OR conditions matching an alias as a whole genre segment.
+
+    Genre fields use '/' or ',' as delimiters (e.g. "Action & Adventure / Drama").
+    A naive ``LIKE %alias%`` match causes cross-genre bleed: searching for "sci-fi"
+    would match "Sci-Fi & Fantasy" because the compound string *contains* "sci-fi".
+    This helper generates patterns that anchor each alias to segment boundaries so
+    only rows where the alias is a complete segment (trimmed) are returned.
+
+    Segment-boundary patterns for alias ``a``, delimiters ``/`` and ``,``:
+      - whole string:  ``a``
+      - first seg:     ``a /%``  /  ``a,%``
+      - last seg:      ``%/ a``  /  ``%, a``
+      - middle seg:    ``%/ a /%``  /  ``%/ a,%``  /  ``%, a /%``  /  ``%, a,%``
+
+    SQLite LIKE is ASCII-case-insensitive, so lowercase alias patterns match
+    provider strings regardless of their casing.
+    """
+    conditions = []
+    for i, a in enumerate(sorted(aliases)):
+        # Each alias generates several patterns; we use a sub-or group per alias.
+        # Space-padded delimiters handle "Action & Adventure / Drama" where segments
+        # have surrounding whitespace.  Both space-padded and non-padded variants
+        # are included for robustness.
+        pats = [
+            a,            # exact whole string
+            f"{a} /%",    # first seg, space-padded slash
+            f"{a}/%",     # first seg, tight slash
+            f"{a} ,%",    # first seg, space-padded comma
+            f"{a},%",     # first seg, tight comma
+            f"%/ {a}",    # last seg, space-padded slash
+            f"%/{a}",     # last seg, tight slash
+            f"%, {a}",    # last seg, space-padded comma
+            f"%,{a}",     # last seg, tight comma
+            f"%/ {a} /%", # mid seg, space-padded slashes
+            f"%/ {a}/%",
+            f"%/{a} /%",
+            f"%/{a}/%",   # mid seg, tight slashes
+            f"%/ {a} ,%", # mid seg, slash then comma
+            f"%/ {a},%",
+            f"%/{a} ,%",
+            f"%/{a},%",
+            f"%, {a} /%", # mid seg, comma then slash
+            f"%, {a}/%",
+            f"%,{a} /%",
+            f"%,{a}/%",
+            f"%, {a} ,%", # mid seg, commas
+            f"%, {a},%",
+            f"%,{a} ,%",
+            f"%,{a},%",
+        ]
+        sub_conds = [
+            text(f"{genre_json_expr} LIKE :gp{i}_{j}").bindparams(
+                **{f"gp{i}_{j}": p}
+            )
+            for j, p in enumerate(pats)
+        ]
+        conditions.append(or_(*sub_conds))
+    return conditions
+
+
 def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
                  excluded_prefixes=None, include_uncategorized: bool = True,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  excluded_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
-    """Content matching a genre (partial match), sorted by rating.
+    """Content matching a genre by whole-segment alias match, sorted by rating.
 
     *genre* is the **canonical** label (from ``get_all_genres``); match every raw
     alias that normalises to it so a "Drama" shelf also pulls in "Drame" /
     "Dramma" / "دراما" rows, not just the English ones (D5 / DR-0005).
+
+    Matching is **segment-boundary-anchored** — an alias must be a complete
+    delimiter-separated segment, never a substring of another genre.  This
+    prevents "sci-fi" from matching "Sci-Fi & Fantasy", and "action" from
+    matching "Action & Adventure" (bug B — compound/component over-matching).
     """
     from metatv.core.database import ChannelDB, MetadataDB
     # Raw aliases (lowercase) that canonicalise to this genre, plus the genre
-    # itself — SQLite LIKE is ASCII-case-insensitive so lowercase patterns match.
+    # itself.  For each alias we also add the HTML-entity-encoded variant so
+    # provider strings stored as "Action &amp; Adventure" in raw_data are
+    # matched even though the DB value was never unescaped at ingest time (bug A).
     _target = normalize_genre(genre)
-    _aliases = {raw for raw, canon in _GENRE_NORM.items() if canon == _target}
-    _aliases.add(genre.lower())
+    _base_aliases: set[str] = {raw for raw, canon in _GENRE_NORM.items() if canon == _target}
+    _base_aliases.add(genre.lower())
+    _base_aliases.add(html.unescape(genre).lower())
+    # Expand: for every alias, also add html.escape() variant to catch legacy
+    # raw_data strings that were stored with HTML entities (e.g. "&amp;").
+    _aliases: set[str] = set()
+    for _a in _base_aliases:
+        _aliases.add(_a)
+        _escaped = html.escape(_a)  # e.g. "action & adventure" → "action &amp; adventure"
+        if _escaped != _a:
+            _aliases.add(_escaped)
     _genre_json = "json_extract(channels.raw_data, '$.genre')"
-    _alias_match = or_(*[
-        text(f"{_genre_json} LIKE :g{i}").bindparams(**{f"g{i}": f"%{a}%"})
-        for i, a in enumerate(sorted(_aliases))
-    ])
+    # Use segment-boundary conditions to prevent substring bleed between
+    # compounds ("Sci-Fi & Fantasy") and their components ("sci-fi", "fantasy").
+    _seg_conds = _genre_segment_conditions(_genre_json, _aliases)
+    _alias_match = or_(*_seg_conds)
     q = (
         session.query(ChannelDB, MetadataDB)
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)

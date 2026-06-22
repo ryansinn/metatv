@@ -1,5 +1,6 @@
 """Filtering utilities for channel organization"""
 
+import html
 import re
 from typing import Optional, Dict, List, Set
 from dataclasses import dataclass
@@ -464,5 +465,10 @@ def normalize_genre(genre: str) -> str:
 
     Applies the :data:`_GENRE_NORM` lookup so a genre clicked in the details
     pane maps to the same filter-panel key produced during stat aggregation.
+
+    HTML entities are unescaped first so provider strings like
+    ``"Action &amp; Adventure"`` and ``"Action & Adventure"`` both resolve to
+    the same canonical label (bug A — duplicate shelves from HTML-encoded genres).
     """
-    return _GENRE_NORM.get(genre.lower(), genre)
+    unescaped = html.unescape(genre)
+    return _GENRE_NORM.get(unescaped.lower(), unescaped)
