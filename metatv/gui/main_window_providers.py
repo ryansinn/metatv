@@ -16,8 +16,148 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from loguru import logger
 
+from metatv.core.notifications import StepStatus
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui.dialogs import AddProviderDialog
+
+
+# ── Source-refresh step definitions ──────────────────────────────────────────
+#
+# Fixed step labels shown in the "Refreshing {source}" toast.  The mapper
+# below advances these based on progress messages from ProviderLoadThread.
+#
+# EPG steps are optional: they are appended only when the source has
+# ``epg_enabled`` and a usable EPG URL.
+
+_STEP_FETCH    = "Fetching channels"
+_STEP_STORE    = "Storing channels"
+_STEP_PARSE    = "Parsing & detecting"
+_STEP_EPG_DL   = "Downloading EPG"
+_STEP_EPG_PARSE = "Parsing EPG"
+
+# The base step list (without EPG steps).
+_BASE_STEPS: list[str] = [_STEP_FETCH, _STEP_STORE, _STEP_PARSE]
+
+
+def _make_steps(epg: bool) -> list[tuple[str, StepStatus]]:
+    """Return the initial step list with all steps pending.
+
+    Args:
+        epg: When True, append the two EPG steps.
+
+    Returns:
+        list of ``(label, StepStatus.PENDING)`` tuples.
+    """
+    labels = _BASE_STEPS.copy()
+    if epg:
+        labels += [_STEP_EPG_DL, _STEP_EPG_PARSE]
+    return [(lbl, StepStatus.PENDING) for lbl in labels]
+
+
+def _advance_steps(
+    steps: list[tuple[str, StepStatus]],
+    message: str,
+    pct: int,
+) -> list[tuple[str, StepStatus]]:
+    """Return a new step list reflecting the current progress message.
+
+    Maps ProviderLoadThread / XtreamProvider progress messages to the fixed
+    step set.  Message content takes priority over percentage because the
+    batch-store sub-emits use pct 50-69 (overlapping the fetch range) but
+    carry a distinctive ``"Storing channels"`` string.
+
+    Progress flow:
+    * pct 5-69, messages "Connecting…" / "Fetching …":
+        FETCH active; STORE/PARSE pending.
+    * pct 50-69, message "Storing channels (…)":
+        FETCH done; STORE active (batch sub-emits during _store_channels).
+    * pct 70, message "Stored N channels":
+        FETCH done; STORE active (store-complete emit).
+    * pct 72-86, message "Categorizing content (PPV/Events/Sports)…":
+        STORE done; PARSE active.
+    * pct 87, message "Detecting channel prefixes…":
+        STORE done; PARSE active.
+    * pct 97, message "Updating filter statistics…":
+        all channel steps done.
+    * pct 100, message "Loaded N channels":
+        all channel steps done.
+
+    EPG steps (if present) are driven separately via ``_advance_epg_steps``.
+
+    Args:
+        steps:   Current step list.
+        message: Progress message string.
+        pct:     Progress percentage (0-100).
+
+    Returns:
+        New step list (same length as input).
+    """
+    labels = [lbl for lbl, _ in steps]
+
+    # Detect phases by message first, then fall back to percentage.
+    in_storing = "Storing channels" in message or (pct == 70 and "Stored" in message)
+    in_parse   = ("Categorizing" in message or "Detecting" in message
+                  or "Updating filter" in message)
+    all_done   = pct >= 97 or (pct >= 100 and "Loaded" in message)
+
+    def _compute(lbl: str) -> StepStatus:
+        if lbl == _STEP_FETCH:
+            if in_storing or in_parse or all_done or pct >= 70:
+                return StepStatus.DONE
+            return StepStatus.ACTIVE
+        if lbl == _STEP_STORE:
+            if in_parse or all_done:
+                return StepStatus.DONE
+            if in_storing or pct == 70:
+                return StepStatus.ACTIVE
+            return StepStatus.PENDING
+        if lbl == _STEP_PARSE:
+            if all_done:
+                return StepStatus.DONE
+            if in_parse:
+                return StepStatus.ACTIVE
+            return StepStatus.PENDING
+        # EPG steps — untouched by this mapper; keep current status.
+        current_map = dict(steps)
+        return current_map.get(lbl, StepStatus.PENDING)
+
+    return [(lbl, _compute(lbl)) for lbl in labels]
+
+
+def _advance_epg_steps(
+    steps: list[tuple[str, StepStatus]],
+    stage: str,
+) -> list[tuple[str, StepStatus]]:
+    """Advance the EPG step pair based on *stage*.
+
+    Args:
+        steps: Current step list (must contain EPG step labels).
+        stage: One of ``"started"`` (set Downloading→active, Parsing→pending)
+               or ``"finished"`` (set both EPG steps→done).
+
+    Returns:
+        New step list.
+    """
+    result = []
+    for lbl, status in steps:
+        if lbl == _STEP_EPG_DL:
+            if stage == "started":
+                status = StepStatus.ACTIVE
+            elif stage == "finished":
+                status = StepStatus.DONE
+        elif lbl == _STEP_EPG_PARSE:
+            if stage == "started":
+                status = StepStatus.PENDING
+            elif stage == "finished":
+                status = StepStatus.DONE
+        result.append((lbl, status))
+    return result
+
+
+def _has_epg_steps(steps: list[tuple[str, StepStatus]]) -> bool:
+    """Return True if *steps* includes the EPG step pair."""
+    labels = {lbl for lbl, _ in steps}
+    return _STEP_EPG_DL in labels
 
 
 class _ProviderMixin:
@@ -233,6 +373,26 @@ class _ProviderMixin:
         finally:
             session.close()
 
+    def _provider_has_epg(self, provider_id: str) -> bool:
+        """Return True when the provider has EPG enabled and a usable URL.
+
+        Used to decide whether to include EPG steps in the refresh toast.
+        Reads from the DB so it reflects any config changes made since startup.
+        """
+        if getattr(self, "epg_manager", None) is None:
+            return False
+        from metatv.core.database import ProviderDB
+        session = self.db.get_session()
+        try:
+            provider = session.query(ProviderDB).filter_by(id=provider_id).first()
+            if provider is None:
+                return False
+            if not getattr(provider, "epg_enabled", True):
+                return False
+            return bool(self.epg_manager.effective_epg_url(provider))
+        finally:
+            session.close()
+
     def refresh_provider(self, provider_id: str):
         """Refresh channels from a specific provider"""
         # Prevent duplicate refresh calls
@@ -258,11 +418,33 @@ class _ProviderMixin:
             # Convert to model
             provider = repos.providers.to_model(db_provider)
 
-            # Show progress notification
+            # Decide whether to show EPG steps (check before the thread starts so
+            # the initial step list is correct from the first render).
+            epg_enabled = self._provider_has_epg(provider_id)
+
+            # Build the initial step list: all steps pending.
+            initial_steps = _make_steps(epg=epg_enabled)
+
+            # Show progress notification with the checklist.
             notif_id = self.notification_manager.show_progress(
                 title=f"Refreshing {provider.name}",
-                total=100
+                total=100,
+                steps=initial_steps,
             )
+
+            # Keep a mutable reference to the current step list so the progress
+            # handler can update it without re-querying the notification store.
+            current_steps: list[list[tuple[str, StepStatus]]] = [initial_steps]
+
+            def _on_progress(cur: int, tot: int, msg: str) -> None:
+                """Advance steps based on the loader's progress message.
+
+                Runs on the main thread (ProviderLoadThread.progress is a Qt
+                signal, always marshalled to the connected slot's thread).
+                """
+                new_steps = _advance_steps(current_steps[0], msg, cur)
+                current_steps[0] = new_steps
+                self.notification_manager.set_steps(notif_id, new_steps)
 
             # Start loading in background thread
             load_thread = ProviderLoadThread(
@@ -274,11 +456,11 @@ class _ProviderMixin:
                 regional_groups=self.config.filter_regional_groups,
             )
             load_thread.provider_id = provider.id  # Store for cleanup
-            load_thread.progress.connect(
-                lambda cur, tot, msg: self.notification_manager.update_progress(notif_id, cur, tot, msg)
-            )
+            load_thread.progress.connect(_on_progress)
             load_thread.finished.connect(
-                lambda success, msg: self.on_provider_refresh_finished(notif_id, success, msg, load_thread)
+                lambda success, msg: self.on_provider_refresh_finished(
+                    notif_id, success, msg, load_thread, current_steps,
+                )
             )
 
             # Keep thread alive
@@ -288,7 +470,14 @@ class _ProviderMixin:
         finally:
             session.close()
 
-    def on_provider_refresh_finished(self, notif_id: str, success: bool, message: str, thread):
+    def on_provider_refresh_finished(
+        self,
+        notif_id: str,
+        success: bool,
+        message: str,
+        thread,
+        current_steps: list | None = None,
+    ):
         """Handle provider refresh completion"""
         # Remove thread from active list
         if thread in self.active_threads:
@@ -306,7 +495,12 @@ class _ProviderMixin:
             logger.warning("Provider refresh finished but no provider_id found on thread")
 
         if success:
-            self.notification_manager.complete_progress(notif_id, message)
+            # Mark all channel steps as done before EPG phase starts.
+            if current_steps is not None:
+                steps = current_steps[0]
+                steps = _advance_steps(steps, "Loaded", 100)
+                current_steps[0] = steps
+                self.notification_manager.set_steps(notif_id, steps)
 
             # Prefix stats were computed in the worker thread — just apply them
             stats = getattr(thread, 'prefix_stats', None)
@@ -344,6 +538,15 @@ class _ProviderMixin:
             if provider_id:
                 self._epg_fetch_after_add.discard(provider_id)
                 self._maybe_refresh_provider_epg(provider_id)
+
+            # If the toast has EPG steps, wire EPG-manager signals to advance them.
+            # We do this after triggering _maybe_refresh_provider_epg so the signal
+            # connects are in place before the fetch signals fire.
+            if current_steps is not None and _has_epg_steps(current_steps[0]) and provider_id:
+                self._wire_epg_step_signals(notif_id, provider_id, current_steps)
+            else:
+                # No EPG steps — complete the toast now.
+                self.notification_manager.complete_progress(notif_id, message)
         else:
             # Channel load failed — drop any pending add-time EPG flag.
             if provider_id:
@@ -357,6 +560,68 @@ class _ProviderMixin:
                 dismissible=True,
                 auto_dismiss_seconds=5
             )
+
+    def _wire_epg_step_signals(
+        self,
+        notif_id: str,
+        provider_id: str,
+        current_steps: list,
+    ) -> None:
+        """Connect EPG-manager signals to advance the EPG step pair in the toast.
+
+        Uses one-shot lambdas scoped to this notification so signal connections
+        don't accumulate across multiple refreshes.  Both handlers disconnect
+        themselves after firing so resources are freed even if only one fires
+        (e.g. an error fires refresh_error, not refresh_finished).
+
+        Args:
+            notif_id:      The notification to update.
+            provider_id:   The provider being refreshed.
+            current_steps: The mutable step-list container shared with the
+                           progress handler.
+        """
+        epg = self.epg_manager
+
+        def _on_epg_started(pid: str) -> None:
+            if pid != provider_id:
+                return
+            steps = _advance_epg_steps(current_steps[0], "started")
+            current_steps[0] = steps
+            self.notification_manager.set_steps(notif_id, steps)
+
+        def _on_epg_finished(pid: str, count: int) -> None:
+            if pid != provider_id:
+                return
+            steps = _advance_epg_steps(current_steps[0], "finished")
+            current_steps[0] = steps
+            self.notification_manager.set_steps(notif_id, steps)
+            # Complete the toast once EPG is done
+            self.notification_manager.complete_progress(
+                notif_id, f"{count:,} programmes loaded"
+            )
+            # Disconnect to avoid accumulating handlers on long-running sessions
+            try:
+                epg.refresh_started.disconnect(_on_epg_started)
+                epg.refresh_finished.disconnect(_on_epg_finished)
+                epg.refresh_error.disconnect(_on_epg_error)
+            except Exception:
+                pass
+
+        def _on_epg_error(pid: str, error: str) -> None:
+            if pid != provider_id:
+                return
+            # Complete the toast with a warning rather than leaving it spinning
+            self.notification_manager.complete_progress(notif_id, "EPG fetch failed")
+            try:
+                epg.refresh_started.disconnect(_on_epg_started)
+                epg.refresh_finished.disconnect(_on_epg_finished)
+                epg.refresh_error.disconnect(_on_epg_error)
+            except Exception:
+                pass
+
+        epg.refresh_started.connect(_on_epg_started)
+        epg.refresh_finished.connect(_on_epg_finished)
+        epg.refresh_error.connect(_on_epg_error)
 
     def refresh_all_providers(self) -> None:
         """Refresh channels from every active provider."""
