@@ -405,6 +405,41 @@ class ChannelRepository(_ChannelStatsMixin):
             channel.updated_at = datetime.now()
             self.session.commit()
             logger.info(f"Marked channel as played: {channel.name} (count: {channel.play_count})")
+
+    def record_watch_progress(
+        self,
+        channel_id: str,
+        position_s: float,
+        duration_s: float,
+        threshold: float = 0.9,
+        played_via: str = "manual",
+    ) -> bool:
+        """Record VOD watch progress: resume point + sticky completion (Slice 1 chokepoint).
+
+        Sets ``watch_progress`` (resume seconds), ``last_played``, and
+        ``last_played_via``. When ``position_s / duration_s >= threshold`` the item
+        is marked ``watch_completed`` (sticky — once finished, stays finished) and
+        the resume point is cleared so a finished movie never resurfaces in
+        "continue watching" at 99%. ``play_count`` is owned by ``mark_played`` (at
+        play start) — this method never touches it, so progress capture can't
+        double-count a play.
+
+        Returns True if this call marked the item complete.
+        """
+        channel = self.get_by_id(channel_id)
+        if channel is None:
+            return False
+        completed = bool(duration_s and duration_s > 0 and (position_s / duration_s) >= threshold)
+        channel.last_played = datetime.now()
+        channel.last_played_via = played_via
+        if completed:
+            channel.watch_completed = True
+            channel.watch_progress = 0
+        else:
+            channel.watch_progress = max(0, int(position_s))
+        channel.updated_at = datetime.now()
+        self.session.commit()
+        return completed
     
     def clear_history(self):
         """Clear all playback history"""

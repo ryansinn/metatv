@@ -70,6 +70,10 @@ class ChannelDB(Base):
     is_rec_suppressed = Column(Boolean, default=False, index=True)  # hidden from recommendations only
     last_played = Column(DateTime, index=True)
     play_count = Column(Integer, default=0)
+    # Watch-completion (VOD movies): resume point + sticky "finished" flag (Slice 1).
+    watch_progress = Column(Integer, default=0)        # resume position, seconds
+    watch_completed = Column(Boolean, default=False, index=True)  # ever finished (≥ threshold)
+    last_played_via = Column(String)                   # how it was played: manual | queue | alert
 
     raw_data = Column(JSON)
     
@@ -289,10 +293,11 @@ class EpisodeDB(Base):
     cover_url = Column(Text)  # Episode thumbnail for future use
     
     # Playback tracking
-    is_watched = Column(Boolean, default=False, index=True)
-    watch_progress = Column(Integer, default=0)  # seconds watched
+    is_watched = Column(Boolean, default=False, index=True)  # sticky "finished" flag
+    watch_progress = Column(Integer, default=0)  # resume position, seconds
     last_played = Column(DateTime, index=True)
     play_count = Column(Integer, default=0)
+    last_played_via = Column(String)             # how it was played: manual | queue | alert
     
     # Series info (denormalized for convenience)
     series_name = Column(String, index=True)
@@ -423,6 +428,10 @@ class Database:
             ("providers",    "epg_enabled",                "INTEGER DEFAULT 1"),
             ("providers",    "epg_refresh_interval",       "TEXT DEFAULT 'default'"),
             ("providers",    "epg_url_override",           "TEXT"),
+            ("channels",     "watch_progress",             "INTEGER DEFAULT 0"),
+            ("channels",     "watch_completed",            "INTEGER DEFAULT 0"),
+            ("channels",     "last_played_via",            "TEXT"),
+            ("episodes",     "last_played_via",            "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
