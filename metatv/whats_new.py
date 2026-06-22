@@ -180,6 +180,16 @@ WHATS_NEW: list[WhatsNewEntry] = [
             "Configure the completion threshold in Settings → Playback → 'Mark as watched at' (default 90%).",
         ),
     ),
+    WhatsNewEntry(
+        id=18,
+        version="0.7.0",
+        date="2026-06-21",
+        title="Partial-watched indicator in the channel list",
+        items=(
+            "Movies and series you've started but not finished now show a ◐ symbol in the channel list.",
+            "Completed content keeps the ✓ badge; unwatched items show nothing — three states at a glance.",
+        ),
+    ),
 ]
 
 
