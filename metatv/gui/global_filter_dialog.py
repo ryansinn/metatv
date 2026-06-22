@@ -483,6 +483,10 @@ class GlobalFilterDialog(QDialog):
         self._db = db
         self._config = config
         self._sections: list[_GroupSection] = []
+        # Per-type section tracking — drives the per-type "all / none" controls
+        # (types are orthogonal axes: selecting all Languages must not touch Platforms).
+        self._language_sections: list[_GroupSection] = []
+        self._platform_sections: list[_GroupSection] = []
         self._inner_vl: QVBoxLayout | None = None
         self._rescan_thread: _RescanThread | None = None
         # Content-type section: list of (group_name, checkbox, row_widget)
@@ -668,12 +672,34 @@ class GlobalFilterDialog(QDialog):
         named_groups = [(n, p) for n, p in all_groups if n != "Uncategorized"]
         other_entries = next((p for n, p in all_groups if n == "Uncategorized"), [])
 
+        # ── Languages header (with per-type select-all) ─────────────────────────
+        if named_groups:
+            lang_row = QHBoxLayout()
+            lang_hdr = QLabel("Languages")
+            lang_hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+            lang_row.addWidget(lang_hdr)
+            lang_info = QLabel("ⓘ")
+            lang_info.setStyleSheet(_theme.INFO_LABEL)
+            lang_info.setToolTip(
+                "Language / region groups detected from channel name prefixes.\n"
+                "Check a group to globally exclude its channels."
+            )
+            lang_row.addWidget(lang_info)
+            lang_row.addStretch()
+            lang_row.addWidget(self._make_select_links(
+                "Languages", lambda c: self._select_sections(self._language_sections, c)
+            ))
+            lang_w = QWidget()
+            lang_w.setLayout(lang_row)
+            self._inner_vl.addWidget(lang_w)
+
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
             initial = excluded & {p for p, _ in prefixes}
             section = _GroupSection(group_name, prefixes, initial, config=self._config)
             self._inner_vl.addWidget(section)
             self._sections.append(section)
+            self._language_sections.append(section)
 
         # ── Platform sections ───────────────────────────────────────────────────
         prefix_upper_counts: dict[str, int] = {p.upper(): c for p, c in prefix_counts}
@@ -709,6 +735,9 @@ class GlobalFilterDialog(QDialog):
             )
             hdr_row.addWidget(info)
             hdr_row.addStretch()
+            hdr_row.addWidget(self._make_select_links(
+                "Platforms", lambda c: self._select_sections(self._platform_sections, c)
+            ))
             hdr_w = QWidget()
             hdr_w.setLayout(hdr_row)
             self._inner_vl.addWidget(hdr_w)
@@ -719,6 +748,7 @@ class GlobalFilterDialog(QDialog):
                 section = _GroupSection(group_name, entries, initial, config=self._config)
                 self._inner_vl.addWidget(section)
                 self._sections.append(section)
+                self._platform_sections.append(section)
 
         # ── Uncategorized (truly unmapped prefixes) ─────────────────────────────
         if other_entries:
@@ -763,6 +793,9 @@ class GlobalFilterDialog(QDialog):
         )
         hdr_row.addWidget(info)
         hdr_row.addStretch()
+        hdr_row.addWidget(self._make_select_links(
+            "User Categories", self._select_user_categories
+        ))
         hdr_w = QWidget()
         hdr_w.setLayout(hdr_row)
         self._inner_vl.addWidget(hdr_w)
@@ -829,6 +862,9 @@ class GlobalFilterDialog(QDialog):
         )
         hdr_row.addWidget(info_lbl)
         hdr_row.addStretch()
+        hdr_row.addWidget(self._make_select_links(
+            "Content Types", self._select_content_types
+        ))
 
         hdr_container = QWidget()
         hdr_container.setLayout(hdr_row)
@@ -932,12 +968,44 @@ class GlobalFilterDialog(QDialog):
         logger.info("User category overrides reset to defaults")
 
     def _select_all(self, checked: bool) -> None:
-        for section in self._sections:
+        """Master select/deselect — every type at once (the bottom shortcut)."""
+        self._select_sections(self._sections, checked)
+        self._select_content_types(checked)
+        self._select_user_categories(checked)
+
+    def _select_sections(self, sections: list["_GroupSection"], checked: bool) -> None:
+        """Select/deselect every prefix in the given group sections (one type)."""
+        for section in sections:
             section.set_all(checked)
+
+    def _select_content_types(self, checked: bool) -> None:
         for _name, cb, _row in self._content_type_rows:
             cb.setChecked(checked)
         if self._content_type_other_section:
             self._content_type_other_section.set_all(checked)
+
+    def _select_user_categories(self, checked: bool) -> None:
+        for _name, cb, _row in self._user_category_rows:
+            cb.setChecked(checked)
+
+    def _make_select_links(self, title: str, select_fn) -> QWidget:
+        """A compact ``all · none`` link pair scoped to a single type.
+
+        Types are orthogonal axes (DR-0005): each type header gets its own pair so
+        "select all Languages" leaves Platforms / Content Types / User Categories
+        untouched — instead of a single master toggle the user must then unpick.
+        """
+        w = QWidget()
+        row = QHBoxLayout(w)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        for label, checked in (("all", True), ("none", False)):
+            lnk = QLabel(f'<a href="#" style="color:{_theme.COLOR_ACCENT_BLUE};">{label}</a>')
+            lnk.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+            lnk.setToolTip(f"Select {label} — {title} only")
+            lnk.linkActivated.connect(lambda _, c=checked: select_fn(c))
+            row.addWidget(lnk)
+        return w
 
     def _save_and_accept(self) -> None:
         # Blacklist model: save checked prefixes as excluded (checked = hidden).
