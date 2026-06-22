@@ -574,8 +574,8 @@ class Config(BaseModel):
 
     # Prefix detection settings
     prefix_bracket_enabled: bool = True  # extract [XX] bracket format
-    # Bump CURRENT_DETECTOR_VERSION in main_window.py to trigger a one-time auto-rescan
-    # for all users the next time they launch the app.
+    # Bump CURRENT_PREFIX_SCAN_VERSION in metatv/core/migrations/prefix_rescan.py
+    # to trigger a one-time background re-scan for all users on next launch.
     prefix_detector_version: int = 0
     # Whether to show content whose prefix code didn't match any named language group.
     # True = include "Other" content; False = hide it. Controlled by the filter dialog.

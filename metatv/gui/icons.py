@@ -102,6 +102,10 @@ notification_error_icon: str = "✗"
 notification_warning_icon: str = "⚠"
 notification_info_icon: str = ""
 
+# Migration progress indicators
+migration_pending_icon: str = "◻"   # U+25FB WHITE MEDIUM SQUARE — task not yet done
+migration_done_icon: str = "✓"      # U+2713 CHECK MARK — task complete
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",

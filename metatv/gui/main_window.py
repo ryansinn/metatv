@@ -59,16 +59,12 @@ from metatv.gui.preferences_view import PreferencesView
 from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.series_monitor import SeriesMonitorManager
+from metatv.core.migration_manager import MigrationManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
 from metatv.gui.sidebar.new_episodes import NewEpisodesSection
-
-# Increment this when the prefix detection logic changes to trigger a one-time
-# background re-scan for all users who have an older detected version stored in config.
-CURRENT_DETECTOR_VERSION = 1
-
-
+from metatv.gui.migration_progress_widget import MigrationProgressWidget
 
 from metatv.core.preference_engine import version_score as _version_score
 from metatv.gui.whats_new_dialog import WhatsNewDialog
@@ -95,7 +91,7 @@ def _version_years_compatible(name_a: str, name_b: str) -> bool:
     return yr_a is None or yr_b is None or yr_a == yr_b
 
 
-from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
+from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 from PyQt6.QtGui import QMouseEvent
 
 
@@ -120,28 +116,6 @@ class _ClickableNavLabel(QLabel):
         super().mousePressEvent(event)
 
 
-class _PrefixRescanThread(QThread):
-    """Background thread that re-runs update_detected_prefixes and emits the count."""
-    finished = _pyqtSignal(int)
-
-    def __init__(self, db, separators, parent=None):
-        super().__init__(parent)
-        self._db = db
-        self._separators = separators
-
-    def run(self):
-        from metatv.core.repositories import RepositoryFactory
-        session = self._db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            updated = repos.channels.update_detected_prefixes(separators=self._separators)
-            self.finished.emit(updated)
-        except Exception as e:
-            logger.error(f"Prefix rescan failed: {e}")
-            self.finished.emit(0)
-        finally:
-            session.close()
-
 
 class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _AsyncMixin, QMainWindow):
     """Main application window"""
@@ -158,8 +132,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
     # Context menu async fetch: (ChannelMenuContext, gx, gy)
     _ctx_data_ready = pyqtSignal(object, int, int)
-    # Prefix migration: emitted from background worker when rescan completes
-    _prefix_migration_done = pyqtSignal()
     # Stream validation result: emitted from background thread after validate_and_failover
     _stream_ready = pyqtSignal(object)  # dict with final_url, stream_err, channel state
     # Generic async-read seam (_AsyncMixin): worker emits this; _on_query_result dispatches
@@ -303,6 +275,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._register_cleanable("series_monitor", self.series_monitor.shutdown)
 
+        # Migration manager — runs one-time background migrations sequentially.
+        # Registered for clean cancellation on closeEvent before the pool drains.
+        self.migration_manager = MigrationManager(self.config, self.db, parent=self)
+        from metatv.core.migrations.prefix_rescan import PrefixRescanTask
+        self.migration_manager.register(PrefixRescanTask(self.db))
+        self._register_cleanable("migration_manager", self.migration_manager.shutdown)
+
         self.setup_ui()
         self.setup_notifications()
 
@@ -319,7 +298,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
         self._ctx_data_ready.connect(self._on_ctx_data_ready)
-        self._prefix_migration_done.connect(self._on_prefix_migration_done)
         self._stream_ready.connect(self._on_stream_ready)
         self._query_result.connect(self._on_query_result)
         self._playback_health_ready.connect(self._on_playback_health_ready)
@@ -338,17 +316,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Auto-load channels from all active providers on startup
         self.load_channels()
 
-        # One-time migration: reparse compound prefixes (4K-DE, SE-4K, etc.) if not done
-        QTimer.singleShot(2000, self._check_prefix_migration)
-
         # Initialize filter statistics
         self.initialize_filter_stats()
 
         # Test provider connections in background
         self.test_all_providers()
 
-        # One-time auto-rescan if prefix detector version is behind
-        QTimer.singleShot(1000, self._maybe_rescan_prefixes)
+        # MigrationManager: run any pending one-time background migrations.
+        # Deferred 1 s so channels load and the UI paints before the worker starts.
+        QTimer.singleShot(1000, self.migration_manager.run_pending)
 
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False
@@ -1154,10 +1130,28 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.notification_widget = NotificationWidget(
             self.notification_manager, self.config, self.centralWidget()
         )
-        
+
+        # Migration progress overlay — same overlay lane as notifications.
+        # Connect MigrationManager's public signals (already on main thread).
+        self.migration_progress_widget = MigrationProgressWidget(self.centralWidget())
+        self.migration_manager.task_started.connect(
+            self.migration_progress_widget.on_task_started
+        )
+        self.migration_manager.task_progress.connect(
+            self.migration_progress_widget.on_task_progress
+        )
+        self.migration_manager.task_finished.connect(
+            self.migration_progress_widget.on_task_finished
+        )
+        self.migration_manager.all_finished.connect(
+            self.migration_progress_widget.on_all_finished
+        )
+        # When migrations finish, reload the channel list (same as old _on_prefix_rescan_done)
+        self.migration_manager.all_finished.connect(self.load_channels)
+
         # Listen for notification changes
         self.notification_manager.add_listener(self.update_notifications)
-        
+
         # Test notification (remove later)
         # self.show_test_notification()
     
@@ -1170,6 +1164,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         super().resizeEvent(event)
         if hasattr(self, 'notification_widget'):
             self.notification_widget.reposition()
+        if hasattr(self, 'migration_progress_widget') and self.migration_progress_widget.isVisible():
+            self.migration_progress_widget.reposition()
         if hasattr(self, '_lightbox') and self._lightbox.isVisible():
             self._lightbox.resize(self.size())
 
@@ -1211,25 +1207,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.status_bar.showMessage("Refreshing channels...")
         logger.info("Refreshing channels")
         self.load_providers()
-
-    def _maybe_rescan_prefixes(self) -> None:
-        """Run a background prefix re-scan if the detector version is behind."""
-        if self.config.prefix_detector_version >= CURRENT_DETECTOR_VERSION:
-            return
-        logger.info(
-            f"Prefix detector version {self.config.prefix_detector_version} < "
-            f"{CURRENT_DETECTOR_VERSION} — running background re-scan"
-        )
-        self._rescan_thread = _PrefixRescanThread(
-            self.db, self.config.prefix_separators, parent=self
-        )
-        self._rescan_thread.finished.connect(self._on_prefix_rescan_done)
-        self._rescan_thread.start()
-
-    def _on_prefix_rescan_done(self, updated: int) -> None:
-        logger.info(f"Prefix re-scan complete: {updated} channels updated")
-        self.config.prefix_detector_version = CURRENT_DETECTOR_VERSION
-        self.config.save()
 
     def show_operations(self):
         """Show operations panel"""
