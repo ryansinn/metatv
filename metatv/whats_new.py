@@ -191,6 +191,22 @@ WHATS_NEW: list[WhatsNewEntry] = [
             "Recently Added, Top Rated Movies, and Top Rated Series are now expanded by default on first launch.",
             "Fixed a config inconsistency where a shelf could appear in two zones simultaneously, causing inverted expand/collapse behaviour.",
             "Un-pinning a shelf returns it to the active (expanded) zone rather than collapsing it.",
+        id=17,
+        version="0.7.0",
+        date="2026-06-21",
+        title="Correct posters and details after a source refresh",
+        items=(
+            "IPTV providers sometimes reuse stream IDs for different content — MetaTV now detects this and "
+            "refreshes the poster, plot, and rating for the new content automatically.",
+            "A one-time background scan fixes any stale posters already in your library from past refreshes.",
+        id=16,
+        version="0.7.0",
+        date="2026-06-21",
+        title="Source refresh shows a step-by-step checklist",
+        items=(
+            "The 'Refreshing {source}' toast now shows a labeled checklist — Fetching channels, Storing channels, Parsing & detecting — instead of an opaque progress bar.",
+            "Sources with EPG enabled show two additional steps: Downloading EPG and Parsing EPG.",
+            "Each step shows its status at a glance: pending (◻), active (⟳), or done (✓).",
         ),
     ),
 ]

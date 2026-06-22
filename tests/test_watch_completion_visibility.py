@@ -1,4 +1,5 @@
-"""Behavioral tests for Slice 2 — watch-completion visibility.
+"""Behavioral tests for Slice 2 — watch-completion visibility, and the
+partial-watched indicator added in the follow-on PR.
 
 These tests execute the changed code paths and assert outcomes that would
 actually break if the feature regressed:
@@ -7,6 +8,7 @@ actually break if the feature regressed:
 2. ChannelListDTO carries watch_completed / watch_progress from ORM row.
 3. ChannelListModel._compose_display_text renders ✓ for completed movies.
 4. ChannelListModel does NOT render ✓ for live channels even if watch_completed=True.
+3b. _compose_display_text renders ◐ for partially-watched movies (not ✓, not ◐ for unwatched/live).
 5. Details-pane _MetadataSection shows "✓ Watched" for completed movies.
 6. Details-pane _MetadataSection shows "Resume at M:SS" for partial movies.
 7. Details-pane _MetadataSection hides the watch status for live channels.
@@ -324,6 +326,60 @@ def test_channel_list_model_shows_watch_check_for_series_if_completed(qapp):
     )
     text = model._compose_display_text(dto)
     assert _icons.watched_icon in text, f"Expected ✓ for series with watch_completed in {text!r}"
+
+
+# ---------------------------------------------------------------------------
+# 3b. Partial-watched indicator (◐) in _compose_display_text
+# ---------------------------------------------------------------------------
+
+def test_channel_list_model_shows_partial_icon_for_in_progress_movie(qapp):
+    """Partial-watched movie (watch_progress > 0, not completed) shows ◐, not ✓."""
+    from metatv.gui import icons as _icons
+    model = _make_model(qapp)
+    dto = _dto(media_type="movie", watch_completed=False, watch_progress=300)
+    text = model._compose_display_text(dto)
+    assert _icons.partial_watched_icon in text, (
+        f"Expected ◐ for in-progress movie in {text!r}"
+    )
+    assert _icons.watched_icon not in text, (
+        f"Should NOT show ✓ for in-progress movie in {text!r}"
+    )
+
+
+def test_channel_list_model_no_partial_icon_for_completed_movie(qapp):
+    """Completed movie shows ✓ (not ◐) — partial icon must not appear alongside the check."""
+    from metatv.gui import icons as _icons
+    model = _make_model(qapp)
+    dto = _dto(media_type="movie", watch_completed=True, watch_progress=0)
+    text = model._compose_display_text(dto)
+    assert _icons.watched_icon in text, f"Expected ✓ for completed movie in {text!r}"
+    assert _icons.partial_watched_icon not in text, (
+        f"Should NOT show ◐ for a completed movie in {text!r}"
+    )
+
+
+def test_channel_list_model_no_partial_icon_for_unwatched_movie(qapp):
+    """Unwatched movie (progress=0, not completed) shows neither ✓ nor ◐."""
+    from metatv.gui import icons as _icons
+    model = _make_model(qapp)
+    dto = _dto(media_type="movie", watch_completed=False, watch_progress=0)
+    text = model._compose_display_text(dto)
+    assert _icons.watched_icon not in text, f"Unexpected ✓ for unwatched movie in {text!r}"
+    assert _icons.partial_watched_icon not in text, (
+        f"Unexpected ◐ for unwatched movie in {text!r}"
+    )
+
+
+def test_channel_list_model_no_partial_icon_for_live_with_progress(qapp):
+    """Live channel with watch_progress > 0 must show neither ✓ nor ◐ — never badge live rows."""
+    from metatv.gui import icons as _icons
+    model = _make_model(qapp)
+    dto = _dto(media_type="live", watch_completed=False, watch_progress=120)
+    text = model._compose_display_text(dto)
+    assert _icons.watched_icon not in text, f"Unexpected ✓ for live channel in {text!r}"
+    assert _icons.partial_watched_icon not in text, (
+        f"Unexpected ◐ for live channel in {text!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
