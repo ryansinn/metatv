@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=24,
+    id=25,
     version="0.7.5",
     date="2026-06-22",
     title="Click-to-enlarge poster lightbox",

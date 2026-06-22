@@ -1,0 +1,14 @@
+this successful auth but failure to pull channels should be details in troubleshooting in the UI/UX so the user can be properly informed of the actual issue
+
+In the code itself there should be no mention of provider identifying information -- TREX, ProSat, etc.
+
+|MULTI| is not being deduped with |EN| and also we can see that it's not even being picke dup because it's appearing in the titles in Discover.  Mexico 86 is a good example, there are at least 3 of these appearing uniquely in Discover:
+4814008b-38ab-4db1-b790-0e22aaec89e1_2091829
+9864b83d-53ff-48d1-9b64-1f2fd7d062fc_1771427
+9864b83d-53ff-48d1-9b64-1f2fd7d062fc_1771433
+
+We need to look into improving the performance of the Discover view.
+It's laggy when scrolling at times and there is stuttering and latency while the collapsed/hidden categories are counting up.   Those should be an afterthought load.  Users are going to view the expanded categories primarily so those collapsed categories should lazy load with the user being directed to focus on the expanded categories as well as the "Manage" button to expose categories.
+
+
+
