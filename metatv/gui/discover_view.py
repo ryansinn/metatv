@@ -54,7 +54,11 @@ if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
 
 
-_DEFAULT_EXPANDED = {"recently_added", "top_movies"}
+_DEFAULT_EXPANDED = {
+    "recently_added",
+    "top_movies",
+    "top_series",
+}
 
 _ZONE_PINNED    = "pinned"
 _ZONE_EXPANDED  = "expanded"
@@ -226,8 +230,61 @@ class DiscoverView(QWidget):
                 and not cfg.discover_collapsed_shelves
                 and not cfg.discover_hidden_shelves)
 
+    def _sanitize_zone_config(self) -> None:
+        """Ensure the four zone lists are mutually exclusive and de-duplicated.
+
+        A key that appears in more than one list (e.g. ``pinned`` AND
+        ``collapsed``) causes an inconsistent UI render.  The rule is simple:
+        the highest-priority zone wins — pinned > expanded > collapsed > hidden.
+        Any duplicate occurrence in a lower-priority list is silently removed.
+
+        This runs at ``refresh()`` time, before the snapshot is snapshotted and
+        handed to the worker, so the worker always sees a clean state.
+        """
+        cfg = self._config
+
+        # De-dup each list against itself first (shouldn't happen, but guard it).
+        def _dedup(lst: list) -> list:
+            seen: set[str] = set()
+            result = []
+            for k in lst:
+                if k not in seen:
+                    seen.add(k)
+                    result.append(k)
+            return result
+
+        cfg.discover_pinned_shelves    = _dedup(cfg.discover_pinned_shelves)
+        cfg.discover_expanded_shelves  = _dedup(cfg.discover_expanded_shelves)
+        cfg.discover_collapsed_shelves = _dedup(cfg.discover_collapsed_shelves)
+        cfg.discover_hidden_shelves    = _dedup(cfg.discover_hidden_shelves)
+
+        # Higher-priority zone wins; remove from lower-priority zones.
+        pinned_set   = set(cfg.discover_pinned_shelves)
+        expanded_set = set(cfg.discover_expanded_shelves)
+        hidden_set   = set(cfg.discover_hidden_shelves)
+
+        # Pinned wins over all others.
+        cfg.discover_expanded_shelves  = [k for k in cfg.discover_expanded_shelves
+                                          if k not in pinned_set]
+        cfg.discover_collapsed_shelves = [k for k in cfg.discover_collapsed_shelves
+                                          if k not in pinned_set]
+        cfg.discover_hidden_shelves    = [k for k in cfg.discover_hidden_shelves
+                                          if k not in pinned_set]
+
+        # Rebuild expanded_set after removing pinned duplicates.
+        expanded_set = set(cfg.discover_expanded_shelves)
+
+        # Expanded wins over collapsed; hidden wins over collapsed.
+        cfg.discover_collapsed_shelves = [k for k in cfg.discover_collapsed_shelves
+                                          if k not in expanded_set and k not in hidden_set]
+
     def _build_zone_snapshot(self) -> _ZoneSnapshot:
-        """Build a thread-safe zone snapshot from the current config."""
+        """Build a thread-safe zone snapshot from the current config.
+
+        Sanitises the config first to ensure the four zone lists are mutually
+        exclusive — a key cannot be in both ``pinned`` and ``collapsed``.
+        """
+        self._sanitize_zone_config()
         cfg = self._config
         return _ZoneSnapshot(
             pinned=frozenset(cfg.discover_pinned_shelves),
@@ -309,6 +366,10 @@ class DiscoverView(QWidget):
     def _move_shelf(self, shelf_key: str, new_zone: str) -> None:
         """Move a shelf widget to a new zone.
 
+        Invariant: ``pin ⟹ expand``.  A pinned shelf is ALWAYS rendered
+        expanded with its cards visible.  ``set_collapsed(False)`` is called
+        whenever *new_zone* is ``_ZONE_PINNED`` so the card row is never hidden.
+
         If *new_zone* is the collapsed zone and ``config.discover_collapse_to_top``
         is set, the shelf is inserted at position 0 (top) so the user can find
         their recently collapsed item immediately (D4).  Initial-load placement
@@ -324,12 +385,24 @@ class DiscoverView(QWidget):
         if old_zone:
             self._remove_from_zone(shelf, old_zone)
         self._shelf_zones[shelf_key] = new_zone
+        # pin ⟹ expand: pinned shelves are never collapsed.
+        is_pinned = (new_zone == _ZONE_PINNED)
         shelf.set_collapsed(new_zone == _ZONE_COLLAPSED)
-        shelf.set_pinned(new_zone == _ZONE_PINNED)
+        if is_pinned:
+            # Unconditionally un-collapse — a pinned shelf is always expanded.
+            shelf.set_collapsed(False)
+        shelf.set_pinned(is_pinned)
         at_top = (new_zone == _ZONE_COLLAPSED and self._config.discover_collapse_to_top)
         self._add_to_zone(shelf, new_zone, at_top=at_top)
 
     def _save_zone_config(self) -> None:
+        """Persist the current widget zone map to config.
+
+        Derives the three lists directly from ``_shelf_zones`` — the single
+        source of truth for where each widget lives.  This guarantees the lists
+        are mutually exclusive (a key appears in exactly one list) and that the
+        serialised state matches what is rendered.
+        """
         cfg = self._config
         cfg.discover_pinned_shelves    = [k for k, z in self._shelf_zones.items() if z == _ZONE_PINNED]
         cfg.discover_expanded_shelves  = [k for k, z in self._shelf_zones.items() if z == _ZONE_EXPANDED]
@@ -356,9 +429,20 @@ class DiscoverView(QWidget):
         self._flush_pending_collapsed()
 
     def _on_pin_requested(self, shelf_key: str) -> None:
+        """Pin a shelf — moves it to the pinned zone and ensures cards are loaded.
+
+        ``pin ⟹ expand``: a pinned shelf is always rendered with its full card
+        row.  If the shelf was collapsed (header-only), we kick a lazy card fetch
+        immediately so the body is populated as soon as the data arrives.
+        """
         self._flush_if_pending(shelf_key)
         self._move_shelf(shelf_key, _ZONE_PINNED)
         self._save_zone_config()
+
+        # Ensure content is loaded for the newly-pinned shelf.
+        if shelf_key not in self._loaded_shelf_keys:
+            if self._inflight_expand != shelf_key:
+                self._start_expand_fetch(shelf_key)
 
     def _on_unpin_requested(self, shelf_key: str) -> None:
         self._move_shelf(shelf_key, _ZONE_EXPANDED)
