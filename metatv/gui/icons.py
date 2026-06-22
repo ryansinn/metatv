@@ -26,6 +26,7 @@ dislike_icon: str = "👎"
 not_interested_icon: str = "🙅"
 curious_icon: str = "❓"
 watched_icon: str = "✓"
+partial_watched_icon: str = "◐"   # U+25D0 CIRCLE WITH LEFT HALF BLACK — in-progress / partially watched
 
 # Actions
 play_icon: str = "▶"
