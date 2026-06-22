@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=35,
+    id=38,
     version="0.8.0",
     date="2026-06-22",
     title="Monitor a Series for New Episodes",
