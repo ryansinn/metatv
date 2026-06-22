@@ -664,6 +664,11 @@ class Config(BaseModel):
     # Below this percent the item is treated as untouched (no progress glyph shown).
     # Configurable in Settings → Playback next to "Mark as watched at".
     watch_partial_threshold: float = 0.10
+    # Default playback start behaviour for VOD items with saved progress.
+    # "resume"    → resume from saved position (default; matches the #146 behaviour).
+    # "beginning" → always start from 0; per-play "Resume from M:SS" context action overrides.
+    # Configurable in Settings → Playback → "When starting playback".
+    playback_resume_mode: str = "resume"
 
     # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)
     diagnostics_baseline_url: str = "https://speed.cloudflare.com/__down?bytes=25000000"  # Neutral-host speed sample

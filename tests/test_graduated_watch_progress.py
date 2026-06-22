@@ -433,6 +433,8 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._player_mode_combo.currentIndex.return_value = 0
     dialog._autoplay_check = MagicMock()
     dialog._autoplay_check.isChecked.return_value = True
+    dialog._resume_mode_combo = MagicMock()
+    dialog._resume_mode_combo.currentData.return_value = "resume"
     dialog._prompt_after_autoplay_check = MagicMock()
     dialog._prompt_after_autoplay_check.isChecked.return_value = True
     dialog._watch_threshold_spin = MagicMock()
