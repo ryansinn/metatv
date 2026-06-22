@@ -450,3 +450,41 @@ def test_channel_list_dto_from_orm_carries_last_played_via(tmp_path):
 
     assert dto.last_played_via == "manual"
     db.close()
+
+
+def test_watch_icon_glyph_centered_at_hidpi(qapp, monkeypatch):
+    """The glyph stays centered at devicePixelRatio=2 (HiDPI corner-misalign bug).
+
+    At dpr=1 (CI default) the old ``pixmap.rect()`` drawText happened to work; the
+    bug only shows at dpr>1, where the device rect (28x28) used as a logical rect
+    pushes the glyph into a corner. Force dpr=2 to reproduce + guard it.
+    """
+    from metatv.gui import icons as _icons
+
+    class _FakeScreen:
+        def devicePixelRatio(self):
+            return 2.0
+
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QApplication.primaryScreen",
+        staticmethod(lambda: _FakeScreen()),
+    )
+    _icons._clear_watch_icon_cache()
+    try:
+        img = _icons.watch_icon(_icons.watched_icon, muted=False).pixmap(14, 14).toImage()
+        pts = [
+            (x, y)
+            for y in range(img.height())
+            for x in range(img.width())
+            if ((img.pixel(x, y) >> 24) & 0xFF) > 64
+        ]
+        assert pts, "glyph rendered nothing"
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        cx = (min(xs) + max(xs)) / 2
+        cy = (min(ys) + max(ys)) / 2
+        w, h = img.width(), img.height()
+        assert abs(cx - w / 2) <= w * 0.25, f"glyph not horizontally centered ({cx} vs {w / 2})"
+        assert abs(cy - h / 2) <= h * 0.25, f"glyph not vertically centered ({cy} vs {h / 2})"
+    finally:
+        _icons._clear_watch_icon_cache()
