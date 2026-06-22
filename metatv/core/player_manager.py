@@ -233,6 +233,14 @@ class PlayerManager:
             return None
         return self._key_provider.get(key)
 
+    def resolve_key(self, provider_id: str | None, force_new_window: bool = False) -> str:
+        """Public: the instance key a ``play()`` with these args would target.
+
+        Lets callers map a play to its mpv window (e.g. watch-progress capture)
+        without duplicating the split/force-new-window keying logic.
+        """
+        return self._resolve_instance_key(provider_id, force_split=force_new_window)
+
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _get_effective_max_instances(self, provider_max_connections: int) -> int:

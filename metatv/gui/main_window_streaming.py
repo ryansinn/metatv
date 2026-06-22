@@ -408,8 +408,16 @@ class _StreamingMixin:
             provider_id=data.get("provider_id"),
             force_new_window=force_new_window,
         ):
-            # Record playback — mark_played is a DB write; run off-thread
-            self.executor.submit(self._bg_mark_played, channel_id)
+            # Record playback — mark_played is a DB write; run off-thread. The same
+            # worker registers this instance for watch-progress capture (it already
+            # loads the channel, so it knows the media_type).
+            if not hasattr(self, "_watch_tracking"):
+                self._watch_tracking = {}
+            _watch_key = self.player_manager.resolve_key(
+                data.get("provider_id"), force_new_window
+            )
+            self.executor.submit(self._bg_mark_played, channel_id, _watch_key)
+            self._start_watch_capture()
 
             # Update UI lists in real-time (main thread)
             self.load_history()
@@ -432,14 +440,88 @@ class _StreamingMixin:
 
         QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
 
-    def _bg_mark_played(self, channel_id: str) -> None:
-        """Worker: write play-count + last-played to DB (off main thread)."""
+    def _bg_mark_played(self, channel_id: str, key: str | None = None) -> None:
+        """Worker: write play-count + last-played to DB (off main thread).
+
+        Also registers this instance for watch-progress capture — VOD **movies**
+        only (live has no completion; episodes use their own play path). If a
+        non-movie now plays on *key*, drop any stale tracking so a previous movie
+        in the same window isn't captured against the new stream.
+        """
         try:
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
                 repos.channels.mark_played(channel_id)
+                if key is not None:
+                    ch = repos.channels.get_by_id(channel_id)
+                    if ch is not None and ch.media_type == "movie":
+                        self._watch_tracking[key] = {
+                            "content_id": channel_id,
+                            "media_type": "movie",
+                            "played_via": "manual",
+                        }
+                    else:
+                        self._watch_tracking.pop(key, None)
         except Exception as e:
             logger.error(f"Error marking channel played: {e}")
+
+    # ---- Watch-progress capture (resume position + completion) ----------------
+    # A periodic checkpoint persists each active play's position/completion via the
+    # repository chokepoint, independent of the playback-health readout so it stays
+    # correct under Split Streams (each window captured against the content IT plays).
+
+    def _start_watch_capture(self) -> None:
+        """Start (or resume) the periodic watch-progress checkpoint timer."""
+        if not hasattr(self, "_watch_tracking"):
+            self._watch_tracking = {}
+        if getattr(self, "_watch_checkpoint_timer", None) is None:
+            self._watch_checkpoint_timer = QTimer(self)
+            self._watch_checkpoint_timer.setInterval(20_000)  # 20s checkpoint
+            self._watch_checkpoint_timer.timeout.connect(self._watch_checkpoint_tick)
+            self._register_cleanable(
+                "watch_checkpoint_timer", self._watch_checkpoint_timer.stop
+            )
+        if not self._watch_checkpoint_timer.isActive():
+            self._watch_checkpoint_timer.start()
+
+    def _watch_checkpoint_tick(self) -> None:
+        """Timer tick (main thread): sample + persist each active play's progress."""
+        keys = self.player_manager.active_keys()
+        tracking = getattr(self, "_watch_tracking", {})
+        # Drop tracking for windows that have closed.
+        for k in list(tracking.keys()):
+            if k not in keys:
+                tracking.pop(k, None)
+        if not keys:
+            self._watch_checkpoint_timer.stop()
+            return
+        for key in keys:
+            info = tracking.get(key)
+            if info:
+                self.executor.submit(self._bg_capture_watch, key, dict(info))
+
+    def _bg_capture_watch(self, key: str, info: dict) -> None:
+        """Worker: read mpv position for *key* and persist watch progress."""
+        try:
+            props = self.player_manager.get_properties(["time-pos", "duration"], key=key)
+            pos = props.get("time-pos")
+            dur = props.get("duration")
+            if pos is None or not dur or dur <= 0:
+                return
+            threshold = getattr(self.config, "watch_complete_threshold", 0.9)
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                played_via = info.get("played_via", "manual")
+                if info.get("media_type") == "episode":
+                    repos.episodes.record_watch_progress(
+                        info["content_id"], pos, dur, threshold, played_via
+                    )
+                else:
+                    repos.channels.record_watch_progress(
+                        info["content_id"], pos, dur, threshold, played_via
+                    )
+        except Exception as e:
+            logger.debug(f"Watch-progress capture failed for {key}: {e}")
 
     def _lookup_provider_icon(self, provider_id: str) -> str:
         """Return a source's display glyph (trivial PK read; cached by caller).

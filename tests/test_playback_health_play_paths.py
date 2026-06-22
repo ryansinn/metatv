@@ -44,6 +44,8 @@ def _bare_window(qapp):
     win.load_favorites = MagicMock()
     win._refresh_queue_section = MagicMock()
     win._start_playback_health = MagicMock()             # the thing under test
+    win._watch_tracking = {}                             # watch-capture registration target
+    win._start_watch_capture = MagicMock()               # watch-capture timer (not under test)
     return win
 
 
