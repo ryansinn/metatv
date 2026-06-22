@@ -519,6 +519,22 @@ CODE_FACETS: dict[str, list[tuple[str, str, float]]] = {
 }
 
 
+def is_category_header(name: str) -> bool:
+    """Return True when *name* is a provider category-header/separator row.
+
+    Category headers are label rows injected by some providers to group channels
+    in the source playlist (e.g. ``##### BEIN SPORTS #####``,
+    ``###### RELAX 4K ######``, ``##### BE SPORTS HD ##### · HD``). They are NOT
+    playable streams and must be excluded from all content surfaces.
+
+    Detection rule: the name starts with 2 or more ``#`` characters (after
+    stripping leading whitespace). A single leading ``#`` (``#1 News``) and an
+    interior ``#`` (``CH#5``) are NOT headers and must not match.
+    """
+    stripped = name.lstrip() if name else ""
+    return len(stripped) >= 2 and stripped[0] == "#" and stripped[1] == "#"
+
+
 def normalize_region_code(raw: str) -> str:
     """Normalize a raw prefix token to a canonical short display code."""
     upper = raw.strip().upper()
