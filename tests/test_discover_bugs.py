@@ -99,7 +99,11 @@ def seeded_db(tmp_path):
 class TestGetAllGenresScalar:
 
     def test_returns_correct_genres(self, seeded_db):
-        """get_all_genres returns Action and Drama (each ≥ min_count=10)."""
+        """get_all_genres returns Action and Drama (each ≥ min_count=10).
+
+        Pure "Action" stays "Action" — it is NOT folded into the "Action &
+        Adventure" compound (de-pollution: pures and compounds are distinct).
+        """
         from metatv.core.discovery_engine import get_all_genres
         session = seeded_db.get_session()
         try:

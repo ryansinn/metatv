@@ -322,7 +322,7 @@ mechanism (keep `detected_*` columns vs. a per-channel tag-id bitmap / inverted 
 filter's `is_filtered` / no-data-passthrough semantics map onto tag predicates; whether saved user
 views live in `config` or the DB.
 
-**Refined / extended (2026-06-21 design session).** Five clarifications that sharpen the model:
+**Refined / extended (2026-06-21 design session).** Six clarifications that sharpen the model:
 
 1. **Config is *disposable*; curation lives in the DB.** The litmus test for *where* a value belongs:
    you should be able to `rm config.yaml`, relaunch, and lose at most a few minutes of re-setting
@@ -363,3 +363,24 @@ views live in `config` or the DB.
    the same **canonicalization** as genres (noisy labels; the same collection spelled differently across
    providers) — i.e. another instance of D5's pattern. "Collection" is thus one of the predicted
    "other types." Net: **discard the header row, keep the label as a tag.**
+
+6. **Canonicalization unifies *spellings*, never *concepts* — store the truth, group at presentation
+   (genre de-pollution).** Wiring the existing `normalize_genre` into Discover (D5) exposed that the
+   `_GENRE_NORM` table did two different jobs: legitimate cross-language/spelling unification
+   (`Drame`→`Drama`, `Science-Fiction & Fantastique`→`Sci-Fi & Fantasy`) **and** illegitimate
+   *concept-merging* that folded pure forms into compounds (`action`→`Action & Adventure`,
+   `science fiction`/`fantasy`→`Sci-Fi & Fantasy`). The decision: **keep them distinct.** The litmus is
+   *perceptual* — "a viewer knows it when they **sees** it": **Fast & Furious is `Action`; Indiana Jones
+   is `Action & Adventure`** — the adventure element is felt, not decorative. So unify only what looks
+   identical (mechanical spelling/locale); never merge what *feels* different. The deciding engineering
+   argument: **merging is lossy and irreversible, keeping-distinct is not** — from distinct tags you can
+   always compute the union at the *presentation* layer (a "Sci-Fi & Fantasy" shelf = the predicate
+   `tag ∈ {Sci-Fi, Fantasy, Sci-Fi & Fantasy}`), but from a merged bucket you can never recover the pure
+   set. Crucially, the app must **never *invent* a tag the source didn't assert**: we do not split the
+   `Sci-Fi & Fantasy` compound into two tags and stamp both onto content (that would drop pure-Fantasy
+   GoT into a SciFi bucket). The source's compound is a legitimate, source-defined general bucket; what's
+   forbidden is the *app* manufacturing the association. (Empirically the current corpus is ~all TMDb-TV
+   compounds — 0 pure `Science Fiction`/`Fantasy`, 494 `Sci-Fi & Fantasy` — so de-pollution costs nothing
+   today and only prevents future mis-tagging once richer metadata distinguishes them.) Open: separating
+   pure SciFi from Fantasy at all needs metadata that *has* the distinction (TMDb **movie** genres 878 vs
+   14; this provider serves the TV-combined genre) — a TMDb-provider-integration item, not a table edit.

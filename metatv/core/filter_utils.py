@@ -338,12 +338,11 @@ def matches_filter(
 # (filter-stat aggregation). It lives here — a dependency-free leaf — because channel.py
 # imports channel_stats.py, so the table cannot live in either of them without a cycle.
 _GENRE_NORM: dict[str, str] = {
-    # Drama variants
+    # Drama variants (cross-language only — "Drama & History" is its own compound)
     "drame":                    "Drama",
     "dramma":                   "Drama",
     "dramat":                   "Drama",
     "draама":                   "Drama",
-    "drama & history":          "Drama",
     # Comedy variants
     "comédie":                  "Comedy",
     "comedie":                  "Comedy",
@@ -351,12 +350,10 @@ _GENRE_NORM: dict[str, str] = {
     "komedie":                  "Comedy",
     "commedia":                 "Comedy",
     "comedia":                  "Comedy",
-    # Crime / Thriller variants
+    # Crime variants (cross-language only — "Crime & Mystery" is its own compound)
     "crimen":                   "Crime",
     "krimi":                    "Crime",
     "misdaad":                  "Crime",
-    "crime & mystery":          "Crime",
-    "crime, mystery":           "Crime",
     # Documentary variants
     "documentaire":             "Documentary",
     "documental":               "Documentary",
@@ -364,29 +361,36 @@ _GENRE_NORM: dict[str, str] = {
     "dokumentar":               "Documentary",
     "dokumentation":            "Documentary",
     "doku":                     "Documentary",
-    # Sci-Fi / Fantasy variants
-    "science fiction":          "Sci-Fi & Fantasy",
-    "sci-fi":                   "Sci-Fi & Fantasy",
-    "sci fi":                   "Sci-Fi & Fantasy",
+    # Sci-Fi (pure) — abbreviations + cross-language spellings of plain Science
+    # Fiction. Kept DISTINCT from the "Sci-Fi & Fantasy" compound: a pure-SciFi or
+    # pure-Fantasy title must never be mis-tagged into the combined genre — that
+    # would muddy a clean SciFi (or Fantasy) set with the other (user steer
+    # 2026-06-21; DR-0005 — compounds and their components are separate categories).
+    "science fiction":          "Science Fiction",
+    "sci-fi":                   "Science Fiction",
+    "sci fi":                   "Science Fiction",
+    "science-fiction":          "Science Fiction",
+    "fantascienza":             "Science Fiction",
+    "ciencia ficción":          "Science Fiction",
+    "fantasy":                  "Fantasy",
+    # "Sci-Fi & Fantasy" is the TMDb combined genre — its own category; only
+    # cross-language aliases of the *compound* normalise to it.
     "science-fiction & fantastique": "Sci-Fi & Fantasy",
-    "science-fiction":          "Sci-Fi & Fantasy",
-    "fantascienza":             "Sci-Fi & Fantasy",
-    "ciencia ficción":          "Sci-Fi & Fantasy",
-    "fantasy":                  "Sci-Fi & Fantasy",
     # Mystery / Thriller variants
     "mystère":                  "Mystery",
     "mystere":                  "Mystery",
     "misterio":                 "Mystery",
     "mistero":                  "Mystery",
     "thriller":                 "Thriller",
-    # Action / Adventure variants
+    # Action / Adventure — pure forms stay distinct from the "Action & Adventure"
+    # compound; only cross-language aliases of the *compound* normalise to it.
     "action & abenteuer":       "Action & Adventure",
     "action et aventure":       "Action & Adventure",
-    "action":                   "Action & Adventure",
-    "adventure":                "Action & Adventure",
-    "abenteuer":                "Action & Adventure",
-    "aventure":                 "Action & Adventure",
-    "aventura":                 "Action & Adventure",
+    "action":                   "Action",
+    "adventure":                "Adventure",
+    "abenteuer":                "Adventure",
+    "aventure":                 "Adventure",
+    "aventura":                 "Adventure",
     # Animation variants
     "animazione":               "Animation",
     "animación":                "Animation",
@@ -404,10 +408,10 @@ _GENRE_NORM: dict[str, str] = {
     "reality tv":               "Reality",
     "realité":                  "Reality",
     "realite":                  "Reality",
-    # War variants
+    # War — pure "War" stays distinct from the "War & Politics" compound.
     "war & politics":           "War & Politics",
-    "guerra":                   "War & Politics",
-    "guerre":                   "War & Politics",
+    "guerra":                   "War",
+    "guerre":                   "War",
     # Western
     "western":                  "Western",
     # Horror / Suspense
@@ -448,7 +452,7 @@ _GENRE_NORM: dict[str, str] = {
     "إثارة":                    "Thriller",
     "رومانسي":                  "Romance",
     "مغامرة":                   "Adventure",
-    "أكشن":                     "Action & Adventure",
+    "أكشن":                     "Action",
     "أطفال":                    "Kids",
     "تاريخي":                   "History",
     "رياضة":                    "Sport",
