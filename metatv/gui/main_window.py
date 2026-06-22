@@ -1019,6 +1019,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.series_tree.setColumnWidth(2, 80)
         self.series_tree.setColumnWidth(3, 80)
         self.series_tree.setExpandsOnDoubleClick(False)
+        # ExtendedSelection enables Shift+click / Ctrl+click multi-select for batch
+        # Mark-as-Watched operations (context menu acts on all selected episodes).
+        self.series_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
         self.series_tree.itemDoubleClicked.connect(self.play_series_item)

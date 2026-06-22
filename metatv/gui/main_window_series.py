@@ -13,13 +13,16 @@ via ``self``/MRO at runtime, so the split is behaviour-preserving.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QTreeWidgetItem
+from PyQt6.QtWidgets import QAbstractItemView, QTreeWidgetItem
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.provider_loader import SeriesLoadThread
+from metatv.core.repositories.dtos import EpisodeDTO
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -195,16 +198,93 @@ class _SeriesMixin:
         self.series_data = series_data
         self.switch_to_series_view()
 
+    # ── Episode / season watch-state helpers ──────────────────────────────────
+
+    def _partial_pct(self) -> int:
+        """Return the partial-watched threshold as an integer percentage (0–100)."""
+        return int(getattr(self.config, "watch_partial_threshold", 0.10) * 100)
+
+    def _episode_icon_text(self, episode: "EpisodeDTO") -> str:
+        """Return the text column-0 value for an episode tree item."""
+        display_title = _clean_episode_title(
+            episode.title, episode.season_num, episode.episode_num, episode.series_name
+        )
+        # Graduated watch indicator — fallback to 1% for pre-migration rows that
+        # have watch_progress > 0 but watch_percent == 0 so they show ◔ not ▶.
+        _ep_pct = episode.watch_percent or (1 if episode.watch_progress > 0 else 0)
+        _glyph = _icons.watch_progress_glyph(_ep_pct, episode.watch_completed, self._partial_pct())
+        ep_icon = _glyph if _glyph else _icons.episode_icon
+        return f"  {ep_icon} {display_title}"
+
+    def _season_glyph(self, episode_dtos: "list[EpisodeDTO]") -> str:
+        """Derive the season-level watch indicator from its episodes.
+
+        ✓  all episodes watch_completed
+        ◐  some episodes watch_completed (partial season)
+        ""  none completed (no season-level glyph shown)
+        """
+        if not episode_dtos:
+            return ""
+        completed = sum(1 for ep in episode_dtos if ep.watch_completed)
+        if completed == len(episode_dtos):
+            return f" {_icons.watched_icon}"
+        if completed > 0:
+            return f" {_icons.partial_watched_icon}"
+        return ""
+
+    def _season_label(self, season_name: Optional[str], episode_dtos: "list[EpisodeDTO]") -> str:
+        """Compose the season column-0 text including any watch-rollup glyph."""
+        glyph = self._season_glyph(episode_dtos)
+        return f"{_icons.season_icon}{glyph} {season_name or '?'}"
+
+    def _update_episode_item_icon(self, item: "QTreeWidgetItem", episode: "EpisodeDTO") -> None:
+        """Rewrite the column-0 text of an episode tree item in-place.
+
+        The EpisodeDTO stored in UserRole is immutable (frozen dataclass).  After a
+        mark_watched call we build a *new* DTO from the updated fields and store it so
+        the item's UserRole data stays consistent with what's displayed.
+        """
+        item.setText(0, self._episode_icon_text(episode))
+
+    def _update_season_item_icon(self, season_item: "QTreeWidgetItem") -> None:
+        """Re-derive the season-level watch glyph and rewrite column-0 in-place.
+
+        Reads each child episode item's current UserRole EpisodeDTO to compute
+        completion stats — no DB query needed.
+        """
+        child_dtos: list[EpisodeDTO] = []
+        for i in range(season_item.childCount()):
+            child = season_item.child(i)
+            child_data = child.data(0, Qt.ItemDataRole.UserRole)
+            if child_data and child_data.get("type") == "episode":
+                child_dtos.append(child_data["data"])
+        season_data = season_item.data(0, Qt.ItemDataRole.UserRole)
+        season_name = season_data.get("name") if season_data else None
+        season_item.setText(0, self._season_label(season_name, child_dtos))
+
+    def _find_episode_items(self) -> "list[tuple[QTreeWidgetItem, QTreeWidgetItem]]":
+        """Collect all (season_item, episode_item) pairs currently in the tree."""
+        pairs: list[tuple[QTreeWidgetItem, QTreeWidgetItem]] = []
+        root = self.series_tree.invisibleRootItem()
+        for si in range(root.childCount()):
+            season_item = root.child(si)
+            for ei in range(season_item.childCount()):
+                ep_item = season_item.child(ei)
+                pairs.append((season_item, ep_item))
+        return pairs
+
+    # ── Tree population ────────────────────────────────────────────────────────
+
     def populate_series_tree(self):
-        """Populate the series tree widget with seasons and episodes"""
+        """Populate the series tree widget with seasons and episodes."""
         self.series_tree.clear()
 
         if not self.series_data:
             logger.warning("No series data available for tree population")
             return
 
-        # Get seasons and episodes from database
-        # Note: series_id in SeasonDB is the provider's source_id, not the database UUID
+        # Get seasons and episodes from database.
+        # Note: series_id in SeasonDB is the provider's source_id, not the database UUID.
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
@@ -234,73 +314,48 @@ class _SeriesMixin:
             total_episodes = 0
 
             for season in seasons:
-                # Create season item
+                # Get episodes as DTOs first — they're needed for the season glyph.
+                episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=season.id)
+                total_episodes += len(episode_dtos)
+
+                # Create season item with derived watch rollup glyph.
                 season_item = QTreeWidgetItem(self.series_tree)
-                season_item.setText(0, f"{self.season_icon} {season.name}")
+                season_item.setText(0, self._season_label(season.name, episode_dtos))
                 season_item.setText(1, f"{season.episode_count} episodes")
 
-                # Extract rating from season raw_data if available
+                # Extract rating from season raw_data if available.
                 if season.raw_data and isinstance(season.raw_data, dict):
                     rating = season.raw_data.get("rating", "")
                     if rating:
                         season_item.setText(3, f"{self.rating_star_icon} {rating}")
 
-                season_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "season", "data": season})
+                # Store name alongside season DTO so in-place refresh can read it.
+                season_item.setData(
+                    0, Qt.ItemDataRole.UserRole,
+                    {"type": "season", "data": season, "name": season.name}
+                )
 
                 logger.debug(f"Added season: {season.name} ({season.episode_count} episodes)")
-
-                # Get episodes as DTOs — safe post-session, includes watch-state fields
-                episode_dtos = repos.episodes.get_episodes_dto_by_season(season_id=season.id)
-                total_episodes += len(episode_dtos)
-
                 logger.debug(f"Found {len(episode_dtos)} episodes for {season.name}")
 
                 for episode in episode_dtos:
-                    # Create episode item
                     episode_item = QTreeWidgetItem(season_item)
-                    display_title = _clean_episode_title(
-                        episode.title, episode.season_num, episode.episode_num, episode.series_name
-                    )
-                    # Graduated watch indicator:
-                    #   ✓  watch_completed — fully watched
-                    #   ◔  ~quarter watched (above partial threshold, < 37%)
-                    #   ◐  ~half watched (37–62%)
-                    #   ◕  ~three-quarter watched (63–99%)
-                    #   ▶  untouched (below partial threshold or no progress)
-                    # Fallback: if watch_percent is 0 but watch_progress > 0, treat as 1%
-                    # so pre-migration rows still show the quarter glyph rather than nothing.
-                    _partial_pct = int(
-                        getattr(self.config, "watch_partial_threshold", 0.10) * 100
-                    )
-                    _ep_pct = episode.watch_percent or (1 if episode.watch_progress > 0 else 0)
-                    _progress_glyph = _icons.watch_progress_glyph(
-                        _ep_pct, episode.watch_completed, _partial_pct
-                    )
-                    ep_icon = _progress_glyph if _progress_glyph else _icons.episode_icon
-                    episode_item.setText(0, f"  {ep_icon} {display_title}")
+                    episode_item.setText(0, self._episode_icon_text(episode))
                     episode_item.setToolTip(0, episode.title)
-
-                    # Episode number
                     episode_item.setText(1, f"E{episode.episode_num}")
-
-                    # Duration — stored field only (DTOs don't carry raw_data)
                     if episode.duration:
                         episode_item.setText(2, _format_episode_duration(episode.duration))
-
-                    # Rating from DTO (pre-extracted at build time)
                     if episode.rating:
                         episode_item.setText(3, f"{self.rating_star_icon} {episode.rating}")
-
                     episode_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": episode})
 
-                # Initially collapse seasons
+                # Initially collapse seasons.
                 season_item.setExpanded(False)
 
-            # Update stats label with season/episode counts
+            # Update stats label with season/episode counts.
             if len(seasons) == 0:
                 self.stats_label.setText("No items to display")
             else:
-                # Use generic "items" term since it could be Seasons, Specials, etc.
                 season_word = "item" if len(seasons) == 1 else "items"
                 episode_word = "episode" if total_episodes == 1 else "episodes"
                 self.stats_label.setText(f"Showing {len(seasons)} {season_word} · {total_episodes} {episode_word}")
@@ -534,7 +589,13 @@ class _SeriesMixin:
 
 
     def show_series_context_menu(self, position):
-        """Show context menu for series tree items"""
+        """Show context menu for series tree items.
+
+        Supports multi-select for episode items — if more than one episode is
+        selected when the menu is triggered the Mark actions apply to all of them.
+        The right-clicked item is always included even if it was not previously
+        part of the selection.
+        """
         item = self.series_tree.itemAt(position)
         if not item:
             return
@@ -549,23 +610,63 @@ class _SeriesMixin:
         menu = QMenu(self)
 
         if data["type"] == "episode":
+            # Collect all selected episode items (multi-select aware).
+            selected_items = self.series_tree.selectedItems()
+            selected_episode_items = [
+                it for it in selected_items
+                if (it.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") == "episode"
+            ]
+            # The right-clicked item must always be in scope.
+            if item not in selected_episode_items:
+                selected_episode_items = [item]
+
+            # Determine the effective target state from the triggered item.
             episode = data["data"]
+            target_watched = not episode.is_watched
 
-            play_action = QAction(f"{self.play_icon} Play Episode", self)
-            play_action.triggered.connect(lambda: self.play_episode(episode))
-            menu.addAction(play_action)
-
-            if episode.is_watched:
-                mark_unwatched_action = QAction("Mark as Unwatched", self)
-                mark_unwatched_action.triggered.connect(lambda: self.toggle_episode_watched(episode))
-                menu.addAction(mark_unwatched_action)
+            label_suffix = f" ({len(selected_episode_items)} episodes)" if len(selected_episode_items) > 1 else ""
+            if target_watched:
+                mark_action = QAction(f"{_icons.watched_icon} Mark as Watched{label_suffix}", self)
             else:
-                mark_watched_action = QAction("Mark as Watched", self)
-                mark_watched_action.triggered.connect(lambda: self.toggle_episode_watched(episode))
-                menu.addAction(mark_watched_action)
+                mark_action = QAction(f"{_icons.episode_icon} Mark as Unwatched{label_suffix}", self)
+
+            mark_action.triggered.connect(
+                lambda: self._toggle_episodes_watched(selected_episode_items, target_watched)
+            )
+            menu.addAction(mark_action)
+
+            if len(selected_episode_items) == 1:
+                # Single selection — also offer Play.
+                menu.insertAction(mark_action, self._make_play_episode_action(menu, episode))
+                menu.insertSeparator(mark_action)
 
         elif data["type"] == "season":
-            season = data["data"]
+            # Determine the season watched state from its children.
+            child_dtos: list[EpisodeDTO] = []
+            for i in range(item.childCount()):
+                child = item.child(i)
+                cd = child.data(0, Qt.ItemDataRole.UserRole)
+                if cd and cd.get("type") == "episode":
+                    child_dtos.append(cd["data"])
+
+            all_completed = child_dtos and all(ep.watch_completed for ep in child_dtos)
+
+            if all_completed:
+                mark_season_action = QAction(
+                    f"{_icons.episode_icon} Mark Season as Unwatched", self
+                )
+                mark_season_action.triggered.connect(
+                    lambda: self._mark_season_watched(item, watched=False)
+                )
+            else:
+                mark_season_action = QAction(
+                    f"{_icons.watched_icon} Mark Season as Watched", self
+                )
+                mark_season_action.triggered.connect(
+                    lambda: self._mark_season_watched(item, watched=True)
+                )
+            menu.addAction(mark_season_action)
+            menu.addSeparator()
 
             expand_action = QAction("Expand All Episodes", self)
             expand_action.triggered.connect(lambda: item.setExpanded(True))
@@ -577,15 +678,115 @@ class _SeriesMixin:
 
         menu.exec(self.series_tree.viewport().mapToGlobal(position))
 
-    def toggle_episode_watched(self, episode):
-        """Toggle episode watched status"""
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            repos.episodes.mark_watched(episode.id, not episode.is_watched)
-            logger.info(f"Toggled watched status for episode: {episode.title}")
-        finally:
-            session.close()
+    def _make_play_episode_action(self, parent_menu, episode: "EpisodeDTO"):
+        """Create a Play Episode action for the context menu."""
+        from PyQt6.QtGui import QAction
+        play_action = QAction(f"{_icons.play_icon} Play Episode", parent_menu)
+        play_action.triggered.connect(lambda: self.play_episode(episode))
+        return play_action
 
-        # Refresh the tree to update display
-        self.populate_series_tree()
+    def toggle_episode_watched(self, episode: "EpisodeDTO") -> None:
+        """Toggle a single episode's watched status.
+
+        Kept for backwards compatibility; delegates to _toggle_episodes_watched.
+        """
+        item_pair = next(
+            ((si, ei) for si, ei in self._find_episode_items()
+             if (ei.data(0, Qt.ItemDataRole.UserRole) or {}).get("data", None) is episode),
+            None,
+        )
+        if item_pair:
+            self._toggle_episodes_watched([item_pair[1]], not episode.is_watched)
+        else:
+            # Fallback: no tree item found — just write to DB (should not happen).
+            with self.db.session_scope() as session:
+                RepositoryFactory(session).episodes.mark_watched(episode.id, not episode.is_watched)
+
+    def _toggle_episodes_watched(
+        self,
+        episode_items: "list[QTreeWidgetItem]",
+        watched: bool,
+    ) -> None:
+        """Mark the given episode tree items as watched/unwatched in-place.
+
+        Writes all watch fields coherently (Bug 1 fix), then updates just the
+        affected tree item icon(s) without rebuilding the whole tree (Bug 3 fix).
+        Also refreshes any parent season node's rollup glyph.
+        """
+        if not episode_items:
+            return
+
+        episode_ids = []
+        for ep_item in episode_items:
+            d = ep_item.data(0, Qt.ItemDataRole.UserRole)
+            if d and d.get("type") == "episode":
+                episode_ids.append(d["data"].id)
+
+        if not episode_ids:
+            return
+
+        # Persist to DB.
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).episodes.mark_watched_bulk(episode_ids, watched)
+
+        # Re-read each affected episode as a fresh DTO and update its tree item in-place.
+        season_items_to_refresh: set[int] = set()  # id() of QTreeWidgetItem to refresh
+        with self.db.session_scope() as session:
+            repo = RepositoryFactory(session).episodes
+            for ep_item in episode_items:
+                d = ep_item.data(0, Qt.ItemDataRole.UserRole)
+                if not d or d.get("type") != "episode":
+                    continue
+                old_dto: EpisodeDTO = d["data"]
+                # Build an updated DTO from the new state (no ORM object escapes the session).
+                new_dto = EpisodeDTO(
+                    id=old_dto.id,
+                    episode_num=old_dto.episode_num,
+                    season_num=old_dto.season_num,
+                    title=old_dto.title,
+                    series_name=old_dto.series_name,
+                    stream_url=old_dto.stream_url,
+                    duration=old_dto.duration,
+                    is_watched=watched,
+                    rating=old_dto.rating,
+                    series_id=old_dto.series_id,
+                    provider_id=old_dto.provider_id,
+                    season_id=old_dto.season_id,
+                    watch_progress=0 if not watched else old_dto.watch_progress,
+                    watch_completed=watched,
+                    watch_percent=100 if watched else 0,
+                )
+                ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
+                self._update_episode_item_icon(ep_item, new_dto)
+
+                # Mark the parent season for rollup refresh.
+                parent = ep_item.parent()
+                if parent is not None:
+                    season_items_to_refresh.add(id(parent))
+                    # Store the actual object keyed by id().
+                    if not hasattr(self, "_season_item_map"):
+                        self._season_item_map: dict[int, QTreeWidgetItem] = {}
+                    self._season_item_map[id(parent)] = parent
+
+        # Refresh affected season rollup glyphs.
+        for sid in season_items_to_refresh:
+            season_item = getattr(self, "_season_item_map", {}).get(sid)
+            if season_item is not None:
+                self._update_season_item_icon(season_item)
+        self._season_item_map = {}  # clear after use
+
+        logger.info(
+            f"Toggled {len(episode_ids)} episode(s) as {'watched' if watched else 'unwatched'} in-place"
+        )
+
+    def _mark_season_watched(self, season_item: "QTreeWidgetItem", watched: bool) -> None:
+        """Mark all episodes in a season as watched/unwatched.
+
+        Updates the season node's rollup glyph and each episode item in-place.
+        """
+        episode_items: list[QTreeWidgetItem] = []
+        for i in range(season_item.childCount()):
+            child = season_item.child(i)
+            if (child.data(0, Qt.ItemDataRole.UserRole) or {}).get("type") == "episode":
+                episode_items.append(child)
+        self._toggle_episodes_watched(episode_items, watched)
