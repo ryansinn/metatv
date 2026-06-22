@@ -55,6 +55,11 @@ class EpisodeRepository:
                 duration=ep.duration,
                 is_watched=ep.is_watched,
                 rating=rating,
+                series_id=ep.series_id,
+                provider_id=ep.provider_id,
+                season_id=ep.season_id,
+                watch_progress=int(getattr(ep, "watch_progress", 0) or 0),
+                watch_completed=bool(getattr(ep, "watch_completed", False)),
             ))
         return result
     
@@ -167,6 +172,7 @@ class EpisodeRepository:
         episode.last_played_via = played_via
         if completed:
             episode.is_watched = True
+            episode.watch_completed = True
             episode.watch_progress = 0
         else:
             episode.watch_progress = max(0, int(position_s))

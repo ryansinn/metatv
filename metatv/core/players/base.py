@@ -48,16 +48,25 @@ class PlayerPlugin(ABC):
         pass
 
     @abstractmethod
-    def queue(self, url: str, title: str, mode: QueueMode = QueueMode.APPEND_PLAY) -> bool:
-        """Add URL to playlist queue
+    def queue(
+        self,
+        url: str,
+        title: str,
+        mode: QueueMode = QueueMode.APPEND_PLAY,
+        instance_key: str = "__shared__",
+    ) -> bool:
+        """Add URL to playlist queue.
 
         Args:
-            url: Stream URL to queue
-            title: Title to display
-            mode: How to add to queue
+            url: Stream URL to queue.
+            title: Title to display.  Implementations should pass this as a
+                per-item ``force-media-title`` so the window title updates when
+                the item starts playing — not just for the first episode.
+            mode: How to add to queue.
+            instance_key: Registry key for the target player window.
 
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise.
         """
         pass
 

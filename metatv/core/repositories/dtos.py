@@ -157,7 +157,12 @@ class SeasonDTO:
 
 @dataclass(frozen=True)
 class EpisodeDTO:
-    """One episode row in the series tree widget."""
+    """One episode row in the series tree widget.
+
+    Carries both display fields (for the QTreeWidget) and play-side fields
+    (series_id, provider_id, season_id) so the tree never stores a live ORM
+    object in UserRole data — the DTO is safe post-session.
+    """
     id: str
     episode_num: int
     season_num: int
@@ -167,6 +172,13 @@ class EpisodeDTO:
     duration: str | None
     is_watched: bool
     rating: str | None           # pre-extracted from raw_data["info"]["rating"]
+    # Play-side fields (needed by play_episode to look up parent channel + queue season)
+    series_id: str = ""
+    provider_id: str = ""
+    season_id: str = ""
+    # Watch-tracking fields — shown as ✓ (completed) or ◐ (in-progress) in the tree
+    watch_progress: int = 0      # resume position in seconds (0 = unwatched or completed)
+    watch_completed: bool = False  # sticky completion flag
 
 
 # ---------------------------------------------------------------------------
