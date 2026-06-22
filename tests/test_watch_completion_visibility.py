@@ -57,6 +57,7 @@ def _dto(**overrides) -> ChannelListDTO:
         detected_title="Test Movie",
         watch_completed=False,
         watch_progress=0,
+        watch_percent=0,
     )
     base.update(overrides)
     return ChannelListDTO(**base)
@@ -68,11 +69,12 @@ def _dto(**overrides) -> ChannelListDTO:
 
 class _FakeThresholdConfig:
     """Minimal config stub with watch_complete_threshold."""
-    def __init__(self, threshold: float = 0.9):
+    def __init__(self, threshold: float = 0.9, partial_threshold: float = 0.10):
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
         self.watch_complete_threshold = threshold
+        self.watch_partial_threshold = partial_threshold
         self.close_player_when_finished = False
         self.network_timeout = 10
         self.reconnect_attempts = 3
@@ -118,6 +120,9 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
     dlg._watch_threshold_spin.setSuffix("%")
+    dlg._watch_partial_spin = QSpinBox()
+    dlg._watch_partial_spin.setRange(1, 49)
+    dlg._watch_partial_spin.setSuffix("%")
     dlg._close_player_check = QCheckBox()
     dlg._buffer_combo = QComboBox()
     dlg._buffer_combo.addItem("Reconnect only (no extra buffer)", userData="reconnect_only")
@@ -333,10 +338,10 @@ def test_channel_list_model_shows_watch_check_for_series_if_completed(qapp):
 # ---------------------------------------------------------------------------
 
 def test_channel_list_model_shows_partial_icon_for_in_progress_movie(qapp):
-    """Partial-watched movie (watch_progress > 0, not completed) shows ◐, not ✓."""
+    """Partial-watched movie (watch_percent=50, not completed) shows ◐, not ✓."""
     from metatv.gui import icons as _icons
     model = _make_model(qapp)
-    dto = _dto(media_type="movie", watch_completed=False, watch_progress=300)
+    dto = _dto(media_type="movie", watch_completed=False, watch_progress=1500, watch_percent=50)
     text = model._compose_display_text(dto)
     assert _icons.partial_watched_icon in text, (
         f"Expected ◐ for in-progress movie in {text!r}"

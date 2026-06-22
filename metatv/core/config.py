@@ -656,6 +656,10 @@ class Config(BaseModel):
     # Watch-completion: fraction of a VOD item's duration that counts as "completed"
     # (e.g. 0.9 = 90%). Configurable in Settings → Playback.
     watch_complete_threshold: float = 0.9
+    # Watch-partial: lower bound fraction before a progress glyph (◔/◐/◕) appears.
+    # Below this percent the item is treated as untouched (no progress glyph shown).
+    # Configurable in Settings → Playback next to "Mark as watched at".
+    watch_partial_threshold: float = 0.10
 
     # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)
     diagnostics_baseline_url: str = "https://speed.cloudflare.com/__down?bytes=25000000"  # Neutral-host speed sample

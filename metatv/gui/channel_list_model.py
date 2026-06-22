@@ -78,6 +78,8 @@ class ChannelListModel(QAbstractListModel):
         self._favorite_icon: str = _icons.favorite_icon
         self._unfavorite_icon: str = _icons.unfavorite_icon
         self._get_media_type_icon: Optional[Callable[[str | None], str]] = None
+        # Graduated-watch lower bound (int 0–100; default 10% = config default 0.10)
+        self._partial_threshold_pct: int = 10
 
         # Generation guard: incremented on every set_channels(); page results
         # that were requested before the last reset carry an old generation and
@@ -140,6 +142,7 @@ class ChannelListModel(QAbstractListModel):
         favorite_icon: str = _icons.favorite_icon,
         unfavorite_icon: str = _icons.unfavorite_icon,
         get_media_type_icon: Optional[Callable[[str | None], str]] = None,
+        partial_threshold_pct: int = 10,
     ) -> None:
         """Reset the model with a fresh first page of results.
 
@@ -165,6 +168,9 @@ class ChannelListModel(QAbstractListModel):
             get_media_type_icon: Callable (media_type → glyph) injected from
                                  MainWindow so the model can produce the same
                                  icons without importing GUI state.
+            partial_threshold_pct: Lower bound int (0–100) below which no progress
+                glyph is shown.  Corresponds to
+                ``int(config.watch_partial_threshold * 100)``.
         """
         self.beginResetModel()
         self._generation += 1
@@ -178,6 +184,7 @@ class ChannelListModel(QAbstractListModel):
         self._favorite_icon = favorite_icon
         self._unfavorite_icon = unfavorite_icon
         self._get_media_type_icon = get_media_type_icon
+        self._partial_threshold_pct = partial_threshold_pct
         self._rebuild_index()
         self.endResetModel()
         logger.debug(
@@ -279,9 +286,11 @@ class ChannelListModel(QAbstractListModel):
         ``{src_badge}{media_icon}{fav_icon}{watch_badge} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
 
         Watch badges (VOD only — never shown for live channels):
-        - ``✓`` (``watched_icon``) when ``watch_completed`` is True.
-        - ``◐`` (``partial_watched_icon``) when ``watch_progress > 0`` and not completed (in progress).
-        - Nothing when unwatched.
+        - ``✓`` (``watched_icon``)       when ``watch_completed`` is True.
+        - ``◔`` (``partial_watched_q1_icon``) when < 37% watched (above partial threshold).
+        - ``◐`` (``partial_watched_icon``)    when 37–62% watched.
+        - ``◕`` (``partial_watched_q3_icon``) when 63–99% watched.
+        - Nothing (untouched) when below ``_partial_threshold_pct`` or truly unwatched.
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -296,15 +305,14 @@ class ChannelListModel(QAbstractListModel):
             src_badge = self._provider_icon_map[channel.provider_id] + " "
 
         # Watch badge (VOD only — never for live):
-        #   ✓  watch_completed=True → fully watched
-        #   ◐  watch_progress > 0, not completed → in progress
-        #   (empty) otherwise → unwatched
+        # Graduated glyphs driven by watch_percent; fallback to watch_progress>0 for
+        # rows populated before watch_percent was introduced (percent=0, progress>0).
         watch_badge = ""
         if channel.media_type != "live":
-            if channel.watch_completed:
-                watch_badge = _icons.watched_icon
-            elif channel.watch_progress:
-                watch_badge = _icons.partial_watched_icon
+            pct = channel.watch_percent or (1 if channel.watch_progress else 0)
+            watch_badge = _icons.watch_progress_glyph(
+                pct, channel.watch_completed, self._partial_threshold_pct
+            )
 
         prefix_str = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
         lang_str = f"[{channel.detected_region}] " if channel.detected_region else ""

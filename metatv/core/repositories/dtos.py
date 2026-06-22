@@ -95,6 +95,7 @@ class ChannelListDTO:
     # Watch-completion fields (VOD only; both default False/0 for live channels)
     watch_completed: bool = False   # sticky "finished" flag — shown as ✓ in list
     watch_progress: int = 0         # resume position in seconds (0 when completed or unwatched)
+    watch_percent: int = 0          # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
 
     @classmethod
     def from_orm(cls, ch) -> "ChannelListDTO":
@@ -114,6 +115,7 @@ class ChannelListDTO:
             detected_title=ch.detected_title,
             watch_completed=bool(getattr(ch, "watch_completed", False)),
             watch_progress=int(getattr(ch, "watch_progress", 0) or 0),
+            watch_percent=int(getattr(ch, "watch_percent", 0) or 0),
         )
 
 
@@ -176,9 +178,10 @@ class EpisodeDTO:
     series_id: str = ""
     provider_id: str = ""
     season_id: str = ""
-    # Watch-tracking fields — shown as ✓ (completed) or ◐ (in-progress) in the tree
+    # Watch-tracking fields — shown as ✓ (completed) or ◔/◐/◕ (graduated in-progress) in the tree
     watch_progress: int = 0      # resume position in seconds (0 = unwatched or completed)
     watch_completed: bool = False  # sticky completion flag
+    watch_percent: int = 0       # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
 
 
 # ---------------------------------------------------------------------------

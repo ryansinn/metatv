@@ -261,16 +261,22 @@ class _SeriesMixin:
                     display_title = _clean_episode_title(
                         episode.title, episode.season_num, episode.episode_num, episode.series_name
                     )
-                    # Three-state watch indicator (mirrors channel-list logic from PR #116):
+                    # Graduated watch indicator:
                     #   ✓  watch_completed — fully watched
-                    #   ◐  watch_progress > 0, not completed — partially watched (in-progress)
-                    #   ▶  neither — unwatched
-                    if episode.watch_completed:
-                        ep_icon = _icons.watched_icon
-                    elif episode.watch_progress > 0:
-                        ep_icon = _icons.partial_watched_icon
-                    else:
-                        ep_icon = _icons.episode_icon
+                    #   ◔  ~quarter watched (above partial threshold, < 37%)
+                    #   ◐  ~half watched (37–62%)
+                    #   ◕  ~three-quarter watched (63–99%)
+                    #   ▶  untouched (below partial threshold or no progress)
+                    # Fallback: if watch_percent is 0 but watch_progress > 0, treat as 1%
+                    # so pre-migration rows still show the quarter glyph rather than nothing.
+                    _partial_pct = int(
+                        getattr(self.config, "watch_partial_threshold", 0.10) * 100
+                    )
+                    _ep_pct = episode.watch_percent or (1 if episode.watch_progress > 0 else 0)
+                    _progress_glyph = _icons.watch_progress_glyph(
+                        _ep_pct, episode.watch_completed, _partial_pct
+                    )
+                    ep_icon = _progress_glyph if _progress_glyph else _icons.episode_icon
                     episode_item.setText(0, f"  {ep_icon} {display_title}")
                     episode_item.setToolTip(0, episode.title)
 

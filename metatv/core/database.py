@@ -73,6 +73,7 @@ class ChannelDB(Base):
     # Watch-completion (VOD movies): resume point + sticky "finished" flag (Slice 1).
     watch_progress = Column(Integer, default=0)        # resume position, seconds
     watch_completed = Column(Boolean, default=False, index=True)  # ever finished (≥ threshold)
+    watch_percent = Column(Integer, default=0)         # 0–100: % watched at last capture (graduated glyph)
     last_played_via = Column(String)                   # how it was played: manual | queue | alert
 
     raw_data = Column(JSON)
@@ -296,6 +297,7 @@ class EpisodeDB(Base):
     is_watched = Column(Boolean, default=False, index=True)  # sticky "finished" flag
     watch_progress = Column(Integer, default=0)  # resume position, seconds
     watch_completed = Column(Boolean, default=False, index=True)  # sticky completion flag (mirrors ChannelDB)
+    watch_percent = Column(Integer, default=0)   # 0–100: % watched at last capture (graduated glyph)
     last_played = Column(DateTime, index=True)
     play_count = Column(Integer, default=0)
     last_played_via = Column(String)             # how it was played: manual | queue | alert
@@ -489,6 +491,8 @@ class Database:
             ("episodes",     "last_played_via",            "TEXT"),
             ("episodes",     "watch_progress",             "INTEGER DEFAULT 0"),
             ("episodes",     "watch_completed",            "INTEGER DEFAULT 0"),
+            ("channels",     "watch_percent",              "INTEGER DEFAULT 0"),
+            ("episodes",     "watch_percent",              "INTEGER DEFAULT 0"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

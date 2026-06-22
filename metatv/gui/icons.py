@@ -26,7 +26,9 @@ dislike_icon: str = "👎"
 not_interested_icon: str = "🙅"
 curious_icon: str = "❓"
 watched_icon: str = "✓"
-partial_watched_icon: str = "◐"   # U+25D0 CIRCLE WITH LEFT HALF BLACK — in-progress / partially watched
+partial_watched_icon: str = "◐"      # U+25D0 CIRCLE WITH LEFT HALF BLACK — ~half watched (~37–62%)
+partial_watched_q1_icon: str = "◔"   # U+25D4 CIRCLE WITH UPPER RIGHT QUADRANT BLACK — ~quarter watched (<37%)
+partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT QUADRANT BLACK — ~three-quarter (62–99%)
 
 # Actions
 play_icon: str = "▶"
@@ -119,3 +121,37 @@ def pick_next_icon(used_icons: list[str]) -> str:
         if icon not in used_icons:
             return icon
     return provider_icon_palette[len(used_icons) % len(provider_icon_palette)]
+
+
+def watch_progress_glyph(
+    watch_percent: int,
+    watch_completed: bool,
+    partial_threshold_pct: int = 10,
+) -> str:
+    """Map a stored ``watch_percent`` to the appropriate graduated progress glyph.
+
+    Thresholds (percent):
+        - 100 / watch_completed → ✓ (``watched_icon``)
+        - ≥ partial_threshold_pct and < 37 → ◔ (``partial_watched_q1_icon``, ~quarter)
+        - ≥ 37 and < 63                    → ◐ (``partial_watched_icon``,    ~half)
+        - ≥ 63 and < complete              → ◕ (``partial_watched_q3_icon``, ~three-quarter)
+        - below partial_threshold_pct       → "" (untouched / no glyph)
+
+    Args:
+        watch_percent: 0–100 stored percentage (0 = unwatched or duration unknown).
+        watch_completed: Sticky completion flag; overrides percent when True.
+        partial_threshold_pct: Lower bound (int, 0–100) below which no glyph is shown.
+            Corresponds to ``Config.watch_partial_threshold * 100``.
+
+    Returns:
+        One of the four watch-state glyphs, or ``""`` when the item is untouched.
+    """
+    if watch_completed:
+        return watched_icon
+    if watch_percent >= 63:
+        return partial_watched_q3_icon
+    if watch_percent >= 37:
+        return partial_watched_icon
+    if watch_percent >= partial_threshold_pct:
+        return partial_watched_q1_icon
+    return ""
