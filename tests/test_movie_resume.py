@@ -152,12 +152,15 @@ def test_play_media_resolves_start_for_in_progress_movie():
 
     host.play_media(channel)
 
-    # Verify executor.submit was called with start_seconds=300 as last positional arg
+    # Verify executor.submit was called and start_seconds is in the positional args.
+    # Arg order: (fn, channel_id, name, stream_url, provider_id, notif_id,
+    #             force_new_window, start_seconds, open_ended_buffer)
     call_args = host.executor.submit.call_args
     submitted_fn, *pos_args = call_args[0]
     assert submitted_fn == host._bg_validate_and_play
-    # start_seconds is the last positional argument
-    assert pos_args[-1] == 300
+    # start_seconds is at index 6 (0-based) of pos_args (open_ended_buffer follows at -1)
+    start_seconds = pos_args[6]
+    assert start_seconds == 300
 
 
 def test_play_media_no_resume_for_live_channel():
@@ -170,7 +173,8 @@ def test_play_media_no_resume_for_live_channel():
 
     call_args = host.executor.submit.call_args
     _, *pos_args = call_args[0]
-    assert pos_args[-1] == 0
+    start_seconds = pos_args[6]
+    assert start_seconds == 0
 
 
 def test_play_media_no_resume_when_completed():
@@ -182,7 +186,8 @@ def test_play_media_no_resume_when_completed():
 
     call_args = host.executor.submit.call_args
     _, *pos_args = call_args[0]
-    assert pos_args[-1] == 0
+    start_seconds = pos_args[6]
+    assert start_seconds == 0
 
 
 def test_play_media_no_resume_when_no_progress():
@@ -194,7 +199,8 @@ def test_play_media_no_resume_when_no_progress():
 
     call_args = host.executor.submit.call_args
     _, *pos_args = call_args[0]
-    assert pos_args[-1] == 0
+    start_seconds = pos_args[6]
+    assert start_seconds == 0
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +295,7 @@ def test_on_stream_ready_passes_start_seconds():
         provider_id="p1",
         force_new_window=False,
         start_seconds=720,
+        open_ended_buffer=False,
     )
 
 
@@ -314,6 +321,7 @@ def test_on_stream_ready_defaults_start_seconds_to_zero():
         provider_id="p1",
         force_new_window=False,
         start_seconds=0,
+        open_ended_buffer=False,
     )
 
 
@@ -341,6 +349,7 @@ def test_player_manager_play_threads_start_seconds():
         "http://stream.mp4", "My Movie",
         instance_key="__shared__",
         start_seconds=360,
+        open_ended_buffer=False,
     )
 
 

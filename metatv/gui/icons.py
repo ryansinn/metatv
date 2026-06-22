@@ -33,6 +33,7 @@ partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT Q
 # Actions
 play_icon: str = "▶"
 play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
+open_ended_buffer_icon: str = "⏳"  # U+23F3 HOURGLASS NOT DONE — open-ended disk-backed buffer mode
 diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
 split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams toggle (one window per source)
 new_window_icon: str = "⧉"  # U+29C9 TWO JOINED SQUARES — open/replace a separate per-source window

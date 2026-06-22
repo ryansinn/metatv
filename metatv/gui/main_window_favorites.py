@@ -595,6 +595,29 @@ class _FavoritesMixin:
         else:
             self.play_media(channel, force_new_window=True)
 
+    def play_channel_open_ended_buffer_by_id(self, channel_id: str) -> None:
+        """Play channel by ID with open-ended disk-backed buffering.
+
+        Mirrors ``play_channel_by_id`` but passes ``open_ended_buffer=True`` so
+        mpv uses a large disk-backed cache (up to 2 GiB, 3600 s readahead)
+        instead of the configured bounded buffer profile.  For SERIES channels
+        the normal series drill-in is used — a series has no single stream to
+        buffer ahead on.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel, open_ended_buffer=True)
+
     def diagnose_channel_by_id(self, channel_id: str) -> None:
         """Open the stream-diagnostics dialog for a channel (bottom-nav Diagnose button).
 

@@ -94,6 +94,7 @@ class PlayerManager:
         provider_max_connections: int = 1,
         force_new_window: bool = False,
         start_seconds: int = 0,
+        open_ended_buffer: bool = False,
     ) -> bool:
         """Play a URL with instance limit enforcement.
 
@@ -112,6 +113,9 @@ class PlayerManager:
             start_seconds: Resume position in seconds.  When > 0 the player
                 begins at that offset (mpv per-file ``start=`` option).
                 0 means start from the beginning.
+            open_ended_buffer: When True, the player uses a large disk-backed
+                cache (up to 2 GiB, 3600 s readahead) instead of the configured
+                bounded buffer profile.
 
         Returns:
             True if successful, False otherwise
@@ -135,7 +139,10 @@ class PlayerManager:
             return False
 
         key = self._resolve_instance_key(provider_id, force_split=force_new_window)
-        result = self.player.play(url, title, instance_key=key, start_seconds=start_seconds)
+        result = self.player.play(
+            url, title, instance_key=key, start_seconds=start_seconds,
+            open_ended_buffer=open_ended_buffer,
+        )
 
         # Remember which source is playing in this window (for the health readout).
         if result and provider_id:
