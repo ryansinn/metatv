@@ -117,7 +117,7 @@ class ChannelListModel(QAbstractListModel):
             # Solid for deliberately-watched (last_played_via != "queue");
             # muted/gray for queue-auto-advanced; blank for live or unwatched.
             if channel.media_type != "live":
-                pct = channel.watch_percent or (1 if channel.watch_progress else 0)
+                pct = _icons.effective_watch_pct(channel.watch_percent, channel.watch_progress)
                 glyph = _icons.watch_progress_glyph(
                     pct, channel.watch_completed, self._partial_threshold_pct
                 )
