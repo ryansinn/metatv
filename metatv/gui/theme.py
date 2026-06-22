@@ -267,6 +267,12 @@ CHANNEL_NAME_LIVE     = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"
 CHANNEL_NAME_UPCOMING = "color: " + COLOR_DIM_2 + "; font-size: " + FONT_MD + ";"
 CHANNEL_NAME_DIM      = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
 
+# Channel-list row — ForegroundRole color for fully-watched (non-live) rows.
+# Dimmed so completed content recedes; in-progress and unwatched rows use the
+# default (delegate) foreground.  Build a QBrush from this at the call site:
+#   QBrush(QColor(CHANNEL_ROW_WATCHED_FG))
+CHANNEL_ROW_WATCHED_FG: str = COLOR_MUTED
+
 # Time labels
 TIME_LABEL          = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
 TIME_LABEL_UPCOMING = "color: " + COLOR_DISABLED + "; font-size: " + FONT_MD + ";"

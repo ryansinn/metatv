@@ -579,3 +579,120 @@ def test_bypass_banner_shown_when_bypassing(qapp):
     assert not host._channel_filter_btn.isVisible()
     # Banner text mentions filters suspended
     assert "suspended" in host._channel_banner.text().lower()
+
+
+# ---------------------------------------------------------------------------
+# 5. ForegroundRole — dim fully-watched non-live rows
+# ---------------------------------------------------------------------------
+
+def _set_model_with(qapp, **dto_overrides):
+    """Helper: create a single-row model with the given DTO overrides."""
+    from metatv.gui.channel_list_model import ChannelListModel
+    model = ChannelListModel()
+    dto = _make_dto(**dto_overrides)
+    model.set_channels(
+        [dto],
+        provider_icon_map={},
+        show_provider_icon=False,
+        has_more=False,
+        query_params={},
+    )
+    return model
+
+
+def test_foreground_role_watched_movie_returns_muted_brush(qapp):
+    """A watch_completed=True movie row must return a non-None muted foreground brush."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush
+
+    model = _set_model_with(
+        qapp,
+        media_type="movie",
+        watch_completed=True,
+        watch_percent=100,
+    )
+    idx = model.index(0, 0)
+    brush = idx.data(Qt.ItemDataRole.ForegroundRole)
+
+    assert brush is not None, "Expected a muted brush for a fully-watched movie"
+    assert isinstance(brush, QBrush)
+
+
+def test_foreground_role_watched_series_returns_muted_brush(qapp):
+    """A watch_completed=True series row must also return a muted foreground brush."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush
+
+    model = _set_model_with(
+        qapp,
+        media_type="series",
+        watch_completed=True,
+        watch_percent=100,
+    )
+    brush = model.index(0, 0).data(Qt.ItemDataRole.ForegroundRole)
+
+    assert brush is not None
+    assert isinstance(brush, QBrush)
+
+
+def test_foreground_role_unwatched_movie_returns_none(qapp):
+    """An unwatched movie row must return None (default/delegate foreground)."""
+    from PyQt6.QtCore import Qt
+
+    model = _set_model_with(
+        qapp,
+        media_type="movie",
+        watch_completed=False,
+        watch_percent=0,
+    )
+    brush = model.index(0, 0).data(Qt.ItemDataRole.ForegroundRole)
+    assert brush is None, "Unwatched rows must use the default foreground"
+
+
+def test_foreground_role_in_progress_movie_returns_none(qapp):
+    """A partially-watched (not completed) movie must return None — not dimmed yet."""
+    from PyQt6.QtCore import Qt
+
+    model = _set_model_with(
+        qapp,
+        media_type="movie",
+        watch_completed=False,
+        watch_percent=60,
+        watch_progress=3600,
+    )
+    brush = model.index(0, 0).data(Qt.ItemDataRole.ForegroundRole)
+    assert brush is None, "In-progress rows must use the default foreground"
+
+
+def test_foreground_role_live_channel_never_dimmed(qapp):
+    """A live channel must never be dimmed even if watch_completed is True."""
+    from PyQt6.QtCore import Qt
+
+    model = _set_model_with(
+        qapp,
+        media_type="live",
+        watch_completed=True,  # edge case — live channels don't carry this in practice
+    )
+    brush = model.index(0, 0).data(Qt.ItemDataRole.ForegroundRole)
+    assert brush is None, "Live channels must never receive the dim foreground"
+
+
+def test_foreground_role_watched_brush_color_matches_theme_token(qapp):
+    """The muted brush color must match CHANNEL_ROW_WATCHED_FG from theme.py."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor
+    from metatv.gui import theme as _theme
+
+    model = _set_model_with(
+        qapp,
+        media_type="movie",
+        watch_completed=True,
+        watch_percent=100,
+    )
+    brush = model.index(0, 0).data(Qt.ItemDataRole.ForegroundRole)
+    expected_color = QColor(_theme.CHANNEL_ROW_WATCHED_FG)
+
+    assert brush.color() == expected_color, (
+        f"Dim brush color {brush.color().name()} does not match "
+        f"CHANNEL_ROW_WATCHED_FG ({expected_color.name()})"
+    )
