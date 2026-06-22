@@ -73,6 +73,126 @@ class EpisodeRepository:
             EpisodeDB.last_played.isnot(None)
         ).order_by(EpisodeDB.last_played.desc()).first()
 
+    def get_last_engaged(self, series_id: str, provider_id: str) -> Optional[EpisodeDB]:
+        """Get the most-recent episode that the user deliberately started (last_played_via='manual').
+
+        Queue-auto-advanced episodes are intentionally excluded — they don't move
+        the resume anchor.  Use this for the resume path instead of
+        :meth:`get_last_played`, which returns the furthest-touched episode
+        regardless of how it was played.
+
+        Returns None when no manually-played episode exists for the series.
+        """
+        return self.session.query(EpisodeDB).filter(
+            EpisodeDB.series_id == series_id,
+            EpisodeDB.provider_id == provider_id,
+            EpisodeDB.last_played.isnot(None),
+            EpisodeDB.last_played_via == "manual",
+        ).order_by(EpisodeDB.last_played.desc()).first()
+
+    def get_next_after(self, series_id: str, provider_id: str, season_num: int, episode_num: int) -> Optional[EpisodeDB]:
+        """Return the next episode in air order after (season_num, episode_num).
+
+        Tries the next episode_num in the same season first; if none exists,
+        returns the first episode of the next season.  Returns None when the
+        given episode is the series finale.
+        """
+        # Same-season next
+        next_ep = self.session.query(EpisodeDB).filter(
+            EpisodeDB.series_id == series_id,
+            EpisodeDB.provider_id == provider_id,
+            EpisodeDB.season_num == season_num,
+            EpisodeDB.episode_num > episode_num,
+        ).order_by(EpisodeDB.episode_num).first()
+        if next_ep:
+            return next_ep
+        # First episode of the next season
+        return self.session.query(EpisodeDB).filter(
+            EpisodeDB.series_id == series_id,
+            EpisodeDB.provider_id == provider_id,
+            EpisodeDB.season_num > season_num,
+        ).order_by(EpisodeDB.season_num, EpisodeDB.episode_num).first()
+
+    def get_resume_dto(self, series_id: str, provider_id: str) -> "Optional[PlayableEpisodeDTO]":
+        """Return a :class:`PlayableEpisodeDTO` for the smart-resume target, or ``None``.
+
+        Resume logic (see Slice 3b-4 / CLAUDE.md):
+
+        1. Find the last *engaged* (``last_played_via == 'manual'``) episode.
+        2. If none exists → fall back to :meth:`get_last_played_dto` (original behaviour).
+        3. If the engaged episode is **not completed** → resume inside it at its
+           ``watch_progress`` position.
+        4. If it **is completed** → resume at the first episode **after** it in air
+           order (queue-watched episodes beyond are ignored for the resume anchor).
+        5. If there is no episode after it (series finished) → return ``None``
+           so the caller opens the series view as usual.
+        """
+        from metatv.core.repositories.dtos import PlayableEpisodeDTO
+
+        engaged = self.get_last_engaged(series_id=series_id, provider_id=provider_id)
+        if engaged is None:
+            # No manual play ever — fall back to old behaviour so history still works.
+            return self.get_last_played_dto(series_id=series_id, provider_id=provider_id)
+
+        if not engaged.watch_completed:
+            # Resume inside the engaged episode.
+            return PlayableEpisodeDTO(
+                id=engaged.id,
+                title=engaged.title,
+                stream_url=engaged.stream_url,
+                series_id=engaged.series_id,
+                provider_id=engaged.provider_id,
+                season_id=engaged.season_id,
+                episode_num=engaged.episode_num,
+                season_num=engaged.season_num,
+            )
+
+        # Engaged episode finished — offer the next one.
+        nxt = self.get_next_after(
+            series_id=series_id,
+            provider_id=provider_id,
+            season_num=engaged.season_num,
+            episode_num=engaged.episode_num,
+        )
+        if nxt is None:
+            return None  # series complete — let caller open series view
+
+        return PlayableEpisodeDTO(
+            id=nxt.id,
+            title=nxt.title,
+            stream_url=nxt.stream_url,
+            series_id=nxt.series_id,
+            provider_id=nxt.provider_id,
+            season_id=nxt.season_id,
+            episode_num=nxt.episode_num,
+            season_num=nxt.season_num,
+        )
+
+    def mark_episodes_as_engaged(self, episode_ids: "List[str]") -> int:
+        """Flip ``last_played_via`` to ``'manual'`` for the given episode ids.
+
+        Used by the "Still here?" post-queue confirmation (Slice 3b-4) when the
+        user confirms they watched the auto-advanced episodes.  Updates
+        ``updated_at`` but leaves all other watch fields intact (they were already
+        set to completed by the queue path).
+
+        Returns the number of rows actually updated.
+        """
+        if not episode_ids:
+            return 0
+        updated = 0
+        for episode_id in episode_ids:
+            ep = self.get_by_id(episode_id)
+            if ep is None:
+                continue
+            ep.last_played_via = "manual"
+            ep.updated_at = datetime.now()
+            updated += 1
+        if updated:
+            self.session.commit()
+        logger.info(f"Promoted {updated} queue-watched episode(s) to manual engagement")
+        return updated
+
     def get_last_played_dto(self, series_id: str, provider_id: str) -> "Optional[PlayableEpisodeDTO]":
         """Return a PlayableEpisodeDTO for the last played episode, or None.
 

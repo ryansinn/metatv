@@ -64,6 +64,7 @@ class _FakeConfig:
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
         self.remember_search: bool = True
+        self.prompt_after_autoplay: bool = True
         self.save_calls: int = 0
 
     def save(self) -> None:
@@ -86,6 +87,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = _bool_check(qapp)
+    dlg._prompt_after_autoplay_check = _bool_check(qapp)
 
     # Watch-completion threshold spinner (Slice 2)
     dlg._watch_threshold_spin = QSpinBox()

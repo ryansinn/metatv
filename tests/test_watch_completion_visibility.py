@@ -96,6 +96,7 @@ class _FakeThresholdConfig:
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
         self.remember_search: bool = True
+        self.prompt_after_autoplay: bool = True
         self._saved = False
 
     def save(self) -> None:
@@ -118,6 +119,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()
+    dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
     dlg._watch_threshold_spin.setSuffix("%")

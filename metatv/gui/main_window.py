@@ -139,6 +139,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # Playback-health probe result: worker (executor) emits the mpv props dict (or None);
     # _on_playback_health_ready updates the nav-bar label on the main thread.
     _playback_health_ready = pyqtSignal(object)
+    # Queue-end detected from off-thread: list of episode ids that were auto-advanced
+    # (last_played_via='queue'). Emitted only when >0 episodes were queue-watched so
+    # the main thread can show the "Still here?" confirmation prompt.
+    _queue_end_detected = pyqtSignal(object)  # list[str] — auto-advanced episode ids
     
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
@@ -303,6 +307,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._stream_ready.connect(self._on_stream_ready)
         self._query_result.connect(self._on_query_result)
         self._playback_health_ready.connect(self._on_playback_health_ready)
+        self._queue_end_detected.connect(self._on_queue_end_detected)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
