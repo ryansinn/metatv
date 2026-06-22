@@ -62,3 +62,10 @@ json
 
 # Stray mpv screenshots
 mpv-shot*.jpg
+
+# Claude Code agent worktrees (transient — never commit)
+.claude/worktrees/
+
+# Local scratch / personal notes accidentally committed once in #128
+design/main_ui_mockup.html
+open issues notes
