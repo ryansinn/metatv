@@ -1,12 +1,34 @@
 """Shared fixtures for MetaTV tests."""
 
 import uuid
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import Base, ChannelDB
 from metatv.core.repositories.channel import ChannelRepository
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_config(tmp_path_factory, monkeypatch):
+    """Redirect every ``Path.home()``-derived location to a throwaway tmp home.
+
+    ``Config.config_dir`` / ``data_dir`` / ``cache_dir`` default to
+    ``Path.home()/…`` and ``Config.load()``/``save()`` hardcode the same paths.
+    Without this guard, any test that builds a default ``Config()`` and saves
+    (e.g. the On-Now header-state test, ``test_epg_on_now_display``) silently
+    overwrites the developer's **real** ``~/.config/metatv/config.yaml`` — wiping
+    Global Exclusions, the What's-New cursor, and the migration version fields.
+    The running app then re-runs migrations, re-shows old What's New, and loses
+    curation. Patching ``Path.home`` makes touching the real config structurally
+    impossible for every test (autouse), without each test having to remember to
+    pass ``config_dir=tmp_path``.
+    """
+    fake_home = tmp_path_factory.mktemp("home")
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+    yield
 
 
 @pytest.fixture(scope="function")

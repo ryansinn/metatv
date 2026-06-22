@@ -581,6 +581,25 @@ will stay green through the exact regression it appears to guard. The rule:
   nothing is the failure mode this rule exists to stop.
 - This generalizes the async-read rule above: find the half that regresses and execute it.
 
+### Tests must never write the real user config — isolation is enforced in conftest
+`Config.config_dir` / `data_dir` / `cache_dir` default to `Path.home()/…` and `Config.load()` /
+`Config.save()` read/write `~/.config/metatv/config.yaml`. A test that builds a **default** `Config()`
+and saves (directly, or via a handler that calls `config.save()` — e.g. the On-Now header-state test)
+therefore **overwrites the developer's real config**, silently wiping Global Exclusions, the
+What's-New cursor, and the migration version fields. The running app then re-runs migrations,
+re-shows old What's New, and loses curation. This was a real, repeated bug — it looked like flaky
+data loss but was the test suite clobbering live config.
+
+The guard: the **autouse `_isolate_user_config` fixture in `tests/conftest.py`** monkeypatches
+`Path.home()` to a throwaway tmp dir for **every** test, so touching the real config is structurally
+impossible. Rules:
+- **Never remove or weaken that fixture**, and never `monkeypatch.undo()` it inside a test.
+  `tests/test_config_isolation.py` fails if it regresses — keep it green.
+- A test that genuinely needs a config on disk passes `config_dir=tmp_path` explicitly (belt **and**
+  braces); it must never rely on — or write to — the default home path.
+- More broadly: **no test may write outside its tmp dirs.** Anything deriving a path from
+  `Path.home()` and writing to it is suspect; route it through a fixture-provided tmp location.
+
 ### Scope discipline & curiosity — ask before generating debt
 The Critical Rules and the active Refactor Plan (`docs/REFACTOR_PLAN_BAND*.md`) define the
 architecture and the scope of each task. They override convenience. Before you reach for a shortcut
