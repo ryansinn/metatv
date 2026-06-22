@@ -234,12 +234,34 @@ class FilterPanel(QWidget):
     # ── public API ──────────────────────────────────────────────────────────
 
     def update_data(self, stats: dict):
-        """Populate sections from get_prefix_stats() result dict."""
+        """Populate sections from get_prefix_stats() result dict.
+
+        On first call (startup), the in-memory ``prev`` selections are all empty
+        because the items don't exist yet when ``restore_state()`` runs at init.
+        In that case we fall back to the persisted config selections so that saved
+        filter choices survive a restart.  On subsequent calls (e.g. after a source
+        refresh) we preserve the user's current in-memory selection instead.
+        """
         prefix_counts: dict[str, int] = stats.get('prefix_counts', {})
 
+        # Build the startup fallback: config_attr → persisted set of keys.
+        # Uses the same (config_attr, section) mapping as restore_state() so there
+        # is exactly one place that knows the attr names.
+        _persisted: dict[object, set[str]] = {
+            sec: set(getattr(self.config, attr, []) or [])
+            for attr, sec in self._persisted_section_attrs()
+        }
+
+        def _restore(sec: object, prev: set[str]) -> None:
+            """Apply selection: in-memory prev if present, else persisted startup value."""
+            if prev:
+                sec.restore_selection(prev)
+            else:
+                fallback = _persisted.get(sec)
+                if fallback:
+                    sec.restore_selection(fallback)
+
         # ── Media — update counts only (items are static)
-        from sqlalchemy import func
-        # We don't have per-type counts in stats, leave at 0
 
         # ── Language — flat, sorted by count
         lang_groups = stats.get('language_groups', {})
@@ -249,8 +271,7 @@ class FilterPanel(QWidget):
         )
         prev_lang = set(self._lang_sec.get_selected_keys())
         self._lang_sec.set_flat_items(lang_items)
-        if prev_lang:
-            self._lang_sec.restore_selection(prev_lang)
+        _restore(self._lang_sec, prev_lang)
 
         # ── Region — hierarchical: group → individual prefix codes
         regional_groups = self.config.filter_regional_groups
@@ -270,8 +291,7 @@ class FilterPanel(QWidget):
                 region_data.append((group_name, total, children))
         prev_region = set(self._region_sec.get_selected_keys())
         self._region_sec.set_grouped_items(region_data)
-        if prev_region:
-            self._region_sec.restore_selection(prev_region)
+        _restore(self._region_sec, prev_region)
 
         # ── Platform — flat, sorted by count
         platform_groups = stats.get('platform_groups', {})
@@ -281,8 +301,7 @@ class FilterPanel(QWidget):
         )
         prev_plat = set(self._platform_sec.get_selected_keys())
         self._platform_sec.set_flat_items(plat_items)
-        if prev_plat:
-            self._platform_sec.restore_selection(prev_plat)
+        _restore(self._platform_sec, prev_plat)
 
         # ── Quality — fixed tier order
         quality_order = ["RAW", "4K / UHD", "HD", "HQ", "SD", "LQ",
@@ -297,8 +316,7 @@ class FilterPanel(QWidget):
                 qual_items.append((n, n, v))
         prev_qual = set(self._quality_sec.get_selected_keys())
         self._quality_sec.set_flat_items(qual_items)
-        if prev_qual:
-            self._quality_sec.restore_selection(prev_qual)
+        _restore(self._quality_sec, prev_qual)
 
         # ── Genre — flat, sorted by count descending (alphabetically within same count)
         genre_counts: dict[str, int] = stats.get('genre_counts', {})
@@ -311,9 +329,16 @@ class FilterPanel(QWidget):
         if prev_genre:
             self._genre_sec.restore_selection(prev_genre)
         else:
-            self._genre_sec.select_all()
+            persisted_genre = _persisted.get(self._genre_sec)
+            if persisted_genre:
+                # Startup: apply saved genre selection
+                self._genre_sec.restore_selection(persisted_genre)
+            else:
+                # Fresh install / no saved selection: show everything
+                self._genre_sec.select_all()
 
         # ── Unidentified — individual prefix codes, sorted by count
+        # (Not persisted — dynamic content that varies by channel library)
         unmapped: list[str] = stats.get('unmapped_prefixes', [])
         unid_items = sorted(
             [(p, p, prefix_counts.get(p, 0)) for p in unmapped
@@ -335,6 +360,13 @@ class FilterPanel(QWidget):
         ])
         if prev_untagged:
             self._untagged_sec.restore_selection(prev_untagged)
+        else:
+            # Startup: restore persisted untagged selection (default both on)
+            saved_untagged = set(
+                getattr(self.config, 'filter_untagged_selected',
+                        ['no_prefix', 'no_quality']) or ['no_prefix', 'no_quality']
+            )
+            self._untagged_sec.restore_selection(saved_untagged)
 
         logger.debug(
             f"FilterPanel updated: {len(lang_items)} lang groups, "
@@ -489,13 +521,7 @@ class FilterPanel(QWidget):
     def restore_state(self):
         self._restoring = True
         try:
-            for attr, sec in [
-                ('filter_included_languages', self._lang_sec),
-                ('filter_included_regions',   self._region_sec),
-                ('filter_included_qualities', self._quality_sec),
-                ('filter_included_platforms', self._platform_sec),
-                ('filter_included_genres',    self._genre_sec),
-            ]:
+            for attr, sec in self._persisted_section_attrs():
                 saved = getattr(self.config, attr, [])
                 if saved:
                     sec.restore_selection(set(saved))
@@ -522,6 +548,20 @@ class FilterPanel(QWidget):
         return [self._media_sec, self._lang_sec, self._region_sec,
                 self._platform_sec, self._quality_sec, self._genre_sec,
                 self._unid_sec, self._untagged_sec]
+
+    def _persisted_section_attrs(self) -> list[tuple[str, object]]:
+        """Return (config_attr_name, section) pairs for all dynamic sections.
+
+        Single source of truth for the config-key → section mapping, shared by
+        ``restore_state`` (startup) and ``update_data`` (startup fallback path).
+        """
+        return [
+            ('filter_included_languages', self._lang_sec),
+            ('filter_included_regions',   self._region_sec),
+            ('filter_included_qualities', self._quality_sec),
+            ('filter_included_platforms', self._platform_sec),
+            ('filter_included_genres',    self._genre_sec),
+        ]
 
     def _add_divider(self):
         line = QFrame()

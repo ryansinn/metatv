@@ -1,0 +1,281 @@
+"""Behavioral tests for FilterPanel startup persistence fix.
+
+Regression being guarded:
+  - On startup, update_data() was called AFTER restore_state() ran on empty sections.
+  - Because the in-memory ``prev`` snapshot was empty, the ``if prev: restore`` branch
+    was skipped, silently discarding the persisted config selections for Language,
+    Region, Quality, Platform, and Genre.  Media and Untagged survived because they
+    are static sections populated at __init__ time (before update_data).
+  - The fix: when ``prev`` is empty, fall back to ``config.filter_included_*``
+    (the same attrs that restore_state writes from), using a shared
+    ``_persisted_section_attrs()`` helper so the attr names are never duplicated.
+
+Tests:
+  1. Startup path: saved Language/Region/Quality/Platform/Genre selections are applied
+     by update_data when the sections are empty (no prior items).
+  2. Live-refresh path: an in-memory selection survives a second update_data call
+     (the refresh / source-added case) — saved config must NOT override it.
+  3. Genre fresh-install: when no genre selection is persisted, update_data selects
+     all genres (previous behaviour).
+  4. Startup Untagged: persisted filter_untagged_selected is applied on first
+     update_data (was also empty-prev).
+
+All tests build a real FilterPanel via __init__ + QApplication so the Qt widget
+machinery (set_flat_items, restore_selection, get_selected_keys) executes for real —
+this is the half that would regress.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# QApplication fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def qapp():
+    from PyQt6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
+# ---------------------------------------------------------------------------
+# Fake Config builder
+# ---------------------------------------------------------------------------
+
+def _make_config(
+    *,
+    filter_included_languages: list[str] | None = None,
+    filter_included_regions: list[str] | None = None,
+    filter_included_qualities: list[str] | None = None,
+    filter_included_platforms: list[str] | None = None,
+    filter_included_genres: list[str] | None = None,
+    filter_untagged_selected: list[str] | None = None,
+) -> SimpleNamespace:
+    """Minimal config for FilterPanel — no save(), no filesystem."""
+    cfg = SimpleNamespace(
+        # Icons (used by _Section / _GroupRow)
+        info_icon="ℹ",
+        expand_icon="▶",
+        collapse_icon="▼",
+        # Group dicts (used by get_filter_state resolution)
+        filter_language_groups={"EN": ["EN"], "FR": ["FR"]},
+        filter_regional_groups={"North America": ["US", "CA"]},
+        filter_platform_groups={"Netflix": ["NF"]},
+        filter_quality_groups={"HD": ["HD"], "SD": ["SD"]},
+        # Persisted selections — the values under test
+        filter_included_languages=filter_included_languages or [],
+        filter_included_regions=filter_included_regions or [],
+        filter_included_qualities=filter_included_qualities or [],
+        filter_included_platforms=filter_included_platforms or [],
+        filter_included_genres=filter_included_genres or [],
+        filter_section_states={},
+        filter_enabled_media_types=["live", "movie", "series"],
+        filter_untagged_selected=(
+            filter_untagged_selected
+            if filter_untagged_selected is not None
+            else ["no_prefix", "no_quality"]
+        ),
+        filter_adult_mode="hide",
+        global_filter_excluded_prefixes=[],
+        global_filter_excluded_user_categories=[],
+    )
+    # save() must be a no-op so tests don't write to disk
+    cfg.save = lambda: None
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Stats dict builder
+# ---------------------------------------------------------------------------
+
+def _make_stats(
+    *,
+    lang_groups: dict | None = None,
+    region_groups: dict | None = None,
+    platform_groups: dict | None = None,
+    quality_groups: dict | None = None,
+    genre_counts: dict | None = None,
+) -> dict:
+    """Minimal stats dict for FilterPanel.update_data()."""
+    return {
+        "prefix_counts": {"EN": 100, "FR": 50, "US": 80, "CA": 20, "NF": 30,
+                          "HD": 70, "SD": 40},
+        "language_groups": lang_groups or {"EN": 100, "FR": 50},
+        "region_groups": region_groups or {"North America": 100},
+        "platform_groups": platform_groups or {"Netflix": 30},
+        "quality_groups": quality_groups or {"HD": 70, "SD": 40},
+        "genre_counts": genre_counts or {"Action": 10, "Drama": 5},
+        "unmapped_prefixes": [],
+        "channels_without_prefix": 5,
+        "channels_without_quality": 3,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _build_panel(qapp, config):
+    """Build a real FilterPanel (requires qapp so Qt widgets initialise)."""
+    from metatv.gui.filter_panel import FilterPanel
+    return FilterPanel(config)
+
+
+# ---------------------------------------------------------------------------
+# 1. Startup path — persisted selections applied by update_data
+# ---------------------------------------------------------------------------
+
+def test_startup_language_selection_applied(qapp):
+    """On first update_data, saved language selection is restored from config."""
+    cfg = _make_config(filter_included_languages=["FR"])  # only French saved
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._lang_sec.get_selected_keys())
+    assert selected == {"FR"}, (
+        "startup: only the saved language 'FR' should be selected; "
+        f"got {selected!r}"
+    )
+
+
+def test_startup_region_selection_applied(qapp):
+    """On first update_data, saved region (individual prefix codes) is restored."""
+    cfg = _make_config(filter_included_regions=["CA"])  # only Canada saved
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._region_sec.get_selected_keys())
+    assert selected == {"CA"}, (
+        "startup: only the saved region code 'CA' should be selected; "
+        f"got {selected!r}"
+    )
+
+
+def test_startup_quality_selection_applied(qapp):
+    """On first update_data, saved quality selection is restored from config."""
+    cfg = _make_config(filter_included_qualities=["HD"])  # only HD saved
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._quality_sec.get_selected_keys())
+    assert selected == {"HD"}, (
+        "startup: only the saved quality 'HD' should be selected; "
+        f"got {selected!r}"
+    )
+
+
+def test_startup_platform_selection_applied(qapp):
+    """On first update_data, saved platform selection is restored from config."""
+    cfg = _make_config(filter_included_platforms=["Netflix"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._platform_sec.get_selected_keys())
+    assert selected == {"Netflix"}, (
+        "startup: only the saved platform 'Netflix' should be selected; "
+        f"got {selected!r}"
+    )
+
+
+def test_startup_genre_selection_applied(qapp):
+    """On first update_data, saved genre selection is restored from config."""
+    cfg = _make_config(filter_included_genres=["Drama"])  # only Drama saved
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._genre_sec.get_selected_keys())
+    assert selected == {"Drama"}, (
+        "startup: only the saved genre 'Drama' should be selected; "
+        f"got {selected!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2. Live-refresh path — in-memory selection survives a second update_data
+# ---------------------------------------------------------------------------
+
+def test_live_refresh_preserves_in_memory_language(qapp):
+    """A second update_data (source refresh) must keep the user's current selection."""
+    cfg = _make_config(filter_included_languages=["EN"])
+    panel = _build_panel(qapp, cfg)
+
+    # First call — startup, applies saved "EN"
+    panel.update_data(_make_stats())
+    assert "EN" in panel._lang_sec.get_selected_keys()
+
+    # User manually changes to "FR" only
+    panel._lang_sec.restore_selection({"FR"})
+
+    # Second call (e.g. after a source refresh) — must preserve "FR", not revert to "EN"
+    panel.update_data(_make_stats())
+
+    selected = set(panel._lang_sec.get_selected_keys())
+    assert selected == {"FR"}, (
+        "live-refresh: in-memory 'FR' selection must survive update_data; "
+        f"got {selected!r}"
+    )
+
+
+def test_live_refresh_preserves_in_memory_quality(qapp):
+    """In-memory quality selection survives a second update_data call."""
+    cfg = _make_config(filter_included_qualities=["HD", "SD"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    # User narrows to SD only
+    panel._quality_sec.restore_selection({"SD"})
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._quality_sec.get_selected_keys())
+    assert selected == {"SD"}, (
+        "live-refresh: in-memory 'SD' selection must survive update_data; "
+        f"got {selected!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. Genre fresh-install: no saved selection → select all
+# ---------------------------------------------------------------------------
+
+def test_genre_fresh_install_selects_all(qapp):
+    """When no genre selection is persisted, update_data must select all genres."""
+    cfg = _make_config(filter_included_genres=[])  # nothing saved
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5, "Comedy": 3}))
+
+    selected = set(panel._genre_sec.get_selected_keys())
+    assert selected == {"Action", "Drama", "Comedy"}, (
+        "fresh install: all genres should be selected when nothing is persisted; "
+        f"got {selected!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. Startup Untagged: persisted filter_untagged_selected applied by update_data
+# ---------------------------------------------------------------------------
+
+def test_startup_untagged_selection_applied(qapp):
+    """On first update_data, saved untagged selection is restored from config."""
+    # Save only "no_prefix" (hide unknowns for quality)
+    cfg = _make_config(filter_untagged_selected=["no_prefix"])
+    panel = _build_panel(qapp, cfg)
+
+    panel.update_data(_make_stats())
+
+    selected = set(panel._untagged_sec.get_selected_keys())
+    assert selected == {"no_prefix"}, (
+        "startup: only the saved untagged key 'no_prefix' should be selected; "
+        f"got {selected!r}"
+    )
