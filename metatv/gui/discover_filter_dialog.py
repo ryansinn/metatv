@@ -287,11 +287,34 @@ class DiscoverManageDialog(QDialog):
                   src_list: list[str], src_container: QWidget,
                   dst_list: list[str], dst_container: QWidget,
                   dst_factory) -> None:
-        """Move a shelf between sections — O(1): one row removed, one row added."""
+        """Move a shelf between sections — O(1): one row removed, one row added.
+
+        Enforces ``pin ⟹ expand``: when the destination is the pinned list, the
+        key is also removed from the expanded and collapsed lists so the config
+        lists remain mutually exclusive.  The row widget in those containers is
+        removed via ``_remove_extra_row`` if the key somehow appeared in more
+        than one visual section (config-inconsistency repair path).
+        """
         if key in src_list:
             src_list.remove(key)
         if key not in dst_list:
             dst_list.append(key)
+
+        # If the destination is pinned, ensure the key is not duplicated in
+        # expanded or collapsed (mutual-exclusion invariant).
+        if dst_list is self._pinned:
+            for extra_list, extra_container in (
+                (self._expanded,  self._expanded_list),
+                (self._collapsed, self._collapsed_list),
+            ):
+                if key in extra_list:
+                    extra_list.remove(key)
+                    # Remove the stale row widget from that container too.
+                    extra_row = self._row_widgets.pop(key, None)
+                    if extra_row:
+                        extra_container.layout().removeWidget(extra_row)
+                        extra_row.setParent(None)
+                    self._sync_empty_label(extra_container)
 
         # Remove old row from source container
         old_row = self._row_widgets.pop(key, None)
