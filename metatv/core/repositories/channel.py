@@ -146,6 +146,11 @@ class ChannelRepository(_ChannelStatsMixin):
         elif not include_hidden:
             query = query.filter_by(is_hidden=False)
 
+        # Exclude provider category-header rows (e.g. "##### BEIN SPORTS #####").
+        # These are label-only separators injected by some providers — not playable
+        # streams.  The SQL pattern "##%" matches any name starting with ≥2 '#'.
+        query = query.filter(ChannelDB.name.notlike("##%"))
+
         if adult_mode != "all":
             force_ids = force_adult_provider_ids or []
             # A channel is "adult" if is_adult=True OR its provider is force_adult
