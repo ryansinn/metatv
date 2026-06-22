@@ -63,6 +63,8 @@ class ChannelRepository(_ChannelStatsMixin):
             detected_year=ch.detected_year,
             raw_data=ch.raw_data,
             metadata_id=ch.metadata_id,
+            watch_progress=int(getattr(ch, "watch_progress", 0) or 0),
+            watch_completed=bool(getattr(ch, "watch_completed", False)),
         )
 
     def get_by_source_id(self, provider_id: str, source_id: str) -> Optional[ChannelDB]:

@@ -310,6 +310,14 @@ class _StreamingMixin:
         logger.info(f"Stream URL: {channel.stream_url}")
         logger.info(f"Player: {self.player_manager.get_player_name()}")
 
+        # Determine resume position: only for non-live VOD with saved progress
+        # that hasn't been completed yet.
+        from metatv.core.models import MediaType
+        is_live = (channel.media_type == MediaType.LIVE)
+        watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
+        watch_completed = bool(getattr(channel, "watch_completed", False))
+        start_seconds = watch_progress if (not is_live and watch_progress > 0 and not watch_completed) else 0
+
         # Off-load network validation + failover to the shared executor.
         # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.
         self.executor.submit(
@@ -320,6 +328,7 @@ class _StreamingMixin:
             channel.provider_id,
             notif_id,
             force_new_window,
+            start_seconds,
         )
 
     def _bg_validate_and_play(
@@ -330,6 +339,7 @@ class _StreamingMixin:
         provider_id: str,
         notif_id: str,
         force_new_window: bool = False,
+        start_seconds: int = 0,
     ) -> None:
         """Worker: validate + failover stream URL, then emit _stream_ready.
 
@@ -350,6 +360,7 @@ class _StreamingMixin:
                 "notif_id": notif_id,
                 "provider_id": provider_id,
                 "force_new_window": force_new_window,
+                "start_seconds": start_seconds,
             })
         except Exception as e:
             logger.error(f"Error in _bg_validate_and_play: {e}")
@@ -363,6 +374,7 @@ class _StreamingMixin:
                 "notif_id": notif_id,
                 "provider_id": provider_id,
                 "force_new_window": force_new_window,
+                "start_seconds": start_seconds,
             })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -403,10 +415,14 @@ class _StreamingMixin:
         self.status_bar.showMessage(f"Loading: {channel_name}...")
 
         force_new_window = data.get("force_new_window", False)
+        start_seconds = int(data.get("start_seconds", 0) or 0)
+        if start_seconds:
+            logger.info(f"Resuming {channel_name} at {start_seconds}s")
         if self.player_manager.play(
             final_url, channel_name,
             provider_id=data.get("provider_id"),
             force_new_window=force_new_window,
+            start_seconds=start_seconds,
         ):
             # Record playback — mark_played is a DB write; run off-thread. The same
             # worker registers this instance for watch-progress capture (it already
