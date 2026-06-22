@@ -419,6 +419,105 @@ REGION_FULL_NAMES: dict[str, str] = {
     "MV": "Music Videos", "SPT": "Sports",
 }
 
+# ── Confidence constants (DR-0006) ───────────────────────────────────────────── #
+# Coarse, documented scale — tunable without changing the test assertions.
+# "denoted"      = the facet the code explicitly means in IPTV convention (~0.9)
+# "strong prior" = a real, plausible adjacent guess (~0.3)
+# "weak prior"   = a real but low-probability adjacent guess (~0.15)
+CONF_DENOTED: float = 0.9
+CONF_STRONG_PRIOR: float = 0.3
+CONF_WEAK_PRIOR: float = 0.15
+
+# ── Dual-facet code table (DR-0006) ─────────────────────────────────────────── #
+# Maps a normalized IPTV prefix code → one or more (facet_type, value, confidence)
+# entries.  Rules (see DR-0006 and CLAUDE.md "Tags/facets" rule):
+#
+#   • The "denoted" facet (what the code *means* in IPTV convention) → CONF_DENOTED.
+#   • A real adjacent guess (a candidate the code *might also* indicate) → CONF_STRONG_PRIOR
+#     or CONF_WEAK_PRIOR depending on how likely the guess actually is.
+#   • A candidate must genuinely exist.  ``EN`` has no place called "EN", so only one
+#     entry (language).  ``FR`` can plausibly mean both French (language) and France (region).
+#   • ``LAT`` is a DISTINCT value ("Latin American Spanish"), never merged with generic
+#     "Spanish" — dialect granularity the user separates (DR-0006 explicitly states this).
+#   • ``AR`` = IPTV-convention Arabic language code, NOT Argentina.
+#     Argentina is ``ARG`` / ``AR`` the ISO-3166-1 country code.  In IPTV prefix
+#     convention the two-letter ``AR`` overwhelmingly means Arabic; the decomposer
+#     must consult this table before falling through to REGION_FULL_NAMES.
+#
+# This dict is the SINGLE SOURCE OF TRUTH for dual/prior/ambiguous codes.
+# Do NOT hardcode dual-facet logic in tag_decomposer.py — read from here.
+CODE_FACETS: dict[str, list[tuple[str, str, float]]] = {
+    # ── Language-first codes with a plausible region prior ─────────────────── #
+    # EN: language code only — there is no place called "EN", so NO region guess.
+    "EN":  [("language", "English",               CONF_DENOTED)],
+
+    # FR: primarily French (language); France is a real prior but many FR channels
+    # are Canadian/diaspora, so the region guess is low-confidence.
+    "FR":  [("language", "French",                CONF_DENOTED),
+            ("region",   "FR",                    CONF_STRONG_PRIOR)],
+
+    # DE: primarily German (language); Germany is a real prior.
+    "DE":  [("language", "German",                CONF_DENOTED),
+            ("region",   "DE",                    CONF_STRONG_PRIOR)],
+
+    # ES: primarily Spanish (language); Spain is very low-confidence
+    # (Latin America dwarfs Spain in IPTV traffic).
+    "ES":  [("language", "Spanish",               CONF_DENOTED),
+            ("region",   "ES",                    CONF_WEAK_PRIOR)],
+
+    # IT: primarily Italian (language); Italy is a real prior.
+    "IT":  [("language", "Italian",               CONF_DENOTED),
+            ("region",   "IT",                    CONF_STRONG_PRIOR)],
+
+    # PT: primarily Portuguese (language); Portugal is a real prior (Brazil also uses PT).
+    "PT":  [("language", "Portuguese",            CONF_DENOTED),
+            ("region",   "PT",                    CONF_STRONG_PRIOR)],
+
+    # NL: primarily Dutch (language); Netherlands is a real prior.
+    "NL":  [("language", "Dutch",                 CONF_DENOTED),
+            ("region",   "NL",                    CONF_STRONG_PRIOR)],
+
+    # PL: primarily Polish (language); Poland is a real prior.
+    "PL":  [("language", "Polish",                CONF_DENOTED),
+            ("region",   "PL",                    CONF_STRONG_PRIOR)],
+
+    # SE: primarily Swedish (language); Sweden is a real prior.
+    "SE":  [("language", "Swedish",               CONF_DENOTED),
+            ("region",   "SE",                    CONF_STRONG_PRIOR)],
+
+    # NO: primarily Norwegian (language); Norway is a real prior.
+    "NO":  [("language", "Norwegian",             CONF_DENOTED),
+            ("region",   "NO",                    CONF_STRONG_PRIOR)],
+
+    # DK: primarily Danish (language); Denmark is a real prior.
+    "DK":  [("language", "Danish",                CONF_DENOTED),
+            ("region",   "DK",                    CONF_STRONG_PRIOR)],
+
+    # FI: primarily Finnish (language); Finland is a real prior.
+    "FI":  [("language", "Finnish",               CONF_DENOTED),
+            ("region",   "FI",                    CONF_STRONG_PRIOR)],
+
+    # ── Region-first codes with a plausible language prior ─────────────────── #
+    # US: primarily United States (region); English is a real but lower prior
+    # (Telemundo, Univision and other Spanish-language US channels are common).
+    "US":  [("region",   "US",                    CONF_DENOTED),
+            ("language", "English",               CONF_STRONG_PRIOR)],
+
+    # UK: primarily United Kingdom (region); English is a real prior.
+    "UK":  [("region",   "UK",                    CONF_DENOTED),
+            ("language", "English",               CONF_STRONG_PRIOR)],
+
+    # ── Special/distinct values ─────────────────────────────────────────────── #
+    # LAT: Latin American Spanish — a DISTINCT value, never merged into "Spanish".
+    # No single region is meaningful (spans many countries), so no region guess.
+    "LAT": [("language", "Latin American Spanish", CONF_DENOTED)],
+
+    # AR: IPTV convention = Arabic language.  NOT Argentina (which is ARG or the
+    # ISO-3166-1 country code AR — kept in REGION_FULL_NAMES for legacy compat).
+    # CODE_FACETS takes priority: the decomposer checks here before REGION_FULL_NAMES.
+    "AR":  [("language", "Arabic",                CONF_DENOTED)],
+}
+
 
 def normalize_region_code(raw: str) -> str:
     """Normalize a raw prefix token to a canonical short display code."""
