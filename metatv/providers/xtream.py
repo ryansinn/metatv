@@ -257,8 +257,15 @@ class XtreamAPI:
             logger.error(f"Failed to get streams ({action}): {e}")
             return []
     
-    def convert_to_channel(self, raw_data: Dict[str, Any], provider_id: str, media_type: str) -> Channel:
-        """Convert Xtream API data to Channel model"""
+    def convert_to_channel(self, raw_data: Dict[str, Any], provider_id: str, media_type: str,
+                           category_map: Optional[Dict[str, str]] = None) -> Channel:
+        """Convert Xtream API data to Channel model.
+
+        ``category_map`` resolves the provider's numeric ``category_id`` to its
+        human category *name* (built per provider + media type at fetch time —
+        the streams endpoints carry only the id; the names live in
+        ``get_*_categories``). When omitted, falls back to any inline name.
+        """
         
         # Generate stream URL
         stream_id = raw_data.get('stream_id') or raw_data.get('series_id')
@@ -283,14 +290,21 @@ class XtreamAPI:
         elif 'SD' in name:
             quality = StreamQuality.SD
         
+        # Resolve the provider's category NAME from its id via category_map (the
+        # join the streams endpoint can't do — it carries only the id). Fall back
+        # to any inline name, then empty (no regression if the categories call
+        # failed). The id is provider-/type-local, never a global key.
+        category_id = str(raw_data.get('category_id', ''))
+        category_name = (category_map or {}).get(category_id) or raw_data.get('category_name', '') or ''
+
         return Channel(
             id=f"{provider_id}_{stream_id}",
             source_id=str(stream_id),
             provider_id=provider_id,
             name=name,
             stream_url=stream_url,
-            category=raw_data.get('category_name', ''),
-            category_id=str(raw_data.get('category_id', '')),
+            category=category_name,
+            category_id=category_id,
             logo_url=raw_data.get('stream_icon'),
             epg_channel_id=raw_data.get('epg_channel_id'),
             media_type=media_type,
@@ -361,20 +375,37 @@ class XtreamProvider(ProviderPlugin):
         async with XtreamAPI(base_url, provider.username, provider.password) as api:
             channels: List[Channel] = []
 
+            # Resolve category id→name up front: the streams endpoints carry only
+            # category_id; the human names live in get_*_categories. Maps are per
+            # media type (live/vod/series ids are separate namespaces) and per
+            # provider (ids are provider-local). A failed call → empty map → the
+            # category stays blank, exactly as before (no regression).
+            def _cat_map(cats: List[Dict[str, Any]]) -> Dict[str, str]:
+                return {
+                    str(c.get('category_id', '')): c.get('category_name', '')
+                    for c in cats if c.get('category_id') is not None
+                }
+
+            if progress_callback:
+                progress_callback(8, 100, "Fetching categories…")
+            live_cats = _cat_map(await api.get_live_categories())
+            vod_cats = _cat_map(await api.get_vod_categories())
+            series_cats = _cat_map(await api.get_series_categories())
+
             if progress_callback:
                 progress_callback(10, 100, "Fetching live channels…")
             for stream in await api.get_live_streams():
-                channels.append(api.convert_to_channel(stream, provider.id, MediaType.LIVE))
+                channels.append(api.convert_to_channel(stream, provider.id, MediaType.LIVE, live_cats))
 
             if progress_callback:
                 progress_callback(40, 100, "Fetching VOD content…")
             for stream in await api.get_vod_streams():
-                channels.append(api.convert_to_channel(stream, provider.id, MediaType.MOVIE))
+                channels.append(api.convert_to_channel(stream, provider.id, MediaType.MOVIE, vod_cats))
 
             if progress_callback:
                 progress_callback(70, 100, "Fetching series…")
             for series in await api.get_series():
-                channels.append(api.convert_to_channel(series, provider.id, MediaType.SERIES))
+                channels.append(api.convert_to_channel(series, provider.id, MediaType.SERIES, series_cats))
 
             if progress_callback:
                 progress_callback(100, 100, f"Loaded {len(channels):,} channels")
