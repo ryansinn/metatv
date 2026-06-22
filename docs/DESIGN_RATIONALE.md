@@ -322,7 +322,7 @@ mechanism (keep `detected_*` columns vs. a per-channel tag-id bitmap / inverted 
 filter's `is_filtered` / no-data-passthrough semantics map onto tag predicates; whether saved user
 views live in `config` or the DB.
 
-**Refined / extended (2026-06-21 design session).** Six clarifications that sharpen the model:
+**Refined / extended (2026-06-21 design session).** Eight clarifications that sharpen the model:
 
 1. **Config is *disposable*; curation lives in the DB.** The litmus test for *where* a value belongs:
    you should be able to `rm config.yaml`, relaunch, and lose at most a few minutes of re-setting
@@ -384,3 +384,42 @@ views live in `config` or the DB.
    today and only prevents future mis-tagging once richer metadata distinguishes them.) Open: separating
    pure SciFi from Fantasy at all needs metadata that *has* the distinction (TMDb **movie** genres 878 vs
    14; this provider serves the TV-combined genre) — a TMDb-provider-integration item, not a table edit.
+
+7. **`channel = 1 category` is the restriction; tags dissolve it — and feeders share one decomposer.**
+   The whole point of the move to tags is that the **one-to-one category cell** is the root constraint:
+   every downstream limit (a channel lives in only one bucket; filtering is single-axis include/exclude;
+   a view *is* a category) is a symptom of it. Many-to-one tags remove it at the source. The richest
+   feeder is the **provider category** (DR sub-point: `category_id`→name, see the ingestion fix) precisely
+   because one string packs several types at once — `USA | NETFLIX | HD` → `region:US` + `platform:Netflix`
+   + `quality:HD`. That same channel *also* accrues tags from its **name** (region/quality/year), its
+   **`##…##` header** (collection), its **genre** field, and **EPG** — all stacking instead of competing
+   for one slot. The key tractability insight: **we already own the type-classifiers** — they're scattered
+   but exist (`channel_name_utils.REGION_FULL_NAMES`/`normalize_region_code` → region; quality tokens →
+   quality; `filter_utils._GENRE_NORM` → genre; config `language_/quality_/platform_/regional_groups` →
+   language/platform; `special_content` → content_type). Those "token → type" tables **are** the
+   tag-extraction rules. So the pipeline runs **every feeder's string through one shared decomposer** →
+   typed tags; it does not invent classification, it centralizes + reuses it (reuse-before-reinvent at the
+   architecture level). Build order: capture feeders (category-name ingestion is the 0%-captured one) →
+   one decomposer → store many tags/channel (canonical + provenance) → migrate reads to tag-predicates.
+
+8. **Tag confidence = independent multi-feeder corroboration (count *witnesses*, not occurrences).** Once
+   tags carry provenance (which feeder, generated vs. user), confidence is the natural next field
+   `(channel, tag, confidence, contributing-feeders)`: when independent feeders agree on `region:US`,
+   confidence compounds. The refinement that makes the "multiplier" *correct* rather than naive — **count
+   independent witnesses, not rows.** Same-provider repetition is **one** editorial decision (500 channels
+   one provider tagged US ≠ 500 confirmations); **cross-*provider* agreement is the gold** (different
+   companies independently agreeing — which is also why content-dedup pays off twice: once X-on-A = X-on-B
+   is known, their tags corroborate); within a channel, weight by how independent the feeders actually are
+   (category field vs. name are more independent than two name-derived guesses). Shape:
+   `confidence = f(independent agreeing feeders, each feeder's base reliability, conflicts)` — provider
+   category high (explicit), name-parse medium (heuristic), cross-source EPG lower. **We already have the
+   pattern**: `MetadataResult.merge` combines fields by 0.0–1.0 confidence and the preference engine weights
+   attributes — confidence feeds both. It unlocks **conflict resolution** (A says US, B says UK → take the
+   higher-confidence one / surface it), a **confidence threshold as a user knob** ("confidently US" vs
+   "possibly US" — the comfort↔explore / data-confidence axes), and **confidence-weighted recs**. *Subtlety:*
+   conflict semantics depend on **type cardinality** — `region` is single-valued (disagreement is a real
+   conflict), `genre` is multi-valued (Drama *and* Crime both true → not a conflict, they stack), mapping
+   onto the open namespace-cardinality question (point above). Build **coarse first** (confidence = count of
+   distinct independent feeders, normalized), refine to reliability-weighted evidence-combination later. It
+   is a **layer on top of tags**, computed from provenance — it doesn't block the feeder-capture work; it
+   makes each captured feeder worth more.
