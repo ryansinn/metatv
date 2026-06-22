@@ -261,6 +261,51 @@ class TestNotificationCardSteps:
         assert hasattr(card, 'progress_bar'), "classic card must have a progress_bar"
         assert len(card._step_rows) == 0
 
+    def test_steps_card_also_has_progress_bar(self, qapp):
+        """A card with steps AND a progress value must render BOTH the progress bar
+        and the step rows — they are no longer mutually exclusive.
+
+        Regression: previously the ``if steps is not None`` branch skipped the
+        progress bar entirely, so the overall percentage was hidden during refresh.
+        """
+        steps = _make_steps(epg=False)
+        card = self._make_card(qapp, steps)
+
+        # Both must be present
+        assert hasattr(card, 'progress_bar'), (
+            "card with steps must still have a progress_bar widget"
+        )
+        assert len(card._step_rows) == 3, (
+            "card with steps must still render one row per step"
+        )
+
+    def test_progress_bar_updates_when_steps_present(self, qapp):
+        """update_notification advances the progress bar even when steps are present."""
+        from PyQt6.QtWidgets import QWidget
+        from metatv.core.config import Config
+        from metatv.gui.notification_widget import NotificationCard
+
+        notif = Notification(
+            title="Refreshing MySource",
+            type=NotificationType.PROGRESS,
+            progress=0.0,
+            steps=_make_steps(epg=False),
+        )
+        parent = QWidget()
+        card = NotificationCard(notif, Config(), parent)
+
+        assert card.progress_bar.value() == 0
+
+        # Simulate progress arriving mid-refresh
+        notif.progress = 0.5
+        notif.steps = _advance_steps(_make_steps(epg=False), "Connecting…", 5)
+        card.update_notification(notif)
+
+        assert card.progress_bar.value() == 50, (
+            "progress bar must advance when update_notification is called on a card "
+            "that also has steps"
+        )
+
     def test_epg_steps_present_when_epg_true(self, qapp):
         """Five step rows when EPG is enabled."""
         steps = _make_steps(epg=True)
