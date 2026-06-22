@@ -325,6 +325,7 @@ class MPVPlayer(PlayerPlugin):
         title: str,
         instance_key: str = _SHARED_KEY,
         start_seconds: int = 0,
+        open_ended_buffer: bool = False,
     ) -> bool:
         """Play *url* in the instance identified by *instance_key*.
 
@@ -334,6 +335,12 @@ class MPVPlayer(PlayerPlugin):
           ``start=`` option when *start_seconds* > 0 so mpv begins at the
           saved resume position (no seek-after-load race).
         - Fall back to a new standalone process if IPC fails.
+
+        When *open_ended_buffer* is True, a standalone process is always
+        launched with the open-ended disk-backed cache args (see
+        ``_open_ended_buffer_args``), regardless of ``single_instance`` mode.
+        This is a per-play variant — the normal ``play_media`` path and the
+        configured buffer profile are unchanged.
 
         In multiple-instances mode *instance_key* is ignored; every call
         launches an independent new mpv process (legacy behavior unchanged).
@@ -347,6 +354,11 @@ class MPVPlayer(PlayerPlugin):
                 ``loadfile`` command embeds ``start=<N>`` as a per-file
                 option so mpv begins playback at that offset.  0 means
                 start from the beginning (no option injected).
+            open_ended_buffer: When True, launch a fresh process with large
+                disk-backed cache args instead of the configured profile.
+                The existing IPC instance (if any) is NOT reused — buffer
+                config is set at process launch time and cannot be patched
+                over IPC per-file.
 
         Returns:
             True if the stream was handed off to mpv, False on failure.
@@ -356,6 +368,16 @@ class MPVPlayer(PlayerPlugin):
         logger.info(f"  Mode: {'single-instance' if self.single_instance else 'new-instance'}")
         if start_seconds:
             logger.info(f"  Resume: {start_seconds}s")
+        if open_ended_buffer:
+            logger.info("  Open-ended buffer mode: disk-backed 2GiB / 3600s readahead")
+
+        # Open-ended buffer launches a fresh standalone process so the large cache
+        # args are baked in at process start — mpv's cache settings are not patchable
+        # via IPC loadfile per-file options.  start_seconds is carried through so
+        # resume-from-offset and open-ended buffer compose correctly.
+        if open_ended_buffer:
+            return self._launch_new_instance(url, title, start_seconds=start_seconds,
+                                             open_ended_buffer=True)
 
         if self.single_instance:
             if not self._ensure_instance_running(instance_key):
@@ -454,22 +476,38 @@ class MPVPlayer(PlayerPlugin):
             logger.error(f"Failed to queue [{key}]: {title}")
             return False
 
-    def _launch_new_instance(self, url: str, title: str) -> bool:
+    def _launch_new_instance(
+        self,
+        url: str,
+        title: str,
+        start_seconds: int = 0,
+        open_ended_buffer: bool = False,
+    ) -> bool:
         """Launch a standalone (no-IPC) mpv process for *url*.
 
         Args:
             url: Stream URL.
             title: Title to display.
+            start_seconds: When > 0, pass ``--start=<N>`` so mpv begins at
+                that offset.  Used when ``open_ended_buffer`` and resume
+                position must compose.
+            open_ended_buffer: When True, use open-ended disk-backed cache
+                args instead of the configured buffer profile.  The reconnect
+                flag and user's ``mpv_extra_args`` still apply (appended last).
 
         Returns:
             True if the process was spawned successfully.
         """
         try:
-            cmd = (
-                ["mpv", f"--force-media-title={title}"]
-                + self._compose_extra_args()
-                + [url]
-            )
+            if open_ended_buffer:
+                extra_args = self._compose_open_ended_buffer_args()
+            else:
+                extra_args = self._compose_extra_args()
+
+            cmd = ["mpv", f"--force-media-title={title}"] + extra_args
+            if start_seconds > 0:
+                cmd.append(f"--start={start_seconds}")
+            cmd.append(url)
 
             logger.info(f"Launching new mpv instance: {' '.join(cmd[:3])}...")
 
@@ -682,3 +720,41 @@ class MPVPlayer(PlayerPlugin):
             return None
 
         return f"{number}{unit}"
+
+    def _compose_open_ended_buffer_args(self) -> list[str]:
+        """Build mpv args for open-ended disk-backed buffering.
+
+        Replaces the configured buffer profile for one launch, giving mpv
+        permission to cache as far ahead as the stream allows — up to a
+        2 GiB disk-backed cap and a 3600-second readahead window.  This lets
+        the user build a large buffer lead to ride out an unstable stream.
+
+        Composition (same shape as ``_compose_extra_args``):
+        * Canonical UA + always-on reconnect flag (same as normal path).
+        * Open-ended cache flags INSTEAD of the configured buffer profile:
+          ``--cache=yes --cache-on-disk=yes --demuxer-readahead-secs=3600
+          --demuxer-max-bytes=2GiB``
+        * User args (``mpv_extra_args``) appended LAST so they still win via
+          mpv's last-value rule.
+
+        The ``mpv_args_override_all`` shortcut is honoured — when set, only
+        user args are returned (same as the normal path).
+
+        Returns:
+            List of mpv argument strings.
+        """
+        user_args = list(self.config.mpv_extra_args)
+
+        # Override-all: user takes full manual control — skip all built-in flags.
+        if getattr(self.config, "mpv_args_override_all", False):
+            return user_args
+
+        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
+        buffer_args = [
+            "--cache=yes",
+            "--cache-on-disk=yes",
+            "--demuxer-readahead-secs=3600",
+            "--demuxer-max-bytes=2GiB",
+        ]
+
+        return base_args + buffer_args + user_args

@@ -155,6 +155,16 @@ ACTIONS: dict[str, ChannelAction] = {
         tooltip="Open in a separate player window (per-source)",
         applies=lambda c: c.is_single and c.channel_found,
     ),
+    "play_open_ended_buffer": ChannelAction(
+        id="play_open_ended_buffer",
+        label=lambda c: "Play with open-ended buffer",
+        icon=_icons.open_ended_buffer_icon,
+        tooltip=(
+            "Buffer ahead open-endedly — caches as far as the stream allows "
+            "(disk-backed, up to 2 GiB). Useful for riding out an unstable stream."
+        ),
+        applies=lambda c: c.is_single and c.channel_found,
+    ),
     "favorite": ChannelAction(
         id="favorite",
         label=_fav_label,
@@ -401,7 +411,7 @@ ACTIONS: dict[str, ChannelAction] = {
 
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
-        "play", "play_new_window",
+        "play", "play_new_window", "play_open_ended_buffer",
         "sep",
         "favorite", "queue",
         "sep",
@@ -423,7 +433,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "bulk_category",
     ],
     "history": [
-        "play", "play_new_window",
+        "play", "play_new_window", "play_open_ended_buffer",
         "sep",
         "favorite", "queue",
         "sep",
@@ -434,7 +444,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_history", "hide",
     ],
     "favorites": [
-        "play", "play_new_window",
+        "play", "play_new_window", "play_open_ended_buffer",
         "sep",
         "favorite", "queue",
         "sep",

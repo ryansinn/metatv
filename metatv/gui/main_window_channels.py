@@ -865,6 +865,7 @@ class _ChannelListMixin:
         handlers: dict = {
             "play": play_fn,
             "play_new_window": lambda: self.play_channel_new_window_by_id(cid),
+            "play_open_ended_buffer": lambda: self.play_channel_open_ended_buffer_by_id(cid),
             "favorite": lambda: self._toggle_favorite_by_id(
                 cid, not ctx.is_favorite
             ),

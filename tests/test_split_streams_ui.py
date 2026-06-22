@@ -64,8 +64,8 @@ class _FakePlayer:
     def is_available(self) -> bool:
         return True
 
-    def play(self, url: str, title: str, instance_key: str = "__shared__", start_seconds: int = 0) -> bool:
-        self.play_calls.append({"url": url, "title": title, "instance_key": instance_key, "start_seconds": start_seconds})
+    def play(self, url: str, title: str, instance_key: str = "__shared__", start_seconds: int = 0, open_ended_buffer: bool = False) -> bool:
+        self.play_calls.append({"url": url, "title": title, "instance_key": instance_key, "start_seconds": start_seconds, "open_ended_buffer": open_ended_buffer})
         return True
 
     def active_keys(self) -> list[str]:

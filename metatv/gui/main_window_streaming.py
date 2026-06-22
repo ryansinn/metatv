@@ -258,7 +258,12 @@ class _StreamingMixin:
             return original_url.replace(old_base, new_base, 1)
         return original_url
 
-    def play_media(self, channel, force_new_window: bool = False):
+    def play_media(
+        self,
+        channel,
+        force_new_window: bool = False,
+        open_ended_buffer: bool = False,
+    ):
         """Play a media item (live stream or movie) in external player.
 
         Returns immediately — validation and failover happen in a background
@@ -271,6 +276,10 @@ class _StreamingMixin:
             force_new_window: When True, the stream is keyed by provider_id
                 regardless of the ``split_streams_by_source`` toggle — used by
                 "Play in New Window" to open/replace a separate per-source window.
+            open_ended_buffer: When True, the player uses a large disk-backed
+                cache (up to 2 GiB, 3600 s readahead) instead of the configured
+                bounded buffer profile.  Use this to build a big buffer lead to
+                ride out an unstable stream.
         """
         channel_id = channel.id
 
@@ -329,6 +338,7 @@ class _StreamingMixin:
             notif_id,
             force_new_window,
             start_seconds,
+            open_ended_buffer,
         )
 
     def _bg_validate_and_play(
@@ -340,6 +350,7 @@ class _StreamingMixin:
         notif_id: str,
         force_new_window: bool = False,
         start_seconds: int = 0,
+        open_ended_buffer: bool = False,
     ) -> None:
         """Worker: validate + failover stream URL, then emit _stream_ready.
 
@@ -361,6 +372,7 @@ class _StreamingMixin:
                 "provider_id": provider_id,
                 "force_new_window": force_new_window,
                 "start_seconds": start_seconds,
+                "open_ended_buffer": open_ended_buffer,
             })
         except Exception as e:
             logger.error(f"Error in _bg_validate_and_play: {e}")
@@ -375,6 +387,7 @@ class _StreamingMixin:
                 "provider_id": provider_id,
                 "force_new_window": force_new_window,
                 "start_seconds": start_seconds,
+                "open_ended_buffer": open_ended_buffer,
             })
 
     def _on_stream_ready(self, data: dict) -> None:
@@ -415,14 +428,18 @@ class _StreamingMixin:
         self.status_bar.showMessage(f"Loading: {channel_name}...")
 
         force_new_window = data.get("force_new_window", False)
+        open_ended_buffer = bool(data.get("open_ended_buffer", False))
         start_seconds = int(data.get("start_seconds", 0) or 0)
         if start_seconds:
             logger.info(f"Resuming {channel_name} at {start_seconds}s")
+        if open_ended_buffer:
+            logger.info(f"Open-ended buffer mode for {channel_name}")
         if self.player_manager.play(
             final_url, channel_name,
             provider_id=data.get("provider_id"),
             force_new_window=force_new_window,
             start_seconds=start_seconds,
+            open_ended_buffer=open_ended_buffer,
         ):
             # Record playback — mark_played is a DB write; run off-thread. The same
             # worker registers this instance for watch-progress capture (it already
