@@ -1,10 +1,11 @@
-"""PR-2-C: Enable-EPG checkbox on the Add-Provider dialog + first EPG pull on add.
+"""Enable-EPG checkbox on the Add-Provider dialog + EPG pull on source refresh.
 
 Two behaviors are pinned, both executing the real code paths:
 1. `AddProviderDialog` persists `epg_enabled` from its checkbox onto the new ProviderDB row.
-2. `MainWindow.on_provider_refresh_finished` triggers a one-time `force_refresh_provider`
-   for a freshly-added provider (flagged in `_epg_fetch_after_add`) when its channel load
-   succeeds — and does NOT for an ordinary re-refresh or when the load failed.
+2. `MainWindow.on_provider_refresh_finished` calls `_maybe_refresh_provider_epg` on EVERY
+   successful refresh (newly-added or ordinary) and clears the add flag — but NOT when the
+   load failed. The fetch's gating (epg_enabled / usable URL) is covered in
+   test_epg_on_source_refresh.
 """
 from __future__ import annotations
 
@@ -62,6 +63,10 @@ def _main_window_stub():
     mw.notification_manager = MagicMock()
     mw.epg_manager = MagicMock()
     mw._refresh_provider_dependent_views = MagicMock()
+    # Post-refresh EPG fetch is exercised at the seam here; its gating
+    # (epg_enabled / usable URL) is covered in test_epg_on_source_refresh. Mock it
+    # so the handler test needs no seeded DB.
+    mw._maybe_refresh_provider_epg = MagicMock()
     # Set so hasattr() resolves cleanly — on a __new__'d QMainWindow a *missing*
     # attr raises RuntimeError from PyQt rather than returning False.
     mw.stream_retry_manager = MagicMock()
@@ -75,32 +80,39 @@ def _thread(provider_id):
     return t
 
 
-def test_flagged_add_triggers_first_epg_fetch_once(qapp):
+def test_successful_refresh_triggers_epg_and_clears_add_flag(qapp):
+    """A successful refresh fetches EPG (via the gated seam) and clears the add flag."""
     mw = _main_window_stub()
     mw.refreshing_providers = {"p1"}
     mw._epg_fetch_after_add = {"p1"}
 
     mw.on_provider_refresh_finished("notif", True, "done", _thread("p1"))
 
-    mw.epg_manager.force_refresh_provider.assert_called_once_with("p1")
-    assert "p1" not in mw._epg_fetch_after_add  # flag cleared (no repeat)
+    mw._maybe_refresh_provider_epg.assert_called_once_with("p1")
+    assert "p1" not in mw._epg_fetch_after_add  # add flag cleared (now just bookkeeping)
 
 
-def test_ordinary_refresh_does_not_trigger_epg_fetch(qapp):
+def test_ordinary_refresh_also_triggers_epg(qapp):
+    """A refresh of an existing (non-newly-added) source now ALSO pulls EPG.
+
+    This is the behaviour change: previously only a flagged add fetched EPG; now
+    every successful refresh does (gating happens inside _maybe_refresh_provider_epg).
+    """
     mw = _main_window_stub()
     mw.refreshing_providers = {"p2"}
     mw._epg_fetch_after_add = set()  # not a fresh add
 
     mw.on_provider_refresh_finished("notif", True, "done", _thread("p2"))
 
-    mw.epg_manager.force_refresh_provider.assert_not_called()
+    mw._maybe_refresh_provider_epg.assert_called_once_with("p2")
 
 
-def test_failed_load_clears_flag_without_fetch(qapp):
+def test_failed_load_does_not_fetch_epg(qapp):
+    """A failed channel load must not fetch EPG, and drops the stale add flag."""
     mw = _main_window_stub()
     mw._epg_fetch_after_add = {"p3"}
 
     mw.on_provider_refresh_finished("notif", False, "boom", _thread("p3"))
 
-    mw.epg_manager.force_refresh_provider.assert_not_called()
+    mw._maybe_refresh_provider_epg.assert_not_called()
     assert "p3" not in mw._epg_fetch_after_add  # stale flag dropped
