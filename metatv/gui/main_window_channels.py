@@ -51,7 +51,102 @@ class _ChannelListMixin:
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
+        self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
+
+    # ── Search state persistence ────────────────────────────────────────────
+
+    def _save_search_state(self) -> None:
+        """Persist the current search/filter state to config (no-op if remember_search is off)."""
+        if not getattr(self.config, 'remember_search', True):
+            return
+        query = self.search_input.text() if hasattr(self, 'search_input') else ""
+        state = {
+            "query": query,
+            "provider_id": getattr(self, 'selected_provider_id', None),
+            "hidden_mode": bool(getattr(self, '_hidden_mode', False)),
+            "genre_filter": getattr(self, '_details_genre_filter', None),
+            "person_filter": getattr(self, '_details_person_filter', None),
+        }
+        self.config.last_search_state = state
+        self.config.save()
+
+    def restore_search_state(self) -> bool:
+        """Restore a previously saved search state and trigger a channel load.
+
+        Returns True if a non-trivial state was restored (caller can skip their own
+        ``load_channels()`` call since this method issues one).  Returns False if the
+        feature is disabled or nothing was saved — the caller must call ``load_channels()``
+        themselves.
+
+        Must be called on the main thread after the UI is fully set up.
+        """
+        if not getattr(self.config, 'remember_search', True):
+            return False
+        state = getattr(self.config, 'last_search_state', {})
+        if not state:
+            return False
+
+        query = state.get("query", "")
+        provider_id = state.get("provider_id")
+        hidden_mode = bool(state.get("hidden_mode", False))
+        genre_filter = state.get("genre_filter")
+        person_filter = state.get("person_filter")
+
+        any_non_trivial = query or provider_id or hidden_mode or genre_filter or person_filter
+        if not any_non_trivial:
+            return False  # saved state is the empty default — nothing to restore
+
+        logger.info(
+            "Restoring search state: query={!r} provider={} hidden={} genre={} person={}",
+            query, provider_id, hidden_mode, genre_filter, person_filter,
+        )
+
+        # Restore context chips (genre / person)
+        if genre_filter:
+            self._details_genre_filter = genre_filter
+            self._details_person_filter = None
+            if hasattr(self, '_context_filter_label'):
+                self._context_filter_label.setText(f"Genre: {genre_filter}")
+            if hasattr(self, '_context_filter_chip'):
+                self._context_filter_chip.show()
+        elif person_filter:
+            self._details_person_filter = person_filter
+            self._details_genre_filter = None
+            if hasattr(self, '_context_filter_label'):
+                self._context_filter_label.setText(f"Cast/Crew: {person_filter}")
+            if hasattr(self, '_context_filter_chip'):
+                self._context_filter_chip.show()
+
+        # Restore hidden/all toggle — update UI buttons without retriggering load
+        if hidden_mode:
+            self._hidden_mode = True
+            if hasattr(self, '_tab_all_btn'):
+                self._tab_all_btn.blockSignals(True)
+                self._tab_hidden_btn.blockSignals(True)
+                self._tab_all_btn.setChecked(False)
+                self._tab_hidden_btn.setChecked(True)
+                self._tab_all_btn.blockSignals(False)
+                self._tab_hidden_btn.blockSignals(False)
+            if hasattr(self, '_hidden_banner'):
+                self._hidden_banner.setVisible(True)
+
+        # Restore source filter — update sidebar selection without triggering load
+        if provider_id:
+            self.selected_provider_id = provider_id
+            src = self.sidebar_sections.get("sources") if hasattr(self, 'sidebar_sections') else None
+            if src is not None and hasattr(src, 'select_provider'):
+                src.select_provider(provider_id)
+
+        # Restore query text (block signals to avoid double-triggering the debounce)
+        if hasattr(self, 'search_input') and query:
+            self.search_input.blockSignals(True)
+            self.search_input.setText(query)
+            self.search_input.blockSignals(False)
+
+        # Re-run the async channel load with restored state
+        self.load_channels(provider_id)
+        return True
 
     def load_channels(self, provider_id=None):
         """Load channels from database into the list (non-blocking)."""

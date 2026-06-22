@@ -388,3 +388,16 @@ class SourcesSection(CollapsibleSection):
         """Deselect any active source row (used when the per-source filter is toggled off)."""
         self.sources_tree.clearSelection()
         self.sources_tree.setCurrentItem(None)
+
+    def select_provider(self, provider_id: str) -> None:
+        """Highlight the tree row for *provider_id* (used when restoring search state).
+
+        Iterates top-level items; silently does nothing if the provider isn't found yet
+        (the sidebar may still be loading when restore happens at startup).
+        """
+        from PyQt6.QtCore import Qt
+        for i in range(self.sources_tree.topLevelItemCount()):
+            item = self.sources_tree.topLevelItem(i)
+            if item and item.data(0, Qt.ItemDataRole.UserRole) == provider_id:
+                self.sources_tree.setCurrentItem(item)
+                return

@@ -315,8 +315,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._refresh_queue_section()
         self._refresh_recommended_section()
 
-        # Auto-load channels from all active providers on startup
-        self.load_channels()
+        # Auto-load channels from all active providers on startup.
+        # restore_search_state() handles the load if a saved state exists; otherwise fall back.
+        if not self.restore_search_state():
+            self.load_channels()
 
         # Initialize filter statistics
         self.initialize_filter_stats()

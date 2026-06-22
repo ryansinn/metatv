@@ -820,6 +820,14 @@ class Config(BaseModel):
     #    "last_checked": str | None} # ISO timestamp
     monitored_series: list = Field(default_factory=list)
 
+    # Search state persistence — "Remember last search" feature.
+    # When remember_search is True, last_search_state is written on every search
+    # change and restored on startup / when returning to the channel-list view.
+    # Keys: query (str), provider_id (str|None), hidden_mode (bool),
+    #       genre_filter (str|None), person_filter (str|None).
+    remember_search: bool = True
+    last_search_state: dict = Field(default_factory=dict)
+
     def add_monitored_series(self, entry: dict) -> None:
         """Add a series to the monitor list (no-op if already present)."""
         cid = entry.get("series_channel_id")

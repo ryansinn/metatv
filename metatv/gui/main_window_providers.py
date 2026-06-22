@@ -655,6 +655,7 @@ class _ProviderMixin:
         if provider_id and provider_id == self.selected_provider_id:
             # Toggle OFF — clicking the active source again clears the filter.
             self.selected_provider_id = None
+            self._save_search_state()
             self.load_channels(None)
             src = self.sidebar_sections.get("sources")
             if src is not None and hasattr(src, "clear_selection"):
@@ -662,6 +663,7 @@ class _ProviderMixin:
             logger.info("Cleared source filter (toggled off)")
         else:
             self.selected_provider_id = provider_id
+            self._save_search_state()
             logger.info(f"Selected provider: {provider_id}")
             self.load_channels(provider_id)
 

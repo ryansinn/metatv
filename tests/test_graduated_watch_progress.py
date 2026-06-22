@@ -454,6 +454,8 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._override_all_check.isChecked.return_value = False
     dialog._split_check = MagicMock()
     dialog._split_check.isChecked.return_value = False
+    dialog._remember_search_check = MagicMock()
+    dialog._remember_search_check.isChecked.return_value = True
     dialog._epg_interval_combo = MagicMock()
     dialog._epg_interval_combo.currentData.return_value = "3d"
     dialog._meta_enabled_check = MagicMock()

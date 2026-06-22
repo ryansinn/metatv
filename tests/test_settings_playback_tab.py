@@ -63,6 +63,7 @@ class _FakeConfig:
         self.metadata_omdb_api_key = ""
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
+        self.remember_search: bool = True
         self.save_calls: int = 0
 
     def save(self) -> None:
@@ -128,6 +129,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Split-streams checkbox (added in feat/split-streams-and-unified-menu)
     dlg._split_check = QCheckBox()
+
+    # Remember last search checkbox
+    dlg._remember_search_check = QCheckBox()
 
     # EPG interval combo (needed by _load_values)
     dlg._epg_interval_combo = QComboBox()

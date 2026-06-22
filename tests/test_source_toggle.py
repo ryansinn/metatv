@@ -35,6 +35,7 @@ def _make_window(selected_provider_id=None, in_edit_mode=False):
         load_channels=load_channels,
         sidebar_sections={"sources": sources},
         provider_editor=provider_editor,
+        _save_search_state=MagicMock(),  # added by _ChannelListMixin
     )
     return me, load_channels, sources, provider_editor
 
@@ -134,6 +135,7 @@ def test_no_sources_section_does_not_crash_on_toggle_off():
         load_channels=load_channels,
         sidebar_sections={},          # no "sources" key
         provider_editor=MagicMock(),
+        _save_search_state=MagicMock(),
     )
     MainWindow.on_provider_selected_new(me, "p1")
 
