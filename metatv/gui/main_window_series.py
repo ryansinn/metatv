@@ -440,18 +440,30 @@ class _SeriesMixin:
             session.close()
 
         # Register this episode for watch-progress capture (same seam as movies, Slice 3a).
-        # The checkpoint timer samples mpv every 20s and writes progress via
-        # EpisodeRepository.record_watch_progress — the episode path is the documented
-        # multi-episode exception (CLAUDE.md: "reuse before reinvent") that routes through
-        # the same _bg_capture_watch worker as movies.
+        # When subsequent episodes are queued, the tracking entry holds the full ordered
+        # queue so _bg_capture_watch can follow mpv's playlist-pos and record progress
+        # against the episode that is *actually* playing — not always the started one.
         if not hasattr(self, "_watch_tracking"):
             self._watch_tracking = {}
         _watch_key = self.player_manager.resolve_key(episode.provider_id)
-        self._watch_tracking[_watch_key] = {
-            "content_id": episode.id,
-            "media_type": "episode",
-            "played_via": "manual",
-        }
+        if episodes_to_queue:
+            # Multi-episode queue: store full playlist in order (started ep first).
+            _queue = [{"content_id": episode.id}] + [
+                {"content_id": ep.id} for ep in episodes_to_queue
+            ]
+            self._watch_tracking[_watch_key] = {
+                "media_type": "episode",
+                "played_via": "manual",     # for the started episode (playlist index 0)
+                "queue": _queue,
+                "last_seen_pos": 0,         # mpv playlist-pos last finalized through
+            }
+        else:
+            # Single episode: flat dict (unchanged from Slice 3a).
+            self._watch_tracking[_watch_key] = {
+                "content_id": episode.id,
+                "media_type": "episode",
+                "played_via": "manual",
+            }
         self._start_watch_capture()
 
         # Update UI lists in real-time
