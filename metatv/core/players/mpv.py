@@ -124,9 +124,81 @@ class MPVPlayer(PlayerPlugin):
         if inst is not None and inst.is_running():
             return True
 
+        return self._launch_ipc_instance(key, self._compose_extra_args())
+
+    def _relaunch_instance(self, key: str, extra_args: list[str]) -> bool:
+        """Terminate the existing mpv instance for *key* and start a fresh one.
+
+        This is required when a per-launch option (such as the open-ended disk-backed
+        cache args) must be baked in at process start — mpv's cache settings cannot be
+        changed on a running process via IPC ``loadfile`` per-file options.  The fresh
+        process is launched under the **same key** and registered in ``_instances`` so
+        subsequent IPC commands (``loadfile``, ``get_property``) and the playback-health
+        readout all target the correct window.
+
+        Args:
+            key: Instance key.  The same key that ``play()`` resolved — the caller
+                must NOT pass a throwaway/new key.
+            extra_args: Fully-composed mpv argument list to use for the fresh launch
+                (e.g. ``_compose_open_ended_buffer_args()``).
+
+        Returns:
+            True if the fresh instance started successfully, False on failure.
+        """
+        if not self.single_instance:
+            return False
+
+        # Terminate the existing process for this key, if any.
+        inst = self._instances.get(key)
+        if inst is not None and inst.is_running():
+            logger.info(
+                f"Terminating existing mpv instance [{key}] PID {inst.process.pid} "
+                "for relaunch with open-ended buffer args"
+            )
+            inst.process.terminate()
+            try:
+                inst.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                logger.warning(f"mpv instance [{key}] did not terminate in time, killing")
+                inst.process.kill()
+
+        # Remove stale entry so _launch_ipc_instance proceeds to a fresh spawn.
+        self._instances.pop(key, None)
+
+        sock_path = self._socket_path_for(key)
+        if os.path.exists(sock_path):
+            try:
+                os.remove(sock_path)
+                logger.info(f"Removed stale socket before relaunch: {sock_path}")
+            except Exception as e:
+                logger.warning(f"Could not remove stale socket: {e}")
+
+        return self._launch_ipc_instance(key, extra_args)
+
+    def _launch_ipc_instance(self, key: str, extra_args: list[str]) -> bool:
+        """Start a fresh IPC-enabled mpv process under *key* and register it.
+
+        Shared implementation used by :meth:`_ensure_instance_running` (normal launch)
+        and :meth:`_relaunch_instance` (open-ended buffer relaunch).  The caller is
+        responsible for any pre-launch cleanup (socket removal, terminating the old
+        process) — this method assumes the slot is free.
+
+        Args:
+            key: Instance key; determines the IPC socket path via
+                :meth:`_socket_path_for`.
+            extra_args: Fully-composed mpv argument list (UA + reconnect + cache flags
+                + user args).  The IPC server flag, ``--force-window``, ``--keep-open``,
+                and ``--idle`` are added here automatically.
+
+        Returns:
+            True if the process started and its socket appeared within the timeout,
+            False on any failure (the instance is still registered so IPC can be
+            attempted if the socket appears later).
+        """
         sock_path = self._socket_path_for(key)
 
-        # Remove stale socket file.
+        # Remove stale socket file (also called by _relaunch_instance for the
+        # relaunch path; guard here covers the normal _ensure_instance_running path).
         if os.path.exists(sock_path):
             try:
                 os.remove(sock_path)
@@ -147,7 +219,7 @@ class MPVPlayer(PlayerPlugin):
             else:
                 cmd.append("--idle=yes")
 
-            cmd += self._compose_extra_args()
+            cmd += extra_args
 
             logger.info(f"Starting mpv instance [{key}]: {' '.join(cmd)}")
 
@@ -371,11 +443,54 @@ class MPVPlayer(PlayerPlugin):
         if open_ended_buffer:
             logger.info("  Open-ended buffer mode: disk-backed 2GiB / 3600s readahead")
 
-        # Open-ended buffer launches a fresh standalone process so the large cache
-        # args are baked in at process start — mpv's cache settings are not patchable
-        # via IPC loadfile per-file options.  start_seconds is carried through so
-        # resume-from-offset and open-ended buffer compose correctly.
+        # Open-ended buffer requires baking the large cache args in at process start —
+        # mpv's cache settings cannot be patched via IPC loadfile per-file options.
+        #
+        # In single-instance mode: relaunch the SAME key's instance with the open-ended
+        # args, then send ``loadfile`` over IPC exactly as a normal play does.  This keeps
+        # the window in the same mpv instance slot so the playback-health readout (which
+        # polls by key) continues to work, and avoids spawning a separate orphan window.
+        #
+        # In multiple-instances mode (no IPC/keying): fall through to the standalone-
+        # process path below (same as before).
+        if open_ended_buffer and self.single_instance:
+            if not self._relaunch_instance(instance_key, self._compose_open_ended_buffer_args()):
+                logger.warning(
+                    f"Could not relaunch instance [{instance_key}] with open-ended buffer args, "
+                    "falling back to standalone process"
+                )
+                return self._launch_new_instance(url, title, start_seconds=start_seconds,
+                                                 open_ended_buffer=True)
+
+            # IPC is now ready on the relaunched instance — load the URL.
+            if start_seconds > 0:
+                per_file_opts = f"start={start_seconds}"
+                command = {"command": ["loadfile", url, "replace", 0, per_file_opts],
+                           "request_id": 1}
+            else:
+                command = {"command": ["loadfile", url, "replace"], "request_id": 1}
+
+            if self._send_ipc_command(command, instance_key):
+                title_command = {
+                    "command": ["set_property", "force-media-title", title],
+                    "request_id": 2,
+                }
+                self._send_ipc_command(title_command, instance_key)
+                self._last_key = instance_key
+                logger.info(
+                    f"Sent to mpv instance [{instance_key}] (open-ended buffer): {title}"
+                )
+                return True
+            else:
+                logger.warning(
+                    f"IPC command failed after open-ended relaunch [{instance_key}], "
+                    "falling back to standalone process"
+                )
+                return self._launch_new_instance(url, title, start_seconds=start_seconds,
+                                                 open_ended_buffer=True)
+
         if open_ended_buffer:
+            # multiple-instances mode — no IPC; spawn a plain standalone process.
             return self._launch_new_instance(url, title, start_seconds=start_seconds,
                                              open_ended_buffer=True)
 
