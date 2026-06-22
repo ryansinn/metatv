@@ -1,4 +1,4 @@
-"""Settings dialog with Playback, Metadata/API Keys, and Sidebar tabs."""
+"""Settings dialog with Playback, Metadata/API Keys, and Interface tabs."""
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -26,7 +26,7 @@ _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 
 class SettingsDialog(QDialog):
-    """Modal settings dialog with Playback and Metadata/API Keys tabs."""
+    """Modal settings dialog with Playback, Metadata/API Keys, and Interface tabs."""
 
     settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
 
@@ -46,7 +46,7 @@ class SettingsDialog(QDialog):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_playback_tab(), "Playback")
         self._tabs.addTab(self._build_metadata_tab(), "Metadata & API Keys")
-        self._tabs.addTab(self._build_sidebar_tab(), "Sidebar")
+        self._tabs.addTab(self._build_interface_tab(), "Interface")
         layout.addWidget(self._tabs)
 
         buttons = QDialogButtonBox(
@@ -185,22 +185,6 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(net_group)
 
-        epg_group = QGroupBox("EPG")
-        epg_form = QFormLayout(epg_group)
-        epg_form.setSpacing(8)
-
-        self._epg_interval_combo = QComboBox()
-        for value, label in EPG_INTERVAL_CHOICES:
-            self._epg_interval_combo.addItem(label, value)
-        self._epg_interval_combo.setToolTip(
-            "Default EPG guide refresh frequency for all providers. "
-            "Individual providers can override this in their editor. "
-            "'Only when data is stale' waits until the guide has fully expired before re-fetching."
-        )
-        epg_form.addRow("EPG refresh:", self._epg_interval_combo)
-
-        layout.addWidget(epg_group)
-
         mpv_group = QGroupBox("MPV Extra Arguments")
         mpv_layout = QVBoxLayout(mpv_group)
         mpv_layout.setSpacing(4)
@@ -225,28 +209,6 @@ class SettingsDialog(QDialog):
         )
         mpv_layout.addWidget(self._override_all_check)
         layout.addWidget(mpv_group)
-
-        search_group = QGroupBox("Search")
-        search_form = QFormLayout(search_group)
-        search_form.setSpacing(8)
-
-        self._remember_search_check = QCheckBox("Remember last search")
-        self._remember_search_check.setToolTip(
-            "When on, MetaTV saves your search query, source filter, and active\n"
-            "context chips when you change them, and restores them the next time\n"
-            "you launch the app or return to the channel list."
-        )
-        search_form.addRow("", self._remember_search_check)
-
-        search_hint = QLabel(
-            "Restores the query text, source filter (if any), All/Hidden toggle, "
-            "and genre/person chips from your last session."
-        )
-        search_hint.setWordWrap(True)
-        search_hint.setStyleSheet(_theme.META_HINT)
-        search_form.addRow("", search_hint)
-
-        layout.addWidget(search_group)
 
         layout.addStretch()
         return tab
@@ -330,14 +292,57 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(omdb_group)
 
+        epg_group = QGroupBox("EPG")
+        epg_form = QFormLayout(epg_group)
+        epg_form.setSpacing(8)
+
+        self._epg_interval_combo = QComboBox()
+        for value, label in EPG_INTERVAL_CHOICES:
+            self._epg_interval_combo.addItem(label, value)
+        self._epg_interval_combo.setToolTip(
+            "Default EPG guide refresh frequency for all providers. "
+            "Individual providers can override this in their editor. "
+            "'Only when data is stale' waits until the guide has fully expired before re-fetching."
+        )
+        epg_form.addRow("EPG refresh:", self._epg_interval_combo)
+
+        layout.addWidget(epg_group)
+
         layout.addStretch()
         return tab
 
-    def _build_sidebar_tab(self) -> QWidget:
+    def _build_interface_tab(self) -> QWidget:
+        """Build the Interface tab containing Search and Sidebar settings."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
+        layout.setSpacing(16)
         layout.setContentsMargins(12, 12, 12, 12)
+
+        search_group = QGroupBox("Search")
+        search_form = QFormLayout(search_group)
+        search_form.setSpacing(8)
+
+        self._remember_search_check = QCheckBox("Remember last search")
+        self._remember_search_check.setToolTip(
+            "When on, MetaTV saves your search query, source filter, and active\n"
+            "context chips when you change them, and restores them the next time\n"
+            "you launch the app or return to the channel list."
+        )
+        search_form.addRow("", self._remember_search_check)
+
+        search_hint = QLabel(
+            "Restores the query text, source filter (if any), All/Hidden toggle, "
+            "and genre/person chips from your last session."
+        )
+        search_hint.setWordWrap(True)
+        search_hint.setStyleSheet(_theme.META_HINT)
+        search_form.addRow("", search_hint)
+
+        layout.addWidget(search_group)
+
+        sidebar_group = QGroupBox("Sidebar")
+        sidebar_layout = QVBoxLayout(sidebar_group)
+        sidebar_layout.setSpacing(10)
 
         hint = QLabel(
             "Check sections to show them. Use the arrows to reorder.\n"
@@ -345,13 +350,13 @@ class SettingsDialog(QDialog):
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        layout.addWidget(hint)
+        sidebar_layout.addWidget(hint)
 
         self._sidebar_list = QListWidget()
         self._sidebar_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self._sidebar_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._sidebar_list.setFixedHeight(200)
-        layout.addWidget(self._sidebar_list)
+        sidebar_layout.addWidget(self._sidebar_list)
 
         arrow_row = QHBoxLayout()
         up_btn = QPushButton("▲  Move Up")
@@ -363,8 +368,9 @@ class SettingsDialog(QDialog):
         arrow_row.addWidget(up_btn)
         arrow_row.addWidget(down_btn)
         arrow_row.addStretch()
-        layout.addLayout(arrow_row)
+        sidebar_layout.addLayout(arrow_row)
 
+        layout.addWidget(sidebar_group)
 
         layout.addStretch()
         return tab
