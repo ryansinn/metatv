@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import json as _json
 from typing import Optional
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, Text, JSON, text, event, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.types import TypeDecorator
@@ -361,6 +361,60 @@ class StreamRetryDB(Base):
     attempt_count   = Column(Integer, default=0)
     last_error      = Column(String)
     status          = Column(String, default="pending")  # "pending" | "online"
+
+
+class TagDB(Base):
+    """Canonical tag — a (type, value) pair in a known namespace.
+
+    Namespaces: region | language | platform | quality | genre |
+                collection | content_type | decade
+
+    Rows are deduplicated on (type, value); ``get_or_create_tag`` is the only
+    correct way to insert.
+    """
+
+    __tablename__ = "tags"
+
+    id    = Column(Integer, primary_key=True)
+    type  = Column(String, index=True, nullable=False)   # namespace
+    value = Column(String, index=True, nullable=False)   # canonical value
+
+    __table_args__ = (
+        UniqueConstraint("type", "value", name="uq_tag_type_value"),
+    )
+
+
+class ContentTagDB(Base):
+    """Link between a channel and a tag, with provenance and confidence.
+
+    ``source`` is ``"generated"`` for machine-derived tags or ``"user"`` for
+    explicit user assertions.  ``feeders`` is a list of feeder names (rule ids,
+    provider slug, etc.) that each independently asserted this tag for this
+    channel; multiple feeders raise ``confidence``.
+
+    Confidence formula (v1): ``min(1.0, len(distinct_feeders) / 3)``.
+    One feeder → 0.33, two → 0.67, three or more → 1.0.
+    This is intentionally coarse; future slices may replace it with a
+    Bayesian prior or a signal-weighted blend.
+
+    The unique constraint is on ``(channel_id, tag_id, source)`` — not just
+    ``(channel_id, tag_id)`` — so that a ``"generated"`` and a ``"user"``
+    assertion for the same tag can coexist independently.  ``set_content_tags``
+    only touches rows matching the given ``source``, preserving the other.
+    """
+
+    __tablename__ = "content_tags"
+
+    id         = Column(Integer, primary_key=True)
+    channel_id = Column(String, ForeignKey("channels.id"), index=True, nullable=False)
+    tag_id     = Column(Integer, ForeignKey("tags.id"), index=True, nullable=False)
+    source     = Column(String, nullable=False, default="generated")  # "generated" | "user"
+    feeders    = Column(JSONEncoded)      # list[str] of contributing feeder names
+    confidence = Column(Float, default=1.0)
+
+    __table_args__ = (
+        UniqueConstraint("channel_id", "tag_id", "source", name="uq_content_tag"),
+    )
 
 
 class Database:
