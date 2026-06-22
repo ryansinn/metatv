@@ -18,6 +18,23 @@ import pytest
 from metatv.core.repositories.dtos import ChannelListDTO, EpisodeDTO
 
 
+def _glyph_rgb(qicon):
+    """Dominant non-transparent RGB of an icon's glyph.
+
+    Robust to HiDPI ``devicePixelRatio`` scaling and to a checkmark's
+    transparent exact-centre (which broke the old fixed ``(7, 7)`` sampling).
+    """
+    from collections import Counter
+    img = qicon.pixmap(14, 14).toImage()
+    counts = Counter()
+    for y in range(img.height()):
+        for x in range(img.width()):
+            px = img.pixel(x, y)
+            if ((px >> 24) & 0xFF) > 64:  # alpha > 64 → a glyph pixel
+                counts[px & 0xFFFFFF] += 1  # RGB only
+    return counts.most_common(1)[0][0] if counts else None
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -211,14 +228,12 @@ def test_decoration_role_muted_icon_for_queue_watched(qapp):
     icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
     muted_ref = _icons.watch_icon(_icons.watched_icon, muted=True)
     solid_ref = _icons.watch_icon(_icons.watched_icon, muted=False)
-    # Sample the center pixel of each pixmap and compare colors.
-    def _center_pixel(qicon):
-        pm = qicon.pixmap(14, 14)
-        return pm.toImage().pixel(7, 7)
-    assert _center_pixel(icon) == _center_pixel(muted_ref), (
-        "queue-watched icon center pixel must match the muted color"
+    # Sample the glyph's dominant non-transparent colour (robust to HiDPI
+    # devicePixelRatio scaling and to a checkmark's transparent exact-centre).
+    assert _glyph_rgb(icon) == _glyph_rgb(muted_ref), (
+        "queue-watched icon glyph colour must match the muted colour"
     )
-    assert _center_pixel(icon) != _center_pixel(solid_ref), (
+    assert _glyph_rgb(icon) != _glyph_rgb(solid_ref), (
         "queue-watched icon must be visually distinct from the solid icon"
     )
 
@@ -242,13 +257,10 @@ def test_decoration_role_solid_icon_for_manual_watched(qapp):
     icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
     muted_ref = _icons.watch_icon(_icons.watched_icon, muted=True)
     solid_ref = _icons.watch_icon(_icons.watched_icon, muted=False)
-    def _center_pixel(qicon):
-        pm = qicon.pixmap(14, 14)
-        return pm.toImage().pixel(7, 7)
-    assert _center_pixel(icon) == _center_pixel(solid_ref), (
-        "manual-watched icon center pixel must match the solid color"
+    assert _glyph_rgb(icon) == _glyph_rgb(solid_ref), (
+        "manual-watched icon glyph colour must match the solid colour"
     )
-    assert _center_pixel(icon) != _center_pixel(muted_ref), (
+    assert _glyph_rgb(icon) != _glyph_rgb(muted_ref), (
         "manual-watched icon must be visually distinct from the muted icon"
     )
 
