@@ -130,10 +130,14 @@ class ManageVodAlertsDialog(QDialog):
     """List every active VOD watch-for rule with a remove button.
 
     Opening is triggered from the "Watch for…" sub-section of the Alerts sidebar.
+    Clicking a rule row emits ``view_matches_requested`` and closes the dialog so
+    the main window can populate the channel list with matching content.
     """
 
     # Emitted when a rule is removed so the host can refresh dependent views.
     changed = pyqtSignal()
+    # Emitted when the user clicks "View matches" on a rule row (text, match_type).
+    view_matches_requested = pyqtSignal(str, str)
 
     def __init__(self, config, parent=None) -> None:
         super().__init__(parent)
@@ -224,6 +228,7 @@ class ManageVodAlertsDialog(QDialog):
         type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
 
         row = QWidget()
+        row.setCursor(Qt.CursorShape.PointingHandCursor)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(4, 2, 4, 2)
         hl.setSpacing(6)
@@ -249,6 +254,20 @@ class ManageVodAlertsDialog(QDialog):
             )
             hl.addWidget(match_badge)
 
+        view_btn = QPushButton(f"{_icons.search_icon} View")
+        view_btn.setFlat(True)
+        view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        view_btn.setStyleSheet(
+            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
+            f" border: none; padding: 1px 6px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
+        )
+        view_btn.setToolTip(f"Show all content matching '{text}' in the channel list")
+        view_btn.clicked.connect(
+            lambda _checked=False, t=text, mt=match_type: self._view_matches(t, mt)
+        )
+        hl.addWidget(view_btn)
+
         remove_btn = QPushButton(f"{_icons.close_icon} Remove")
         remove_btn.setFlat(True)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -266,6 +285,11 @@ class ManageVodAlertsDialog(QDialog):
         return row
 
     # ── Actions ──────────────────────────────────────────────────────────────
+
+    def _view_matches(self, text: str, match_type: str) -> None:
+        """Emit view_matches_requested and close so the main window can show results."""
+        self.view_matches_requested.emit(text, match_type)
+        self.accept()
 
     def _remove(self, rule_created: str) -> None:
         self._config.remove_vod_watch_alert(rule_created)

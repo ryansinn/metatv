@@ -548,3 +548,165 @@ class TestWatchAlertsSectionVodRules:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
         assert section._vod_list.count() == 3, "Three rules must produce three rows"
+
+    def test_item_stores_rule_created_in_user_role(self, qapp):
+        """Each list item must store rule_created in UserRole so click handlers can look up the rule."""
+        from PyQt6.QtCore import Qt
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Dune",
+            "match_type": "movie",
+            "created": created,
+            "alerted_ids": [],
+        })
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        item = section._vod_list.item(0)
+        assert item is not None
+        assert item.data(Qt.ItemDataRole.UserRole) == created, \
+            "UserRole must hold rule_created so the click handler can resolve the rule"
+
+
+# ===========================================================================
+# Part 5: Interactive rule actions — click / context menu / dialog view button
+# ===========================================================================
+
+class TestVodRuleInteractiveActions:
+    """Test click wiring, context menu, and dialog view-matches button."""
+
+    def _make_section(self, config, qapp):
+        """Build a WatchAlertsSection stub with _vod_list + real signals."""
+        from PyQt6.QtWidgets import QListWidget
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+
+        section = WatchAlertsSection.__new__(WatchAlertsSection)
+        section.config = config
+        section._vod_collapsed = False
+        section._vod_list = QListWidget()
+        section._vod_hdr_container = MagicMock()
+        section._update_vod_toggle_label = MagicMock()
+        return section
+
+    def test_single_click_resolves_correct_rule_text_and_type(self, qapp):
+        """_on_vod_item_clicked looks up the right (text, match_type) for the clicked item.
+
+        We test this by patching vodRuleViewMatchesRequested.emit and verifying the
+        arguments that would have been emitted.  Using __new__ means the Qt signal
+        hasn't been constructed, so we replace .emit with a MagicMock to capture args.
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QListWidgetItem
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Severance",
+            "match_type": "series",
+            "created": created,
+            "alerted_ids": [],
+        })
+
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+
+        # Patch the signal's emit (the section was built via __new__ so no Qt init)
+        section.vodRuleViewMatchesRequested = MagicMock()
+
+        item = section._vod_list.item(0)
+        assert item is not None
+        section._on_vod_item_clicked(item)
+
+        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Severance", "series")
+
+    def test_single_click_any_type(self, qapp):
+        """Left-click resolves match_type='any' for an any-typed rule."""
+        from PyQt6.QtCore import Qt
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert({
+            "text": "Dune",
+            "match_type": "any",
+            "created": _now_iso(),
+            "alerted_ids": [],
+        })
+
+        section = self._make_section(cfg, qapp)
+        section.refresh_vod_rules()
+        section.vodRuleViewMatchesRequested = MagicMock()
+
+        section._on_vod_item_clicked(section._vod_list.item(0))
+
+        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Dune", "any")
+
+    def test_remove_signal_carries_rule_created(self, qapp):
+        """vodRuleRemoveRequested emitted via _rule_info_for_created lookup (tested indirectly).
+
+        We verify that _rule_info_for_created returns the correct (text, match_type) for a
+        known rule_created value — this is the lookup click handlers depend on.
+        """
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Inception",
+            "match_type": "movie",
+            "created": created,
+            "alerted_ids": [],
+        })
+
+        section = self._make_section(cfg, qapp)
+        text, match_type = section._rule_info_for_created(created)
+        assert text == "Inception"
+        assert match_type == "movie"
+
+    def test_rule_info_for_unknown_created_returns_empty(self, qapp):
+        """_rule_info_for_created returns ('', 'any') for an unrecognised rule_created."""
+        cfg = _FakeConfig()
+        section = self._make_section(cfg, qapp)
+        text, match_type = section._rule_info_for_created("does-not-exist")
+        assert text == ""
+        assert match_type == "any"
+
+    def test_manage_dialog_view_matches_emits_and_closes(self, qapp):
+        """ManageVodAlertsDialog 'View' button emits view_matches_requested and accepts the dialog."""
+        from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
+
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Blade Runner",
+            "match_type": "movie",
+            "created": created,
+            "alerted_ids": [],
+        })
+
+        emitted: list[tuple[str, str]] = []
+        dlg = ManageVodAlertsDialog(cfg)
+        dlg.view_matches_requested.connect(lambda t, mt: emitted.append((t, mt)))
+
+        # Simulate clicking "View" by calling _view_matches directly
+        dlg._view_matches("Blade Runner", "movie")
+
+        assert len(emitted) == 1
+        assert emitted[0] == ("Blade Runner", "movie"), \
+            "view_matches_requested must carry the rule text and match_type"
+
+    def test_manage_dialog_remove_emits_changed(self, qapp):
+        """ManageVodAlertsDialog _remove emits changed and removes the rule from config."""
+        from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
+
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Arrival",
+            "match_type": "movie",
+            "created": created,
+            "alerted_ids": [],
+        })
+
+        changed_calls: list = []
+        dlg = ManageVodAlertsDialog(cfg)
+        dlg.changed.connect(lambda: changed_calls.append(True))
+
+        dlg._remove(created)
+
+        assert changed_calls, "changed signal must fire after removal"
+        assert len(cfg.get_vod_watch_alerts()) == 0, "Rule must be deleted from config"

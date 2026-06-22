@@ -77,6 +77,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
     manageWatchForClicked = pyqtSignal()     # "Manage…" link → open manage dialog
     vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
+    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → search in list
+    vodRuleRemoveRequested = pyqtSignal(str)  # rule_created → remove rule + refresh
     _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
 
     def __init__(self, config, db, parent=None):
@@ -175,7 +177,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._vod_list.setMaximumHeight(150)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        self._vod_list.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
+        self._vod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._vod_list.customContextMenuRequested.connect(self._on_vod_context_menu)
         self._vod_list.hide()
         self.content_layout.addWidget(self._vod_list)
 
@@ -295,9 +301,56 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not self._vod_collapsed:
             self._vod_list.show()
 
+    def _on_vod_item_clicked(self, item: "QListWidgetItem") -> None:
+        """Single-click on a rule row → populate the main list with matching content."""
+        rule_created = item.data(Qt.ItemDataRole.UserRole)
+        rule_text, match_type = self._rule_info_for_created(rule_created)
+        if rule_text:
+            self.vodRuleViewMatchesRequested.emit(rule_text, match_type)
+
     def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
         """Double-clicking a rule row opens the manage dialog."""
         self.manageWatchForClicked.emit()
+
+    def _on_vod_context_menu(self, pos) -> None:
+        """Right-click on a rule row → context menu with View matches / Remove / Manage."""
+        from PyQt6.QtWidgets import QMenu
+        item = self._vod_list.itemAt(pos)
+        if not item:
+            return
+        rule_created = item.data(Qt.ItemDataRole.UserRole)
+        rule_text, match_type = self._rule_info_for_created(rule_created)
+
+        menu = QMenu(self._vod_list)
+        if rule_text:
+            view_action = menu.addAction(f"{_icons.search_icon}  View matches")
+            view_action.setToolTip(f"Show all content matching '{rule_text}' in the main list")
+            view_action.triggered.connect(
+                lambda _=False, t=rule_text, mt=match_type:
+                    self.vodRuleViewMatchesRequested.emit(t, mt)
+            )
+            menu.addSeparator()
+
+        remove_action = menu.addAction(f"{_icons.close_icon}  Remove rule")
+        remove_action.setToolTip("Delete this watch-for rule")
+        remove_action.triggered.connect(
+            lambda _=False, rc=rule_created: self.vodRuleRemoveRequested.emit(rc)
+        )
+
+        menu.addSeparator()
+        manage_action = menu.addAction(f"{_icons.manage_icon}  Manage rules…")
+        manage_action.setToolTip("View and manage all watch-for rules")
+        manage_action.triggered.connect(self.manageWatchForClicked.emit)
+
+        menu.exec(self._vod_list.viewport().mapToGlobal(pos))
+
+    def _rule_info_for_created(self, rule_created: str) -> tuple[str, str]:
+        """Return (text, match_type) for the rule identified by rule_created, or ('', 'any')."""
+        rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
+        for rule in rules:
+            if rule.get("created") == rule_created:
+                return rule.get("text", ""), rule.get("match_type", "any")
+        return "", "any"
 
     # ------------------------------------------------------------------
     # Retry helpers
