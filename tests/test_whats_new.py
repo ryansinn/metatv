@@ -88,6 +88,86 @@ def test_whats_new_ids_are_unique():
 
 
 # ---------------------------------------------------------------------------
+# 1b. Directory-loader invariants (package restructure)
+# ---------------------------------------------------------------------------
+
+def test_whats_new_sorted_ascending_by_id():
+    """WHATS_NEW is sorted ascending by id — the loader must normalise discovery order."""
+    ids = [e.id for e in WHATS_NEW]
+    assert ids == sorted(ids), "WHATS_NEW is not sorted ascending by id"
+
+
+def test_latest_id_equals_max_across_entry_files():
+    """latest_id() must equal max(e.id for e in WHATS_NEW) — order-independent."""
+    expected = max(e.id for e in WHATS_NEW)
+    assert latest_id() == expected
+
+
+def test_entries_since_returns_correct_sorted_subset():
+    """entries_since(N) returns exactly entries with id > N, sorted descending."""
+    cutoff = 10
+    result = entries_since(cutoff)
+    expected_ids = sorted({e.id for e in WHATS_NEW if e.id > cutoff}, reverse=True)
+    assert [e.id for e in result] == expected_ids
+
+
+def test_load_is_order_independent(tmp_path, monkeypatch):
+    """Shuffling the discovered module order must produce the same sorted result.
+
+    Simulates the disorder that arises when pkgutil.iter_modules returns files
+    in filesystem order (which varies by OS and merge sequence).
+    """
+    import importlib
+    import pkgutil
+    import random
+
+    # Capture original module infos so we can shuffle them
+    import metatv.whats_new.entries as _entries_pkg
+    all_infos = [
+        mi for mi in pkgutil.iter_modules(_entries_pkg.__path__)
+        if not mi.name.startswith("_")
+    ]
+
+    # Load in shuffled order and collect ENTRY objects
+    shuffled = all_infos[:]
+    random.shuffle(shuffled)
+    loaded = []
+    for mi in shuffled:
+        mod = importlib.import_module(f"metatv.whats_new.entries.{mi.name}")
+        loaded.append(mod.ENTRY)
+
+    # Sorting by id on the shuffled result must equal WHATS_NEW
+    sorted_loaded = sorted(loaded, key=lambda e: e.id)
+    assert sorted_loaded == list(WHATS_NEW), (
+        "Shuffled load + sort does not match WHATS_NEW — loader is order-sensitive"
+    )
+
+
+def test_all_entry_ids_are_contiguous_from_one():
+    """All ids from 1 to latest_id() are present — no gaps from missed files."""
+    ids = {e.id for e in WHATS_NEW}
+    max_id = latest_id()
+    missing = set(range(1, max_id + 1)) - ids
+    assert not missing, f"Entry ids are missing: {sorted(missing)}"
+
+
+def test_entry_files_match_loaded_entries():
+    """Every .py file in entries/ (excluding __init__) corresponds to a loaded ENTRY."""
+    import pkgutil
+    import metatv.whats_new.entries as _entries_pkg
+
+    file_names = {
+        mi.name
+        for mi in pkgutil.iter_modules(_entries_pkg.__path__)
+        if not mi.name.startswith("_")
+    }
+    # There must be exactly one file per entry
+    assert len(file_names) == len(WHATS_NEW), (
+        f"File count ({len(file_names)}) != loaded entry count ({len(WHATS_NEW)})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 2. WhatsNewDialog construction and rendered content
 # ---------------------------------------------------------------------------
 

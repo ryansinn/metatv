@@ -732,7 +732,7 @@ MD5(url) as filename in `~/.cache/metatv/images/`. LRU cleanup at 500MB. Always 
 - Keep files under 1000 lines; one class per file (helper classes excepted)
 - Use `ThreadPoolExecutor` for blocking I/O; use `asyncio` for async providers
 - `QTimer.singleShot(0, ...)` for deferred main-thread execution
-- User-facing changes should append a `WhatsNewEntry` (next `id`) to `metatv/whats_new.py` so the in-app What's New dialog explains the change.
+- User-facing changes must add a **new file** `metatv/whats_new/entries/NNNN_slug.py` (zero-padded id, e.g. `0016_my_feature.py`) with `ENTRY = WhatsNewEntry(...)` — never edit the shared list. Run `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"` to confirm the next id. See `metatv/whats_new/entries/README` for the full format. This zero-conflict pattern replaces the old single-file append.
 
 ## Session Wrap SOP
 

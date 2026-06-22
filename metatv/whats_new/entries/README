@@ -1,0 +1,33 @@
+What's New entry files
+======================
+
+Each user-facing change gets its own file here. Different PRs add different
+files, so parallel branches never conflict on the same list.
+
+Format
+------
+Filename: NNNN_slug.py  (zero-padded 4-digit id, e.g. 0016_my_feature.py)
+Content: a single top-level ENTRY variable:
+
+    from metatv.whats_new import WhatsNewEntry
+
+    ENTRY = WhatsNewEntry(
+        id=16,
+        version="0.8.0",
+        date="2026-06-22",
+        title="My feature",
+        items=(
+            "First bullet point.",
+            "Second bullet point.",
+        ),
+    )
+
+Rules
+-----
+- id must be the next integer after the current maximum (run `python -c
+  "from metatv.whats_new import latest_id; print(latest_id() + 1)"` to
+  confirm).
+- Never edit an existing entry file — changelog entries are immutable.
+- Never append to a shared list — just add the new file.
+- The loader sorts by id, so file discovery order and merge order do not
+  matter.
