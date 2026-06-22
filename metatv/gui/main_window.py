@@ -595,6 +595,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.addWatchForClicked.connect(self._on_add_watch_for)
             section.manageWatchForClicked.connect(self._open_vod_alerts_dialog)
             section.vodAlertClicked.connect(self.show_channel_details_by_id)
+            section.vodRuleViewMatchesRequested.connect(self._on_vod_rule_view_matches)
+            section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
             self.vod_watch_alert_manager.new_matches_found.connect(
                 lambda: self._refresh_vod_alerts_section()
             )
@@ -762,7 +764,33 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
         dlg = ManageVodAlertsDialog(self.config, self)
         dlg.changed.connect(self._refresh_vod_alerts_section)
+        dlg.view_matches_requested.connect(self._on_vod_rule_view_matches)
         dlg.exec()
+
+    def _on_vod_rule_view_matches(self, text: str, match_type: str) -> None:
+        """Populate the main channel list with content matching a VOD watch-for rule.
+
+        Sets the search box to the rule's keyword, switches to the list view, and
+        triggers a channel load.  The existing media-type filter remains unchanged so
+        the user is not surprised by their panel state changing; the keyword alone
+        surfaces the relevant content.
+        """
+        # Set the search text (block signals to avoid double-triggering the debounce)
+        if hasattr(self, "search_input"):
+            self.search_input.blockSignals(True)
+            self.search_input.setText(text)
+            self.search_input.blockSignals(False)
+
+        self._save_search_state()
+        self.switch_to_list_view()
+        self.load_channels()
+
+    def _on_vod_rule_remove(self, rule_created: str) -> None:
+        """Remove a VOD watch-for rule from config and refresh the section."""
+        self.config.remove_vod_watch_alert(rule_created)
+        self.config.save()
+        logger.info("Removed VOD watch-for rule via sidebar context menu: {}", rule_created)
+        self._refresh_vod_alerts_section()
 
     def _prompt_track_from_list(self, channel_name: str) -> None:
         from PyQt6.QtWidgets import QInputDialog
