@@ -131,14 +131,74 @@ class EpisodeRepository:
             self.session.commit()
             logger.info(f"Marked episode as played: {episode.title}")
     
-    def mark_watched(self, episode_id: str, watched: bool = True):
-        """Mark episode as watched/unwatched"""
+    def mark_watched(self, episode_id: str, watched: bool = True) -> bool:
+        """Mark episode as watched/unwatched, setting all watch fields coherently.
+
+        watched=True  → is_watched=True,  watch_completed=True,  watch_percent=100,
+                         watch_progress unchanged (resume point left as-is).
+        watched=False → is_watched=False, watch_completed=False, watch_percent=0,
+                         watch_progress=0  (clear resume point — item is truly unwatched).
+
+        Returns True if the episode was found and updated, False if not found.
+        """
         episode = self.get_by_id(episode_id)
-        if episode:
-            episode.is_watched = watched
+        if episode is None:
+            return False
+        if watched:
+            episode.is_watched = True
+            episode.watch_completed = True
+            episode.watch_percent = 100
+        else:
+            episode.is_watched = False
+            episode.watch_completed = False
+            episode.watch_percent = 0
+            episode.watch_progress = 0
+        episode.updated_at = datetime.now()
+        self.session.commit()
+        logger.info(f"Marked episode {episode.title} as {'watched' if watched else 'unwatched'}")
+        return True
+
+    def mark_watched_bulk(self, episode_ids: "List[str]", watched: bool = True) -> int:
+        """Mark multiple episodes as watched/unwatched atomically.
+
+        Sets all watch fields coherently (same semantics as :meth:`mark_watched`).
+        Commits once for the whole batch.
+
+        Returns the number of episodes actually updated.
+        """
+        if not episode_ids:
+            return 0
+        updated = 0
+        for episode_id in episode_ids:
+            episode = self.get_by_id(episode_id)
+            if episode is None:
+                continue
+            if watched:
+                episode.is_watched = True
+                episode.watch_completed = True
+                episode.watch_percent = 100
+            else:
+                episode.is_watched = False
+                episode.watch_completed = False
+                episode.watch_percent = 0
+                episode.watch_progress = 0
             episode.updated_at = datetime.now()
+            updated += 1
+        if updated:
             self.session.commit()
-            logger.info(f"Marked episode {episode.title} as {'watched' if watched else 'unwatched'}")
+        logger.info(f"Bulk marked {updated} episode(s) as {'watched' if watched else 'unwatched'}")
+        return updated
+
+    def get_watch_state_by_season(self, season_id: str) -> "tuple[int, int]":
+        """Return (total_episodes, completed_episodes) for a season.
+
+        Used to derive the season-level watched indicator without adding a
+        SeasonDB column — the indicator is computed from its episodes.
+        """
+        episodes = self.get_by_season(season_id=season_id)
+        total = len(episodes)
+        completed = sum(1 for ep in episodes if ep.watch_completed)
+        return total, completed
     
     def update_progress(self, episode_id: str, progress_seconds: int):
         """Update watch progress"""
