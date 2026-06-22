@@ -618,6 +618,49 @@ class _FavoritesMixin:
         else:
             self.play_media(channel, open_ended_buffer=True)
 
+    def play_channel_from_beginning_by_id(self, channel_id: str) -> None:
+        """Play channel by ID, forcing playback to start at position 0.
+
+        Overrides the ``config.playback_resume_mode`` setting and any saved resume
+        position for this one play — the resume position in the DB is unchanged.
+        For SERIES channels the normal drill-in is used.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel, start_override=0)
+
+    def play_channel_resume_by_id(self, channel_id: str) -> None:
+        """Play channel by ID, forcing resume from the saved watch_progress position.
+
+        Overrides the ``config.playback_resume_mode`` setting — used when the user
+        explicitly chooses "Resume from M:SS" despite the global "Start from
+        beginning" default.  For SERIES channels the normal drill-in is used.
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
+            self.play_media(channel, start_override=watch_progress)
+
     def diagnose_channel_by_id(self, channel_id: str) -> None:
         """Open the stream-diagnostics dialog for a channel (bottom-nav Diagnose button).
 

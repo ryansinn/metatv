@@ -60,6 +60,9 @@ class ChannelMenuContext:
     user_category: str | None = None
     entry_id: str = ""                # retry surface: identifies the StreamRetryEntry
     channel_found: bool = True        # retry surface: False when lookup returned None
+    watch_progress: int = 0           # saved resume position in seconds (0 = unwatched/completed)
+    watch_completed: bool = False     # True when VOD has been watched to completion
+    playback_resume_mode: str = "resume"  # mirrors config.playback_resume_mode at menu-build time
 
     @property
     def is_single(self) -> bool:
@@ -133,6 +136,28 @@ def _category_label(c: ChannelMenuContext) -> str:
     return "Add to Category…"
 
 
+def _fmt_seconds(seconds: int) -> str:
+    """Format seconds as M:SS for use in resume labels."""
+    m, s = divmod(seconds, 60)
+    return f"{m}:{s:02d}"
+
+
+def _resume_from_label(c: ChannelMenuContext) -> str:
+    return f"Resume from {_fmt_seconds(c.watch_progress)}"
+
+
+def _is_resumable_vod(c: ChannelMenuContext) -> bool:
+    """True when the item is a non-live VOD with saved, incomplete progress."""
+    return (
+        c.is_single
+        and c.channel_found
+        and not c.is_hidden
+        and c.media_type in ("movie",)
+        and c.watch_progress > 0
+        and not c.watch_completed
+    )
+
+
 def _bulk_category_label(c: ChannelMenuContext) -> str:
     n = len(c.channel_ids)
     s = "s" if n != 1 else ""
@@ -164,6 +189,30 @@ ACTIONS: dict[str, ChannelAction] = {
             "(disk-backed, up to 2 GiB). Useful for riding out an unstable stream."
         ),
         applies=lambda c: c.is_single and c.channel_found,
+    ),
+    # ── Resume-position overrides ────────────────────────────────────────────
+    "play_from_beginning": ChannelAction(
+        id="play_from_beginning",
+        label=lambda c: "Play from Beginning",
+        icon=_icons.play_from_beginning_icon,
+        tooltip=(
+            "Start playback from the beginning, ignoring the saved resume position.\n"
+            "Your resume position is preserved — this is a one-time override."
+        ),
+        applies=_is_resumable_vod,
+    ),
+    "resume_from": ChannelAction(
+        id="resume_from",
+        label=_resume_from_label,
+        icon=_icons.resume_from_icon,
+        tooltip=(
+            "Resume from your saved position — overrides the 'Start from beginning' default\n"
+            "for this one play."
+        ),
+        applies=lambda c: (
+            _is_resumable_vod(c)
+            and c.playback_resume_mode == "beginning"
+        ),
     ),
     "favorite": ChannelAction(
         id="favorite",
@@ -412,6 +461,7 @@ ACTIONS: dict[str, ChannelAction] = {
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
         "play", "play_new_window", "play_open_ended_buffer",
+        "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",
@@ -434,6 +484,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     ],
     "history": [
         "play", "play_new_window", "play_open_ended_buffer",
+        "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",
@@ -445,6 +496,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     ],
     "favorites": [
         "play", "play_new_window", "play_open_ended_buffer",
+        "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",
@@ -456,6 +508,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     ],
     "queue": [
         "play", "play_new_window",
+        "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",
@@ -469,6 +522,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     ],
     "recommended": [
         "play", "play_new_window",
+        "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",

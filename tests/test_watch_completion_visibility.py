@@ -73,6 +73,7 @@ class _FakeThresholdConfig:
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
+        self.playback_resume_mode = "resume"
         self.watch_complete_threshold = threshold
         self.watch_partial_threshold = partial_threshold
         self.close_player_when_finished = False
@@ -119,6 +120,9 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()
+    dlg._resume_mode_combo = QComboBox()
+    dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
+    dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)

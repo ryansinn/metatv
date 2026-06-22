@@ -263,6 +263,7 @@ class _StreamingMixin:
         channel,
         force_new_window: bool = False,
         open_ended_buffer: bool = False,
+        start_override: int | None = None,
     ):
         """Play a media item (live stream or movie) in external player.
 
@@ -280,6 +281,10 @@ class _StreamingMixin:
                 cache (up to 2 GiB, 3600 s readahead) instead of the configured
                 bounded buffer profile.  Use this to build a big buffer lead to
                 ride out an unstable stream.
+            start_override: When set, forces the seek position regardless of
+                ``config.playback_resume_mode`` and the channel's saved progress.
+                ``0`` forces start from the beginning; a positive int forces resume
+                to that specific second.  ``None`` means "use the setting default".
         """
         channel_id = channel.id
 
@@ -319,13 +324,23 @@ class _StreamingMixin:
         logger.info(f"Stream URL: {channel.stream_url}")
         logger.info(f"Player: {self.player_manager.get_player_name()}")
 
-        # Determine resume position: only for non-live VOD with saved progress
-        # that hasn't been completed yet.
+        # Determine resume position.
+        # Priority: start_override (explicit per-play) > config.playback_resume_mode > no-resume.
+        # Live channels, already-completed VOD, and unwatched VOD always start at 0.
         from metatv.core.models import MediaType
         is_live = (channel.media_type == MediaType.LIVE)
         watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
         watch_completed = bool(getattr(channel, "watch_completed", False))
-        start_seconds = watch_progress if (not is_live and watch_progress > 0 and not watch_completed) else 0
+
+        if start_override is not None:
+            # Explicit per-play override wins unconditionally (but still 0 for live).
+            start_seconds = start_override if not is_live else 0
+        elif not is_live and watch_progress > 0 and not watch_completed:
+            # VOD with saved, incomplete progress: apply the user's default mode.
+            resume_mode = getattr(self.config, "playback_resume_mode", "resume")
+            start_seconds = watch_progress if resume_mode == "resume" else 0
+        else:
+            start_seconds = 0
 
         # Off-load network validation + failover to the shared executor.
         # _on_stream_ready (connected in MainWindow.__init__) fires on the main thread.

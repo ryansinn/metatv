@@ -113,6 +113,8 @@ def _make_streaming_host():
     host.player_manager = MagicMock()
     host.player_manager.is_available.return_value = True
     host.executor = MagicMock()
+    host.config = MagicMock()
+    host.config.playback_resume_mode = "resume"
     return host
 
 

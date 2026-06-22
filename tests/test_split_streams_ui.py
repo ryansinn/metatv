@@ -306,6 +306,7 @@ class _FakeDlgConfig:
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
+        self.playback_resume_mode = "resume"
         self.watch_complete_threshold = 0.9
         self.watch_partial_threshold = 0.10
         self.close_player_when_finished = False
@@ -354,6 +355,9 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()
+    dlg._resume_mode_combo = QComboBox()
+    dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
+    dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
     dlg._prompt_after_autoplay_check = QCheckBox()
 
     # Watch-completion threshold (Slice 2)

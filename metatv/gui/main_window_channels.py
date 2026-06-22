@@ -778,6 +778,12 @@ class _ChannelListMixin:
                         user_category=channel.user_category,
                         entry_id=entry_id,
                         channel_found=True,
+                        watch_progress=int(
+                            getattr(channel, "watch_progress", 0) or 0
+                        ),
+                        watch_completed=bool(
+                            getattr(channel, "watch_completed", False)
+                        ),
                     )
                 else:
                     # retry surface with no matching channel row
@@ -808,6 +814,7 @@ class _ChannelListMixin:
             ctx.is_watched = cid in self.config.epg_watchlist_channels
             _is_mon = getattr(self.config, "is_series_monitored", None)
             ctx.is_series_monitored = bool(_is_mon(cid)) if callable(_is_mon) else False
+        ctx.playback_resume_mode = getattr(self.config, "playback_resume_mode", "resume")
 
         surface = ctx.surface
         if surface == "favorites":
@@ -866,6 +873,8 @@ class _ChannelListMixin:
             "play": play_fn,
             "play_new_window": lambda: self.play_channel_new_window_by_id(cid),
             "play_open_ended_buffer": lambda: self.play_channel_open_ended_buffer_by_id(cid),
+            "play_from_beginning": lambda: self.play_channel_from_beginning_by_id(cid),
+            "resume_from": lambda: self.play_channel_resume_by_id(cid),
             "favorite": lambda: self._toggle_favorite_by_id(
                 cid, not ctx.is_favorite
             ),

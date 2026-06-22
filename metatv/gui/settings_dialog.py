@@ -80,6 +80,20 @@ class SettingsDialog(QDialog):
         self._autoplay_check = QCheckBox("Autoplay next episode when playing from a season")
         player_form.addRow("", self._autoplay_check)
 
+        self._resume_mode_combo = QComboBox()
+        self._resume_mode_combo.addItem("Resume where left off", userData="resume")
+        self._resume_mode_combo.addItem("Start from beginning", userData="beginning")
+        self._resume_mode_combo.setToolTip(
+            "What to do when you play a movie you've already started.\n"
+            "\n"
+            "• Resume where left off — pick up from your saved position (default).\n"
+            "• Start from beginning — always start at the beginning.\n"
+            "\n"
+            "Right-click any movie in the channel list for a one-time override\n"
+            "('Play from Beginning' or 'Resume from M:SS') without changing this setting."
+        )
+        player_form.addRow("When starting playback:", self._resume_mode_combo)
+
         self._prompt_after_autoplay_check = QCheckBox(
             "Ask \"Still here?\" after auto-advancing through episodes"
         )
@@ -401,6 +415,13 @@ class SettingsDialog(QDialog):
         self._player_mode_combo.setCurrentIndex(mode_idx)
 
         self._autoplay_check.setChecked(c.autoplay_season_episodes)
+
+        resume_mode = getattr(c, "playback_resume_mode", "resume")
+        resume_idx = self._resume_mode_combo.findData(resume_mode)
+        self._resume_mode_combo.setCurrentIndex(
+            resume_idx if resume_idx >= 0 else self._resume_mode_combo.findData("resume")
+        )
+
         self._prompt_after_autoplay_check.blockSignals(True)
         self._prompt_after_autoplay_check.setChecked(
             getattr(c, "prompt_after_autoplay", True)
@@ -474,6 +495,7 @@ class SettingsDialog(QDialog):
             else "multiple-instances"
         )
         c.autoplay_season_episodes = self._autoplay_check.isChecked()
+        c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
         c.prompt_after_autoplay = self._prompt_after_autoplay_check.isChecked()
         c.watch_complete_threshold = self._watch_threshold_spin.value() / 100.0
         c.watch_partial_threshold = self._watch_partial_spin.value() / 100.0

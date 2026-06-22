@@ -41,6 +41,7 @@ class _FakeConfig:
         self.preferred_player = "mpv"
         self.player_mode = "single-instance"
         self.autoplay_season_episodes = False
+        self.playback_resume_mode = "resume"
         self.watch_complete_threshold = watch_complete_threshold
         self.watch_partial_threshold = watch_partial_threshold
         self.close_player_when_finished = False
@@ -87,6 +88,12 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = _bool_check(qapp)
+
+    # Resume mode combo (playback_resume_mode — "resume" | "beginning")
+    dlg._resume_mode_combo = QComboBox()
+    dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
+    dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
+
     dlg._prompt_after_autoplay_check = _bool_check(qapp)
 
     # Watch-completion threshold spinner (Slice 2)
