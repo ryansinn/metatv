@@ -46,6 +46,7 @@ refresh_icon: str = "⟳"
 settings_icon: str = "⚙"
 search_icon: str = "🔍"
 filter_icon: str = "⚡"
+filter_only_icon: str = "◎"   # U+25CE BULLSEYE — "show only this group" affordance
 hide_icon: str = "🚫"
 pin_icon: str = "📌"
 manage_icon: str = "⚙"

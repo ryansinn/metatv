@@ -229,9 +229,10 @@ class FilterPanel(QWidget):
         scroll.setWidget(sc)
         outer.addWidget(scroll, 1)
 
-        # Wire right-click signals from all sections
+        # Wire right-click and "Only" button signals from all sections
         for sec in self._all_sections():
             sec.item_right_clicked.connect(self._on_item_right_clicked)
+            sec.item_only_requested.connect(self._on_item_only_requested)
             # collapse_toggled saves state but does NOT emit filter_changed
             sec.collapse_toggled.connect(self._on_collapse_toggled)
 
@@ -261,19 +262,27 @@ class FilterPanel(QWidget):
         # Build the startup fallback: config_attr → persisted set of keys.
         # Uses the same (config_attr, section) mapping as restore_state() so there
         # is exactly one place that knows the attr names.
-        _persisted: dict[object, set[str]] = {
-            sec: set(getattr(self.config, attr, []) or [])
+        # None means "never configured" → leave section at all-selected default.
+        # [] means "explicitly none" → restore to none-selected.
+        _persisted_raw: dict[object, list | None] = {
+            sec: getattr(self.config, attr, None)
             for attr, sec in self._persisted_section_attrs()
         }
 
         def _restore(sec: object, prev: set[str]) -> None:
-            """Apply selection: in-memory prev if present, else persisted startup value."""
+            """Apply selection: in-memory prev if present, else persisted startup value.
+
+            Sentinel semantics for the persisted value:
+              None → never configured; skip (leave section at all-selected default).
+              []   → explicitly none; call restore_selection(set()) → uncheck all.
+              [..] → restore those specific keys.
+            """
             if prev:
                 sec.restore_selection(prev)
             else:
-                fallback = _persisted.get(sec)
-                if fallback:
-                    sec.restore_selection(fallback)
+                saved = _persisted_raw.get(sec)
+                if saved is not None:
+                    sec.restore_selection(set(saved))
 
         # ── Media — update counts only (items are static)
 
@@ -343,12 +352,12 @@ class FilterPanel(QWidget):
         if prev_genre:
             self._genre_sec.restore_selection(prev_genre)
         else:
-            persisted_genre = _persisted.get(self._genre_sec)
-            if persisted_genre:
-                # Startup: apply saved genre selection
-                self._genre_sec.restore_selection(persisted_genre)
+            persisted_genre = _persisted_raw.get(self._genre_sec)
+            if persisted_genre is not None:
+                # Startup: apply saved genre selection ([] = none, [..] = subset)
+                self._genre_sec.restore_selection(set(persisted_genre))
             else:
-                # Fresh install / no saved selection: show everything
+                # Fresh install / no saved selection (None): show everything
                 self._genre_sec.select_all()
 
         # ── Unidentified — individual prefix codes, sorted by count
@@ -515,6 +524,27 @@ class FilterPanel(QWidget):
         self.save_state()
         self.filter_changed.emit()
 
+    def select_only_group(self, item_key: str, section_key: str) -> None:
+        """Panel-wide "Only" action — clear all sections, then select one group.
+
+        Clears every group in EVERY facet section (calls select_none on all),
+        then selects only the target group in its section, then emits
+        filter_changed exactly once.  This is the back-end of the per-row
+        "Only" button added in filter_group_row.py.
+        """
+        self._restoring = True
+        try:
+            for sec in self._all_sections():
+                sec.select_none()
+            for sec in self._all_sections():
+                if sec.section_key() == section_key:
+                    sec.select_only_group(item_key)
+                    break
+        finally:
+            self._restoring = False
+        self.save_state()
+        self.filter_changed.emit()
+
     def select_only_genre(self, genre: str) -> None:
         """Filter to a single genre — called when the user clicks a genre chip in the details pane.
 
@@ -556,8 +586,10 @@ class FilterPanel(QWidget):
         self._restoring = True
         try:
             for attr, sec in self._persisted_section_attrs():
-                saved = getattr(self.config, attr, [])
-                if saved:
+                saved = getattr(self.config, attr, None)
+                # None = never configured → skip (leave at all-selected default).
+                # [] = explicitly none → restore_selection(set()) unchecks all.
+                if saved is not None:
                     sec.restore_selection(set(saved))
 
             # Restore media chips
@@ -604,6 +636,10 @@ class FilterPanel(QWidget):
         line.setStyleSheet(f"background:{_theme.COLOR_LINE_DARK}; border:none;")
         self._sl.addWidget(line)
 
+    def _on_item_only_requested(self, item_key: str, section_key: str) -> None:
+        """Slot for the per-row 'Only' button — delegates to select_only_group."""
+        self.select_only_group(item_key, section_key)
+
     def _on_collapse_toggled(self):
         """Save collapse state when a section header is toggled — no filter reload."""
         if not self._restoring:
@@ -630,6 +666,10 @@ class FilterPanel(QWidget):
             f"QMenu {{ background:{_theme.COLOR_LINE_DARK}; color:{_theme.COLOR_TEXT}; border:1px solid {_theme.COLOR_BORDER}; }}"
             f"QMenu::item:selected {{ background:{_theme.COLOR_BORDER}; }}"
         )
+
+        only_act = menu.addAction(f"Only '{item_key}'")
+        only_act.setToolTip("Show only this group — clears all other filters")
+        only_act.triggered.connect(lambda: self.select_only_group(item_key, section_key))
 
         solo_act = menu.addAction(f"Check only '{item_key}'")
         solo_act.triggered.connect(lambda: self._check_only(item_key, section_key))

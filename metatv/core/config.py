@@ -690,11 +690,15 @@ class Config(BaseModel):
     user_platform_overrides: dict = Field(default_factory=dict)
     # Extra separator strings the user has added beyond the built-in set.
     user_extra_separators: list = Field(default_factory=list)
-    filter_included_languages: list = Field(default_factory=list)  # Empty = all included
-    filter_included_regions: list = Field(default_factory=list)    # Empty = all included
-    filter_included_qualities: list = Field(default_factory=list)  # Empty = all included
-    filter_included_platforms: list = Field(default_factory=list)  # Empty = all included
-    filter_included_genres: list = Field(default_factory=list)     # Empty = all included
+    # None = never configured (restore → leave section at all-checked default).
+    # []   = explicitly none (restore → uncheck all — "Only" action can produce this).
+    # [items] = restore exactly those items.
+    # Legacy [] loaded from pre-sentinel configs is migrated to None in model_post_init.
+    filter_included_languages: Optional[list] = None
+    filter_included_regions: Optional[list] = None
+    filter_included_qualities: Optional[list] = None
+    filter_included_platforms: Optional[list] = None
+    filter_included_genres: Optional[list] = None
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
@@ -999,10 +1003,26 @@ class Config(BaseModel):
             self.save()
 
     def model_post_init(self, __context):
-        """Initialize database_url if not set"""
+        """Initialize database_url if not set, and migrate legacy filter_included_* fields."""
         if not self.database_url:
             db_path = self.data_dir / "metatv.db"
             self.database_url = f"sqlite:///{db_path}"
+        # Migrate legacy filter_included_* empty-list values to None.
+        # Before the None-sentinel was introduced, [] meant "never configured" (the
+        # restore path treated [] as all-selected).  No user could have intentionally
+        # written [] to mean "none selected" because that behaviour didn't exist yet.
+        # Treat any [] read from a pre-sentinel config file as None (never configured)
+        # so existing users see the default all-selected restore instead of none-selected.
+        if self.filter_included_languages == []:
+            self.filter_included_languages = None
+        if self.filter_included_regions == []:
+            self.filter_included_regions = None
+        if self.filter_included_qualities == []:
+            self.filter_included_qualities = None
+        if self.filter_included_platforms == []:
+            self.filter_included_platforms = None
+        if self.filter_included_genres == []:
+            self.filter_included_genres = None
 
     class Config:
         arbitrary_types_allowed = True

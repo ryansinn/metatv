@@ -237,6 +237,12 @@ PANEL_BTN = (
     " border-radius:3px; padding:0 7px; font-size:" + FONT_MD + "; }"
     "QPushButton:hover { background:" + COLOR_BORDER + "; color:" + COLOR_TEXT_2 + "; }"
 )
+# Compact inline "Only" link-button for filter group rows
+FILTER_ONLY_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED_2 + ";"
+    " font-size: " + FONT_SM + "; padding: 0 2px; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
+)
 # Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
 FLAT_NAV_BTN = (
     "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
