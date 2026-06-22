@@ -337,6 +337,14 @@ ACTIONS: dict[str, ChannelAction] = {
         tooltip="Hide this show title from the EPG On Now view",
         applies=lambda c: True,
     ),
+    # ── Multi-select play ───────────────────────────────────────────────────
+    "play_all": ChannelAction(
+        id="play_all",
+        label=lambda c: f"Play All ({len(c.channel_ids)})",
+        icon=_icons.play_all_icon,
+        tooltip="Play first selected item, queue the rest in selection order",
+        applies=lambda c: c.is_multi,
+    ),
     # ── Multi-select (channel surface only) ─────────────────────────────────
     "quickpick_trash": ChannelAction(
         id="quickpick_trash",
@@ -388,6 +396,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "category",
         # Multi-select extras (applies = is_multi; single-select actions apply = is_single)
+        "sep",
+        "play_all",
         "sep",
         "quickpick_trash", "quickpick_watch_later", "quickpick_explore",
         "sep",

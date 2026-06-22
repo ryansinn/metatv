@@ -13,6 +13,7 @@ via ``self``/MRO at runtime, so the split is behaviour-preserving.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
@@ -27,6 +28,29 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 import re
+
+
+@dataclass(frozen=True)
+class _PlayAllItem:
+    """Generic play-all queue item — carries exactly what the player needs.
+
+    Used by :meth:`_SeriesMixin._play_all_items` to represent a channel or episode
+    in an arbitrary Play-All selection, with no live ORM state.
+
+    Attributes:
+        stream_url: Direct playback URL.
+        title:      Display title for the mpv window / notification.
+        content_id: DB id used to register the item in ``_watch_tracking``.
+        provider_id: Source provider — threaded to ``player_manager`` for
+            Split-Streams instance keying.
+        media_type: ``"episode"`` or ``"movie"`` / ``"live"`` — controls which
+            repository write path watch-progress capture uses.
+    """
+    stream_url: str
+    title: str
+    content_id: str
+    provider_id: str
+    media_type: str = "live"   # most channels are live; callers override for episodes/movies
 
 _SXXEXX = re.compile(r'[-–\s]+S(\d{1,3})E(\d{1,4})[-–\s]*(.*)$', re.IGNORECASE)
 
@@ -501,6 +525,79 @@ class _SeriesMixin:
             provider_id=episode.provider_id,
         )
 
+    def _play_all_items(self, items: "list[_PlayAllItem]") -> None:
+        """Play the first item and queue the rest — generalized Play-All helper.
+
+        This is the single implementation of "play first + queue the rest" shared
+        by both the channel-list multi-select action and the episode-tree multi-select
+        action.  The episode ``autoplay_season_episodes`` path in
+        :meth:`play_episode` uses the same ``_watch_tracking`` queue shape and the
+        same ``launch_player_for_episode`` launcher so that watch-progress capture
+        (Slice 3b-1) correctly follows mpv's playlist position for all queued items.
+
+        Single-item list: plays normally (no queue registered).
+
+        Args:
+            items: Ordered list of :class:`_PlayAllItem` instances.  The first is
+                played immediately; the rest are appended to mpv's playlist.
+                Items without a ``stream_url`` are silently skipped.
+        """
+        if not items:
+            return
+
+        # Filter items with no stream URL before indexing.
+        playable = [it for it in items if it.stream_url]
+        if not playable:
+            self.status_bar.showMessage("No playable URLs in selection")
+            return
+
+        first = playable[0]
+        rest = playable[1:]
+
+        logger.info(
+            f"Play All: playing {first.title!r}, queuing {len(rest)} item(s)"
+        )
+
+        # Register watch-tracking BEFORE launching so the checkpoint timer starts
+        # immediately — same pattern as play_episode.
+        if not hasattr(self, "_watch_tracking"):
+            self._watch_tracking = {}
+        _watch_key = self.player_manager.resolve_key(first.provider_id)
+        if rest:
+            # Multi-item queue: the _bg_capture_watch queued-branch follows
+            # playlist-pos and writes progress against the *current* item.
+            _queue = [{"content_id": first.content_id}] + [
+                {"content_id": it.content_id} for it in rest
+            ]
+            self._watch_tracking[_watch_key] = {
+                "media_type": first.media_type,
+                "played_via": "manual",
+                "queue": _queue,
+                "last_seen_pos": 0,
+            }
+        else:
+            # Single-item selection: flat dict (same as play_episode single-ep branch).
+            self._watch_tracking[_watch_key] = {
+                "content_id": first.content_id,
+                "media_type": first.media_type,
+                "played_via": "manual",
+            }
+        self._start_watch_capture()
+
+        # Update UI sidebar lists so history reflects the play immediately.
+        self.load_history()
+        self.load_favorites()
+
+        # Delegate the actual launch to the existing episode launcher which already
+        # handles pre-flight URL validation, the "Loading" notification, Split-Streams
+        # keying, and the playback-health readout.  The queue_episodes list is typed
+        # as EpisodeDTOs in the launcher's signature but _do_launch_episode only reads
+        # .stream_url and .title — any object with those attributes works.
+        self.launch_player_for_episode(
+            first.stream_url, first.title, rest,
+            provider_id=first.provider_id,
+        )
+
     def launch_player_for_episode(self, stream_url, title, queue_episodes=None, provider_id: str = ""):
         """Launch media player for an episode and queue subsequent episodes.
 
@@ -673,8 +770,22 @@ class _SeriesMixin:
             menu.addAction(mark_action)
 
             if len(selected_episode_items) == 1:
-                # Single selection — also offer Play.
+                # Single selection — offer Play at the top.
                 menu.insertAction(mark_action, self._make_play_episode_action(menu, episode))
+                menu.insertSeparator(mark_action)
+            else:
+                # Multi-select: offer Play All Selected above the mark action.
+                n = len(selected_episode_items)
+                play_all_action = QAction(
+                    f"{_icons.play_all_icon} Play All Selected ({n})", self
+                )
+                play_all_action.setToolTip(
+                    "Play first selected episode, queue the rest in tree order"
+                )
+                play_all_action.triggered.connect(
+                    lambda: self._play_all_selected_episodes(selected_episode_items)
+                )
+                menu.insertAction(mark_action, play_all_action)
                 menu.insertSeparator(mark_action)
 
         elif data["type"] == "season":
@@ -721,6 +832,38 @@ class _SeriesMixin:
         play_action = QAction(f"{_icons.play_icon} Play Episode", parent_menu)
         play_action.triggered.connect(lambda: self.play_episode(episode))
         return play_action
+
+    def _play_all_selected_episodes(
+        self,
+        episode_items: "list[QTreeWidgetItem]",
+    ) -> None:
+        """Play all selected episode tree items via :meth:`_play_all_items`.
+
+        Converts the selected ``QTreeWidgetItem`` list (in tree order as returned
+        by ``selectedItems()``) to :class:`_PlayAllItem` values and delegates to
+        the generic helper.  Items whose ``EpisodeDTO`` has no ``stream_url`` are
+        skipped silently.
+
+        Args:
+            episode_items: Selected episode tree-widget items.  Each must carry a
+                ``UserRole`` dict ``{"type": "episode", "data": EpisodeDTO}``.
+        """
+        play_items: list[_PlayAllItem] = []
+        for tree_item in episode_items:
+            d = tree_item.data(0, Qt.ItemDataRole.UserRole)
+            if not d or d.get("type") != "episode":
+                continue
+            ep: EpisodeDTO = d["data"]
+            if not ep.stream_url:
+                continue
+            play_items.append(_PlayAllItem(
+                stream_url=ep.stream_url,
+                title=ep.title or f"Episode {ep.episode_num}",
+                content_id=ep.id,
+                provider_id=ep.provider_id,
+                media_type="episode",
+            ))
+        self._play_all_items(play_items)
 
     def toggle_episode_watched(self, episode: "EpisodeDTO") -> None:
         """Toggle a single episode's watched status.
