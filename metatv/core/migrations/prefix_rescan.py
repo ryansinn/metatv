@@ -83,7 +83,7 @@ class PrefixRescanTask:
             is_cancelled: Returns True when the manager has been asked to stop.
         """
         logger.info(
-            "PrefixRescanTask: starting (stored_version=%s, current=%s)",
+            "PrefixRescanTask: starting (stored_version={}, current={})",
             0, CURRENT_PREFIX_SCAN_VERSION,
         )
         from metatv.core.repositories import RepositoryFactory
@@ -108,6 +108,6 @@ class PrefixRescanTask:
         config.prefix_parse_version = _LEGACY_PREFIX_PARSE_VERSION
         config.save()
         logger.debug(
-            "PrefixRescanTask: bumped prefix_detector_version=%s, prefix_parse_version=%s",
+            "PrefixRescanTask: bumped prefix_detector_version={}, prefix_parse_version={}",
             CURRENT_PREFIX_SCAN_VERSION, _LEGACY_PREFIX_PARSE_VERSION,
         )
