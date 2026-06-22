@@ -23,6 +23,18 @@ RECONNECT_FLAG = "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_del
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"
 
+# Open-ended disk-backed cache flags — single source of truth shared by
+# _buffer_profile_args('open_ended') and _compose_open_ended_buffer_args().
+# Buffers as far ahead as the stream allows, up to a 2 GiB disk-backed cap
+# and a 3600-second readahead window.  Used both as a persistent default
+# profile and as the per-play relaunch args for the per-play action.
+_OPEN_ENDED_BUFFER_ARGS: list[str] = [
+    "--cache=yes",
+    "--cache-on-disk=yes",
+    "--demuxer-readahead-secs=3600",
+    "--demuxer-max-bytes=2GiB",
+]
+
 
 @dataclass
 class _Inst:
@@ -712,8 +724,9 @@ class MPVPlayer(PlayerPlugin):
         """Return mpv buffer flags for the given profile name.
 
         Args:
-            profile: One of ``"reconnect_only"``, ``"modest"``, or ``"large"``.
-                     Any unknown value is treated as ``"modest"`` (safe default).
+            profile: One of ``"reconnect_only"``, ``"modest"``, ``"large"``, or
+                     ``"open_ended"``.  Any unknown value is treated as ``"modest"``
+                     (safe default).
 
         Returns:
             List of mpv argument strings for the requested buffer profile.
@@ -722,6 +735,9 @@ class MPVPlayer(PlayerPlugin):
             return []
         if profile == "large":
             return ["--cache=yes", "--cache-secs=30", "--demuxer-readahead-secs=30"]
+        if profile == "open_ended":
+            # Reuse the shared constant — identical to _compose_open_ended_buffer_args.
+            return list(_OPEN_ENDED_BUFFER_ARGS)
         # "modest" is the default; unknown values fall back here rather than crashing.
         return ["--cache=yes", "--cache-secs=10", "--demuxer-readahead-secs=20"]
 
@@ -865,11 +881,8 @@ class MPVPlayer(PlayerPlugin):
             return user_args
 
         base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
-        buffer_args = [
-            "--cache=yes",
-            "--cache-on-disk=yes",
-            "--demuxer-readahead-secs=3600",
-            "--demuxer-max-bytes=2GiB",
-        ]
+        # Reuse the module-level constant — single source of truth shared with
+        # _buffer_profile_args('open_ended') so both paths always match.
+        buffer_args = list(_OPEN_ENDED_BUFFER_ARGS)
 
         return base_args + buffer_args + user_args

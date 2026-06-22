@@ -136,12 +136,17 @@ class SettingsDialog(QDialog):
         self._buffer_combo.addItem("Reconnect only (no extra buffer)", userData="reconnect_only")
         self._buffer_combo.addItem("Modest (~10s buffer)", userData="modest")
         self._buffer_combo.addItem("Large (~30s buffer)", userData="large")
+        self._buffer_combo.addItem("Open-ended (disk-backed, max buffer)", userData="open_ended")
         self._buffer_combo.setToolTip(
             "Controls how much media mpv buffers ahead while playing.\n"
             "\n"
             "• Reconnect only — no extra buffer; lowest memory use.\n"
             "• Modest (~10s) — default; absorbs brief network hiccups.\n"
             "• Large (~30s) — useful on congested or high-latency links.\n"
+            "• Open-ended — buffers as far ahead as the stream allows\n"
+            "  (disk-backed, up to 2 GiB / 1 hour); best for unstable\n"
+            "  streams or when you want the maximum lead time. Uses more\n"
+            "  disk space while playing.\n"
             "\n"
             "Auto-reconnect is always on regardless of this setting."
         )

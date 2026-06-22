@@ -646,7 +646,7 @@ class Config(BaseModel):
     
     # Playback settings
     default_cache_size: str = "auto"  # "auto" or size like "50M", "100M"
-    buffer_profile: str = "modest"  # "reconnect_only" | "modest" | "large" — default buffer when default_cache_size is "auto"
+    buffer_profile: str = "modest"  # "reconnect_only" | "modest" | "large" | "open_ended" — default buffer when default_cache_size is "auto"
     prebuffer_before_play: bool = False  # pause at startup until the cache pre-fills (mpv --cache-pause-initial)
     prebuffer_wait_secs: int = 10        # seconds of cache to buffer before unpausing (--cache-pause-wait)
     mpv_args_override_all: bool = False  # when True, _compose_extra_args returns ONLY mpv_extra_args (skips UA/reconnect/buffer/prebuffer)

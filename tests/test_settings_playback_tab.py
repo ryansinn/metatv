@@ -113,6 +113,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._buffer_combo.addItem("Reconnect only (no extra buffer)", userData="reconnect_only")
     dlg._buffer_combo.addItem("Modest (~10s buffer)", userData="modest")
     dlg._buffer_combo.addItem("Large (~30s buffer)", userData="large")
+    dlg._buffer_combo.addItem("Open-ended (disk-backed, max buffer)", userData="open_ended")
 
     # HTTP User-Agent read-only display
     dlg._user_agent_view = QLineEdit()
@@ -379,3 +380,59 @@ def test_save_all_three_new_fields_together(qapp):
     assert cfg.prebuffer_before_play is True
     assert cfg.prebuffer_wait_secs == 20
     assert cfg.mpv_args_override_all is True
+
+
+# --------------------------------------------------------------------------- #
+# open_ended profile: load → select; save → persist; existing profiles intact  #
+# --------------------------------------------------------------------------- #
+
+def test_load_sets_buffer_combo_to_open_ended(qapp):
+    """Config with buffer_profile='open_ended' must select the 'open_ended' combo item."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig(buffer_profile="open_ended")
+    dlg._load_values()
+
+    assert dlg._buffer_combo.currentData() == "open_ended"
+
+
+def test_save_open_ended_profile(qapp):
+    """Selecting 'open_ended' and saving must write buffer_profile='open_ended' to config."""
+    dlg = _bare_dialog(qapp)
+    cfg = _FakeConfig(buffer_profile="modest")
+    dlg.config = cfg
+    dlg._load_values()
+
+    idx = dlg._buffer_combo.findData("open_ended")
+    assert idx >= 0, "'open_ended' item must be present in the combo"
+    dlg._buffer_combo.setCurrentIndex(idx)
+    dlg._save_values()
+
+    assert cfg.buffer_profile == "open_ended"
+    assert cfg.default_cache_size == "auto"
+    assert cfg.save_calls == 1
+
+
+def test_buffer_combo_contains_open_ended_item(qapp):
+    """The buffer combo must list 'open_ended' as a selectable item."""
+    dlg = _bare_dialog(qapp)
+    dlg.config = _FakeConfig()
+    dlg._load_values()
+
+    idx = dlg._buffer_combo.findData("open_ended")
+    assert idx >= 0, "open_ended must be findable by userData in the combo"
+
+
+def test_existing_profiles_unaffected_by_open_ended_addition(qapp):
+    """reconnect_only, modest, and large profiles must still round-trip correctly."""
+    for profile in ("reconnect_only", "modest", "large"):
+        dlg = _bare_dialog(qapp)
+        cfg = _FakeConfig(buffer_profile=profile)
+        dlg.config = cfg
+        dlg._load_values()
+        assert dlg._buffer_combo.currentData() == profile, (
+            f"profile '{profile}' not selected correctly after load"
+        )
+        dlg._save_values()
+        assert cfg.buffer_profile == profile, (
+            f"profile '{profile}' not written correctly after save"
+        )
