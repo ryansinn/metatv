@@ -51,6 +51,7 @@ class DetailsPaneWidget(QWidget):
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
+    poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
 
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
@@ -203,6 +204,9 @@ class DetailsPaneWidget(QWidget):
 
     def _connect_sections(self) -> None:
         """Wire internal section signals to public DetailsPaneWidget signals."""
+        # Poster lightbox
+        self._poster.poster_enlarged.connect(self.poster_enlarged)
+
         # Version chips
         v = self._versions
         v.version_selected.connect(self.version_selected)

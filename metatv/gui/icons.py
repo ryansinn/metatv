@@ -90,6 +90,9 @@ events_icon: str = "📡"         # EPG Events tab (platform-event / scheduled f
 # Discover zoom slider
 zoom_icon: str = "⊞"   # card-resize affordance in the Discover header bar
 
+# Poster lightbox
+zoom_poster_icon: str = "⤢"   # U+2922 — diagonal arrow; "click to enlarge" affordance
+
 # What's New
 whats_new_icon: str = "✦"   # U+2726 BLACK FOUR POINTED STAR — monochrome, menu + dialog header
 bullet_icon: str = "•"       # U+2022 BULLET — used in What's New item lists

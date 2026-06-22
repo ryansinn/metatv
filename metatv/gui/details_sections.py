@@ -37,6 +37,43 @@ class _ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class _PosterLabel(QLabel):
+    """QLabel that emits ``poster_clicked`` when the user left-clicks a loaded poster."""
+
+    poster_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._has_pixmap: bool = False
+
+    def setPixmap(self, pixmap: QPixmap) -> None:  # type: ignore[override]
+        super().setPixmap(pixmap)
+        self._has_pixmap = not (pixmap is None or pixmap.isNull())
+        self._update_cursor()
+
+    def clear(self) -> None:
+        super().clear()
+        self._has_pixmap = False
+        self._update_cursor()
+
+    def setText(self, text: str) -> None:  # type: ignore[override]
+        super().setText(text)
+        # Clearing the image via text also clears the pixmap state
+        self._has_pixmap = False
+        self._update_cursor()
+
+    def _update_cursor(self) -> None:
+        if self._has_pixmap:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
+
+    def mousePressEvent(self, event) -> None:
+        if self._has_pixmap and event.button() == Qt.MouseButton.LeftButton:
+            self.poster_clicked.emit()
+        super().mousePressEvent(event)
+
+
 def _pref_signal(name: str, weights, attr: str) -> str:
     """Return HTML indicator for a person based on their preference weight."""
     d = getattr(weights, attr, {})
@@ -55,6 +92,9 @@ def _pref_signal(name: str, weights, attr: str) -> str:
 class _PosterSection(QWidget):
     """Poster image (VOD) and live-channel header (icon + country info)."""
 
+    # Emitted when the user clicks an enlarged poster (carries the full-res QPixmap)
+    poster_enlarged = pyqtSignal(QPixmap)
+
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
         self.config = config
@@ -62,6 +102,7 @@ class _PosterSection(QWidget):
         self._poster_url: str | None = None
         self._logo_url: str | None = None
         self._provider_urls: list = []
+        self._full_pixmap: QPixmap | None = None   # full-res image for the lightbox
         self._setup()
 
     def _setup(self) -> None:
@@ -74,7 +115,7 @@ class _PosterSection(QWidget):
         pf_layout = QVBoxLayout(self._poster_frame)
         pf_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.poster_label = QLabel()
+        self.poster_label = _PosterLabel()
         self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.poster_label.setMinimumHeight(400)
         self.poster_label.setMaximumHeight(600)
@@ -84,6 +125,8 @@ class _PosterSection(QWidget):
         )
         self.poster_label.setScaledContents(False)
         self.poster_label.setText("No poster available")
+        self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
+        self.poster_label.poster_clicked.connect(self._on_poster_clicked)
         pf_layout.addWidget(self.poster_label)
 
         layout.addWidget(self._poster_frame)
@@ -174,6 +217,7 @@ class _PosterSection(QWidget):
     def clear(self) -> None:
         self._poster_url = None
         self._logo_url = None
+        self._full_pixmap = None
         self.poster_label.setPixmap(QPixmap())
         self.poster_label.setText("No poster available")
         self._country_info_lbl.hide()
@@ -181,6 +225,7 @@ class _PosterSection(QWidget):
 
     def _display_poster(self, pixmap: QPixmap) -> None:
         if pixmap and not pixmap.isNull():
+            self._full_pixmap = pixmap   # retain original for lightbox enlargement
             scaled = pixmap.scaled(
                 self.poster_label.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -189,6 +234,11 @@ class _PosterSection(QWidget):
             self.poster_label.setPixmap(scaled)
         else:
             self.poster_label.setText("No poster available")
+
+    def _on_poster_clicked(self) -> None:
+        """Emit poster_enlarged with the full-res pixmap when the poster is clicked."""
+        if self._full_pixmap and not self._full_pixmap.isNull():
+            self.poster_enlarged.emit(self._full_pixmap)
 
 
 # ---------------------------------------------------------------------------
