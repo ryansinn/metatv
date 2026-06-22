@@ -372,9 +372,10 @@ def test_checkpoint_tick_finalises_current_on_window_close(db):
 
     host = _StreamingMixin.__new__(_StreamingMixin)
     host.db = db
-    host.config = MagicMock(watch_complete_threshold=0.9)
+    host.config = MagicMock(watch_complete_threshold=0.9, prompt_after_autoplay=False)
     host._watch_checkpoint_timer = MagicMock()
     host.executor = MagicMock()
+    host._queue_end_detected = MagicMock()
 
     # Window "k" was tracking a queue at last_seen_pos=1 (e2 was playing)
     host._watch_tracking = {

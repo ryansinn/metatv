@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import requests
 from loguru import logger
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
 from metatv.core.channel_name_utils import parse_channel_name as _pcn
 from metatv.core.repositories import RepositoryFactory
@@ -510,6 +510,17 @@ class _StreamingMixin:
                             queue[pos]["content_id"],
                             "queue" if pos > 0 else info.get("played_via", "manual"),
                         )
+                    # If the queue advanced past the first episode, emit the
+                    # queue-end signal so the main thread can show "Still here?".
+                    # Episodes at indices 1..pos (inclusive) were auto-advanced;
+                    # index 0 is the user-started episode (last_played_via="manual").
+                    if pos > 0 and getattr(self.config, "prompt_after_autoplay", True):
+                        auto_ids = [
+                            queue[i]["content_id"]
+                            for i in range(1, min(pos + 1, len(queue)))
+                        ]
+                        if auto_ids:
+                            self._queue_end_detected.emit(auto_ids)
         if not keys:
             self._watch_checkpoint_timer.stop()
             return
@@ -647,6 +658,88 @@ class _StreamingMixin:
         live = tracking.get(key)
         if live is not None and live.get("queue") is not None:
             live["last_seen_pos"] = new_pos
+
+    # ---- "Still here?" end-of-queue prompt (Slice 3b-4) --------------------
+    #
+    # When a queued auto-advance run ends, the off-thread tick emits
+    # _queue_end_detected with the ids of every auto-advanced episode.  This
+    # main-thread slot shows a modal prompt; Yes promotes them to 'manual'
+    # (solid icon, advances the resume anchor), No leaves them as 'queue' (gray).
+
+    def _on_queue_end_detected(self, auto_episode_ids: list) -> None:
+        """Main-thread slot: show "Still here?" prompt after a queue-auto-advance run ends.
+
+        Called when the ``_queue_end_detected`` signal fires (emitted from the
+        off-thread checkpoint tick after a queued player window closes with
+        ``last_seen_pos > 0``).
+
+        Args:
+            auto_episode_ids: Episode DB ids that were auto-advanced (played via
+                ``'queue'``). These are episodes at queue indices 1‥last_seen_pos.
+                Index 0 is already ``'manual'`` (the user explicitly started it).
+        """
+        if not auto_episode_ids:
+            return
+        if not getattr(self.config, "prompt_after_autoplay", True):
+            return
+
+        # Build a human-friendly label — show the episode count, not raw ids.
+        count = len(auto_episode_ids)
+        if count == 1:
+            ep_label = "1 more episode"
+        else:
+            ep_label = f"{count} more episodes"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Still watching?")
+        dlg.setModal(True)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        msg = QLabel(
+            f"The queue auto-advanced through {ep_label}.\n\n"
+            "Did you watch them?"
+        )
+        msg.setWordWrap(True)
+        layout.addWidget(msg)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
+        )
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        result = dlg.exec()
+        if result == QDialog.DialogCode.Accepted:
+            # User confirmed — promote all auto-advanced episodes to 'manual' so
+            # they render as solid and advance the resume anchor past them.
+            self.executor.submit(self._bg_promote_queue_episodes, auto_episode_ids)
+        else:
+            logger.debug(
+                f"Queue-end prompt dismissed — {count} episode(s) remain queue-watched"
+            )
+
+    def _bg_promote_queue_episodes(self, episode_ids: list) -> None:
+        """Worker: flip ``last_played_via`` to ``'manual'`` for confirmed episodes.
+
+        Runs off the main thread.  Uses ``mark_episodes_as_engaged`` from the
+        episode repository — a thin bulk updater that commits once.
+
+        Args:
+            episode_ids: DB ids of the episodes to promote.
+        """
+        try:
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                updated = repos.episodes.mark_episodes_as_engaged(episode_ids)
+                logger.info(
+                    f"Promoted {updated}/{len(episode_ids)} queue-watched episode(s) "
+                    "to manual engagement after user confirmation"
+                )
+        except Exception as exc:
+            logger.warning(f"Failed to promote queue-watched episodes: {exc}")
 
     def _lookup_provider_icon(self, provider_id: str) -> str:
         """Return a source's display glyph (trivial PK read; cached by caller).

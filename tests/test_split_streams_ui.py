@@ -329,6 +329,7 @@ class _FakeDlgConfig:
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
         self.remember_search: bool = True
+        self.prompt_after_autoplay: bool = True
         self.save_calls: int = 0
 
     def save(self) -> None:
@@ -353,6 +354,7 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._player_mode_combo = QComboBox()
     dlg._player_mode_combo.addItems(["Single instance", "Multiple instances"])
     dlg._autoplay_check = QCheckBox()
+    dlg._prompt_after_autoplay_check = QCheckBox()
 
     # Watch-completion threshold (Slice 2)
     dlg._watch_threshold_spin = QSpinBox()

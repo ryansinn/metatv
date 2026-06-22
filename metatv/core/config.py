@@ -653,6 +653,10 @@ class Config(BaseModel):
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
     autoplay_season_episodes: bool = True  # Auto-queue subsequent episodes when playing from season
+    # After a queued auto-advance run ends, ask "Still here? Did you watch them all?"
+    # so the user can promote queue-watched episodes to fully-engaged (solid icon, advance resume anchor).
+    # Configurable in Settings → Playback.
+    prompt_after_autoplay: bool = True
     # Watch-completion: fraction of a VOD item's duration that counts as "completed"
     # (e.g. 0.9 = 90%). Configurable in Settings → Playback.
     watch_complete_threshold: float = 0.9

@@ -346,17 +346,17 @@ class _FavoritesMixin:
         if not channel:
             return
         if channel.media_type == MediaType.SERIES:
-            last_episode = None
+            resume_ep = None
             with self.db.session_scope() as session:
-                last_episode = RepositoryFactory(session).episodes.get_last_played_dto(
+                resume_ep = RepositoryFactory(session).episodes.get_resume_dto(
                     series_id=channel.source_id,
                     provider_id=channel.provider_id,
                 )
-            if last_episode:
-                logger.info(f"Playing last watched episode from history: {last_episode.title}")
-                self.play_episode(last_episode)
+            if resume_ep:
+                logger.info(f"Smart-resuming series from: {resume_ep.title}")
+                self.play_episode(resume_ep)
             else:
-                logger.info("No episode history found, opening series view")
+                logger.info("No resume target found, opening series view")
                 self.drill_into_series(channel)
         else:
             self.play_media(channel)
