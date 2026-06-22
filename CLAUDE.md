@@ -125,6 +125,31 @@ Region/country codes, quality tokens, audio format maps, and similar lookup data
 
 If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
 
+### Tags/facets — capture generously, label confidence + provenance, never suppress (DR-0006)
+In the guessing zone, **bias to recall: capture more, not less.** A false negative is invisible + unfixable
+by the user; a false positive is visible + one-click-correctable (and teaches the system). Withholding an
+uncertain inference is the *cage*; surfacing it labeled is the *mirror*. The app is a witness, the user the
+jury (full rationale: DESIGN_RATIONALE **DR-0006**). The rule:
+- A feeder yields the facet it **denotes** at high confidence **plus** any *real* adjacent guess at **low**
+  confidence — both captured, never withheld, never asserted as fact:
+  - `FR` → `language:French` (high) **+** `region:France` (low). `US`/`UK` → `region:US`/`UK` (high) **+**
+    `language:English` (low). `ES` → `language:Spanish` (high) + `region:Spain` (very low).
+  - But a **real candidate must exist**: `EN` → `language:English` only — there is no place "EN", so no region
+    to capture (that's invention, not a guess).
+  - A confident signal **overrides** a prior (a real `language:Spanish` on a US channel demotes the English
+    guess). `LAT` = `language:Latin American Spanish`, a **distinct** value, never merged into `Spanish`. `AR`
+    → `language:Arabic`; `ARG`/`ARGENTINA` → `region:Argentina`.
+- **Confidence = ranking + prune-priority, NEVER a suppression gate** — low-confidence tags still surface,
+  ranked low, first to prune.
+- **Every tag records its feeder + read-vs-inference**, and the UI must distinguish **source-given vs
+  ingestion-inferred** — those labels are what make over-capture honest, not noisy, so they ship *with* the
+  capture, not someday.
+- **Hierarchy is rollup, not auto-tagging:** `LAT` ⊂ `Spanish` is *certain* containment (filtering `Spanish`
+  includes `LAT`); a `region:Mexico` channel never silently gains `language:Spanish`.
+
+The decomposer (`tag_decomposer.py`) is the chokepoint; curated code→facet + base-confidence data lives in
+`channel_name_utils.py` (single source of truth).
+
 ### Icons — always from `metatv/gui/icons.py`, never hardcoded
 Every icon, emoji, or symbol displayed in the UI must come from `metatv/gui/icons.py`, never a literal in widget or layout code. This includes media-type icons, action icons (play, close, delete, hide), section header icons, folder/season indicators, status badges — everything.
 

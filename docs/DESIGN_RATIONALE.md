@@ -423,3 +423,65 @@ views live in `config` or the DB.
    distinct independent feeders, normalized), refine to reliability-weighted evidence-combination later. It
    is a **layer on top of tags**, computed from provenance — it doesn't block the feeder-capture work; it
    makes each captured feeder worth more.
+
+### DR-0006 — Capture more, label honestly: the app is a witness, the user is the jury
+**Status:** Accepted (2026-06-22). **Rule → CLAUDE.md** "Tags/facets — capture generously, label confidence +
+provenance, never suppress and never assert a guess as fact." **Ties to** PRODUCT_VISION #8 (mirror, not a
+cage), #3 (good on raw data), #9 (minimize clicks); DR-0005 (tags, confidence, relationships).
+
+**The cost asymmetry that drives it.** A **false negative is invisible and unfixable** by the user —
+"something's missing" is a gap they can't see; the app silently decided for them. A **false positive is
+visible and one-click-correctable** — "this doesn't belong," which *also teaches the system*. So **in the
+guessing zone, bias to recall: capture more, not less; include > exclude; let the jury prune.**
+
+**This is the mirror, not the cage.** Suppressing an uncertain inference is the app pre-deciding what the user
+never sees — a cage. Surfacing it (labeled a guess) and letting them remove it is the mirror. **Withholding
+evidence is the unfaithful move; capturing it is not.** (I had drifted toward the conservative cage — "don't
+guess, language-only"; the user corrected it to capture-more, and it's the better, on-vision frame.)
+
+**Faithful = honest *labeling*, never *suppression*.** Don't call a guess a *fact* — but **do capture the
+guess**, marked low-confidence / inferred. Two layers make "more" honest instead of noisy, and they ship
+**with** the capture (non-optional, not someday):
+- **Source-given vs. ingestion-inferred.** The provider *gave* `USA | NETFLIX | HD` (testimony); `region:US`
+  is *our reading*. Every tag records its **feeder** + read-vs-inference; the UI shows the raw source *as
+  evidence* and the derived tags *as our reading, labeled*.
+- **Confidence = ranking + prune-priority, NOT a suppression gate.** A low-confidence tag is still captured and
+  surfaced — it just ranks lower and is first to prune. Confidence never silently hides content.
+
+**(a) Facets — capture both, rank by confidence (region/language, settled 2026-06-22).** A code yields the
+facet it denotes at high confidence **plus** any *real* adjacent guess at low confidence — never withheld,
+never asserted as fact:
+- `FR` → `language:French` (high) **+** `region:France` (low — much `FR` IPTV is Canadian/diaspora). `DE` →
+  `language:German` + `region:Germany` (low).
+- `US`/`UK` → `region:US`/`UK` (high) **+** `language:English` (low — US can be Telemundo-Spanish).
+- `ES` → `language:Spanish` (high) + `region:Spain` (**very** low — Latin America dwarfs Spain; ranked
+  accordingly, still captured rather than withheld).
+- **A real candidate must exist to guess it:** `EN` → `language:English` only — there is no place "EN," so
+  there is no region to capture (that would be invention, not a low-confidence guess). The prior is allowed
+  only when the code denotes a real candidate facet.
+- A **confident signal overrides** the prior: a real `language:Spanish` on a US Telemundo channel demotes the
+  `language:English` guess.
+- `LAT` = `language:Latin American Spanish`, a **distinct** value, never merged into `Spanish` (dialect
+  granularity the user separates — *opposite* of genre de-pollution, which merged spellings of the *same*
+  concept).
+- `AR` → `language:Arabic` (high, IPTV convention); `ARG`/`ARGENTINA` → `region:Argentina` (high). Let
+  confidence + user feedback sort the residual ambiguity.
+
+**(b) Hierarchy = certain containment, distinct from probabilistic priors.** Two mechanisms, don't conflate:
+- **Containment is *certain*** (definitional, not a guess): `language:Latin American Spanish` **is**
+  `language:Spanish` (a mountain bike **is** a bicycle). The specific rolls up under the general with
+  certainty; filtering the general optionally includes the specific — the user broadening/narrowing. **Same
+  data, organized two ways** (DR-0005: "a view is a group-by over the tag corpus") — not auto-tagging.
+- **Priors are *probabilistic*** (the (a) guesses) — captured low-confidence, prunable.
+- A `region:Mexico` channel is not *asserted* `language:Spanish`, but Mexico→Spanish (a real regional prior) is
+  known, so the user can roll it in. The user governs the rollup. Implemented as tag relations (parent/child +
+  group links) — the hierarchical reading of DR-0005's "cross-type relationships."
+
+**(c) The user is the governing layer + the teacher.** "Show me these languages AND regions" sits on top —
+explicit preferences set relevance and override priors. And **"this doesn't belong" prunes the over-inclusion
+AND down-weights the rule that produced it** — the over-capture is *designed* to harvest these corrections into
+steadily better auto-classification (`source="user"` is the highest-confidence feeder, sacred per DR-0005).
+
+**Scope.** Governs the tag decomposer first, but is a **standing principle** for the whole app —
+recommendations, discovery, dedup: when uncertain, **surface generously, label confidence + provenance, let the
+user steer.** Under-showing is the cage; honest over-showing is the mirror.

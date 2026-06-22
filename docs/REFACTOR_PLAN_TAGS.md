@@ -52,6 +52,16 @@ It does **not** invent classification — it centralizes + reuses it. Unit-teste
 category/header/genre strings (e.g. `USA | NETFLIX | HD` → region:US + platform:Netflix +
 quality:HD).
 
+> **Updated by DR-0006 (capture-more + confidence).** `decompose()` returns `(type, value,
+> base_confidence)`: the **denoted** facet at high confidence **plus** any *real* adjacent guess at
+> **low** confidence — capture both, never withhold (`FR` → `language:French` high + `region:France`
+> low; `US` → `region:US` high + `language:English` low; `EN` → `language:English` only, no place
+> "EN"). A confident signal overrides a prior; `LAT` is a distinct language; `AR`→Arabic,
+> `ARG`/`ARGENTINA`→Argentina. Confidence is *ranking/prune-priority*, never a suppression gate.
+> Curated code→facet+confidence data → `channel_name_utils.py`. This **supersedes #112** (which emits
+> both facets but without confidence). New slices it spawns: **provenance + confidence UI** (ships
+> with capture) and **facet hierarchy / containment rollup** (`LAT` ⊂ `Spanish`).
+
 ## Feeders → decomposer (Slice T3, backfill via Migration Center)
 Per channel, feed the decomposer each raw source and union the results, recording which
 feeder produced each tag:
