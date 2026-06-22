@@ -1,6 +1,6 @@
 """FavoritesSection sidebar widget."""
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
@@ -35,14 +35,8 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         return "favorites"
 
     def create_header(self):
-        header = QWidget()
-        header.setStyleSheet(_theme.HEADER_TINT)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(5, 3, 5, 3)
-        self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(20, 20)
-        self.toggle_btn.clicked.connect(self.toggle_collapse)
-        hl.addWidget(self.toggle_btn)
+        header = self._build_clickable_header()
+        hl = header.layout()
         self.title_label = QLabel(
             f'<span style="color:{_theme.COLOR_GOLD}">{self.icon}</span> <b>{self.title}</b>'
         )

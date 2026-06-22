@@ -224,16 +224,9 @@ class SourcesSection(CollapsibleSection):
         return "sources"
 
     def create_header(self):
-        """Override to add '+' button in the header instead of bottom buttons."""
-        header = QWidget()
-        header.setStyleSheet(_theme.HEADER_TINT)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(5, 3, 5, 3)
-
-        self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(20, 20)
-        self.toggle_btn.clicked.connect(self.toggle_collapse)
-        header_layout.addWidget(self.toggle_btn)
+        """Override to add '+' and refresh buttons in the header instead of bottom buttons."""
+        header = self._build_clickable_header()
+        header_layout = header.layout()
 
         self.title_label = QLabel(f"{self.config.provider_icon} <b>Sources</b>")
         header_layout.addWidget(self.title_label)

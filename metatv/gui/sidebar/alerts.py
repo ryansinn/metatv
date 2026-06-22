@@ -90,14 +90,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         return "alerts"
 
     def create_header(self):
-        header = QWidget()
-        header.setStyleSheet(_theme.HEADER_TINT)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(5, 3, 5, 3)
-        self.toggle_btn = QPushButton(self.config.collapse_icon)
-        self.toggle_btn.setFixedSize(20, 20)
-        self.toggle_btn.clicked.connect(self.toggle_collapse)
-        hl.addWidget(self.toggle_btn)
+        header = self._build_clickable_header()
+        hl = header.layout()
         self.title_label = QLabel(
             f'<span style="color:{_theme.COLOR_WARN}">{self.icon}</span> <b>{self.title}</b>'
         )

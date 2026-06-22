@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QMouseEvent
 from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
@@ -12,6 +13,27 @@ from metatv.gui import theme as _theme
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
 # The splitter enforces this so the user cannot drag an expanded section below it.
 _MIN_EXPANDED = 80
+
+
+class _ClickableHeader(QWidget):
+    """A QWidget header that emits ``clicked`` on any mouse-press not consumed by a child.
+
+    Child ``QPushButton`` widgets (action buttons, toggle arrow) intercept their own
+    clicks via Qt's normal event propagation — they never reach this widget's
+    ``mousePressEvent``.  Clicks on the title label or empty header padding do reach it
+    and fire ``clicked``, allowing the full header area to act as a collapse/expand toggle.
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(_theme.HEADER_TINT)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 def _fmt_channel_name(name: str, fallback_year: str = "") -> str:
@@ -81,18 +103,43 @@ class CollapsibleSection(QFrame):
         # Create section-specific content
         self.create_content()
 
-    def create_header(self):
-        """Create collapsible header with title and toggle button"""
-        header = QWidget()
-        header.setStyleSheet(_theme.HEADER_TINT)
+    def _build_clickable_header(self) -> "_ClickableHeader":
+        """Create and return a ``_ClickableHeader`` pre-wired with the toggle button.
+
+        Subclasses that override ``create_header`` call this helper to get a header
+        widget whose click → ``toggle_collapse`` wiring is already done.  They then
+        add their own title label and any extra action buttons into the returned
+        header's layout, and finish with::
+
+            self.main_layout.addWidget(header)
+
+        The toggle button is stored as ``self.toggle_btn`` on exit so the existing
+        ``set_collapsed`` bookkeeping that updates ``toggle_btn.setText(…)`` continues
+        to work unmodified.
+
+        Returns:
+            A ``_ClickableHeader`` instance with a ``QHBoxLayout`` (margins 5,3,5,3)
+            already containing ``self.toggle_btn``.
+        """
+        header = _ClickableHeader()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
 
-        # Collapse/expand button
         self.toggle_btn = QPushButton(self.config.collapse_icon)
         self.toggle_btn.setFixedSize(20, 20)
+        self.toggle_btn.setToolTip("Collapse / expand this section")
         self.toggle_btn.clicked.connect(self.toggle_collapse)
         header_layout.addWidget(self.toggle_btn)
+
+        # Clicking anywhere on the header (outside child buttons) also toggles.
+        header.clicked.connect(self.toggle_collapse)
+
+        return header
+
+    def create_header(self):
+        """Create collapsible header with title and toggle button."""
+        header = self._build_clickable_header()
+        header_layout = header.layout()
 
         # Title with icon
         self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
