@@ -401,3 +401,74 @@ def test_normal_save_after_update_data_writes_correctly(qapp):
         "after update_data(), save_state() must write the current selection; "
         f"got {cfg.filter_included_languages!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Startup reload signal — update_data emits filter_changed on first call only
+# ---------------------------------------------------------------------------
+
+def test_update_data_emits_filter_changed_on_first_call(qapp):
+    """First update_data() call emits filter_changed exactly once.
+
+    Regression being guarded: restore_search_state fires load_channels BEFORE
+    update_data() has populated and restored the dynamic sections, so the initial
+    channel list has no dynamic filters applied even though the chips show the
+    correct state.  The fix emits filter_changed at the end of the first
+    update_data() so MainWindow re-runs load_channels with restored filters.
+    """
+    cfg = _make_config(filter_included_languages=["FR"])
+    panel = _build_panel(qapp, cfg)
+
+    emitted: list[None] = []
+    panel.filter_changed.connect(lambda: emitted.append(None))
+
+    panel.update_data(_make_stats())
+
+    assert len(emitted) == 1, (
+        "first update_data() must emit filter_changed exactly once; "
+        f"emitted {len(emitted)} time(s)"
+    )
+    # Also verify the language section was actually restored to the saved subset
+    selected = set(panel._lang_sec.get_selected_keys())
+    assert selected == {"FR"}, (
+        "language section must reflect the saved subset when filter_changed fires; "
+        f"got {selected!r}"
+    )
+
+
+def test_update_data_does_not_emit_filter_changed_on_second_call(qapp):
+    """Second update_data() call (e.g. source refresh) must NOT emit filter_changed.
+
+    A spurious reload on refresh would discard any context-filter chip the user had
+    active, and the list already reflects the live in-memory selection.
+    """
+    cfg = _make_config(filter_included_languages=["EN"])
+    panel = _build_panel(qapp, cfg)
+
+    # First call — startup; expected to emit once
+    first_emitted: list[None] = []
+    panel.filter_changed.connect(lambda: first_emitted.append(None))
+    panel.update_data(_make_stats())
+    assert len(first_emitted) == 1, "sanity: first call must emit"
+
+    # Disconnect and wire a new counter for the second call
+    panel.filter_changed.disconnect()
+    second_emitted: list[None] = []
+    panel.filter_changed.connect(lambda: second_emitted.append(None))
+
+    # User changed selection since first call
+    panel._lang_sec.restore_selection({"FR"})
+
+    # Second call — source refresh
+    panel.update_data(_make_stats())
+
+    assert len(second_emitted) == 0, (
+        "second update_data() must NOT emit filter_changed; "
+        f"emitted {len(second_emitted)} time(s)"
+    )
+    # In-memory selection must be preserved
+    selected = set(panel._lang_sec.get_selected_keys())
+    assert selected == {"FR"}, (
+        "in-memory 'FR' selection must survive second update_data; "
+        f"got {selected!r}"
+    )

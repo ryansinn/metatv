@@ -247,7 +247,15 @@ class FilterPanel(QWidget):
         In that case we fall back to the persisted config selections so that saved
         filter choices survive a restart.  On subsequent calls (e.g. after a source
         refresh) we preserve the user's current in-memory selection instead.
+
+        After the first call completes, emits ``filter_changed`` so that
+        ``MainWindow.on_filter_changed`` re-runs ``load_channels()`` with the
+        now-restored dynamic filters applied.  Subsequent calls (source refresh)
+        do NOT emit — the list is already reflecting the live in-memory selection.
         """
+        # Capture whether this is the first call BEFORE any state is modified.
+        was_first = not self._stats_loaded
+
         prefix_counts: dict[str, int] = stats.get('prefix_counts', {})
 
         # Build the startup fallback: config_attr → persisted set of keys.
@@ -383,6 +391,16 @@ class FilterPanel(QWidget):
             f"{len(qual_items)} quality, {len(genre_items)} genres, "
             f"{len(unid_items)} unidentified"
         )
+
+        # On the very first call the channel list was loaded before dynamic
+        # sections were populated (restore_search_state fires load_channels while
+        # Language/Region/etc. are still empty).  Emit filter_changed now so the
+        # main-window handler re-runs load_channels with the restored filters.
+        # Subsequent calls (source refresh) must NOT re-emit — the list already
+        # reflects the live in-memory selection and a spurious reload would discard
+        # any context-filter chip the user had active.
+        if was_first:
+            self.filter_changed.emit()
 
     def get_filter_state(self) -> dict:
         """Return resolved filter state for main_window.load_channels()."""
