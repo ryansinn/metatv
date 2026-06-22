@@ -141,7 +141,39 @@ class EpisodeRepository:
             episode.watch_progress = progress_seconds
             episode.updated_at = datetime.now()
             self.session.commit()
-    
+
+    def record_watch_progress(
+        self,
+        episode_id: str,
+        position_s: float,
+        duration_s: float,
+        threshold: float = 0.9,
+        played_via: str = "manual",
+    ) -> bool:
+        """Record episode watch progress: resume point + sticky completion.
+
+        Mirror of :meth:`ChannelRepository.record_watch_progress` for episodes:
+        sets ``watch_progress`` (resume seconds), ``last_played``, and
+        ``last_played_via``; at ``>= threshold`` marks ``is_watched`` (sticky) and
+        clears the resume point. ``play_count`` is owned by ``mark_played``.
+
+        Returns True if this call marked the episode watched.
+        """
+        episode = self.get_by_id(episode_id)
+        if episode is None:
+            return False
+        completed = bool(duration_s and duration_s > 0 and (position_s / duration_s) >= threshold)
+        episode.last_played = datetime.now()
+        episode.last_played_via = played_via
+        if completed:
+            episode.is_watched = True
+            episode.watch_progress = 0
+        else:
+            episode.watch_progress = max(0, int(position_s))
+        episode.updated_at = datetime.now()
+        self.session.commit()
+        return completed
+
     def bulk_create_or_update(self, episodes: List[EpisodeDB]):
         """Bulk create or update episodes"""
         for episode in episodes:
