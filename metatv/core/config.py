@@ -699,6 +699,11 @@ class Config(BaseModel):
     filter_included_qualities: Optional[list] = None
     filter_included_platforms: Optional[list] = None
     filter_included_genres: Optional[list] = None
+    # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
+    # pre-sentinel config whose [] means "never configured" → migrate [] to None
+    # ONCE in model_post_init.  >=1 = written by the sentinel-aware save, where []
+    # means an explicit none-selection and must be preserved across reloads.
+    filter_config_version: int = 0
     filter_section_states: dict = Field(default_factory=dict)      # {section_key: is_expanded}
     filter_panel_width: int = 220                                   # Persisted splitter width
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
@@ -1007,22 +1012,26 @@ class Config(BaseModel):
         if not self.database_url:
             db_path = self.data_dir / "metatv.db"
             self.database_url = f"sqlite:///{db_path}"
-        # Migrate legacy filter_included_* empty-list values to None.
+        # Migrate legacy filter_included_* empty-list values to None — ONE TIME ONLY.
         # Before the None-sentinel was introduced, [] meant "never configured" (the
-        # restore path treated [] as all-selected).  No user could have intentionally
-        # written [] to mean "none selected" because that behaviour didn't exist yet.
-        # Treat any [] read from a pre-sentinel config file as None (never configured)
-        # so existing users see the default all-selected restore instead of none-selected.
-        if self.filter_included_languages == []:
-            self.filter_included_languages = None
-        if self.filter_included_regions == []:
-            self.filter_included_regions = None
-        if self.filter_included_qualities == []:
-            self.filter_included_qualities = None
-        if self.filter_included_platforms == []:
-            self.filter_included_platforms = None
-        if self.filter_included_genres == []:
-            self.filter_included_genres = None
+        # restore path treated [] as all-selected).  A pre-sentinel config has
+        # filter_config_version 0 (or the field absent); treat its [] as None
+        # (never configured) so existing users see the default all-selected restore.
+        # AFTER the sentinel-aware save runs (version bumped to 1 and persisted), []
+        # means an *explicit* none-selection and MUST be preserved — so the migration
+        # must never run again, or it would silently undo "Only"/none-selected state.
+        if self.filter_config_version < 1:
+            if self.filter_included_languages == []:
+                self.filter_included_languages = None
+            if self.filter_included_regions == []:
+                self.filter_included_regions = None
+            if self.filter_included_qualities == []:
+                self.filter_included_qualities = None
+            if self.filter_included_platforms == []:
+                self.filter_included_platforms = None
+            if self.filter_included_genres == []:
+                self.filter_included_genres = None
+            self.filter_config_version = 1
 
     class Config:
         arbitrary_types_allowed = True

@@ -415,3 +415,39 @@ class TestNonePersistenceSentinel:
         assert selected == {"FR"}, (
             f"live-refresh must preserve in-memory 'FR' selection; got {selected!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Part 2b — the []->None migration is ONE-TIME (version-gated), so an explicit
+# none-selection written by the sentinel-aware save survives a reload.
+# ---------------------------------------------------------------------------
+
+def test_explicit_none_survives_reload_when_version_marked(tmp_path):
+    """version>=1 (sentinel-aware save) => [] is an explicit none-selection,
+    PRESERVED through model_post_init, not migrated away on every load."""
+    from metatv.core.config import Config
+
+    cfg = Config(
+        config_dir=tmp_path,
+        filter_config_version=1,
+        filter_included_languages=[],
+        filter_included_platforms=["Disney+"],
+    )
+    assert cfg.filter_included_languages == [], "explicit none ([]) must survive reload"
+    assert cfg.filter_included_platforms == ["Disney+"]
+
+
+def test_legacy_empty_list_migrates_to_none_and_bumps_version(tmp_path):
+    """Pre-sentinel config (version 0 / absent) whose [] meant 'never configured'
+    migrates to None ONCE and bumps the version so it never runs again."""
+    from metatv.core.config import Config
+
+    cfg = Config(
+        config_dir=tmp_path,
+        filter_config_version=0,
+        filter_included_languages=[],
+        filter_included_regions=[],
+    )
+    assert cfg.filter_included_languages is None, "legacy [] must migrate to None"
+    assert cfg.filter_included_regions is None
+    assert cfg.filter_config_version == 1, "migration must bump the version (one-time)"
