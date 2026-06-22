@@ -319,12 +319,20 @@ class MPVPlayer(PlayerPlugin):
 
     # ── Playback ─────────────────────────────────────────────────────────────
 
-    def play(self, url: str, title: str, instance_key: str = _SHARED_KEY) -> bool:
+    def play(
+        self,
+        url: str,
+        title: str,
+        instance_key: str = _SHARED_KEY,
+        start_seconds: int = 0,
+    ) -> bool:
         """Play *url* in the instance identified by *instance_key*.
 
         In single-instance mode:
         - If the instance for *instance_key* is not running, launch it.
-        - Send ``loadfile … replace`` over its IPC socket.
+        - Send ``loadfile … replace`` over its IPC socket, with a per-file
+          ``start=`` option when *start_seconds* > 0 so mpv begins at the
+          saved resume position (no seek-after-load race).
         - Fall back to a new standalone process if IPC fails.
 
         In multiple-instances mode *instance_key* is ignored; every call
@@ -335,6 +343,10 @@ class MPVPlayer(PlayerPlugin):
             title: Title to display.
             instance_key: Registry key for the target window
                 (default ``"__shared__"``).
+            start_seconds: Resume position in seconds.  When > 0 the
+                ``loadfile`` command embeds ``start=<N>`` as a per-file
+                option so mpv begins playback at that offset.  0 means
+                start from the beginning (no option injected).
 
         Returns:
             True if the stream was handed off to mpv, False on failure.
@@ -342,6 +354,8 @@ class MPVPlayer(PlayerPlugin):
         logger.info(f"MPVPlayer.play: {title} [key={instance_key}]")
         logger.info(f"  URL: {url}")
         logger.info(f"  Mode: {'single-instance' if self.single_instance else 'new-instance'}")
+        if start_seconds:
+            logger.info(f"  Resume: {start_seconds}s")
 
         if self.single_instance:
             if not self._ensure_instance_running(instance_key):
@@ -350,7 +364,16 @@ class MPVPlayer(PlayerPlugin):
                 )
                 return self._launch_new_instance(url, title)
 
-            command = {"command": ["loadfile", url, "replace"], "request_id": 1}
+            # Per-file options string: "start=<N>" starts at a saved position
+            # without a post-load seek race.  The 4th argument to loadfile is
+            # the per-file options count (0 = none), but mpv IPC uses a
+            # positional string argument for per-file opts (mpv docs: the 4th
+            # element is the options string as a comma-separated key=value list).
+            if start_seconds > 0:
+                per_file_opts = f"start={start_seconds}"
+                command = {"command": ["loadfile", url, "replace", 0, per_file_opts], "request_id": 1}
+            else:
+                command = {"command": ["loadfile", url, "replace"], "request_id": 1}
 
             if self._send_ipc_command(command, instance_key):
                 title_command = {

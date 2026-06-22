@@ -93,6 +93,7 @@ class PlayerManager:
         provider_id: str | None = None,
         provider_max_connections: int = 1,
         force_new_window: bool = False,
+        start_seconds: int = 0,
     ) -> bool:
         """Play a URL with instance limit enforcement.
 
@@ -108,6 +109,9 @@ class PlayerManager:
             force_new_window: When True, this play is keyed by provider_id
                 regardless of the split toggle — used by "Play in New Window"
                 to open/replace a separate per-source window.
+            start_seconds: Resume position in seconds.  When > 0 the player
+                begins at that offset (mpv per-file ``start=`` option).
+                0 means start from the beginning.
 
         Returns:
             True if successful, False otherwise
@@ -131,7 +135,7 @@ class PlayerManager:
             return False
 
         key = self._resolve_instance_key(provider_id, force_split=force_new_window)
-        result = self.player.play(url, title, instance_key=key)
+        result = self.player.play(url, title, instance_key=key, start_seconds=start_seconds)
 
         # Remember which source is playing in this window (for the health readout).
         if result and provider_id:

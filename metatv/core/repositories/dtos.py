@@ -46,6 +46,9 @@ class PlayableChannelDTO:
     detected_year: Optional[str]
     raw_data: Optional[dict]
     metadata_id: Optional[str]
+    # Resume position — populated for VOD channels; 0 for live / unwatched
+    watch_progress: int = 0      # seconds; 0 when unwatched or completed
+    watch_completed: bool = False  # True → do NOT resume (user finished it)
 
 
 @dataclass(frozen=True)
