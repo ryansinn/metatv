@@ -439,3 +439,70 @@ class TestExcludedProviderScoping:
         )
 
         assert result == {keep}
+
+
+# ---------------------------------------------------------------------------
+# count_* / sample_* — SQL count + bounded preview (no full materialisation)
+# ---------------------------------------------------------------------------
+
+
+class TestCountAndSample:
+    def test_count_matches_id_set_length(self, three_channels):
+        """count_channels_by_tag_facets equals len(get_channel_ids_by_tag_facets)."""
+        _c1, _c2, _c3, db = three_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            ids = repos.tags.get_channel_ids_by_tag_facets({"platform": {"Disney+"}})
+            count = repos.tags.count_channels_by_tag_facets({"platform": {"Disney+"}})
+        assert count == len(ids) == 2
+
+    def test_count_respects_provider_scope(self, drama_across_sources):
+        """The SQL count excludes hidden-provider / hidden / header channels."""
+        active, _other, _hidden, _hdr, db = drama_across_sources
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            count = repos.tags.count_channels_by_tag_facets(
+                {"genre": {"Drama"}}, excluded_provider_ids=["prov_other"]
+            )
+        assert count == 1  # only the active-provider, visible, non-header channel
+
+    def test_count_respects_excludes(self, three_channels):
+        """Excludes drop matching channels from the count."""
+        _c1, _c2, _c3, db = three_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            count = repos.tags.count_channels_by_tag_facets(
+                {"platform": {"Disney+"}}, excludes={"language": {"Spanish"}}
+            )
+        assert count == 1  # Disney+ minus the Spanish one
+
+    def test_sample_returns_bounded_names(self, three_channels):
+        """sample_channel_names_by_tag_facets returns <=limit names from the set."""
+        c1, _c2, c3, db = three_channels  # c1, c3 are Disney+
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            names = repos.tags.sample_channel_names_by_tag_facets(
+                {"platform": {"Disney+"}}, limit=1
+            )
+        assert len(names) == 1
+        assert names[0] in {"Disney+ English US Movie", "Spanish Disney Movie"}
+
+    def test_sample_respects_provider_scope(self, drama_across_sources):
+        """The preview sample never includes hidden-source/header channels."""
+        _active, _other, _hidden, _hdr, db = drama_across_sources
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            names = repos.tags.sample_channel_names_by_tag_facets(
+                {"genre": {"Drama"}}, excluded_provider_ids=["prov_other"], limit=20
+            )
+        assert names == ["Active Drama"]
+
+    def test_sample_empty_when_no_match(self, three_channels):
+        """A non-existent value yields an empty preview, not a crash."""
+        _c1, _c2, _c3, db = three_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            names = repos.tags.sample_channel_names_by_tag_facets(
+                {"platform": {"Nope+"}}
+            )
+        assert names == []

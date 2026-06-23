@@ -856,31 +856,25 @@ class RecipeView(QWidget):
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
 
         def _query(repos):
-            from metatv.core.database import ChannelDB
-
-            # Match-id set is scoped to visible channels on active sources by
-            # the engine itself (excluded_provider_ids) — so YIELDS agrees with
-            # the pantry/cloud counts and never leaks disabled-source channels.
+            # Count + preview stay entirely in SQL — a broad facet (e.g.
+            # language:English ≈ 170k channels) costs one COUNT and a LIMIT 20,
+            # never a 170k-id Python set.  Both are scoped to visible channels on
+            # active sources via excluded_provider_ids, so YIELDS agrees with the
+            # pantry/cloud counts and never leaks disabled-source channels.
             hidden = repos.providers.get_hidden_provider_ids()
-            matching_ids = repos.tags.get_channel_ids_by_tag_facets(
+            total = repos.tags.count_channels_by_tag_facets(
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
             )
-            total = len(matching_ids)
-            if not matching_ids:
+            if total == 0:
                 return ([], 0)
-
-            # Fetch display names for a small sample only (≤20 ids → safe for
-            # an IN() bind; the full set is never materialised into a query).
-            sample = list(matching_ids)[:20]
-            rows = (
-                repos.session.query(ChannelDB.name)
-                .filter(ChannelDB.id.in_(sample))
-                .order_by(ChannelDB.name)
-                .all()
+            names = repos.tags.sample_channel_names_by_tag_facets(
+                includes=includes,
+                excludes=excludes,
+                excluded_provider_ids=hidden,
+                limit=20,
             )
-            names = [name for (name,) in rows]
             return (names, total)
 
         self._run_query(

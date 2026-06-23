@@ -586,14 +586,14 @@ class TagRepository:
     # Faceted query engine
     # ------------------------------------------------------------------
 
-    def get_channel_ids_by_tag_facets(
+    def _faceted_channel_id_query(
         self,
         includes: dict[str, set[str]],
         excludes: Optional[dict[str, set[str]]] = None,
         *,
         base_channel_ids: Optional[Set[str]] = None,
         excluded_provider_ids: Optional[List[str]] = None,
-    ) -> set[str]:
+    ):
         """Return the set of channel ids that match all include facets and no exclude facets.
 
         Semantics — standard faceted search:
@@ -639,7 +639,11 @@ class TagRepository:
                 method scope-agnostic for callers that scope another way.
 
         Returns:
-            A ``set[str]`` of channel ids satisfying all constraints.
+            An unexecuted SQLAlchemy query selecting ``DISTINCT channel_id`` for
+            every channel satisfying the constraints.  Callers choose how to
+            consume it: ``.all()`` for the id set, ``.count()`` for a SQL count,
+            ``.limit(n)`` for a bounded sample — so a count or preview never
+            materialises the full match set.
         """
         from sqlalchemy.orm import aliased
         from sqlalchemy import select as sa_select
@@ -744,8 +748,86 @@ class TagRepository:
             )
             query = query.filter(~exists(excl_subq))
 
-        rows = query.all()
-        return {row.channel_id for row in rows}
+        return query
+
+    def get_channel_ids_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+    ) -> set[str]:
+        """Return the set of channel ids matching the faceted constraints.
+
+        Standard faceted search (OR within a facet, AND across facets, NOT for
+        excludes).  See :meth:`_faceted_channel_id_query` for the full semantics
+        and the meaning of *base_channel_ids* / *excluded_provider_ids*.
+
+        Note: this materialises *every* matching id.  For a count or a small
+        preview use :meth:`count_channels_by_tag_facets` /
+        :meth:`sample_channel_names_by_tag_facets`, which stay in SQL.
+        """
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+        )
+        return {row.channel_id for row in query.all()}
+
+    def count_channels_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+    ) -> int:
+        """Count channels matching the faceted constraints — entirely in SQL.
+
+        Issues a single ``SELECT count(*) FROM (SELECT DISTINCT channel_id …)``,
+        so a 170k-match facet costs one integer round-trip, not 170k id strings
+        crossing into Python.  Arguments match :meth:`_faceted_channel_id_query`.
+        """
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+        )
+        return query.count()
+
+    def sample_channel_names_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> list[str]:
+        """Return up to *limit* channel display names matching the constraints.
+
+        Takes a bounded ``LIMIT`` slice of the match query (the full set is never
+        materialised), then resolves names for those ``<=limit`` ids in a second
+        tiny query.  Used for the recipe "now plating" preview.
+        """
+        from metatv.core.database import ChannelDB
+
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+        )
+        ids = [row.channel_id for row in query.limit(limit).all()]
+        if not ids:
+            return []
+        rows = (
+            self.session.query(ChannelDB.name)
+            .filter(ChannelDB.id.in_(ids))
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        return [name for (name,) in rows]
 
 
 # ---------------------------------------------------------------------------
