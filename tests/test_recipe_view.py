@@ -607,6 +607,103 @@ def test_on_deactivate_clears_active_flag(qapp):
 
 
 # ---------------------------------------------------------------------------
+# reload() — re-issues data loads when Global Exclusions change (Task 1)
+# ---------------------------------------------------------------------------
+#
+# Regression: changing Global Exclusions and clicking OK left the recipe view
+# showing stale pre-exclusion data because the dialog-accept handler refreshed
+# every other view but not the recipe.  reload() re-runs the same loads
+# on_activate triggers (pantry → cloud), so the new exclusions take effect.
+
+def test_reload_noop_when_never_activated(qapp):
+    """reload() before the view is ever activated issues no queries."""
+    view, seam = _make_view(qapp)
+    view._active = False  # never activated
+
+    view.reload()
+
+    assert seam.calls == []
+
+
+def test_reload_reissues_pantry_load(qapp):
+    """reload() on an active view re-issues the pantry load (same as on_activate)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view.reload()
+
+    # The pantry load is the load on_activate fires; reload must re-issue it so
+    # new Global Exclusions re-resolve through _global_exclusion_sets().
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+
+
+def test_reload_reissues_results_when_recipe_in_progress(qapp):
+    """reload() with an active recipe re-issues the results/YIELDS load too."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    view.reload()
+
+    # Both pantry (→ cascades to cloud) and results must re-run so the count +
+    # cards reflect the new exclusions immediately, not after a nav round-trip.
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert any(c["on_result"] == view._on_results_loaded for c in seam.calls)
+
+
+def test_reload_skips_results_when_recipe_empty(qapp):
+    """reload() with no ingredients re-issues only the pantry (no results query)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    # No includes/excludes set.
+
+    view.reload()
+
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert not any(c["on_result"] == view._on_results_loaded for c in seam.calls)
+
+
+def test_global_filter_accept_reloads_recipe_view():
+    """The Global-Exclusions Accepted path calls recipe_view.reload().
+
+    Drives the real _open_global_filter_dialog handler with a mock dialog that
+    returns Accepted, asserting the recipe view is refreshed alongside the other
+    provider-dependent views — the wiring that fixes the stale-recipe bug.
+    """
+    from unittest.mock import MagicMock, patch
+    from metatv.gui.main_window_nav import _NavMixin
+
+    # Bare host exposing only what the handler touches.
+    host = _NavMixin.__new__(_NavMixin)
+    host.config = MagicMock()
+    host.db = MagicMock()
+    host._update_filter_btn_state = MagicMock()
+    host.load_channels = MagicMock()
+    host._refresh_recommended_section = MagicMock()
+    host.recipe_view = MagicMock()
+    # discover_view / preferences_view intentionally absent → hasattr() guards skip.
+
+    accepted = object()
+
+    class _FakeDialog:
+        DialogCode = type("DC", (), {"Accepted": accepted})
+
+        def __init__(self, *a, **k):
+            pass
+
+        def exec(self):
+            return accepted
+
+    with patch(
+        "metatv.gui.global_filter_dialog.GlobalFilterDialog", _FakeDialog
+    ):
+        host._open_global_filter_dialog()
+
+    host.recipe_view.reload.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Theme tokens and icons
 # ---------------------------------------------------------------------------
 

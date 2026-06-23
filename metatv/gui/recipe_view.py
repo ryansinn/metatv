@@ -769,6 +769,31 @@ class RecipeView(QWidget):
         self._active = False
         logger.debug("RecipeView: deactivated")
 
+    def reload(self) -> None:
+        """Re-issue all data loads against the *current* config.
+
+        Called by the host (MainWindow) after the user changes Global
+        Exclusions, so the pantry / cloud / results re-resolve
+        :meth:`_global_exclusion_sets` and drop now-excluded values.  Mirrors
+        the loads ``on_activate`` triggers:
+
+        - re-load the pantry (which cascades to the cloud via the currently
+          selected facet in ``_on_pantry_loaded``), and
+        - re-load the results shelf + YIELDS when a recipe is in progress, so
+          the count and cards reflect the new exclusions immediately.
+
+        Safe to call whether the view is visible or not, and a no-op before the
+        view has ever been activated (nothing has been loaded yet, so there is
+        no stale state to refresh).  The ``_run_query`` token guards drop any
+        in-flight result superseded by this reload.
+        """
+        if not self._active:
+            return
+        logger.debug("RecipeView: reload (config changed)")
+        self._load_pantry()
+        if self._recipe_includes or self._recipe_excludes:
+            self._load_results()
+
     # ── Public helpers ────────────────────────────────────────────────────
 
     def clear_recipe(self) -> None:
