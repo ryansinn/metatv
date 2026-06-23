@@ -44,6 +44,28 @@ _CATALOG_UPDATE_COLS: tuple[str, ...] = tuple(c for c in _CATALOG_COLS if c != "
 # parameters — well inside either limit and far fewer commits than every-100.
 _STORE_BATCH = 500
 
+# ---------------------------------------------------------------------------
+# Progress bar phase bands
+#
+# Each tuple is (band_start_pct, band_end_pct) — inclusive on both ends.
+# The bands are the SINGLE SOURCE OF TRUTH for all emit sites; update these
+# constants to re-weight the bar, never the emit call sites.
+#
+# Rationale: the per-channel phases (categorize / prefix / tags) dominate
+# wall-clock on large sources; tags alone can take ~10 min.  The fetch phase
+# is network-bound and fast by comparison.  Weighting reflects real time so
+# the bar advances proportionally rather than rocketing to ~94% while half
+# the tag work remains.
+#
+# Sequence (non-decreasing): fetch → store → categorize → prefix → tags → stats → done(100)
+# ---------------------------------------------------------------------------
+_BAND_FETCH      = (0,   15)   # network fetch (fast, variable)
+_BAND_STORE      = (15,  22)   # bulk DB upsert
+_BAND_CATEGORIZE = (22,  38)   # special-content classification
+_BAND_PREFIX     = (38,  60)   # channel-prefix detection
+_BAND_TAGS       = (60,  97)   # content-tag decomposer (largest wall-clock phase)
+_BAND_STATS      = (97, 100)   # prefix-stat aggregation
+
 # A ##...## category header: 2+ leading hashes, a label, 2+ closing hashes.
 # The closing run is NOT anchored to end-of-string — some providers append a
 # trailing token after it (e.g. "#### BAMBINI HD/4K ##### · UHD"), which the
@@ -116,10 +138,10 @@ class ProviderLoadThread(QThread):
             return
 
         def on_progress(current, total, message):
-            # Fetch occupies the FRONT 0-65% of the bar so it never exceeds the
-            # later phases (store=70%, …) — keeps the overall refresh bar
-            # monotonic (no fill-to-100%-then-drop-to-70% backward jump).
-            pct = int(current / total * 65) if total else 0
+            # Scale fetch progress into _BAND_FETCH so the bar never overshoots
+            # the store/parse phases — keeps the overall refresh bar monotonic.
+            _fs, _fe = _BAND_FETCH
+            pct = int(current / total * (_fe - _fs)) if total else _fs
             self.progress.emit(pct, 100, message)
 
         channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
@@ -172,7 +194,7 @@ class ProviderLoadThread(QThread):
 
         try:
             self._store_channels(session, channels, total)
-            self.progress.emit(70, 100, f"Stored {total:,} channels")
+            self.progress.emit(_BAND_STORE[1], 100, f"Stored {total:,} channels")
 
         except Exception as e:
             session.rollback()
@@ -184,22 +206,22 @@ class ProviderLoadThread(QThread):
         _t_stored = time.monotonic()
 
         # Phase: categorize special content (PPV / Events / Sports)
-        self.progress.emit(72, 100, "Categorizing content (PPV/Events/Sports)…")
+        self.progress.emit(_BAND_CATEGORIZE[0], 100, "Categorizing content (PPV/Events/Sports)…")
         self._categorize_special_content()
         _t_categorized = time.monotonic()
 
         # Phase: detect channel prefixes
-        self.progress.emit(87, 100, "Detecting channel prefixes…")
+        self.progress.emit(_BAND_PREFIX[0], 100, "Detecting channel prefixes…")
         self._update_prefixes_in_thread()
         _t_prefixed = time.monotonic()
 
         # Phase: compute content tags (decomposer) for just-loaded channels
-        self.progress.emit(93, 100, "Computing content tags…")
+        self.progress.emit(_BAND_TAGS[0], 100, "Computing content tags…")
         self._update_tags_in_thread()
         _t_tagged = time.monotonic()
 
         # Phase: compute prefix stats for the filter bar
-        self.progress.emit(97, 100, "Updating filter statistics…")
+        self.progress.emit(_BAND_STATS[0], 100, "Updating filter statistics…")
         self._compute_prefix_stats_in_thread()
         _t_statted = time.monotonic()
 
@@ -304,7 +326,8 @@ class ProviderLoadThread(QThread):
                 if len(batch) >= _STORE_BATCH:
                     self._flush_batch(session, batch)
                     batch.clear()
-                    percent = int(50 + (processed / total * 20)) if total else 70  # 50–70%
+                    _ss, _se = _BAND_STORE
+                    percent = int(_ss + (processed / total) * (_se - _ss)) if total else _se
                     self.progress.emit(percent, 100, f"Storing channels ({processed:,}/{total:,})...")
 
             # Flush the final partial batch
@@ -400,7 +423,8 @@ class ProviderLoadThread(QThread):
                 if not is_last_batch:
                     session.expunge_all()
 
-                pct = int(72 + (processed / n) * 15)  # 72–87%
+                _cs, _ce = _BAND_CATEGORIZE
+                pct = int(_cs + (processed / n) * (_ce - _cs))
                 self.progress.emit(
                     pct, 100,
                     f"Categorizing content ({processed:,}/{n:,})…",
@@ -434,8 +458,7 @@ class ProviderLoadThread(QThread):
         """
         from metatv.core.repositories import RepositoryFactory
 
-        _BAND_START = 87
-        _BAND_END   = 93
+        _BAND_START, _BAND_END = _BAND_PREFIX
 
         def _progress_cb(done: int, total: int) -> None:
             if total > 0:
@@ -676,11 +699,10 @@ class ProviderLoadThread(QThread):
                 done,
             )
 
-            # Emit per-batch progress in the 93–97 band so the active notification
-            # bar creeps forward during the long tagging phase (largest wall-clock
-            # phase for big providers) instead of sitting frozen at 93%.
-            _TAG_BAND_START = 93
-            _TAG_BAND_END   = 97
+            # Emit per-batch progress in the _BAND_TAGS range so the active
+            # notification bar creeps forward during the long tagging phase
+            # (largest wall-clock phase for big providers).
+            _TAG_BAND_START, _TAG_BAND_END = _BAND_TAGS
             band_pct = int(_TAG_BAND_START + (done / total) * (_TAG_BAND_END - _TAG_BAND_START))
             self._try_emit_progress(
                 band_pct, 100,

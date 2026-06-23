@@ -77,32 +77,34 @@ class TestAdvanceSteps:
         assert _status(steps, _STEP_PARSE) == StepStatus.PENDING
 
     def test_mid_fetch_phase(self):
-        steps = _advance_steps(self._base(), "Fetching VOD content…", 40)
+        """pct=10 is mid-way through _BAND_FETCH=(0,15) — fetch still active."""
+        steps = _advance_steps(self._base(), "Fetching VOD content…", 10)
         assert _status(steps, _STEP_FETCH) == StepStatus.ACTIVE
         assert _status(steps, _STEP_STORE) == StepStatus.PENDING
 
-    def test_at_70_fetch_done_store_active(self):
-        """pct=70 means channels fetched and storing just started."""
-        steps = _advance_steps(self._base(), "Stored 10,000 channels", 70)
+    def test_at_22_fetch_done_store_active(self):
+        """pct=22 (_BAND_STORE[1]) means channels fetched and storing just completed."""
+        steps = _advance_steps(self._base(), "Stored 10,000 channels", 22)
         assert _status(steps, _STEP_FETCH) == StepStatus.DONE
         assert _status(steps, _STEP_STORE) == StepStatus.ACTIVE
         assert _status(steps, _STEP_PARSE) == StepStatus.PENDING
 
     def test_storing_batch_progress(self):
-        """In-progress batches (pct 70-86) keep store active."""
-        steps = _advance_steps(self._base(), "Storing channels (5,000/10,000)...", 80)
+        """In-progress store batches (pct 15-22) keep store active."""
+        steps = _advance_steps(self._base(), "Storing channels (5,000/10,000)...", 18)
         assert _status(steps, _STEP_FETCH) == StepStatus.DONE
         assert _status(steps, _STEP_STORE) == StepStatus.ACTIVE
         assert _status(steps, _STEP_PARSE) == StepStatus.PENDING
 
-    def test_at_87_detecting_prefixes_store_done_parse_active(self):
-        steps = _advance_steps(self._base(), "Detecting channel prefixes…", 87)
+    def test_at_38_detecting_prefixes_store_done_parse_active(self):
+        """pct=38 (_BAND_PREFIX[0]) — prefix phase boundary."""
+        steps = _advance_steps(self._base(), "Detecting channel prefixes…", 38)
         assert _status(steps, _STEP_FETCH) == StepStatus.DONE
         assert _status(steps, _STEP_STORE) == StepStatus.DONE
         assert _status(steps, _STEP_PARSE) == StepStatus.ACTIVE
 
     def test_categorizing_content_triggers_parse_active(self):
-        steps = _advance_steps(self._base(), "Categorizing content (PPV/Events/Sports)…", 72)
+        steps = _advance_steps(self._base(), "Categorizing content (PPV/Events/Sports)…", 30)
         assert _status(steps, _STEP_PARSE) == StepStatus.ACTIVE
 
     def test_at_97_filter_stats_all_channel_steps_done(self):
@@ -166,7 +168,7 @@ class TestNotificationManagerSetSteps:
         )
         received.clear()  # discard the show() notification
 
-        new_steps = _advance_steps(_make_steps(epg=False), "Fetching VOD content…", 40)
+        new_steps = _advance_steps(_make_steps(epg=False), "Fetching VOD content…", 10)
         mgr.set_steps(notif_id, new_steps)
 
         # Listener must have fired
