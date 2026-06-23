@@ -841,31 +841,40 @@ class RecipeView(QWidget):
 
         The control layer (DR-0007): we read ``Config`` here on the main thread
         and hand plain sets to the engine, which never touches Config itself.
-        The semantics replicate the main channel list exactly
-        (``main_window_channels.py``):
 
-        - **excluded_prefixes** = the union of ``global_filter_excluded_categories``
-          (the category blacklist) and ``global_filter_excluded_prefixes`` (the
-          explicit "Block [PREFIX]" set).  Matched against ``detected_prefix``
-          AND ``detected_region`` downstream.
+        This delegates to the **same** ``filter_utils`` resolvers the main
+        channel list uses (``main_window_channels.py`` ``_query_channels_page``)
+        — a single chokepoint, so the recipe view never re-derives the union
+        from raw config lists:
+
+        - **excluded_prefixes** = ``get_active_category_filter(config)`` (the
+          category blacklist, resolved to leaf prefix codes) ∪
+          ``get_excluded_prefixes(config)`` (the explicit "Block [PREFIX]" set).
+          ``get_active_category_filter`` is the one place the category-group
+          selection is expanded into the leaf codes that match ``detected_prefix``
+          / ``detected_region``; hand-rolling ``set(config.…_excluded_categories)``
+          here bypassed that expansion, so checked groups never excluded anything.
         - **excluded_categories** = ``global_filter_excluded_user_categories``,
           matched against ``user_category``.
 
-        When ``global_filter_paused`` is True the user has temporarily disabled
-        all global filtering, so BOTH sets are empty (everything reappears) —
-        same as the main list.
+        Both ``filter_utils`` helpers are paused-aware: when
+        ``global_filter_paused`` is True they yield no exclusions, so BOTH sets
+        come back empty (everything reappears) — same as the main list.
 
         Returns:
             ``(excluded_prefixes, excluded_categories)`` — two ``set[str]``,
             both empty when global filtering is paused.
         """
+        from metatv.core.filter_utils import (
+            get_active_category_filter,
+            get_excluded_prefixes,
+        )
+
         cfg = self._config
         if getattr(cfg, "global_filter_paused", False):
             return set(), set()
-        excluded_prefixes: set[str] = (
-            set(getattr(cfg, "global_filter_excluded_categories", []) or [])
-            | set(getattr(cfg, "global_filter_excluded_prefixes", []) or [])
-        )
+        _cat_excluded, _ = get_active_category_filter(cfg)
+        excluded_prefixes: set[str] = set(_cat_excluded or []) | get_excluded_prefixes(cfg)
         excluded_categories: set[str] = set(
             getattr(cfg, "global_filter_excluded_user_categories", []) or []
         )
