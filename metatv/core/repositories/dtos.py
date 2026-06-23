@@ -283,6 +283,44 @@ class LiveEventDTO:
 
 
 # ---------------------------------------------------------------------------
+# Tag provenance DTO — details-pane tag display (DR-0006)
+# ---------------------------------------------------------------------------
+
+# Feeders that read directly from a provider-supplied field — these are
+# "source-given" (the provider explicitly labelled the channel this way).
+# All other feeders (name_parse, header, epg) are "ingestion-inferred" —
+# MetaTV derived the tag from a secondary signal, not a direct assertion.
+_SOURCE_GIVEN_FEEDERS: frozenset[str] = frozenset({
+    "provider_category",   # ChannelDB.category — Xtream provider's own category string
+    "genre",               # raw_data["genre"] — provider-supplied genre field
+    "user",                # explicit user assertion (always source-given by definition)
+})
+
+
+@dataclass(frozen=True)
+class ChannelTagDTO:
+    """One tag on a channel, with provenance + confidence for display.
+
+    Built inside a session_scope() by TagRepository.get_channel_tags_dto() so
+    that no ORM object crosses the session boundary.
+
+    Provenance classification:
+    - ``source_given=True``: the provider explicitly supplied this tag value
+      (feeder is ``provider_category``, ``genre``, or ``user``).
+    - ``source_given=False``: MetaTV derived the tag by inference from a
+      secondary signal (``name_parse``, ``header``, or ``epg``).
+
+    Confidence is the v1 formula from tag.py (``min(1.0, feeders/3)``).
+    DR-0006: confidence is ranking + prune-priority only — never hidden.
+    """
+    facet_type: str               # "region", "language", "genre", "platform", etc.
+    value: str                    # canonical tag value, e.g. "US", "Drama", "Netflix"
+    source_given: bool            # True = provider asserted; False = MetaTV inferred
+    confidence: float             # [0.0, 1.0] — low = ranked last, never suppressed
+    feeders: tuple[str, ...]      # contributing feeder names (for tooltip)
+
+
+# ---------------------------------------------------------------------------
 # Cross-repo builder (requires an open session — call inside session_scope())
 # ---------------------------------------------------------------------------
 

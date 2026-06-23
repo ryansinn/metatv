@@ -17,6 +17,7 @@ from metatv.metadata_providers.base import MetadataResult
 # Section widgets
 from metatv.gui.details_sections import (
     _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
+    _TagsSection,
 )
 from metatv.gui.details_actions import ChannelActionState, _ActionBar
 from metatv.gui import icons as _icons
@@ -51,6 +52,7 @@ class DetailsPaneWidget(QWidget):
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
+    channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
 
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
@@ -96,6 +98,17 @@ class DetailsPaneWidget(QWidget):
             return  # stale response — user already moved on
         self._action_bar.load(state)
 
+    def apply_channel_tags(self, channel_id: str, tags: list) -> None:
+        """Called from main_window when the async tag load completes.
+
+        Args:
+            channel_id: The channel these tags belong to — used as a stale-drop guard.
+            tags: List of ChannelTagDTO objects; empty list hides the section.
+        """
+        if not self.current_channel or self.current_channel.id != channel_id:
+            return  # stale response — user already moved on
+        self._tags.load(tags)
+
     def show_channel(self, channel, metadata: Optional[MetadataResult] = None) -> None:
         """Display a channel. Triggers async version/similar/action-state fetches."""
         logger.debug(f"show_channel: {channel.name}, metadata={metadata is not None}")
@@ -110,6 +123,7 @@ class DetailsPaneWidget(QWidget):
         for s in (self._poster, self._meta, self._plot, self._tech,
                   self._cast, self._action_bar):
             s.clear()
+        self._tags.clear()
         if metadata is None:
             self._versions.clear()
             self._similar.clear()
@@ -146,6 +160,7 @@ class DetailsPaneWidget(QWidget):
 
         # Async fetches
         self.action_state_requested.emit(channel.id)
+        self.channel_tags_requested.emit(channel.id)
         self.channel_versions_requested.emit(channel.id)
         if not is_live and getattr(channel, "detected_prefix", None):
             self.similar_titles_requested.emit(channel.id)
@@ -176,15 +191,17 @@ class DetailsPaneWidget(QWidget):
         self._plot     = _PlotSection()
         self._tech     = _TechnicalSection(self.config)
         self._cast     = _CastSection(self.config)
+        self._tags     = _TagsSection(self.config)
         self._similar  = _SimilarSection(self.config)
 
         # Restore collapse state
         self._tech.restore_collapse_state(self.config.details_pane_collapsed_sections)
         self._cast.restore_collapse_state(self.config.details_pane_collapsed_sections)
+        self._tags.restore_collapse_state(self.config.details_pane_collapsed_sections)
 
         for widget in (
             self._poster, self._meta, self._versions, self._action_bar,
-            self._plot, self._cast, self._tech, self._similar,
+            self._plot, self._cast, self._tech, self._tags, self._similar,
         ):
             self._content_layout.addWidget(widget)
 
@@ -249,6 +266,7 @@ class DetailsPaneWidget(QWidget):
         # Collapse state persistence
         self._tech._toggle_btn.clicked.connect(self._save_tech_state)
         self._cast._toggle_btn.clicked.connect(self._save_cast_state)
+        self._tags._toggle_btn.clicked.connect(self._save_tags_state)
 
     def _configure_for(self, is_live: bool) -> None:
         self._poster.set_mode(is_live)
@@ -366,3 +384,6 @@ class DetailsPaneWidget(QWidget):
 
     def _save_cast_state(self) -> None:
         self._cast.save_state(self.config)
+
+    def _save_tags_state(self) -> None:
+        self._tags.save_state(self.config)

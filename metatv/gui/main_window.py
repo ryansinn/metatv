@@ -320,6 +320,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._load_channels_token: list[int] = [0]
         self._epg_count_token: list[int] = [0]
         self._filter_stats_token: list[int] = [0]
+        self._channel_tags_token: list[int] = [0]
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
@@ -436,6 +437,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)
+        self.details_pane.channel_tags_requested.connect(self._on_channel_tags_requested)
         self._versions_loaded.connect(self._on_versions_loaded)
         self._similar_titles_loaded.connect(self._on_similar_titles_loaded)
         self._action_state_loaded.connect(self._on_action_state_loaded)

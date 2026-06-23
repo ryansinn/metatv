@@ -238,6 +238,54 @@ class TagRepository:
             )
             self.session.rollback()
 
+    def get_channel_tags_dto(self, channel_id: str) -> List:
+        """Return ChannelTagDTO objects for all tags on ``channel_id``.
+
+        Reads ``ContentTagDB`` + ``TagDB`` in one JOIN; maps feeders to the
+        ``source_given`` provenance flag per DR-0006.  No ORM objects cross
+        the session boundary — caller gets plain frozen dataclasses.
+
+        Provenance rule: a tag is ``source_given=True`` when *any* feeder in
+        its feeders list is a direct provider-field reader (``provider_category``,
+        ``genre``, or ``user``).  If all feeders are inference-based
+        (``name_parse``, ``header``, ``epg``), ``source_given=False``.
+
+        Args:
+            channel_id: The ``ChannelDB.id`` to look up.
+
+        Returns:
+            List of ``ChannelTagDTO``, sorted by facet then value.
+            An empty list is returned when the channel has no tags.
+        """
+        from metatv.core.repositories.dtos import ChannelTagDTO, _SOURCE_GIVEN_FEEDERS
+
+        rows = (
+            self.session.query(
+                TagDB.type,
+                TagDB.value,
+                ContentTagDB.feeders,
+                ContentTagDB.confidence,
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .filter(ContentTagDB.channel_id == channel_id)
+            .order_by(TagDB.type, TagDB.value)
+            .all()
+        )
+
+        dtos: List[ChannelTagDTO] = []
+        for tag_type, value, feeders_raw, confidence in rows:
+            feeder_list: List[str] = feeders_raw if isinstance(feeders_raw, list) else []
+            # source_given = True when any feeder is a direct provider-field reader
+            source_given = any(f in _SOURCE_GIVEN_FEEDERS for f in feeder_list)
+            dtos.append(ChannelTagDTO(
+                facet_type=tag_type,
+                value=value,
+                source_given=source_given,
+                confidence=float(confidence or 0.0),
+                feeders=tuple(feeder_list),
+            ))
+        return dtos
+
     def tags_for(self, channel_id: str) -> List[Tuple[str, str]]:
         """Return all ``(type, value)`` tuples tagged on ``channel_id``.
 

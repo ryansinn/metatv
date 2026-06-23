@@ -525,6 +525,34 @@ WHATS_NEW_POS_LABEL = (
     "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
 )
 
+# Tag provenance + confidence chips (details pane — DR-0006 display)
+# SOURCE-GIVEN chips: solid border + slightly brighter text → "provider said so"
+TAG_CHIP_SOURCE = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 1px 6px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_DIM + ";"
+    " background: " + OVERLAY_05 + "; }"
+)
+# INFERRED chips: dashed border + muted text → "MetaTV guessed this"
+TAG_CHIP_INFERRED = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_MUTED + ";"
+    " border: 1px dashed " + COLOR_FAINT + "; border-radius: 4px; padding: 1px 6px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; border-color: " + COLOR_BORDER + ";"
+    " background: " + OVERLAY_05 + "; }"
+)
+# LOW-CONFIDENCE modifier: further dims any chip whose confidence < 0.5
+TAG_CHIP_LOW_CONF_EXTRA = (
+    "QPushButton { opacity: 0.6; color: " + COLOR_DISABLED + ";"
+    " border-color: " + COLOR_LINE + "; }"
+)
+# Facet group label inside the Tags section
+TAG_FACET_LABEL = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_MUTED_2 + ";"
+    " letter-spacing: 1px;"
+)
+
 # Events tab — segmented view-mode toggle (Timeline / By Network)
 EVENTS_SEG_INACTIVE = (
     "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"

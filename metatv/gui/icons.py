@@ -118,6 +118,14 @@ notification_info_icon: str = ""
 migration_pending_icon: str = "◻"   # U+25FB WHITE MEDIUM SQUARE — task not yet done
 migration_done_icon: str = "✓"      # U+2713 CHECK MARK — task complete
 
+# Tag provenance indicators (details pane — DR-0006 display)
+# source_given: provider explicitly supplied this value (solid square — asserted fact)
+tag_source_given_icon: str = "■"    # U+25A0 BLACK SQUARE — "provider said so"
+# inferred: MetaTV derived this from a secondary signal (hollow square — estimated)
+tag_inferred_icon: str = "□"        # U+25A1 WHITE SQUARE — "MetaTV guessed this"
+# tags section header
+tag_section_icon: str = "🏷"        # tag/label icon for the Tags collapsible header
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",
