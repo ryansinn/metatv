@@ -9,6 +9,23 @@ from sqlalchemy.orm import sessionmaker
 
 from metatv.core.database import Base, ChannelDB
 from metatv.core.repositories.channel import ChannelRepository
+from metatv.core.repositories.tag import _clear_tag_cache
+
+
+@pytest.fixture(autouse=True)
+def _clear_tag_id_cache():
+    """Clear the process-level tag-id cache around every test.
+
+    ``_TAG_ID_CACHE`` maps ``(type, value) → integer id``.  Each test that
+    creates its own DB file gets fresh auto-increment ids starting at 1, so
+    cached ids from a prior test would alias to the wrong rows in the new DB.
+    Clearing before (and after, for safety) each test eliminates cross-test
+    contamination without requiring every fixture to call ``_clear_tag_cache``
+    manually.
+    """
+    _clear_tag_cache()
+    yield
+    _clear_tag_cache()
 
 
 @pytest.fixture(autouse=True)
