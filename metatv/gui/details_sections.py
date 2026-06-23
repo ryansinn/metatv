@@ -889,3 +889,217 @@ class _CastSection(QWidget):
             sections.discard("cast")
         config.details_pane_collapsed_sections = list(sections)
         config.save()
+
+
+# ---------------------------------------------------------------------------
+# _TagsSection
+# ---------------------------------------------------------------------------
+
+# Canonical display order for facet groups in the Tags section.
+_FACET_DISPLAY_ORDER: list[str] = [
+    "language", "region", "genre", "platform", "quality", "decade", "collection",
+]
+
+# Human-readable label for each facet type.
+_FACET_LABELS: dict[str, str] = {
+    "language":    "Language",
+    "region":      "Region",
+    "genre":       "Genre",
+    "platform":    "Platform",
+    "quality":     "Quality",
+    "decade":      "Decade",
+    "collection":  "Collection",
+    "content_type": "Content Type",
+}
+
+# Confidence threshold below which a chip is styled as low-confidence.
+_LOW_CONF_THRESHOLD: float = 0.5
+
+
+class _TagsSection(QWidget):
+    """Collapsible 'Tags' section showing stored content_tags, grouped by facet.
+
+    Each tag renders as a chip labeled with:
+    - Provenance: solid border = source-given; dashed border = inferred.
+    - Confidence: dimmed chip text for tags with confidence < 0.5.
+    - Tooltip: feeder names + provenance label + confidence value.
+
+    DR-0006: all tags are shown regardless of confidence — confidence is
+    ranking + prune-priority only, never a suppression gate.
+    """
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self._collapsed: bool = False
+        self._setup()
+
+    # ------------------------------------------------------------------ #
+    # Setup                                                                #
+    # ------------------------------------------------------------------ #
+
+    def _setup(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Collapsible header
+        self._header_widget = QWidget()
+        hdr = QHBoxLayout(self._header_widget)
+        hdr.setContentsMargins(0, 5, 0, 5)
+
+        self._toggle_btn = QPushButton(_icons.collapse_icon)
+        self._toggle_btn.setFixedSize(20, 20)
+        self._toggle_btn.clicked.connect(self._toggle)
+        hdr.addWidget(self._toggle_btn)
+        hdr.addWidget(QLabel(f"<b>{_icons.tag_section_icon} Tags</b>"))
+        hdr.addStretch()
+        layout.addWidget(self._header_widget)
+
+        # Scrollable content area — chips can wrap into many rows
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(4, 0, 0, 6)
+        self._content_layout.setSpacing(6)
+        layout.addWidget(self._content)
+
+        # Initially hidden until tags are loaded
+        self.hide()
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    def load(self, tags: list) -> None:
+        """Populate section from a list of ChannelTagDTO objects.
+
+        Args:
+            tags: List of ``ChannelTagDTO`` — must not be ORM objects.
+                  Renders all tags grouped by facet in display order.
+        """
+        self._clear_content()
+
+        if not tags:
+            self.hide()
+            return
+
+        # Group by facet type, preserving DR-0006 "capture all" principle.
+        grouped: dict[str, list] = {}
+        for tag in tags:
+            grouped.setdefault(tag.facet_type, []).append(tag)
+
+        # Sort within each facet: source-given first, then by confidence desc, then value.
+        for facet_tags in grouped.values():
+            facet_tags.sort(key=lambda t: (not t.source_given, -t.confidence, t.value))
+
+        # Render in canonical display order; any unknown facets appended at the end.
+        ordered_facets: list[str] = [
+            f for f in _FACET_DISPLAY_ORDER if f in grouped
+        ]
+        ordered_facets.extend(
+            f for f in sorted(grouped) if f not in _FACET_DISPLAY_ORDER
+        )
+
+        for facet in ordered_facets:
+            self._render_facet_group(facet, grouped[facet])
+
+        self._apply()
+        self.show()
+
+    def clear(self) -> None:
+        """Clear all chips and hide the section."""
+        self._clear_content()
+        self.hide()
+
+    def restore_collapse_state(self, collapsed_sections: list[str]) -> None:
+        self._collapsed = "tags" in collapsed_sections
+        self._apply()
+
+    def save_state(self, config) -> None:
+        sections = set(config.details_pane_collapsed_sections)
+        if self._collapsed:
+            sections.add("tags")
+        else:
+            sections.discard("tags")
+        config.details_pane_collapsed_sections = list(sections)
+        config.save()
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    # ------------------------------------------------------------------ #
+    # Internal                                                             #
+    # ------------------------------------------------------------------ #
+
+    def _clear_content(self) -> None:
+        """Remove all child widgets from the content layout."""
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _render_facet_group(self, facet: str, tags: list) -> None:
+        """Render a labeled chip row for one facet group."""
+        label_text = _FACET_LABELS.get(facet, facet.replace("_", " ").title())
+
+        # Facet label (e.g. "LANGUAGE")
+        lbl = QLabel(label_text.upper())
+        lbl.setStyleSheet(_theme.TAG_FACET_LABEL)
+        self._content_layout.addWidget(lbl)
+
+        # Chip row — wrapped with QHBoxLayout + stretch to left-align
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(4)
+
+        for tag in tags:
+            chip = self._make_chip(tag)
+            row_layout.addWidget(chip)
+
+        row_layout.addStretch()
+        self._content_layout.addWidget(row)
+
+    def _make_chip(self, tag) -> QPushButton:
+        """Build a single QPushButton chip for a ChannelTagDTO."""
+        # Provenance prefix: ■ = source-given, □ = inferred
+        prov_icon = (
+            _icons.tag_source_given_icon if tag.source_given
+            else _icons.tag_inferred_icon
+        )
+        label = f"{prov_icon} {tag.value}"
+
+        chip = QPushButton(label)
+        chip.setFlat(True)
+        chip.setFixedHeight(22)
+
+        # Provenance style: source-given = solid border; inferred = dashed border.
+        # Low-confidence = extra dimming on top of provenance style.
+        if tag.source_given:
+            chip.setStyleSheet(_theme.TAG_CHIP_SOURCE)
+        else:
+            chip.setStyleSheet(_theme.TAG_CHIP_INFERRED)
+
+        # Tooltip: feeder list + provenance label + confidence value
+        prov_label = "Given by source" if tag.source_given else "Inferred by MetaTV"
+        feeder_str = ", ".join(tag.feeders) if tag.feeders else "unknown"
+        conf_pct = round(tag.confidence * 100)
+        conf_note = "" if tag.confidence >= _LOW_CONF_THRESHOLD else " (low confidence)"
+        chip.setToolTip(
+            f"{tag.facet_type}: {tag.value}\n"
+            f"Provenance: {prov_label}\n"
+            f"Feeder(s): {feeder_str}\n"
+            f"Confidence: {conf_pct}%{conf_note}"
+        )
+
+        return chip
+
+    def _toggle(self) -> None:
+        self._collapsed = not self._collapsed
+        self._apply()
+
+    def _apply(self) -> None:
+        self._content.setVisible(not self._collapsed)
+        self._toggle_btn.setText(
+            _icons.expand_icon if self._collapsed else _icons.collapse_icon
+        )

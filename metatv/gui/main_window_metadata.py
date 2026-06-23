@@ -23,6 +23,20 @@ from metatv.gui.details_versions import ChannelVersion
 class _MetadataMixin:
     """Mixin: details pane data loading, versions, similar titles, action states."""
 
+    # ── Channel tags (provenance + confidence display — DR-0006) ────────────
+
+    def _on_channel_tags_requested(self, channel_id: str) -> None:
+        """Kick off an off-thread tag load for the given channel_id."""
+        self._run_query(
+            lambda repos: repos.tags.get_channel_tags_dto(channel_id),
+            lambda tags: self._on_channel_tags_loaded(channel_id, tags),
+            token_ref=self._channel_tags_token,
+        )
+
+    def _on_channel_tags_loaded(self, channel_id: str, tags: list) -> None:
+        """Main-thread slot: deliver loaded tags to the details pane."""
+        self.details_pane.apply_channel_tags(channel_id, tags or [])
+
     # ── Action state (is_queued / rating / suppressed / hidden) ────────────
 
     def _on_action_state_requested(self, channel_id: str) -> None:
