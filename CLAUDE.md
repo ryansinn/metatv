@@ -480,6 +480,21 @@ source going away keeps its favorites/queue/history as context). Recommendation
 *weights* likewise still learn from engaged items on now-inactive sources; only the candidate
 *pool that gets surfaced* is scoped to active sources.
 
+### The data engine is preference-free — assumptions live in the control layer (DR-0007)
+Three layers, one-way dependency: **engine ← control ← view.** The **engine** (faceted/aggregate query
+primitives) is **completely agnostic** — scoped inputs in, data out, no assumptions about what's
+visible or how data is encoded. Every "what should be visible / what `##` means" decision is a
+human-factor assumption (**view preference**: `is_hidden`, exclusions, adult mode; or **content
+preference**: provider-encoding convention) and lives in the **data-aware control layer**, never the
+engine. *Full why + the split: DR-0007.*
+- **Never re-inline a visibility/scoping predicate.** Be scope-agnostic like
+  `get_channel_ids_by_tag_facets` (caller supplies `base_channel_ids`); use the shared
+  `visible_channel_filter` / `get_hidden_provider_ids()`. A copied WHERE-fragment is a missing
+  chokepoint; a *subset* copy mis-counts. *(Live debt — `is_hidden`/`##%`/`NO EVENT` smeared across
+  channel/stats/analytics/tag; don't widen it. Task #59; audit lens #4 greps the predicate fragment.)*
+- **Content-format guesses are ingestion-only** — resolve `##`/placeholder at ingest into a stored
+  field; never re-pattern-match in queries (same violation as render-time `parse_channel_name`).
+
 ### Resource cleanup in closeEvent — use the cleanup registry
 `MainWindow` owns a `self._cleanables: list[tuple[str, callable]]` registry. Every new background manager **must** register its shutdown callable immediately after construction — do not add it manually to `closeEvent`:
 

@@ -485,3 +485,59 @@ steadily better auto-classification (`source="user"` is the highest-confidence f
 **Scope.** Governs the tag decomposer first, but is a **standing principle** for the whole app —
 recommendations, discovery, dedup: when uncertain, **surface generously, label confidence + provenance, let the
 user steer.** Under-showing is the cage; honest over-showing is the mirror.
+
+### DR-0007 — The data engine is preference-free; a data-aware *control* middle layer owns visibility & content assumptions
+**Status:** Accepted (2026-06-23).
+**Ties to:** PRODUCT_VISION (good-on-raw-data, function-over-form); DR-0005 (a view is a group-by over the
+tag corpus); DR-0006 (witness/jury — assumptions are guesses to surface + let the user govern, not bake in);
+the "Active-source scoping → one helper" + "Reuse before reinvent" chokepoint rules; the
+"name processing is ingestion-only" rule; task #50 (exclusion transparency) and #59 (visible-channel predicate).
+**Rule to distill:** CLAUDE.md *"Query visibility/scoping predicates — one reusable filter, never re-inline"*
++ the engine-agnostic / three-layer framing below.
+
+**Problem.** Reviewing PR #177, "what is a *visible / countable* channel" was found smeared as inline SQL
+filter fragments — `is_hidden == False` (~15×), `name.notlike("##%")` (3×), `notlike("%NO EVENT
+STREAMING%")`, `provider_id.notin_(excluded_provider_ids)` — across `channel.py`, `channel_stats.py`,
+`analytics.py`, `tag.py`. Each query re-encodes the definition; some use a *narrower* subset and silently
+mis-count (the new facet-count methods omit global category exclusions → the cloud over-reports vs. what the
+channel list actually shows). The faceted **engine** (`get_channel_ids_by_tag_facets`) already does it right:
+it is **scope-agnostic** — visibility is supplied by the caller via `base_channel_ids`, and it applies none
+of its own.
+
+**Insight (user, 2026-06-23).** The boundary being violated isn't merely "DRY the predicate" — it's that those
+filters encode **human-factor assumptions that do not belong in a data engine at all.** Two kinds:
+- **View preferences** — UI/viewer state: `is_hidden`, global exclusions, adult mode, column order. Contingent
+  on *the person*.
+- **Content preferences** — preconceived notions about how *this data is encoded*: `##` = a provider category
+  header, `NO EVENT STREAMING` = a dead placeholder, prefix→region maps. Contingent on *provider conventions*,
+  not intrinsic to "a channel."
+
+Both are guesses about humans (the viewer, or the provider's formatting). An engine should manipulate data
+**structurally** and stay assumption-free; deciding *scope* is a separate job.
+
+**Decision — three layers, one-directional dependency (engine ← control ← view):**
+1. **Engine — completely agnostic.** Faceted/aggregate query primitives take **scoped inputs** (id sets,
+   facet selections) and return data. Zero visibility/format assumptions. `base_channel_ids` is the model;
+   every new aggregate/count method follows it.
+2. **Control / policy middle layer — data-aware + settings-bound.** The home for *every* "what should be
+   visible / how is this data shaped" assumption: one reusable **owner per concern** — view-pref scope (the
+   `visible_channel_filter` predicate + `get_hidden_provider_ids()`) and content-pref conventions (the
+   decomposer / `channel_name_utils` curated maps). It reads the user's **settings/control mechanism**,
+   understands the data, and translates both into the scoped inputs the engine consumes. Because the rules
+   live here bound to settings, they are **inspectable and editable** — the mirror-not-cage requirement
+   (DR-0006, #50) falls out of the architecture instead of being bolted on.
+3. **View** — renders what the control layer returns; never reaches past it into the engine with raw
+   assumptions.
+
+**Corollary — name/format assumptions are computed once at ingestion.** A content-preference derived from the
+name or raw data (`##` headers, placeholder names) must be resolved at **ingestion** into a stored structural
+field (e.g. flag category-header rows), so the control layer filters a clean column instead of re-pattern-
+matching `##` in every query. `name.notlike("##%")` scattered across the query layer is the **same violation**
+as render-time `parse_channel_name` — a name-derived guess evaluated on the fly instead of stored once.
+
+**Rejected.** Leaving the predicate smear ("it works"): it drifts, a subset copy mis-counts, and it couples
+pure query logic to contingent human conventions — so every provider-format quirk or new view-pref then edits
+N call sites. This is the **same single-source-of-truth lesson as the `theme.py` hex→token migration** (days
+spent untangling hardcoded styles); the rule exists to stop that smear from restarting in the data layer.
+Tracked: task #59 (extract `visible_channel_filter`; move `##`/placeholder detection to an ingestion flag) +
+audit redundancy lens #4 (cluster by repeated SQL predicate fragment, not just method name).
