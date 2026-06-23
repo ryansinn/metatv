@@ -432,7 +432,8 @@ class ProviderLoadThread(QThread):
         _YIELD_SIZE: int = 2_000
 
         try:
-            config = _Config.load()
+            # Config.load() returns (Config, migrated_bool) — take the Config only.
+            config, _ = _Config.load()
         except Exception as e:
             logger.warning("_update_tags_in_thread: could not load config — skipping: {}", e)
             return

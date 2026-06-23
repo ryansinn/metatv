@@ -136,7 +136,9 @@ def _run_tag_hook(db: Database, provider_id: str, cfg: Config) -> None:
 
     # Patch Config.load() so the worker uses our isolated config instance.
     # Config is imported inside the method body, so we patch its canonical location.
-    with patch("metatv.core.config.Config.load", return_value=cfg):
+    # NOTE: Config.load() returns a (Config, migrated_bool) TUPLE — the mock MUST
+    # mirror that shape, or it masks the real "config is a tuple" crash in the hook.
+    with patch("metatv.core.config.Config.load", return_value=(cfg, False)):
         thread._update_tags_in_thread()
 
 
