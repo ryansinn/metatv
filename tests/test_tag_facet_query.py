@@ -506,3 +506,168 @@ class TestCountAndSample:
                 {"platform": {"Nope+"}}
             )
         assert names == []
+
+
+# ---------------------------------------------------------------------------
+# Global Exclusions — excluded_prefixes / excluded_categories (Task A)
+# ---------------------------------------------------------------------------
+#
+# The recipe must honour the user's Global Exclusions (the same set the main
+# channel list applies): a channel whose detected_prefix OR detected_region is
+# in excluded_prefixes, or whose user_category is in excluded_categories, must
+# disappear from the cloud counts, YIELDS, and the preview.  Untagged (NULL)
+# channels must NOT be dropped — the `col NOT IN (...)` NULL trap.
+
+
+def _add_excl_channel(session, name, provider_id="prov_active", *,
+                      detected_prefix=None, detected_region=None,
+                      user_category=None) -> str:
+    """Insert a ChannelDB row carrying the Global-Exclusion-relevant columns."""
+    cid = str(uuid.uuid4())
+    session.add(
+        ChannelDB(
+            id=cid,
+            source_id=str(uuid.uuid4()),
+            provider_id=provider_id,
+            name=name,
+            detected_prefix=detected_prefix,
+            detected_region=detected_region,
+            user_category=user_category,
+        )
+    )
+    session.flush()
+    return cid
+
+
+@pytest.fixture
+def global_exclusion_channels(file_db):
+    """Seed four Drama channels exercising every Global-Exclusion axis.
+
+    - keep_null  — no prefix/region/category at all (the NULL-trap canary).
+    - excl_prefix — detected_prefix='AR' (excluded via excluded_prefixes).
+    - excl_region — detected_region='AR' (excluded via excluded_prefixes too —
+                    prefixes match BOTH detected_prefix and detected_region).
+    - excl_cat    — user_category='Kids' (excluded via excluded_categories).
+
+    Returns (keep_null, excl_prefix, excl_region, excl_cat, db).
+    """
+    with file_db.session_scope() as session:
+        repos = RepositoryFactory(session)
+
+        keep_null = _add_excl_channel(session, "Drama Null")
+        repos.tags.set_content_tags(keep_null, [("genre", "Drama", "f")])
+
+        excl_prefix = _add_excl_channel(session, "Drama AR Prefix", detected_prefix="AR")
+        repos.tags.set_content_tags(excl_prefix, [("genre", "Drama", "f")])
+
+        excl_region = _add_excl_channel(session, "Drama AR Region", detected_region="AR")
+        repos.tags.set_content_tags(excl_region, [("genre", "Drama", "f")])
+
+        excl_cat = _add_excl_channel(session, "Drama Kids Cat", user_category="Kids")
+        repos.tags.set_content_tags(excl_cat, [("genre", "Drama", "f")])
+
+    return keep_null, excl_prefix, excl_region, excl_cat, file_db
+
+
+class TestGlobalExclusionScoping:
+    """excluded_prefixes / excluded_categories drop globally-banished channels."""
+
+    def test_count_drops_excluded_prefix_and_region(self, global_exclusion_channels):
+        """A prefix code in excluded_prefixes drops channels matching it on EITHER
+        detected_prefix or detected_region; the NULL channel survives."""
+        _keep, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            count = repos.tags.count_channels_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR"},
+            )
+        # keep_null + excl_cat survive; the two AR channels are dropped.
+        assert count == 2
+
+    def test_count_drops_excluded_category(self, global_exclusion_channels):
+        """A user_category in excluded_categories drops that channel only."""
+        _keep, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            count = repos.tags.count_channels_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_categories={"Kids"},
+            )
+        # keep_null + the two AR channels survive; only excl_cat is dropped.
+        assert count == 3
+
+    def test_null_columns_never_dropped(self, global_exclusion_channels):
+        """The fully-NULL channel survives every exclusion set (NULL trap)."""
+        keep_null, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            ids = repos.tags.get_channel_ids_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR", "KU"},
+                excluded_categories={"Kids", "Adult"},
+            )
+        assert keep_null in ids
+
+    def test_empty_sets_keep_everything(self, global_exclusion_channels):
+        """Empty exclusion sets (paused global filter) drop nothing."""
+        keep_null, ep, er, ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            count = repos.tags.count_channels_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_prefixes=set(),
+                excluded_categories=set(),
+            )
+            ids = repos.tags.get_channel_ids_by_tag_facets(
+                {"genre": {"Drama"}}, excluded_provider_ids=[]
+            )
+        assert count == 4
+        assert {keep_null, ep, er, ec} <= ids
+
+    def test_cloud_counts_drop_excluded_prefix(self, global_exclusion_channels):
+        """get_tag_counts_for_facet (the cloud) honours excluded_prefixes."""
+        _keep, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            counts = repos.tags.get_tag_counts_for_facet(
+                "genre",
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR"},
+            )
+        # The cloud's Drama tile must drop the two AR channels.
+        drama = next(c for c in counts if c.value == "Drama")
+        assert drama.channel_count == 2
+
+    def test_facet_summary_drops_excluded(self, global_exclusion_channels):
+        """get_facet_summary (the pantry) runs with exclusion sets without error
+        and still reports the genre facet (the surviving channels carry it)."""
+        _keep, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            summary = repos.tags.get_facet_summary(
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR"},
+                excluded_categories={"Kids"},
+            )
+        # genre still present (keep_null carries it); distinct value count is 1.
+        genre = next(s for s in summary if s.facet_type == "genre")
+        assert genre.distinct_values == 1
+
+    def test_sample_preview_drops_excluded(self, global_exclusion_channels):
+        """The preview sample never includes globally-excluded channels."""
+        _keep, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            names = repos.tags.sample_channel_names_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR"},
+                excluded_categories={"Kids"},
+                limit=20,
+            )
+        assert names == ["Drama Null"]

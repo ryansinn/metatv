@@ -682,3 +682,134 @@ def test_stale_result_dropped_by_token(qapp):
     assert first_entry["token_ref"][0] == 2, (
         "token_ref should reflect the latest counter value (2) so the seam can drop stale results"
     )
+
+
+# ---------------------------------------------------------------------------
+# Global Exclusions — RecipeView passes the user's exclusion sets to the engine
+# ---------------------------------------------------------------------------
+#
+# Task A control-layer half: the engine just applies caller-supplied scope
+# inputs (DR-0007); RecipeView resolves the sets from Config (respecting
+# global_filter_paused) and threads them into every faceted read.
+
+class _RecordingTags:
+    """Stand-in for repos.tags that records the kwargs each query receives."""
+
+    def __init__(self):
+        self.calls: dict[str, dict] = {}
+
+    def get_facet_summary(self, **kwargs):
+        self.calls["facet_summary"] = kwargs
+        return []
+
+    def get_tag_counts_for_facet(self, facet_type, **kwargs):
+        self.calls["tag_counts"] = kwargs
+        return []
+
+    def count_channels_by_tag_facets(self, **kwargs):
+        self.calls["count"] = kwargs
+        return 0
+
+    def sample_channel_names_by_tag_facets(self, **kwargs):
+        self.calls["sample"] = kwargs
+        return []
+
+
+class _RecordingProviders:
+    def get_hidden_provider_ids(self):
+        return ["prov_hidden"]
+
+
+class _RecordingRepos:
+    def __init__(self):
+        self.tags = _RecordingTags()
+        self.providers = _RecordingProviders()
+
+
+def _set_global_filter(view, *, paused=False, categories=None, prefixes=None,
+                       user_categories=None):
+    """Set the global-filter config attributes the exclusion helper reads."""
+    cfg = view._config
+    cfg.global_filter_paused = paused
+    cfg.global_filter_excluded_categories = categories or []
+    cfg.global_filter_excluded_prefixes = prefixes or []
+    cfg.global_filter_excluded_user_categories = user_categories or []
+
+
+def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):
+    """_global_exclusion_sets() unions excluded_categories + excluded_prefixes
+    into the prefix set, and reads user-category exclusions separately."""
+    view, _seam = _make_view(qapp)
+    _set_global_filter(
+        view, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
+    )
+    prefixes, cats = view._global_exclusion_sets()
+    assert prefixes == {"AR", "KU"}
+    assert cats == {"Kids"}
+
+
+def test_global_exclusion_sets_empty_when_paused(qapp):
+    """When global_filter_paused is True both sets are empty (everything shows)."""
+    view, _seam = _make_view(qapp)
+    _set_global_filter(
+        view, paused=True, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
+    )
+    prefixes, cats = view._global_exclusion_sets()
+    assert prefixes == set()
+    assert cats == set()
+
+
+def test_load_results_threads_exclusion_sets_to_engine(qapp):
+    """_load_results runs its query_fn with excluded_prefixes/categories on both
+    the count and sample engine calls."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    view._load_results()
+    query_fn = seam.calls[-1]["query_fn"]
+    repos = _RecordingRepos()
+    query_fn(repos)
+
+    assert repos.tags.calls["count"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["count"]["excluded_categories"] == {"Kids"}
+    # sample only runs when count > 0; force a non-zero count and re-run.
+    repos.tags.count_channels_by_tag_facets = lambda **k: (
+        repos.tags.calls.__setitem__("count", k) or 5
+    )
+    query_fn(repos)
+    assert repos.tags.calls["sample"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["sample"]["excluded_categories"] == {"Kids"}
+
+
+def test_load_cloud_threads_exclusion_sets_to_engine(qapp):
+    """_load_cloud runs its query_fn with the exclusion sets on get_tag_counts_for_facet."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    _set_global_filter(view, prefixes=["KU"])
+
+    view._load_cloud("genre")
+    query_fn = seam.calls[-1]["query_fn"]
+    repos = _RecordingRepos()
+    query_fn(repos)
+
+    assert repos.tags.calls["tag_counts"]["excluded_prefixes"] == {"KU"}
+    assert repos.tags.calls["tag_counts"]["excluded_categories"] == set()
+
+
+def test_load_pantry_threads_exclusion_sets_to_engine(qapp):
+    """_load_pantry runs its query_fn with the exclusion sets on get_facet_summary."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+
+    view._load_pantry()
+    # the pantry call is the only one queued; find it by callback.
+    entry = next(c for c in seam.calls if c["on_result"] == view._on_pantry_loaded)
+    repos = _RecordingRepos()
+    entry["query_fn"](repos)
+
+    assert repos.tags.calls["facet_summary"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["facet_summary"]["excluded_categories"] == {"Kids"}

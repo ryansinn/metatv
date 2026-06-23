@@ -776,11 +776,49 @@ class RecipeView(QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────
 
+    def _global_exclusion_sets(self) -> tuple[set[str], set[str]]:
+        """Resolve the user's Global Exclusions for the faceted queries.
+
+        The control layer (DR-0007): we read ``Config`` here on the main thread
+        and hand plain sets to the engine, which never touches Config itself.
+        The semantics replicate the main channel list exactly
+        (``main_window_channels.py``):
+
+        - **excluded_prefixes** = the union of ``global_filter_excluded_categories``
+          (the category blacklist) and ``global_filter_excluded_prefixes`` (the
+          explicit "Block [PREFIX]" set).  Matched against ``detected_prefix``
+          AND ``detected_region`` downstream.
+        - **excluded_categories** = ``global_filter_excluded_user_categories``,
+          matched against ``user_category``.
+
+        When ``global_filter_paused`` is True the user has temporarily disabled
+        all global filtering, so BOTH sets are empty (everything reappears) —
+        same as the main list.
+
+        Returns:
+            ``(excluded_prefixes, excluded_categories)`` — two ``set[str]``,
+            both empty when global filtering is paused.
+        """
+        cfg = self._config
+        if getattr(cfg, "global_filter_paused", False):
+            return set(), set()
+        excluded_prefixes: set[str] = (
+            set(getattr(cfg, "global_filter_excluded_categories", []) or [])
+            | set(getattr(cfg, "global_filter_excluded_prefixes", []) or [])
+        )
+        excluded_categories: set[str] = set(
+            getattr(cfg, "global_filter_excluded_user_categories", []) or []
+        )
+        return excluded_prefixes, excluded_categories
+
     def _load_pantry(self) -> None:
         """Load facet summaries from the DB (off-thread)."""
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.get_facet_summary(
-                excluded_provider_ids=repos.providers.get_hidden_provider_ids()
+                excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
             ),
             self._on_pantry_loaded,
             token_ref=self._pantry_token,
@@ -802,10 +840,13 @@ class RecipeView(QWidget):
 
     def _load_cloud(self, facet_type: str) -> None:
         """Load tag counts for the selected facet (off-thread)."""
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.get_tag_counts_for_facet(
                 facet_type,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
             ),
             self._on_cloud_loaded,
             token_ref=self._cloud_token,
@@ -854,18 +895,22 @@ class RecipeView(QWidget):
         # Snapshot recipe state for the lambda (closed over)
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
 
         def _query(repos):
             # Count + preview stay entirely in SQL — a broad facet (e.g.
             # language:English ≈ 170k channels) costs one COUNT and a LIMIT 20,
             # never a 170k-id Python set.  Both are scoped to visible channels on
-            # active sources via excluded_provider_ids, so YIELDS agrees with the
-            # pantry/cloud counts and never leaks disabled-source channels.
+            # active sources via excluded_provider_ids AND to the user's Global
+            # Exclusions, so YIELDS agrees with the pantry/cloud counts and never
+            # leaks disabled-source or globally-banished channels.
             hidden = repos.providers.get_hidden_provider_ids()
             total = repos.tags.count_channels_by_tag_facets(
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
             )
             if total == 0:
                 return ([], 0)
@@ -873,6 +918,8 @@ class RecipeView(QWidget):
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
                 limit=20,
             )
             return (names, total)
