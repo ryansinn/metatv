@@ -215,6 +215,17 @@ FONT_INPUT   = "16px"   # custom-emoji input
 FONT_ICON    = "17px"   # icon-palette buttons
 FONT_ICON_LG = "24px"   # main icon button
 
+# Tag-cloud sizing ladder (WeightedTagCloud — log-bucketed by catalogue count)
+# FONT_CLOUD_1 is the smallest tier (rare/niche tags); FONT_CLOUD_6 is the largest
+# (dominant tags with the highest catalogue weight).  These are the ONLY place
+# cloud px sizes are defined — widget code picks a token via _count_to_font_token().
+FONT_CLOUD_1 = "11px"   # smallest — rare tags
+FONT_CLOUD_2 = "13px"
+FONT_CLOUD_3 = "15px"
+FONT_CLOUD_4 = "18px"
+FONT_CLOUD_5 = "22px"
+FONT_CLOUD_6 = "27px"   # largest — dominant tags
+
 
 # ── 2. Semantic constants (composed from tokens, named by role) ──────────────────
 
@@ -574,3 +585,27 @@ EVENTS_GROUP_HEADER = (
 EVENTS_TIME_HINT = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
 EVENTS_TIME_HINT_PASSED = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
 EVENTS_TIME_ON_NOW = "color: " + COLOR_OK + "; font-size: " + FONT_MD + "; font-weight: 600;"
+
+# WeightedTagCloud — role-named semantic constants
+# Count badge next to each tag value (small, muted, non-clickable)
+CLOUD_COUNT = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
+# State-mark prefix on include-state tags (green checkmark)
+CLOUD_INCLUDE_MARK = "color: " + COLOR_OK + ";"
+# State-mark prefix on exclude-state tags (orange/red ⊘)
+CLOUD_EXCLUDE_MARK = "color: " + COLOR_WARN + ";"
+# Header label for the tag cloud ("Genre · N values · sized by catalogue weight")
+CLOUD_HEADER_LABEL = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+# Sort-toggle and filter search controls in the cloud header
+CLOUD_CTRL_BTN = (
+    "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_MUTED + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px; padding: 1px 6px;"
+    " background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; border-color: " + COLOR_DIM + "; }"
+    "QPushButton:checked { color: " + COLOR_ACCENT + "; border-color: " + COLOR_ACCENT + "; }"
+)
+# "+N more" expand button at the tail of the cloud
+CLOUD_MORE_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+    " font-size: " + FONT_MD + "; padding: 4px 2px; text-align: left; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
+)

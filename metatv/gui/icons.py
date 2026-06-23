@@ -126,6 +126,13 @@ tag_inferred_icon: str = "□"        # U+25A1 WHITE SQUARE — "MetaTV guessed 
 # tags section header
 tag_section_icon: str = "🏷"        # tag/label icon for the Tags collapsible header
 
+# Tag cloud — state mark prefixes (WeightedTagCloud)
+tag_include_icon: str = "✓"   # U+2713 CHECK MARK — "this facet value is included in filter"
+tag_exclude_icon: str = "⊘"   # U+2298 CIRCLED DIVISION SLASH — "this facet value is excluded"
+
+# Tag cloud — sort / filter controls
+sort_icon: str = "⇅"   # U+21C5 UPWARDS ARROW LEFTWARDS OF DOWNWARDS ARROW — sort toggle
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",
