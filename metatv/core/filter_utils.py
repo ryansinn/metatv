@@ -457,6 +457,167 @@ _GENRE_NORM: dict[str, str] = {
     "أطفال":                    "Kids",
     "تاريخي":                   "History",
     "رياضة":                    "Sport",
+    # Arabic — additional high-count compound and individual terms
+    "حركة ومغامرة":              "Action & Adventure",   # Action & Adventure
+    "غموض":                     "Mystery",               # Mystery
+    "خيال علمي وفانتازيا":       "Sci-Fi & Fantasy",     # Sci-Fi & Fantasy
+    "رسوم متحركة":               "Animation",             # Animation
+    "عائلي":                    "Family",                # Family
+    "حرب وسياسة":               "War & Politics",        # War & Politics
+    "واقع":                     "Reality",               # Reality
+    "أوبرا صابونية":            "Soap",                  # Soap opera
+    "غربي":                     "Western",               # Western
+    "كوميدي":                   "Comedy",                # Comedy (masculine form)
+    "ﺗﺸﻮﻳﻖ ﻭﺇﺛﺎﺭﺓ":             "Thriller",              # Suspense & Excitement (presentation forms)
+    "ﻏﻤﻮﺽ":                    "Mystery",               # Mystery (presentation forms)
+    "ﻋﺎﺋﻠﻲ":                    "Family",                # Family (presentation forms)
+    "ﺭﺳﻮﻡ ﻣﺘﺤﺮﻛﺔ":              "Animation",             # Animation (presentation forms)
+    "ﺭﻋﺐ":                     "Horror",                # Horror (presentation forms)
+    # Polish
+    "kryminał":                 "Crime",                 # Crime
+    "komedia":                  "Comedy",                # Comedy
+    "akcja i przygoda":         "Action & Adventure",    # Action & Adventure
+    "animacja":                 "Animation",             # Animation
+    "tajemnica":                "Mystery",               # Mystery / Secret
+    "dokumentalny":             "Documentary",           # Documentary
+    "familijny":                "Family",                # Family
+    "wojenny":                  "War",                   # War
+    "akcja":                    "Action",                # Action
+    "przygoda":                 "Adventure",             # Adventure
+    "przygodowy":               "Adventure",             # Adventure (adjective form)
+    "romans":                   "Romance",               # Romance
+    "sensacyjny":               "Thriller",              # Thriller / Sensational
+    "historyczny":              "History",               # Historical
+    "fantastyczny":             "Fantasy",               # Fantastic/Fantasy
+    # German / Scandinavian shared
+    "kriminal":                 "Crime",                 # Criminal/Crime (German: Kriminal, ~1000 channels)
+    # Swedish
+    "komedi":                   "Comedy",                # Comedy
+    "sci-fi & fantasi":         "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy
+    "mystik":                   "Mystery",               # Mystery
+    "dokumentarfilm":           "Documentary",           # Documentary
+    "äventyr":                  "Adventure",             # Adventure
+    "action & äventyr":         "Action & Adventure",    # Action & Adventure
+    "animerat":                 "Animation",             # Animated
+    "verklighet":               "Reality",               # Reality
+    "brott":                    "Crime",                 # Crime
+    "barn":                     "Kids",                  # Children/Kids
+    "familj":                   "Family",                # Family
+    "mysterium":                "Mystery",               # Mystery
+    "krig & politik":           "War & Politics",        # War & Politics
+    "kriminalitet":             "Crime",                 # Criminality
+    "västern":                  "Western",               # Western
+    "musik":                    "Music",                 # Music
+    "skräck":                   "Horror",                # Horror/Fright
+    "romantik":                 "Romance",               # Romance
+    "underhållning":            "Talk Show",             # Entertainment/Variety
+    "tävling":                  "Reality",               # Competition/Game Show
+    "biografi":                 "History",               # Biography
+    # Danish / Norwegian
+    "virkelighed":              "Reality",               # Reality (Danish)
+    "kriminalitet":             "Crime",                 # Criminality (shared)
+    "børn":                     "Kids",                  # Children (Danish)
+    "sci-fi og fantasy":        "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy (Danish)
+    "dokumentarni":             "Documentary",           # Documentary (Croatian/Bosnian, also Norwegian)
+    # Dutch
+    "mysterie":                 "Mystery",               # Mystery
+    "familie":                  "Family",                # Family
+    "animatie":                 "Animation",             # Animation
+    "misdaad (nordic)":         "Crime",                 # Crime (Nordic label)
+    "romantiek":                "Romance",               # Romance
+    "realiteit":                "Reality",               # Reality
+    "muziek":                   "Music",                 # Music
+    # Slovak
+    "kriminálny":               "Crime",                 # Criminal
+    "mysteriózny":              "Mystery",               # Mysterious
+    "akčný a dobrodružný":      "Action & Adventure",    # Action & Adventure
+    "vojnový a politický":      "War & Politics",        # War & Political
+    "animovaný":                "Animation",             # Animated
+    "rodinný":                  "Family",                # Family
+    "dráma":                    "Drama",                 # Drama (Slovak/Hungarian)
+    "komédia":                  "Comedy",                # Comedy (Slovak)
+    "sf & fantasy":             "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy (Slovak short form)
+    # Croatian / Bosnian / Serbian (Latin)
+    "komedija":                 "Comedy",                # Comedy
+    "akcija i avantura":        "Action & Adventure",    # Action & Adventure
+    "rat i politika":           "War & Politics",        # War & Politics
+    "ratni":                    "War",                   # War (adjective)
+    "misterija":                "Mystery",               # Mystery
+    "horor":                    "Horror",                # Horror
+    "triler":                   "Thriller",              # Thriller
+    "porodica":                 "Family",                # Family
+    "porodični":                "Family",                # Family (adjective)
+    "kriminalistički":          "Crime",                 # Criminal
+    "romansa":                  "Romance",               # Romance
+    # Portuguese
+    "mistério":                 "Mystery",               # Mystery
+    "comédia":                  "Comedy",                # Comedy
+    "animação":                 "Animation",             # Animation
+    "família":                  "Family",                # Family
+    "documentário":             "Documentary",           # Documentary
+    "documentario":             "Documentary",           # Documentary (no accent)
+    "fantasia":                 "Fantasy",               # Fantasy
+    "fantastique":              "Fantasy",               # Fantasy (French)
+    # Greek
+    "δράμα":                    "Drama",                 # Drama
+    "μυστηρίου":                "Mystery",               # Mystery (genitive form)
+    "κωμωδία":                  "Comedy",                # Comedy
+    "κινούμενα σχέδια":         "Animation",             # Animation (lit. "moving designs")
+    "ντοκυμαντέρ":              "Documentary",           # Documentary
+    "οικογενειακή":             "Family",                # Family (feminine)
+    "αστυνομική":               "Crime",                 # Police/Detective
+    # Russian / Cyrillic
+    "драма":                    "Drama",                 # Drama
+    "комедия":                  "Comedy",                # Comedy
+    "детектив":                 "Crime",                 # Detective/Crime
+    "криминал":                 "Crime",                 # Criminal/Crime
+    "боевик и приключения":     "Action & Adventure",    # Action & Adventure
+    "нф и фэнтези":             "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy
+    "семейный":                 "Family",                # Family
+    # Hebrew
+    "דרמה":                     "Drama",                 # Drama
+    "קומדיה":                   "Comedy",                # Comedy
+    "מדע בדיוני ופנטזיה":       "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy
+    "מסתורין":                  "Mystery",               # Mystery
+    "פשע":                      "Crime",                 # Crime
+    "ילדים":                    "Kids",                  # Children/Kids
+    "אקשן והרפתקאות":           "Action & Adventure",    # Action & Adventure
+    "משפחה":                    "Family",                # Family
+    # Turkish
+    "aksiyon & macera":         "Action & Adventure",    # Action & Adventure
+    "bilim kurgu & fantazi":    "Sci-Fi & Fantasy",      # Sci-Fi & Fantasy
+    "suç":                      "Crime",                 # Crime
+    "gizem":                    "Mystery",               # Mystery
+    "aile":                     "Family",                # Family
+    "savaş & politik":          "War & Politics",        # War & Politics
+    "belgesel":                 "Documentary",           # Documentary
+    "animasyon":                "Animation",             # Animation
+    # Romanian
+    "dramă":                    "Drama",                 # Drama
+    "acţiune & aventuri":       "Action & Adventure",    # Action & Adventure
+    "animaţie":                 "Animation",             # Animation
+    "crimă":                    "Crime",                 # Crime
+    # Persian / Farsi (commonly mixed in with English labels by providers)
+    "درام":                     "Drama",                 # Drama (short form)
+    "جنایی":                    "Crime",                 # Criminal/Crime
+    "معمایی":                   "Mystery",               # Mystery
+    "پلیسی":                    "Crime",                 # Police/Detective
+    "خانوادگی":                 "Family",                # Family
+    "تاریخی":                   "History",               # Historical
+    "عاشقانه":                  "Romance",               # Romantic
+    "اجتماعی":                  "Drama",                 # Social drama (closest canonical)
+    "انیمیشن":                  "Animation",             # Animation
+    "ماورایی":                  "Fantasy",               # Supernatural/Fantasy
+    # Case-insensitive English variants (ALLCAPS from some providers)
+    "drama":                    "Drama",
+    "comedy":                   "Comedy",
+    "documentary":              "Documentary",
+    "crime":                    "Crime",
+    "animation":                "Animation",
+    "reality":                  "Reality",
+    "horror":                   "Horror",
+    "kids":                     "Kids",
+    "western":                  "Western",
 }
 
 
