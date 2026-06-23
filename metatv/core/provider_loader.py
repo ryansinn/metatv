@@ -116,7 +116,11 @@ class ProviderLoadThread(QThread):
             return
 
         def on_progress(current, total, message):
-            self.progress.emit(current, total, message)
+            # Fetch occupies the FRONT 0-65% of the bar so it never exceeds the
+            # later phases (store=70%, …) — keeps the overall refresh bar
+            # monotonic (no fill-to-100%-then-drop-to-70% backward jump).
+            pct = int(current / total * 65) if total else 0
+            self.progress.emit(pct, 100, message)
 
         channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
         _t_fetched = time.monotonic()
