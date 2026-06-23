@@ -133,6 +133,14 @@ tag_exclude_icon: str = "⊘"   # U+2298 CIRCLED DIVISION SLASH — "this facet 
 # Tag cloud — sort / filter controls
 sort_icon: str = "⇅"   # U+21C5 UPWARDS ARROW LEFTWARDS OF DOWNWARDS ARROW — sort toggle
 
+# Recipe builder (task #56)
+recipe_icon: str = "✦"          # U+2726 BLACK FOUR POINTED STAR — Recipe chip (same as whats_new star)
+recipe_check_icon: str = "✓"    # U+2713 CHECK MARK — included ingredient indicator (alias of tag_include_icon)
+recipe_omit_icon: str = "⊘"     # U+2298 CIRCLED DIVISION SLASH — omitted/excluded ingredient (alias of tag_exclude_icon)
+recipe_save_icon: str = "＋"     # U+FF0B FULLWIDTH PLUS SIGN — Save recipe action
+recipe_clear_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — Clear recipe action (alias of close_icon)
+recipe_edit_icon: str = "✎"     # U+270E LOWER RIGHT PENCIL — edit/rename recipe (reserved for slice 4)
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",

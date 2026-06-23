@@ -30,6 +30,10 @@ class _NavMixin:
         if "source_analytics" in self.__dict__:
             if self.source_analytics.isVisible():
                 self.source_analytics.on_deactivate()
+        # Deactivate recipe view if it exists and is visible
+        if "recipe_view" in self.__dict__:
+            if self.recipe_view.isVisible():
+                self.recipe_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -38,6 +42,8 @@ class _NavMixin:
         self.provider_editor.setVisible(False)
         if "source_analytics" in self.__dict__:
             self.source_analytics.setVisible(False)
+        if "recipe_view" in self.__dict__:
+            self.recipe_view.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
         if hasattr(self, "filter_panel"):
@@ -136,6 +142,14 @@ class _NavMixin:
         self.stats_label.setText("Discover")
         self.discover_view.on_activate()
 
+    def switch_to_recipe_view(self) -> None:
+        """Switch content area to the Recipe builder view."""
+        self.view_mode = "recipe"
+        self._hide_all_content_views()
+        self.recipe_view.setVisible(True)
+        self.stats_label.setText("Recipe Builder")
+        self.recipe_view.on_activate()
+
     def navigate_back(self):
         """Navigate back from series view to channel list."""
         self.switch_to_list_view()
@@ -149,8 +163,10 @@ class _NavMixin:
 
     def _deactivate_view_chips(self, *keep) -> None:
         """Deactivate all view chips except those in keep."""
-        for chip in (self.search_chip, self.epg_chip, self.prefs_chip,
-                     self.discover_chip):
+        chips = [self.search_chip, self.epg_chip, self.prefs_chip, self.discover_chip]
+        if "recipe_chip" in self.__dict__:
+            chips.append(self.recipe_chip)
+        for chip in chips:
             if chip not in keep:
                 chip.blockSignals(True)
                 chip.set_enabled(False)
@@ -174,6 +190,13 @@ class _NavMixin:
         if self.discover_chip.is_enabled():
             self._deactivate_view_chips(self.discover_chip)
             self.switch_to_discover_view()
+        else:
+            self.switch_to_list_view()
+
+    def on_recipe_view_toggle(self) -> None:
+        if self.recipe_chip.is_enabled():
+            self._deactivate_view_chips(self.recipe_chip)
+            self.switch_to_recipe_view()
         else:
             self.switch_to_list_view()
 

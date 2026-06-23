@@ -165,6 +165,28 @@ COLOR_BANNER_YEL_BORDER_HOVER  = "#aaaa50"
 # --- PPV ---
 COLOR_PPV_ACCENT = "#ff6b35"
 
+# --- Recipe builder — facet accent palette ---
+# Each facet in the Recipe Pantry sidebar gets a distinct accent color.
+# These are the ONLY place these hex values may appear; all other code
+# references the token name (COLOR_FACET_*).
+COLOR_FACET_GENRE      = "#7bd88f"   # soft green — genre
+COLOR_FACET_LANGUAGE   = "#34d3c0"   # teal — language
+COLOR_FACET_REGION     = "#f5b73d"   # amber/gold — region
+COLOR_FACET_PLATFORM   = "#a78bfa"   # purple — platform
+COLOR_FACET_DECADE     = "#6ea8ff"   # periwinkle — decade
+COLOR_FACET_QUALITY    = "#9fb9d4"   # steel-blue — quality
+COLOR_FACET_COLLECTION = "#ef7faa"   # pink — collection
+
+# Recipe builder backgrounds / surfaces (Broadcast Noir palette)
+COLOR_RECIPE_BG        = "#07080b"   # near-black body
+COLOR_RECIPE_PANEL_BG  = "#0a0d12"   # slightly lighter panel bg
+COLOR_RECIPE_TEXT      = "#edeae0"   # warm off-white body text
+COLOR_RECIPE_MUTED     = "#9aa0ad"   # secondary text / labels
+COLOR_RECIPE_MUTED_2   = "#5b626f"   # tertiary / very dim text
+
+# Recipe builder overlays
+OVERLAY_RECIPE_SELECTED  = "rgba(245,183,61,0.08)"   # amber tint — selected facet row
+
 # --- misc preserved accents ---
 COLOR_RED_BRIGHT        = "#ff8888"
 COLOR_ERR_MUTED         = "#aa6666"
@@ -608,4 +630,103 @@ CLOUD_MORE_BTN = (
     "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
     " font-size: " + FONT_MD + "; padding: 4px 2px; text-align: left; }"
     "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
+)
+
+# ── Recipe builder (Broadcast Noir, task #56 slice 3) ──────────────────────────
+
+# Left Pantry sidebar background
+RECIPE_PANTRY_BG = "QWidget { background: " + COLOR_RECIPE_PANEL_BG + "; }"
+
+# Pantry "THE PANTRY" and "SAVED RECIPES" section headers
+RECIPE_PANTRY_HDR = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_RECIPE_MUTED + ";"
+    " letter-spacing: 2px; padding: 6px 4px 4px 4px;"
+)
+
+# A facet row in the pantry — idle state
+RECIPE_FACET_ROW = (
+    "QPushButton { border: none; background: transparent;"
+    " color: " + COLOR_RECIPE_TEXT + "; font-size: " + FONT_MD + ";"
+    " text-align: left; padding: 5px 8px; border-radius: 4px; }"
+    "QPushButton:hover { background: " + OVERLAY_05 + "; }"
+)
+
+# A facet row in the pantry — selected/active state
+RECIPE_FACET_ROW_SELECTED = (
+    "QPushButton { border: none; background: " + OVERLAY_RECIPE_SELECTED + ";"
+    " color: " + COLOR_RECIPE_TEXT + "; font-size: " + FONT_MD + ";"
+    " text-align: left; padding: 5px 8px; border-radius: 4px;"
+    " border-left: 2px solid " + COLOR_FACET_REGION + "; }"
+)
+
+# Center stage header (facet name + count subtitle)
+RECIPE_STAGE_HDR = (
+    "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_RECIPE_TEXT + ";"
+)
+RECIPE_STAGE_SUBTITLE = (
+    "font-size: " + FONT_MD + "; color: " + COLOR_RECIPE_MUTED + ";"
+)
+
+# Right recipe rail background
+RECIPE_RAIL_BG = "QWidget { background: " + COLOR_RECIPE_PANEL_BG + "; }"
+
+# "TONIGHT'S RECIPE" header
+RECIPE_RAIL_HDR = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_RECIPE_MUTED + ";"
+    " letter-spacing: 2px; padding: 4px 0;"
+)
+
+# Auto-generated recipe name (editorial title)
+RECIPE_EDITORIAL_NAME = (
+    "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_RECIPE_TEXT + ";"
+    " padding: 4px 0 8px 0;"
+)
+
+# Role label in the recipe ingredient list (BASE / IN / FROM / ON / ERA / FINISH / SET / OMIT)
+RECIPE_ROLE_LABEL = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_RECIPE_MUTED + ";"
+    " letter-spacing: 1px;"
+)
+
+# An ingredient chip in the recipe rail (include)
+RECIPE_INGREDIENT_CHIP = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_RECIPE_TEXT + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 2px 8px;"
+    " background: " + OVERLAY_05 + "; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; }"
+)
+
+# An omit (exclude) chip — strikethrough appearance via text decoration
+RECIPE_OMIT_CHIP = (
+    "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_WARN + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 4px; padding: 2px 8px;"
+    " background: transparent; text-decoration: line-through; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; }"
+)
+
+# YIELDS count label
+RECIPE_YIELDS = (
+    "font-size: " + FONT_LG + "; color: " + COLOR_RECIPE_TEXT + "; font-weight: 600;"
+    " padding: 4px 0;"
+)
+
+# "Now plating" strip header
+RECIPE_NOW_PLATING_HDR = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_RECIPE_MUTED + ";"
+    " letter-spacing: 2px; padding: 4px 0 2px 0;"
+)
+
+# Save recipe button — present but disabled for slice 4
+RECIPE_SAVE_BTN = (
+    "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + ";"
+    " border-radius: 4px; padding: 6px 14px; font-weight: 600; font-size: " + FONT_MD + "; }"
+    "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
+)
+
+# Clear button — ghost style
+RECIPE_CLEAR_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
+    " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 6px 14px;"
+    " font-size: " + FONT_MD + "; }"
+    "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT_2 + "; }"
 )
