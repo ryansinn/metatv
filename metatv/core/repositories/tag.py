@@ -379,20 +379,37 @@ class TagRepository:
     # ------------------------------------------------------------------
 
     def _scope_to_visible_channels(self, query, channel_id_col,
-                                   excluded_provider_ids: Optional[List[str]] = None):
+                                   excluded_provider_ids: Optional[List[str]] = None,
+                                   excluded_prefixes: Optional[Set[str]] = None,
+                                   excluded_categories: Optional[Set[str]] = None):
         """Join ``ChannelDB`` and restrict a tag query to *visible* channels.
 
         The single definition of "visible channel" for the tag repository's
         faceted queries: drop individually-hidden channels (``is_hidden``) and
-        provider category headers (names beginning ``##``), and exclude any
-        provider in *excluded_provider_ids* (inactive ∪ expired — pass
-        ``ProviderRepository.get_hidden_provider_ids()``).
+        provider category headers (names beginning ``##``), exclude any provider
+        in *excluded_provider_ids* (inactive ∪ expired — pass
+        ``ProviderRepository.get_hidden_provider_ids()``), and apply the caller's
+        Global Exclusions (*excluded_prefixes* / *excluded_categories*) so the
+        recipe never surfaces content the user has globally banished.
 
         Consolidates the predicate that was previously inlined in
         ``get_facet_value_counts`` / ``get_facet_summary`` /
         ``get_tag_counts_for_facet`` (and was missing entirely from the faceted
         result engine, leaking hidden-source channels into recipe YIELDS).
         Tracked for cross-repo unification as task #59.
+
+        **Global-exclusion semantics** (replicated from the main channel list —
+        ``main_window_channels.py`` ``_query_channels_page``): a channel is
+        dropped when its ``detected_prefix`` OR its ``detected_region`` is in
+        *excluded_prefixes*, or its ``user_category`` is in
+        *excluded_categories*.  This is a pure caller-supplied scope: the engine
+        never reads ``Config`` (DR-0007 — the control layer resolves the sets
+        and passes them in).
+
+        **NULL trap:** ``col NOT IN (...)`` evaluates to NULL (false) when
+        ``col IS NULL``, which would wrongly drop untagged channels (no prefix /
+        region / category).  Each filter is therefore expressed as
+        ``or_(col.is_(None), col.notin_(values))`` so a NULL column is kept.
 
         Args:
             query: The SQLAlchemy query to scope.
@@ -403,11 +420,20 @@ class TagRepository:
                 empty list still applies the is_hidden / ``##`` scope; ``None``
                 also applies it — callers that want *no* scoping simply don't
                 call this helper.
+            excluded_prefixes: Global-exclusion prefix codes (the union of
+                ``global_filter_excluded_categories`` and
+                ``global_filter_excluded_prefixes``) matched against BOTH
+                ``detected_prefix`` and ``detected_region``.  ``None``/empty →
+                no prefix scope.
+            excluded_categories: Global-exclusion user-category labels
+                (``global_filter_excluded_user_categories``) matched against
+                ``user_category``.  ``None``/empty → no category scope.
 
         Returns:
             The query with the visibility join + filters applied.
         """
         from metatv.core.database import ChannelDB
+        from sqlalchemy import or_
 
         query = query.join(ChannelDB, ChannelDB.id == channel_id_col).filter(
             ChannelDB.is_hidden == False,       # noqa: E712
@@ -415,6 +441,24 @@ class TagRepository:
         )
         if excluded_provider_ids:
             query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        if excluded_prefixes:
+            _pref = list(excluded_prefixes)
+            # detected_prefix and detected_region are independent signals — a
+            # channel is banished if EITHER is in the excluded set (matches the
+            # main list's `prefix not in … and region not in …` keep-condition).
+            # or_(is None, notin) keeps NULL columns (the NULL trap above).
+            query = query.filter(
+                or_(ChannelDB.detected_prefix.is_(None),
+                    ChannelDB.detected_prefix.notin_(_pref)),
+                or_(ChannelDB.detected_region.is_(None),
+                    ChannelDB.detected_region.notin_(_pref)),
+            )
+        if excluded_categories:
+            _cats = list(excluded_categories)
+            query = query.filter(
+                or_(ChannelDB.user_category.is_(None),
+                    ChannelDB.user_category.notin_(_cats)),
+            )
         return query
 
     def get_facet_value_counts(
@@ -477,6 +521,8 @@ class TagRepository:
     def get_facet_summary(
         self,
         excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
     ) -> list:
         """Return per-facet distinct-value counts for the Recipe builder Pantry sidebar.
 
@@ -493,6 +539,11 @@ class TagRepository:
             excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
                 sources). Pass the result of
                 ``ProviderRepository.get_hidden_provider_ids()``.
+            excluded_prefixes: Global-exclusion prefix/region codes to drop (see
+                :meth:`_scope_to_visible_channels`).  Caller-supplied — the
+                engine never reads Config.
+            excluded_categories: Global-exclusion ``user_category`` labels to
+                drop (see :meth:`_scope_to_visible_channels`).
 
         Returns:
             List of ``FacetSummaryDTO``, in canonical facet display order.
@@ -509,7 +560,8 @@ class TagRepository:
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids
+            q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes, excluded_categories,
         ).group_by(TagDB.type)
 
         raw: dict[str, int] = {}
@@ -534,6 +586,8 @@ class TagRepository:
         facet_type: str,
         excluded_provider_ids: Optional[List[str]] = None,
         limit: Optional[int] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
     ) -> list:
         """Return per-value channel counts for ONE facet type, sorted by count DESC.
 
@@ -552,6 +606,11 @@ class TagRepository:
                 ``ProviderRepository.get_hidden_provider_ids()``.
             limit: Optional cap on the number of results returned.  When
                 ``None``, all values are returned.
+            excluded_prefixes: Global-exclusion prefix/region codes to drop (see
+                :meth:`_scope_to_visible_channels`).  Caller-supplied — the
+                engine never reads Config.
+            excluded_categories: Global-exclusion ``user_category`` labels to
+                drop (see :meth:`_scope_to_visible_channels`).
 
         Returns:
             List of ``TagCountDTO``, sorted by ``channel_count`` DESC.
@@ -569,7 +628,8 @@ class TagRepository:
             .filter(TagDB.type == facet_type)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids
+            q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes, excluded_categories,
         ).group_by(TagDB.value).order_by(
             _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
         )
@@ -586,14 +646,16 @@ class TagRepository:
     # Faceted query engine
     # ------------------------------------------------------------------
 
-    def get_channel_ids_by_tag_facets(
+    def _faceted_channel_id_query(
         self,
         includes: dict[str, set[str]],
         excludes: Optional[dict[str, set[str]]] = None,
         *,
         base_channel_ids: Optional[Set[str]] = None,
         excluded_provider_ids: Optional[List[str]] = None,
-    ) -> set[str]:
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+    ):
         """Return the set of channel ids that match all include facets and no exclude facets.
 
         Semantics — standard faceted search:
@@ -637,9 +699,18 @@ class TagRepository:
                 the same scope the pantry/cloud facet counts use, so recipe
                 YIELDS agrees with the cloud.  ``None`` (default) keeps the
                 method scope-agnostic for callers that scope another way.
+            excluded_prefixes / excluded_categories: Global-exclusion sets (see
+                :meth:`_scope_to_visible_channels`).  Applied only when
+                *excluded_provider_ids* is not ``None`` (i.e. when the caller has
+                opted into the visible-channel scope).  Caller-supplied — the
+                engine never reads Config.
 
         Returns:
-            A ``set[str]`` of channel ids satisfying all constraints.
+            An unexecuted SQLAlchemy query selecting ``DISTINCT channel_id`` for
+            every channel satisfying the constraints.  Callers choose how to
+            consume it: ``.all()`` for the id set, ``.count()`` for a SQL count,
+            ``.limit(n)`` for a bounded sample — so a count or preview never
+            materialises the full match set.
         """
         from sqlalchemy.orm import aliased
         from sqlalchemy import select as sa_select
@@ -670,9 +741,12 @@ class TagRepository:
 
         # Scope to visible channels on active sources when requested (recipe
         # YIELDS uses this so its count matches the pantry/cloud facet counts).
+        # Global Exclusions ride along on the same scope so YIELDS/preview never
+        # surface content the user has globally banished.
         if excluded_provider_ids is not None:
             query = self._scope_to_visible_channels(
-                query, outer.channel_id, excluded_provider_ids
+                query, outer.channel_id, excluded_provider_ids,
+                excluded_prefixes, excluded_categories,
             )
 
         # --- include facets: one EXISTS per facet (AND across facets) ---
@@ -744,8 +818,160 @@ class TagRepository:
             )
             query = query.filter(~exists(excl_subq))
 
-        rows = query.all()
-        return {row.channel_id for row in rows}
+        return query
+
+    def get_channel_ids_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+    ) -> set[str]:
+        """Return the set of channel ids matching the faceted constraints.
+
+        Standard faceted search (OR within a facet, AND across facets, NOT for
+        excludes).  See :meth:`_faceted_channel_id_query` for the full semantics
+        and the meaning of *base_channel_ids* / *excluded_provider_ids* /
+        *excluded_prefixes* / *excluded_categories*.
+
+        Note: this materialises *every* matching id.  For a count or a small
+        preview use :meth:`count_channels_by_tag_facets` /
+        :meth:`sample_channel_names_by_tag_facets`, which stay in SQL.
+        """
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+        )
+        return {row.channel_id for row in query.all()}
+
+    def count_channels_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+    ) -> int:
+        """Count channels matching the faceted constraints — entirely in SQL.
+
+        Issues a single ``SELECT count(*) FROM (SELECT DISTINCT channel_id …)``,
+        so a 170k-match facet costs one integer round-trip, not 170k id strings
+        crossing into Python.  Arguments match :meth:`_faceted_channel_id_query`.
+        """
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+        )
+        return query.count()
+
+    def sample_channel_names_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        limit: int = 20,
+    ) -> list[str]:
+        """Return up to *limit* channel display names matching the constraints.
+
+        Takes a bounded ``LIMIT`` slice of the match query (the full set is never
+        materialised), then resolves names for those ``<=limit`` ids in a second
+        tiny query.  Used for the recipe "now plating" preview.
+        """
+        from metatv.core.database import ChannelDB
+
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+        )
+        ids = [row.channel_id for row in query.limit(limit).all()]
+        if not ids:
+            return []
+        rows = (
+            self.session.query(ChannelDB.name)
+            .filter(ChannelDB.id.in_(ids))
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        return [name for (name,) in rows]
+
+    def sample_channels_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        limit: int = 24,
+    ) -> list:
+        """Return up to *limit* result cards matching the faceted constraints.
+
+        The card-bearing sibling of :meth:`sample_channel_names_by_tag_facets`:
+        used by the recipe's "Now Plating" results shelf, which renders real,
+        clickable poster cards (reusing the Discover ``_ContentCard`` surface)
+        rather than dead title chips.
+
+        Takes a bounded ``LIMIT`` slice of the match query (the full set is never
+        materialised), loads the full ``ChannelDB`` rows for those ``<=limit``
+        ids, and maps each to a :class:`~metatv.core.discovery_engine.ContentCard`
+        — a session-free value object (poster url, title, media_type, year,
+        provider scoping already applied).  No ORM object crosses the worker→main
+        boundary.
+
+        Scoping is IDENTICAL to the count/preview path (hidden providers + the
+        caller's Global Exclusions), so the shelf agrees with YIELDS.
+
+        Args:
+            includes / excludes / base_channel_ids / excluded_provider_ids /
+            excluded_prefixes / excluded_categories: see
+                :meth:`_faceted_channel_id_query`.
+            limit: Max cards to return (default 24 — the results-shelf cap).
+
+        Returns:
+            List of ``ContentCard`` value objects, name-sorted.  Empty when no
+            channel matches.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.discovery_engine import _to_card
+
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+        )
+        ids = [row.channel_id for row in query.limit(limit).all()]
+        if not ids:
+            return []
+        rows = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.id.in_(ids))
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        # _to_card builds a session-free ContentCard from each ORM row; engagement
+        # badge sets are omitted (the preview shelf doesn't decorate them).
+        return [_to_card(ch) for ch in rows]
 
 
 # ---------------------------------------------------------------------------

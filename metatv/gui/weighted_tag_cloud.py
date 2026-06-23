@@ -380,6 +380,12 @@ class WeightedTagCloud(QWidget):
         self._more_btn.clicked.connect(self._on_expand_more)
         outer.addWidget(self._more_btn)
 
+        # Absorb leftover vertical space at the bottom so the header + tags stay
+        # top-aligned.  Without this, a tall parent slot (the recipe stage gives
+        # the cloud stretch=1) makes QVBoxLayout smear the empty space *between*
+        # the header and the tag body — the large dead gap above the tags.
+        outer.addStretch(1)
+
     # ── private: header ───────────────────────────────────────────────────────
 
     def _update_header(self) -> None:

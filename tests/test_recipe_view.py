@@ -110,9 +110,32 @@ class _TagCountDTO:
 # Helpers
 # ---------------------------------------------------------------------------
 
+@dataclass
+class _FakeCard:
+    """ContentCard-shaped value object for the Now-Plating strip tests.
+
+    Carries the fields _ContentCard reads at construction; thumbnail_url is None
+    so no async poster load is attempted.
+    """
+    channel_id: str
+    title: str
+    media_type: str = "movie"
+    thumbnail_url: str | None = None
+    rating: float | None = None
+    year: int | None = None
+    genre: str | None = None
+    is_favorite: bool = False
+    in_queue: bool = False
+    already_watched: bool = False
+    is_liked: bool = False
+    detected_prefix: str | None = None
+    progress_fraction: float = 0.0
+
+
 def _make_view(qapp):
     """Create a RecipeView with a fake _run_query seam."""
     from metatv.gui.recipe_view import RecipeView
+    from PyQt6.QtCore import QObject, pyqtSignal
 
     seam = _FakeSeam()
 
@@ -122,17 +145,30 @@ def _make_view(qapp):
         pass
 
     class _FakeConfig:
-        pass
+        # _ContentCard / the strip read these presentation fields at build time.
+        discover_zoom = 1.0
+        movie_icon = "🎬"
+        series_icon = "📺"
+        rating_star_icon = "★"
+        like_icon = "👍"
+        favorite_icon = "❤"
+        queue_icon = "▶"
+        watched_icon = "✓"
 
-    view = RecipeView.__new__(RecipeView)
-    # Bypass __init__ and set attrs manually so we can inject the seam.
-    # We still need a proper __init__ call for the Qt object hierarchy.
-    # Use object.__setattr__ to set _seam before init so _build_ui can proceed.
-    # Actually, we pass the seam as run_query_fn directly.
+    class _FakeImageCacheQ(QObject):
+        # _ContentCard.request_image() connects to these signals; they never fire
+        # because thumbnail_url is None on the test cards.
+        image_loaded = pyqtSignal(str, object)
+        image_failed = pyqtSignal(str, str)
+
+        def get_image_async(self, url):
+            pass
+
     view = RecipeView(
         db=_FakeDB(),
         config=_FakeConfig(),
         run_query_fn=seam._run_query,
+        image_cache=_FakeImageCacheQ(),
         parent=None,
     )
     return view, seam
@@ -330,16 +366,22 @@ def test_include_and_exclude_in_same_facet(qapp):
 # ---------------------------------------------------------------------------
 
 def test_results_loaded_updates_strip(qapp):
-    """_on_results_loaded populates the Now Plating strip with the channel names."""
+    """_on_results_loaded renders real result cards in the Now Plating strip."""
     view, seam = _make_view(qapp)
     view._active = True
 
-    payload = (["Channel A", "Channel B", "Channel C"], 3)
-    view._on_results_loaded(payload)
+    cards = [
+        _FakeCard("c1", "Channel A"),
+        _FakeCard("c2", "Channel B"),
+        _FakeCard("c3", "Channel C"),
+    ]
+    view._on_results_loaded((cards, 3))
 
     # Strip header should mention the match count
     hdr_text = view._now_plating._hdr.text()
     assert "3" in hdr_text
+    # One card widget per delivered card.
+    assert len(view._now_plating._card_widgets) == 3
 
 
 def test_results_loaded_inactive_skips(qapp):
@@ -348,9 +390,10 @@ def test_results_loaded_inactive_skips(qapp):
     view._active = False
 
     initial_hdr = view._now_plating._hdr.text()
-    view._on_results_loaded((["Chan X"], 1))
+    view._on_results_loaded(([_FakeCard("c1", "Chan X")], 1))
     # Should not have changed
     assert view._now_plating._hdr.text() == initial_hdr
+    assert view._now_plating._card_widgets == []
 
 
 def test_results_loaded_updates_yields(qapp):
@@ -358,14 +401,14 @@ def test_results_loaded_updates_yields(qapp):
     view, seam = _make_view(qapp)
     view._active = True
 
-    view._on_results_loaded((["Channel A", "Channel B"], 42))
+    view._on_results_loaded(([_FakeCard("a", "Channel A"), _FakeCard("b", "Channel B")], 42))
 
     yields_text = view._rail._yields_lbl.text()
     assert "42" in yields_text
 
 
 def test_results_zero_matches(qapp):
-    """_on_results_loaded with 0 matches shows singular 'channel'."""
+    """_on_results_loaded with 0 matches renders the empty state cleanly."""
     view, seam = _make_view(qapp)
     view._active = True
 
@@ -373,6 +416,48 @@ def test_results_zero_matches(qapp):
 
     yields_text = view._rail._yields_lbl.text()
     assert "0" in yields_text
+    # Empty result: no card widgets, header still shows 0 matches.
+    assert view._now_plating._card_widgets == []
+    assert "0" in view._now_plating._hdr.text()
+
+
+def test_card_click_emits_channel_selected(qapp):
+    """Single-clicking a result card emits channelSelected(channel_id)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    captured: list[str] = []
+    view.channelSelected.connect(captured.append)
+
+    view._on_results_loaded(([_FakeCard("chan_42", "Pick Me")], 1))
+    # Emit the card's clicked signal (what a left-click does).
+    view._now_plating._card_widgets[0].clicked.emit("chan_42")
+
+    assert captured == ["chan_42"]
+
+
+def test_card_double_click_emits_play_requested(qapp):
+    """Double-clicking a result card emits playRequested(channel_id)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    captured: list[str] = []
+    view.playRequested.connect(captured.append)
+
+    view._on_results_loaded(([_FakeCard("chan_7", "Play Me")], 1))
+    view._now_plating._card_widgets[0].doubleClicked.emit("chan_7")
+
+    assert captured == ["chan_7"]
+
+
+def test_more_label_when_total_exceeds_cards(qapp):
+    """When total > delivered cards, a '+ N more…' label is appended."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(3)]
+    view._on_results_loaded((cards, 50))
+
+    # 3 card widgets; the surplus is shown as a "+ 47 more…" label, not a card.
+    assert len(view._now_plating._card_widgets) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +488,7 @@ def test_clear_recipe_resets_yields(qapp):
     _load_cloud_with_counts(view, [_TagCountDTO("Action", 200)])
 
     view._on_tag_clicked("Action")
-    view._on_results_loaded((["Channel A"], 99))
+    view._on_results_loaded(([_FakeCard("a", "Channel A")], 99))
     view.clear_recipe()
 
     yields_text = view._rail._yields_lbl.text()
@@ -682,3 +767,134 @@ def test_stale_result_dropped_by_token(qapp):
     assert first_entry["token_ref"][0] == 2, (
         "token_ref should reflect the latest counter value (2) so the seam can drop stale results"
     )
+
+
+# ---------------------------------------------------------------------------
+# Global Exclusions — RecipeView passes the user's exclusion sets to the engine
+# ---------------------------------------------------------------------------
+#
+# Task A control-layer half: the engine just applies caller-supplied scope
+# inputs (DR-0007); RecipeView resolves the sets from Config (respecting
+# global_filter_paused) and threads them into every faceted read.
+
+class _RecordingTags:
+    """Stand-in for repos.tags that records the kwargs each query receives."""
+
+    def __init__(self):
+        self.calls: dict[str, dict] = {}
+
+    def get_facet_summary(self, **kwargs):
+        self.calls["facet_summary"] = kwargs
+        return []
+
+    def get_tag_counts_for_facet(self, facet_type, **kwargs):
+        self.calls["tag_counts"] = kwargs
+        return []
+
+    def count_channels_by_tag_facets(self, **kwargs):
+        self.calls["count"] = kwargs
+        return 0
+
+    def sample_channels_by_tag_facets(self, **kwargs):
+        self.calls["sample"] = kwargs
+        return []
+
+
+class _RecordingProviders:
+    def get_hidden_provider_ids(self):
+        return ["prov_hidden"]
+
+
+class _RecordingRepos:
+    def __init__(self):
+        self.tags = _RecordingTags()
+        self.providers = _RecordingProviders()
+
+
+def _set_global_filter(view, *, paused=False, categories=None, prefixes=None,
+                       user_categories=None):
+    """Set the global-filter config attributes the exclusion helper reads."""
+    cfg = view._config
+    cfg.global_filter_paused = paused
+    cfg.global_filter_excluded_categories = categories or []
+    cfg.global_filter_excluded_prefixes = prefixes or []
+    cfg.global_filter_excluded_user_categories = user_categories or []
+
+
+def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):
+    """_global_exclusion_sets() unions excluded_categories + excluded_prefixes
+    into the prefix set, and reads user-category exclusions separately."""
+    view, _seam = _make_view(qapp)
+    _set_global_filter(
+        view, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
+    )
+    prefixes, cats = view._global_exclusion_sets()
+    assert prefixes == {"AR", "KU"}
+    assert cats == {"Kids"}
+
+
+def test_global_exclusion_sets_empty_when_paused(qapp):
+    """When global_filter_paused is True both sets are empty (everything shows)."""
+    view, _seam = _make_view(qapp)
+    _set_global_filter(
+        view, paused=True, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
+    )
+    prefixes, cats = view._global_exclusion_sets()
+    assert prefixes == set()
+    assert cats == set()
+
+
+def test_load_results_threads_exclusion_sets_to_engine(qapp):
+    """_load_results runs its query_fn with excluded_prefixes/categories on both
+    the count and sample engine calls."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    view._load_results()
+    query_fn = seam.calls[-1]["query_fn"]
+    repos = _RecordingRepos()
+    query_fn(repos)
+
+    assert repos.tags.calls["count"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["count"]["excluded_categories"] == {"Kids"}
+    # sample only runs when count > 0; force a non-zero count and re-run.
+    repos.tags.count_channels_by_tag_facets = lambda **k: (
+        repos.tags.calls.__setitem__("count", k) or 5
+    )
+    query_fn(repos)
+    assert repos.tags.calls["sample"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["sample"]["excluded_categories"] == {"Kids"}
+
+
+def test_load_cloud_threads_exclusion_sets_to_engine(qapp):
+    """_load_cloud runs its query_fn with the exclusion sets on get_tag_counts_for_facet."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    _set_global_filter(view, prefixes=["KU"])
+
+    view._load_cloud("genre")
+    query_fn = seam.calls[-1]["query_fn"]
+    repos = _RecordingRepos()
+    query_fn(repos)
+
+    assert repos.tags.calls["tag_counts"]["excluded_prefixes"] == {"KU"}
+    assert repos.tags.calls["tag_counts"]["excluded_categories"] == set()
+
+
+def test_load_pantry_threads_exclusion_sets_to_engine(qapp):
+    """_load_pantry runs its query_fn with the exclusion sets on get_facet_summary."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+
+    view._load_pantry()
+    # the pantry call is the only one queued; find it by callback.
+    entry = next(c for c in seam.calls if c["on_result"] == view._on_pantry_loaded)
+    repos = _RecordingRepos()
+    entry["query_fn"](repos)
+
+    assert repos.tags.calls["facet_summary"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["facet_summary"]["excluded_categories"] == {"Kids"}

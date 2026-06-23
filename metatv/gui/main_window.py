@@ -1190,7 +1190,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._list_layout.addWidget(self.discover_view)
 
         # Recipe view (hidden by default) — task #56 slice 3
-        self.recipe_view = RecipeView(self.db, self.config, self._run_query, self)
+        self.recipe_view = RecipeView(
+            self.db, self.config, self._run_query, self.image_cache, self
+        )
+        # Result cards delegate selection/playback to the host (same seam as
+        # DiscoverView) so provider_id threading + the canonical play path are reused.
+        self.recipe_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.recipe_view.playRequested.connect(self.play_channel_by_id)
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 
