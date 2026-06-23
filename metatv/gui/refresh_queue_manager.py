@@ -350,15 +350,12 @@ class RefreshQueueManager(QObject):
         """Create the singleton overview toast if it doesn't exist yet."""
         if self._overview_notif_id is not None:
             return
-        from metatv.gui import icons as _icons
+        # Note: the notification widget prepends its own type icon (⟳ for PROGRESS),
+        # so we must NOT include icons.refresh_icon in the title — that would double it.
         self._overview_notif_id = self._nm.show_progress(
-            title=f"{_icons.refresh_icon} Source refresh queue",
+            title="Source refresh queue",
             total=None,
-        )
-        # Set initial message via update
-        self._nm.update(
-            self._overview_notif_id,
-            message=self._build_overview_text(),
+            steps=self._build_overview_steps(),
         )
 
     def _dismiss_overview(self) -> None:
@@ -367,45 +364,52 @@ class RefreshQueueManager(QObject):
             self._nm.dismiss(self._overview_notif_id)
             self._overview_notif_id = None
 
-    def _build_overview_text(self) -> str:
-        """Build a compact multi-line status string for the overview toast.
+    def _build_overview_steps(self) -> list:
+        """Build a steps list for the overview toast, one row per queued source.
 
-        Example::
+        Maps each source's :class:`ProviderRefreshStatus` to a
+        :class:`~metatv.core.notifications.StepStatus` so the notification widget
+        renders a labeled row with a status glyph:
 
-            ✓ Plex  (done)
-            ⟳ Provider2  45%
-            ◻ Provider3  (queued)
+        * QUEUED  → PENDING  (◻ Source name)
+        * RUNNING → ACTIVE   (⟳ Source name  45%)
+        * DONE    → DONE     (✓ Source name)
+        * FAILED  → DONE     (✓ Source name  failed)  — DONE glyph, "failed" suffix
+
+        Returns:
+            List of ``(label, StepStatus)`` tuples suitable for
+            :meth:`NotificationManager.set_steps`.
         """
-        from metatv.gui import icons as _icons
+        from metatv.core.notifications import StepStatus
 
-        lines: list[str] = []
+        _status_map = {
+            ProviderRefreshStatus.QUEUED:  StepStatus.PENDING,
+            ProviderRefreshStatus.RUNNING: StepStatus.ACTIVE,
+            ProviderRefreshStatus.DONE:    StepStatus.DONE,
+            ProviderRefreshStatus.FAILED:  StepStatus.DONE,
+        }
+        steps: list = []
         for entry in self._queue:
-            if entry.status == ProviderRefreshStatus.RUNNING:
-                icon = _icons.notification_progress_icon
-                suffix = f"  {entry.pct}%"
-            elif entry.status == ProviderRefreshStatus.DONE:
-                icon = _icons.notification_success_icon
-                suffix = "  done"
+            step_status = _status_map[entry.status]
+            if entry.status == ProviderRefreshStatus.RUNNING and entry.pct > 0:
+                label = f"{entry.provider_name}  {entry.pct}%"
             elif entry.status == ProviderRefreshStatus.FAILED:
-                icon = _icons.notification_error_icon
-                suffix = "  failed"
-            else:  # QUEUED
-                icon = _icons.migration_pending_icon
-                suffix = "  queued"
-            lines.append(f"{icon} {entry.provider_name}{suffix}")
-        return "\n".join(lines) if lines else ""
+                label = f"{entry.provider_name}  failed"
+            else:
+                label = entry.provider_name
+            steps.append((label, step_status))
+        return steps
 
     def _emit_queue_changed(self) -> None:
-        """Emit queue_changed signal and refresh the overview notification text."""
+        """Emit queue_changed signal and refresh the overview steps."""
         snapshot = [
             (e.provider_name, e.status, e.pct) for e in self._queue
         ]
         self.queue_changed.emit(snapshot)
 
-        # Keep overview message in sync
+        # Keep overview steps in sync
         if self._overview_notif_id is not None:
-            text = self._build_overview_text()
-            self._nm.update(self._overview_notif_id, message=text)
+            self._nm.set_steps(self._overview_notif_id, self._build_overview_steps())
 
     # ------------------------------------------------------------------
     # EPG step wire signal — emitted so MainWindow can wire EPG signals

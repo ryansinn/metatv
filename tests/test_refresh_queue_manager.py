@@ -435,3 +435,229 @@ class TestShutdown:
         running = [e for e in manager._queue if e.status.value == "running"]
         pending = [e for e in manager._queue if e.status.value == "queued"]
         assert not pending, "Pending entries must be dropped on shutdown"
+
+
+class TestOverviewTitleNoDoubleIcon:
+    """Bug fix: overview title must NOT carry the refresh icon — the notification
+    widget prepends its own type icon, so including one in the title doubled it.
+    """
+
+    def test_overview_title_has_no_refresh_icon_prefix(self, qapp):
+        """show_progress for the overview must not include the ⟳ icon in its title."""
+        from metatv.gui import icons as _icons
+
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+
+        captured_titles: list[str] = []
+
+        def _show_progress(**kwargs):
+            captured_titles.append(kwargs.get("title", ""))
+            return f"notif-{len(captured_titles)}"
+
+        nm.show_progress.side_effect = _show_progress
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+
+        # First show_progress call is the overview; second is the active toast.
+        overview_title = captured_titles[0]
+        assert _icons.refresh_icon not in overview_title, (
+            f"Overview title must not contain the refresh icon — "
+            f"the widget prepends its own. Got: {overview_title!r}"
+        )
+        assert "Source refresh queue" in overview_title
+
+
+class TestOverviewSteps:
+    """Bug fix: the source list must render as STEPS (not a plain message string).
+
+    Previously show_progress created the toast with an empty message, and the
+    subsequent update(message=...) had no label widget to write into.  Now the
+    overview uses set_steps so each source appears as a labeled row that updates
+    as sources move queued→running→done.
+    """
+
+    def _enqueue_and_capture_steps(self, qapp, providers, threads_by_pid):
+        """Helper: enqueue all providers, collect set_steps calls for the overview."""
+        manager, repo_factory, thread_factory, nm = _build_manager(
+            threads_by_pid, providers
+        )
+
+        overview_id: list[str] = []
+        steps_calls: list[list] = []  # each set_steps call for the overview
+
+        _counter = [0]
+
+        def _show_progress(**kwargs):
+            _counter[0] += 1
+            nid = f"notif-{_counter[0]}"
+            if not overview_id:
+                # First show_progress = overview
+                overview_id.append(nid)
+                # Capture initial steps passed to show_progress
+                initial = kwargs.get("steps", None)
+                if initial is not None:
+                    steps_calls.append(list(initial))
+            return nid
+
+        def _set_steps(nid, steps):
+            if overview_id and nid == overview_id[0]:
+                steps_calls.append(list(steps))
+
+        nm.show_progress.side_effect = _show_progress
+        nm.set_steps.side_effect = _set_steps
+
+        return manager, repo_factory, thread_factory, nm, overview_id, steps_calls
+
+    def test_overview_created_with_steps_not_empty_message(self, qapp):
+        """show_progress for the overview must pass steps=, not rely on a later update(message=...)."""
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm, overview_id, steps_calls = (
+            self._enqueue_and_capture_steps(qapp, [p1], {"p1": t1})
+        )
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+
+        # The overview show_progress call must have included steps
+        assert steps_calls, "Overview must be created with steps (not an empty message)"
+        first_steps = steps_calls[0]
+        assert len(first_steps) == 1, "One step row per queued source"
+        label, status = first_steps[0]
+        assert "Provider 1" in label
+
+    def test_enqueue_appends_a_source_row(self, qapp):
+        """Enqueueing a second source adds a second step row to the overview."""
+        from metatv.core.notifications import StepStatus
+
+        p1 = _make_db_provider("p1", "Provider 1")
+        p2 = _make_db_provider("p2", "Provider 2")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t2 = _FakeThread(_make_provider_model("p2", "Provider 2"), None)
+        t1.start = lambda: None
+        t2.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm, overview_id, steps_calls = (
+            self._enqueue_and_capture_steps(qapp, [p1, p2], {"p1": t1, "p2": t2})
+        )
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            manager.enqueue("p2", "Provider 2")
+            qapp.processEvents()
+
+        # The last set_steps call must contain both sources
+        assert steps_calls, "set_steps must have been called"
+        last_steps = steps_calls[-1]
+        labels = [label for label, _ in last_steps]
+        assert any("Provider 1" in lbl for lbl in labels), "Provider 1 must appear in overview steps"
+        assert any("Provider 2" in lbl for lbl in labels), "Provider 2 must appear in overview steps"
+
+    def test_running_source_shows_active_status(self, qapp):
+        """A source that is running must appear as StepStatus.ACTIVE in the overview."""
+        from metatv.core.notifications import StepStatus
+
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm, overview_id, steps_calls = (
+            self._enqueue_and_capture_steps(qapp, [p1], {"p1": t1})
+        )
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            qapp.processEvents()
+
+        # Find the first step call that shows ACTIVE (the _start_entry transition)
+        active_found = any(
+            status == StepStatus.ACTIVE
+            for step_list in steps_calls
+            for _, status in step_list
+        )
+        assert active_found, "A RUNNING source must appear as StepStatus.ACTIVE in overview steps"
+
+    def test_done_source_shows_done_status(self, qapp):
+        """A source that finishes successfully must appear as StepStatus.DONE."""
+        from metatv.core.notifications import StepStatus
+
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm, overview_id, steps_calls = (
+            self._enqueue_and_capture_steps(qapp, [p1], {"p1": t1})
+        )
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            t1._fire_finished(True, "Loaded 100 channels")
+            qapp.processEvents()
+
+        # After done, the last step call before dismissal should have shown DONE
+        # (the queue empties and overview is dismissed — the _mark_done path
+        # calls _emit_queue_changed twice: once before removing the entry, once after)
+        done_found = any(
+            status == StepStatus.DONE
+            for step_list in steps_calls
+            for _, status in step_list
+        )
+        assert done_found, "A finished source must appear as StepStatus.DONE in overview steps"
+
+    def test_overview_uses_set_steps_not_update_message(self, qapp):
+        """_emit_queue_changed must call set_steps on the overview, NOT update(message=...).
+
+        The 'update message' path was the original bug: message_label was never
+        created (empty at show_progress time), so the source list never rendered.
+        """
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            qapp.processEvents()
+
+        # set_steps must have been called (the step-based path)
+        assert nm.set_steps.called, "set_steps must be called to update the overview source list"
+
+        # update(message=...) must NOT be called with a message kwarg for the overview.
+        # (update may still be called for type/dismissible changes — we only forbid
+        # a 'message' kwarg being used as the source-list mechanism.)
+        for call_args in nm.update.call_args_list:
+            kwargs = call_args.kwargs if call_args.kwargs else {}
+            positional = call_args.args
+            if "message" in kwargs and kwargs["message"] and "\n" in str(kwargs["message"]):
+                raise AssertionError(
+                    "update(message=...) must not be used as the source-list mechanism "
+                    "— use set_steps instead. Got: update(..., message={!r})".format(
+                        kwargs["message"]
+                    )
+                )
