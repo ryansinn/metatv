@@ -426,6 +426,146 @@ class TagRepository:
                 result.setdefault(tag_type, {})[value] = int(cnt)
         return result
 
+    # ---------------------------------------------------------------------------
+    # Canonical facet display order for the Recipe builder pantry sidebar
+    # ---------------------------------------------------------------------------
+    #
+    # Controls the order returned by get_facet_summary().  Facets not present
+    # in this list (e.g. future namespaces) are appended at the end in
+    # alphabetical order so they are never silently dropped.
+    _FACET_ORDER: tuple[str, ...] = (
+        "genre",
+        "language",
+        "region",
+        "platform",
+        "decade",
+        "quality",
+        "collection",
+    )
+
+    def get_facet_summary(
+        self,
+        excluded_provider_ids: Optional[List[str]] = None,
+    ) -> list:
+        """Return per-facet distinct-value counts for the Recipe builder Pantry sidebar.
+
+        For each tag namespace (type) that has at least one value carried by
+        active-source channels, returns a FacetSummaryDTO with the count of
+        *distinct* tag values.  Results are ordered by the canonical display
+        order (_FACET_ORDER) with any unseen namespaces appended alphabetically.
+
+        Executes a single SQL GROUP BY over content_tags JOIN tags JOIN channels
+        scoped to visible, non-header channels on active sources.  No Python-side
+        materialisation — safe over 1M+ rows.
+
+        Args:
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
+                sources). Pass the result of
+                ``ProviderRepository.get_hidden_provider_ids()``.
+
+        Returns:
+            List of ``FacetSummaryDTO``, in canonical facet display order.
+            Zero-count facets are omitted.  No ORM objects are returned.
+        """
+        from sqlalchemy import func as _func
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories.dtos import FacetSummaryDTO
+
+        q = (
+            self.session.query(
+                TagDB.type,
+                _func.count(_func.distinct(TagDB.value)).label("distinct_vals"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
+            .filter(
+                ChannelDB.is_hidden == False,       # noqa: E712
+                ChannelDB.name.notlike("##%"),      # exclude provider category headers
+            )
+            .group_by(TagDB.type)
+        )
+        if excluded_provider_ids:
+            q = q.filter(
+                ChannelDB.provider_id.notin_(excluded_provider_ids)
+            )
+
+        raw: dict[str, int] = {}
+        for tag_type, distinct_vals in q.all():
+            if distinct_vals > 0:
+                raw[tag_type] = int(distinct_vals)
+
+        # Order by canonical facet list; append unseen types alphabetically.
+        ordered_types: list[str] = list(self._FACET_ORDER)
+        for extra in sorted(raw.keys()):
+            if extra not in ordered_types:
+                ordered_types.append(extra)
+
+        return [
+            FacetSummaryDTO(facet_type=ft, distinct_values=raw[ft])
+            for ft in ordered_types
+            if ft in raw
+        ]
+
+    def get_tag_counts_for_facet(
+        self,
+        facet_type: str,
+        excluded_provider_ids: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list:
+        """Return per-value channel counts for ONE facet type, sorted by count DESC.
+
+        For the given ``facet_type`` (e.g. ``"genre"``), returns each distinct
+        tag value plus the number of active-source channels carrying it.  Sorted
+        by channel_count DESC so the weighted-cloud widget can size type by weight.
+
+        Executes a single SQL GROUP BY over content_tags JOIN tags JOIN channels
+        scoped to visible, non-header channels on active sources.  No Python-side
+        materialisation — safe over 1M+ rows.
+
+        Args:
+            facet_type: The tag namespace to query (e.g. ``"genre"``).
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
+                sources). Pass the result of
+                ``ProviderRepository.get_hidden_provider_ids()``.
+            limit: Optional cap on the number of results returned.  When
+                ``None``, all values are returned.
+
+        Returns:
+            List of ``TagCountDTO``, sorted by ``channel_count`` DESC.
+            Zero-count values are omitted.  No ORM objects are returned.
+        """
+        from sqlalchemy import func as _func
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories.dtos import TagCountDTO
+
+        q = (
+            self.session.query(
+                TagDB.value,
+                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
+            .filter(
+                TagDB.type == facet_type,
+                ChannelDB.is_hidden == False,       # noqa: E712
+                ChannelDB.name.notlike("##%"),      # exclude provider category headers
+            )
+            .group_by(TagDB.value)
+            .order_by(_func.count(_func.distinct(ContentTagDB.channel_id)).desc())
+        )
+        if excluded_provider_ids:
+            q = q.filter(
+                ChannelDB.provider_id.notin_(excluded_provider_ids)
+            )
+        if limit is not None:
+            q = q.limit(limit)
+
+        return [
+            TagCountDTO(value=value, channel_count=int(cnt))
+            for value, cnt in q.all()
+            if cnt > 0
+        ]
+
     # ------------------------------------------------------------------
     # Faceted query engine
     # ------------------------------------------------------------------
