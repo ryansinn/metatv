@@ -63,21 +63,18 @@ def _advance_steps(
 
     Maps ProviderLoadThread / XtreamProvider progress messages to the fixed
     step set.  Message content takes priority over percentage because the
-    batch-store sub-emits use pct 50-69 (overlapping the fetch range) but
-    carry a distinctive ``"Storing channels"`` string.
+    batch-store sub-emits carry a distinctive ``"Storing channels"`` string.
 
-    Progress flow:
-    * pct 5-69, messages "Connecting…" / "Fetching …":
+    Progress flow (band constants are defined in provider_loader._BAND_*):
+    * pct 0-14, messages "Connecting…" / "Fetching …":
         FETCH active; STORE/PARSE pending.
-    * pct 50-69, message "Storing channels (…)":
-        FETCH done; STORE active (batch sub-emits during _store_channels).
-    * pct 70, message "Stored N channels":
-        FETCH done; STORE active (store-complete emit).
-    * pct 72-86, message "Categorizing content (PPV/Events/Sports)…":
+    * pct 15-22, message "Storing channels (…)" / "Stored N channels":
+        FETCH done; STORE active (batch sub-emits + store-complete).
+    * pct 22-37, message "Categorizing content (PPV/Events/Sports)…":
         STORE done; PARSE active.
-    * pct 87-92, messages "Detecting prefixes (N / M channels)…":
+    * pct 38-59, messages "Detecting prefixes (N / M channels)…":
         STORE done; PARSE active (per-batch sub-emits from _update_prefixes_in_thread).
-    * pct 93-96, messages "Tagging N / M channels…":
+    * pct 60-96, messages "Tagging N / M channels…" / "Computing content tags…":
         STORE done; PARSE active (per-batch sub-emits from _update_tags_in_thread).
     * pct 97, message "Updating filter statistics…":
         all channel steps done.
@@ -97,7 +94,8 @@ def _advance_steps(
     labels = [lbl for lbl, _ in steps]
 
     # Detect phases by message first, then fall back to percentage.
-    in_storing = "Storing channels" in message or (pct == 70 and "Stored" in message)
+    # _BAND_STORE[1] = 22 is the store-complete boundary emit.
+    in_storing = "Storing channels" in message or (pct == 22 and "Stored" in message)
     in_parse   = ("Categorizing" in message or "Detecting" in message
                   or "Computing content tags" in message
                   or "Tagging" in message
@@ -106,13 +104,13 @@ def _advance_steps(
 
     def _compute(lbl: str) -> StepStatus:
         if lbl == _STEP_FETCH:
-            if in_storing or in_parse or all_done or pct >= 70:
+            if in_storing or in_parse or all_done or pct >= 22:
                 return StepStatus.DONE
             return StepStatus.ACTIVE
         if lbl == _STEP_STORE:
             if in_parse or all_done:
                 return StepStatus.DONE
-            if in_storing or pct == 70:
+            if in_storing or pct == 22:
                 return StepStatus.ACTIVE
             return StepStatus.PENDING
         if lbl == _STEP_PARSE:

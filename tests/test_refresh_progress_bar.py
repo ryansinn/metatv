@@ -419,7 +419,89 @@ class TestTaggingThreadEmitsProgress:
         assert cur_values == sorted(cur_values), (
             f"Tagging progress must be non-decreasing; got {cur_values}"
         )
-        # All values must be in the 93-97 band
-        assert all(93 <= c <= 97 for c in cur_values), (
-            f"Tagging progress must stay in 93–97 band; got {cur_values}"
+        # All values must be in the _BAND_TAGS range (60-97).
+        # At ~50% through the tag phase the bar must be in the 70s — NOT the 90s.
+        from metatv.core.provider_loader import _BAND_TAGS
+        _tag_start, _tag_end = _BAND_TAGS
+        assert all(_tag_start <= c <= _tag_end for c in cur_values), (
+            f"Tagging progress must stay in {_tag_start}–{_tag_end} band; got {cur_values}"
+        )
+        # The first batch completes at 500/600 ≈ 83% through; with _BAND_TAGS=(60,97)
+        # that places the first emit near int(60 + 0.83*37) = ~91. The second (600/600)
+        # lands at 97.  Both are in the 60-97 range — crucially NOT stuck in the 90s
+        # for the bulk of the work.  We assert the midpoint behaviour: with 600 channels
+        # and _TAG_BATCH=500, the first batch covers 500/600≈83% of the work; the bar
+        # should read well below 97 at that point (more than 4 units of headroom remain).
+        assert min(cur_values) < _tag_end, (
+            f"First tagging emit must be below the band ceiling ({_tag_end}); "
+            f"got first={min(cur_values)}"
+        )
+
+
+class TestBandConstantsMonotonicAndCorrectRange:
+    """The band constants in provider_loader must be monotonically non-decreasing
+    end-to-end and the tag band must occupy the lion's share of 0-100.
+
+    These tests catch a regression where re-weighting accidentally violated
+    the monotonic invariant or left the tag band too narrow.
+    """
+
+    def test_band_sequence_is_non_decreasing(self):
+        """The sequence fetch→store→categorize→prefix→tags→stats must be
+        non-decreasing so the progress bar never jumps backward.
+        """
+        from metatv.core.provider_loader import (
+            _BAND_FETCH, _BAND_STORE, _BAND_CATEGORIZE,
+            _BAND_PREFIX, _BAND_TAGS, _BAND_STATS,
+        )
+        bands = [_BAND_FETCH, _BAND_STORE, _BAND_CATEGORIZE,
+                 _BAND_PREFIX, _BAND_TAGS, _BAND_STATS]
+
+        # Each band's start must equal the previous band's end (contiguous).
+        for i in range(1, len(bands)):
+            prev_end = bands[i - 1][1]
+            cur_start = bands[i][0]
+            assert cur_start == prev_end, (
+                f"Band {i} start ({cur_start}) != band {i-1} end ({prev_end}): "
+                f"bands must be contiguous and non-decreasing"
+            )
+
+        # Last band must end at 100 (the stats phase fills up to 100; done emits 100 too).
+        assert _BAND_STATS[1] == 100, (
+            f"_BAND_STATS must end at 100; got {_BAND_STATS[1]}"
+        )
+
+    def test_tag_band_at_50pct_through_is_in_70s(self):
+        """At exactly 50% through the tag phase, the emitted bar value must be
+        in the 70s — NOT the 90s (the bug this PR fixes).
+
+        With _BAND_TAGS=(60, 97): 50% → int(60 + 0.5 * 37) = 78.
+        """
+        from metatv.core.provider_loader import _BAND_TAGS
+        _tag_start, _tag_end = _BAND_TAGS
+        midpoint = int(_tag_start + 0.5 * (_tag_end - _tag_start))
+        assert 70 <= midpoint <= 79, (
+            f"At 50% through the tag phase the bar must read 70-79 (was stuck in 90s "
+            f"before this fix); got {midpoint} from _BAND_TAGS={_BAND_TAGS}"
+        )
+
+    def test_tag_band_is_widest_band(self):
+        """The tag band must be the widest of all six bands — it dominates wall-clock."""
+        from metatv.core.provider_loader import (
+            _BAND_FETCH, _BAND_STORE, _BAND_CATEGORIZE,
+            _BAND_PREFIX, _BAND_TAGS, _BAND_STATS,
+        )
+        bands = {
+            "FETCH": _BAND_FETCH,
+            "STORE": _BAND_STORE,
+            "CATEGORIZE": _BAND_CATEGORIZE,
+            "PREFIX": _BAND_PREFIX,
+            "TAGS": _BAND_TAGS,
+            "STATS": _BAND_STATS,
+        }
+        widths = {name: end - start for name, (start, end) in bands.items()}
+        widest = max(widths, key=lambda n: widths[n])
+        assert widest == "TAGS", (
+            f"_BAND_TAGS must be the widest band (it dominates wall-clock); "
+            f"widths={widths}, widest={widest}"
         )
