@@ -378,6 +378,45 @@ class TagRepository:
     # Faceted stats
     # ------------------------------------------------------------------
 
+    def _scope_to_visible_channels(self, query, channel_id_col,
+                                   excluded_provider_ids: Optional[List[str]] = None):
+        """Join ``ChannelDB`` and restrict a tag query to *visible* channels.
+
+        The single definition of "visible channel" for the tag repository's
+        faceted queries: drop individually-hidden channels (``is_hidden``) and
+        provider category headers (names beginning ``##``), and exclude any
+        provider in *excluded_provider_ids* (inactive ∪ expired — pass
+        ``ProviderRepository.get_hidden_provider_ids()``).
+
+        Consolidates the predicate that was previously inlined in
+        ``get_facet_value_counts`` / ``get_facet_summary`` /
+        ``get_tag_counts_for_facet`` (and was missing entirely from the faceted
+        result engine, leaking hidden-source channels into recipe YIELDS).
+        Tracked for cross-repo unification as task #59.
+
+        Args:
+            query: The SQLAlchemy query to scope.
+            channel_id_col: The column expression carrying the channel id to
+                join ``ChannelDB.id`` against (e.g. ``ContentTagDB.channel_id``
+                or an aliased equivalent).
+            excluded_provider_ids: Provider IDs to additionally exclude.  An
+                empty list still applies the is_hidden / ``##`` scope; ``None``
+                also applies it — callers that want *no* scoping simply don't
+                call this helper.
+
+        Returns:
+            The query with the visibility join + filters applied.
+        """
+        from metatv.core.database import ChannelDB
+
+        query = query.join(ChannelDB, ChannelDB.id == channel_id_col).filter(
+            ChannelDB.is_hidden == False,       # noqa: E712
+            ChannelDB.name.notlike("##%"),      # exclude provider category headers
+        )
+        if excluded_provider_ids:
+            query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        return query
+
     def get_facet_value_counts(
         self,
         excluded_provider_ids: Optional[List[str]] = None,
@@ -399,7 +438,6 @@ class TagRepository:
             count are included; zero-count values are omitted.
         """
         from sqlalchemy import func as _func
-        from metatv.core.database import ChannelDB
 
         q = (
             self.session.query(
@@ -408,17 +446,10 @@ class TagRepository:
                 _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
-            .filter(
-                ChannelDB.is_hidden == False,       # noqa: E712
-                ChannelDB.name.notlike("##%"),      # exclude provider category headers
-            )
-            .group_by(TagDB.type, TagDB.value)
         )
-        if excluded_provider_ids:
-            q = q.filter(
-                ChannelDB.provider_id.notin_(excluded_provider_ids)
-            )
+        q = self._scope_to_visible_channels(
+            q, ContentTagDB.channel_id, excluded_provider_ids
+        ).group_by(TagDB.type, TagDB.value)
 
         result: dict[str, dict[str, int]] = {}
         for tag_type, value, cnt in q.all():
@@ -468,7 +499,6 @@ class TagRepository:
             Zero-count facets are omitted.  No ORM objects are returned.
         """
         from sqlalchemy import func as _func
-        from metatv.core.database import ChannelDB
         from metatv.core.repositories.dtos import FacetSummaryDTO
 
         q = (
@@ -477,17 +507,10 @@ class TagRepository:
                 _func.count(_func.distinct(TagDB.value)).label("distinct_vals"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
-            .filter(
-                ChannelDB.is_hidden == False,       # noqa: E712
-                ChannelDB.name.notlike("##%"),      # exclude provider category headers
-            )
-            .group_by(TagDB.type)
         )
-        if excluded_provider_ids:
-            q = q.filter(
-                ChannelDB.provider_id.notin_(excluded_provider_ids)
-            )
+        q = self._scope_to_visible_channels(
+            q, ContentTagDB.channel_id, excluded_provider_ids
+        ).group_by(TagDB.type)
 
         raw: dict[str, int] = {}
         for tag_type, distinct_vals in q.all():
@@ -535,7 +558,6 @@ class TagRepository:
             Zero-count values are omitted.  No ORM objects are returned.
         """
         from sqlalchemy import func as _func
-        from metatv.core.database import ChannelDB
         from metatv.core.repositories.dtos import TagCountDTO
 
         q = (
@@ -544,19 +566,13 @@ class TagRepository:
                 _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
             )
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
-            .join(ChannelDB, ChannelDB.id == ContentTagDB.channel_id)
-            .filter(
-                TagDB.type == facet_type,
-                ChannelDB.is_hidden == False,       # noqa: E712
-                ChannelDB.name.notlike("##%"),      # exclude provider category headers
-            )
-            .group_by(TagDB.value)
-            .order_by(_func.count(_func.distinct(ContentTagDB.channel_id)).desc())
+            .filter(TagDB.type == facet_type)
         )
-        if excluded_provider_ids:
-            q = q.filter(
-                ChannelDB.provider_id.notin_(excluded_provider_ids)
-            )
+        q = self._scope_to_visible_channels(
+            q, ContentTagDB.channel_id, excluded_provider_ids
+        ).group_by(TagDB.value).order_by(
+            _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
+        )
         if limit is not None:
             q = q.limit(limit)
 
@@ -576,6 +592,7 @@ class TagRepository:
         excludes: Optional[dict[str, set[str]]] = None,
         *,
         base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
     ) -> set[str]:
         """Return the set of channel ids that match all include facets and no exclude facets.
 
@@ -612,6 +629,14 @@ class TagRepository:
                 ids appear in this set.  Use this to intersect with an existing
                 result set (e.g. the active-source-scoped channel list) without
                 an extra round-trip.  ``None`` means consider all channels.
+            excluded_provider_ids: When not ``None``, restrict the result to
+                *visible* channels via :meth:`_scope_to_visible_channels` —
+                dropping individually-hidden channels and ``##`` category
+                headers, and excluding the given providers (inactive ∪ expired;
+                pass ``ProviderRepository.get_hidden_provider_ids()``).  This is
+                the same scope the pantry/cloud facet counts use, so recipe
+                YIELDS agrees with the cloud.  ``None`` (default) keeps the
+                method scope-agnostic for callers that scope another way.
 
         Returns:
             A ``set[str]`` of channel ids satisfying all constraints.
@@ -642,6 +667,13 @@ class TagRepository:
         # Scope to a caller-provided pre-filter if given.
         if base_channel_ids is not None:
             query = query.filter(outer.channel_id.in_(base_channel_ids))
+
+        # Scope to visible channels on active sources when requested (recipe
+        # YIELDS uses this so its count matches the pantry/cloud facet counts).
+        if excluded_provider_ids is not None:
+            query = self._scope_to_visible_channels(
+                query, outer.channel_id, excluded_provider_ids
+            )
 
         # --- include facets: one EXISTS per facet (AND across facets) ---
         #

@@ -42,7 +42,7 @@ def _build_mock_window():
 
     # Content views whose background work closeEvent stops on exit (F3-1).
     # Default to not-visible so on_deactivate is not invoked unless a test opts in.
-    for _name in ("discover_view", "preferences_view", "epg_view"):
+    for _name in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
         view = MagicMock()
         view.isVisible.return_value = False
         setattr(win, _name, view)

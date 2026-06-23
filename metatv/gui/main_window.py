@@ -56,6 +56,7 @@ from metatv.gui.details_versions import ChannelVersion
 from metatv.gui.discover_view import DiscoverView
 from metatv.gui.epg_view import EpgView
 from metatv.gui.preferences_view import PreferencesView
+from metatv.gui.recipe_view import RecipeView
 from metatv.gui.source_analytics_view import SourceAnalyticsView
 from metatv.core.epg_manager import EpgManager
 from metatv.core.series_monitor import SeriesMonitorManager
@@ -861,6 +862,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.discover_chip.clicked.connect(self.on_discover_view_toggle)
         nav_layout.addWidget(self.discover_chip)
 
+        self.recipe_chip = ToggleChip(f"{_icons.recipe_icon} Recipe", enabled=False)
+        self.recipe_chip.setToolTip("Build a recipe from facets — genre, language, region, decade…")
+        self.recipe_chip.clicked.connect(self.on_recipe_view_toggle)
+        nav_layout.addWidget(self.recipe_chip)
+
         # Diagnose action — far-left, mirrors the Exclusions chip on the right
         self._diagnose_btn = QPushButton(_icons.diagnose_icon)
         self._diagnose_btn.setFlat(True)
@@ -1183,6 +1189,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.discover_view.setVisible(False)
         self._list_layout.addWidget(self.discover_view)
 
+        # Recipe view (hidden by default) — task #56 slice 3
+        self.recipe_view = RecipeView(self.db, self.config, self._run_query, self)
+        self.recipe_view.setVisible(False)
+        self._list_layout.addWidget(self.recipe_view)
+
         self.epg_manager.start_notification_timer()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
         # Recolor the sidebar EPG indicator (and clear its spinner) when a fetch ends.
@@ -1488,7 +1499,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Stop background work owned by the active content view (its on_deactivate
         # quits loader threads); _hide_all_content_views only runs on view switches,
         # not on app close, so do it explicitly here.
-        for _attr in ("discover_view", "preferences_view", "epg_view"):
+        for _attr in ("discover_view", "preferences_view", "epg_view", "recipe_view"):
             _view = getattr(self, _attr, None)
             if _view is not None and _view.isVisible():
                 _view.on_deactivate()
