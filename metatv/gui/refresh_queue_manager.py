@@ -223,6 +223,10 @@ class RefreshQueueManager(QObject):
             new_steps = _advance_steps(current_steps[0], msg, cur)
             current_steps[0] = new_steps
             self._nm.set_steps(active_notif_id, new_steps)
+            # Advance the progress bar on the active toast so it moves as
+            # sub-tasks complete.  tot is always 100 (phase-banded %).
+            if tot and tot > 0:
+                self._nm.update_progress(active_notif_id, cur, tot)
             # Update pct on the entry for the overview
             entry.pct = cur
             self._emit_queue_changed()
@@ -352,10 +356,14 @@ class RefreshQueueManager(QObject):
             return
         # Note: the notification widget prepends its own type icon (⟳ for PROGRESS),
         # so we must NOT include icons.refresh_icon in the title — that would double it.
+        # show_bar=False: total=None means an indeterminate bar that sits at 0% the
+        # entire time.  The steps list already conveys per-source progress, so the bar
+        # adds no information and should not be rendered.
         self._overview_notif_id = self._nm.show_progress(
             title="Source refresh queue",
             total=None,
             steps=self._build_overview_steps(),
+            show_bar=False,
         )
 
     def _dismiss_overview(self) -> None:

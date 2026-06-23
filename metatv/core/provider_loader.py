@@ -412,15 +412,42 @@ class ProviderLoadThread(QThread):
         finally:
             session.close()
 
+    def _try_emit_progress(self, cur: int, tot: int, msg: str) -> None:
+        """Emit progress, swallowing the RuntimeError raised when the QThread
+        super().__init__() was not called (unit-test ``__new__`` construction path).
+        """
+        try:
+            self.progress.emit(cur, tot, msg)
+        except RuntimeError:
+            pass  # test-only: QObject.__init__ not called via ProviderLoadThread.__new__
+
     def _update_prefixes_in_thread(self) -> None:
-        """Run update_detected_prefixes in the worker thread (never the main thread)."""
+        """Run update_detected_prefixes in the worker thread (never the main thread).
+
+        Emits per-batch progress in the 87–93 band so the active notification bar
+        advances continuously through the prefix-detection phase instead of sitting
+        frozen at 87%.
+        """
         from metatv.core.repositories import RepositoryFactory
+
+        _BAND_START = 87
+        _BAND_END   = 93
+
+        def _progress_cb(done: int, total: int) -> None:
+            if total > 0:
+                band_pct = int(_BAND_START + (done / total) * (_BAND_END - _BAND_START))
+                self._try_emit_progress(
+                    band_pct, 100,
+                    f"Detecting prefixes ({done:,} / {total:,} channels)…",
+                )
+
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
             updated = repos.channels.update_detected_prefixes(
                 provider_id=self.provider.id,
                 separators=self._separators,
+                progress_cb=_progress_cb,
             )
             logger.info(f"Prefix detection: updated {updated:,} channels")
         except Exception as e:
@@ -643,6 +670,17 @@ class ProviderLoadThread(QThread):
                 "_update_tags_in_thread: committed tags for channels {}-{}",
                 batch_start,
                 done,
+            )
+
+            # Emit per-batch progress in the 93–97 band so the active notification
+            # bar creeps forward during the long tagging phase (largest wall-clock
+            # phase for big providers) instead of sitting frozen at 93%.
+            _TAG_BAND_START = 93
+            _TAG_BAND_END   = 97
+            band_pct = int(_TAG_BAND_START + (done / total) * (_TAG_BAND_END - _TAG_BAND_START))
+            self._try_emit_progress(
+                band_pct, 100,
+                f"Tagging {done:,} / {total:,} channels…",
             )
 
         tagged = total - skipped
