@@ -66,6 +66,7 @@ from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegist
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
 from metatv.gui.sidebar.new_episodes import NewEpisodesSection
 from metatv.gui.migration_progress_widget import MigrationProgressWidget
+from metatv.gui.refresh_queue_manager import RefreshQueueManager
 
 from metatv.core.preference_engine import version_score as _version_score
 from metatv.gui.whats_new_dialog import WhatsNewDialog
@@ -302,6 +303,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
 
+        # Serial refresh queue — must be created BEFORE setup_ui() because
+        # setup_ui() wires sidebar signals that trigger refresh_provider().
+        # The NotificationManager is already initialised above.
+        self.refresh_queue_manager = RefreshQueueManager(
+            self.db, self.config, self.notification_manager, parent=self
+        )
+        self._register_cleanable("refresh_queue_manager", self.refresh_queue_manager.shutdown)
+
         self.setup_ui()
         self.setup_notifications()
 
@@ -327,6 +336,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
         self.stream_retry_manager.start()
         self._refresh_alerts_retry_section()  # restore persisted entries on startup
+
+        # Wire the serial refresh queue manager signals
+        self.refresh_queue_manager.refresh_finished.connect(self._on_queue_refresh_finished)
+        self.refresh_queue_manager._request_epg_wire.connect(self._on_queue_epg_wire_requested)
 
         self.load_providers()
         self.load_favorites()

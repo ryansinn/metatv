@@ -397,81 +397,34 @@ class _ProviderMixin:
             session.close()
 
     def refresh_provider(self, provider_id: str):
-        """Refresh channels from a specific provider"""
-        # Prevent duplicate refresh calls
-        if provider_id in self.refreshing_providers:
-            logger.warning(f"Provider {provider_id} is already being refreshed, ignoring duplicate call")
+        """Enqueue a provider for serial refresh via the queue manager.
+
+        All provider refresh calls — single-source, refresh-all, and startup —
+        funnel through :class:`~metatv.gui.refresh_queue_manager.RefreshQueueManager`
+        which processes one source at a time and maintains a single consolidated
+        overview notification.  Duplicate enqueue calls for the same provider are
+        silently ignored by the manager.
+        """
+        if not hasattr(self, "refresh_queue_manager"):
+            # Safety fallback: manager not yet initialised (shouldn't happen in
+            # normal startup, but guards against test environments that only
+            # partially construct MainWindow).
+            logger.warning("RefreshQueueManager not yet available; ignoring refresh_provider call")
             return
 
-        self.refreshing_providers.add(provider_id)
-        logger.info(f"Refreshing provider: {provider_id}")
-
+        # Look up the provider name for the overview notification label
         session = self.db.get_session()
         try:
-            from metatv.core.models import Provider
-            from metatv.core.provider_loader import ProviderLoadThread
-
             repos = RepositoryFactory(session)
             db_provider = repos.providers.get_by_id(provider_id)
             if not db_provider:
                 logger.error(f"Provider not found: {provider_id}")
-                self.refreshing_providers.discard(provider_id)
                 return
-
-            # Convert to model
-            provider = repos.providers.to_model(db_provider)
-
-            # Decide whether to show EPG steps (check before the thread starts so
-            # the initial step list is correct from the first render).
-            epg_enabled = self._provider_has_epg(provider_id)
-
-            # Build the initial step list: all steps pending.
-            initial_steps = _make_steps(epg=epg_enabled)
-
-            # Show progress notification with the checklist.
-            notif_id = self.notification_manager.show_progress(
-                title=f"Refreshing {provider.name}",
-                total=100,
-                steps=initial_steps,
-            )
-
-            # Keep a mutable reference to the current step list so the progress
-            # handler can update it without re-querying the notification store.
-            current_steps: list[list[tuple[str, StepStatus]]] = [initial_steps]
-
-            def _on_progress(cur: int, tot: int, msg: str) -> None:
-                """Advance steps based on the loader's progress message.
-
-                Runs on the main thread (ProviderLoadThread.progress is a Qt
-                signal, always marshalled to the connected slot's thread).
-                """
-                new_steps = _advance_steps(current_steps[0], msg, cur)
-                current_steps[0] = new_steps
-                self.notification_manager.set_steps(notif_id, new_steps)
-
-            # Start loading in background thread
-            load_thread = ProviderLoadThread(
-                provider, self.db,
-                separators=self.config.prefix_separators,
-                language_groups=self.config.filter_language_groups,
-                quality_groups=self.config.filter_quality_groups,
-                platform_groups=self.config.filter_platform_groups,
-                regional_groups=self.config.filter_regional_groups,
-            )
-            load_thread.provider_id = provider.id  # Store for cleanup
-            load_thread.progress.connect(_on_progress)
-            load_thread.finished.connect(
-                lambda success, msg: self.on_provider_refresh_finished(
-                    notif_id, success, msg, load_thread, current_steps,
-                )
-            )
-
-            # Keep thread alive
-            self.active_threads.append(load_thread)
-            load_thread.start()
-
+            provider_name = db_provider.name
         finally:
             session.close()
+
+        self.refresh_queue_manager.enqueue(provider_id, provider_name)
 
     def on_provider_refresh_finished(
         self,
@@ -481,37 +434,50 @@ class _ProviderMixin:
         thread,
         current_steps: list | None = None,
     ):
-        """Handle provider refresh completion"""
-        # Remove thread from active list
-        if thread in self.active_threads:
+        """Legacy entry point — retained so test code that calls it directly still works.
+
+        New code should wire :meth:`_on_queue_refresh_finished` to
+        ``refresh_queue_manager.refresh_finished`` instead.  This method
+        reconstructs the minimum context needed to call the canonical handler.
+        """
+        provider_id = getattr(thread, "provider_id", None)
+        self._on_queue_refresh_finished(provider_id, success, message, thread)
+
+    def _on_queue_refresh_finished(
+        self,
+        provider_id: str,
+        success: bool,
+        message: str,
+        thread,
+    ) -> None:
+        """Canonical post-refresh handler — wired to ``refresh_queue_manager.refresh_finished``.
+
+        Runs all the side-effects that must happen after a provider's channel
+        corpus is freshly loaded: prefix stats, view refresh, EPG relink,
+        monitor/alert checks, and the post-refresh EPG pull.
+
+        Called on the main thread (delivered via Qt signal from the manager).
+        """
+        # Remove thread from legacy active_threads list (threads started by the
+        # queue manager are not in this list, but harmless if absent).
+        if thread is not None and thread in self.active_threads:
             self.active_threads.remove(thread)
 
-        # Remove provider from refreshing set
-        provider_id = getattr(thread, 'provider_id', None)
-        if provider_id:
-            if provider_id in self.refreshing_providers:
-                self.refreshing_providers.discard(provider_id)
-                logger.info(f"Provider {provider_id} refresh completed")
-            else:
-                logger.warning(f"Provider {provider_id} was not in refreshing set")
-        else:
-            logger.warning("Provider refresh finished but no provider_id found on thread")
+        # Legacy refreshing_providers set — discard to avoid leaving a stale entry
+        # (the queue manager already guards duplicates, so this is belt-and-braces).
+        if provider_id and provider_id in self.refreshing_providers:
+            self.refreshing_providers.discard(provider_id)
 
         if success:
-            # Mark all channel steps as done before EPG phase starts.
-            if current_steps is not None:
-                steps = current_steps[0]
-                steps = _advance_steps(steps, "Loaded", 100)
-                current_steps[0] = steps
-                self.notification_manager.set_steps(notif_id, steps)
-
-            # Prefix stats were computed in the worker thread — just apply them
-            stats = getattr(thread, 'prefix_stats', None)
+            # Prefix stats were computed in the worker thread — just apply them.
+            stats = getattr(thread, "prefix_stats", None) if thread is not None else None
             if stats:
-                self._filter_unmapped_prefixes = stats.get('unmapped_prefixes', [])
-                if hasattr(self, 'filter_panel'):
+                self._filter_unmapped_prefixes = stats.get("unmapped_prefixes", [])
+                if hasattr(self, "filter_panel"):
                     self.filter_panel.update_data(stats)
-                logger.info(f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes")
+                logger.info(
+                    f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes"
+                )
 
             # Refresh every view derived from provider/channel data (canonical)
             self._refresh_provider_dependent_views()
@@ -523,13 +489,10 @@ class _ProviderMixin:
             # This is a DB-only pass (no network fetch) that fixes the partial-match
             # case: channels whose EPG rows were stored with channel_db_id=NULL
             # because they weren't loaded at XMLTV fetch time get linked now.
-            # Safe here because channels just finished loading, and relink_all uses
-            # the EPG manager's existing executor (no new pool / no SQLite lock race).
             if getattr(self, "epg_manager", None):
                 self.epg_manager.relink_all()
 
-            # Check monitored series for new episodes now that this provider's
-            # channel corpus is freshly loaded.
+            # Check monitored series for new episodes.
             if provider_id and "series_monitor" in self.__dict__:
                 self.series_monitor.check_provider(provider_id)
 
@@ -537,36 +500,29 @@ class _ProviderMixin:
             if provider_id and "vod_watch_alert_manager" in self.__dict__:
                 self.vod_watch_alert_manager.check_provider(provider_id)
 
-            # A source refresh is step 1 (channel data); step 2 is pulling current
-            # EPG so the guide is fresh without a separate manual refresh from the
-            # EPG screen. Applies to EVERY user-initiated refresh — newly-added or
-            # existing — and is skipped when the source has EPG disabled. (The
-            # add-time flag is now just bookkeeping; the trigger below covers both.)
+            # Post-refresh EPG pull: step 2 of a source refresh.
             if provider_id:
                 self._epg_fetch_after_add.discard(provider_id)
                 self._maybe_refresh_provider_epg(provider_id)
-
-            # If the toast has EPG steps, wire EPG-manager signals to advance them.
-            # We do this after triggering _maybe_refresh_provider_epg so the signal
-            # connects are in place before the fetch signals fire.
-            if current_steps is not None and _has_epg_steps(current_steps[0]) and provider_id:
-                self._wire_epg_step_signals(notif_id, provider_id, current_steps)
-            else:
-                # No EPG steps — complete the toast now.
-                self.notification_manager.complete_progress(notif_id, message)
         else:
             # Channel load failed — drop any pending add-time EPG flag.
             if provider_id:
                 self._epg_fetch_after_add.discard(provider_id)
-            from metatv.core.notifications import NotificationType
-            self.notification_manager.update(
-                notif_id,
-                type=NotificationType.ERROR,
-                title="Refresh Failed",
-                message=message,
-                dismissible=True,
-                auto_dismiss_seconds=5
-            )
+
+    def _on_queue_epg_wire_requested(
+        self,
+        active_notif_id: str,
+        provider_id: str,
+        current_steps: list,
+    ) -> None:
+        """Connect EPG-manager signals to the active step-checklist toast.
+
+        Called via ``refresh_queue_manager._request_epg_wire`` signal when a
+        source refresh finished and its toast has EPG step rows.  Delegates to
+        the existing :meth:`_wire_epg_step_signals` helper.
+        """
+        if _has_epg_steps(current_steps[0]) and provider_id:
+            self._wire_epg_step_signals(active_notif_id, provider_id, current_steps)
 
     def _wire_epg_step_signals(
         self,
@@ -631,15 +587,21 @@ class _ProviderMixin:
         epg.refresh_error.connect(_on_epg_error)
 
     def refresh_all_providers(self) -> None:
-        """Refresh channels from every active provider."""
+        """Enqueue all active providers for serial refresh via the queue manager."""
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            provider_ids = [p.id for p in repos.providers.get_all(active_only=True)]
+            providers = repos.providers.get_all(active_only=True)
+            provider_pairs = [(p.id, p.name) for p in providers]
         finally:
             session.close()
-        for pid in provider_ids:
-            self.refresh_provider(pid)
+        # Enqueue through the manager so they run serially, not concurrently
+        for pid, pname in provider_pairs:
+            if hasattr(self, "refresh_queue_manager"):
+                self.refresh_queue_manager.enqueue(pid, pname)
+            else:
+                # Fallback (shouldn't happen in normal usage)
+                self.refresh_provider(pid)
 
     def on_provider_selected(self, item, column):
         """Handle provider selection in tree"""
