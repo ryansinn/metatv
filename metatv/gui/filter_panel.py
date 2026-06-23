@@ -1,14 +1,13 @@
 """Faceted filter panel — resizable vertical sidebar inside the channel list area.
 
-Sections (Language OR Region OR Platform OR Uncategorized grows the pool;
-Quality filters it):
-  Media        — Live / Movies / Series
-  Language     — language groups + locale sub-groups
-  Region       — geographic hierarchy: group → individual prefix codes
-  Platform     — individual streaming brands
-  Quality      — resolution/encoding tiers  (AND/restrictive)
-  Uncategorized — prefix codes not mapped to any known group; each individually selectable
-  Unknown      — channels with no detectable region/language or quality tag
+Sections (Language OR Region OR Platform grows the pool; Quality filters it):
+  Media     — Live / Movies / Series
+  Language  — language groups + locale sub-groups
+  Region    — geographic hierarchy: group → individual prefix codes
+  Platform  — individual streaming brands
+  Quality   — resolution/encoding tiers  (AND/restrictive)
+  Genre     — canonical genre names (Movies / Series only)
+  Unknown   — channels with no detectable region/language or quality tag
 
 All sections persist their collapsed/expanded state and selection state to config.
 Panel width persists via the QSplitter in main_window.
@@ -37,7 +36,7 @@ class FilterPanel(QWidget):
 
     # Section keys in display order
     _SECTION_KEYS = ["media", "language", "region", "platform",
-                     "quality", "genre", "unidentified", "untagged"]
+                     "quality", "genre", "untagged"]
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -191,20 +190,6 @@ class FilterPanel(QWidget):
             info_icon=_ii, config=self.config)
         self._genre_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._genre_sec)
-        self._add_divider()
-
-        self._unid_sec = _Section(
-            "unidentified", "Uncategorized",
-            initially_expanded=_expanded("unidentified", False),
-            info_text=(
-                "Channels that have a prefix code the app hasn't classified "
-                "into a known language, region, or platform group.\n\n"
-                "The prefix is there — we just don't know what it means yet. "
-                "Uncheck a code to exclude those channels from results."
-            ),
-            info_icon=_ii, config=self.config)
-        self._unid_sec.changed.connect(self._on_changed)
-        self._sl.addWidget(self._unid_sec)
         self._add_divider()
 
         self._untagged_sec = _Section(
@@ -374,13 +359,6 @@ class FilterPanel(QWidget):
             else:
                 # Fresh install / no saved selection (None): show everything
                 self._genre_sec.select_all()
-
-        # ── Unidentified — no direct tag equivalent; clear section (tag model has no
-        # "unknown prefix" concept — every prefix is classified or omitted from tags).
-        prev_unid = set(self._unid_sec.get_selected_keys())
-        self._unid_sec.set_flat_items([])
-        if prev_unid:
-            self._unid_sec.restore_selection(prev_unid)
 
         # ── Untagged — static items (no count source in tag model; counts stay at 0).
         # This section controls whether channels with NO prefix/quality tag pass through
@@ -618,7 +596,7 @@ class FilterPanel(QWidget):
     def _all_sections(self) -> list[_Section]:
         return [self._media_sec, self._lang_sec, self._region_sec,
                 self._platform_sec, self._quality_sec, self._genre_sec,
-                self._unid_sec, self._untagged_sec]
+                self._untagged_sec]
 
     def _persisted_section_attrs(self) -> list[tuple[str, object]]:
         """Return (config_attr_name, section) pairs for all dynamic sections.
@@ -663,7 +641,7 @@ class FilterPanel(QWidget):
 
     # Sections where "Exclude globally" makes sense — maps section key to the
     # config lookup that resolves a display key to its prefix codes.
-    _GLOBALLY_EXCLUDABLE = {"unidentified", "language", "region", "platform"}
+    _GLOBALLY_EXCLUDABLE = {"language", "region", "platform"}
 
     def _on_item_right_clicked(self, item_key: str, section_key: str, pos: QPoint):
         menu = QMenu(self)
@@ -698,9 +676,7 @@ class FilterPanel(QWidget):
     def _exclude_globally(self, item_key: str, section_key: str):
         """Add the item's prefix codes to global_filter_excluded_prefixes."""
         # Resolve display key → list of raw prefix codes
-        if section_key == "unidentified":
-            prefixes = [item_key]
-        elif section_key == "language":
+        if section_key == "language":
             prefixes = self.config.filter_language_groups.get(item_key, [item_key])
         elif section_key == "region":
             prefixes = [item_key]
