@@ -376,8 +376,10 @@ class _ChannelListMixin:
         params['total_channels']    = total
         params['has_adult']         = has_adult
         params['filtered_out_count'] = filtered_out_count
-        # Map surviving ORM rows → DTOs so no ChannelDB crosses the boundary.
-        dtos = [ChannelListDTO.from_orm(c) for c in channels]
+        # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
+        # ORM rows → DTOs so no ChannelDB crosses the boundary.
+        ratings_map = repos.ratings.get_all_map()
+        dtos = [ChannelListDTO.from_orm(c, user_rating=ratings_map.get(c.id, 0)) for c in channels]
         return dtos, params
 
     def _on_channels_load_error(self, exc: Exception) -> None:
@@ -1002,7 +1004,8 @@ class _ChannelListMixin:
         if excluded_user_cats and not hidden_only:
             rows = [c for c in rows if c.user_category not in excluded_user_cats]
 
-        dtos = [ChannelListDTO.from_orm(c) for c in rows]
+        ratings_map = repos.ratings.get_all_map()
+        dtos = [ChannelListDTO.from_orm(c, user_rating=ratings_map.get(c.id, 0)) for c in rows]
         return dtos, has_more, raw_count
 
     def _on_channel_page_loaded(self, result, generation: int) -> None:

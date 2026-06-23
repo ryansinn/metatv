@@ -101,10 +101,19 @@ class ChannelListDTO:
     watch_percent: int = 0          # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
     # Provenance — "manual" (user played deliberately) vs "queue" (auto-advanced) vs None (unwatched)
     last_played_via: str | None = None
+    # User rating — +1 liked, -1 disliked, 0 unrated.  Populated from UserRatingDB at
+    # query time via a batch lookup (RatingRepository.get_all_map()); 0 means no rating.
+    user_rating: int = 0
 
     @classmethod
-    def from_orm(cls, ch) -> "ChannelListDTO":
-        """Build a ChannelListDTO from a ChannelDB row (call inside a session)."""
+    def from_orm(cls, ch, *, user_rating: int = 0) -> "ChannelListDTO":
+        """Build a ChannelListDTO from a ChannelDB row (call inside a session).
+
+        Args:
+            ch: A live ChannelDB ORM object (must be called inside a session).
+            user_rating: The user's rating for this channel (+1, -1, or 0 for unrated).
+                Pass from a pre-fetched batch lookup to avoid N+1 queries.
+        """
         return cls(
             id=ch.id,
             name=ch.name,
@@ -122,6 +131,7 @@ class ChannelListDTO:
             watch_progress=int(getattr(ch, "watch_progress", 0) or 0),
             watch_percent=int(getattr(ch, "watch_percent", 0) or 0),
             last_played_via=getattr(ch, "last_played_via", None),
+            user_rating=user_rating,
         )
 
 

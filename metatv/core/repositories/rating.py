@@ -30,3 +30,13 @@ class RatingRepository:
         row = self.session.get(UserRatingDB, channel_id)
         if row:
             self.session.delete(row)
+
+    def get_all_map(self) -> dict[str, int]:
+        """Return a dict mapping channel_id → rating (+1 or -1) for all rated channels.
+
+        Used for batch enrichment of channel list DTOs at query time so the caller
+        avoids N+1 queries.  Unrated channels are absent from the dict; callers
+        should use ``ratings_map.get(channel_id, 0)`` to default to 0.
+        """
+        rows = self.session.query(UserRatingDB).all()
+        return {r.channel_id: r.rating for r in rows}
