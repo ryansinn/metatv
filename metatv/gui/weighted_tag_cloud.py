@@ -380,11 +380,11 @@ class WeightedTagCloud(QWidget):
         self._more_btn.clicked.connect(self._on_expand_more)
         outer.addWidget(self._more_btn)
 
-        # Absorb leftover vertical space at the bottom so the header + tags stay
-        # top-aligned.  Without this, a tall parent slot (the recipe stage gives
-        # the cloud stretch=1) makes QVBoxLayout smear the empty space *between*
-        # the header and the tag body — the large dead gap above the tags.
-        outer.addStretch(1)
+        # No trailing addStretch(): the cloud now sizes to its own content — the
+        # recipe host gives it a Maximum vertical size policy instead of a tall
+        # stretch=1 slot, so there is no excess vertical space for QVBoxLayout to
+        # smear between the header and the tag body (the old dead gap), and the
+        # freed space goes to the Now-Plating grid below.
 
     # ── private: header ───────────────────────────────────────────────────────
 

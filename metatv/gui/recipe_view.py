@@ -564,22 +564,51 @@ def _clear_layout(layout) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Now Plating results strip
+# Now Plating results grid
 # ---------------------------------------------------------------------------
 
+class _GridContainer(QWidget):
+    """Flow-layout body for the Now-Plating grid.
+
+    Holds the Discover ``_FlowLayout`` and reflows (wraps) its cards on every
+    resize, growing its own fixed height to the wrapped content height so the
+    enclosing vertical ``QScrollArea`` scrolls.  Mirrors ``_BrowseContainer`` in
+    ``discover_browse.py`` — the same vertically-scrollable wrapping-grid
+    primitive, kept local so the recipe view doesn't couple to the See-All
+    browse drill-down.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._flow = None  # _FlowLayout | None
+
+    def set_flow(self, flow) -> None:
+        self._flow = flow
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        if self._flow is not None:
+            h = self._flow.relayout(self.width())
+            self.setFixedHeight(max(h + 16, 1))
+        if event is not None:
+            super().resizeEvent(event)
+
+
 class _NowPlatingStrip(QWidget):
-    """Horizontal scroll strip of real, clickable result cards for the recipe.
+    """Wrapping, vertically-scrollable grid of clickable result cards.
 
     Reuses the Discover ``_ContentCard`` surface (poster + async ``ImageCache``
-    loading + title) rather than dead title chips, so a recipe match is
-    browsable and actionable:
+    loading + title) and the Discover ``_FlowLayout`` so a recipe match is
+    browsable and actionable — the cards wrap into rows and the area fills the
+    space below the cloud rather than clipping a single horizontal row:
 
     - single-click  → ``cardClicked(channel_id)``       (select → details pane)
     - double-click  → ``cardDoubleClicked(channel_id)``  (play, host-delegated)
 
-    Poster loading follows the same pattern as ``discover_shelf._Shelf``: each
-    card's ``request_image()`` is fired once the layout has settled (QPixmap is
-    built on the main thread inside the card's own ``image_loaded`` slot).
+    Poster loading is lazy (same pattern as ``discover_browse._BrowseView``):
+    only cards inside the current vertical viewport request an image, fired on
+    scroll and once after each rebuild has settled — so toggling a tag (which
+    rebuilds the grid) only ever decodes the visible posters.  QPixmap is built
+    on the main thread inside each card's own ``image_loaded`` slot.
     """
 
     cardClicked       = pyqtSignal(str)   # channel_id
@@ -591,73 +620,83 @@ class _NowPlatingStrip(QWidget):
         self._config = config
         self._card_widgets: list = []          # list[_ContentCard]
         self._scroll: QScrollArea | None = None
+        self._flow = None                      # _FlowLayout | None
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
 
     def load_results(self, cards: list, total_count: int) -> None:
-        """Populate the strip with real content cards.
+        """Populate the grid with real content cards.
 
         Args:
-            cards:       ``ContentCard`` value objects (≤ the shelf cap) from
+            cards:       ``ContentCard`` value objects (≤ the grid cap) from
                          ``TagRepository.sample_channels_by_tag_facets``.
-            total_count: Total number of matching channels (for the header).
+            total_count: Total number of matching channels (for the header +
+                         the "+N more…" remainder indicator).
         """
-        from metatv.gui.discover_card import _ContentCard
+        from metatv.gui.discover_card import _ContentCard, _FlowLayout
 
         self._hdr.setText(
             f"NOW PLATING  ·  {total_count:,} match{'es' if total_count != 1 else ''}"
         )
-        _clear_layout(self._cards_layout)
+
+        # Tear down the previous flow + cards, then start a fresh flow.  (A new
+        # _FlowLayout each rebuild matches discover_browse — clear() deletes the
+        # old card widgets.)
+        if self._flow is not None:
+            self._flow.clear()
         self._card_widgets = []
+        self._flow = _FlowLayout(self._grid_container, spacing=8)
+        self._grid_container.set_flow(self._flow)
 
         if not cards:
             placeholder = QLabel("No channels match this recipe yet")
             placeholder.setStyleSheet(
                 f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
             )
-            self._cards_layout.addWidget(placeholder)
-            self._cards_layout.addStretch()
+            self._flow.add(placeholder)
+            placeholder.show()
+            self._grid_container.resizeEvent(None)
             return
 
         for card in cards:
-            w = _ContentCard(card, self._image_cache, self._config, self._cards_widget)
+            w = _ContentCard(card, self._image_cache, self._config, self._grid_container)
             w.clicked.connect(self.cardClicked)
             w.doubleClicked.connect(self.cardDoubleClicked)
-            self._cards_layout.addWidget(w)
+            self._flow.add(w)
+            w.show()
             self._card_widgets.append(w)
 
         if total_count > len(cards):
-            more = QLabel(f"+ {total_count - len(cards):,} more…")
+            more = QLabel(f"+ {total_count - len(cards):,} more…  ·  showing {len(cards)} of {total_count:,}")
             more.setStyleSheet(
                 f"color: {_theme.COLOR_RECIPE_MUTED}; font-size: {_theme.FONT_MD};"
             )
-            more.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-            self._cards_layout.addWidget(more)
+            self._flow.add(more)
+            more.show()
 
-        self._cards_layout.addStretch()
-        # Load posters for cards in the viewport once geometry has settled.
+        # Wrap into rows now that all cards exist, then load posters for the
+        # cards in the viewport once geometry has settled.
+        self._grid_container.resizeEvent(None)
         QTimer.singleShot(120, self._load_visible)
 
     # ── private ───────────────────────────────────────────────────────────
 
     def _load_visible(self) -> None:
-        """Request poster images for cards currently in the scroll viewport."""
+        """Request poster images for cards currently in the vertical viewport."""
         if self._scroll is None:
             return
-        vp_w = self._scroll.viewport().width()
-        if vp_w == 0:
+        vp_h = self._scroll.viewport().height()
+        if vp_h == 0:
             QTimer.singleShot(80, self._load_visible)
             return
-        scroll_x = self._scroll.horizontalScrollBar().value()
+        scroll_y = self._scroll.verticalScrollBar().value()
         for card in self._card_widgets:
-            left = card.x()
-            if left + card.width() >= scroll_x and left <= scroll_x + vp_w:
+            top = card.y()
+            if top + card.height() >= scroll_y and top <= scroll_y + vp_h:
                 card.request_image()
 
     def _build_ui(self) -> None:
-        from metatv.gui.discover_card import card_metrics
-
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 8, 0, 0)
         outer.setSpacing(4)
@@ -674,23 +713,17 @@ class _NowPlatingStrip(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        # Height tracks the zoomed card height (same source-of-truth as Discover).
-        scroll.setFixedHeight(card_metrics(self._config.discover_zoom).card_h + 16)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self._scroll = scroll
-        scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
+        scroll.verticalScrollBar().valueChanged.connect(self._load_visible)
 
-        self._cards_widget = QWidget()
-        self._cards_widget.setStyleSheet("background: transparent;")
-        self._cards_layout = QHBoxLayout(self._cards_widget)
-        self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(8)
-        self._cards_layout.addStretch()
-
-        scroll.setWidget(self._cards_widget)
-        outer.addWidget(scroll)
+        self._grid_container = _GridContainer()
+        self._grid_container.setStyleSheet("background: transparent;")
+        scroll.setWidget(self._grid_container)
+        # The grid takes the remaining vertical space in the center column.
+        outer.addWidget(scroll, stretch=1)
 
 
 # ---------------------------------------------------------------------------
@@ -834,16 +867,21 @@ class RecipeView(QWidget):
         self._stage_hdr.setStyleSheet(_theme.RECIPE_STAGE_HDR)
         center_layout.addWidget(self._stage_hdr)
 
-        # WeightedTagCloud — reuse existing widget
+        # WeightedTagCloud — reuse existing widget.  Pin to the top and let it
+        # size to its own content (Maximum vertical policy): a facet with few
+        # tags no longer leaves a tall dead gap below the cloud — the freed
+        # space goes to the Now-Plating grid instead.
         self._cloud = WeightedTagCloud()
+        self._cloud.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._cloud.tag_clicked.connect(self._on_tag_clicked)
-        center_layout.addWidget(self._cloud, stretch=1)
+        center_layout.addWidget(self._cloud)
 
-        # Now Plating strip — real result cards (reuses Discover card surface).
+        # Now Plating grid — real result cards (reuses Discover card surface +
+        # flow layout).  Takes the remaining vertical space below the cloud.
         self._now_plating = _NowPlatingStrip(self._image_cache, self._config)
         self._now_plating.cardClicked.connect(self.channelSelected)
         self._now_plating.cardDoubleClicked.connect(self.playRequested)
-        center_layout.addWidget(self._now_plating)
+        center_layout.addWidget(self._now_plating, stretch=1)
 
         root.addWidget(center, stretch=1)
 
@@ -984,8 +1022,10 @@ class RecipeView(QWidget):
 
         self._cloud.set_tags(items, facet_color=color, facet_name=display)
 
-    # Result-shelf card cap — the bounded preview never materialises the full set.
-    _RESULTS_CARD_CAP: int = 24
+    # Result-grid card cap — a gridful of cards.  The bounded preview never
+    # materialises the full set: a broad facet costs one SQL COUNT for YIELDS
+    # plus a LIMIT slice of <= this many session-free ContentCards.
+    _RESULTS_CARD_CAP: int = 60
 
     def _load_results(self) -> None:
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
