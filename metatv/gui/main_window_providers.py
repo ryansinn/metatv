@@ -587,11 +587,34 @@ class _ProviderMixin:
         epg.refresh_error.connect(_on_epg_error)
 
     def refresh_all_providers(self) -> None:
-        """Enqueue all active providers for serial refresh via the queue manager."""
+        """Enqueue providers for serial refresh via the queue manager.
+
+        When ``config.refresh_all_includes_inactive`` is True (default) all
+        providers are enqueued, matching the historical behaviour.  When False,
+        providers with ``is_active=False`` are silently skipped — the user has
+        toggled them off and doesn't want to pay the refresh cost for them.
+
+        Note: this setting never affects per-source refresh (the individual
+        refresh button) — that is always a deliberate user action and always
+        works regardless of ``is_active``.
+        """
+        skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", True)
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)
-            providers = repos.providers.get_all(active_only=True)
+            # Fetch all providers; filter inactive here so we can log the count.
+            all_providers = repos.providers.get_all(active_only=False)
+            if skip_inactive:
+                skipped = [p for p in all_providers if not p.is_active]
+                providers = [p for p in all_providers if p.is_active]
+                if skipped:
+                    logger.info(
+                        "Refresh All: skipped %d inactive source(s): %s",
+                        len(skipped),
+                        ", ".join(p.name for p in skipped),
+                    )
+            else:
+                providers = all_providers
             provider_pairs = [(p.id, p.name) for p in providers]
         finally:
             session.close()

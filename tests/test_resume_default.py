@@ -140,6 +140,7 @@ class _FakeSettingsConfig:
         self.sidebar_sections: list = []
         self.sidebar_visible_sections: list = []
         self.remember_search = True
+        self.refresh_all_includes_inactive = True
         self.prompt_after_autoplay = True
         self.save_calls = 0
 
@@ -188,6 +189,7 @@ def _bare_dialog(qapp):
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
     dlg._remember_search_check = QCheckBox()
+    dlg._refresh_all_inactive_check = QCheckBox()
     dlg._epg_interval_combo = QComboBox()
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)

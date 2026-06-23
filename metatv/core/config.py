@@ -832,6 +832,14 @@ class Config(BaseModel):
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0
 
+    # Source refresh behaviour
+    # When True (default), "Refresh All" enqueues every source including ones the
+    # user has toggled OFF (is_active=False).  Set to False to skip inactive sources
+    # and only refresh sources that are currently enabled.
+    # Per-source refresh (the individual source refresh button) is never affected
+    # by this setting — that's always a deliberate user action and always works.
+    refresh_all_includes_inactive: bool = True
+
     # Series monitor — user-opted series tracked for new episode arrivals.
     # Each entry is a plain dict:
     #   {"series_channel_id": str,   # ChannelDB.id of the series

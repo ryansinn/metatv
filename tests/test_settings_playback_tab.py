@@ -65,6 +65,7 @@ class _FakeConfig:
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
         self.remember_search: bool = True
+        self.refresh_all_includes_inactive: bool = True
         self.prompt_after_autoplay: bool = True
         self.save_calls: int = 0
 
@@ -142,6 +143,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Remember last search checkbox
     dlg._remember_search_check = QCheckBox()
+
+    # Refresh-all-includes-inactive checkbox (Sources group in Interface tab)
+    dlg._refresh_all_inactive_check = QCheckBox()
 
     # EPG interval combo (needed by _load_values)
     dlg._epg_interval_combo = QComboBox()
