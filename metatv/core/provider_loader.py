@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import time
 from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QThread, pyqtSignal
 from loguru import logger
@@ -108,6 +109,7 @@ class ProviderLoadThread(QThread):
     
     async def load_provider(self):
         """Load provider data using provider plugin"""
+        _t_start = time.monotonic()
         provider_plugin = get_provider(self.provider.type)
         if not provider_plugin:
             self.finished.emit(False, f"Unknown provider type: {self.provider.type}")
@@ -117,6 +119,7 @@ class ProviderLoadThread(QThread):
             self.progress.emit(current, total, message)
 
         channels = await provider_plugin.fetch_channels(self.provider, progress_callback=on_progress)
+        _t_fetched = time.monotonic()
 
         # Deduplicate by channel ID: some providers return the same stream_id in multiple
         # category responses, producing duplicate channel.id values. Under no_autoflush the
@@ -174,21 +177,38 @@ class ProviderLoadThread(QThread):
         finally:
             session.close()
 
+        _t_stored = time.monotonic()
+
         # Phase: categorize special content (PPV / Events / Sports)
         self.progress.emit(72, 100, "Categorizing content (PPV/Events/Sports)…")
         self._categorize_special_content()
+        _t_categorized = time.monotonic()
 
         # Phase: detect channel prefixes
         self.progress.emit(87, 100, "Detecting channel prefixes…")
         self._update_prefixes_in_thread()
+        _t_prefixed = time.monotonic()
 
         # Phase: compute content tags (decomposer) for just-loaded channels
         self.progress.emit(93, 100, "Computing content tags…")
         self._update_tags_in_thread()
+        _t_tagged = time.monotonic()
 
         # Phase: compute prefix stats for the filter bar
         self.progress.emit(97, 100, "Updating filter statistics…")
         self._compute_prefix_stats_in_thread()
+        _t_statted = time.monotonic()
+
+        # Total + per-phase wall-clock for this refresh — debug visibility into
+        # where the time goes (the content-tagging phase dominates large sources).
+        def _fmt(secs: float) -> str:
+            return f"{int(secs // 60)}m{secs % 60:04.1f}s" if secs >= 60 else f"{secs:.1f}s"
+        logger.info(
+            f"Refreshed {self.provider.name}: {total:,} channels in {_fmt(_t_statted - _t_start)} "
+            f"[fetch {_fmt(_t_fetched - _t_start)} · store {_fmt(_t_stored - _t_fetched)} · "
+            f"categorize {_fmt(_t_categorized - _t_stored)} · prefixes {_fmt(_t_prefixed - _t_categorized)} · "
+            f"tags {_fmt(_t_tagged - _t_prefixed)} · stats {_fmt(_t_statted - _t_tagged)}]"
+        )
 
         self.progress.emit(100, 100, f"Loaded {total:,} channels")
 
