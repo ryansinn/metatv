@@ -89,6 +89,14 @@ class ChannelDB(Base):
     rec_shown_count = Column(Integer, default=0, index=True)  # impression counter for recommendation decay
     rec_last_shown  = Column(DateTime, nullable=True)           # for per-session cooldown deduplication
 
+    # Incremental tag fingerprint — a short hash of the decomposer feeder fields.
+    # NULL on new/pre-migration rows; set by _update_tags_in_thread after each successful
+    # per-channel tag pass. When a refresh sees a matching fingerprint the channel is
+    # skipped (tags are unchanged); a mismatch forces a re-tag and fingerprint update.
+    # This is a *catalog/derived* column — NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS so
+    # the provider upsert never overwrites it (same pattern as detected_* columns).
+    tag_fingerprint = Column(String, nullable=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -493,6 +501,7 @@ class Database:
             ("episodes",     "watch_completed",            "INTEGER DEFAULT 0"),
             ("channels",     "watch_percent",              "INTEGER DEFAULT 0"),
             ("episodes",     "watch_percent",              "INTEGER DEFAULT 0"),
+            ("channels",     "tag_fingerprint",            "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
