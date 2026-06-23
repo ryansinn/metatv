@@ -69,36 +69,25 @@ metatv/
 All EPG time functions (`now_utc`, `fmt_time`, `remaining_str`, `minutes_away`, `progress_pct`, `fmt_duration`, `epg_is_stale`) live in `metatv/core/epg_utils.py`. Never redefine these inline. Import from there: `from metatv.core.epg_utils import now_utc, fmt_time, ...`. `epg_is_stale(epg_data_end)` is the single staleness boundary (a provider feed serving year-old guide data) — used by the EPG view notice, the provider editor's EPG line, and the fetch-time warning; the EPG view's banner list comes from `ProviderRepository.get_stale_epg_providers()`.
 
 ### Styles — two-layer `theme.py`; tokens for all palette values, role-named constants
-`metatv/gui/theme.py` has two layers and you must respect the split (full rationale in
-[docs/UI_UX_GUIDELINES.md](docs/UI_UX_GUIDELINES.md) → "Theming & style tokens"):
+Two layers, respect the split (full rationale: [docs/UI_UX_GUIDELINES.md](docs/UI_UX_GUIDELINES.md) →
+"Theming & style tokens"):
 
-1. **Design tokens** — `COLOR_*`, `FONT_*`, `OVERLAY_*`. The **only** place a raw hex / rgba color
-   literal may appear, and the home of every font *size* (`FONT_*`). Token names may be
-   appearance-based (`FONT_MD`, `COLOR_MUTED`) — they *are* the palette.
-2. **Semantic constants** — complete stylesheet strings composed *from tokens*, named by **role**
-   (`STATUS_OK`, `SECTION_HINT`, `LOADING_TEXT`), never by appearance (no `TEXT_SM` / `GREY_11`).
+1. **Design tokens** — `COLOR_*`, `FONT_*`, `OVERLAY_*`: the **only** place a raw hex/rgba literal or a
+   font *size* may appear. Names may be appearance-based (`FONT_MD`, `COLOR_MUTED`) — they *are* the palette.
+2. **Semantic constants** — full stylesheet strings composed *from tokens*, named by **role**
+   (`STATUS_OK`, `LOADING_TEXT`), never by appearance (no `TEXT_SM`/`GREY_11`).
 
-Rules (what is strict vs. conventional — be precise, this is what the audit checks):
-- **Colors are strict — never inline a hex / rgba literal** in widget code *or* a new semantic
-  constant. Always a `COLOR_*` / `OVERLAY_*` token (reuse one, or add it to `theme.py`, then
-  compose). This holds for dynamic styles too — interpolate the token
-  (`f"color: {_theme.COLOR_WARN};"`), never the hex. *(Enforced: the codebase has zero stray color
-  literals — keep it that way.)*
-- **Font sizes use `FONT_*` tokens — never `font-size: Npx`.** There is a `FONT_*` token for each
-  size; new code must use it. *(A backlog of inline `font-size` px literals predates this rule and is
-  being migrated — Band 10 B10-3, see [docs/AUDIT_2026-06-19.md](docs/AUDIT_2026-06-19.md). Their
-  existence is debt, not a license to add more.)*
-- **Structural-spacing `px` is acceptable inline** — `padding`, `margin`, `border-radius`,
-  `border-width`, and fixed `setFixedWidth/Height` etc. have **no** token (there are no spacing
-  tokens), so a small `px` value in an inline style or a semantic constant is fine and conventional.
-  Only colors and font-sizes must be tokens.
-- Any stylesheet string used by **more than one widget** must be a named, role-based constant in
-  `theme.py`. Import with `from metatv.gui import theme as _theme`; never copy-paste a stylesheet
-  string between files. A genuinely single-use style may stay inline, but should still build from
-  tokens. The rule targets **duplication and stray literals**, not the existence of inline styles.
-- Name by role so two unrelated widgets never couple to the same string just because they happen to
-  look alike. If you need a visual variant, add a new role-named constant — don't widen an existing
-  one's meaning.
+Strict vs. conventional (this is what the audit checks):
+- **Colors are strict — never inline a hex/rgba literal** (widget code *or* a semantic constant); always
+  a `COLOR_*`/`OVERLAY_*` token, including dynamic styles (`f"color: {_theme.COLOR_WARN};"`). Codebase has
+  zero stray color literals — keep it that way.
+- **Font sizes use `FONT_*` tokens — never `font-size: Npx`.** (Pre-rule inline px literals are migrating
+  debt — B10-3 — not a license to add more.)
+- **Structural-spacing `px` is fine inline** — `padding`/`margin`/`border-radius`/`setFixedWidth` have no
+  token. Only colors and font-sizes must be tokens.
+- A stylesheet string used by **>1 widget** must be a named role-based constant in `theme.py` (import
+  `from metatv.gui import theme as _theme`; never copy-paste between files). Name by role so unrelated
+  widgets don't couple; need a variant → add a new role constant, don't widen an existing one.
 
 ### Channel name processing — ingestion-only, never at render time
 All name-derived fields (`detected_prefix`, `detected_quality`, `detected_region`, `detected_title`, `detected_year`) are computed at ingestion time by `update_detected_prefixes()` in `metatv/core/repositories/channel.py` and stored in the DB. **Never call `parse_channel_name()` in render-time display code** — read the `channel.detected_*` fields directly. The display layer must be a pure DB read.
@@ -126,26 +115,19 @@ Region/country codes, quality tokens, audio format maps, and similar lookup data
 If you need to add a new code or alias, add it to `channel_name_utils.py` only. Never copy the dict into a second file.
 
 ### Tags/facets — capture generously, label confidence + provenance, never suppress (DR-0006)
-In the guessing zone, **bias to recall: capture more, not less.** A false negative is invisible + unfixable
-by the user; a false positive is visible + one-click-correctable (and teaches the system). Withholding an
-uncertain inference is the *cage*; surfacing it labeled is the *mirror*. The app is a witness, the user the
-jury (full rationale: DESIGN_RATIONALE **DR-0006**). The rule:
-- A feeder yields the facet it **denotes** at high confidence **plus** any *real* adjacent guess at **low**
-  confidence — both captured, never withheld, never asserted as fact:
-  - `FR` → `language:French` (high) **+** `region:France` (low). `US`/`UK` → `region:US`/`UK` (high) **+**
-    `language:English` (low). `ES` → `language:Spanish` (high) + `region:Spain` (very low).
-  - But a **real candidate must exist**: `EN` → `language:English` only — there is no place "EN", so no region
-    to capture (that's invention, not a guess).
-  - A confident signal **overrides** a prior (a real `language:Spanish` on a US channel demotes the English
-    guess). `LAT` = `language:Latin American Spanish`, a **distinct** value, never merged into `Spanish`. `AR`
-    → `language:Arabic`; `ARG`/`ARGENTINA` → `region:Argentina`.
-- **Confidence = ranking + prune-priority, NEVER a suppression gate** — low-confidence tags still surface,
-  ranked low, first to prune.
-- **Every tag records its feeder + read-vs-inference**, and the UI must distinguish **source-given vs
-  ingestion-inferred** — those labels are what make over-capture honest, not noisy, so they ship *with* the
-  capture, not someday.
-- **Hierarchy is rollup, not auto-tagging:** `LAT` ⊂ `Spanish` is *certain* containment (filtering `Spanish`
-  includes `LAT`); a `region:Mexico` channel never silently gains `language:Spanish`.
+In the guessing zone, **bias to recall: capture more, not less** — a false negative is invisible +
+unfixable; a false positive is visible + one-click-correctable (and teaches the system). Witness, not
+cage. Full rationale + the worked example set: DESIGN_RATIONALE **DR-0006**. The enforceable rules:
+- A feeder yields the facet it **denotes** (high confidence) **plus** any *real* adjacent guess (low) —
+  both captured, never withheld, never asserted as fact (`FR` → `language:French` high + `region:France`
+  low). But a **real candidate must exist**: `EN` → `language:English` only (no place "EN" to guess). A
+  confident signal **overrides** a prior; `LAT` = `language:Latin American Spanish` (distinct, never
+  merged into `Spanish`).
+- **Confidence = ranking + prune-priority, NEVER a suppression gate** — low-confidence tags still surface.
+- **Every tag records its feeder + read-vs-inference**; the UI distinguishes source-given vs
+  ingestion-inferred — those labels ship *with* the capture, not someday.
+- **Hierarchy is rollup, not auto-tagging:** `LAT` ⊂ `Spanish` is certain containment; a `region:Mexico`
+  channel never silently gains `language:Spanish`.
 
 The decomposer (`tag_decomposer.py`) is the chokepoint; curated code→facet + base-confidence data lives in
 `channel_name_utils.py` (single source of truth).
@@ -202,34 +184,23 @@ finally:
 ```
 
 ### ORM objects must not outlive their session — cross the boundary with a DTO
-**Why this rule exists (intent, not a taboo):** an ORM object (`ChannelDB`, …) is a *live handle* to
-a row — bound to its session, it can lazy-load or raise the instant that session closes. Carrying one
-across a thread/session boundary makes the UI depend on (a) a live session and (b) the unwritten
-"relationship-free" invariant that lets a *detached* object keep working. A **DTO** (a frozen
-`@dataclass` in `core/repositories/dtos.py`) is a *value* — an immutable snapshot with no session, no
-behavior, no hidden dependency — so it severs both. The deeper payoff is the real point: **with the
-boundary DTO-clean, the schema is free to evolve** (add a `relationship()` / `deferred()` column)
-without silently breaking the UI. That freedom is the goal; the rule is how you keep it.
+**Intent, not taboo:** an ORM object (`ChannelDB`, …) is a *live handle* bound to its session — it
+lazy-loads or raises the instant that session closes. A **DTO** (frozen `@dataclass` in
+`core/repositories/dtos.py`) is an immutable *value* — no session, no behavior — so it severs the
+dependency, and **keeps the schema free to evolve** (add a `relationship()`/`deferred()` column)
+without breaking the UI. Mechanically: `session_scope()` exits with `expire_on_commit=True`, so any
+still-attached object's next attribute access raises `DetachedInstanceError`.
 
-Mechanically: `session_scope()` commits on `__exit__` with `expire_on_commit=True`, so any ORM object
-still attached when the block closes has its attributes *expired* → the next access raises
-`DetachedInstanceError`. Therefore:
-
-- **Cross the boundary with a DTO.** Map ORM → a frozen dataclass / plain dict *inside* the block and
-  return that — the boundary `_run_query` enforces ("Never return ORM objects"). The hot paths are
-  already converted: play / details via `PlayableChannelDTO` / `PlayableEpisodeDTO` (B10-1), the
-  channel list via `ChannelListDTO` (B10-5). **No ORM object crosses the worker→main boundary
-  anymore, so the relationship-free invariant is no longer load-bearing for the UI** — that was the
-  goal. Keep it that way: every new cross-boundary read returns a DTO.
-- **`session.expunge(obj)` is the fragile fallback, not a default.** It detaches before the commit so
-  loaded columns survive, but is **only** safe while the model has no `relationship()` / `deferred()`
-  columns — add one and every detached site silently regresses. Now that the boundary is DTO-clean
-  this should be essentially unused; reach for a DTO instead. If you do keep an `expunge` site (or add
-  a relationship to a model), you own auditing it.
-- **`_apply_favorite_toggle` is the documented exception:** it keeps legacy `try/finally` because
-  `toggle_favorite()` commits internally and `session.refresh()` repopulates *before*
-  `session.close()` detaches — `session_scope`'s exit-commit would re-expire after the refresh.
-  Don't "modernize" it without re-deriving that.
+- **Cross the boundary with a DTO.** Map ORM → frozen dataclass/dict *inside* the block and return that
+  (`_run_query` enforces "never return ORM objects"). Hot paths done: play/details
+  (`PlayableChannelDTO`/`PlayableEpisodeDTO`, B10-1), channel list (`ChannelListDTO`, B10-5). No ORM
+  crosses worker→main anymore — keep it that way for every new cross-boundary read.
+- **`session.expunge(obj)` is a fragile fallback, not a default** — only safe while the model has no
+  `relationship()`/`deferred()` column (add one and every expunge site silently regresses). Reach for a
+  DTO; if you keep an expunge site, you own auditing it.
+- **`_apply_favorite_toggle` is the documented exception** — legacy `try/finally` because
+  `toggle_favorite()` commits internally and `session.refresh()` repopulates *before* close;
+  `session_scope`'s exit-commit would re-expire after the refresh. Don't "modernize" it blindly.
 
 ### SQLite JSON columns — use `JSONEncoded`, assign plain Python objects
 JSON-like columns use `Column(JSONEncoded)` (defined in `database.py`), a `TypeDecorator` over `Text` that serializes transparently. Assign and read plain Python objects — no `json.dumps/loads` needed:
@@ -513,45 +484,33 @@ Create a `ThreadPoolExecutor` / `QThread` **once per owning object**, never per 
 The Qt-threading rule above governs *widget* access from worker threads; this is the inverse. Queries that can scan, filter, aggregate, or count over large tables (channels, EPG) must run in an executor and marshal results back via signal — never block the main thread. Trivial primary-key lookups inline are fine; anything that grows with library size (240k+ channels) must be offloaded. Offenders to watch: startup stat initialization, sidebar `refresh()`, context-menu lookups.
 
 ### `_run_query` — the required pattern for new background DB reads
-`_AsyncMixin` (`metatv/gui/main_window_async.py`) provides a single reusable async-read seam on `MainWindow`. **All new background DB reads must use it** instead of ad-hoc `executor.submit` + manual signal wiring.
+`_AsyncMixin` (`metatv/gui/main_window_async.py`) is the single reusable async-read seam on
+`MainWindow`. **All new background DB reads use it** — never ad-hoc `executor.submit` + manual signals.
 
 ```python
-# Define a token counter if callers can supersede each other (e.g. view switches)
-self._my_token: list[int] = [0]
+self._my_token: list[int] = [0]   # optional: lets later calls supersede earlier ones
 
 def _load_something(self) -> None:
     self._run_query(
-        lambda repos: repos.channels.get_favorites_dto(),   # runs off-thread
-        self._on_something_loaded,                          # called on main thread
-        token_ref=self._my_token,                           # optional stale-drop guard
+        lambda repos: repos.channels.get_favorites_dto(),   # off-thread; returns plain data
+        self._on_something_loaded,                           # main thread
+        token_ref=self._my_token,                            # optional stale-drop guard
     )
 
-def _on_something_loaded(self, rows: list) -> None:         # MAIN THREAD ONLY
+def _on_something_loaded(self, rows: list) -> None:          # MAIN THREAD — widget access safe
     self._populate_list(rows)
 ```
 
-Rules:
-- `query_fn` receives a `RepositoryFactory` and **must return plain data** — frozen DTOs from
-  `core/repositories/dtos.py`, primitive types, or plain dicts. **Never return ORM objects** — they
-  hold a closed session and will raise `DetachedInstanceError` on any attribute access after the
-  `session_scope()` exits. The seam runs `query_fn` inside a **read-only**
-  `session_scope(commit=False)` — it never COMMITs and rolls back at exit, so `query_fn` must not
-  write (an accidental write is discarded, not persisted).
-- `on_result` runs on the **main thread** (dispatched via `_query_result` signal) — widget access is
-  safe here.
-- Use `token_ref` whenever multiple in-flight calls for the same data type should cancel earlier
-  ones. Omit it for fire-and-forget fetches where order doesn't matter.
-- If the caller shows a **loading/placeholder state**, pass `on_error` — it runs on the main thread
-  with the exception and is your only chance to clear the placeholder. Without it, a failed query
-  is logged and dropped, and the spinner hangs forever. `on_error` is also subject to the
-  stale-token drop.
-- Always reuse `self.executor` (the owner's long-lived pool) — never create a per-call pool.
+- `query_fn(repos)` **must return plain data** (frozen DTOs / primitives / dicts), never ORM objects
+  (see the ORM→DTO rule). It runs in a **read-only** `session_scope(commit=False)` — writes are
+  discarded, not persisted.
+- `token_ref` cancels superseded in-flight calls (e.g. view switches); omit for order-independent fetches.
+- If the caller shows a placeholder, pass `on_error` (main thread, gets the exception) — your only
+  chance to clear it, else the spinner hangs forever. Always reuse `self.executor`, never a per-call pool.
 
-**Widget-level sections can't reach the seam — use `BackgroundRefreshMixin`.** `_run_query` lives
-on `MainWindow`; standalone `QWidget`s (sidebar `CollapsibleSection` subclasses) have no
-`self._run_query`. The unified primitive is `metatv/gui/sidebar/background_refresh.py`
-(`BackgroundRefreshMixin`, B8-5) — **any new background-reading section composes it**; do not
-hand-roll the executor/signal/`_bg_refresh`/`_on_data_ready` again, and do not invent a third shape:
+**Sidebar `CollapsibleSection`s can't reach the seam — compose `BackgroundRefreshMixin`** instead
+(`metatv/gui/sidebar/background_refresh.py`, B8-5). Don't hand-roll the executor/signal/`_bg_refresh`/
+`_on_data_ready`, and don't invent a third shape:
 
 ```python
 class MySection(BackgroundRefreshMixin, CollapsibleSection):
@@ -559,31 +518,22 @@ class MySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def __init__(self, ...):
         super().__init__(...)
-        self._init_background_refresh()       # creates the owned _executor + connects signal
-
-    # hooks the mixin calls:
-    def _refresh_list(self):        return self._list                 # the QListWidget
-    def _load_error_message(self):  return "Couldn't load …"
-    def _load_rows(self):                                              # worker — NO widget access
-        with self.db.session_scope() as session:                      # commit=True is fine (writers);
-            return build_dtos(RepositoryFactory(session))             # reads can pass commit=False
-    def _populate_rows(self, data):                                    # main thread, list already cleared
-        ...
+        self._init_background_refresh()       # owns _executor + signal wiring
+    def _refresh_list(self):       return self._list          # the QListWidget
+    def _load_error_message(self): return "Couldn't load …"
+    def _load_rows(self):                                      # worker — NO widget access
+        with self.db.session_scope() as session:
+            return build_dtos(RepositoryFactory(session))
+    def _populate_rows(self, data): ...                        # main thread, list pre-cleared
 ```
 
-The mixin owns `refresh()` (clears `_refresh_list()` + submits), `_bg_refresh()`
-(try/except → `emit(None)` on failure), and `_on_data_ready()` (clear → `None` shows
-`show_load_error`, else `_populate_rows`).
-
-- `max_workers=1` is required (the SQLite-lock rule), and it also makes rapid `refresh()` calls
-  converge: single-worker FIFO + each handler clearing first means last-write-wins with no torn
-  state, so these sections need **no** `token_ref`.
-- The owning `MainWindow` auto-registers each section's `_executor` for shutdown (the
-  `hasattr(section, "_executor")` loop in `setup_ui`). `_init_background_refresh()` creates it under
-  that exact name — don't rename it.
-- **`RecommendedSection` is the documented exception** and does *not* use the mixin: its `None`
-  means a *valid empty state* ("rate to get recommendations"), not a load failure, and it emits a
-  `(recs, year_by_id)` tuple — different semantics, so folding it would change behavior.
+The mixin owns `refresh()` / `_bg_refresh()` (→ `emit(None)` on failure) / `_on_data_ready()` (clear →
+`None` shows `show_load_error`, else `_populate_rows`).
+- `max_workers=1` is required (SQLite-lock rule) and makes rapid `refresh()`es converge (FIFO +
+  clear-first = last-write-wins) — so **no `token_ref` needed**. `MainWindow` auto-registers each
+  section's `_executor` by that exact name for shutdown — don't rename it.
+- **`RecommendedSection` is the documented exception** — its `None` is a valid empty state, not a
+  failure, and it emits a `(recs, year_by_id)` tuple.
 
 ### Background refresh failure must be visible — never silently blank a list
 A background DB read that backs a list/section **must not** make failure indistinguishable from an
@@ -661,44 +611,22 @@ docs call a deliberate compromise):
 
 ### Reuse before reinvent — find the existing path before adding a sibling
 **The proactive form of the chokepoint rules.** Before writing a new function / handler / view / play
-path for a feature, **search for code that already performs the same or an overlapping operation**, and
-default to routing through (or extending) it. Add a parallel path only when you can name a real, durable
-difference — and even then, factor the shared core into one place both call. Reinventing a primitive
-that already exists is how silent divergence starts.
+path, **search for code that already does the same or an overlapping operation** and route through (or
+extend) it. Add a parallel path only with a real, durable difference named — and even then factor the
+shared core into one place both call. *(War story + the redundancy audit lens live in
+`docs/AUDIT_2026-06-19.md` + memory `feedback_reuse_before_reinvent`: `play_special_event` was a
+strictly-worse duplicate of `play_media` that silently dropped failover / buffering / the health
+readout, then rotted as every fix landed only on the canonical path.)*
 
-**The cautionary tale (why this rule exists):** `play_special_event` was a stripped-down duplicate of
-`play_media`. A "special event" stream is not special — it's a channel with a URL — but the EPG view was
-wired to its own simplified play slot instead of the real one. The duplicate silently dropped URL
-failover, the buffering notification, the double-click guard, the live history/queue refreshes, **and**
-the playback-health readout. Then it *drifted*: the readout fix landed on `play_media`; the duplicate
-never got it, so the live stats went blank for every special-event/episode play. A "strictly-worse
-subset" reinvention rots — every fix and feature lands on the canonical path and never reaches the copy.
-
-**How to apply — before you add the new thing:**
-- **Grep the verb/noun and the primitive.** Searching `def play` / `player_manager.play(` immediately
-  shows three play paths and that only one armed the readout. Search the cluster (`play_*`, `load_*`,
-  `refresh_*`, `fetch_*`, `_on_*_ready`) and the low-level call you're about to make (the repo method,
-  the manager method, `session_scope`) before writing a new one.
-- **A core primitive invoked from >1 UI site is a chokepoint smell.** One entry, every caller gets the
-  full behavior. `play_media` (and its thin `*_id` lookup wrappers, which correctly route through it) is
-  the model; the episode path is the one justified exception (multi-episode queueing) and even it should
-  *share* the play-side effects, not copy them.
-- **If you need a variant, share the core** — extract the common body into one helper both call; never
-  copy-paste a path and trim it.
-- **If you genuinely must reinvent, make the case in the PR** — a real difference, not "couldn't find
-  the existing one." Make the argument, don't make the duplicate.
-
-Same instinct as "Provider/source mutations → one canonical refresh" and "Active-source scoping → one
-helper" (one chokepoint per cross-cutting concern), and the self-documenting-modularity goal
-(compartmentalize, don't duplicate) — applied at the moment you're about to *add* code, not after the
-spread already happened.
-
-**Audit lens (why the rule-compliance audits miss this):** grepping for `session.expunge`, render-time
-`parse_channel_name`, hex literals, or file size **cannot** catch semantic duplication — two functions
-that *do* the same thing via different code are not a syntactic pattern; you have to read behavior. A
-redundancy pass needs its own lens: cluster methods by verb, list every call site of each core primitive
-(manager / repo / seam method), and for each sibling ask *"is one a subset of the other?"* This lens is
-now a standing part of the audit (see `docs/AUDIT_2026-06-19.md`).
+- **Grep the verb-cluster AND the primitive** (`play_*`/`load_*`/`refresh_*`/`fetch_*`/`_on_*_ready`,
+  plus the repo/manager method or `session_scope`/seam you're about to call) before writing a new one.
+- **A core primitive called from >1 UI site is a chokepoint smell** — one entry, every caller gets the
+  full behavior. `play_media` + its thin `*_id` wrappers is the model; the episode path is the one
+  justified exception and still *shares* the play side-effects.
+- **Need a variant? Share the core** (one helper both call), never copy-paste-and-trim. Must reinvent?
+  Make the case in the PR.
+- **Semantic duplication is invisible to syntactic greps** — read behavior; the audit runs a redundancy
+  lens (cluster by verb, list each primitive's call sites, ask "is one a subset?").
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) must save to config and restore on startup. Pattern: save immediately on change, restore during `__init__`. See `DESIGN.md` for the full pattern.
@@ -714,14 +642,11 @@ Providers tried in priority order until sufficient data found:
 
 ### Year derivation happens at ingestion — read `.year` directly everywhere else
 
-`MetadataDB.year` is guaranteed to be populated at write time. `MetadataManager._derive_year()` runs at two points:
-
-1. **Write (ingestion):** `_save_metadata_cache()` calls `_derive_year(result.year, result.release_date)` before writing to `MetadataDB`. If the provider gave `release_date` ("2024-07-03") but no `year`, the year (2024) is extracted and stored.
-2. **Read (backfill for pre-existing rows):** `_metadata_db_to_result()` also calls `_derive_year()` so that rows cached before the ingestion fix was deployed are also corrected on first read.
-
-After these two points, `metadata.year` is reliable. **Read `metadata.year` directly everywhere** — display code, dedup, scoring. No runtime parsing, no helper method, no fallback logic outside `metadata_manager.py`.
-
-`release_date` still stores and displays the full ISO date string (e.g. "2024-07-03" in Technical Details).
+`MetadataDB.year` is populated at write time by `MetadataManager._derive_year()` — at ingestion
+(`_save_metadata_cache`, extracting from `release_date` when `year` is absent) and again on read
+(`_metadata_db_to_result`, backfilling pre-fix rows). So **read `metadata.year` directly everywhere**
+(display, dedup, scoring) — no runtime parsing, no fallback outside `metadata_manager.py`. `release_date`
+keeps the full ISO string (e.g. "2024-07-03").
 
 ## Content Dedup — Known Compromises
 
