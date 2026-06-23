@@ -30,14 +30,13 @@ from metatv.gui import theme as _theme
 
 # ── Accent colours per section (values are theme tokens) ────────────────────────
 _ACCENT = {
-    "media":        _theme.COLOR_ACCENT_BLUE,
-    "language":     _theme.COLOR_ACCENT_BLUE,
-    "region":       _theme.COLOR_ACCENT_GREEN,
-    "platform":     _theme.COLOR_ACCENT_PURPLE,
-    "quality":      _theme.COLOR_ACCENT_ORANGE,
-    "genre":        _theme.COLOR_ACCENT_TEAL,
-    "unidentified": _theme.COLOR_ACCENT_BROWN,
-    "untagged":     _theme.COLOR_MUTED_2,
+    "media":    _theme.COLOR_ACCENT_BLUE,
+    "language": _theme.COLOR_ACCENT_BLUE,
+    "region":   _theme.COLOR_ACCENT_GREEN,
+    "platform": _theme.COLOR_ACCENT_PURPLE,
+    "quality":  _theme.COLOR_ACCENT_ORANGE,
+    "genre":    _theme.COLOR_ACCENT_TEAL,
+    "untagged": _theme.COLOR_MUTED_2,
 }
 
 # Top-N cap configuration — display-only, no values are dropped.
