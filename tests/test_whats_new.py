@@ -143,12 +143,19 @@ def test_load_is_order_independent(tmp_path, monkeypatch):
     )
 
 
-def test_all_entry_ids_are_contiguous_from_one():
-    """All ids from 1 to latest_id() are present — no gaps from missed files."""
-    ids = {e.id for e in WHATS_NEW}
-    max_id = latest_id()
-    missing = set(range(1, max_id + 1)) - ids
-    assert not missing, f"Entry ids are missing: {sorted(missing)}"
+def test_all_entry_ids_are_unique():
+    """All entry ids are distinct — no two entry files may share the same id.
+
+    Gaps are allowed (e.g. 1, 2, 3, 5, 8 is fine); parallel PRs that each
+    claim the next sequential id used to collide.  Uniqueness is the real
+    invariant: duplicate ids would cause one entry to silently shadow another
+    and break the 'seen' cursor arithmetic.
+    """
+    ids = [e.id for e in WHATS_NEW]
+    assert len(ids) == len(set(ids)), (
+        f"Duplicate ids found in WHATS_NEW: "
+        f"{[i for i in ids if ids.count(i) > 1]}"
+    )
 
 
 def test_entry_files_match_loaded_entries():
