@@ -20,9 +20,15 @@ from pathlib import Path
 
 import pytest
 
+from unittest.mock import patch
+
 from metatv.core.database import Base, ChannelDB, Database, TagDB, ContentTagDB
 from metatv.core.repositories import RepositoryFactory
-from metatv.core.repositories.tag import _compute_confidence
+from metatv.core.repositories.tag import (
+    _TAG_ID_CACHE,
+    _clear_tag_cache,
+    _compute_confidence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -450,3 +456,255 @@ class TestCreateTablesAddsNewTables:
             assert count == 1
 
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Performance optimisation: tag-id cache
+# ---------------------------------------------------------------------------
+
+class TestTagIdCache:
+    """Tests for the process-level (type, value) → id cache in get_or_create_tag."""
+
+    def test_repeated_calls_trigger_only_one_select(self, file_db):
+        """After the first miss, subsequent get_or_create_tag calls skip the SELECT.
+
+        We count the number of times the DB SELECT path is taken by patching
+        ``session.query`` and watching for filter_by calls that look up a TagDB.
+        The first call (cache miss) must execute the SELECT; all subsequent calls
+        for the same (type, value) must use the cached id without a SELECT.
+        """
+        select_calls: list[int] = [0]
+        original_query = None
+
+        def counting_query(model):
+            result = original_query(model)
+            if model is TagDB:
+                original_filter_by = result.filter_by
+
+                def tracking_filter_by(**kw):
+                    select_calls[0] += 1
+                    return original_filter_by(**kw)
+
+                result.filter_by = tracking_filter_by
+            return result
+
+        with file_db.session_scope() as session:
+            original_query = session.query
+            session.query = counting_query  # type: ignore[method-assign]
+
+            repos = RepositoryFactory(session)
+
+            # First call — cache miss, one SELECT expected.
+            repos.tags.get_or_create_tag("genre", "Drama")
+            selects_after_first = select_calls[0]
+
+            # Five more calls for the same (type, value) — all must be cache hits.
+            for _ in range(5):
+                repos.tags.get_or_create_tag("genre", "Drama")
+
+        assert selects_after_first == 1, (
+            "Expected exactly 1 SELECT for the first (cache-miss) call"
+        )
+        assert select_calls[0] == 1, (
+            f"Expected no additional SELECTs after the first call; "
+            f"got {select_calls[0] - selects_after_first} extra"
+        )
+
+    def test_cache_populated_after_create(self, file_db):
+        """Creating a new tag via get_or_create_tag populates the cache."""
+        with file_db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            tag = repos.tags.get_or_create_tag("region", "US")
+            tag_id = tag.id
+
+        # The cache should now hold (region, US) → tag_id.
+        assert ("region", "US") in _TAG_ID_CACHE
+        assert _TAG_ID_CACHE[("region", "US")] == tag_id
+
+    def test_same_tag_across_many_channels_one_select(self, file_db):
+        """Tagging 50 channels with the same tag triggers one SELECT (on the first) only.
+
+        This models the real hot-path: 288k channels all carry "language:English"
+        from the same feeder.  After the first call populates the cache, all 49
+        subsequent calls must hit the cache and not query the DB for the tag row.
+        """
+        channels = []
+        with file_db.session_scope() as session:
+            for _ in range(50):
+                ch = ChannelDB(
+                    id=str(uuid.uuid4()),
+                    source_id=str(uuid.uuid4()),
+                    provider_id="p1",
+                    name="EN Channel",
+                )
+                session.add(ch)
+            session.flush()
+            channels = [
+                r[0] for r in session.query(ChannelDB.id).all()
+            ]
+
+        select_calls: list[int] = [0]
+
+        with file_db.session_scope() as session:
+            original_query = session.query
+
+            def counting_query(model):
+                result = original_query(model)
+                if model is TagDB:
+                    original_filter_by = result.filter_by
+
+                    def tracking_filter_by(**kw):
+                        select_calls[0] += 1
+                        return original_filter_by(**kw)
+
+                    result.filter_by = tracking_filter_by
+                return result
+
+            session.query = counting_query  # type: ignore[method-assign]
+            repos = RepositoryFactory(session)
+
+            for cid in channels:
+                repos.tags.set_content_tags(
+                    cid, [("language", "English", "prefix_feeder")]
+                )
+
+        # One SELECT for the first channel's cache miss; zero for the rest.
+        assert select_calls[0] == 1, (
+            f"Expected exactly 1 TagDB SELECT across 50 channels; got {select_calls[0]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Performance optimisation: bulk upsert + feeder merge
+# ---------------------------------------------------------------------------
+
+class TestBulkUpsert:
+    """Tests for the bulk INSERT … ON CONFLICT DO UPDATE path in set_content_tags."""
+
+    def test_correctness_type_value_feeders_confidence(self, session):
+        """set_content_tags (bulk path) stores the correct type, value, feeders and confidence."""
+        cid = _make_channel(session)
+        repos = RepositoryFactory(session)
+
+        repos.tags.set_content_tags(
+            cid,
+            [
+                ("region", "US", "prefix_feeder"),
+                ("quality", "HD", "quality_feeder"),
+                ("language", "English", "lang_feeder"),
+            ],
+        )
+        session.commit()
+
+        # Verify stored rows via tags_for (plain tuple round-trip).
+        result = set(repos.tags.tags_for(cid))
+        assert result == {("region", "US"), ("quality", "HD"), ("language", "English")}
+
+        # Verify confidence for one of the tags.
+        tag = session.query(TagDB).filter_by(type="region", value="US").one()
+        link = (
+            session.query(ContentTagDB)
+            .filter_by(channel_id=cid, tag_id=tag.id)
+            .one()
+        )
+        assert link.feeders == ["prefix_feeder"]
+        assert abs(link.confidence - 1 / 3) < 1e-9
+
+    def test_feeder_merge_via_upsert_no_duplicate_rows(self, session):
+        """Re-tagging a channel with a new feeder merges onto the existing link row.
+
+        After two separate set_content_tags calls for the same channel + tag,
+        there must be exactly one ContentTagDB row, and its feeders list must
+        be the union of both feeders.  This exercises the ON CONFLICT DO UPDATE
+        merge: the second call's upsert reads existing feeders, unions them,
+        and overwrites — not inserts a second row.
+        """
+        cid = _make_channel(session)
+        repos = RepositoryFactory(session)
+
+        repos.tags.set_content_tags(cid, [("genre", "Drama", "feeder_a")])
+        session.commit()
+        repos.tags.set_content_tags(cid, [("genre", "Drama", "feeder_b")])
+        session.commit()
+
+        tag = session.query(TagDB).filter_by(type="genre", value="Drama").one()
+        links = (
+            session.query(ContentTagDB)
+            .filter_by(channel_id=cid, tag_id=tag.id)
+            .all()
+        )
+        assert len(links) == 1, "Must be exactly one link row after two calls"
+        assert set(links[0].feeders) == {"feeder_a", "feeder_b"}
+        assert abs(links[0].confidence - 2 / 3) < 1e-9
+
+    def test_bulk_inserts_n_links_in_one_statement(self, file_db):
+        """set_content_tags issues ONE INSERT … ON CONFLICT for N tags (not N inserts).
+
+        We intercept ``session.execute`` and count how many times a statement
+        whose SQL contains ``INSERT INTO content_tags`` is executed.  The bulk
+        upsert path issues exactly one such statement regardless of how many
+        tags are in the call; the old per-link path would have issued N.
+        """
+        content_tag_inserts: list[int] = [0]
+
+        with file_db.session_scope() as session:
+            ch = ChannelDB(
+                id=str(uuid.uuid4()),
+                source_id=str(uuid.uuid4()),
+                provider_id="p1",
+                name="Test Channel",
+            )
+            session.add(ch)
+            session.flush()
+            cid = ch.id
+
+            original_execute = session.execute
+
+            def counting_execute(stmt, *args, **kwargs):
+                # Compile to SQL string so we can inspect it.
+                try:
+                    sql = str(stmt.compile(dialect=session.bind.dialect))
+                except Exception:
+                    sql = str(stmt)
+                if "INSERT INTO content_tags" in sql:
+                    content_tag_inserts[0] += 1
+                return original_execute(stmt, *args, **kwargs)
+
+            session.execute = counting_execute  # type: ignore[method-assign]
+            repos = RepositoryFactory(session)
+
+            repos.tags.set_content_tags(
+                cid,
+                [
+                    ("region", "US", "f"),
+                    ("quality", "HD", "f"),
+                    ("language", "English", "f"),
+                    ("genre", "Drama", "f"),
+                    ("platform", "Netflix", "f"),
+                ],
+            )
+
+        # Exactly ONE bulk INSERT … ON CONFLICT, not 5 individual inserts.
+        assert content_tag_inserts[0] == 1, (
+            f"Expected exactly 1 INSERT INTO content_tags statement for 5 tags; "
+            f"got {content_tag_inserts[0]}"
+        )
+
+    def test_same_feeder_repeated_does_not_inflate_feeders_or_confidence(self, session):
+        """Asserting the same feeder twice keeps feeders deduplicated."""
+        cid = _make_channel(session)
+        repos = RepositoryFactory(session)
+
+        repos.tags.set_content_tags(cid, [("genre", "Action", "feeder_x")])
+        session.commit()
+        repos.tags.set_content_tags(cid, [("genre", "Action", "feeder_x")])
+        session.commit()
+
+        tag = session.query(TagDB).filter_by(type="genre", value="Action").one()
+        link = (
+            session.query(ContentTagDB)
+            .filter_by(channel_id=cid, tag_id=tag.id)
+            .one()
+        )
+        assert link.feeders == ["feeder_x"], "Duplicate feeder must not be appended"
+        assert abs(link.confidence - 1 / 3) < 1e-9
