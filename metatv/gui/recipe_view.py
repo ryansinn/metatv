@@ -105,8 +105,11 @@ def _generate_recipe_name(
 ) -> str:
     """Auto-generate an editorial recipe name from current ingredients.
 
-    Uses the genre (if any) as the anchor noun; pads with a random adjective
-    when the recipe has ingredients, or returns a placeholder when empty.
+    Uses the genre (if any) as the anchor noun; pads with an adjective when the
+    recipe has ingredients, or returns a placeholder when empty.  The adjective/
+    noun choice is seeded by the recipe's contents, so the name is *stable* for a
+    given set of ingredients — it only changes when the ingredients change, never
+    on an unrelated re-render.
 
     Args:
         includes: Mapping of facet_type → set of included values.
@@ -117,11 +120,15 @@ def _generate_recipe_name(
     """
     # Collect all included values across facets
     all_includes = [v for vals in includes.values() for v in vals]
-    if not all_includes and not any(excludes.values()):
+    all_excludes = [v for vals in excludes.values() for v in vals]
+    if not all_includes and not all_excludes:
         return "Your recipe is empty"
 
-    genres = list(includes.get("genre", set()))
-    decades = list(includes.get("decade", set()))
+    # Seed a local RNG by the recipe contents so the name is deterministic.
+    rng = random.Random(repr((sorted(all_includes), sorted(all_excludes))))
+
+    genres = sorted(includes.get("genre", set()))
+    decades = sorted(includes.get("decade", set()))
 
     parts: list[str] = []
     if decades:
@@ -129,9 +136,9 @@ def _generate_recipe_name(
     if genres:
         parts.append(genres[0])
     else:
-        parts.append(random.choice(_ADJECTIVES))
+        parts.append(rng.choice(_ADJECTIVES))
 
-    parts.append(random.choice(_NOUNS))
+    parts.append(rng.choice(_NOUNS))
     return " ".join(parts)
 
 
@@ -769,16 +776,6 @@ class RecipeView(QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────
 
-    def _get_excluded_providers(self) -> list[str]:
-        """Return list of hidden provider IDs (scoping helper, called in worker)."""
-        from metatv.core.repositories import RepositoryFactory
-        from metatv.core.database import Database
-        # This runs inside session_scope() via _run_query — session is available
-        # via the repos passed to the lambda.  We can't call it here directly;
-        # instead we pass it as a lambda arg into the query function.
-        # This helper is only kept to document the intent — see _load_pantry etc.
-        return []   # pragma: no cover
-
     def _load_pantry(self) -> None:
         """Load facet summaries from the DB (off-thread)."""
         self._run_query(
@@ -859,32 +856,31 @@ class RecipeView(QWidget):
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
 
         def _query(repos):
-            hidden = repos.providers.get_hidden_provider_ids()
-            # Scope to active channels only (DR-0007: pass hidden list, not inline is_hidden)
-            # We use get_all to get channel names for the "now plating" strip
             from metatv.core.database import ChannelDB
-            from metatv.core.repositories.dtos import ChannelListDTO
 
-            # Get matching channel IDs via faceted query engine
+            # Match-id set is scoped to visible channels on active sources by
+            # the engine itself (excluded_provider_ids) — so YIELDS agrees with
+            # the pantry/cloud counts and never leaks disabled-source channels.
+            hidden = repos.providers.get_hidden_provider_ids()
             matching_ids = repos.tags.get_channel_ids_by_tag_facets(
                 includes=includes,
                 excludes=excludes,
+                excluded_provider_ids=hidden,
             )
-
+            total = len(matching_ids)
             if not matching_ids:
                 return ([], 0)
 
-            # Scope to active sources
-            channels = repos.channels.get_all(
-                excluded_provider_ids=hidden,
-                limit=25,
+            # Fetch display names for a small sample only (≤20 ids → safe for
+            # an IN() bind; the full set is never materialised into a query).
+            sample = list(matching_ids)[:20]
+            rows = (
+                repos.session.query(ChannelDB.name)
+                .filter(ChannelDB.id.in_(sample))
+                .order_by(ChannelDB.name)
+                .all()
             )
-            # Filter down to matching IDs
-            matched = [ch for ch in channels if ch.id in matching_ids]
-            total = len(matching_ids)
-
-            # Return plain data — names only
-            names = [ch.name for ch in matched[:20]]
+            names = [name for (name,) in rows]
             return (names, total)
 
         self._run_query(

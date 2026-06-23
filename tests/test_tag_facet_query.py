@@ -319,3 +319,123 @@ class TestBaseChannelIds:
         result = _query(db, {}, base_channel_ids=set())
 
         assert result == set()
+
+
+# ---------------------------------------------------------------------------
+# excluded_provider_ids — visible-channel scoping (recipe YIELDS path)
+# ---------------------------------------------------------------------------
+
+
+def _add_scoped_channel(session, name, provider_id, is_hidden=False) -> str:
+    """Insert a ChannelDB row with an explicit provider + hidden state."""
+    cid = str(uuid.uuid4())
+    session.add(
+        ChannelDB(
+            id=cid,
+            source_id=str(uuid.uuid4()),
+            provider_id=provider_id,
+            name=name,
+            is_hidden=is_hidden,
+        )
+    )
+    session.flush()
+    return cid
+
+
+def _scoped_query(db, includes, excludes=None, excluded_provider_ids=None) -> set[str]:
+    """Run get_channel_ids_by_tag_facets with provider/visibility scoping."""
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+        return repos.tags.get_channel_ids_by_tag_facets(
+            includes,
+            excludes,
+            excluded_provider_ids=excluded_provider_ids,
+        )
+
+
+@pytest.fixture
+def drama_across_sources(file_db):
+    """Seed Drama channels spanning an active provider, a hidden provider,
+    an individually-hidden channel, and a ## category header.
+
+    Returns (active_id, other_provider_id, hidden_chan_id, header_id, db).
+    """
+    with file_db.session_scope() as session:
+        repos = RepositoryFactory(session)
+
+        active = _add_scoped_channel(session, "Active Drama", "prov_active")
+        repos.tags.set_content_tags(active, [("genre", "Drama", "f")])
+
+        other = _add_scoped_channel(session, "Other Drama", "prov_other")
+        repos.tags.set_content_tags(other, [("genre", "Drama", "f")])
+
+        hidden_chan = _add_scoped_channel(
+            session, "Hidden Drama", "prov_active", is_hidden=True
+        )
+        repos.tags.set_content_tags(hidden_chan, [("genre", "Drama", "f")])
+
+        header = _add_scoped_channel(session, "## DRAMA HEADER", "prov_active")
+        repos.tags.set_content_tags(header, [("genre", "Drama", "f")])
+
+    return active, other, hidden_chan, header, file_db
+
+
+class TestExcludedProviderScoping:
+    def test_excluded_provider_dropped_from_result(self, drama_across_sources):
+        """A channel on an excluded provider is not counted in the result."""
+        active, other, _hidden, _hdr, db = drama_across_sources
+
+        result = _scoped_query(
+            db, {"genre": {"Drama"}}, excluded_provider_ids=["prov_other"]
+        )
+
+        assert other not in result
+        assert active in result
+
+    def test_scope_drops_individually_hidden_channel(self, drama_across_sources):
+        """is_hidden channels are excluded once scoping is requested — even with
+        an empty exclusion list (recipe always passes a list)."""
+        active, _other, hidden_chan, _hdr, db = drama_across_sources
+
+        result = _scoped_query(db, {"genre": {"Drama"}}, excluded_provider_ids=[])
+
+        assert hidden_chan not in result
+        assert active in result
+
+    def test_scope_drops_category_header(self, drama_across_sources):
+        """## provider category headers are excluded once scoping is requested."""
+        active, _other, _hidden, header, db = drama_across_sources
+
+        result = _scoped_query(db, {"genre": {"Drama"}}, excluded_provider_ids=[])
+
+        assert header not in result
+        assert active in result
+
+    def test_none_excluded_is_unscoped_backward_compat(self, drama_across_sources):
+        """The default (excluded_provider_ids=None) stays scope-agnostic — hidden
+        and header channels are still returned (existing callers unaffected)."""
+        active, other, hidden_chan, header, db = drama_across_sources
+
+        result = _scoped_query(db, {"genre": {"Drama"}}, excluded_provider_ids=None)
+
+        assert result == {active, other, hidden_chan, header}
+
+    def test_excludes_apply_alongside_scoping(self, file_db):
+        """tag excludes still drop matching channels when provider-scoped."""
+        with file_db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            keep = _add_scoped_channel(session, "Keep", "prov_active")
+            repos.tags.set_content_tags(keep, [("genre", "Drama", "f")])
+            drop = _add_scoped_channel(session, "Drop", "prov_active")
+            repos.tags.set_content_tags(
+                drop, [("genre", "Drama", "f"), ("language", "Spanish", "f")]
+            )
+
+        result = _scoped_query(
+            file_db,
+            {"genre": {"Drama"}},
+            excludes={"language": {"Spanish"}},
+            excluded_provider_ids=[],
+        )
+
+        assert result == {keep}
