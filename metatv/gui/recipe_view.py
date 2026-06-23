@@ -4,22 +4,29 @@ Three-column view reached via the ✦ Recipe nav chip:
 
     LEFT  (~212 px) — "THE PANTRY" facet sidebar: one row per facet from
                       get_facet_summary(); a stub "SAVED RECIPES" section below.
-    CENTER           — WeightedTagCloud for the selected facet + "Now plating"
-                      live results strip (poster titles matching the recipe).
+    CENTER           — WeightedTagCloud for the selected facet + "Now Plating"
+                      results shelf (real, clickable poster cards reusing the
+                      Discover _ContentCard surface).
     RIGHT (~328 px)  — "TONIGHT'S RECIPE" rail with role-grouped ingredient
                       chips, OMIT section, YIELDS count, Save (stub) + Clear.
 
 Slice 4 TODO: saved-recipe persistence, pinned/excluded individual titles.
 
 Data wiring (all DB reads off the main thread via the owner's _run_query seam):
-  - Pantry  ← TagRepository.get_facet_summary(excluded_provider_ids)
-  - Cloud   ← TagRepository.get_tag_counts_for_facet(facet, excluded_provider_ids)
-  - Results ← TagRepository.get_channel_ids_by_tag_facets(includes, excludes,
-                base_channel_ids=<active scoped set>)
-              then ChannelRepository.get_all(ids) for card titles/logos.
+  - Pantry  ← TagRepository.get_facet_summary(...)
+  - Cloud   ← TagRepository.get_tag_counts_for_facet(facet, ...)
+  - YIELDS  ← TagRepository.count_channels_by_tag_facets(...)        (SQL COUNT)
+  - Results ← TagRepository.sample_channels_by_tag_facets(...)       (bounded
+                LIMIT → session-free ContentCards; never materialises the set).
 
-Scoping follows DR-0007: the engine is agnostic; we pass
-ProviderRepository.get_hidden_provider_ids() everywhere.
+Scoping follows DR-0007: the engine is agnostic; the view (control layer) passes
+ProviderRepository.get_hidden_provider_ids() AND the user's Global Exclusions
+(_global_exclusion_sets(), resolved from Config) into every faceted read, so the
+pantry, cloud, YIELDS, and results all agree.
+
+Selection/playback are host-delegated like DiscoverView: result cards emit
+channelSelected / playRequested (channel_id), wired by MainWindow to
+show_channel_details_by_id / play_channel_by_id (provider_id threading reused).
 """
 
 from __future__ import annotations
@@ -561,59 +568,96 @@ def _clear_layout(layout) -> None:
 # ---------------------------------------------------------------------------
 
 class _NowPlatingStrip(QWidget):
-    """Horizontal scroll strip showing channel title cards for the recipe match.
+    """Horizontal scroll strip of real, clickable result cards for the recipe.
 
-    Shows compact title chips rather than full poster cards (poster cards
-    require ImageCache + async loading that would couple this widget to the
-    parent window lifecycle — the strip is intentionally simple for slice 3).
+    Reuses the Discover ``_ContentCard`` surface (poster + async ``ImageCache``
+    loading + title) rather than dead title chips, so a recipe match is
+    browsable and actionable:
+
+    - single-click  → ``cardClicked(channel_id)``       (select → details pane)
+    - double-click  → ``cardDoubleClicked(channel_id)``  (play, host-delegated)
+
+    Poster loading follows the same pattern as ``discover_shelf._Shelf``: each
+    card's ``request_image()`` is fired once the layout has settled (QPixmap is
+    built on the main thread inside the card's own ``image_loaded`` slot).
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    cardClicked       = pyqtSignal(str)   # channel_id
+    cardDoubleClicked = pyqtSignal(str)   # channel_id
+
+    def __init__(self, image_cache, config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._image_cache = image_cache
+        self._config = config
+        self._card_widgets: list = []          # list[_ContentCard]
+        self._scroll: QScrollArea | None = None
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
 
-    def load_results(self, names: list[str], total_count: int) -> None:
-        """Populate the strip with channel name chips.
+    def load_results(self, cards: list, total_count: int) -> None:
+        """Populate the strip with real content cards.
 
         Args:
-            names:       Sample channel display names (up to ~20).
+            cards:       ``ContentCard`` value objects (≤ the shelf cap) from
+                         ``TagRepository.sample_channels_by_tag_facets``.
             total_count: Total number of matching channels (for the header).
         """
+        from metatv.gui.discover_card import _ContentCard
+
         self._hdr.setText(
             f"NOW PLATING  ·  {total_count:,} match{'es' if total_count != 1 else ''}"
         )
-        _clear_layout(self._chips_layout)
+        _clear_layout(self._cards_layout)
+        self._card_widgets = []
 
-        if not names:
+        if not cards:
             placeholder = QLabel("No channels match this recipe yet")
             placeholder.setStyleSheet(
                 f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
             )
-            self._chips_layout.addWidget(placeholder)
-        else:
-            for name in names[:20]:
-                chip = QLabel(name)
-                chip.setStyleSheet(
-                    f"color: {_theme.COLOR_RECIPE_TEXT}; font-size: {_theme.FONT_MD};"
-                    f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
-                    f" border-radius: 4px; padding: 3px 8px;"
-                )
-                self._chips_layout.addWidget(chip)
+            self._cards_layout.addWidget(placeholder)
+            self._cards_layout.addStretch()
+            return
 
-            if total_count > 20:
-                more = QLabel(f"+ {total_count - 20:,} more…")
-                more.setStyleSheet(
-                    f"color: {_theme.COLOR_RECIPE_MUTED}; font-size: {_theme.FONT_MD};"
-                )
-                self._chips_layout.addWidget(more)
+        for card in cards:
+            w = _ContentCard(card, self._image_cache, self._config, self._cards_widget)
+            w.clicked.connect(self.cardClicked)
+            w.doubleClicked.connect(self.cardDoubleClicked)
+            self._cards_layout.addWidget(w)
+            self._card_widgets.append(w)
 
-        self._chips_layout.addStretch()
+        if total_count > len(cards):
+            more = QLabel(f"+ {total_count - len(cards):,} more…")
+            more.setStyleSheet(
+                f"color: {_theme.COLOR_RECIPE_MUTED}; font-size: {_theme.FONT_MD};"
+            )
+            more.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            self._cards_layout.addWidget(more)
+
+        self._cards_layout.addStretch()
+        # Load posters for cards in the viewport once geometry has settled.
+        QTimer.singleShot(120, self._load_visible)
 
     # ── private ───────────────────────────────────────────────────────────
 
+    def _load_visible(self) -> None:
+        """Request poster images for cards currently in the scroll viewport."""
+        if self._scroll is None:
+            return
+        vp_w = self._scroll.viewport().width()
+        if vp_w == 0:
+            QTimer.singleShot(80, self._load_visible)
+            return
+        scroll_x = self._scroll.horizontalScrollBar().value()
+        for card in self._card_widgets:
+            left = card.x()
+            if left + card.width() >= scroll_x and left <= scroll_x + vp_w:
+                card.request_image()
+
     def _build_ui(self) -> None:
+        from metatv.gui.discover_card import card_metrics
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 8, 0, 0)
         outer.setSpacing(4)
@@ -632,17 +676,20 @@ class _NowPlatingStrip(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setFixedHeight(50)
+        # Height tracks the zoomed card height (same source-of-truth as Discover).
+        scroll.setFixedHeight(card_metrics(self._config.discover_zoom).card_h + 16)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self._scroll = scroll
+        scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
 
-        chips_widget = QWidget()
-        chips_widget.setStyleSheet("background: transparent;")
-        self._chips_layout = QHBoxLayout(chips_widget)
-        self._chips_layout.setContentsMargins(0, 0, 0, 0)
-        self._chips_layout.setSpacing(6)
-        self._chips_layout.addStretch()
+        self._cards_widget = QWidget()
+        self._cards_widget.setStyleSheet("background: transparent;")
+        self._cards_layout = QHBoxLayout(self._cards_widget)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(8)
+        self._cards_layout.addStretch()
 
-        scroll.setWidget(chips_widget)
+        scroll.setWidget(self._cards_widget)
         outer.addWidget(scroll)
 
 
@@ -661,6 +708,12 @@ class RecipeView(QWidget):
     runs them off the main thread and delivers results via signal on the main
     thread.
 
+    Selection/playback are host-delegated like DiscoverView/EpgView: the
+    "Now Plating" result cards emit ``channelSelected`` / ``playRequested``
+    (channel_id), which MainWindow connects to ``show_channel_details_by_id`` /
+    ``play_channel_by_id`` — so provider_id threading and the canonical play
+    path are reused, never hand-rolled here.
+
     Attributes:
         _recipe_includes: Current include recipe state.  Maps
             ``facet_type → set[value]``.
@@ -672,17 +725,22 @@ class RecipeView(QWidget):
             on_deactivate).
     """
 
+    channelSelected = pyqtSignal(str)   # channel_id — select → details pane
+    playRequested   = pyqtSignal(str)   # channel_id — play (host-delegated)
+
     def __init__(
         self,
         db: Database,
         config: Config,
         run_query_fn,
+        image_cache,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._db = db
         self._config = config
         self._run_query = run_query_fn
+        self._image_cache = image_cache
 
         # Recipe state
         self._recipe_includes: dict[str, set[str]] = {}
@@ -756,8 +814,10 @@ class RecipeView(QWidget):
         self._cloud.tag_clicked.connect(self._on_tag_clicked)
         center_layout.addWidget(self._cloud, stretch=1)
 
-        # Now Plating strip
-        self._now_plating = _NowPlatingStrip()
+        # Now Plating strip — real result cards (reuses Discover card surface).
+        self._now_plating = _NowPlatingStrip(self._image_cache, self._config)
+        self._now_plating.cardClicked.connect(self.channelSelected)
+        self._now_plating.cardDoubleClicked.connect(self.playRequested)
         center_layout.addWidget(self._now_plating)
 
         root.addWidget(center, stretch=1)
@@ -890,20 +950,25 @@ class RecipeView(QWidget):
 
         self._cloud.set_tags(items, facet_color=color, facet_name=display)
 
+    # Result-shelf card cap — the bounded preview never materialises the full set.
+    _RESULTS_CARD_CAP: int = 24
+
     def _load_results(self) -> None:
-        """Load channel IDs matching current recipe (off-thread), then fetch names."""
+        """Load the YIELDS count + a bounded set of result cards (off-thread)."""
         # Snapshot recipe state for the lambda (closed over)
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
         excl_prefixes, excl_categories = self._global_exclusion_sets()
+        cap = self._RESULTS_CARD_CAP
 
         def _query(repos):
-            # Count + preview stay entirely in SQL — a broad facet (e.g.
-            # language:English ≈ 170k channels) costs one COUNT and a LIMIT 20,
-            # never a 170k-id Python set.  Both are scoped to visible channels on
-            # active sources via excluded_provider_ids AND to the user's Global
-            # Exclusions, so YIELDS agrees with the pantry/cloud counts and never
-            # leaks disabled-source or globally-banished channels.
+            # Count stays entirely in SQL — a broad facet (e.g. language:English
+            # ≈ 170k channels) costs one COUNT, never a 170k-id Python set.  The
+            # card sample is a bounded LIMIT slice mapped to session-free
+            # ContentCards.  Both are scoped to visible channels on active
+            # sources via excluded_provider_ids AND to the user's Global
+            # Exclusions, so the shelf agrees with YIELDS and never leaks
+            # disabled-source or globally-banished channels.
             hidden = repos.providers.get_hidden_provider_ids()
             total = repos.tags.count_channels_by_tag_facets(
                 includes=includes,
@@ -914,15 +979,15 @@ class RecipeView(QWidget):
             )
             if total == 0:
                 return ([], 0)
-            names = repos.tags.sample_channel_names_by_tag_facets(
+            cards = repos.tags.sample_channels_by_tag_facets(
                 includes=includes,
                 excludes=excludes,
                 excluded_provider_ids=hidden,
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
-                limit=20,
+                limit=cap,
             )
-            return (names, total)
+            return (cards, total)
 
         self._run_query(
             _query,
@@ -932,11 +997,11 @@ class RecipeView(QWidget):
         )
 
     def _on_results_loaded(self, payload: tuple) -> None:
-        """Main-thread slot: update 'Now plating' strip and recipe rail YIELDS."""
+        """Main-thread slot: update 'Now Plating' shelf and recipe rail YIELDS."""
         if not self._active:
             return
-        names, total = payload
-        self._now_plating.load_results(names, total)
+        cards, total = payload
+        self._now_plating.load_results(cards, total)
         # Update rail with current recipe + count
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, total)
 

@@ -912,6 +912,67 @@ class TagRepository:
         )
         return [name for (name,) in rows]
 
+    def sample_channels_by_tag_facets(
+        self,
+        includes: dict[str, set[str]],
+        excludes: Optional[dict[str, set[str]]] = None,
+        *,
+        base_channel_ids: Optional[Set[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        limit: int = 24,
+    ) -> list:
+        """Return up to *limit* result cards matching the faceted constraints.
+
+        The card-bearing sibling of :meth:`sample_channel_names_by_tag_facets`:
+        used by the recipe's "Now Plating" results shelf, which renders real,
+        clickable poster cards (reusing the Discover ``_ContentCard`` surface)
+        rather than dead title chips.
+
+        Takes a bounded ``LIMIT`` slice of the match query (the full set is never
+        materialised), loads the full ``ChannelDB`` rows for those ``<=limit``
+        ids, and maps each to a :class:`~metatv.core.discovery_engine.ContentCard`
+        — a session-free value object (poster url, title, media_type, year,
+        provider scoping already applied).  No ORM object crosses the worker→main
+        boundary.
+
+        Scoping is IDENTICAL to the count/preview path (hidden providers + the
+        caller's Global Exclusions), so the shelf agrees with YIELDS.
+
+        Args:
+            includes / excludes / base_channel_ids / excluded_provider_ids /
+            excluded_prefixes / excluded_categories: see
+                :meth:`_faceted_channel_id_query`.
+            limit: Max cards to return (default 24 — the results-shelf cap).
+
+        Returns:
+            List of ``ContentCard`` value objects, name-sorted.  Empty when no
+            channel matches.
+        """
+        from metatv.core.database import ChannelDB
+        from metatv.core.discovery_engine import _to_card
+
+        query = self._faceted_channel_id_query(
+            includes, excludes,
+            base_channel_ids=base_channel_ids,
+            excluded_provider_ids=excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+        )
+        ids = [row.channel_id for row in query.limit(limit).all()]
+        if not ids:
+            return []
+        rows = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.id.in_(ids))
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        # _to_card builds a session-free ContentCard from each ORM row; engagement
+        # badge sets are omitted (the preview shelf doesn't decorate them).
+        return [_to_card(ch) for ch in rows]
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers

@@ -671,3 +671,59 @@ class TestGlobalExclusionScoping:
                 limit=20,
             )
         assert names == ["Drama Null"]
+
+
+# ---------------------------------------------------------------------------
+# sample_channels_by_tag_facets — bounded ContentCard result shelf (Task B)
+# ---------------------------------------------------------------------------
+
+
+class TestSampleChannelsAsCards:
+    """The card-bearing sibling returns session-free ContentCards, scoped
+    identically to the count/name preview."""
+
+    def test_returns_content_cards_with_core_fields(self, three_channels):
+        """Each result is a ContentCard carrying channel_id + title."""
+        from metatv.core.discovery_engine import ContentCard
+
+        c1, _c2, c3, db = three_channels  # c1, c3 are Disney+
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            cards = repos.tags.sample_channels_by_tag_facets(
+                {"platform": {"Disney+"}}, limit=24
+            )
+        assert all(isinstance(c, ContentCard) for c in cards)
+        ids = {c.channel_id for c in cards}
+        assert ids == {c1, c3}
+        assert all(c.title for c in cards)
+
+    def test_card_sample_respects_limit(self, three_channels):
+        """The bounded LIMIT caps the number of cards returned."""
+        _c1, _c2, _c3, db = three_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            cards = repos.tags.sample_channels_by_tag_facets(
+                {"platform": {"Disney+"}}, limit=1
+            )
+        assert len(cards) == 1
+
+    def test_card_sample_respects_global_exclusions(self, global_exclusion_channels):
+        """Cards are scoped by provider AND Global Exclusions (same as YIELDS)."""
+        keep_null, _ep, _er, _ec, db = global_exclusion_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            cards = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}},
+                excluded_provider_ids=[],
+                excluded_prefixes={"AR"},
+                excluded_categories={"Kids"},
+            )
+        assert {c.channel_id for c in cards} == {keep_null}
+
+    def test_card_sample_empty_when_no_match(self, three_channels):
+        """A non-existent value yields an empty card list, not a crash."""
+        _c1, _c2, _c3, db = three_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            cards = repos.tags.sample_channels_by_tag_facets({"platform": {"Nope+"}})
+        assert cards == []
