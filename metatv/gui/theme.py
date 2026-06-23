@@ -243,6 +243,12 @@ FILTER_ONLY_BTN = (
     " font-size: " + FONT_SM + "; padding: 0 2px; }"
     "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
 )
+# "Show all (N)" / "Show less" expander link inside large filter facet sections
+FILTER_SHOW_ALL_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+    " font-size: " + FONT_MD + "; padding: 4px 8px; text-align: left; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_3 + "; }"
+)
 # Flat full-bleed nav button on a bar/footer panel (sidebar Settings, bottom-nav Diagnose)
 FLAT_NAV_BTN = (
     "QPushButton { font-size: " + FONT_XL + "; color: " + COLOR_TEXT_LOW +
