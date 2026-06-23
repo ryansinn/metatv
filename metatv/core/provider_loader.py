@@ -411,25 +411,57 @@ class ProviderLoadThread(QThread):
     def _update_tags_in_thread(self) -> None:
         """Run the tag decomposer over this provider's channels and persist content_tags.
 
+        Incremental via ``tag_fingerprint``
+        ------------------------------------
+        A fingerprint (short SHA-256 hex) of the eight decomposer feeder fields is
+        stored on each ``ChannelDB`` row after a successful tag pass.  On subsequent
+        refreshes, channels whose feeder fields have not changed (fingerprint matches)
+        are skipped entirely — no delete/re-tag.  Only new rows (NULL fingerprint) or
+        channels with changed fields are processed.
+
+        The first refresh after this code is deployed re-tags all rows (populating
+        fingerprints); every refresh after touches only the delta.
+
+        Defer during migration
+        ----------------------
+        If a ``TagBackfillTask`` is currently running, this hook returns immediately.
+        The backfill is already re-tagging every channel — adding a concurrent writer
+        risks ``database is locked`` errors and is redundant work.
+
         Mirrors the batching strategy of ``TagBackfillTask._process_batch``:
         - Fetches only channel IDs for this provider first (no full ORM materialisation).
         - Processes channels in ``_TAG_BATCH`` chunks, each inside its own
           ``session_scope`` so the write transaction is short-lived.
-        - Within each chunk queries only the eight columns needed by ``_collect_tags``
-          (column-only projection, no JSON blobs for channels that have none).
+        - Within each chunk queries only the columns needed by ``_collect_tags`` plus
+          ``tag_fingerprint`` (column-only projection, no JSON blobs for channels that
+          have none).
         - Calls ``repos.tags.delete_generated_for_channel`` before re-deriving, matching
           the backfill's non-destructive contract (user tags survive).
 
         This means every source refresh keeps ``content_tags`` current without waiting
         for a version-bumped re-backfill.
         """
+        import hashlib
+
         from metatv.core.config import Config as _Config
         from metatv.core.database import ChannelDB
-        from metatv.core.migrations.tag_backfill import _collect_tags
+        from metatv.core.migrations.tag_backfill import _collect_tags, is_backfill_active
         from metatv.core.repositories import RepositoryFactory
+        from sqlalchemy import text as _text
 
         _TAG_BATCH: int = 500
         _YIELD_SIZE: int = 2_000
+
+        # Defer entirely while the one-time backfill migration is running.
+        # The backfill re-tags every channel, so per-refresh tagging is redundant
+        # and a third concurrent SQLite writer risks locking errors.
+        if is_backfill_active():
+            logger.info(
+                "_update_tags_in_thread: TagBackfillTask is running — deferring "
+                "per-refresh tagging for '{}' (backfill will cover all channels)",
+                self.provider.name,
+            )
+            return
 
         try:
             # Config.load() returns (Config, migrated_bool) — take the Config only.
@@ -462,18 +494,43 @@ class ProviderLoadThread(QThread):
             self.provider.name,
         )
 
+        def _compute_fingerprint(
+            name: str | None,
+            category: str | None,
+            source_category: str | None,
+            detected_prefix: str | None,
+            detected_quality: str | None,
+            detected_region: str | None,
+            detected_year: str | None,
+            genre: str | None,
+        ) -> str:
+            """Return a short SHA-256 hex digest of the decomposer feeder fields."""
+            key = "|".join([
+                name or "",
+                category or "",
+                source_category or "",
+                detected_prefix or "",
+                detected_quality or "",
+                detected_region or "",
+                detected_year or "",
+                genre or "",
+            ])
+            return hashlib.sha256(key.encode()).hexdigest()[:16]
+
         done = 0
+        skipped = 0
         for batch_start in range(0, total, _TAG_BATCH):
             chunk = channel_ids[batch_start : batch_start + _TAG_BATCH]
             try:
                 with self.db.session_scope() as session:
                     repos = RepositoryFactory(session)
 
-                    # Column-only projection — no full ORM objects, no JSON blobs
-                    # for channels that have none.
+                    # Column-only projection — includes tag_fingerprint for skip logic
+                    # and name for the fingerprint computation (ingestion may change name).
                     rows = (
                         session.query(
                             ChannelDB.id,
+                            ChannelDB.name,
                             ChannelDB.category,
                             ChannelDB.source_category,
                             ChannelDB.detected_prefix,
@@ -481,15 +538,20 @@ class ProviderLoadThread(QThread):
                             ChannelDB.detected_region,
                             ChannelDB.detected_year,
                             ChannelDB.raw_data,
+                            ChannelDB.tag_fingerprint,
                         )
                         .filter(ChannelDB.id.in_(chunk))
                         .yield_per(_YIELD_SIZE)
                         .all()
                     )
 
+                    # Collect (channel_id, new_fingerprint) pairs that need updating.
+                    fingerprint_updates: list[tuple[str, str]] = []
+
                     for row in rows:
                         (
                             channel_id,
+                            name,
                             category,
                             source_category,
                             detected_prefix,
@@ -497,7 +559,25 @@ class ProviderLoadThread(QThread):
                             detected_region,
                             detected_year,
                             raw_data,
+                            stored_fingerprint,
                         ) = row
+
+                        genre = (raw_data or {}).get("genre") if raw_data else None
+                        current_fp = _compute_fingerprint(
+                            name,
+                            category,
+                            source_category,
+                            detected_prefix,
+                            detected_quality,
+                            detected_region,
+                            detected_year,
+                            genre,
+                        )
+
+                        if current_fp == stored_fingerprint:
+                            # Feeder fields unchanged — skip re-tagging.
+                            skipped += 1
+                            continue
 
                         # Non-destructive: scrub only generated tags; user tags survive.
                         repos.tags.delete_generated_for_channel(channel_id)
@@ -518,6 +598,17 @@ class ProviderLoadThread(QThread):
                                 channel_id, all_tags, source="generated"
                             )
 
+                        fingerprint_updates.append((channel_id, current_fp))
+
+                    # Batch-update fingerprints for all channels we just (re-)tagged.
+                    for channel_id, fp in fingerprint_updates:
+                        session.execute(
+                            _text(
+                                "UPDATE channels SET tag_fingerprint = :fp WHERE id = :id"
+                            ),
+                            {"fp": fp, "id": channel_id},
+                        )
+
             except Exception as e:
                 logger.error(
                     "_update_tags_in_thread: batch {}-{} failed: {}",
@@ -534,9 +625,11 @@ class ProviderLoadThread(QThread):
                 done,
             )
 
+        tagged = total - skipped
         logger.info(
-            "_update_tags_in_thread: tagged {:,} channels for '{}'",
-            total,
+            "_update_tags_in_thread: tagged {:,} channels ({:,} skipped, unchanged) for '{}'",
+            tagged,
+            skipped,
             self.provider.name,
         )
 

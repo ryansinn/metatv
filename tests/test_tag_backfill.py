@@ -451,3 +451,211 @@ class TestDeleteGeneratedForChannel:
 
         assert _content_tag_count(file_db, cid, source="generated") == 0
         assert _content_tag_count(file_db, cid, source="user") == 1
+
+
+# ---------------------------------------------------------------------------
+# Incremental tagging via tag_fingerprint (provider_loader._update_tags_in_thread)
+# ---------------------------------------------------------------------------
+
+class TestIncrementalTagging:
+    """Behavioral tests for the skip-unchanged fingerprint logic and defer-during-migration."""
+
+    def _run_update_tags(self, db: Database, provider_id: str, provider_name: str, cfg: Config) -> None:
+        """Drive _update_tags_in_thread via a minimal ProviderLoadThread stub."""
+        from unittest.mock import MagicMock
+        from metatv.core.provider_loader import ProviderLoadThread
+
+        provider = MagicMock()
+        provider.id = provider_id
+        provider.name = provider_name
+
+        thread = ProviderLoadThread.__new__(ProviderLoadThread)
+        thread.db = db
+        thread.provider = provider
+        thread._update_tags_in_thread()
+
+    def test_unchanged_channel_skipped_on_second_run(self, file_db, cfg, monkeypatch):
+        """A channel whose feeder fields have not changed is NOT re-tagged on second run.
+
+        The tag repository's ``delete_generated_for_channel`` must NOT be called for
+        the unchanged channel after the fingerprint is populated on the first run.
+        """
+        import metatv.core.repositories.tag as _tag_repo_module
+
+        monkeypatch.setattr(
+            "metatv.core.config.Config.load",
+            staticmethod(lambda: (cfg, False)),
+        )
+
+        cid = _add_channel(file_db, category="USA", name="Test US Channel")
+
+        # First run — populates fingerprint and tags.
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        count_after_first = _content_tag_count(file_db, cid)
+        assert count_after_first > 0, "Expected tags after first run"
+
+        # Check that fingerprint was stored.
+        with file_db.session_scope(commit=False) as session:
+            from metatv.core.database import ChannelDB as _CDB
+            ch = session.query(_CDB).filter_by(id=cid).one()
+            assert ch.tag_fingerprint is not None, "fingerprint must be set after first run"
+            stored_fp = ch.tag_fingerprint
+
+        # Track delete_generated calls on second run.
+        delete_calls: list[str] = []
+        original_delete = _tag_repo_module.TagRepository.delete_generated_for_channel
+
+        def _tracking_delete(self_repo, channel_id: str) -> int:
+            delete_calls.append(channel_id)
+            return original_delete(self_repo, channel_id)
+
+        monkeypatch.setattr(
+            _tag_repo_module.TagRepository,
+            "delete_generated_for_channel",
+            _tracking_delete,
+        )
+
+        # Second run — feeder fields unchanged, must skip.
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        assert cid not in delete_calls, (
+            "delete_generated_for_channel must NOT be called for an unchanged channel"
+        )
+        # Tags must still be there (not deleted).
+        assert _content_tag_count(file_db, cid) == count_after_first
+
+    def test_changed_channel_retagged_and_fingerprint_updated(self, file_db, cfg, monkeypatch):
+        """A channel whose category changes IS re-tagged and its fingerprint updated."""
+        monkeypatch.setattr(
+            "metatv.core.config.Config.load",
+            staticmethod(lambda: (cfg, False)),
+        )
+
+        cid = _add_channel(file_db, category="USA", name="Changeable Channel")
+
+        # First run — tags and fingerprint set.
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        with file_db.session_scope(commit=False) as session:
+            from metatv.core.database import ChannelDB as _CDB
+            ch = session.query(_CDB).filter_by(id=cid).one()
+            fp_after_first = ch.tag_fingerprint
+        assert fp_after_first is not None
+
+        # Mutate the category field to simulate an ingestion change.
+        with file_db.session_scope() as session:
+            from metatv.core.database import ChannelDB as _CDB
+            ch = session.query(_CDB).filter_by(id=cid).one()
+            ch.category = "UK"   # different value → different fingerprint
+
+        # Second run — changed feeder field must trigger re-tag.
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        with file_db.session_scope(commit=False) as session:
+            from metatv.core.database import ChannelDB as _CDB
+            ch = session.query(_CDB).filter_by(id=cid).one()
+            fp_after_second = ch.tag_fingerprint
+
+        assert fp_after_second != fp_after_first, "fingerprint must be updated after field change"
+        # The new tags should reflect the changed category.
+        tags = _tags_for(file_db, cid)
+        tag_pairs = {(t, v) for t, v, _src, _f in tags}
+        # "UK" → region:UK
+        assert any(t == "region" for t, v in tag_pairs), "region tag expected from new 'UK' category"
+
+    def test_new_channel_with_null_fingerprint_is_tagged(self, file_db, cfg, monkeypatch):
+        """A brand-new channel (NULL fingerprint) is tagged on first run."""
+        monkeypatch.setattr(
+            "metatv.core.config.Config.load",
+            staticmethod(lambda: (cfg, False)),
+        )
+
+        cid = _add_channel(file_db, raw_data={"genre": "Drama"})
+
+        # Verify fingerprint starts as NULL.
+        with file_db.session_scope(commit=False) as session:
+            from metatv.core.database import ChannelDB as _CDB
+            ch = session.query(_CDB).filter_by(id=cid).one()
+            assert ch.tag_fingerprint is None
+
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        assert _content_tag_count(file_db, cid) > 0, "NULL-fingerprint channel must be tagged"
+        tags = _tags_for(file_db, cid)
+        assert any(t == "genre" and v == "Drama" for t, v, _src, _f in tags)
+
+    def test_hook_returns_early_when_backfill_active(self, file_db, cfg, monkeypatch):
+        """_update_tags_in_thread returns immediately when TagBackfillTask is running.
+
+        No tags are written and delete_generated_for_channel is never called.
+        """
+        import metatv.core.migrations.tag_backfill as _tbm
+        import metatv.core.repositories.tag as _tag_repo_module
+
+        monkeypatch.setattr(
+            "metatv.core.config.Config.load",
+            staticmethod(lambda: (cfg, False)),
+        )
+
+        # Plant a channel with a tag so we can confirm it is not deleted.
+        cid = _add_channel(file_db, category="USA")
+        with file_db.session_scope() as session:
+            from metatv.core.repositories import RepositoryFactory
+            repos = RepositoryFactory(session)
+            repos.tags.set_content_tags(cid, [("region", "US", "provider_category")], source="generated")
+
+        count_before = _content_tag_count(file_db, cid)
+        assert count_before > 0
+
+        # Simulate a running backfill by patching is_backfill_active.
+        monkeypatch.setattr(_tbm, "is_backfill_active", lambda: True)
+
+        delete_calls: list[str] = []
+        original_delete = _tag_repo_module.TagRepository.delete_generated_for_channel
+
+        def _tracking_delete(self_repo, channel_id: str) -> int:
+            delete_calls.append(channel_id)
+            return original_delete(self_repo, channel_id)
+
+        monkeypatch.setattr(
+            _tag_repo_module.TagRepository,
+            "delete_generated_for_channel",
+            _tracking_delete,
+        )
+
+        self._run_update_tags(file_db, "test_provider", "TestProvider", cfg)
+
+        assert delete_calls == [], "No tags must be touched when backfill is active"
+        assert _content_tag_count(file_db, cid) == count_before, "Existing tags must survive"
+
+    def test_migration_adds_tag_fingerprint_column(self, tmp_path):
+        """The tag_fingerprint column is present (and readable) after create_tables.
+
+        On an old DB that didn't have the column, the ALTER TABLE migration in
+        _migrate() adds it.  This test verifies the column exists and defaults NULL.
+        """
+        db_file = tmp_path / "mig_test.db"
+        db = Database(f"sqlite:///{db_file}")
+        db.create_tables()
+
+        try:
+            with db.session_scope() as session:
+                import uuid as _uuid
+                from metatv.core.database import ChannelDB as _CDB
+                ch = _CDB(
+                    id=str(_uuid.uuid4()),
+                    source_id="s1",
+                    provider_id="p1",
+                    name="Migration Test Channel",
+                )
+                session.add(ch)
+
+            with db.session_scope(commit=False) as session:
+                from metatv.core.database import ChannelDB as _CDB
+                ch = session.query(_CDB).filter_by(name="Migration Test Channel").one()
+                assert ch.tag_fingerprint is None, (
+                    "tag_fingerprint should default NULL on a new row"
+                )
+        finally:
+            db.close()

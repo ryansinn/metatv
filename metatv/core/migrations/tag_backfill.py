@@ -41,6 +41,7 @@ manual weighting.
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from typing import TYPE_CHECKING, Callable
 
@@ -49,6 +50,30 @@ from loguru import logger
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
+
+# Module-level flag: True while a TagBackfillTask is actively running.
+# _update_tags_in_thread in provider_loader checks this before tagging to avoid
+# a 3rd concurrent SQLite writer (backfill + store + per-refresh = locked DB).
+# Protected by a threading.Lock so it is safe to read/write from any thread.
+_backfill_lock = threading.Lock()
+_backfill_active: bool = False
+
+
+def is_backfill_active() -> bool:
+    """Return True if a ``TagBackfillTask`` is currently running.
+
+    Thread-safe; may be called from any thread.
+    """
+    with _backfill_lock:
+        return _backfill_active
+
+
+def _set_backfill_active(active: bool) -> None:
+    """Set the module-level backfill-active flag.  Called only by TagBackfillTask."""
+    global _backfill_active
+    with _backfill_lock:
+        _backfill_active = active
+
 
 # Bump this constant to re-run the backfill for all users on next launch.
 #
@@ -135,35 +160,39 @@ class TagBackfillTask:
             "TagBackfillTask: starting (version={})", CURRENT_TAG_BACKFILL_VERSION
         )
 
-        channel_ids = self._collect_channel_ids()
-        total = len(channel_ids)
+        _set_backfill_active(True)
+        try:
+            channel_ids = self._collect_channel_ids()
+            total = len(channel_ids)
 
-        if total == 0:
-            logger.info("TagBackfillTask: no channels found — nothing to do")
-            progress_cb(0, 0)
-            return
-
-        logger.info("TagBackfillTask: processing {} channels", total)
-
-        done = 0
-        for batch_start in range(0, total, _BATCH_SIZE):
-            if is_cancelled():
-                logger.info(
-                    "TagBackfillTask: cancelled after {}/{}", done, total
-                )
+            if total == 0:
+                logger.info("TagBackfillTask: no channels found — nothing to do")
+                progress_cb(0, 0)
                 return
 
-            chunk = channel_ids[batch_start : batch_start + _BATCH_SIZE]
-            self._process_batch(chunk, config)
-            done = batch_start + len(chunk)
-            logger.debug(
-                "TagBackfillTask: committed batch {}–{}", batch_start, done
-            )
-            progress_cb(done, total)
+            logger.info("TagBackfillTask: processing {} channels", total)
 
-        logger.info(
-            "TagBackfillTask: completed — tagged {} channels", total
-        )
+            done = 0
+            for batch_start in range(0, total, _BATCH_SIZE):
+                if is_cancelled():
+                    logger.info(
+                        "TagBackfillTask: cancelled after {}/{}", done, total
+                    )
+                    return
+
+                chunk = channel_ids[batch_start : batch_start + _BATCH_SIZE]
+                self._process_batch(chunk, config)
+                done = batch_start + len(chunk)
+                logger.debug(
+                    "TagBackfillTask: committed batch {}–{}", batch_start, done
+                )
+                progress_cb(done, total)
+
+            logger.info(
+                "TagBackfillTask: completed — tagged {} channels", total
+            )
+        finally:
+            _set_backfill_active(False)
 
     def on_completed(self, config: "Config") -> None:
         """Bump the version field so the task won't re-run on next launch.
