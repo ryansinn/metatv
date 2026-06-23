@@ -55,7 +55,12 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial backfill: populate content_tags from provider_category,
 #       header (source_category), name_parse, and genre feeders.
-CURRENT_TAG_BACKFILL_VERSION = 1
+#   2 — cross-language genre normalization: extended _GENRE_NORM in filter_utils
+#       with Arabic, Polish, Swedish, Danish/Norwegian, Dutch, Slovak, Croatian,
+#       Portuguese, Greek, Russian, Hebrew, Turkish, Romanian, and Persian
+#       mappings so foreign-language genre names fold into their canonical
+#       English equivalents before tags are stored.
+CURRENT_TAG_BACKFILL_VERSION = 2
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
