@@ -162,6 +162,12 @@ class ChannelRepository(_ChannelStatsMixin):
         # streams.  The SQL pattern "##%" matches any name starting with ≥2 '#'.
         query = query.filter(ChannelDB.name.notlike("##%"))
 
+        # Exclude PPV/event placeholder rows (e.g.
+        # "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 ...").
+        # These slots have no actual event scheduled — they are not playable.
+        # The "NO EVENT STREAMING" substring is the universal provider marker.
+        query = query.filter(ChannelDB.name.notlike("%NO EVENT STREAMING%"))
+
         if adult_mode != "all":
             force_ids = force_adult_provider_ids or []
             # A channel is "adult" if is_adult=True OR its provider is force_adult
