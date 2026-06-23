@@ -128,6 +128,11 @@ class ChannelListModel(QAbstractListModel):
             # Live channels never carry watch state, so they are always full-strength.
             if channel.watch_completed and channel.media_type != "live":
                 return _WATCHED_DIM_BRUSH
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if channel.user_rating == 1:
+                return f"You rated this {_icons.like_icon}"
+            if channel.user_rating == -1:
+                return f"You rated this {_icons.dislike_icon}"
         return None
 
     def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:  # type: ignore[override]
@@ -303,11 +308,14 @@ class ChannelListModel(QAbstractListModel):
     def _compose_display_text(self, channel: ChannelListDTO) -> str:
         """Compose the visible row text for *channel*.
 
-        Format: ``{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]]``
+        Format:
+            ``{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]][ {rating_glyph}]``
 
-        The watch indicator is no longer embedded in the title text.  It is
-        rendered as a QIcon via ``DecorationRole`` in a reserved leading slot so
-        titles align regardless of watch state.
+        The watch indicator is rendered as a QIcon via ``DecorationRole`` in a
+        reserved leading slot so titles align regardless of watch state.
+
+        The user's rating (👍/👎) is appended as a trailing glyph when present
+        so it never disturbs title alignment.  Unrated rows show nothing.
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -336,6 +344,11 @@ class ChannelListModel(QAbstractListModel):
         )
         if channel.category:
             display_text += f" [{channel.category}]"
+        # Trailing rating glyph — only shown when the user has rated this channel.
+        if channel.user_rating == 1:
+            display_text += f" {_icons.like_icon}"
+        elif channel.user_rating == -1:
+            display_text += f" {_icons.dislike_icon}"
         return display_text
 
     # ── Generation accessor (for append_page callers) ─────────────────────────
