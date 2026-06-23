@@ -330,6 +330,7 @@ class _FakeDlgConfig:
         self.sidebar_sections: list[str] = []
         self.sidebar_visible_sections: list[str] = []
         self.remember_search: bool = True
+        self.refresh_all_includes_inactive: bool = True
         self.prompt_after_autoplay: bool = True
         self.save_calls: int = 0
 
@@ -384,6 +385,7 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()  # the widget under test
     dlg._remember_search_check = QCheckBox()  # needed by _load_values / _save_values
+    dlg._refresh_all_inactive_check = QCheckBox()  # needed by _load_values / _save_values
     dlg._user_agent_view = QLineEdit()
     dlg._user_agent_view.setReadOnly(True)
     dlg._mpv_args_input = QLineEdit()

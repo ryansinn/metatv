@@ -54,6 +54,7 @@ class _FakeConfig:
         self.mpv_args_override_all = False
         self.split_streams_by_source = False
         self.remember_search: bool = True
+        self.refresh_all_includes_inactive: bool = True
         self.epg_default_refresh_interval = "3d"
         self.metadata_enabled = True
         self.metadata_auto_fetch = False
@@ -122,8 +123,9 @@ def _full_dialog(qapp) -> SettingsDialog:
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
 
-    # -- Interface tab widgets (Search + Sidebar) --
+    # -- Interface tab widgets (Search + Sources + Sidebar) --
     dlg._remember_search_check = QCheckBox()
+    dlg._refresh_all_inactive_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
 
     return dlg

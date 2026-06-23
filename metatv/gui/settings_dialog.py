@@ -359,6 +359,21 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(search_group)
 
+        sources_group = QGroupBox("Sources")
+        sources_form = QFormLayout(sources_group)
+        sources_form.setSpacing(8)
+
+        self._refresh_all_inactive_check = QCheckBox(
+            "Refresh inactive sources when refreshing all"
+        )
+        self._refresh_all_inactive_check.setToolTip(
+            "When off, 'Refresh All' skips sources you've disabled. "
+            "Refreshing a single source still works."
+        )
+        sources_form.addRow("", self._refresh_all_inactive_check)
+
+        layout.addWidget(sources_group)
+
         sidebar_group = QGroupBox("Sidebar")
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
@@ -458,6 +473,13 @@ class SettingsDialog(QDialog):
         self._remember_search_check.setChecked(getattr(c, "remember_search", True))
         self._remember_search_check.blockSignals(False)
 
+        # Sources
+        self._refresh_all_inactive_check.blockSignals(True)
+        self._refresh_all_inactive_check.setChecked(
+            getattr(c, "refresh_all_includes_inactive", True)
+        )
+        self._refresh_all_inactive_check.blockSignals(False)
+
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
         self._epg_interval_combo.setCurrentIndex(epg_idx if epg_idx >= 0 else 0)
@@ -521,6 +543,9 @@ class SettingsDialog(QDialog):
 
         # Search
         c.remember_search = self._remember_search_check.isChecked()
+
+        # Sources
+        c.refresh_all_includes_inactive = self._refresh_all_inactive_check.isChecked()
 
         # EPG
         epg_val = self._epg_interval_combo.currentData()
