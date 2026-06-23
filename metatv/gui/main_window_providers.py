@@ -75,10 +75,10 @@ def _advance_steps(
         FETCH done; STORE active (store-complete emit).
     * pct 72-86, message "Categorizing content (PPV/Events/Sports)…":
         STORE done; PARSE active.
-    * pct 87, message "Detecting channel prefixes…":
-        STORE done; PARSE active.
-    * pct 93, message "Computing content tags…":
-        STORE done; PARSE active.
+    * pct 87-92, messages "Detecting prefixes (N / M channels)…":
+        STORE done; PARSE active (per-batch sub-emits from _update_prefixes_in_thread).
+    * pct 93-96, messages "Tagging N / M channels…":
+        STORE done; PARSE active (per-batch sub-emits from _update_tags_in_thread).
     * pct 97, message "Updating filter statistics…":
         all channel steps done.
     * pct 100, message "Loaded N channels":
@@ -100,6 +100,7 @@ def _advance_steps(
     in_storing = "Storing channels" in message or (pct == 70 and "Stored" in message)
     in_parse   = ("Categorizing" in message or "Detecting" in message
                   or "Computing content tags" in message
+                  or "Tagging" in message
                   or "Updating filter" in message)
     all_done   = pct >= 97 or (pct >= 100 and "Loaded" in message)
 

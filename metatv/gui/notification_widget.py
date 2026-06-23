@@ -169,8 +169,12 @@ class NotificationCard(QFrame):
                 action_layout.addWidget(btn)
             layout.addLayout(action_layout)
 
-        # Progress bar — shown for all PROGRESS notifications (with or without steps).
-        if self.notification.type == NotificationType.PROGRESS:
+        # Progress bar — shown for PROGRESS notifications that have show_progress_bar=True.
+        # Pass show_bar=False (via show_progress(..., show_bar=False)) to suppress for
+        # queue-overview toasts where the steps list is already the progress indicator.
+        if self.notification.type == NotificationType.PROGRESS and getattr(
+            self.notification, "show_progress_bar", True
+        ):
             progress_layout = QHBoxLayout()
 
             self.progress_bar = QProgressBar()

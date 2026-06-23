@@ -57,6 +57,11 @@ class Notification:
     # Notifications without steps render exactly as before (backward-compatible).
     steps: Optional[list] = None  # list[tuple[str, StepStatus]]
 
+    # When False the progress bar is suppressed entirely even for PROGRESS type.
+    # Use for queue-overview notifications where the steps ARE the progress indicator
+    # and an always-0% bar would be misleading (total=None → indeterminate → useless).
+    show_progress_bar: bool = True
+
     # Actions
     actions: list = field(default_factory=list)  # List of (label, callback)
     dismissible: bool = True
@@ -227,7 +232,8 @@ class NotificationManager:
 
     def show_progress(self, title: str, total: Optional[int] = None,
                      group_id: Optional[str] = None,
-                     steps: Optional[list] = None) -> str:
+                     steps: Optional[list] = None,
+                     show_bar: bool = True) -> str:
         """Show a progress notification.
 
         Args:
@@ -238,6 +244,9 @@ class NotificationManager:
                       provided the card shows a per-step checklist instead of
                       a raw progress bar.  The caller owns updating the list
                       via :meth:`set_steps`.
+            show_bar: When ``False`` the progress bar is suppressed.  Use for
+                      queue-overview toasts where the steps list is the progress
+                      indicator and a permanently-0% bar would be misleading.
 
         Returns:
             notification_id for subsequent updates.
@@ -251,6 +260,7 @@ class NotificationManager:
             dismissible=False,
             group_id=group_id,
             steps=steps,
+            show_progress_bar=show_bar,
         )
         return self.show(notif)
 
