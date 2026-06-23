@@ -7,6 +7,9 @@
 #   ./run.sh <PR#>       Test-drive a PR: resolve PR #<PR#>'s branch, check it
 #                        out into a dedicated worktree (<repo>-pr-<PR#>, created
 #                        or refreshed to the latest pushed commit) and run it.
+#                        The worktree is removed automatically when the app
+#                        exits — unless it has uncommitted changes, then it's
+#                        kept (with a hint to remove it manually).
 #   ./run.sh [args...]   Extra args are forwarded to `python -m metatv`.
 #
 # metatv is run from source (not pip-installed), so a worktree borrowing the
@@ -55,8 +58,18 @@ if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
         git -C "$main" worktree add -f --detach "$wt" "origin/$branch" || exit 1
     fi
     echo "run.sh: PR #$pr → $branch → $wt (HEAD $(git -C "$wt" rev-parse --short HEAD))" >&2
-    echo "run.sh: remove it later with: git -C \"$main\" worktree remove \"$wt\"" >&2
-    run_dir "$wt" "$@"
+    # Run as a child (not exec) so the throwaway worktree can self-clean on exit.
+    if ! py="$(resolve_py "$wt")"; then
+        echo "run.sh: no venv found (looked in $wt/venv and the main worktree)." >&2
+        exit 1
+    fi
+    ( cd "$wt" && "$py" -m metatv "$@" ); status=$?
+    if git -C "$main" worktree remove "$wt" 2>/dev/null; then
+        echo "run.sh: removed $wt" >&2
+    else
+        echo "run.sh: kept $wt (uncommitted changes) — remove with: git -C \"$main\" worktree remove --force \"$wt\"" >&2
+    fi
+    exit "$status"
 fi
 
 # ── default: run this checkout ────────────────────────────────────────────────
