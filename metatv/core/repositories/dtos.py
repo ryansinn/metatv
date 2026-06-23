@@ -331,6 +331,37 @@ class ChannelTagDTO:
 
 
 # ---------------------------------------------------------------------------
+# Recipe builder DTOs — tag-cloud + pantry sidebar (task #56, slice 1)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class FacetSummaryDTO:
+    """One row in the Recipe builder's left "Pantry" sidebar.
+
+    Reports the number of *distinct tag values* carried by channels on active
+    sources for a single facet type (e.g. Genre → 512 distinct genres).
+    Built inside a session_scope() by TagRepository.get_facet_summary() so
+    that no ORM object crosses the session boundary.
+    """
+    facet_type: str       # e.g. "genre", "language", "region", "platform", "quality", "decade", "collection"
+    distinct_values: int  # number of unique tag values in active-source channels for this facet
+
+
+@dataclass(frozen=True)
+class TagCountDTO:
+    """One entry in the Recipe builder's weighted tag-cloud widget.
+
+    Carries a single tag value and the number of active-source channels
+    carrying it, for one facet type.  Sorted by channel_count DESC so the
+    cloud can size type by weight.  Built inside a session_scope() by
+    TagRepository.get_tag_counts_for_facet() — no ORM objects cross the
+    session boundary.
+    """
+    value: str            # canonical tag value, e.g. "Drama", "English", "Netflix"
+    channel_count: int    # number of active-source channels carrying this tag value
+
+
+# ---------------------------------------------------------------------------
 # Cross-repo builder (requires an open session — call inside session_scope())
 # ---------------------------------------------------------------------------
 
