@@ -519,6 +519,26 @@ CODE_FACETS: dict[str, list[tuple[str, str, float]]] = {
 }
 
 
+def is_event_placeholder(name: str) -> bool:
+    """Return True when *name* is a PPV/event placeholder row (no actual stream).
+
+    Providers pad their PPV slot bundles with placeholder entries when no event is
+    scheduled for a slot.  These rows are NOT playable streams and must be excluded
+    from all content surfaces.
+
+    Detection rule: the name contains the literal substring ``NO EVENT STREAMING``
+    (case-insensitive).  This substring is the canonical "empty slot" marker used by
+    every provider that injects these rows (e.g.
+    ``- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 [DE| DYN PPV EXCLUSIVE]``).
+    The substring is specific enough to avoid false positives on real channels — a
+    legitimate channel named "… NO EVENT STREAMING …" does not exist in practice, and
+    even if it did, the provider should rename it.
+    """
+    if not name:
+        return False
+    return "NO EVENT STREAMING" in name.upper()
+
+
 def is_category_header(name: str) -> bool:
     """Return True when *name* is a provider category-header/separator row.
 
