@@ -182,6 +182,10 @@ class ProviderLoadThread(QThread):
         self.progress.emit(87, 100, "Detecting channel prefixes…")
         self._update_prefixes_in_thread()
 
+        # Phase: compute content tags (decomposer) for just-loaded channels
+        self.progress.emit(93, 100, "Computing content tags…")
+        self._update_tags_in_thread()
+
         # Phase: compute prefix stats for the filter bar
         self.progress.emit(97, 100, "Updating filter statistics…")
         self._compute_prefix_stats_in_thread()
@@ -403,6 +407,137 @@ class ProviderLoadThread(QThread):
             logger.error(f"Prefix detection failed: {e}")
         finally:
             session.close()
+
+    def _update_tags_in_thread(self) -> None:
+        """Run the tag decomposer over this provider's channels and persist content_tags.
+
+        Mirrors the batching strategy of ``TagBackfillTask._process_batch``:
+        - Fetches only channel IDs for this provider first (no full ORM materialisation).
+        - Processes channels in ``_TAG_BATCH`` chunks, each inside its own
+          ``session_scope`` so the write transaction is short-lived.
+        - Within each chunk queries only the eight columns needed by ``_collect_tags``
+          (column-only projection, no JSON blobs for channels that have none).
+        - Calls ``repos.tags.delete_generated_for_channel`` before re-deriving, matching
+          the backfill's non-destructive contract (user tags survive).
+
+        This means every source refresh keeps ``content_tags`` current without waiting
+        for a version-bumped re-backfill.
+        """
+        from metatv.core.config import Config as _Config
+        from metatv.core.database import ChannelDB
+        from metatv.core.migrations.tag_backfill import _collect_tags
+        from metatv.core.repositories import RepositoryFactory
+
+        _TAG_BATCH: int = 500
+        _YIELD_SIZE: int = 2_000
+
+        try:
+            config = _Config.load()
+        except Exception as e:
+            logger.warning("_update_tags_in_thread: could not load config — skipping: {}", e)
+            return
+
+        # Step 1: collect IDs for just-loaded provider (column-only, no ORM objects).
+        try:
+            with self.db.session_scope(commit=False) as session:
+                id_rows = (
+                    session.query(ChannelDB.id)
+                    .filter(ChannelDB.provider_id == self.provider.id)
+                    .yield_per(_YIELD_SIZE)
+                    .all()
+                )
+            channel_ids: list[str] = [r[0] for r in id_rows]
+        except Exception as e:
+            logger.error("_update_tags_in_thread: ID fetch failed: {}", e)
+            return
+
+        total = len(channel_ids)
+        if total == 0:
+            return
+
+        logger.info(
+            "_update_tags_in_thread: computing tags for {:,} channels from '{}'",
+            total,
+            self.provider.name,
+        )
+
+        done = 0
+        for batch_start in range(0, total, _TAG_BATCH):
+            chunk = channel_ids[batch_start : batch_start + _TAG_BATCH]
+            try:
+                with self.db.session_scope() as session:
+                    repos = RepositoryFactory(session)
+
+                    # Column-only projection — no full ORM objects, no JSON blobs
+                    # for channels that have none.
+                    rows = (
+                        session.query(
+                            ChannelDB.id,
+                            ChannelDB.category,
+                            ChannelDB.source_category,
+                            ChannelDB.detected_prefix,
+                            ChannelDB.detected_quality,
+                            ChannelDB.detected_region,
+                            ChannelDB.detected_year,
+                            ChannelDB.raw_data,
+                        )
+                        .filter(ChannelDB.id.in_(chunk))
+                        .yield_per(_YIELD_SIZE)
+                        .all()
+                    )
+
+                    for row in rows:
+                        (
+                            channel_id,
+                            category,
+                            source_category,
+                            detected_prefix,
+                            detected_quality,
+                            detected_region,
+                            detected_year,
+                            raw_data,
+                        ) = row
+
+                        # Non-destructive: scrub only generated tags; user tags survive.
+                        repos.tags.delete_generated_for_channel(channel_id)
+
+                        all_tags = _collect_tags(
+                            config=config,
+                            category=category,
+                            source_category=source_category,
+                            detected_prefix=detected_prefix,
+                            detected_quality=detected_quality,
+                            detected_region=detected_region,
+                            detected_year=detected_year,
+                            raw_data=raw_data,
+                        )
+
+                        if all_tags:
+                            repos.tags.set_content_tags(
+                                channel_id, all_tags, source="generated"
+                            )
+
+            except Exception as e:
+                logger.error(
+                    "_update_tags_in_thread: batch {}-{} failed: {}",
+                    batch_start,
+                    batch_start + len(chunk),
+                    e,
+                )
+                continue
+
+            done = batch_start + len(chunk)
+            logger.debug(
+                "_update_tags_in_thread: committed tags for channels {}-{}",
+                batch_start,
+                done,
+            )
+
+        logger.info(
+            "_update_tags_in_thread: tagged {:,} channels for '{}'",
+            total,
+            self.provider.name,
+        )
 
     def _compute_prefix_stats_in_thread(self) -> None:
         """Compute prefix stats and store on self.prefix_stats for the main thread."""

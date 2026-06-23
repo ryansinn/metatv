@@ -77,6 +77,8 @@ def _advance_steps(
         STORE done; PARSE active.
     * pct 87, message "Detecting channel prefixes…":
         STORE done; PARSE active.
+    * pct 93, message "Computing content tags…":
+        STORE done; PARSE active.
     * pct 97, message "Updating filter statistics…":
         all channel steps done.
     * pct 100, message "Loaded N channels":
@@ -97,6 +99,7 @@ def _advance_steps(
     # Detect phases by message first, then fall back to percentage.
     in_storing = "Storing channels" in message or (pct == 70 and "Stored" in message)
     in_parse   = ("Categorizing" in message or "Detecting" in message
+                  or "Computing content tags" in message
                   or "Updating filter" in message)
     all_done   = pct >= 97 or (pct >= 100 and "Loaded" in message)
 
