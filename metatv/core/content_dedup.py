@@ -26,6 +26,13 @@ import re
 
 from loguru import logger
 
+from metatv.core.channel_name_utils import (
+    PAREN_QUALIFIER_RE as _PAREN_QUALIFIER_RE,
+    BRACKET_QUALIFIER_RE as _BRACKET_QUALIFIER_RE,
+    YEAR_SUFFIX_RE as _YEAR_SUFFIX_RE,
+    QUALITY_ANYWHERE_RE as _QUALITY_SUFFIX_RE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Compiled regex constants
@@ -39,26 +46,8 @@ _PREFIX_NOISE_RE = re.compile(
 _BRACKET_PREFIX_RE = re.compile(r"^\[[A-Z][A-Z0-9\-+]{0,11}\]\s*")
 """Strip bracket-format prefixes: [SE], [EN], [NF], [D+]. Applied repeatedly for doubles like '[SE] [SE]'."""
 
-_YEAR_SUFFIX_RE = re.compile(
-    r"\s*[\(\[]\d{4}(?:[-–]\d{4})?[?]?[\)\]]$"  # (2024), [2024], (2000-2005), (2024?)
-    r"|\s+\d{4}$"                                 # bare 2024
-    r"|\s+-\s+\d{4}$"                             # - 2024  (common provider suffix)
-)
-"""Strip trailing year markers: ' (2024)', ' [2024]', ' 2000-2005', ' 2024', ' - 2024'."""
-
 _YEAR_EXTRACT_RE = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
 """Extract a plausible production year (1950–2029) from a channel name."""
-
-_QUALITY_SUFFIX_RE = re.compile(
-    r"\b(4K|8K|UHD|FHD|HD|SDR|HDR10?\+?|SD|HQ|LQ|RAW|HEVC|H\.?265)\b", re.IGNORECASE
-)
-"""Strip quality markers that don't distinguish productions."""
-
-_PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z][A-Za-z0-9\-/]{0,25}\)\s*$")
-"""Strip trailing parenthetical qualifiers: (US), (EN), (HQ), (Dubbed), (ENG-SUB), (MULTI-DUB)."""
-
-_BRACKET_QUALIFIER_RE = re.compile(r"\s*\[[^\[\]]*[\s/\-][^\[\]]*\]\s*$")
-"""Strip trailing bracket qualifiers containing separators: [Multi Audio/Sub], [ENG-SUB]."""
 
 
 # ---------------------------------------------------------------------------
