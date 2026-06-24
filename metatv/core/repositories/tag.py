@@ -922,20 +922,29 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         limit: int = 24,
+        offset: int = 0,
     ) -> list:
-        """Return up to *limit* result cards matching the faceted constraints.
+        """Return *limit* result cards matching the faceted constraints, from *offset*.
 
         The card-bearing sibling of :meth:`sample_channel_names_by_tag_facets`:
-        used by the recipe's "Now Plating" results shelf, which renders real,
-        clickable poster cards (reusing the Discover ``_ContentCard`` surface)
-        rather than dead title chips.
+        used by the recipe's "Now Plating" results shelf and its "Show all"
+        browse drill-down, which render real, clickable poster cards (reusing the
+        Discover ``_ContentCard`` surface) rather than dead title chips.
 
-        Takes a bounded ``LIMIT`` slice of the match query (the full set is never
-        materialised), loads the full ``ChannelDB`` rows for those ``<=limit``
-        ids, and maps each to a :class:`~metatv.core.discovery_engine.ContentCard`
-        — a session-free value object (poster url, title, media_type, year,
-        provider scoping already applied).  No ORM object crosses the worker→main
-        boundary.
+        Takes a bounded ``LIMIT``/``OFFSET`` slice of the match query (the full
+        set is never materialised), loads the full ``ChannelDB`` rows for those
+        ``<=limit`` ids, and maps each to a
+        :class:`~metatv.core.discovery_engine.ContentCard` — a session-free value
+        object (poster url, title, media_type, year, provider scoping already
+        applied).  No ORM object crosses the worker→main boundary.
+
+        **Stable pagination.** The id query is ordered deterministically by
+        ``channel_id`` so successive ``(limit, offset)`` pages are disjoint and
+        together cover the whole match set — no overlap, no gaps.  The teaser
+        (``offset=0``) and every "Show all" page therefore share one ordering, so
+        page boundaries align with the already-seeded teaser cards.  The final
+        card list **preserves the id-query order** (it is NOT re-sorted by name
+        after fetch), so order stays consistent across pages.
 
         Scoping is IDENTICAL to the count/preview path (hidden providers + the
         caller's Global Exclusions), so the shelf agrees with YIELDS.
@@ -945,10 +954,11 @@ class TagRepository:
             excluded_prefixes / excluded_categories: see
                 :meth:`_faceted_channel_id_query`.
             limit: Max cards to return (default 24 — the results-shelf cap).
+            offset: Number of leading matches to skip (for paged "Show all").
 
         Returns:
-            List of ``ContentCard`` value objects, name-sorted.  Empty when no
-            channel matches.
+            List of ``ContentCard`` value objects in the deterministic
+            ``channel_id`` page order.  Empty when no channel matches.
         """
         from metatv.core.database import ChannelDB
         from metatv.core.discovery_engine import _to_card
@@ -960,18 +970,30 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
         )
-        ids = [row.channel_id for row in query.limit(limit).all()]
+        # Deterministic, stable ORDER BY on the DISTINCT id column so pages are
+        # disjoint and cover the whole set (no overlap / gaps).  channel_id is
+        # already in the SELECT/DISTINCT, so ordering by it is unambiguous and
+        # the teaser (offset 0) and every "Show all" page share one ordering.
+        ids = [
+            row.channel_id
+            for row in query.order_by("channel_id").offset(offset).limit(limit).all()
+        ]
         if not ids:
             return []
+        # Fetch the rows for this page, then re-order them to match the
+        # paginated id order — an IN(...) query does NOT preserve list order.
+        # Re-sorting by name here would scramble order across pages, so the
+        # id-query order is kept instead.
         rows = (
             self.session.query(ChannelDB)
             .filter(ChannelDB.id.in_(ids))
-            .order_by(ChannelDB.name)
             .all()
         )
+        by_id = {ch.id: ch for ch in rows}
+        ordered = [by_id[cid] for cid in ids if cid in by_id]
         # _to_card builds a session-free ContentCard from each ORM row; engagement
         # badge sets are omitted (the preview shelf doesn't decorate them).
-        return [_to_card(ch) for ch in rows]
+        return [_to_card(ch) for ch in ordered]
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,12 @@ class _BrowseView(QWidget):
     cardClicked       = pyqtSignal(str)
     cardDoubleClicked = pyqtSignal(str)
     cardContextMenu   = pyqtSignal(str, int, int)
+    # Emitted when the user scrolls near the bottom AND every known card has been
+    # rendered AND the caller has flagged that more pages remain (set_has_more).
+    # Discover never connects this — it loads a one-shot capped set via load() and
+    # never calls set_has_more(True), so its behaviour is unchanged.  The recipe
+    # "Show all" page connects it to fetch the next DB page.
+    loadMoreRequested = pyqtSignal()
 
     def __init__(self, image_cache: "ImageCache", config: Config,
                  parent=None) -> None:
@@ -53,6 +59,12 @@ class _BrowseView(QWidget):
         self._all_pending_cards: list[ContentCard] = []
         self._created_count: int = 0
         self._grid_mode = True
+        # Pagination state for callers that page from the DB (recipe "Show all").
+        # _has_more gates whether a near-bottom scroll may emit loadMoreRequested;
+        # _load_more_pending debounces it so we emit once per near-bottom, not on
+        # every scroll tick while the request is in flight.
+        self._has_more: bool = False
+        self._load_more_pending: bool = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -111,15 +123,65 @@ class _BrowseView(QWidget):
         self._list_widget.currentItemChanged.connect(self._on_list_select)
         self._list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list_widget.customContextMenuRequested.connect(self._on_list_context_menu)
+        # The LIST view scrolls independently of the grid; wire it to the same
+        # near-bottom check so paging (loadMoreRequested) works in list mode too.
+        self._list_widget.verticalScrollBar().valueChanged.connect(
+            self._maybe_request_more_list
+        )
         self._stack.addWidget(self._list_widget)
 
         vl.addWidget(self._stack)
 
     def load(self, title: str, cards: list[ContentCard]) -> None:
+        """Replace the browse contents with *cards* (the fresh page-1 / replace path).
+
+        Resets pagination state so a subsequent caller starts clean — Discover's
+        one-shot use never touches has_more, so its behaviour is unchanged.
+        """
         self._title_lbl.setText(title)
         self._all_cards = cards
         self._search_box.clear()
+        # A fresh load starts clean: no pending page request, and no "more"
+        # until the caller opts in via set_has_more(True).
+        self._has_more = False
+        self._load_more_pending = False
         self._rebuild(cards)
+
+    def set_has_more(self, has_more: bool) -> None:
+        """Tell the view whether more DB pages remain to be appended.
+
+        Only when True does a near-bottom scroll emit :attr:`loadMoreRequested`.
+        Setting it True clears the in-flight debounce so the next near-bottom can
+        fire again (the caller calls this after appending a page).
+        """
+        self._has_more = has_more
+        if has_more:
+            self._load_more_pending = False
+
+    def append(self, cards: list[ContentCard]) -> None:
+        """Append a freshly-fetched DB page WITHOUT clearing existing cards.
+
+        Extends both the grid's pending-card list and the list widget, then
+        triggers the grid's lazy batch creation so the new cards render as they
+        scroll into view.  The complement of :meth:`load` (the replace path).
+        """
+        if not cards:
+            return
+        self._all_cards = self._all_cards + list(cards)
+        self._all_pending_cards.extend(cards)
+
+        # Grow the LIST widget immediately (cheap text rows).
+        for card in cards:
+            icon = (self._config.movie_icon if card.media_type == "movie"
+                    else self._config.series_icon)
+            rating_str = f"  ★{card.rating:.1f}" if card.rating else ""
+            year_str = f"  ({card.year})" if card.year else ""
+            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}")
+            item.setData(Qt.ItemDataRole.UserRole, card.channel_id)
+            self._list_widget.addItem(item)
+
+        # Let the grid create the next visible batch from the grown pending list.
+        self._load_visible_browse()
 
     def _rebuild(self, cards: list[ContentCard]) -> None:
         if self._flow:
@@ -177,6 +239,32 @@ class _BrowseView(QWidget):
             top = card.y()
             if top + card.height() >= scroll_y and top <= scroll_y + vp_h:
                 card.request_image()
+
+        # All known cards rendered + near the bottom + caller has more → page.
+        if self._created_count >= len(self._all_pending_cards):
+            sb = self._grid_scroll.verticalScrollBar()
+            self._maybe_request_more(sb)
+
+    def _maybe_request_more_list(self) -> None:
+        """List-view scroll handler: emit loadMoreRequested when near the bottom."""
+        self._maybe_request_more(self._list_widget.verticalScrollBar())
+
+    def _maybe_request_more(self, scrollbar) -> None:
+        """Emit :attr:`loadMoreRequested` once when scrolled near *scrollbar*'s end.
+
+        Gated on ``_has_more`` (the caller flags that more DB pages remain) and
+        debounced via ``_load_more_pending`` so a single near-bottom fires one
+        request, not one per scroll tick.  ``set_has_more(True)`` re-arms it after
+        the caller appends the page.
+        """
+        if not self._has_more or self._load_more_pending:
+            return
+        maximum = scrollbar.maximum()
+        # "Near bottom": within ~1.5 viewport-pages of the end (or already at it).
+        threshold = max(maximum - scrollbar.pageStep() * 3 // 2, 0)
+        if scrollbar.value() >= threshold:
+            self._load_more_pending = True
+            self.loadMoreRequested.emit()
 
     def _apply_filter(self, text: str) -> None:
         q = text.lower()

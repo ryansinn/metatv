@@ -1378,41 +1378,107 @@ def test_show_all_seeds_browse_with_cached_cards(qapp):
     assert [c.channel_id for c in view._browse._all_cards] == ["c1", "c2"]
 
 
-def test_show_all_fires_see_all_query_with_limit_and_scoping(qapp):
-    """_on_show_all fires a see-all query with limit=500 + scoping kwargs."""
+def test_show_all_seeds_from_teaser_without_immediate_fetch(qapp):
+    """_on_show_all does ZERO new DB work for page 1: it seeds from the teaser
+    cards and sets offset/total/has_more, without firing a sample query."""
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"
     _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
     view._recipe_includes = {"genre": {"Drama"}}
 
-    view._on_results_loaded(([_FakeCard("c1", "A")], 7))
+    # Teaser delivered 3 cards out of a known 7 matches.
+    view._on_results_loaded(([_FakeCard("c1", "A"), _FakeCard("c2", "B"),
+                              _FakeCard("c3", "C")], 7))
     seam.calls.clear()
     view._on_show_all()
 
-    # The last queued query targets the see-all slot.
+    # No immediate page fetch — page 1 is the seeded teaser cards.
+    assert not any(c["on_result"] == view._on_see_all_loaded for c in seam.calls), (
+        "Opening 'Show all' must not fire a DB fetch — page 1 reuses teaser cards"
+    )
+    # Pagination seeded: offset past the 3 seeded cards, total = teaser total.
+    assert view._see_all_offset == 3
+    assert view._see_all_total == 7
+    assert not view._see_all_loading
+    # More remain (3 < 7) → browse armed to page on scroll.
+    assert view._browse._has_more is True
+    # Browse seeded with exactly the teaser cards.
+    assert [c.channel_id for c in view._browse._all_cards] == ["c1", "c2", "c3"]
+
+
+def test_load_more_see_all_pages_at_offset_with_scoping(qapp):
+    """_load_more_see_all queries the next page at the current offset (with the
+    same scoping kwargs and page-size limit) and advances offset on delivery."""
+    from metatv.gui.recipe_view import RecipeView
+
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    # Teaser: 3 of 200 → Show all seeds offset=3, total=200.
+    view._on_results_loaded(([_FakeCard(f"c{i}", f"C{i}") for i in range(3)], 200))
+    view._on_show_all()
+    seam.calls.clear()
+
+    # Near-bottom scroll asks for the next page.
+    view._load_more_see_all()
+    assert view._see_all_loading is True
     entry = next(c for c in seam.calls if c["on_result"] == view._on_see_all_loaded)
     repos = _RecordingRepos()
     entry["query_fn"](repos)
-
     sample = repos.tags.calls["sample"]
-    assert sample["limit"] == 500, "See-all must fetch up to 500 cards (Discover parity)"
+    assert sample["limit"] == RecipeView._SEE_ALL_PAGE
+    assert sample["offset"] == 3, "Next page must start at the seeded offset"
     assert sample["excluded_provider_ids"] == ["prov_hidden"]
     assert sample["excluded_prefixes"] == {"AR"}
     assert sample["excluded_categories"] == {"Kids"}
 
+    # Deliver a full page → appended (not replaced), offset advances, still more.
+    page = [_FakeCard(f"p{i}", f"P{i}") for i in range(RecipeView._SEE_ALL_PAGE)]
+    view._on_see_all_loaded(page)
+    assert view._see_all_offset == 3 + RecipeView._SEE_ALL_PAGE
+    assert view._see_all_loading is False
+    assert view._browse._has_more is True
+    assert len(view._browse._all_cards) == 3 + RecipeView._SEE_ALL_PAGE
 
-def test_see_all_loaded_renders_cards_in_browse(qapp):
-    """_on_see_all_loaded hands the fetched cards to the browse grid."""
+
+def test_load_more_stops_when_offset_reaches_total(qapp):
+    """Once offset >= total, _load_more_see_all fires no further query."""
     view, seam = _make_view(qapp)
     view._active = True
+    view._recipe_includes = {"genre": {"Drama"}}
 
-    full = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(120)]
-    view._on_see_all_loaded(full)
+    # Teaser: 5 of 5 → fully covered by the seed.
+    view._on_results_loaded(([_FakeCard(f"c{i}", f"C{i}") for i in range(5)], 5))
+    view._on_show_all()
+    assert view._see_all_offset == 5
+    assert view._see_all_total == 5
+    assert view._browse._has_more is False
 
-    # _BrowseView.load stores the full card set (more than the 60-card teaser cap).
-    assert len(view._browse._all_cards) == 120
-    assert len(view._browse._all_cards) > view.__class__._RESULTS_CARD_CAP
+    seam.calls.clear()
+    view._load_more_see_all()
+    assert not any(c["on_result"] == view._on_see_all_loaded for c in seam.calls), (
+        "No page fetch when offset already covers the full match set"
+    )
+
+
+def test_load_more_guards_against_overlap(qapp):
+    """A second _load_more_see_all while one is in flight fires no extra query."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._recipe_includes = {"genre": {"Drama"}}
+    view._on_results_loaded(([_FakeCard(f"c{i}", f"C{i}") for i in range(3)], 500))
+    view._on_show_all()
+    seam.calls.clear()
+
+    view._load_more_see_all()        # fires one
+    fired = sum(1 for c in seam.calls if c["on_result"] == view._on_see_all_loaded)
+    view._load_more_see_all()        # guarded — _see_all_loading is True
+    still = sum(1 for c in seam.calls if c["on_result"] == view._on_see_all_loaded)
+    assert fired == 1 and still == 1, "Overlapping page loads must be guarded"
 
 
 def test_browse_back_returns_to_constructor(qapp):
@@ -1480,7 +1546,8 @@ def test_browse_card_double_click_emits_play_requested(qapp):
 
 
 def test_reload_refreshes_browse_when_showing(qapp):
-    """reload() re-runs the see-all query when the browse page is showing."""
+    """reload() re-runs the teaser results when the browse page is showing, and
+    the delivered teaser re-seeds the browse pagination from page 1."""
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"
@@ -1491,26 +1558,36 @@ def test_reload_refreshes_browse_when_showing(qapp):
     seam.calls.clear()
     view.reload()
 
-    assert any(c["on_result"] == view._on_see_all_loaded for c in seam.calls), (
-        "reload() must re-run the see-all query while the browse page is visible"
+    # reload() re-issues the teaser results load (which drives the re-seed).
+    assert any(c["on_result"] == view._on_results_loaded for c in seam.calls), (
+        "reload() must re-run the teaser results while the browse page is visible"
     )
 
+    # When the fresh teaser lands, the browse re-seeds from it (offset/total reset).
+    view._on_results_loaded(([_FakeCard("c2", "B"), _FakeCard("c3", "C")], 40))
+    assert view._see_all_total == 40
+    assert view._see_all_offset == 2
+    assert [c.channel_id for c in view._browse._all_cards] == ["c2", "c3"]
+    assert view._browse._has_more is True
 
-def test_reload_skips_browse_query_when_on_constructor(qapp):
-    """reload() does NOT fire a see-all query when the constructor is showing."""
+
+def test_reload_skips_results_when_constructor_and_no_recipe(qapp):
+    """reload() with the constructor showing and no recipe fires no results query."""
     view, seam = _make_view(qapp)
     view._active = True
-    view._selected_facet = "genre"
-    view._recipe_includes = {"genre": {"Drama"}}
     assert view._stack.currentIndex() == 0
+    # No includes/excludes set.
 
     seam.calls.clear()
     view.reload()
 
-    assert not any(c["on_result"] == view._on_see_all_loaded for c in seam.calls)
+    assert not any(c["on_result"] == view._on_results_loaded for c in seam.calls)
 
 
-def test_see_all_limit_matches_discover_cap():
-    """_RECIPE_SEE_ALL_LIMIT mirrors Discover's See-All cap (500)."""
+def test_see_all_page_size_is_a_screenful():
+    """_SEE_ALL_PAGE is a screenful (≈the teaser cap), not the old 500 hard cap."""
     from metatv.gui.recipe_view import RecipeView
-    assert RecipeView._RECIPE_SEE_ALL_LIMIT == 500
+    assert RecipeView._SEE_ALL_PAGE == 60
+    assert not hasattr(RecipeView, "_RECIPE_SEE_ALL_LIMIT"), (
+        "The old 500-card hard cap must be gone"
+    )
