@@ -48,6 +48,7 @@ class ContentCard:
     detected_prefix: str | None = None  # provider category label (e.g. "DE", "KU")
     progress_fraction: float = 0.0      # 0.0 = none or completed; 0–1 = partial resume
     variant_count: int = 1              # number of same-production variants collapsed into this card (≥ 1)
+    content_key: str | None = None      # stored identity key (computed at ingestion); None on pre-migration rows
 
 
 # ---------------------------------------------------------------------------
@@ -152,19 +153,59 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
         is_liked=channel.id in (liked_ids or set()),
         detected_prefix=channel.detected_prefix or None,
         progress_fraction=frac,
+        content_key=getattr(channel, "content_key", None) or None,
     )
 
 
 def _dedup_cards(cards: list[ContentCard]) -> list[ContentCard]:
-    """Remove source/language duplicates — same title+year, keep highest-rated."""
-    from metatv.core.content_dedup import normalize_title
-    seen: dict[tuple, ContentCard] = {}
+    """Collapse cross-source duplicates on stored content_key; keep highest-rated representative.
+
+    Grouping rules
+    --------------
+    - Primary key: ``card.content_key`` when set (the indexed ingestion-time identity key).
+    - Fallback for un-backfilled rows (content_key is None): each card is its own group
+      keyed by ``f"id:{card.channel_id}"`` — prevents all null-key cards from collapsing
+      into one.
+
+    Representative selection (deterministic tiebreakers in priority order):
+    1. Higher rating wins (None treated as -1 so any real rating beats no rating).
+    2. Lower channel_id string wins as a stable alphabetical tiebreaker.
+
+    Shelf ordering is preserved: when a later card outranks the stored representative
+    the value is replaced but the group's original insertion position is kept.
+    ``variant_count`` on the representative is set to the size of its group.
+    """
+    # group_key → (slot_index, representative)
+    slots: dict[str, tuple[int, ContentCard]] = {}
+    groups: dict[str, list[ContentCard]] = {}
     for card in cards:
-        key = (normalize_title(card.title), card.year)
-        existing = seen.get(key)
-        if existing is None or (card.rating or 0) > (existing.rating or 0):
-            seen[key] = card
-    return list(seen.values())
+        gk = card.content_key if card.content_key else f"id:{card.channel_id}"
+        if gk not in slots:
+            slots[gk] = (len(slots), card)
+            groups[gk] = [card]
+        else:
+            groups[gk].append(card)
+            idx, rep = slots[gk]
+            # Replace representative only when the challenger is strictly better.
+            # Tiebreaker 1: higher rating (None → -1)
+            # Tiebreaker 2: lower channel_id (stable alphabetical order)
+            card_rating = card.rating if card.rating is not None else -1.0
+            rep_rating  = rep.rating  if rep.rating  is not None else -1.0
+            better = (
+                card_rating > rep_rating
+                or (card_rating == rep_rating and card.channel_id < rep.channel_id)
+            )
+            if better:
+                slots[gk] = (idx, card)   # keep original slot index
+
+    # Build result in original insertion order, updating variant_count.
+    ordered = sorted(slots.values(), key=lambda t: t[0])
+    result = []
+    for _idx, rep in ordered:
+        gk = rep.content_key if rep.content_key else f"id:{rep.channel_id}"
+        rep.variant_count = len(groups[gk])
+        result.append(rep)
+    return result
 
 
 def _apply_prefix_filter(query, excluded_prefixes, include_uncategorized):
