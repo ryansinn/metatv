@@ -102,6 +102,14 @@ class _BrowseView(QWidget):
         self._search_box.textChanged.connect(self._apply_filter)
         top.addWidget(self._search_box)
 
+        self._clear_btn = QPushButton(_icons.close_icon)
+        self._clear_btn.setFixedWidth(30)
+        self._clear_btn.setStyleSheet(_theme.CLEAR_BTN)
+        self._clear_btn.setToolTip("Clear filter")
+        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_btn.clicked.connect(self._search_box.clear)
+        top.addWidget(self._clear_btn)
+
         self._toggle_btn = QPushButton(f"{self._config.list_view_icon} List")
         self._toggle_btn.setFlat(True)
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
