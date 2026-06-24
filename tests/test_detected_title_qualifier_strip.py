@@ -160,6 +160,49 @@ class TestParseChannelNamePreserve:
         )
 
 
+class TestParseChannelNamePreserveNumericTitles:
+    """A bare trailing 4-digit number that is part of the real title must survive.
+
+    Regression guard: the qualifier-strip loop must use the paren-only
+    PAREN_YEAR_SUFFIX_RE, NOT the aggressive YEAR_SUFFIX_RE (whose bare ``\\s+\\d{4}$``
+    branch is reserved for content_dedup's KEY normalization). Otherwise legitimate
+    numeric titles get truncated: 'Blade Runner 2049' → 'Blade Runner'.
+    """
+
+    def _bare(self, name: str) -> str:
+        from metatv.core.channel_name_utils import parse_channel_name
+        return parse_channel_name(name).bare_name
+
+    @pytest.mark.parametrize("name,expected", [
+        ("Blade Runner 2049", "Blade Runner 2049"),
+        ("EN - Blade Runner 2049", "Blade Runner 2049"),
+        ("Space 1999", "Space 1999"),
+        ("The 4400", "The 4400"),
+        ("Class of 2009", "Class of 2009"),
+        ("Dallas 2019", "Dallas 2019"),
+    ])
+    def test_bare_trailing_number_in_title_preserved(self, name, expected):
+        """A bare trailing year that is part of the title is NOT stripped."""
+        assert self._bare(name) == expected, (
+            f"{name!r} must keep its trailing number (part of the title); "
+            f"got {self._bare(name)!r}"
+        )
+
+    def test_paren_year_still_stripped_while_title_number_kept(self):
+        """Paren year is metadata (stripped + captured); a title number is kept.
+
+        'Class of 2009 (2008)' → title 'Class of 2009', year '2008'.
+        """
+        from metatv.core.channel_name_utils import parse_channel_name
+        r = parse_channel_name("Class of 2009 (2008)")
+        assert r.bare_name == "Class of 2009", (
+            f"Title number '2009' must survive; got {r.bare_name!r}"
+        )
+        assert r.year == "2008", (
+            f"Paren year '(2008)' must be captured as the year; got {r.year!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # 4. End-to-end: update_detected_prefixes collapses variants
 # ---------------------------------------------------------------------------

@@ -219,11 +219,21 @@ BRACKET_QUALIFIER_RE = re.compile(r"\s*\[[^\[\]]*[\s/\-][^\[\]]*\]\s*$")
 
 # Trailing year in parens/brackets (dedup-style, wider than _YEAR_RE):
 # (2024), [2024], (2000-2005), (2024?), bare "2024", or "- 2024".
+# NOTE: the bare ``\s+\d{4}$`` branch deliberately over-strips for the dedup-KEY
+# normalization in content_dedup (collapsing "Blade Runner 2049" → "blade runner" is
+# an accepted key compromise). It must NOT be used to clean the *display* title —
+# strip_title_qualifiers uses the narrower PAREN_YEAR_SUFFIX_RE below so legitimate
+# numeric titles ("Blade Runner 2049", "Space 1999", "The 4400") survive on screen.
 YEAR_SUFFIX_RE = re.compile(
     r"\s*[\(\[]\d{4}(?:[-–]\d{4})?[?]?[\)\]]$"
     r"|\s+\d{4}$"
     r"|\s+-\s+\d{4}$"
 )
+
+# Display-safe trailing-year strip: ONLY parenthesized/bracketed year markers, which
+# are unambiguous metadata — "(2024)", "[2024]", "(2000-2005)", "(2024?)". A bare
+# trailing number (often part of the real title: 2049, 1999, 4400) is NOT stripped.
+PAREN_YEAR_SUFFIX_RE = re.compile(r"\s*[\(\[]\d{4}(?:[-–]\d{4})?[?]?[\)\]]\s*$")
 
 # Trailing quality markers used in the dedup normalization pass (global, no anchoring).
 # Distinct from _QUALITY_SUFFIX_RE (which is anchored to end-of-bare-name for parsing).
@@ -240,10 +250,13 @@ def strip_title_qualifiers(bare: str) -> str:
       (BR), (ENG-SUB), (Dubbed), …
     - Digit-starting quality tokens in parens: (4K), (8K).
     - Bracket qualifiers with internal separators: [Multi Audio/Sub], [ENG-SUB].
-    - Trailing year markers (dedup-style): (2024), [2024], 2024, - 2024.
+    - Parenthesized/bracketed year markers ONLY: (2024), [2024], (2000-2005).
 
     Preserves multi-word alt-language titles in parens: (30 Monedas), (Soleil Noir),
-    (ENG DUB) all contain an internal space and are NEVER stripped.
+    (ENG DUB) all contain an internal space and are NEVER stripped. Also preserves a
+    bare trailing number that is part of the real title — "Blade Runner 2049",
+    "Space 1999", "The 4400" — by stripping only PARENTHESIZED years, never a bare
+    ``\\s+\\d{4}$`` (that aggressive form stays in content_dedup's key normalization).
 
     Args:
         bare: The bare channel name after prefix and quality stripping.
@@ -254,7 +267,7 @@ def strip_title_qualifiers(bare: str) -> str:
     prev = None
     while prev != bare:
         prev = bare
-        bare = YEAR_SUFFIX_RE.sub("", bare).strip()
+        bare = PAREN_YEAR_SUFFIX_RE.sub("", bare).strip()
         bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
         bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
         bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
