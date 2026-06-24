@@ -269,3 +269,22 @@ def test_filter_reseed_preserves_text_so_lazy_page_stays_filtered(qapp):
         "current_filter() must return the typed filter after a preserve_filter reseed; "
         "without this, _load_more_see_all would load unfiltered content on the next scroll"
     )
+
+
+# ---------------------------------------------------------------------------
+# Clear button wires correctly
+# ---------------------------------------------------------------------------
+
+def test_clear_button_clears_search_box_and_filter(qapp):
+    """Clicking the clear button empties _search_box and resets current_filter."""
+    view = _make_browse(qapp)
+    view.load("Title", _cards("dark", 5))
+
+    view._search_box.setText("dark")
+    assert view._search_box.text() == "dark"
+
+    # Simulate a click: call the connected slot directly (no event loop needed).
+    view._clear_btn.clicked.emit()
+
+    assert view._search_box.text() == ""
+    assert view.current_filter() == ""
