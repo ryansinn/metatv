@@ -48,6 +48,7 @@ search_icon: str = "🔍"
 filter_icon: str = "⚡"
 filter_only_icon: str = "◎"   # U+25CE BULLSEYE — "show only this group" affordance
 show_all_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "show all / expand" affordance
+see_all_arrow_icon: str = "→"  # U+2192 RIGHTWARDS ARROW — "See all / Show all" drill-down affordance
 hide_icon: str = "🚫"
 pin_icon: str = "📌"
 manage_icon: str = "⚙"

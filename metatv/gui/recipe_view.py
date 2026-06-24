@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -617,6 +618,7 @@ class _NowPlatingStrip(QWidget):
 
     cardClicked       = pyqtSignal(str)   # channel_id
     cardDoubleClicked = pyqtSignal(str)   # channel_id
+    showAllRequested  = pyqtSignal()      # "Show all →" → full-results browse page
 
     def __init__(self, image_cache, config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -625,6 +627,7 @@ class _NowPlatingStrip(QWidget):
         self._card_widgets: list = []          # list[_ContentCard]
         self._scroll: QScrollArea | None = None
         self._flow = None                      # _FlowLayout | None
+        self._total_count: int = 0             # latest match total (drives "Show all")
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
@@ -640,9 +643,12 @@ class _NowPlatingStrip(QWidget):
         """
         from metatv.gui.discover_card import _ContentCard, _FlowLayout
 
+        self._total_count = total_count
         self._hdr.setText(
             f"NOW PLATING  ·  {total_count:,} match{'es' if total_count != 1 else ''}"
         )
+        # "Show all" only makes sense when there is at least one match.
+        self._show_all_btn.setVisible(total_count > 0)
 
         # Tear down the previous flow + cards, then start a fresh flow.  (A new
         # _FlowLayout each rebuild matches discover_browse — clear() deletes the
@@ -711,9 +717,33 @@ class _NowPlatingStrip(QWidget):
         line.setStyleSheet(_theme.SEPARATOR_H)
         outer.addWidget(line)
 
+        # Header row: "NOW PLATING · N matches" label + "Show all →" affordance.
+        hdr_row = QHBoxLayout()
+        hdr_row.setContentsMargins(0, 0, 0, 0)
+        hdr_row.setSpacing(8)
+
         self._hdr = QLabel("NOW PLATING  ·  0 matches")
         self._hdr.setStyleSheet(_theme.RECIPE_NOW_PLATING_HDR)
-        outer.addWidget(self._hdr)
+        hdr_row.addWidget(self._hdr)
+        hdr_row.addStretch()
+
+        # "Show all →" — flat link styled like Discover's "See all →", swaps the
+        # bounded teaser for the full-results browse grid.  Hidden until there is
+        # at least one match (toggled in load_results).
+        self._show_all_btn = QPushButton(f"Show all {_icons.see_all_arrow_icon}")
+        self._show_all_btn.setFlat(True)
+        self._show_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._show_all_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none;"
+            f" font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
+        )
+        self._show_all_btn.setToolTip("Browse all matching channels")
+        self._show_all_btn.setVisible(False)
+        self._show_all_btn.clicked.connect(self.showAllRequested)
+        hdr_row.addWidget(self._show_all_btn)
+
+        outer.addLayout(hdr_row)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -790,6 +820,7 @@ class RecipeView(QWidget):
         self._pantry_token: list[int] = [0]
         self._cloud_token: list[int] = [0]
         self._results_token: list[int] = [0]
+        self._see_all_token: list[int] = [0]
 
         # Debounce timer — coalesces rapid tag clicks into a single DB query.
         # Each mutation renders the rail/cloud instantly and restarts this timer;
@@ -806,6 +837,10 @@ class RecipeView(QWidget):
     def on_activate(self) -> None:
         """Called by MainWindow when this view becomes visible."""
         self._active = True
+        # Re-entering via the Recipe chip is the user's 1-click "back to
+        # building" path — always land on the constructor, never a stale browse
+        # page from a previous visit.
+        self._stack.setCurrentIndex(0)
         logger.debug("RecipeView: activated")
         self._load_pantry()
 
@@ -813,6 +848,9 @@ class RecipeView(QWidget):
         """Called by MainWindow when another view is selected."""
         self._active = False
         self._results_debounce.stop()
+        # Cancel any in-flight see-all load so a late result can't repopulate the
+        # browse grid after we've navigated away (matches the _results_token bump).
+        self._see_all_token[0] += 1
         logger.debug("RecipeView: deactivated")
 
     def reload(self) -> None:
@@ -839,6 +877,10 @@ class RecipeView(QWidget):
         self._load_pantry()
         if self._recipe_includes or self._recipe_excludes:
             self._load_results()
+        # If the browse drill-down is showing, re-run the see-all query too so
+        # the full grid honors the new exclusions, not just the teaser.
+        if self._stack.currentIndex() == 1:
+            self._load_see_all()
 
     # ── Public helpers ────────────────────────────────────────────────────
 
@@ -854,7 +896,20 @@ class RecipeView(QWidget):
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        root = QHBoxLayout(self)
+        # The view's outer layout holds only a QStackedWidget:
+        #   page 0 — the 3-column constructor (Pantry | Now Plating | Recipe rail)
+        #   page 1 — the full-results browse grid (reuses Discover's _BrowseView)
+        # "Show all →" swaps to page 1; the Recipe chip / browse Back returns to 0.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._stack = QStackedWidget()
+        outer.addWidget(self._stack)
+
+        # --- Page 0: the 3-column constructor ---
+        constructor = QWidget()
+        root = QHBoxLayout(constructor)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -894,6 +949,7 @@ class RecipeView(QWidget):
         self._now_plating = _NowPlatingStrip(self._image_cache, self._config)
         self._now_plating.cardClicked.connect(self.channelSelected)
         self._now_plating.cardDoubleClicked.connect(self.playRequested)
+        self._now_plating.showAllRequested.connect(self._on_show_all)
         center_layout.addWidget(self._now_plating, stretch=1)
 
         root.addWidget(center, stretch=1)
@@ -909,6 +965,20 @@ class RecipeView(QWidget):
         self._rail.clear_btn.clicked.connect(self.clear_recipe)
         self._rail.ingredient_remove_requested.connect(self._on_ingredient_remove)
         root.addWidget(self._rail)
+
+        # Constructor is page 0.
+        self._stack.addWidget(constructor)
+
+        # --- Page 1: the full-results browse grid (reuses Discover _BrowseView) ---
+        from metatv.gui.discover_browse import _BrowseView
+
+        self._browse = _BrowseView(self._image_cache, self._config)
+        self._browse.backRequested.connect(self._on_browse_back)
+        self._browse.cardClicked.connect(self.channelSelected)
+        self._browse.cardDoubleClicked.connect(self.playRequested)
+        # cardContextMenu intentionally left unconnected — the Now Plating strip
+        # has no context-menu wiring, so the browse drill-down matches it (no-op).
+        self._stack.addWidget(self._browse)
 
     # ── Data loading ──────────────────────────────────────────────────────
 
@@ -1044,6 +1114,11 @@ class RecipeView(QWidget):
     # coalesce into one DB round-trip while the rail/cloud update instantly.
     _DEBOUNCE_MS: int = 300
 
+    # "Show all →" browse cap — parity with Discover's See-All
+    # (discover_workers._SEE_ALL_LIMIT = 500).  Defined locally so the recipe
+    # view doesn't import the private Discover constant.
+    _RECIPE_SEE_ALL_LIMIT: int = 500
+
     def _load_results(self) -> None:
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
         # Snapshot recipe state for the lambda (closed over)
@@ -1098,6 +1173,83 @@ class RecipeView(QWidget):
 
     def _on_results_error(self, exc: Exception) -> None:
         logger.error("RecipeView: results load failed: {}", exc)
+
+    # ── "Show all →" full-results browse drill-down ──────────────────────
+
+    def _browse_title(self) -> str:
+        """Build the browse-page title from the recipe name + match count.
+
+        Uses the rail's editorial recipe name when the recipe has ingredients
+        (else a neutral "Tonight's Recipe"), suffixed with the live match count
+        — e.g. "Late-Night Drama Selection · 366,085 matches".
+        """
+        total = self._now_plating._total_count
+        if self._recipe_includes or self._recipe_excludes:
+            name = _generate_recipe_name(self._recipe_includes, self._recipe_excludes)
+        else:
+            name = "Tonight's Recipe"
+        suffix = f"  ·  {total:,} match{'es' if total != 1 else ''}"
+        return f"{name}{suffix}"
+
+    def _on_show_all(self) -> None:
+        """Swap the bounded teaser for the full-results browse grid.
+
+        Switches to the browse page, seeds it instantly with the cards the strip
+        already has (zero-latency feedback), then fires a background see-all
+        query for up to :data:`_RECIPE_SEE_ALL_LIMIT` cards using the same recipe
+        snapshot + scoping as :meth:`_load_results`.  A dedicated token guards
+        the load so a stale see-all result is dropped.
+        """
+        title = self._browse_title()
+        # Instant feedback: reuse the cards the strip already rendered.
+        cached_cards = [w._card for w in self._now_plating._card_widgets]
+        self._browse.load(title, cached_cards)
+        self._stack.setCurrentIndex(1)
+        self._load_see_all()
+
+    def _on_browse_back(self) -> None:
+        """Browse 'Back' → return to the constructor (page 0)."""
+        self._stack.setCurrentIndex(0)
+
+    def _load_see_all(self) -> None:
+        """Fetch the full (capped) result set for the browse grid (off-thread).
+
+        Reuses the EXACT scoping as :meth:`_load_results` — Global Exclusions +
+        ``get_hidden_provider_ids()`` — just with ``limit=_RECIPE_SEE_ALL_LIMIT``
+        so the browse grid shows far more than the 60-card teaser.  Guarded by
+        ``_see_all_token`` so a superseded load is dropped at delivery.
+        """
+        includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
+        excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        limit = self._RECIPE_SEE_ALL_LIMIT
+
+        def _query(repos):
+            hidden = repos.providers.get_hidden_provider_ids()
+            return repos.tags.sample_channels_by_tag_facets(
+                includes=includes,
+                excludes=excludes,
+                excluded_provider_ids=hidden,
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
+                limit=limit,
+            )
+
+        self._run_query(
+            _query,
+            self._on_see_all_loaded,
+            token_ref=self._see_all_token,
+            on_error=self._on_see_all_error,
+        )
+
+    def _on_see_all_loaded(self, cards: list) -> None:
+        """Main-thread slot: render the full result set in the browse grid."""
+        if not self._active:
+            return
+        self._browse.load(self._browse_title(), cards)
+
+    def _on_see_all_error(self, exc: Exception) -> None:
+        logger.error("RecipeView: see-all load failed: {}", exc)
 
     # ── Event handlers ────────────────────────────────────────────────────
 
