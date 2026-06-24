@@ -461,6 +461,120 @@ def test_more_label_when_total_exceeds_cards(qapp):
 
 
 # ---------------------------------------------------------------------------
+# Now-Plating grid (Task 2): wrapping, vertically-scrollable card grid
+# ---------------------------------------------------------------------------
+#
+# The strip used to be a single clipped horizontal row showing ~6 of 2,500
+# results; it is now a wrapping grid that fills the space below the cloud.
+
+from PyQt6.QtWidgets import QLabel as _QLabel  # noqa: E402
+
+
+def _flow_items(view):
+    """Return the widgets currently in the Now-Plating flow layout."""
+    flow = view._now_plating._flow
+    return list(flow._items) if flow is not None else []
+
+
+def test_grid_wraps_cards_into_multiple_rows(qapp):
+    """A gridful of cards wraps into >1 row when the container is narrow.
+
+    Proven by relaying the flow at a width that fits only a few cards and
+    asserting the wrapped content spans multiple distinct y-rows.
+    """
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(12)]
+    view._on_results_loaded((cards, 12))
+
+    assert len(view._now_plating._card_widgets) == 12
+    # Reflow at a narrow width (≈3 cards wide at 120px each) → must wrap.
+    flow = view._now_plating._flow
+    total_h = flow.relayout(400)
+    rows = {w.y() for w in view._now_plating._card_widgets}
+    assert len(rows) > 1, "Cards must wrap into multiple rows in a narrow grid"
+    assert total_h > 0
+
+
+def test_grid_more_indicator_present_when_total_exceeds_cap(qapp):
+    """A '+N more … showing M of TOTAL' indicator is added when total > shown."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(5)]
+    view._on_results_loaded((cards, 2500))
+
+    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
+    texts = " ".join(lbl.text() for lbl in labels)
+    assert "more" in texts
+    assert "2,495" in texts          # 2500 − 5 remainder
+    assert "showing 5 of 2,500" in texts
+
+
+def test_grid_no_more_indicator_when_all_shown(qapp):
+    """No '+N more' indicator when the full match set fits in the grid."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(4)]
+    view._on_results_loaded((cards, 4))
+
+    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
+    assert all("more" not in lbl.text() for lbl in labels)
+
+
+def test_grid_empty_state_renders_cleanly(qapp):
+    """Zero matches renders a placeholder label and no card widgets."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view._on_results_loaded(([], 0))
+
+    assert view._now_plating._card_widgets == []
+    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
+    assert any("No channels match" in lbl.text() for lbl in labels)
+
+
+def test_grid_rebuild_replaces_previous_cards(qapp):
+    """A second load (tag toggle) clears the prior cards before adding new ones."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view._on_results_loaded(([_FakeCard("a", "A"), _FakeCard("b", "B")], 2))
+    assert len(view._now_plating._card_widgets) == 2
+
+    # Re-load with a different set — the grid rebuilds, not appends.
+    view._on_results_loaded(([_FakeCard("c", "C")], 1))
+    assert len(view._now_plating._card_widgets) == 1
+    assert view._now_plating._card_widgets[0]._card.channel_id == "c"
+
+
+def test_grid_results_card_cap_is_a_gridful(qapp):
+    """The result cap is raised to a gridful (>1 row) of cards."""
+    from metatv.gui.recipe_view import RecipeView
+    assert RecipeView._RESULTS_CARD_CAP >= 48
+
+
+def test_cloud_has_no_trailing_stretch(qapp):
+    """The cloud's layout no longer ends with the dead-gap addStretch().
+
+    The trailing stretch existed only to absorb a tall stretch=1 slot; the
+    recipe host now sizes the cloud to content (Maximum vertical policy), so the
+    stretch must be gone or the dead gap returns.
+    """
+    from metatv.gui.weighted_tag_cloud import WeightedTagCloud
+    cloud = WeightedTagCloud()
+    layout = cloud.layout()
+    last = layout.itemAt(layout.count() - 1)
+    # A stretch item has no widget and a non-None spacerItem; the last item must
+    # be the "+N more" button widget, not a trailing spacer.
+    assert last.widget() is not None, (
+        "The cloud layout must not end with a stretch spacer (the dead-gap hack)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # clear_recipe
 # ---------------------------------------------------------------------------
 
@@ -604,6 +718,103 @@ def test_on_deactivate_clears_active_flag(qapp):
     view.on_deactivate()
 
     assert view._active is False
+
+
+# ---------------------------------------------------------------------------
+# reload() — re-issues data loads when Global Exclusions change (Task 1)
+# ---------------------------------------------------------------------------
+#
+# Regression: changing Global Exclusions and clicking OK left the recipe view
+# showing stale pre-exclusion data because the dialog-accept handler refreshed
+# every other view but not the recipe.  reload() re-runs the same loads
+# on_activate triggers (pantry → cloud), so the new exclusions take effect.
+
+def test_reload_noop_when_never_activated(qapp):
+    """reload() before the view is ever activated issues no queries."""
+    view, seam = _make_view(qapp)
+    view._active = False  # never activated
+
+    view.reload()
+
+    assert seam.calls == []
+
+
+def test_reload_reissues_pantry_load(qapp):
+    """reload() on an active view re-issues the pantry load (same as on_activate)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view.reload()
+
+    # The pantry load is the load on_activate fires; reload must re-issue it so
+    # new Global Exclusions re-resolve through _global_exclusion_sets().
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+
+
+def test_reload_reissues_results_when_recipe_in_progress(qapp):
+    """reload() with an active recipe re-issues the results/YIELDS load too."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    view.reload()
+
+    # Both pantry (→ cascades to cloud) and results must re-run so the count +
+    # cards reflect the new exclusions immediately, not after a nav round-trip.
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert any(c["on_result"] == view._on_results_loaded for c in seam.calls)
+
+
+def test_reload_skips_results_when_recipe_empty(qapp):
+    """reload() with no ingredients re-issues only the pantry (no results query)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    # No includes/excludes set.
+
+    view.reload()
+
+    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert not any(c["on_result"] == view._on_results_loaded for c in seam.calls)
+
+
+def test_global_filter_accept_reloads_recipe_view():
+    """The Global-Exclusions Accepted path calls recipe_view.reload().
+
+    Drives the real _open_global_filter_dialog handler with a mock dialog that
+    returns Accepted, asserting the recipe view is refreshed alongside the other
+    provider-dependent views — the wiring that fixes the stale-recipe bug.
+    """
+    from unittest.mock import MagicMock, patch
+    from metatv.gui.main_window_nav import _NavMixin
+
+    # Bare host exposing only what the handler touches.
+    host = _NavMixin.__new__(_NavMixin)
+    host.config = MagicMock()
+    host.db = MagicMock()
+    host._update_filter_btn_state = MagicMock()
+    host.load_channels = MagicMock()
+    host._refresh_recommended_section = MagicMock()
+    host.recipe_view = MagicMock()
+    # discover_view / preferences_view intentionally absent → hasattr() guards skip.
+
+    accepted = object()
+
+    class _FakeDialog:
+        DialogCode = type("DC", (), {"Accepted": accepted})
+
+        def __init__(self, *a, **k):
+            pass
+
+        def exec(self):
+            return accepted
+
+    with patch(
+        "metatv.gui.global_filter_dialog.GlobalFilterDialog", _FakeDialog
+    ):
+        host._open_global_filter_dialog()
+
+    host.recipe_view.reload.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
