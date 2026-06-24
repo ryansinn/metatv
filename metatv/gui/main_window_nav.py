@@ -255,6 +255,8 @@ class _NavMixin:
             self.discover_view.reload()
         if hasattr(self, "preferences_view"):
             self.preferences_view.refresh()
+        if "recipe_view" in self.__dict__:
+            self.recipe_view.reload()
         self._refresh_recommended_section()
 
     def _open_global_filter_dialog(self) -> None:

@@ -1053,7 +1053,14 @@ class SeriesLoadThread(QThread):
                     base = self.provider.url.rstrip("/")
                     stream_url = f"{base}/series/{self.provider.username}/{self.provider.password}/{episode_id}.{container}"
                     
-                    info = episode_data.get("info", {})
+                    info_raw = episode_data.get("info", {})
+                    if not isinstance(info_raw, dict):
+                        logger.debug(
+                            f"Episode 'info' field is {type(info_raw).__name__}, not dict "
+                            f"(episode_id={episode_id}, season={season_num}) — treating as empty"
+                        )
+                        info_raw = {}
+                    info = info_raw
                     duration = info.get("duration", "") or episode_data.get("duration", "")
 
                     if existing_episode:
