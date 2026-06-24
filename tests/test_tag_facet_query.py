@@ -727,3 +727,103 @@ class TestSampleChannelsAsCards:
             repos = RepositoryFactory(session)
             cards = repos.tags.sample_channels_by_tag_facets({"platform": {"Nope+"}})
         assert cards == []
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination — sample_channels_by_tag_facets(limit, offset)
+# ---------------------------------------------------------------------------
+#
+# The recipe "Show all" browse page pages through the FULL match set via the
+# offset parameter.  The id query is ordered deterministically by channel_id so
+# successive (limit, offset) pages are disjoint and together cover the whole set
+# with no overlap and no gaps — and the final card order preserves that page
+# order (it is NOT re-sorted by name after fetch).
+
+
+@pytest.fixture
+def many_drama_channels(file_db):
+    """Seed N>2*page channels that all match genre:Drama; return (ids, db)."""
+    n = 25
+    ids: list[str] = []
+    with file_db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        for i in range(n):
+            # Names intentionally out of channel_id order so a name re-sort would
+            # visibly scramble the page boundaries if it crept back in.
+            cid = _add_channel(session, f"Drama {n - i:03d}")
+            repos.tags.set_content_tags(cid, [("genre", "Drama", "test_feeder")])
+            ids.append(cid)
+    return ids, file_db
+
+
+class TestStablePagination:
+    def test_pages_are_disjoint_and_cover_full_set(self, many_drama_channels):
+        """Paging through (limit, offset) yields disjoint pages covering all ids."""
+        all_ids, db = many_drama_channels
+        page = 10
+        seen: list[str] = []
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            offset = 0
+            while True:
+                cards = repos.tags.sample_channels_by_tag_facets(
+                    {"genre": {"Drama"}}, limit=page, offset=offset
+                )
+                if not cards:
+                    break
+                seen.extend(c.channel_id for c in cards)
+                offset += len(cards)
+
+        # No duplicates across pages, and the union covers the full match set.
+        assert len(seen) == len(set(seen)), "Pages overlapped (a duplicate id)"
+        assert set(seen) == set(all_ids), "Pages did not cover the full set"
+
+    def test_adjacent_pages_do_not_overlap(self, many_drama_channels):
+        """Page (limit=N, offset=0) and (limit=N, offset=N) share no ids."""
+        _all_ids, db = many_drama_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            p0 = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=8, offset=0
+            )
+            p1 = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=8, offset=8
+            )
+        s0 = {c.channel_id for c in p0}
+        s1 = {c.channel_id for c in p1}
+        assert len(s0) == 8 and len(s1) == 8
+        assert s0.isdisjoint(s1), "offset=0 and offset=N pages overlapped"
+
+    def test_ordering_is_deterministic_across_calls(self, many_drama_channels):
+        """The same (limit, offset) returns the same ids in the same order."""
+        _all_ids, db = many_drama_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            a = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=7, offset=7
+            )
+            b = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=7, offset=7
+            )
+        assert [c.channel_id for c in a] == [c.channel_id for c in b]
+
+    def test_card_order_matches_id_page_order(self, many_drama_channels):
+        """Cards come back in the channel_id page order, NOT re-sorted by name.
+
+        The seeded names are deliberately inverse to channel_id order, so if the
+        method re-sorted the page by name the returned order would differ from
+        the deterministic id order — this asserts it does not.
+        """
+        _all_ids, db = many_drama_channels
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            # The id-query order for this page (what the cards must follow).
+            q = repos.tags._faceted_channel_id_query({"genre": {"Drama"}})
+            expected_ids = [
+                row.channel_id
+                for row in q.order_by("channel_id").offset(5).limit(6).all()
+            ]
+            cards = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=6, offset=5
+            )
+        assert [c.channel_id for c in cards] == expected_ids

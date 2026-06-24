@@ -822,6 +822,13 @@ class RecipeView(QWidget):
         self._results_token: list[int] = [0]
         self._see_all_token: list[int] = [0]
 
+        # "Show all" lazy-pagination state: how many cards we've already shown
+        # (the page-1 seed reuses the teaser's cards), the known full match
+        # total, and a guard so we never fire overlapping page loads.
+        self._see_all_offset: int = 0
+        self._see_all_total: int = 0
+        self._see_all_loading: bool = False
+
         # Debounce timer — coalesces rapid tag clicks into a single DB query.
         # Each mutation renders the rail/cloud instantly and restarts this timer;
         # the timer fires _load_results() once after the idle window expires.
@@ -875,12 +882,13 @@ class RecipeView(QWidget):
             return
         logger.debug("RecipeView: reload (config changed)")
         self._load_pantry()
-        if self._recipe_includes or self._recipe_excludes:
+        # Re-run the teaser results when a recipe is in progress OR the browse
+        # drill-down is showing (it may have no ingredients yet still needs to
+        # re-resolve the new exclusions).  _on_results_loaded re-seeds the browse
+        # page from the fresh teaser once the new total + cards land, so the full
+        # grid honors the new exclusions — not just the teaser.
+        if self._recipe_includes or self._recipe_excludes or self._stack.currentIndex() == 1:
             self._load_results()
-        # If the browse drill-down is showing, re-run the see-all query too so
-        # the full grid honors the new exclusions, not just the teaser.
-        if self._stack.currentIndex() == 1:
-            self._load_see_all()
 
     # ── Public helpers ────────────────────────────────────────────────────
 
@@ -976,6 +984,8 @@ class RecipeView(QWidget):
         self._browse.backRequested.connect(self._on_browse_back)
         self._browse.cardClicked.connect(self.channelSelected)
         self._browse.cardDoubleClicked.connect(self.playRequested)
+        # Lazy DB pagination: each near-bottom scroll asks for the next page.
+        self._browse.loadMoreRequested.connect(self._load_more_see_all)
         # cardContextMenu intentionally left unconnected — the Now Plating strip
         # has no context-menu wiring, so the browse drill-down matches it (no-op).
         self._stack.addWidget(self._browse)
@@ -1114,10 +1124,10 @@ class RecipeView(QWidget):
     # coalesce into one DB round-trip while the rail/cloud update instantly.
     _DEBOUNCE_MS: int = 300
 
-    # "Show all →" browse cap — parity with Discover's See-All
-    # (discover_workers._SEE_ALL_LIMIT = 500).  Defined locally so the recipe
-    # view doesn't import the private Discover constant.
-    _RECIPE_SEE_ALL_LIMIT: int = 500
+    # "Show all →" lazy-pagination page size — how many cards each near-bottom
+    # scroll fetches+appends from the DB.  There is NO hard cap: paging continues
+    # until offset >= total, so the browse grid can reach the full match set.
+    _SEE_ALL_PAGE: int = 60
 
     def _load_results(self) -> None:
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
@@ -1170,6 +1180,13 @@ class RecipeView(QWidget):
         self._now_plating.load_results(cards, total)
         # Update rail with current recipe + count
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, total)
+        # If the "Show all" browse page is showing, the recipe (or Global
+        # Exclusions) just changed underneath it — re-seed it from this fresh
+        # teaser so the full-page pagination reflects the new recipe.  Doing this
+        # here (rather than in reload()) means the browse re-seeds AFTER the new
+        # teaser cards + total have actually landed, never from stale state.
+        if self._stack.currentIndex() == 1:
+            self._reseed_see_all()
 
     def _on_results_error(self, exc: Exception) -> None:
         logger.error("RecipeView: results load failed: {}", exc)
@@ -1194,35 +1211,63 @@ class RecipeView(QWidget):
     def _on_show_all(self) -> None:
         """Swap the bounded teaser for the full-results browse grid.
 
-        Switches to the browse page, seeds it instantly with the cards the strip
-        already has (zero-latency feedback), then fires a background see-all
-        query for up to :data:`_RECIPE_SEE_ALL_LIMIT` cards using the same recipe
-        snapshot + scoping as :meth:`_load_results`.  A dedicated token guards
-        the load so a stale see-all result is dropped.
+        Page 1 does ZERO new DB/image work: it seeds the browse grid with the
+        cards the teaser already fetched+rendered (≤ :data:`_RESULTS_CARD_CAP`),
+        sets the pagination offset to that seed count and the known total to the
+        teaser's match total, and flags ``set_has_more`` so the next near-bottom
+        scroll pages from the DB via :meth:`_load_more_see_all`.  No big up-front
+        fetch.  The shared deterministic ordering of
+        ``sample_channels_by_tag_facets`` makes the seeded teaser cards align
+        with the DB pages that follow.
         """
-        title = self._browse_title()
-        # Instant feedback: reuse the cards the strip already rendered.
-        cached_cards = [w._card for w in self._now_plating._card_widgets]
-        self._browse.load(title, cached_cards)
         self._stack.setCurrentIndex(1)
-        self._load_see_all()
+        self._reseed_see_all()
+
+    def _reseed_see_all(self) -> None:
+        """Reset the browse page to a fresh page-1 seed from the current teaser.
+
+        Loads the browse grid with the cards the teaser already fetched+rendered
+        (≤ :data:`_RESULTS_CARD_CAP`) — ZERO new DB/image work — then resets the
+        pagination offset to that seed count, the total to the teaser's match
+        count, and arms ``set_has_more`` if any matches remain.  Bumps the
+        ``_see_all_token`` so any in-flight page from a prior recipe is dropped.
+        Shared by :meth:`_on_show_all` (first open) and :meth:`_on_results_loaded`
+        (recipe / exclusions changed while browsing).
+        """
+        # Drop any page request still in flight against the previous recipe.
+        self._see_all_token[0] += 1
+        # Page 1 = the cards the strip already rendered (zero-latency feedback).
+        cached_cards = [w._card for w in self._now_plating._card_widgets]
+        self._browse.load(self._browse_title(), cached_cards)
+        self._see_all_offset = len(cached_cards)
+        self._see_all_total = self._now_plating._total_count
+        self._see_all_loading = False
+        self._browse.set_has_more(self._see_all_offset < self._see_all_total)
 
     def _on_browse_back(self) -> None:
         """Browse 'Back' → return to the constructor (page 0)."""
         self._stack.setCurrentIndex(0)
 
-    def _load_see_all(self) -> None:
-        """Fetch the full (capped) result set for the browse grid (off-thread).
+    def _load_more_see_all(self) -> None:
+        """Fetch+append the next browse page from the DB (off-thread).
 
-        Reuses the EXACT scoping as :meth:`_load_results` — Global Exclusions +
-        ``get_hidden_provider_ids()`` — just with ``limit=_RECIPE_SEE_ALL_LIMIT``
-        so the browse grid shows far more than the 60-card teaser.  Guarded by
-        ``_see_all_token`` so a superseded load is dropped at delivery.
+        Fired by ``_browse.loadMoreRequested`` on a near-bottom scroll.  Pages
+        ``_SEE_ALL_PAGE`` cards at a time from ``_see_all_offset``, reusing the
+        EXACT scoping as :meth:`_load_results` (Global Exclusions +
+        ``get_hidden_provider_ids()``) and the SAME deterministic ordering so the
+        page is disjoint from what's already shown.  Guarded by
+        ``_see_all_loading`` (no overlapping loads) and ``_see_all_token`` (drop a
+        stale page after a recipe change / deactivate).
         """
+        if self._see_all_loading or self._see_all_offset >= self._see_all_total:
+            return
+        self._see_all_loading = True
+
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
         excl_prefixes, excl_categories = self._global_exclusion_sets()
-        limit = self._RECIPE_SEE_ALL_LIMIT
+        limit = self._SEE_ALL_PAGE
+        offset = self._see_all_offset
 
         def _query(repos):
             hidden = repos.providers.get_hidden_provider_ids()
@@ -1233,6 +1278,7 @@ class RecipeView(QWidget):
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 limit=limit,
+                offset=offset,
             )
 
         self._run_query(
@@ -1243,13 +1289,19 @@ class RecipeView(QWidget):
         )
 
     def _on_see_all_loaded(self, cards: list) -> None:
-        """Main-thread slot: render the full result set in the browse grid."""
+        """Main-thread slot: append the fetched page to the browse grid."""
         if not self._active:
             return
-        self._browse.load(self._browse_title(), cards)
+        self._browse.append(cards)
+        self._see_all_offset += len(cards)
+        self._see_all_loading = False
+        # Re-arm "has more" (also re-arms the browse debounce) only while pages
+        # remain — once offset >= total, no further query can fire.
+        self._browse.set_has_more(self._see_all_offset < self._see_all_total)
 
     def _on_see_all_error(self, exc: Exception) -> None:
         logger.error("RecipeView: see-all load failed: {}", exc)
+        self._see_all_loading = False
 
     # ── Event handlers ────────────────────────────────────────────────────
 
