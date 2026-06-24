@@ -338,14 +338,15 @@ class _RecipeRail(QWidget):
         self,
         includes: dict[str, set[str]],
         excludes: dict[str, set[str]],
-        match_count: int,
+        match_count: int | None,
     ) -> None:
         """Re-render the recipe rail with the current recipe state.
 
         Args:
             includes: facet_type → set of included values.
             excludes: facet_type → set of excluded values.
-            match_count: Number of matching channels for the YIELDS display.
+            match_count: Number of matching channels for the YIELDS display, or
+                ``None`` when the count is still pending (shows "counting…").
         """
         # Update editorial name
         name = _generate_recipe_name(includes, excludes)
@@ -406,7 +407,10 @@ class _RecipeRail(QWidget):
         self._ingredients_layout.addStretch()
 
         # YIELDS
-        self._yields_lbl.setText(f"YIELDS {match_count:,} channel{'s' if match_count != 1 else ''}")
+        if match_count is None:
+            self._yields_lbl.setText("YIELDS counting…")
+        else:
+            self._yields_lbl.setText(f"YIELDS {match_count:,} channel{'s' if match_count != 1 else ''}")
 
     # ── private ───────────────────────────────────────────────────────────
 
@@ -787,6 +791,14 @@ class RecipeView(QWidget):
         self._cloud_token: list[int] = [0]
         self._results_token: list[int] = [0]
 
+        # Debounce timer — coalesces rapid tag clicks into a single DB query.
+        # Each mutation renders the rail/cloud instantly and restarts this timer;
+        # the timer fires _load_results() once after the idle window expires.
+        self._results_debounce = QTimer(self)
+        self._results_debounce.setSingleShot(True)
+        self._results_debounce.setInterval(self._DEBOUNCE_MS)
+        self._results_debounce.timeout.connect(self._load_results)
+
         self._build_ui()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
@@ -800,6 +812,7 @@ class RecipeView(QWidget):
     def on_deactivate(self) -> None:
         """Called by MainWindow when another view is selected."""
         self._active = False
+        self._results_debounce.stop()
         logger.debug("RecipeView: deactivated")
 
     def reload(self) -> None:
@@ -1027,6 +1040,10 @@ class RecipeView(QWidget):
     # plus a LIMIT slice of <= this many session-free ContentCards.
     _RESULTS_CARD_CAP: int = 60
 
+    # Debounce window for _load_results: rapid successive tag clicks
+    # coalesce into one DB round-trip while the rail/cloud update instantly.
+    _DEBOUNCE_MS: int = 300
+
     def _load_results(self) -> None:
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
         # Snapshot recipe state for the lambda (closed over)
@@ -1125,9 +1142,11 @@ class RecipeView(QWidget):
         if not exc:
             self._recipe_excludes.pop(facet, None)
 
-        # Re-render cloud to reflect new state, then reload results
+        # Re-render rail + cloud immediately (pure in-memory — no DB wait),
+        # then fire the debounced results load so rapid clicks coalesce.
+        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
         self._rebuild_cloud()
-        self._load_results()
+        self._results_debounce.start()
 
     def _on_ingredient_remove(self, facet_type: str, value: str) -> None:
         """Remove an ingredient chip from the recipe rail (cycles state → none)."""
@@ -1140,8 +1159,10 @@ class RecipeView(QWidget):
         if not self._recipe_excludes.get(facet_type):
             self._recipe_excludes.pop(facet_type, None)
 
+        # Render rail + cloud immediately; debounce the expensive DB count.
+        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
         self._rebuild_cloud()
-        self._load_results()
+        self._results_debounce.start()
 
     # ── Accessors (for tests) ─────────────────────────────────────────────
 

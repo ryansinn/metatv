@@ -1109,3 +1109,215 @@ def test_load_pantry_threads_exclusion_sets_to_engine(qapp):
 
     assert repos.tags.calls["facet_summary"]["excluded_prefixes"] == {"AR"}
     assert repos.tags.calls["facet_summary"]["excluded_categories"] == {"Kids"}
+
+
+# ---------------------------------------------------------------------------
+# Instant rail render (fix: decouple rail chips from async count)
+# ---------------------------------------------------------------------------
+#
+# Before this fix the rail chips only appeared after _on_results_loaded
+# returned (5-7 s).  The fix calls update_recipe(..., None) synchronously
+# inside _on_tag_clicked / _on_ingredient_remove so chips are visible
+# immediately; _on_results_loaded then fills in the real YIELDS count.
+
+class _RailSpy:
+    """Records every update_recipe() call for assertion."""
+
+    def __init__(self):
+        self.calls: list[tuple] = []   # (includes_snapshot, excludes_snapshot, total)
+
+    def update_recipe(self, includes, excludes, match_count):
+        # Deep-copy so later mutations don't change the recorded snapshot.
+        self.calls.append(
+            (
+                {k: set(v) for k, v in includes.items()},
+                {k: set(v) for k, v in excludes.items()},
+                match_count,
+            )
+        )
+
+    # Attribute stubs the view accesses on the rail.
+    class _Btn:
+        def clicked(self):
+            pass
+        clicked = type("_Sig", (), {"connect": lambda s, f: None})()
+
+    clear_btn = _Btn()
+    ingredient_remove_requested = type(
+        "_Sig", (), {"connect": lambda s, f: None}
+    )()
+
+
+def _make_view_with_rail_spy(qapp):
+    """Create a RecipeView with the real _RecipeRail replaced by a spy."""
+    view, seam = _make_view(qapp)
+    spy = _RailSpy()
+    view._rail = spy
+    return view, seam, spy
+
+
+def test_tag_click_renders_rail_chips_synchronously(qapp):
+    """_on_tag_clicked renders the rail instantly (before _load_results returns).
+
+    After calling _on_tag_clicked the spy must already have received an
+    update_recipe() call carrying the updated includes/excludes and a pending
+    total (None) — WITHOUT _on_results_loaded having been called.
+    """
+    view, seam, spy = _make_view_with_rail_spy(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [_TagCountDTO("Drama", 1000)])
+
+    seam.calls.clear()  # baseline — only future _run_query calls matter
+
+    view._on_tag_clicked("Drama")
+
+    # Rail must have been updated synchronously.
+    assert spy.calls, "update_recipe was not called synchronously on tag click"
+    includes_snap, excludes_snap, total = spy.calls[-1]
+    assert "Drama" in includes_snap.get("genre", set()), (
+        "Clicked tag must appear in includes immediately"
+    )
+    assert total is None, (
+        "Rail total must be None (pending) before _on_results_loaded returns"
+    )
+
+
+def test_tag_click_rail_chips_before_results_loaded(qapp):
+    """Rail chips appear synchronously; YIELDS updates only when DB result arrives.
+
+    Simulates the timing: tag click → rail shows chips with 'pending' →
+    _on_results_loaded arrives → rail shows real YIELDS.
+    """
+    view, seam, spy = _make_view_with_rail_spy(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [_TagCountDTO("Action", 500)])
+
+    view._on_tag_clicked("Action")
+
+    # Immediately after click — chips rendered, total pending.
+    pending_includes, _, pending_total = spy.calls[-1]
+    assert "Action" in pending_includes.get("genre", set())
+    assert pending_total is None
+
+    # Simulate the slow DB result arriving (bypasses debounce; drives slot directly).
+    # Must put the real _RecipeRail back or use a real integer assertion
+    # via the spy's second call.
+    view._on_results_loaded(([_FakeCard("c1", "An Action Movie")], 123))
+
+    # After results arrive — YIELDS updated to real count.
+    # _on_results_loaded calls self._rail.update_recipe(..., total=123) on the spy.
+    final_includes, _, final_total = spy.calls[-1]
+    assert final_total == 123, (
+        f"After _on_results_loaded, YIELDS must be 123, got {final_total}"
+    )
+
+
+def test_ingredient_remove_renders_rail_chips_synchronously(qapp):
+    """_on_ingredient_remove updates the rail instantly (pending total)."""
+    view, seam, spy = _make_view_with_rail_spy(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [_TagCountDTO("Drama", 1000), _TagCountDTO("Horror", 300)])
+
+    view._on_tag_clicked("Drama")
+    view._on_tag_clicked("Horror")
+    spy.calls.clear()
+
+    # Remove one ingredient via the rail chip handler.
+    view._on_ingredient_remove("genre", "Horror")
+
+    assert spy.calls, "update_recipe was not called synchronously on ingredient remove"
+    includes_snap, _, total = spy.calls[-1]
+    assert "Horror" not in includes_snap.get("genre", set())
+    assert total is None
+
+
+def test_update_recipe_pending_total_shows_counting_label(qapp):
+    """_RecipeRail.update_recipe with total=None shows 'counting' in YIELDS label."""
+    from metatv.gui.recipe_view import _RecipeRail
+
+    rail = _RecipeRail()
+    rail.update_recipe({"genre": {"Drama"}}, {}, None)
+
+    yields_text = rail._yields_lbl.text()
+    assert "counting" in yields_text.lower(), (
+        f"YIELDS label must say 'counting' when total is None, got: {yields_text!r}"
+    )
+
+
+def test_update_recipe_real_total_shows_count(qapp):
+    """_RecipeRail.update_recipe with a real total shows the numeric YIELDS."""
+    from metatv.gui.recipe_view import _RecipeRail
+
+    rail = _RecipeRail()
+    rail.update_recipe({"genre": {"Drama"}}, {}, 42)
+
+    yields_text = rail._yields_lbl.text()
+    assert "42" in yields_text
+
+
+def test_rapid_tag_clicks_coalesce_into_one_db_query(qapp):
+    """N rapid tag clicks fire one _load_results after the debounce fires.
+
+    Drives the debounce timer synchronously (zero-interval trick: set the
+    interval to 0 so processEvents() drains it) and counts _run_query calls
+    targeting _on_results_loaded.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    view, seam, spy = _make_view_with_rail_spy(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [
+        _TagCountDTO("Drama", 1000),
+        _TagCountDTO("Comedy", 800),
+        _TagCountDTO("Action", 600),
+    ])
+    # Collapse the debounce window to 0 ms so processEvents() fires it.
+    view._results_debounce.setInterval(0)
+
+    seam.calls.clear()
+
+    # Three rapid clicks — each restarts the timer.
+    view._on_tag_clicked("Drama")
+    view._on_tag_clicked("Comedy")
+    view._on_tag_clicked("Action")
+
+    # Rail updated three times (once per click) — instant.
+    assert len(spy.calls) == 3
+
+    # No _load_results call yet (timer still pending after last click).
+    results_calls_before = sum(
+        1 for c in seam.calls if c["on_result"] == view._on_results_loaded
+    )
+    assert results_calls_before == 0, (
+        f"_load_results must not fire before debounce expires, got {results_calls_before} calls"
+    )
+
+    # Let the debounce timer fire.
+    QApplication.processEvents()
+
+    results_calls_after = sum(
+        1 for c in seam.calls if c["on_result"] == view._on_results_loaded
+    )
+    assert results_calls_after == 1, (
+        f"Expected exactly 1 _load_results call after debounce, got {results_calls_after}"
+    )
+
+
+def test_on_deactivate_stops_debounce_timer(qapp):
+    """on_deactivate() stops the debounce timer so it doesn't fire after nav."""
+    view, seam, spy = _make_view_with_rail_spy(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [_TagCountDTO("Drama", 500)])
+
+    view._on_tag_clicked("Drama")  # starts debounce
+    assert view._results_debounce.isActive()
+
+    view.on_deactivate()
+    assert not view._results_debounce.isActive(), (
+        "Debounce timer must be stopped when the view deactivates"
+    )
