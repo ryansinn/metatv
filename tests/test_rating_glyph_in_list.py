@@ -303,3 +303,69 @@ def test_tooltip_role_unrated_channel_returns_none(qapp):
     tip = model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole)
 
     assert tip is None, f"Expected None for unrated row, got: {tip!r}"
+
+
+# ---------------------------------------------------------------------------
+# 5. ChannelListModel.update_rating() — in-place glyph update (task #63)
+# ---------------------------------------------------------------------------
+
+def test_update_rating_like_updates_dto_and_display(qapp):
+    """update_rating(id, 1) must update the DTO user_rating and show the like glyph."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    dto = _make_dto(user_rating=0, detected_title="Good Film")
+    model = _make_model(qapp, dto)
+
+    model.update_rating(dto.id, 1)
+
+    # DTO in the model must be updated.
+    assert model._channels[0].user_rating == 1
+    # DisplayRole must now contain the like glyph.
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.like_icon in text, f"Expected 👍 in display after update_rating(1), got: {text!r}"
+    assert _icons.dislike_icon not in text
+
+
+def test_update_rating_clear_removes_glyph(qapp):
+    """update_rating(id, 0) must clear user_rating and remove both glyphs from display."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    dto = _make_dto(user_rating=1, detected_title="Cleared Film")
+    model = _make_model(qapp, dto)
+
+    model.update_rating(dto.id, 0)
+
+    assert model._channels[0].user_rating == 0
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.like_icon not in text, f"Unexpected 👍 after clearing rating: {text!r}"
+    assert _icons.dislike_icon not in text, f"Unexpected 👎 after clearing rating: {text!r}"
+
+
+def test_update_rating_dislike_updates_dto_and_display(qapp):
+    """update_rating(id, -1) must update the DTO user_rating and show the dislike glyph."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    dto = _make_dto(user_rating=0, detected_title="Bad Film")
+    model = _make_model(qapp, dto)
+
+    model.update_rating(dto.id, -1)
+
+    assert model._channels[0].user_rating == -1
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.dislike_icon in text, f"Expected 👎 in display after update_rating(-1), got: {text!r}"
+    assert _icons.like_icon not in text
+
+
+def test_update_rating_nonexistent_channel_no_exception(qapp):
+    """update_rating for an id not in the model must be a silent no-op."""
+    dto = _make_dto(user_rating=0)
+    model = _make_model(qapp, dto)
+
+    # Must not raise.
+    model.update_rating("nonexistent-id-xyz", 1)
+
+    # Original DTO is untouched.
+    assert model._channels[0].user_rating == 0

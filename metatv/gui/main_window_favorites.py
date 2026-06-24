@@ -24,13 +24,19 @@ class _FavoritesMixin:
         """Toggle a like (+1) or dislike (-1) rating; clicking the active rating clears it."""
         from datetime import datetime
         from metatv.core.database import UserRatingDB
+        cleared = False
         with self.db.session_scope() as session:
             current = session.get(UserRatingDB, channel_id)
             if current and current.rating == rating:
                 session.delete(current)
+                cleared = True
             else:
                 session.merge(UserRatingDB(channel_id=channel_id, rating=rating,
                                            rated_at=datetime.utcnow()))
+        # Update the channel-list row glyph in place — mirrors update_favorite wiring.
+        new_rating = 0 if cleared else rating
+        if hasattr(self, 'channel_model'):
+            self.channel_model.update_rating(channel_id, new_rating)
         if self.view_mode == "preferences":
             self.preferences_view.refresh()
         self._refresh_recommended_section()

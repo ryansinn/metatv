@@ -299,6 +299,31 @@ class ChannelListModel(QAbstractListModel):
         model_index = self.createIndex(idx, 0)
         self.dataChanged.emit(model_index, model_index, [Qt.ItemDataRole.DisplayRole])
 
+    def update_rating(self, channel_id: str, user_rating: int) -> None:
+        """Update the rating glyph for one channel row in place.
+
+        Called from the main thread after a DB rating write succeeds.  The DTO
+        is frozen, so we replace the entry at that index and emit
+        ``dataChanged`` for both DisplayRole (trailing glyph) and ToolTipRole
+        (rating tooltip) so the view repaints only that row.
+
+        Args:
+            channel_id: The channel whose rating changed.
+            user_rating: The new rating: 1 (like), -1 (dislike), or 0 (cleared).
+        """
+        idx = self._id_to_index.get(channel_id)
+        if idx is None:
+            return
+        from dataclasses import replace
+        old = self._channels[idx]
+        self._channels[idx] = replace(old, user_rating=user_rating)
+        model_index = self.createIndex(idx, 0)
+        self.dataChanged.emit(
+            model_index,
+            model_index,
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole],
+        )
+
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _rebuild_index(self) -> None:
