@@ -159,11 +159,19 @@ class _EpgBrowseMixin:
         self.stack.addWidget(page)
 
     def _reload_browse(self) -> None:
-        search = self.search_input.text().strip()
-        if not search:
+        # Browse is a date/time-driven schedule browser. An empty search shows the
+        # full schedule for the selected day + time slot (get_schedule); a non-empty
+        # search narrows to matching upcoming programmes (search_programs). Both
+        # branches live in _fetch_browse — never early-return on an empty search, or
+        # the schedule view (the tab's primary function) is dead and only text search
+        # works (regression introduced in dd576bf).
+        provider_ids = self._filtered_provider_ids()
+        if not provider_ids:
+            # No EPG sources configured/active → nothing to browse. Surface the
+            # placeholder rather than firing a query that can only return empty.
             self._data_loaded.emit({"tab": "browse", "programs": [], "placeholder": True})
             return
-        provider_ids = self._filtered_provider_ids()
+        search = self.search_input.text().strip()
         target_date = self.date_combo.currentData()
         time_slot = self.time_combo.currentData()
         hide_filler = self.hide_filler_btn.isChecked()
@@ -205,10 +213,14 @@ class _EpgBrowseMixin:
             session.close()
 
     def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False) -> None:
-        if placeholder:
+        if placeholder or not programs:
+            # No data (no EPG sources, or the selected day/slot/search has no
+            # programmes) → show the placeholder instead of an empty tree.
             self.browse_list.setVisible(False)
+            self.browse_placeholder.setText(self._browse_placeholder_text())
             self.browse_placeholder.setVisible(True)
             self.browse_stats.clear()
+            self.status_message.emit("EPG: 0 programmes")
             return
         self.browse_placeholder.setVisible(False)
         self.browse_list.setVisible(True)
@@ -243,6 +255,14 @@ class _EpgBrowseMixin:
         count = len(programs)
         self.browse_stats.setText(f"{count:,} programmes")
         self.status_message.emit(f"EPG: {count:,} programmes")
+
+    def _browse_placeholder_text(self) -> str:
+        """Context-aware empty-state message for the Browse tab."""
+        if not self._filtered_provider_ids():
+            return "No EPG sources — enable a source's guide to browse the schedule."
+        if self.search_input.text().strip():
+            return "No programmes match your search."
+        return "No programmes for the selected day and time."
 
     def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
