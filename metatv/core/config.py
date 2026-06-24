@@ -828,6 +828,11 @@ class Config(BaseModel):
     # to trigger a one-time re-derivation of all content_tags from the decomposer.
     tag_backfill_version: int = 0
 
+    # Internal migration version for the content_key backfill (content-identity Slice 1).
+    # Bump CURRENT_VERSION in metatv/core/migrations/content_key_backfill.py
+    # to trigger a one-time re-derivation of all content_key values from stored detected_* fields.
+    content_key_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

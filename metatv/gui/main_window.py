@@ -303,6 +303,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(MetadataRescanTask(self.db, self.metadata_manager))
         from metatv.core.migrations.tag_backfill import TagBackfillTask
         self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
+        from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
+        self.migration_manager.register(ContentKeyBackfillTask(self.db))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
 
         # Serial refresh queue — must be created BEFORE setup_ui() because

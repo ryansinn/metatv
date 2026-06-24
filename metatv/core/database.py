@@ -97,6 +97,17 @@ class ChannelDB(Base):
     # the provider upsert never overwrites it (same pattern as detected_* columns).
     tag_fingerprint = Column(String, nullable=True)
 
+    # Stable content identity key — computed once at ingestion from stored detected_* fields,
+    # never from the raw channel name.  Groups same-production channels that differ only by
+    # source/language/quality variant (e.g. "EN Dark Star movie 2017" and "FR Dark Star movie 2017"
+    # both resolve to "dark star|movie|2017").
+    # Format: "{norm_detected_title}|{media_type}|{detected_year}"
+    # Fallback: when detected_title is empty, the channel id is used so the row never
+    # collapses with unrelated rows.  NULL on pre-migration rows; backfilled via
+    # ContentKeyBackfillTask (registered at app startup in main_window.py).
+    # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
+    content_key = Column(String, index=True, nullable=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -502,6 +513,7 @@ class Database:
             ("channels",     "watch_percent",              "INTEGER DEFAULT 0"),
             ("episodes",     "watch_percent",              "INTEGER DEFAULT 0"),
             ("channels",     "tag_fingerprint",            "TEXT"),
+            ("channels",     "content_key",                "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -515,6 +527,7 @@ class Database:
             # Index migrations — idempotent via IF NOT EXISTS
             index_migrations = [
                 "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
             ]
             for idx_sql in index_migrations:
                 try:
