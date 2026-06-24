@@ -698,6 +698,7 @@ class Config(BaseModel):
     filter_included_regions: Optional[list] = None
     filter_included_qualities: Optional[list] = None
     filter_included_platforms: Optional[list] = None
+    filter_included_categories: Optional[list] = None
     filter_included_genres: Optional[list] = None
     # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
@@ -1075,6 +1076,8 @@ class Config(BaseModel):
                 self.filter_included_qualities = None
             if self.filter_included_platforms == []:
                 self.filter_included_platforms = None
+            if self.filter_included_categories == []:
+                self.filter_included_categories = None
             if self.filter_included_genres == []:
                 self.filter_included_genres = None
             self.filter_config_version = 1

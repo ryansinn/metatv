@@ -170,6 +170,7 @@ COLOR_PPV_ACCENT = "#ff6b35"
 # These are the ONLY place these hex values may appear; all other code
 # references the token name (COLOR_FACET_*).
 COLOR_FACET_GENRE      = "#7bd88f"   # soft green — genre
+COLOR_FACET_CATEGORY   = COLOR_ACCENT_ORANGE   # warm orange — live-channel kind (Sports/News/Kids…)
 COLOR_FACET_LANGUAGE   = "#34d3c0"   # teal — language
 COLOR_FACET_REGION     = "#f5b73d"   # amber/gold — region
 COLOR_FACET_PLATFORM   = "#a78bfa"   # purple — platform
