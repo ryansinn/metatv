@@ -47,6 +47,13 @@ class _BrowseView(QWidget):
     # never calls set_has_more(True), so its behaviour is unchanged.  The recipe
     # "Show all" page connects it to fetch the next DB page.
     loadMoreRequested = pyqtSignal()
+    # Emitted when the user changes the filter text.  Carries the new filter string
+    # (empty string = cleared).  Callers that page from the DB (recipe "Show all")
+    # connect this to trigger a fresh page-1 fetch with the filter applied at the
+    # SQL level, so every subsequent lazy-loaded page also respects the filter.
+    # Discover leaves this unconnected — its _apply_filter already operates on the
+    # fully-loaded in-memory card list, so no DB refetch is needed.
+    filterChanged     = pyqtSignal(str)
 
     def __init__(self, image_cache: "ImageCache", config: Config,
                  parent=None) -> None:
@@ -266,10 +273,17 @@ class _BrowseView(QWidget):
             self._load_more_pending = True
             self.loadMoreRequested.emit()
 
+    def current_filter(self) -> str:
+        """Return the current filter text (empty string when no filter is active)."""
+        return self._search_box.text()
+
     def _apply_filter(self, text: str) -> None:
         q = text.lower()
         filtered = [c for c in self._all_cards if q in c.title.lower()] if q else self._all_cards
         self._rebuild(filtered)
+        # Notify callers that page from the DB (recipe "Show all") so they can
+        # trigger a fresh SQL-filtered fetch.  Discover leaves this unconnected.
+        self.filterChanged.emit(text)
 
     def _toggle_view(self) -> None:
         self._grid_mode = not self._grid_mode
