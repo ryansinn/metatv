@@ -141,6 +141,11 @@ recipe_save_icon: str = "＋"     # U+FF0B FULLWIDTH PLUS SIGN — Save recipe a
 recipe_clear_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — Clear recipe action (alias of close_icon)
 recipe_edit_icon: str = "✎"     # U+270E LOWER RIGHT PENCIL — edit/rename recipe (reserved for slice 4)
 
+# Dev-only QA Testing Checklist
+qa_checklist_icon: str = "🧪"      # Testing Checklist menu item / window header
+qa_all_clear_icon: str = "🎉"      # Empty state — nothing left to test
+qa_purge_icon: str = "✓"           # Purge / mark-all-done button
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",
