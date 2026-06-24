@@ -734,10 +734,10 @@ class TestSampleChannelsAsCards:
 # ---------------------------------------------------------------------------
 #
 # The recipe "Show all" browse page pages through the FULL match set via the
-# offset parameter.  The id query is ordered deterministically by channel_id so
-# successive (limit, offset) pages are disjoint and together cover the whole set
-# with no overlap and no gaps — and the final card order preserves that page
-# order (it is NOT re-sorted by name after fetch).
+# offset parameter.  Pages are ordered by channel name (indexed) with channel_id
+# as a deterministic tiebreaker, so successive (limit, offset) pages are disjoint
+# and together cover the whole set with no overlap and no gaps — and the browse
+# reads A→Z (quality/language variants of one title sit adjacent).
 
 
 @pytest.fixture
@@ -748,8 +748,8 @@ def many_drama_channels(file_db):
     with file_db.session_scope() as session:
         repos = RepositoryFactory(session)
         for i in range(n):
-            # Names intentionally out of channel_id order so a name re-sort would
-            # visibly scramble the page boundaries if it crept back in.
+            # Names intentionally inverse to channel_id/insertion order so the
+            # name-ordered result is provably NOT just id/insertion order.
             cid = _add_channel(session, f"Drama {n - i:03d}")
             repos.tags.set_content_tags(cid, [("genre", "Drama", "test_feeder")])
             ids.append(cid)
@@ -807,23 +807,35 @@ class TestStablePagination:
             )
         assert [c.channel_id for c in a] == [c.channel_id for c in b]
 
-    def test_card_order_matches_id_page_order(self, many_drama_channels):
-        """Cards come back in the channel_id page order, NOT re-sorted by name.
+    def test_card_order_is_alphabetical_by_name(self, many_drama_channels):
+        """Cards page through in (name, channel_id) order — alphabetical browse.
 
-        The seeded names are deliberately inverse to channel_id order, so if the
-        method re-sorted the page by name the returned order would differ from
-        the deterministic id order — this asserts it does not.
+        The seeded names are deliberately inverse to channel_id/insertion order,
+        so an id-ordered (or insertion-ordered) result would differ from the
+        name-sorted order — this asserts the page sequence follows name order.
         """
-        _all_ids, db = many_drama_channels
+        from metatv.core.database import ChannelDB
+
+        all_ids, db = many_drama_channels
         with db.session_scope(commit=False) as session:
             repos = RepositoryFactory(session)
-            # The id-query order for this page (what the cards must follow).
-            q = repos.tags._faceted_channel_id_query({"genre": {"Drama"}})
-            expected_ids = [
-                row.channel_id
-                for row in q.order_by("channel_id").offset(5).limit(6).all()
+            # Canonical expected order: matching channels sorted by (name, id).
+            expected = [
+                r.id
+                for r in session.query(ChannelDB.id)
+                .filter(ChannelDB.id.in_(all_ids))
+                .order_by(ChannelDB.name, ChannelDB.id)
+                .all()
             ]
-            cards = repos.tags.sample_channels_by_tag_facets(
-                {"genre": {"Drama"}}, limit=6, offset=5
-            )
-        assert [c.channel_id for c in cards] == expected_ids
+            # Page through the whole set and collect the actual id sequence.
+            seen: list[str] = []
+            offset = 0
+            while True:
+                cards = repos.tags.sample_channels_by_tag_facets(
+                    {"genre": {"Drama"}}, limit=6, offset=offset
+                )
+                if not cards:
+                    break
+                seen.extend(c.channel_id for c in cards)
+                offset += len(cards)
+        assert seen == expected, "Show-all pages are not in (name, id) order"
