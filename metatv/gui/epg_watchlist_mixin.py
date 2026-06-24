@@ -304,7 +304,11 @@ class _EpgWatchlistMixin:
         elif tab == "on_now":
             self._render_on_now(payload["programs"])
         elif tab == "browse":
-            self._render_browse(payload["programs"], payload.get("placeholder", False))
+            self._render_browse(
+                payload["programs"],
+                payload.get("placeholder", False),
+                payload.get("guide_end"),
+            )
         elif tab == "events":
             self._events_dto_cache = payload["dtos"]
             self._render_events(self._events_dto_cache)

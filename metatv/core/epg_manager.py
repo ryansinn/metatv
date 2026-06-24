@@ -19,6 +19,48 @@ from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
 
 
+# Filler threshold: a programme longer than this is treated as a placeholder slot
+# (e.g. "Program" spanning several days on a sparse XMLTV feed) and excluded from
+# the real guide-depth calculation.  12 h covers all realistic broadcasts.
+EPG_FILLER_THRESHOLD = timedelta(hours=12)
+
+
+def _compute_honest_guide_end(
+    programmes: list[XmltvProgramme],
+) -> datetime | None:
+    """Return the maximum ``stop_time`` among non-filler programmes.
+
+    A programme is "filler" when its duration exceeds ``EPG_FILLER_THRESHOLD``
+    (12 hours).  Filler entries (e.g. a multi-day "Program" slot) inflate
+    ``epg_data_end`` and falsely indicate coverage well beyond the real
+    schedule depth, causing the Browse UI to show nothing while the provider
+    appears "good through" a far-future date.
+
+    Falls back to the maximum stop among filler-only entries when every
+    programme in the feed is filler (pathological feed), so ``epg_data_end``
+    is never ``None`` when programmes exist.
+
+    Args:
+        programmes: Parsed XMLTV programme objects (``XmltvProgramme``).
+
+    Returns:
+        The latest honest guide-end datetime, or ``None`` if ``programmes``
+        is empty.
+    """
+    real_end: datetime | None = None
+    filler_end: datetime | None = None
+
+    for prog in programmes:
+        if (prog.stop_time - prog.start_time) > EPG_FILLER_THRESHOLD:
+            if filler_end is None or prog.stop_time > filler_end:
+                filler_end = prog.stop_time
+        else:
+            if real_end is None or prog.stop_time > real_end:
+                real_end = prog.stop_time
+
+    return real_end if real_end is not None else filler_end
+
+
 class EpgManager(QObject):
     """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
 
@@ -358,7 +400,6 @@ class EpgManager(QObject):
             session.commit()  # release write lock before inserts start
 
             batch: list[EpgProgramDB] = []
-            max_stop: datetime | None = None
             min_start: datetime | None = None
             saved = 0
             _report_every = max(1, total_progs // 20)  # ~5% increments
@@ -379,8 +420,6 @@ class EpgManager(QObject):
                 )
                 batch.append(row)
 
-                if max_stop is None or prog.stop_time > max_stop:
-                    max_stop = prog.stop_time
                 if min_start is None or prog.start_time < min_start:
                     min_start = prog.start_time
 
@@ -405,16 +444,20 @@ class EpgManager(QObject):
             now = now_utc()
             provider = session.query(ProviderDB).filter_by(id=provider_id).first()
             if provider:
+                # Compute the honest guide depth — filler programmes (>12 h) are
+                # excluded so multi-day placeholder slots do not inflate epg_data_end
+                # and falsely indicate coverage far beyond the real schedule depth.
+                honest_end = _compute_honest_guide_end(programmes)
                 provider.epg_last_fetched = now
                 provider.epg_data_start = min_start
-                provider.epg_data_end = max_stop
+                provider.epg_data_end = honest_end
                 # The provider's feed can serve year-old data (e.g. ottcst returns a
                 # Jan-2025 snapshot). Flag it so it's not mistaken for our bug — the
                 # EPG view / provider editor surface this to the user via epg_is_stale.
-                if max_stop is not None and max_stop < now:
+                if honest_end is not None and honest_end < now:
                     logger.warning(
                         f"EPG: {provider_name} returned STALE guide data — latest "
-                        f"programme ends {max_stop:%Y-%m-%d} (before now). The provider's "
+                        f"programme ends {honest_end:%Y-%m-%d} (before now). The provider's "
                         f"XMLTV endpoint is out of date; nothing will appear in On Now."
                     )
 
