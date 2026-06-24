@@ -35,6 +35,7 @@ _ACCENT = {
     "region":   _theme.COLOR_ACCENT_GREEN,
     "platform": _theme.COLOR_ACCENT_PURPLE,
     "quality":  _theme.COLOR_ACCENT_ORANGE,
+    "category": _theme.COLOR_ACCENT_ORANGE,   # warm orange — live-channel kind
     "genre":    _theme.COLOR_ACCENT_TEAL,
     "untagged": _theme.COLOR_MUTED_2,
 }

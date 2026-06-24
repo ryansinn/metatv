@@ -34,9 +34,11 @@ class FilterPanel(QWidget):
     filter_changed = pyqtSignal()
     settings_requested = pyqtSignal()
 
-    # Section keys in display order
+    # Section keys in display order.
+    # "category" (live-channel kind: Sports/News/Kids…) sits between quality and
+    # genre — both are content descriptors; category is the live-channel variant.
     _SECTION_KEYS = ["media", "language", "region", "platform",
-                     "quality", "genre", "untagged"]
+                     "quality", "category", "genre", "untagged"]
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -176,6 +178,20 @@ class FilterPanel(QWidget):
             info_icon=_ii, config=self.config)
         self._quality_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._quality_sec)
+        self._add_divider()
+
+        self._category_sec = _Section(
+            "category", "Category",
+            initially_expanded=_expanded("category", False),
+            info_text=(
+                "Filter live channels by programming kind (e.g. Sports, News, Kids).\n\n"
+                "Check kinds to include — live channels of any checked kind are shown. "
+                "Live channels with no category data are always included.\n"
+                "Only applies to Live channels; movies and series are unaffected."
+            ),
+            info_icon=_ii, config=self.config)
+        self._category_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._category_sec)
         self._add_divider()
 
         self._genre_sec = _Section(
@@ -341,6 +357,24 @@ class FilterPanel(QWidget):
         self._quality_sec.set_flat_items(qual_items)
         _restore(self._quality_sec, prev_qual)
 
+        # ── Category — tag values are live-channel kinds (e.g. "Sports", "News")
+        category_values: dict[str, int] = tag_counts.get('category', {})
+        category_items = sorted(
+            [(k, k, v) for k, v in category_values.items() if v > 0],
+            key=lambda x: (-x[2], x[1]),
+        )
+        prev_category = set(self._category_sec.get_selected_keys())
+        self._category_sec.set_flat_items(category_items)
+        if prev_category:
+            self._category_sec.restore_selection(prev_category)
+        else:
+            persisted_category = _persisted_raw.get(self._category_sec)
+            if persisted_category is not None:
+                self._category_sec.restore_selection(set(persisted_category))
+            else:
+                # Fresh install / no saved selection (None): show everything
+                self._category_sec.select_all()
+
         # ── Genre — tag values are canonical genre names (e.g. "Drama")
         genre_values: dict[str, int] = tag_counts.get('genre', {})
         genre_items = sorted(
@@ -384,7 +418,8 @@ class FilterPanel(QWidget):
         logger.debug(
             f"FilterPanel updated (tag model): {len(lang_items)} languages, "
             f"{len(region_data)} region groups, {len(plat_items)} platforms, "
-            f"{len(qual_items)} quality tiers, {len(genre_items)} genres"
+            f"{len(qual_items)} quality tiers, {len(category_items)} categories, "
+            f"{len(genre_items)} genres"
         )
 
         # On the very first call the channel list was loaded before dynamic
@@ -453,6 +488,12 @@ class FilterPanel(QWidget):
             if selected:
                 tag_includes["quality"] = selected
 
+        # Category facet (live-channel kinds: Sports, News, Kids…)
+        if not self._category_sec.is_all_selected() and self._category_sec.get_all_keys():
+            selected = set(self._category_sec.get_selected_keys())
+            if selected:
+                tag_includes["category"] = selected
+
         # Genre facet
         genre_all = self._genre_sec.is_all_selected()
         genre_filters = None if genre_all else self._genre_sec.get_selected_keys()
@@ -467,6 +508,7 @@ class FilterPanel(QWidget):
             'region_groups':      self._region_sec.get_selected_keys(),
             'quality_groups':     self._quality_sec.get_selected_keys(),
             'platform_groups':    self._platform_sec.get_selected_keys(),
+            'category_filters':   self._category_sec.get_selected_keys(),
             'genre_filters':      self._genre_sec.get_selected_keys(),
             'include_untagged':          include_untagged,
             'include_untagged_quality':  include_untagged_quality,
@@ -546,11 +588,12 @@ class FilterPanel(QWidget):
             # restore it — the exact bug this guard prevents.  Static sections (Media,
             # Untagged) are always safe to save because they are populated in __init__.
             if self._stats_loaded:
-                self.config.filter_included_languages  = state['language_groups']
-                self.config.filter_included_regions    = state['region_groups']
-                self.config.filter_included_qualities  = state['quality_groups']
-                self.config.filter_included_platforms  = state['platform_groups']
-                self.config.filter_included_genres     = state['genre_filters']
+                self.config.filter_included_languages   = state['language_groups']
+                self.config.filter_included_regions     = state['region_groups']
+                self.config.filter_included_qualities   = state['quality_groups']
+                self.config.filter_included_platforms   = state['platform_groups']
+                self.config.filter_included_categories  = state['category_filters']
+                self.config.filter_included_genres      = state['genre_filters']
             self.config.filter_adult_mode = state['adult_mode']
 
             # Save per-section collapse states
@@ -595,8 +638,8 @@ class FilterPanel(QWidget):
 
     def _all_sections(self) -> list[_Section]:
         return [self._media_sec, self._lang_sec, self._region_sec,
-                self._platform_sec, self._quality_sec, self._genre_sec,
-                self._untagged_sec]
+                self._platform_sec, self._quality_sec, self._category_sec,
+                self._genre_sec, self._untagged_sec]
 
     def _persisted_section_attrs(self) -> list[tuple[str, object]]:
         """Return (config_attr_name, section) pairs for all dynamic sections.
@@ -605,11 +648,12 @@ class FilterPanel(QWidget):
         ``restore_state`` (startup) and ``update_data`` (startup fallback path).
         """
         return [
-            ('filter_included_languages', self._lang_sec),
-            ('filter_included_regions',   self._region_sec),
-            ('filter_included_qualities', self._quality_sec),
-            ('filter_included_platforms', self._platform_sec),
-            ('filter_included_genres',    self._genre_sec),
+            ('filter_included_languages',  self._lang_sec),
+            ('filter_included_regions',    self._region_sec),
+            ('filter_included_qualities',  self._quality_sec),
+            ('filter_included_platforms',  self._platform_sec),
+            ('filter_included_categories', self._category_sec),
+            ('filter_included_genres',     self._genre_sec),
         ]
 
     def _add_divider(self):

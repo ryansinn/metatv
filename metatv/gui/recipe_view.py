@@ -64,7 +64,10 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 # Maps facet_type → (display_name, color_token, role_label)
+# "category" (live-channel kind: Sports/News/Kids…) sits immediately before
+# "genre" — both are content descriptors; category is the live-channel variant.
 _FACET_META: dict[str, tuple[str, str, str]] = {
+    "category":   ("Category",   _theme.COLOR_FACET_CATEGORY,   "KIND"),
     "genre":      ("Genre",      _theme.COLOR_FACET_GENRE,      "BASE"),
     "language":   ("Language",   _theme.COLOR_FACET_LANGUAGE,   "IN"),
     "region":     ("Region",     _theme.COLOR_FACET_REGION,     "FROM"),
@@ -75,7 +78,7 @@ _FACET_META: dict[str, tuple[str, str, str]] = {
 }
 
 # Role display order in the recipe rail
-_ROLE_ORDER: list[str] = ["BASE", "IN", "FROM", "ON", "ERA", "FINISH", "SET"]
+_ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "FROM", "ON", "ERA", "FINISH", "SET"]
 
 
 def _facet_color(facet_type: str) -> str:

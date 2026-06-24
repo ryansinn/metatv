@@ -896,14 +896,17 @@ class _CastSection(QWidget):
 # ---------------------------------------------------------------------------
 
 # Canonical display order for facet groups in the Tags section.
+# "category" sits immediately before "genre" — both are content descriptors;
+# category is the live-channel variant (Sports/News/Kids…).
 _FACET_DISPLAY_ORDER: list[str] = [
-    "language", "region", "genre", "platform", "quality", "decade", "collection",
+    "language", "region", "category", "genre", "platform", "quality", "decade", "collection",
 ]
 
 # Human-readable label for each facet type.
 _FACET_LABELS: dict[str, str] = {
     "language":    "Language",
     "region":      "Region",
+    "category":    "Category",
     "genre":       "Genre",
     "platform":    "Platform",
     "quality":     "Quality",

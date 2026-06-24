@@ -698,6 +698,7 @@ class Config(BaseModel):
     filter_included_regions: Optional[list] = None
     filter_included_qualities: Optional[list] = None
     filter_included_platforms: Optional[list] = None
+    filter_included_categories: Optional[list] = None
     filter_included_genres: Optional[list] = None
     # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
@@ -838,6 +839,12 @@ class Config(BaseModel):
     # to trigger a one-time full re-run of update_detected_prefixes() that strips trailing
     # quality/region/subtitle qualifiers from detected_title and recomputes content_key.
     detected_reparse_version: int = 0
+
+    # Internal migration version for the category-facet re-facet.
+    # Bump CURRENT_VERSION in metatv/core/migrations/category_facet_refacet.py to trigger
+    # a one-time pass that moves content-descriptor group tags (Sports/Adult/Kids/Music/
+    # News/Religious/24-7) from language:/platform: to category: (live) or genre: (VOD).
+    category_facet_version: int = 0
 
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
@@ -1069,6 +1076,8 @@ class Config(BaseModel):
                 self.filter_included_qualities = None
             if self.filter_included_platforms == []:
                 self.filter_included_platforms = None
+            if self.filter_included_categories == []:
+                self.filter_included_categories = None
             if self.filter_included_genres == []:
                 self.filter_included_genres = None
             self.filter_config_version = 1

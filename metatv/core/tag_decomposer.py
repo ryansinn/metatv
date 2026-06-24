@@ -81,6 +81,7 @@ from metatv.core.channel_name_utils import (
     CODE_FACETS,
     CONF_DENOTED,
     CONF_STRONG_PRIOR,
+    CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
     QUALITY_TOKENS,
     REGION_FULL_NAMES,
@@ -214,6 +215,58 @@ def decompose_name_parse(
             tags.append(decade_tag)
 
     return _dedup(tags)
+
+
+def remap_content_descriptor_facets(
+    feeder_map: dict[tuple[str, str], set[str]],
+    media_type: str | None,
+) -> dict[tuple[str, str], set[str]]:
+    """Reroute content-descriptor group tags to the correct facet by media_type.
+
+    Groups in :data:`~metatv.core.channel_name_utils.CONTENT_DESCRIPTOR_GROUPS`
+    (e.g. ``"Sports"``, ``"Adult"``, ``"Kids"``) are stored in the prefix/platform
+    config dicts for display-grouping, so the decomposer initially assigns them a
+    ``language:`` or ``platform:`` facet.  This function moves them to the
+    correct facet at the per-channel level, *after* all feeders have run but
+    *before* the flat list is emitted:
+
+    - ``media_type == "live"`` → ``category:`` (a live-channel programming kind)
+    - any other media_type (movie / series / unknown) → ``genre:``
+
+    If the remapped key already exists in *feeder_map* (e.g. a movie that
+    independently produced ``genre:Sports`` from ``raw_data["genre"]``), the
+    feeders are merged into the existing entry and the old wrong-facet entry
+    is removed.
+
+    Only values present in ``CONTENT_DESCRIPTOR_GROUPS`` are remapped; all other
+    tags pass through unchanged.  Pure — no DB, no Qt.
+
+    Args:
+        feeder_map: ``{(tag_type, tag_value): set_of_feeders}`` as built by
+                    ``_collect_tags`` before flattening.  Mutated in-place.
+        media_type: The channel's ``ChannelDB.media_type`` value (``"live"``,
+                    ``"movie"``, ``"series"``, or ``None`` / ``"unknown"``).
+
+    Returns:
+        The mutated *feeder_map* (same object) with descriptor facets corrected.
+    """
+    target_facet = "category" if media_type == "live" else "genre"
+
+    # Collect keys to remap so we don't mutate the dict while iterating.
+    to_remap: list[tuple[tuple[str, str], set[str]]] = [
+        (key, feeders)
+        for key, feeders in feeder_map.items()
+        if key[1] in CONTENT_DESCRIPTOR_GROUPS and key[0] != target_facet
+    ]
+
+    for old_key, feeders in to_remap:
+        _, value = old_key
+        new_key = (target_facet, value)
+        # Merge feeders if the target key already exists (additive, no loss).
+        feeder_map[new_key] = feeder_map.get(new_key, set()) | feeders
+        del feeder_map[old_key]
+
+    return feeder_map
 
 
 # --------------------------------------------------------------------------- #
