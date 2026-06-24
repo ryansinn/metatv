@@ -130,6 +130,7 @@ class _FakeCard:
     is_liked: bool = False
     detected_prefix: str | None = None
     progress_fraction: float = 0.0
+    variant_count: int = 1
 
 
 def _make_view(qapp):

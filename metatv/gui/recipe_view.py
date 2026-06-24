@@ -1156,6 +1156,7 @@ class RecipeView(QWidget):
                 excluded_provider_ids=hidden,
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                collapse_variants=True,
             )
             if total == 0:
                 return ([], 0)
@@ -1166,6 +1167,7 @@ class RecipeView(QWidget):
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 limit=cap,
+                collapse_variants=True,
             )
             return (cards, total)
 
@@ -1300,6 +1302,7 @@ class RecipeView(QWidget):
                 limit=limit,
                 offset=0,
                 name_filter=name_filter,
+                collapse_variants=True,
             )
 
         self._run_query(
@@ -1364,6 +1367,7 @@ class RecipeView(QWidget):
                 limit=limit,
                 offset=offset,
                 name_filter=name_filter,
+                collapse_variants=True,
             )
 
         self._run_query(

@@ -14,6 +14,7 @@ from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import _ContentCard, _FlowLayout
 from metatv.gui import theme as _theme
+from metatv.gui import icons as _icons
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -183,8 +184,11 @@ class _BrowseView(QWidget):
                     else self._config.series_icon)
             rating_str = f"  ★{card.rating:.1f}" if card.rating else ""
             year_str = f"  ({card.year})" if card.year else ""
-            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}")
+            variant_str = f"  ·{_icons.variant_count_icon}{card.variant_count}" if card.variant_count > 1 else ""
+            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}{variant_str}")
             item.setData(Qt.ItemDataRole.UserRole, card.channel_id)
+            if card.variant_count > 1:
+                item.setToolTip(f"{card.variant_count} source / quality variants of this title available")
             self._list_widget.addItem(item)
 
         # Let the grid create the next visible batch from the grown pending list.
@@ -210,8 +214,11 @@ class _BrowseView(QWidget):
                     else self._config.series_icon)
             rating_str = f"  ★{card.rating:.1f}" if card.rating else ""
             year_str = f"  ({card.year})" if card.year else ""
-            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}")
+            variant_str = f"  ·{_icons.variant_count_icon}{card.variant_count}" if card.variant_count > 1 else ""
+            item = QListWidgetItem(f"{icon} {card.title}{year_str}{rating_str}{variant_str}")
             item.setData(Qt.ItemDataRole.UserRole, card.channel_id)
+            if card.variant_count > 1:
+                item.setToolTip(f"{card.variant_count} source / quality variants of this title available")
             self._list_widget.addItem(item)
 
     def _create_next_card_batch(self) -> None:

@@ -14,6 +14,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui import theme as _theme
+from metatv.gui import icons as _icons
 
 if TYPE_CHECKING:
     from metatv.core.image_cache import ImageCache
@@ -224,6 +225,29 @@ class _ContentCard(QWidget):
                 f" border-radius: 0px; }}"
             )
             progress_bar.raise_()
+
+        # Variant-count badge (bottom-left overlay) — shown only when variant_count > 1.
+        # Signals that this card represents multiple source/quality copies of the same
+        # production.  Uses the ×N glyph (e.g. "×3") with VARIANT_BADGE styling.
+        if card.variant_count > 1:
+            vc_lbl = QLabel(
+                f"{_icons.variant_count_icon}{card.variant_count}",
+                self._poster_frame,
+            )
+            vc_lbl.setFont(_theme.zoomed_font(_theme.FONT_SM, z))
+            vc_lbl.setStyleSheet(_theme.VARIANT_BADGE)
+            vc_lbl.adjustSize()
+            # Position: bottom-left, below the rating badge (if any).
+            # If rating is present, move 2 rows up from the bottom; otherwise 1 row.
+            _badge_row = 2 if card.rating else 1
+            vc_lbl.move(
+                round(4 * z),
+                ph - round(_badge_row * 22 * z),
+            )
+            vc_lbl.setToolTip(
+                f"{card.variant_count} source / quality variants of this title available"
+            )
+            vc_lbl.raise_()
 
         vl.addWidget(self._poster_frame)
 

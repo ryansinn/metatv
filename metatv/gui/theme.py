@@ -445,6 +445,13 @@ QUALITY_CHIP = (
     " background: " + OVERLAY_08 + "; }"
 )
 
+# Variant-count badge (content-collapse Slice 2) — bottom-left overlay on poster cards.
+# Shown only when variant_count > 1; styled to be unobtrusive (muted + slight tint).
+VARIANT_BADGE = (
+    "background: " + OVERLAY_BLACK_55 + "; color: " + COLOR_DIM
+    + "; border-radius: 3px; padding: 1px 4px;"
+)
+
 # Separators / surfaces
 SEPARATOR_LINE = "background: " + COLOR_LINE + "; margin-top: 4px; margin-bottom: 2px;"
 SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin: 8px 0;"
