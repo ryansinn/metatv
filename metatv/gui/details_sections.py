@@ -899,12 +899,16 @@ class _CastSection(QWidget):
 # "category" sits immediately before "genre" — both are content descriptors;
 # category is the live-channel variant (Sports/News/Kids…).
 _FACET_DISPLAY_ORDER: list[str] = [
-    "language", "region", "category", "genre", "platform", "quality", "decade", "collection",
+    "language", "subtitle", "dub", "format",
+    "region", "category", "genre", "platform", "quality", "decade", "collection",
 ]
 
 # Human-readable label for each facet type.
 _FACET_LABELS: dict[str, str] = {
     "language":    "Language",
+    "subtitle":    "Subtitle",
+    "dub":         "Dub",
+    "format":      "Audio Format",
     "region":      "Region",
     "category":    "Category",
     "genre":       "Genre",

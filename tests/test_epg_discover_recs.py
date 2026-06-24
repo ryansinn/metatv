@@ -76,6 +76,9 @@ def _make_view(qapp, db):
     view._channel_quality_map = {}
     view._channel_prefix_map = {}
     view._channel_title_map = {}
+    view._channel_region_map = {}
+    view._channel_year_map = {}
+    view._channel_audio_map = {}
 
     return view
 

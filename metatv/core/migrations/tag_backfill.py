@@ -93,7 +93,11 @@ def _set_backfill_active(active: bool) -> None:
 #       produced zero genre tags (no raw_data["genre"] field); ~15% of movies
 #       now gain genre tags from their provider category.  TMDb will supersede
 #       at higher confidence when integrated.
-CURRENT_TAG_BACKFILL_VERSION = 3
+#   4 — audio_annotation feeder (#82/#24): sub/dub/multi parentheticals now
+#       produce language: (union), subtitle:, dub:, and format: tags from the
+#       stored ChannelDB.detected_audio dict.  Full re-tag required so existing
+#       rows gain these facets.
+CURRENT_TAG_BACKFILL_VERSION = 4
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
@@ -255,6 +259,7 @@ class TagBackfillTask:
             # Load only the columns we need for the four feeders — no JSON for
             # channels that have none.  media_type is required for content-descriptor
             # facet routing (category: live vs genre: movie/series).
+            # detected_audio is required for the audio_annotation feeder (feeder 5).
             rows = (
                 session.query(
                     ChannelDB.id,
@@ -266,6 +271,7 @@ class TagBackfillTask:
                     ChannelDB.detected_year,
                     ChannelDB.raw_data,
                     ChannelDB.media_type,
+                    ChannelDB.detected_audio,
                 )
                 .filter(ChannelDB.id.in_(channel_ids))
                 .yield_per(_YIELD_SIZE)
@@ -283,6 +289,7 @@ class TagBackfillTask:
                     detected_year,
                     raw_data,
                     media_type,
+                    detected_audio,
                 ) = row
 
                 # 1. Scrub only this channel's generated tags (user tags survive).
@@ -299,6 +306,7 @@ class TagBackfillTask:
                     detected_year=detected_year,
                     raw_data=raw_data,
                     media_type=media_type,
+                    detected_audio=detected_audio,
                 )
 
                 if not all_tags:
@@ -323,8 +331,9 @@ def _collect_tags(
     detected_year: str | None,
     raw_data: dict | None,
     media_type: str | None = None,
+    detected_audio: dict | None = None,
 ) -> list[tuple[str, str, str]]:
-    """Run all four feeders and return a merged ``(type, value, feeder)`` list.
+    """Run all feeders and return a merged ``(type, value, feeder)`` list.
 
     Each distinct ``(type, value)`` pair carries ALL feeder names that produced
     it, deduplicated.  The TagRepository's ``set_content_tags`` uses feeder
@@ -349,6 +358,9 @@ def _collect_tags(
         media_type:       ``ChannelDB.media_type`` — used to route content-
                           descriptor groups to the correct facet.  ``None`` /
                           ``"unknown"`` maps to ``genre:``.
+        detected_audio:   ``ChannelDB.detected_audio`` dict (audio_annotation feeder).
+                          When present, adds ``language:``, ``subtitle:``, ``dub:``,
+                          and ``format:`` tags (tasks #82/#24).
 
     Returns:
         List of ``(type, value, feeder)`` tuples ready for
@@ -356,6 +368,7 @@ def _collect_tags(
     """
     from metatv.core.tag_decomposer import (
         decompose,
+        decompose_audio,
         decompose_name_parse,
         remap_content_descriptor_facets,
     )
@@ -395,6 +408,14 @@ def _collect_tags(
             "genre", str(genre_raw), config=config
         ):
             feeder_map[(tag_type, tag_value)].add("genre")
+
+    # Feeder 5: audio_annotation (detected_audio — sub/dub/multi language facets)
+    # Emits language: (union), subtitle:, dub:, format: tags.
+    # The union language: from this feeder merges with any language: from name_parse
+    # (more feeders → higher confidence — intended behavior per DR-0006).
+    if detected_audio:
+        for tag_type, tag_value, _conf in decompose_audio(detected_audio):
+            feeder_map[(tag_type, tag_value)].add("audio_annotation")
 
     # Re-facet content-descriptor groups by media_type.
     # Groups like "Sports", "Adult", "Kids" are placed in language/platform config

@@ -37,9 +37,12 @@ All other helpers these methods call (``self._build_name_map``,
 ``_channel_*_map`` dicts, the ``_data_loaded`` signal, etc.) remain in
 ``EpgView`` (or other mixins) and resolve via ``self`` / MRO.
 
-NOTE: ``_make_recommendation_item`` and ``_make_channel_item`` are the
-documented render-time ``parse_channel_name`` exception (CLAUDE.md). After this
-split they live here, not in ``epg_view.py``.
+NOTE: ``_make_recommendation_item`` and ``_make_channel_item`` no longer call
+``parse_channel_name`` at render time (CLAUDE.md ingestion-only rule). They read
+stored ``_channel_*_map`` dicts populated from ``detected_*`` columns, including
+``_channel_audio_map`` from the new ``detected_audio`` JSONEncoded column
+(added in tasks #82/#24).  The CLAUDE.md exception that previously permitted
+render-parse here is now removed.
 """
 
 from __future__ import annotations
@@ -60,7 +63,6 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
@@ -494,10 +496,8 @@ class _EpgWatchlistMixin:
         def _ch_row(prog):
             """Build one channel row: Xm left [REGION] [LANG?] bare_name [QUALITY?] year? [▶]
 
-            Reads stored detected_* maps (prefix/title/quality/region/year) — no
+            Reads stored detected_* maps (prefix/title/quality/region/year/audio) — no
             parse_channel_name() call (ingestion-only rule, CLAUDE.md).
-            Audio chips omitted: detected_audio has no stored column; dropped here
-            (see B10-2 deferred notes — adding detected_audio is a future ingestion task).
             """
             cid = prog.channel_db_id or ""
             raw_name = self._channel_name_map.get(cid, prog.channel_epg_id)
@@ -653,9 +653,8 @@ class _EpgWatchlistMixin:
         def _up_row(prog):
             """Build one upcoming-row widget using stored detected_* maps.
 
-            Mirrors _ch_row: reads prefix/title/quality/region/year from pre-fetched
-            maps — no parse_channel_name() call (ingestion-only rule, CLAUDE.md).
-            Audio chips omitted: detected_audio has no stored column (deferred, B10-2).
+            Mirrors _ch_row: reads prefix/title/quality/region/year/audio from
+            pre-fetched maps — no parse_channel_name() call (ingestion-only rule, CLAUDE.md).
             """
             cid = prog.channel_db_id or ""
             raw_name = self._channel_name_map.get(cid, prog.channel_epg_id)
@@ -770,6 +769,11 @@ class _EpgWatchlistMixin:
 
     def _make_channel_item(self, channel_db_id: str, channel_name: str,
                            prog: EpgProgramDB | None) -> QWidget:
+        """Build a watchlist channel card from stored detected_* fields.
+
+        Reads ``_channel_*`` maps populated by ``_build_name_map`` — no
+        ``parse_channel_name()`` call (ingestion-only rule, CLAUDE.md).
+        """
         w = QWidget()
         w.setMinimumWidth(280)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -778,27 +782,30 @@ class _EpgWatchlistMixin:
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
 
-        p = parse_channel_name(channel_name)
-        db_quality = self._channel_quality_map.get(channel_db_id, "")
-        display_quality = db_quality or (p.quality[0] if p.quality else "")
+        display_quality = self._channel_quality_map.get(channel_db_id, "")
+        region = self._channel_region_map.get(channel_db_id, "")
+        audio_form = self._channel_audio_map.get(channel_db_id, "")
+        prefix = self._channel_prefix_map.get(channel_db_id, "")
+        bare_name = self._channel_title_map.get(channel_db_id, channel_name)
+        year = self._channel_year_map.get(channel_db_id, "")
 
         header = QHBoxLayout()
         icon_lbl = QLabel(f"{self.config.series_icon} ")
         icon_lbl.setStyleSheet(f"font-size: {_theme.FONT_XL};")
         header.addWidget(icon_lbl)
-        if p.region:
-            header.addWidget(make_region_chip(p.region, w))
-        if p.audio:
-            header.addWidget(make_audio_chip(p.audio, w))
-        if p.lang:
-            header.addWidget(make_region_chip(p.lang, w))
-        ch_lbl = QLabel(p.bare_name or channel_name)
+        if region:
+            header.addWidget(make_region_chip(region, w))
+        if audio_form:
+            header.addWidget(make_audio_chip(audio_form, w))
+        if prefix:
+            header.addWidget(make_region_chip(prefix, w))
+        ch_lbl = QLabel(bare_name)
         ch_lbl.setStyleSheet(_theme.LIST_TITLE)
         header.addWidget(ch_lbl)
         if display_quality:
             header.addWidget(make_quality_chip(display_quality, w))
-        if p.year:
-            header.addWidget(make_year_chip(p.year, w))
+        if year:
+            header.addWidget(make_year_chip(year, w))
         header.addStretch()
 
         if prog:
@@ -850,23 +857,26 @@ class _EpgWatchlistMixin:
         header_w.setCursor(Qt.CursorShape.PointingHandCursor)
         header_w.mousePressEvent = lambda e, cid=channel_db_id: self._emit_channel_selected(cid)
 
-        p = parse_channel_name(channel_name)
-        db_quality = self._channel_quality_map.get(channel_db_id, "")
-        display_quality = db_quality or (p.quality[0] if p.quality else "")
+        display_quality = self._channel_quality_map.get(channel_db_id, "")
+        region = self._channel_region_map.get(channel_db_id, "")
+        audio_form = self._channel_audio_map.get(channel_db_id, "")
+        prefix = self._channel_prefix_map.get(channel_db_id, "")
+        bare_name = self._channel_title_map.get(channel_db_id, channel_name)
+        year = self._channel_year_map.get(channel_db_id, "")
 
-        if p.region:
-            layout.addWidget(make_region_chip(p.region, header_w))
-        if p.audio:
-            layout.addWidget(make_audio_chip(p.audio, header_w))
-        if p.lang:
-            layout.addWidget(make_region_chip(p.lang, header_w))
-        name_lbl = QLabel(p.bare_name or channel_name)
+        if region:
+            layout.addWidget(make_region_chip(region, header_w))
+        if audio_form:
+            layout.addWidget(make_audio_chip(audio_form, header_w))
+        if prefix:
+            layout.addWidget(make_region_chip(prefix, header_w))
+        name_lbl = QLabel(bare_name)
         name_lbl.setStyleSheet(_theme.DISCOVER_REC_NAME)
         layout.addWidget(name_lbl)
         if display_quality:
             layout.addWidget(make_quality_chip(display_quality, header_w))
-        if p.year:
-            layout.addWidget(make_year_chip(p.year, header_w))
+        if year:
+            layout.addWidget(make_year_chip(year, header_w))
 
         # Expandable count toggle label
         _collapsed_state = [True]  # mutable cell to capture toggle state in closures

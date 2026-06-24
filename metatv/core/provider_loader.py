@@ -602,6 +602,7 @@ class ProviderLoadThread(QThread):
                     # Column-only projection — includes tag_fingerprint for skip logic
                     # and name for the fingerprint computation (ingestion may change name).
                     # media_type is required for content-descriptor facet routing.
+                    # detected_audio is required for the audio_annotation feeder (feeder 5).
                     rows = (
                         session.query(
                             ChannelDB.id,
@@ -615,6 +616,7 @@ class ProviderLoadThread(QThread):
                             ChannelDB.raw_data,
                             ChannelDB.tag_fingerprint,
                             ChannelDB.media_type,
+                            ChannelDB.detected_audio,
                         )
                         .filter(ChannelDB.id.in_(chunk))
                         .yield_per(_YIELD_SIZE)
@@ -637,6 +639,7 @@ class ProviderLoadThread(QThread):
                             raw_data,
                             stored_fingerprint,
                             media_type,
+                            detected_audio,
                         ) = row
 
                         genre = (raw_data or {}).get("genre") if raw_data else None
@@ -669,6 +672,7 @@ class ProviderLoadThread(QThread):
                             detected_year=detected_year,
                             raw_data=raw_data,
                             media_type=media_type,
+                            detected_audio=detected_audio,
                         )
 
                         if all_tags:

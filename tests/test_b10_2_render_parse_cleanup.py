@@ -271,6 +271,7 @@ def _make_watchlist_host() -> SimpleNamespace:
     host._channel_title_map = {}
     host._channel_region_map = {}
     host._channel_year_map = {}
+    host._channel_audio_map = {}   # added in tasks #82/#24 (detected_audio.form)
     host.config = SimpleNamespace(play_icon="▶", close_icon="×")
     # Stubs for signal / play handler / watchlist mutation
     host._emit_channel_selected = MagicMock()
@@ -385,16 +386,25 @@ class TestChRowStoredMaps:
         assert result["bare_name"] == "epg-fallback"
 
     def test_parse_channel_name_not_called_in_ch_row(self, qapp):
-        """parse_channel_name must NOT be invoked when _make_watchlist_item builds rows.
+        """parse_channel_name must NOT be in epg_watchlist_mixin or called at render time.
 
         Invokes the real _make_watchlist_item method with a minimal host namespace
-        that has all six channel maps pre-seeded.  Monkeypatches parse_channel_name
-        to raise so any render-time call is caught immediately.
+        that has all seven channel maps pre-seeded (including the new _channel_audio_map
+        added in tasks #82/#24).  Asserts parse_channel_name is not imported in the
+        module (was removed when detected_audio was added as a stored column).
         """
-        from PyQt6.QtWidgets import QWidget, QVBoxLayout
+        import metatv.gui.epg_watchlist_mixin as _mixin
         from metatv.gui.epg_view import EpgView
 
+        # Verify parse_channel_name is no longer imported in the mixin module —
+        # its removal is the behavioral guarantee guarding against regression.
+        assert not hasattr(_mixin, "parse_channel_name"), (
+            "parse_channel_name must NOT be importable from epg_watchlist_mixin "
+            "(ingestion-only rule, CLAUDE.md / tasks #82/#24)"
+        )
+
         host = _make_watchlist_host()
+        host._channel_audio_map = {}  # new map added in #82/#24
         cid = "ch-live"
         host._channel_prefix_map[cid] = "US"
         host._channel_title_map[cid] = "SportsCenter"
@@ -402,6 +412,7 @@ class TestChRowStoredMaps:
         host._channel_quality_map[cid] = "HD"
         host._channel_year_map[cid] = ""
         host._channel_name_map[cid] = "US ★ SportsCenter"
+        host._channel_audio_map[cid] = ""
 
         # Expand config stub to cover everything _make_watchlist_item reads.
         host.config = SimpleNamespace(
@@ -415,14 +426,9 @@ class TestChRowStoredMaps:
         )
 
         prog = _FakeWatchlistProg(channel_db_id=cid, title="SportsCenter")
+        card = EpgView._make_watchlist_item(host, "SportsCenter", live=[prog], upcoming=[])
 
-        with patch(
-            "metatv.gui.epg_watchlist_mixin.parse_channel_name",
-            side_effect=AssertionError("parse_channel_name must not be called — B10-2 violation"),
-        ):
-            card = EpgView._make_watchlist_item(host, "SportsCenter", live=[prog], upcoming=[])
-
-        # If we reach here without AssertionError, _ch_row did not call parse_channel_name.
+        # If we reach here without AttributeError, all maps are present and correct.
         assert card is not None
 
 

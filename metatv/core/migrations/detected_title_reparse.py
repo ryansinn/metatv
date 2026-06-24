@@ -1,4 +1,4 @@
-"""Migration task: re-parse detected_title to strip trailing quality/region/subtitle qualifiers.
+"""Migration task: re-parse detected_title to strip trailing quality/region/subtitle qualifiers, and populate detected_audio.
 
 Fix #78 (version 1) and #78 follow-up (version 2).
 
@@ -61,7 +61,10 @@ if TYPE_CHECKING:
 #       Catches ~170 language+sub qualifiers whose language word (JAPANESE, KURDISH,
 #       PERSIAN, NORWEGIAN, CHINESE, …) is not in the recognized-token vocab.
 #       All-alpha guard prevents stripping parentheticals with digits (e.g. "Episode 5 SUB").
-CURRENT_VERSION: int = 3
+#   4 — detected_audio capture: sub/dub/multi parentheticals now populate
+#       ChannelDB.detected_audio (form, audio, dub, sub language lists) at the same
+#       update_detected_prefixes pass. Full re-run needed to back-fill all rows.
+CURRENT_VERSION: int = 4
 
 
 class DetectedTitleReparseTask:

@@ -87,6 +87,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._channel_title_map: dict[str, str] = {}    # channel_db_id → detected_title
         self._channel_region_map: dict[str, str] = {}   # channel_db_id → detected_region
         self._channel_year_map: dict[str, str] = {}     # channel_db_id → detected_year
+        self._channel_audio_map: dict[str, str] = {}    # channel_db_id → audio form (from detected_audio)
 
         # Cached data for tabs
         self._on_now_programs: list[EpgProgramDB] = []
@@ -498,8 +499,8 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         """Build channel display maps from stored detected_* fields.
 
         Populates _channel_quality_map, _channel_prefix_map, _channel_title_map,
-        _channel_region_map, and _channel_year_map as a side-effect.  Returns the
-        raw name map for backwards compatibility with the caller.
+        _channel_region_map, _channel_year_map, and _channel_audio_map as a
+        side-effect.  Returns the raw name map for backwards compatibility.
 
         Reads stored detected_* fields written at ingestion time — no parse_channel_name
         call here (ingestion-only rule, CLAUDE.md).
@@ -510,6 +511,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         title_map: dict[str, str] = {}
         region_map: dict[str, str] = {}
         year_map: dict[str, str] = {}
+        audio_map: dict[str, str] = {}
         all_progs: list[EpgProgramDB] = []
         for progs in watchlist_data.values():
             all_progs.extend(progs)
@@ -526,11 +528,14 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                     title_map[p.channel_db_id] = ch.detected_title or ch.name
                     region_map[p.channel_db_id] = ch.detected_region or ""
                     year_map[p.channel_db_id] = ch.detected_year or ""
+                    if ch.detected_audio:
+                        audio_map[p.channel_db_id] = ch.detected_audio.get("form", "") or ""
         self._channel_quality_map.update(quality_map)
         self._channel_prefix_map.update(prefix_map)
         self._channel_title_map.update(title_map)
         self._channel_region_map.update(region_map)
         self._channel_year_map.update(year_map)
+        self._channel_audio_map.update(audio_map)
         return name_map
 
     # ------------------------------------------------------------------
