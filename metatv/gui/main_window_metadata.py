@@ -104,7 +104,10 @@ class _MetadataMixin:
                     return text.split()[0] if text.split() else ""
 
                 is_live = channel.media_type == "live"
+                ck = channel.content_key if not is_live else None  # content_key not used for live
+
                 if is_live:
+                    # Live channels: always use normalize_title matching (no content_key path)
                     norm = normalize_title(channel.name, channel.detected_prefix)
                     if not norm:
                         self._versions_loaded.emit(channel_id, [])
@@ -124,7 +127,23 @@ class _MetadataMixin:
                         if normalize_title(ch.name, ch.detected_prefix) == norm
                         and ch.provider_id not in hidden_provider_ids
                     ]
+                elif ck:
+                    # VOD/series — primary path: group by stored content_key (indexed).
+                    # content_key already encodes the year policy so NO additional
+                    # _version_years_compatible guard is applied here — same key IS
+                    # the compatibility decision.
+                    versions_raw = (
+                        session.query(ChannelDB)
+                        .filter(
+                            ChannelDB.content_key == ck,
+                            ChannelDB.id != channel_id,
+                            ~ChannelDB.provider_id.in_(hidden_provider_ids),
+                        )
+                        .all()
+                    )
                 else:
+                    # VOD/series fallback: content_key not yet populated (pre-backfill row);
+                    # fall back to normalize_title matching with _version_years_compatible guard.
                     current_norm = normalize_title(channel.name, channel.detected_prefix)
                     if not current_norm:
                         self._versions_loaded.emit(channel_id, [])
