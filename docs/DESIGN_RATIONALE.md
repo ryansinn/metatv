@@ -541,3 +541,53 @@ N call sites. This is the **same single-source-of-truth lesson as the `theme.py`
 spent untangling hardcoded styles); the rule exists to stop that smear from restarting in the data layer.
 Tracked: task #59 (extract `visible_channel_filter`; move `##`/placeholder detection to an ingestion flag) +
 audit redundancy lens #4 (cluster by repeated SQL predicate fragment, not just method name).
+
+---
+
+### DR-0008 — Recipe AND/OR within a facet: the "required + optional pool" model (not a whole-group flip)
+**Status:** Accepted (2026-06-24).
+**Ties to:** DR-0005 (a view/recipe is a boolean query over the tag corpus); DR-0007 (the engine stays
+agnostic — a recipe is scoped inputs in, ids out); the tag-cloud recipe-builder focus (tasks #56, #64);
+PRODUCT_VISION (good-on-raw-data — the model must express the actual query a viewer has in mind).
+**Rule to distill:** recipe within-facet semantics = `(OR over the optional pool) AND (each required value)`,
+surfaced via clickable `or`↔`and` connectors; full spec in `docs/RECIPE_BUILDER_DESIGN.md`.
+
+**Problem.** The faceted engine joins values with **OR within a facet** and **AND across facets**
+(`_faceted_channel_id_query`'s per-facet `EXISTS` model). Real recipes need AND *within* a facet too — but
+the two obvious framings are both wrong:
+- A blunt **whole-group flip** (one toggle turns the whole Genre group to AND) yields
+  `Animated AND Anime AND Manga AND Sci-Fi` — channels carrying *all four*, which is ≈empty. Useless.
+- A naive **per-connector toggle** lets you write `Sci-Fi OR Comedy AND Drama` — mixed boolean with operator
+  precedence, the truth-table the user explicitly does not want.
+
+**Insight (user, 2026-06-24, from two worked examples).**
+- **Animation:** "someone wants something animated" = `(Animated OR Anime OR Manga) AND Sci-Fi` — *any flavor*
+  of animation, **and also** Sci-Fi.
+- **Kids:** Kids is an *audience* constraint you intersect with a content genre — `Kids AND Animated`,
+  `Kids AND Educational`. Under OR-default, "Kids OR Sci-Fi" is useless (every kids show *plus* every sci-fi
+  show).
+
+Both are the textbook faceted **"required + optional"** pattern: within a facet, some values form an *any-of
+pool* (OR) and others are *required terms* (AND'd onto the whole).
+
+**Decision — within a facet, each value is either in the OR-pool or a required term:**
+`match = (OR over pool values) AND required₁ AND required₂ …`, then the existing **AND across facets** and
+**NOT excludes** wrap it. Concretely:
+- **OR-pool** → one `EXISTS` matching any pool value (today's within-facet behaviour).
+- **Each required value** → its own `EXISTS`; all `AND`'d. (A small, additive extension of
+  `_faceted_channel_id_query`.)
+- **Interaction:** the connector word *is* the control — each value's `or`↔`and` toggles it between pool and
+  required; the rail reads plain English ("Animated or Anime or Manga **and** Sci-Fi").
+- **Unambiguous by construction:** all `or` values form one pool, all `and` values are required terms, so
+  `Sci-Fi or Comedy and Drama` = `(Sci-Fi OR Comedy) AND Drama` — **no precedence rule, no drag** needed.
+
+**Rejected.**
+- *Whole-group uniform flip* — fails the Animation case (forces all-AND ≈ empty); superseded before any build.
+- *Per-connector mixed boolean with precedence* — the truth-table the user rejected; the single-pool +
+  required-terms rule sidesteps it entirely.
+
+**Deferred to Phase 2 (drag/clusters).** The one thing the single-pool model can't express is **multiple
+independent OR-groups** AND'd together — e.g. `(Animated OR Anime) AND (Sci-Fi OR Fantasy)`. That needs
+explicit grouping, handled later by **drag-ordered consecutive-AND clusters** (arrangement *is* the
+parenthesization). Rare enough to defer; the required+optional model covers the overwhelming majority
+(Animation, Kids, "this genre but only in 4K", …).
