@@ -18,6 +18,53 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+usage() {
+    cat <<'EOF'
+run.sh — launch MetaTV (PyQt6 IPTV client)
+
+USAGE
+  ./run.sh [ARGS...]         Run the current checkout. Borrows the main
+                             worktree's venv when this checkout has none, so
+                             linked git worktrees need no venv of their own.
+                             ARGS are forwarded to `python -m metatv`.
+
+  ./run.sh <PR#> [ARGS...]   Test-drive a pull request: resolve its branch,
+                             check it out into a throwaway worktree
+                             (<repo>-pr-<PR#>, created or hard-refreshed to the
+                             latest pushed commit) and run it. The worktree is
+                             removed automatically when the app exits — kept
+                             only if it has uncommitted changes.
+
+  ./run.sh -h | --help       Show this help and exit.
+
+ENVIRONMENT
+  METATV_DEV=1               Enable dev-only features (e.g. the floating
+                             Testing Checklist). Inherited by `run.sh <PR#>`.
+
+EXAMPLES
+  ./run.sh                   Run the current branch.
+  ./run.sh 186               Launch PR #186 in its own worktree.
+  METATV_DEV=1 ./run.sh 186  Launch PR #186 with dev features on.
+
+CLEANING UP
+  A PR worktree self-cleans when the app exits (unless it has uncommitted
+  changes). To deal with a leftover one by hand, from anywhere in the repo:
+
+    git worktree list                             # see every worktree
+    git worktree remove <repo>-pr-<PR#>           # remove it (must be clean)
+    git worktree remove --force <repo>-pr-<PR#>   # force-remove (discards edits)
+    git worktree prune                            # tidy stale bookkeeping
+
+  <repo>-pr-<PR#> is a sibling of the main checkout, e.g.
+  /home/you/Projects/metatv-pr-186.
+EOF
+}
+
+# Help: `./run.sh -h` / `--help`.
+case "${1:-}" in
+    -h|--help|help) usage; exit 0 ;;
+esac
+
 # Absolute path of the main worktree for any checkout dir.
 _main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; }
 
