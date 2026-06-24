@@ -846,6 +846,24 @@ class ChannelRepository(_ChannelStatsMixin):
                     if _strip_m:
                         new_title = _strip_m.group(1).strip()
 
+                # Compute detected_audio from parsed audio fields.
+                # Store None when there is no audio annotation so the column is cheap
+                # (no JSON blob for the vast majority of channels with no sub/dub tag).
+                new_detected_audio = None
+                if parsed.audio_langs or parsed.dub_langs or parsed.sub_langs or parsed.audio:
+                    new_detected_audio = {
+                        "form":  parsed.audio or "",
+                        "audio": list(parsed.audio_langs),
+                        "dub":   list(parsed.dub_langs),
+                        "sub":   list(parsed.sub_langs),
+                    }
+                    # Normalize: drop all-empty dict to None
+                    if (not new_detected_audio["form"]
+                            and not new_detected_audio["audio"]
+                            and not new_detected_audio["dub"]
+                            and not new_detected_audio["sub"]):
+                        new_detected_audio = None
+
                 # Compute the content_key from the UPDATED fields (not the old ORM values)
                 # so the key is always in sync with detected_title/year/media_type.
                 # Build a lightweight proxy that reflects the new field values without
@@ -869,6 +887,7 @@ class ChannelRepository(_ChannelStatsMixin):
                     or new_title != channel.detected_title
                     or new_year  != channel.detected_year
                     or new_content_key != channel.content_key
+                    or new_detected_audio != channel.detected_audio
                 )
                 if changed:
                     channel.detected_prefix = prefix
@@ -877,6 +896,7 @@ class ChannelRepository(_ChannelStatsMixin):
                     channel.detected_title  = new_title
                     channel.detected_year   = new_year
                     channel.content_key     = new_content_key
+                    channel.detected_audio  = new_detected_audio
                     channel.updated_at = datetime.now()
                     updated += 1
 

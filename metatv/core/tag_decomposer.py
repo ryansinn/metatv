@@ -81,6 +81,7 @@ from metatv.core.channel_name_utils import (
     CODE_FACETS,
     CONF_DENOTED,
     CONF_STRONG_PRIOR,
+    CONF_WEAK_PRIOR,
     CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
     QUALITY_TOKENS,
@@ -213,6 +214,73 @@ def decompose_name_parse(
         decade_tag = _year_to_decade(detected_year)
         if decade_tag:
             tags.append(decade_tag)
+
+    return _dedup(tags)
+
+
+def decompose_audio(detected_audio: dict | None) -> list[tuple[str, str, float]]:
+    """Return ``(type, value, confidence)`` tags from a stored ``detected_audio`` dict.
+
+    Converts the audio annotation stored in ``ChannelDB.detected_audio`` into typed
+    tag triples following the facet model for tasks #82/#24:
+
+    - ``language:<L>``   (CONF_DENOTED) for each L in audio ∪ dub ∪ sub (the union).
+                         The union ensures a channel appears under any language it carries
+                         (original audio, dubbed, and subtitled).
+    - ``subtitle:<L>``   (CONF_DENOTED) for each L in sub.
+                         "Multi" is emitted as ``subtitle:Multi`` when multi-sub detected.
+    - ``dub:<L>``        (CONF_DENOTED) for each L in dub.
+    - ``format:<form>``  (CONF_DENOTED) for explicit forms (Dub/Multi/Dual/Sub).
+                         ``format:Original`` (inferred — subs present, no dub) uses
+                         CONF_WEAK_PRIOR because the inference may be wrong.
+
+    Role tags (``subtitle:``/``dub:``) are emitted ONLY when there is an explicit role
+    marker in the annotation.  A language that is just original/primary audio gets only
+    the ``language:`` union tag (no role qualifier).
+
+    Pure — no DB, no Qt.
+
+    Args:
+        detected_audio: The stored dict from ``ChannelDB.detected_audio``, or ``None``
+                        when no sub/dub annotation was present in the channel name.
+
+    Returns:
+        Deduplicated list of ``(type, value, confidence)`` triples.
+        Returns an empty list when *detected_audio* is ``None`` or empty.
+    """
+    if not detected_audio:
+        return []
+
+    form: str = detected_audio.get("form", "") or ""
+    audio_langs: list[str] = detected_audio.get("audio", []) or []
+    dub_langs: list[str] = detected_audio.get("dub", []) or []
+    sub_langs: list[str] = detected_audio.get("sub", []) or []
+
+    tags: list[tuple[str, str, float]] = []
+
+    # language: union — every language the annotation denotes (original, dubbed, subtitled).
+    # "Multi" is a sentinel for multi-subtitle; skip it from the language: union (not a
+    # real language name) but keep it in subtitle:Multi.
+    seen_langs: set[str] = set()
+    for lang in audio_langs + dub_langs + [s for s in sub_langs if s != "Multi"]:
+        if lang and lang not in seen_langs:
+            seen_langs.add(lang)
+            tags.append(("language", lang, CONF_DENOTED))
+
+    # subtitle:<L> role tags
+    for lang in sub_langs:
+        tags.append(("subtitle", lang, CONF_DENOTED))
+
+    # dub:<L> role tags
+    for lang in dub_langs:
+        tags.append(("dub", lang, CONF_DENOTED))
+
+    # format:<form> — confidence depends on whether it's explicit or inferred.
+    if form:
+        # "Original" is inferred (subs present, no dub) → lower confidence.
+        # All other forms (Dub, Multi, Dual, Sub) are explicitly marked → CONF_DENOTED.
+        conf = CONF_WEAK_PRIOR if form == "Original" else CONF_DENOTED
+        tags.append(("format", form, conf))
 
     return _dedup(tags)
 

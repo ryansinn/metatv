@@ -108,6 +108,14 @@ class ChannelDB(Base):
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
     content_key = Column(String, index=True, nullable=True)
 
+    # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
+    # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
+    # "form" is one of "Dub", "Original", "Multi", "Dual", "" (unknown).
+    # Lists hold canonical language names (same names as in language: facets).
+    # NULL when no sub/dub annotation was found in the channel name.
+    # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
+    detected_audio = Column(JSONEncoded, nullable=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -514,6 +522,7 @@ class Database:
             ("episodes",     "watch_percent",              "INTEGER DEFAULT 0"),
             ("channels",     "tag_fingerprint",            "TEXT"),
             ("channels",     "content_key",                "TEXT"),
+            ("channels",     "detected_audio",             "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

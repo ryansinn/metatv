@@ -8,12 +8,17 @@ class ParsedChannel(NamedTuple):
     """Result of parse_channel_name().
 
     Attributes:
-        region:    Standardized region/platform code ("ARG", "US", "NF", "D+") or "".
-        bare_name: Channel title with all suffixes/prefixes stripped.
-        quality:   Quality tokens found (e.g. ["HD", "HEVC"]). First is highest tier.
-        lang:      Explicit parenthetical lang/region qualifier differing from region, or "".
-        year:      Year or year-range from trailing parentheses ("2020", "1993-2002"), or "".
-        audio:     Audio presentation format ("Multi", "Dub", "Sub"), or "".
+        region:     Standardized region/platform code ("ARG", "US", "NF", "D+") or "".
+        bare_name:  Channel title with all suffixes/prefixes stripped.
+        quality:    Quality tokens found (e.g. ["HD", "HEVC"]). First is highest tier.
+        lang:       Explicit parenthetical lang/region qualifier differing from region, or "".
+        year:       Year or year-range from trailing parentheses ("2020", "1993-2002"), or "".
+        audio:      Audio presentation format ("Multi", "Dub", "Sub", "Dual", "Original"), or "".
+        audio_langs: Languages identified as the audio track (original audio). May include
+                     the original-language + any explicit audio designations.
+        dub_langs:  Languages identified as a dubbed audio track (from DUB markers).
+        sub_langs:  Languages identified as a subtitle track (from SUB markers).
+                    "Multi" is used as a special sentinel when [Multi-Sub] is detected.
     """
     region: str
     bare_name: str
@@ -21,6 +26,9 @@ class ParsedChannel(NamedTuple):
     lang: str
     year: str
     audio: str
+    audio_langs: list[str] = []
+    dub_langs: list[str] = []
+    sub_langs: list[str] = []
 
 
 # ── Separator patterns ──────────────────────────────────────────────────────── #
@@ -294,6 +302,52 @@ def strip_title_qualifiers(bare: str) -> str:
             bare = bare[: m.start()].strip()
     return bare
 
+
+def _strip_title_qualifiers_collecting(bare: str) -> tuple[str, list[str]]:
+    """Like ``strip_title_qualifiers`` but also returns the inner content of each stripped qualifier.
+
+    Used by ``parse_channel_name`` step 6c to intercept stripped sub/dub annotations
+    so that ``extract_audio_annotation`` can derive language facets from them.
+
+    Returns:
+        ``(cleaned_bare, list_of_inner_contents)`` where each element in
+        ``list_of_inner_contents`` is the content *inside* a stripped paren/bracket,
+        suitable for passing to ``extract_audio_annotation``.
+    """
+    # Regex that matches and captures the inner content of a single-token paren qualifier.
+    _PAREN_INNER_RE = re.compile(r"\s*\(([A-Za-z][A-Za-z0-9\-/]{0,25})\)\s*$")
+    # Regex that matches and captures the inner content of a bracket qualifier.
+    _BRACKET_INNER_RE = re.compile(r"\s*\[([^\[\]]*[\s/\-][^\[\]]*)\]\s*$")
+
+    stripped_inners: list[str] = []
+    prev = None
+    while prev != bare:
+        prev = bare
+        # Year suffixes — not audio annotations; skip collecting
+        bare = PAREN_YEAR_SUFFIX_RE.sub("", bare).strip()
+        # Single-token paren qualifiers — collect inner content
+        m_pq = _PAREN_INNER_RE.search(bare)
+        if m_pq:
+            stripped_inners.append(m_pq.group(1))
+        bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
+        # Digit quality in parens — not audio, skip
+        bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
+        # Bracket qualifiers — collect inner content
+        m_bq = _BRACKET_INNER_RE.search(bare)
+        if m_bq:
+            stripped_inners.append(m_bq.group(1))
+        bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
+        # Multi-token parentheticals
+        m = PAREN_MULTI_QUALIFIER_RE.search(bare)
+        if m and (
+            _is_all_qualifier_tokens(m.group(1))
+            or _has_unambiguous_subdub(m.group(1))
+        ):
+            stripped_inners.append(m.group(1))
+            bare = bare[: m.start()].strip()
+    return bare, stripped_inners
+
+
 # ── Audio format normalization ───────────────────────────────────────────────── #
 
 # All known variants → canonical form. Keys are uppercased for matching.
@@ -400,6 +454,329 @@ _BRACKET_LANG_NORM: dict[str, str] = {
     "THAI":       "TH",
     "POLISH":     "PL",
 }
+
+# Mapping from language words found inside sub/dub annotations → canonical language name
+# (the same names used in CODE_FACETS and REGION_FULL_NAMES for the `language:` facet).
+# Used by extract_audio_annotation() to convert language tokens from (ENG DUB),
+# (SPANISH ENG-SUB), (VOSTFR), etc. into canonical language names.
+# Key = UPPERCASE token as it appears in provider names; value = canonical display name.
+# SINGLE SOURCE OF TRUTH for this mapping — do NOT define parallel dicts elsewhere.
+AUDIO_LANG_WORD_MAP: dict[str, str] = {
+    # English variants
+    "ENGLISH":       "English",
+    "ENG":           "English",
+    "EN":            "English",
+    # Spanish / Latin
+    "SPANISH":       "Spanish",
+    "ESP":           "Spanish",
+    "ES":            "Spanish",
+    "LAT":           "Latin American Spanish",
+    "LATIN":         "Latin American Spanish",
+    "LATAM":         "Latin American Spanish",
+    # French
+    "FRENCH":        "French",
+    "FRE":           "French",
+    "FR":            "French",
+    # German
+    "GERMAN":        "German",
+    "GER":           "German",
+    "DE":            "German",
+    # Italian
+    "ITALIAN":       "Italian",
+    "ITA":           "Italian",
+    "IT":            "Italian",
+    # Portuguese
+    "PORTUGUESE":    "Portuguese",
+    "POR":           "Portuguese",
+    "PT":            "Portuguese",
+    "PT-BR":         "Portuguese",
+    "PTBR":          "Portuguese",
+    # Russian
+    "RUSSIAN":       "Russian",
+    "RUS":           "Russian",
+    "RU":            "Russian",
+    # Arabic
+    "ARABIC":        "Arabic",
+    "ARA":           "Arabic",
+    "AR":            "Arabic",
+    # Japanese
+    "JAPANESE":      "Japanese",
+    "JAP":           "Japanese",
+    "JPN":           "Japanese",
+    "JP":            "Japanese",
+    # Korean
+    "KOREAN":        "Korean",
+    "KOR":           "Korean",
+    "KR":            "Korean",
+    # Chinese
+    "CHINESE":       "Chinese",
+    "CHI":           "Chinese",
+    "CHN":           "Chinese",
+    "CN":            "Chinese",
+    # Hindi
+    "HINDI":         "Hindi",
+    "HIN":           "Hindi",
+    "HI":            "Hindi",
+    # Turkish
+    "TURKISH":       "Turkish",
+    "TUR":           "Turkish",
+    "TR":            "Turkish",
+    # Polish
+    "POLISH":        "Polish",
+    "POL":           "Polish",
+    "PL":            "Polish",
+    # Thai
+    "THAI":          "Thai",
+    "THA":           "Thai",
+    "TH":            "Thai",
+    # Dutch
+    "DUTCH":         "Dutch",
+    "NL":            "Dutch",
+    # Swedish
+    "SWEDISH":       "Swedish",
+    "SWE":           "Swedish",
+    "SE":            "Swedish",
+    # Norwegian
+    "NORWEGIAN":     "Norwegian",
+    "NOR":           "Norwegian",
+    "NO":            "Norwegian",
+    # Danish
+    "DANISH":        "Danish",
+    "DEN":           "Danish",
+    "DK":            "Danish",
+    # Finnish
+    "FINNISH":       "Finnish",
+    "FIN":           "Finnish",
+    "FI":            "Finnish",
+    # Romanian
+    "ROMANIAN":      "Romanian",
+    "ROM":           "Romanian",
+    "RO":            "Romanian",
+    # Hungarian
+    "HUNGARIAN":     "Hungarian",
+    "HUN":           "Hungarian",
+    "HU":            "Hungarian",
+    # Czech
+    "CZECH":         "Czech",
+    "CZE":           "Czech",
+    "CZ":            "Czech",
+    # Greek
+    "GREEK":         "Greek",
+    "GRE":           "Greek",
+    "GR":            "Greek",
+    # Kurdish
+    "KURDISH":       "Kurdish",
+    "KUR":           "Kurdish",
+    "KU":            "Kurdish",
+    # Persian / Farsi
+    "PERSIAN":       "Persian",
+    "FARSI":         "Persian",
+    "FA":            "Persian",
+    "FAS":           "Persian",
+    "PER":           "Persian",
+    # Ukrainian
+    "UKRAINIAN":     "Ukrainian",
+    "UKR":           "Ukrainian",
+    "UK":            "Ukrainian",
+    # Vietnamese
+    "VIETNAMESE":    "Vietnamese",
+    "VIE":           "Vietnamese",
+    "VN":            "Vietnamese",
+    # Indonesian
+    "INDONESIAN":    "Indonesian",
+    "IND":           "Indonesian",
+    "ID":            "Indonesian",
+    # Filipino / Tagalog
+    "FILIPINO":      "Filipino",
+    "TAGALOG":       "Filipino",
+    "PH":            "Filipino",
+    # Bulgarian
+    "BULGARIAN":     "Bulgarian",
+    "BUL":           "Bulgarian",
+    "BG":            "Bulgarian",
+    # Serbian / Croatian / Bosnian
+    "SERBIAN":       "Serbian",
+    "SRB":           "Serbian",
+    "CROATIAN":      "Croatian",
+    "HRV":           "Croatian",
+    "BOSNIAN":       "Bosnian",
+    # Slovak / Slovenian
+    "SLOVAK":        "Slovak",
+    "SLOVENIAN":     "Slovenian",
+    # Albanian
+    "ALBANIAN":      "Albanian",
+    "ALB":           "Albanian",
+    "AL":            "Albanian",
+    # Tamil / Telugu (Indian sub-languages)
+    "TAMIL":         "Tamil",
+    "TAM":           "Tamil",
+    "TA":            "Tamil",
+    "TELUGU":        "Telugu",
+    "TEL":           "Telugu",
+    "TE":            "Telugu",
+    # Malay
+    "MALAY":         "Malay",
+    "MAL":           "Malay",
+    "MS":            "Malay",
+    # Hebrew
+    "HEBREW":        "Hebrew",
+    "HEB":           "Hebrew",
+    "IL":            "Hebrew",
+    # VOSTFR / VOSTA special forms — these encode "French subtitles" / "original audio + FR sub"
+    # Handled separately in extract_audio_annotation; listed here as fallback if seen as tokens.
+    "VOSTFR":        "French",   # "Version Originale Sous-Titrée en FRançais"
+    "VOSTA":         "Spanish",  # "Version Originale Sous-Titrée en espAgñol" (less common)
+}
+
+
+def extract_audio_annotation(inner: str) -> tuple[str, list[str], list[str], list[str]]:
+    """Extract audio facets from a sub/dub/multi parenthetical inner string.
+
+    Given the content *inside* a trailing parenthetical or bracket (e.g. ``"ENG DUB"``,
+    ``"SPANISH ENG-SUB"``, ``"VOSTFR"``, ``"Multi-Sub"``, ``"DUAL AUDIO"``), returns
+    a 4-tuple ``(form, audio_langs, dub_langs, sub_langs)`` where:
+
+    - ``form``       — canonical presentation form: ``"Dub"``, ``"Sub"``, ``"Multi"``,
+                       ``"Dual"``, ``"Original"`` (inferred), or ``""`` (unknown).
+    - ``audio_langs``— languages for the audio track (the "original" audio). Empty when
+                       no specific language can be determined for the audio track.
+    - ``dub_langs``  — languages present as a dubbed audio track.
+    - ``sub_langs``  — languages present as subtitles. ``"Multi"`` is the special
+                       sentinel when a multi-subtitle annotation is detected.
+
+    Assignment logic (in annotation order):
+    - ``VOSTFR``  → form=Original, sub_langs=[French]
+    - ``VOSTA``   → form=Original, sub_langs=[Spanish]
+    - ``Multi-Sub``/``Multi Audio``/``MULTI`` → form=Multi, sub_langs=["Multi"]
+    - ``DUAL AUDIO``/``DUAL`` → form=Dual  (no lang assignment)
+    - ``LANG DUB``  → form=Dub, dub_langs=[LANG]
+    - ``LANG-SUB``/``LANG SUB`` → sub_langs=[LANG]; form inferred as Original (audio not dubbed)
+    - ``LANG``     → audio_langs=[LANG]  (primary/original audio language)
+    - When both a LANG and a SUB/DUB marker are present in the same annotation, the
+      LANG immediately adjacent to the SUB marker goes to sub_langs (or dub_langs),
+      and any preceding unqualified LANG goes to audio_langs.
+
+    Conservative: only maps tokens confidently present in AUDIO_LANG_WORD_MAP.
+    Unknown language words are silently dropped — stripping still proceeds (unchanged).
+
+    Args:
+        inner: The raw content between the outer delimiters, e.g. ``"SPANISH ENG-SUB"``.
+
+    Returns:
+        ``(form, audio_langs, dub_langs, sub_langs)``
+    """
+    up = inner.strip().upper()
+
+    # ── Special-case complete-match forms first ──────────────────────────────── #
+    # VOSTFR: original audio + French subtitles (very common in FR provider data)
+    if re.match(r'^VOSTFR$', up):
+        return ("Original", [], [], ["French"])
+    # VOSTA: original audio + Spanish subtitles
+    if re.match(r'^VOSTA$', up):
+        return ("Original", [], [], ["Spanish"])
+    # VOST alone: original audio, subtitle language unspecified
+    if re.match(r'^VOST$', up):
+        return ("Original", [], [], [])
+    # OV (Original Version), OMU (Original with German subtitles)
+    if re.match(r'^OV$', up):
+        return ("Original", [], [], [])
+    if re.match(r'^OMU$', up):
+        return ("Original", [], [], ["German"])
+
+    # Multi forms
+    multi_key = re.sub(r'[\s\-/]', '', up)  # e.g. "MULTI-SUB" → "MULTISUB"
+    if multi_key in ("MULTI", "MULTISUB", "MULTIAUDIO", "MUTISUB", "MUTIAUDIO",
+                     "MULTILANGUAGE", "MULTIAU", "MULTIAUDIOSUB"):
+        return ("Multi", [], [], ["Multi"])
+    # Multi as standalone token that may have audio in it
+    if up.startswith("MULTI") and "DUB" not in up and "SUB" not in up:
+        # e.g. "MULTI LANGUAGE" — cover the full multi family
+        if "LANGUAGE" in up or "AUDIO" in up or up == "MULTI":
+            return ("Multi", [], [], ["Multi"])
+
+    # Dual audio
+    if re.match(r'^DUAL(\s+AUDIO)?$', up) or re.match(r'^DUAL AUDIO$', up):
+        return ("Dual", [], [], [])
+
+    # Legendado / LEG — Portuguese subtitle indicator (subtitled in Portuguese)
+    if re.match(r'^LEG(ENDADO?)?$', up):
+        return ("Sub", [], [], ["Portuguese"])
+
+    # Subtitulado — Spanish subtitle indicator
+    if re.match(r'^SUBTITULADO$', up):
+        return ("Sub", [], [], ["Spanish"])
+
+    # ── Token-by-token parsing for compound annotations ──────────────────────── #
+    # Split on whitespace, hyphen, and slash to get individual tokens.
+    tokens = [t for t in re.split(r'[\s\-/]+', up) if t]
+
+    # Identify which tokens are DUB markers and which are SUB markers.
+    _DUB_MARKERS = frozenset({"DUB", "DUBBED", "DUBBING"})
+    _SUB_MARKERS = frozenset({"SUB", "SUBS", "SUBBED", "SUBTITLED",
+                               "SUBTITULADO", "SUBTITLE", "SUBTITLES",
+                               "LEG", "LEGENDADO", "LEGENDADOS"})
+    _MULTI_MARKERS = frozenset({"MULTI", "MUTI", "MULTISUB"})
+    _AUDIO_NEUTRAL = frozenset({"AUDIO"})  # neutral — adjacent token determines meaning
+
+    form: str = ""
+    audio_langs: list[str] = []
+    dub_langs: list[str] = []
+    sub_langs: list[str] = []
+    pending_lang: str | None = None  # lang token waiting for a role marker
+
+    for i, tok in enumerate(tokens):
+        if tok in _MULTI_MARKERS:
+            form = "Multi"
+            if not sub_langs:
+                sub_langs = ["Multi"]
+            pending_lang = None
+            continue
+
+        if tok in _DUB_MARKERS:
+            form = "Dub"
+            if pending_lang:
+                dub_langs.append(pending_lang)
+                pending_lang = None
+            continue
+
+        if tok in _SUB_MARKERS:
+            if not form or form == "Original":
+                form = "Original"  # subs present without dub → original audio
+            if pending_lang:
+                sub_langs.append(pending_lang)
+                pending_lang = None
+            continue
+
+        if tok in _AUDIO_NEUTRAL:
+            # AUDIO alone is ambiguous (could be "DUAL AUDIO" or "MULTI AUDIO")
+            # — handled by multi/dual detection above; here it means a lang context
+            continue
+
+        # Try to resolve as a language
+        lang_name = AUDIO_LANG_WORD_MAP.get(tok)
+        if lang_name:
+            # Look ahead: if next token is a SUB/DUB marker, it goes there.
+            # Otherwise it's a pending audio-track language.
+            if pending_lang:
+                # There was already a pending lang — flush it to audio (unqualified)
+                audio_langs.append(pending_lang)
+            pending_lang = lang_name
+        # Non-language, non-marker tokens are silently ignored (conservative)
+
+    # Flush any remaining pending_lang to audio (original/unqualified)
+    if pending_lang:
+        audio_langs.append(pending_lang)
+
+    # Infer form when not yet set
+    if not form:
+        if sub_langs and not dub_langs:
+            form = "Original"   # subs only → original audio inferred
+        elif dub_langs:
+            form = "Dub"
+        # else: no form — unknown single-language annotation (just audio_langs)
+
+    return (form, audio_langs, dub_langs, sub_langs)
+
 
 _FULL_NAME_TO_CODE: dict[str, str] = {
     # Europe
@@ -954,6 +1331,9 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # not a quality token) — these are captured as lang in step 4.
     # Also strips quality-token brackets like [4K], [UHD], [HD].
     audio = ""
+    _audio_langs: list[str] = []
+    _dub_langs: list[str] = []
+    _sub_langs: list[str] = []
     # _bracket_origin already initialized above; suffix bracket overrides compound bracket
     bsm = _BRACKET_SUFFIX_RE.search(bare)
     if bsm:
@@ -962,6 +1342,12 @@ def parse_channel_name(name: str) -> ParsedChannel:
         if bc.kind == "audio":
             audio = bc.value
             bare = bare[: bsm.start()].strip()
+            # Extract audio facets from the bracket content (e.g. [Multi-Sub], [Dub])
+            _af, _al, _dl, _sl = extract_audio_annotation(bsm.group(1).strip())
+            if not _audio_langs:
+                _audio_langs = _al
+            _dub_langs = list(dict.fromkeys(_dub_langs + _dl))
+            _sub_langs = list(dict.fromkeys(_sub_langs + _sl))
         elif bc.kind == "quality":
             quality.insert(0, bc.value)
             bare = bare[: bsm.start()].strip()
@@ -1002,6 +1388,15 @@ def parse_channel_name(name: str) -> ParsedChannel:
             _bracket_origin = bc2.value
             lang = bc2.value   # step 4 already ran; update lang directly
             bare = bare[: bsm2.start()].strip()
+        elif bc2.kind == "audio" and not audio:
+            # Capture audio annotation from second bracket pass too
+            audio = bc2.value
+            bare = bare[: bsm2.start()].strip()
+            _af2, _al2, _dl2, _sl2 = extract_audio_annotation(bsm2.group(1).strip())
+            if not _audio_langs:
+                _audio_langs = _al2
+            _dub_langs = list(dict.fromkeys(_dub_langs + _dl2))
+            _sub_langs = list(dict.fromkeys(_sub_langs + _sl2))
         # audio in step 6a is unusual and not expected; unknown stays in bare
 
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
@@ -1015,7 +1410,38 @@ def parse_channel_name(name: str) -> ParsedChannel:
     #     because PAREN_QUALIFIER_RE requires no internal space inside the parens.
     #     Already-committed field assignments (lang, year, audio, quality) are NOT
     #     re-derived here — this pass only cleans the displayed title.
-    bare = strip_title_qualifiers(bare)
+    #     Audio annotation: we also intercept stripped qualifiers to extract audio facets.
+    bare, _stripped_inners = _strip_title_qualifiers_collecting(bare)
+    for _inner in _stripped_inners:
+        _inner_up = _inner.strip().upper()
+        _inner_tokens = re.split(r'[\s\-/]+', _inner_up)
+        # Audio/sub/dub annotation markers (explicit role markers)
+        _AUDIO_MARKERS = frozenset({
+            "DUB", "DUBBED", "SUB", "SUBS", "SUBBED", "SUBTITLED",
+            "VOSTFR", "VOSTA", "VOST", "LEG", "LEGENDADO", "MULTI",
+            "MUTI", "DUAL", "OV", "OMU",
+        })
+        has_audio_marker = any(tok in _AUDIO_MARKERS for tok in _inner_tokens)
+        is_known_audio_form = _inner_up in _AUDIO_NORM
+
+        if has_audio_marker or is_known_audio_form:
+            # Compound annotation — extract form + role assignments
+            _af, _al, _dl, _sl = extract_audio_annotation(_inner)
+            if _af and not audio:
+                audio = _af
+            elif _af == "Multi" and audio != "Multi":
+                audio = "Multi"
+            _audio_langs = list(dict.fromkeys(_audio_langs + _al))
+            _dub_langs = list(dict.fromkeys(_dub_langs + _dl))
+            _sub_langs = list(dict.fromkeys(_sub_langs + _sl))
+        else:
+            # Single-language token (e.g. "(KURDISH)", "(JAPANESE)") — language only,
+            # no role assignment; add to audio_langs as original/unqualified audio.
+            single_tok = _inner_tokens[0] if len(_inner_tokens) == 1 else None
+            if single_tok:
+                lang_name = AUDIO_LANG_WORD_MAP.get(single_tok)
+                if lang_name and lang_name not in _audio_langs:
+                    _audio_langs.append(lang_name)
 
     # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
@@ -1023,4 +1449,5 @@ def parse_channel_name(name: str) -> ParsedChannel:
     if _prefix_quality and _prefix_quality not in quality:
         quality = quality + [_prefix_quality]
 
-    return ParsedChannel(region, bare, quality, lang, year, audio)
+    return ParsedChannel(region, bare, quality, lang, year, audio,
+                         _audio_langs, _dub_langs, _sub_langs)

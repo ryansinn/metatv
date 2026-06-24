@@ -700,6 +700,9 @@ class Config(BaseModel):
     filter_included_platforms: Optional[list] = None
     filter_included_categories: Optional[list] = None
     filter_included_genres: Optional[list] = None
+    filter_included_subtitles: Optional[list] = None
+    filter_included_dubs: Optional[list] = None
+    filter_included_formats: Optional[list] = None
     # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
     # ONCE in model_post_init.  >=1 = written by the sentinel-aware save, where []
@@ -1080,6 +1083,12 @@ class Config(BaseModel):
                 self.filter_included_categories = None
             if self.filter_included_genres == []:
                 self.filter_included_genres = None
+            if self.filter_included_subtitles == []:
+                self.filter_included_subtitles = None
+            if self.filter_included_dubs == []:
+                self.filter_included_dubs = None
+            if self.filter_included_formats == []:
+                self.filter_included_formats = None
             self.filter_config_version = 1
         # Migrate legacy dev-QA qa_checked_steps → qa_step_results (tri-state).
         # Old shape: {str(entry_id): [checked_idx, ...]}.  Every previously-checked
