@@ -301,12 +301,19 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(PrefixRescanTask(self.db))
         from metatv.core.migrations.metadata_rescan import MetadataRescanTask
         self.migration_manager.register(MetadataRescanTask(self.db, self.metadata_manager))
-        from metatv.core.migrations.tag_backfill import TagBackfillTask
-        self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
-        from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
-        self.migration_manager.register(ContentKeyBackfillTask(self.db))
+        # ORDER MATTERS — derive stored fields BEFORE deriving tags from them.
+        # DetectedTitleReparse runs update_detected_prefixes(), which populates
+        # ChannelDB.detected_audio (plus the other detected_* fields + content_key).
+        # The TagBackfill audio_annotation feeder READS detected_audio. If TagBackfill
+        # ran first it would read NULL and silently emit no subtitle:/dub:/format:
+        # facets on existing libraries — and since each task is version-gated it would
+        # never re-run to pick them up. Keep DetectedTitleReparse ahead of TagBackfill.
         from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
         self.migration_manager.register(DetectedTitleReparseTask(self.db))
+        from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
+        self.migration_manager.register(ContentKeyBackfillTask(self.db))
+        from metatv.core.migrations.tag_backfill import TagBackfillTask
+        self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
         from metatv.core.migrations.category_facet_refacet import CategoryFacetRefacetTask
         self.migration_manager.register(CategoryFacetRefacetTask(self.db, config=self.config))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
