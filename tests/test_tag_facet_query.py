@@ -734,10 +734,11 @@ class TestSampleChannelsAsCards:
 # ---------------------------------------------------------------------------
 #
 # The recipe "Show all" browse page pages through the FULL match set via the
-# offset parameter.  Pages are ordered by channel name (indexed) with channel_id
-# as a deterministic tiebreaker, so successive (limit, offset) pages are disjoint
-# and together cover the whole set with no overlap and no gaps — and the browse
-# reads A→Z (quality/language variants of one title sit adjacent).
+# offset parameter.  Pages are ordered by the stored clean title (detected_title,
+# case-insensitive, falling back to name) with channel_id as a deterministic
+# tiebreaker, so successive (limit, offset) pages are disjoint and together cover
+# the whole set with no overlap and no gaps — and the browse reads as ONE true
+# A→Z run (no "4K leads" / per-prefix / per-case sub-runs; variants sit adjacent).
 
 
 @pytest.fixture
@@ -839,3 +840,43 @@ class TestStablePagination:
                 seen.extend(c.channel_id for c in cards)
                 offset += len(cards)
         assert seen == expected, "Show-all pages are not in (name, id) order"
+
+    def test_card_order_uses_clean_title_case_insensitive(self, file_db):
+        """Show-all orders by detected_title (clean), case-insensitive — not raw name.
+
+        Regression for the "4K leads the list" + "A→Z then restarts" bug: prefix
+        junk ("4K - ", "|EN| ") in the raw name must not drive the sort, and case
+        must not split titles into separate runs.
+        """
+        from metatv.core.database import ChannelDB
+
+        db = file_db
+        # (raw_name, detected_title) — clean titles span case + a "4K -" prefix.
+        seed = [
+            ("4K - Banana (2024)", "Banana"),   # prefix must not sort under "4"
+            ("|EN| zebra raw", "Zebra"),
+            ("DRAGON RAW", "dragon"),            # uppercase raw, lowercase title
+            ("apple raw", "Apple"),
+        ]
+        ids_by_title: dict[str, str] = {}
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            for raw, clean in seed:
+                cid = _add_channel(session, raw)
+                session.query(ChannelDB).filter_by(id=cid).update(
+                    {"detected_title": clean}
+                )
+                repos.tags.set_content_tags(cid, [("genre", "Drama", "test")])
+                ids_by_title[clean] = cid
+
+        with db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            cards = repos.tags.sample_channels_by_tag_facets(
+                {"genre": {"Drama"}}, limit=10, offset=0
+            )
+
+        got = [c.channel_id for c in cards]
+        # Case-insensitive by clean title: Apple, Banana, dragon, Zebra — NOT raw
+        # name order (which would sort "4K -" first and split by case).
+        expected = [ids_by_title[t] for t in ("Apple", "Banana", "dragon", "Zebra")]
+        assert got == expected
