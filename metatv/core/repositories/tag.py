@@ -937,12 +937,15 @@ class TagRepository:
         object (poster url, title, media_type, year, provider scoping already
         applied).  No ORM object crosses the worker→main boundary.
 
-        **Stable pagination.** Pages are ordered by channel ``name`` (indexed)
-        with ``channel_id`` as a deterministic tiebreaker, so successive
-        ``(limit, offset)`` pages are disjoint and together cover the whole match
-        set — no overlap, no gaps.  The teaser (``offset=0``) and every "Show
-        all" page share this one ordering, so the browse reads A→Z and page
-        boundaries align with the already-seeded teaser cards.
+        **Stable pagination.** Pages are ordered by the stored clean title
+        (``detected_title`` — quality/region/category prefixes like "4K -" or
+        "|EN|" already stripped at ingestion), case-insensitive, falling back to
+        the raw ``name`` when no title was detected, with ``channel_id`` as a
+        deterministic tiebreaker.  So successive ``(limit, offset)`` pages are
+        disjoint and together cover the whole match set — no overlap, no gaps —
+        and the browse reads as ONE true A→Z run (no "4K leads" or per-prefix /
+        per-case sub-runs).  The teaser (``offset=0``) and every "Show all" page
+        share this one ordering, so page boundaries align with the seeded teaser.
 
         Scoping is IDENTICAL to the count/preview path (hidden providers + the
         caller's Global Exclusions), so the shelf agrees with YIELDS.
@@ -955,8 +958,9 @@ class TagRepository:
             offset: Number of leading matches to skip (for paged "Show all").
 
         Returns:
-            List of ``ContentCard`` value objects in ``(name, channel_id)``
-            order.  Empty when no channel matches.
+            List of ``ContentCard`` value objects in clean-title
+            (``detected_title``, case-insensitive) order.  Empty when no channel
+            matches.
         """
         from metatv.core.database import ChannelDB
         from metatv.core.discovery_engine import _to_card
@@ -972,15 +976,24 @@ class TagRepository:
         ).subquery()
 
         # Page over the matching channels in one stable, human-friendly order:
-        # channel name (indexed) with channel_id as a deterministic tiebreaker.
-        # Applying OFFSET/LIMIT to this single global ordering keeps successive
-        # pages disjoint and gap-free, the teaser (offset 0) and every "Show all"
-        # page share it, and the browse reads A→Z (so quality/language variants
-        # of one title sit adjacent).
+        # the stored clean title (detected_title — "4K -"/"|EN|"/category junk
+        # stripped at ingestion), case-insensitive, falling back to the raw name
+        # when no title was detected, with channel_id as a deterministic
+        # tiebreaker.  Ordering by the CLEAN title (the CLAUDE.md "read
+        # detected_title, never the raw name" rule, applied to sort order) gives
+        # ONE true A→Z run instead of per-prefix / per-case sub-runs, and keeps
+        # successive OFFSET/LIMIT pages disjoint + gap-free; the teaser (offset 0)
+        # and every "Show all" page share it, so variants of one title sit
+        # adjacent.
+        from sqlalchemy import func as _func
+
+        _title_sort = _func.coalesce(
+            _func.nullif(ChannelDB.detected_title, ""), ChannelDB.name
+        ).collate("NOCASE")
         rows = (
             self.session.query(ChannelDB)
             .join(matching, matching.c.channel_id == ChannelDB.id)
-            .order_by(ChannelDB.name, ChannelDB.id)
+            .order_by(_title_sort, ChannelDB.id)
             .offset(offset)
             .limit(limit)
             .all()
