@@ -40,8 +40,9 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.repositories.epg import EpgRepository
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.epg_widgets import (
@@ -52,6 +53,7 @@ from metatv.gui.epg_widgets import (
 from metatv.core.epg_utils import (
     fmt_time as _format_time,
     fmt_duration as _duration_str,
+    to_local as _to_local,
 )
 
 
@@ -76,9 +78,9 @@ class _EpgBrowseMixin:
         self.search_input.setPlaceholderText("Search programmes…")
         self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
-        browse_clear = QPushButton(self.config.close_icon)
-        browse_clear.setFixedWidth(24)
-        browse_clear.setToolTip("Clear")
+        browse_clear = QPushButton(_icons.close_icon)
+        browse_clear.setFixedWidth(30)
+        browse_clear.setToolTip("Clear search")
         browse_clear.setStyleSheet(_theme.CLEAR_BTN)
         browse_clear.clicked.connect(self.search_input.clear)
         search_row.addWidget(browse_clear)
@@ -197,6 +199,16 @@ class _EpgBrowseMixin:
                     time_slot=time_slot,
                 )
 
+            # Fetch the shallowest epg_data_end among the active providers so the empty
+            # state can tell the user exactly how far the guide actually reaches.
+            rows = (
+                session.query(ProviderDB.epg_data_end)
+                .filter(ProviderDB.id.in_(provider_ids))
+                .filter(ProviderDB.epg_data_end.isnot(None))
+                .all()
+            )
+            guide_end = min((r.epg_data_end for r in rows), default=None)
+
             # Build channel name map
             name_map: dict[str, str] = {}
             for p in programs:
@@ -206,18 +218,23 @@ class _EpgBrowseMixin:
                         name_map[p.channel_db_id] = ch.name
             self._channel_name_map.update(name_map)
 
-            self._data_loaded.emit({"tab": "browse", "programs": programs})
+            self._data_loaded.emit({
+                "tab": "browse",
+                "programs": programs,
+                "guide_end": guide_end,
+            })
         except Exception as e:
             logger.error(f"EpgView browse fetch error: {e}")
         finally:
             session.close()
 
-    def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False) -> None:
+    def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False,
+                       guide_end=None) -> None:
         if placeholder or not programs:
             # No data (no EPG sources, or the selected day/slot/search has no
             # programmes) → show the placeholder instead of an empty tree.
             self.browse_list.setVisible(False)
-            self.browse_placeholder.setText(self._browse_placeholder_text())
+            self.browse_placeholder.setText(self._browse_placeholder_text(guide_end=guide_end))
             self.browse_placeholder.setVisible(True)
             self.browse_stats.clear()
             self.status_message.emit("EPG: 0 programmes")
@@ -256,12 +273,22 @@ class _EpgBrowseMixin:
         self.browse_stats.setText(f"{count:,} programmes")
         self.status_message.emit(f"EPG: {count:,} programmes")
 
-    def _browse_placeholder_text(self) -> str:
-        """Context-aware empty-state message for the Browse tab."""
+    def _browse_placeholder_text(self, guide_end=None) -> str:
+        """Context-aware empty-state message for the Browse tab.
+
+        When the selected day/time window has no programmes but guide_end is known
+        (from the provider's stored epg_data_end), the message tells the user exactly
+        how far the guide actually reaches, so an empty prime-time slot reads as
+        "guide only goes to <date/time>" rather than a blank list that looks like a bug.
+        """
         if not self._filtered_provider_ids():
             return "No EPG sources — enable a source's guide to browse the schedule."
         if self.search_input.text().strip():
             return "No programmes match your search."
+        if guide_end is not None:
+            local_end = _to_local(guide_end)
+            end_str = local_end.strftime("%a %b %-d at %-I:%M %p")
+            return f"No programmes scheduled in this window — this source's guide currently reaches {end_str}."
         return "No programmes for the selected day and time."
 
     def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
