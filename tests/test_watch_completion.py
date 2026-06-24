@@ -1,10 +1,14 @@
 """Watch-completion engine (Slice 1): record_watch_progress.
 
 The chokepoint records a VOD item's resume position and marks it *completed*
-(sticky) once watched past a configurable fraction of its duration. Covers
-movies (ChannelRepository) and episodes (EpisodeRepository), which share the
-same semantics: resume point on partial, sticky completion + cleared resume at
-threshold, completion is one-way (a later partial rewatch doesn't un-finish it).
+once watched past a configurable fraction of its duration. Covers movies
+(ChannelRepository) and episodes (EpisodeRepository), which share the same
+semantics: resume point on partial, completion + cleared resume at threshold.
+
+Invariant: watch_progress > 0 implies watch_completed = False.
+Re-watching a finished title (partial progress after prior completion) un-marks it
+as complete so that resume works correctly on the next play. Finishing it again
+re-marks it complete.
 """
 
 from __future__ import annotations
@@ -65,7 +69,15 @@ def test_crossing_threshold_marks_completed_and_clears_resume(db):
         s.close()
 
 
-def test_completion_is_sticky(db):
+def test_rewatch_after_completion_clears_completed_and_sets_progress(db):
+    """Partial re-watch after completion un-marks the title (restores the invariant).
+
+    The old behaviour made completion 'sticky' (one-way). That caused a resume bug:
+    finishing a movie (completed=True, progress=0) then re-watching partway would
+    write progress=N but leave completed=True, blocking resume on the next open.
+    New behaviour: a partial play always clears completed so progress > 0 implies
+    not completed — the invariant that makes resume work correctly.
+    """
     _seed_movie(db)
     s = db.get_session()
     try:
@@ -73,8 +85,8 @@ def test_completion_is_sticky(db):
         repo.record_watch_progress("m1", 2900, 3000)            # finish it
         repo.record_watch_progress("m1", 300, 3000)             # rewatch, stop at 10%
         ch = repo.get_by_id("m1")
-        assert bool(ch.watch_completed) is True, "completion is one-way (stays finished)"
-        assert ch.watch_progress == 300, "resume point still tracks the rewatch"
+        assert bool(ch.watch_completed) is False, "re-watch un-completes; completion is no longer sticky"
+        assert ch.watch_progress == 300, "resume point tracks the partial rewatch"
     finally:
         s.close()
 

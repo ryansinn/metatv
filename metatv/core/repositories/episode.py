@@ -340,12 +340,16 @@ class EpisodeRepository:
         threshold: float = 0.9,
         played_via: str = "manual",
     ) -> bool:
-        """Record episode watch progress: resume point + sticky completion.
+        """Record episode watch progress: resume point + completion.
 
         Mirror of :meth:`ChannelRepository.record_watch_progress` for episodes:
         sets ``watch_progress`` (resume seconds), ``last_played``, and
-        ``last_played_via``; at ``>= threshold`` marks ``is_watched`` (sticky) and
-        clears the resume point. ``play_count`` is owned by ``mark_played``.
+        ``last_played_via``; at ``>= threshold`` marks ``is_watched`` and
+        ``watch_completed``, clearing the resume point. On a partial watch (below
+        threshold), both ``is_watched`` and ``watch_completed`` are explicitly
+        cleared so that re-watching a previously-finished episode un-completes it —
+        this restores the invariant ``watch_progress > 0 ⟺ not watch_completed``.
+        ``play_count`` is owned by ``mark_played``.
 
         Returns True if this call marked the episode watched.
         """
@@ -366,6 +370,8 @@ class EpisodeRepository:
             episode.watch_completed = True
             episode.watch_progress = 0
         else:
+            episode.is_watched = False      # re-watching a finished episode un-completes it
+            episode.watch_completed = False  # mirrors the completed branch, inverted
             episode.watch_progress = max(0, int(position_s))
         episode.updated_at = datetime.now()
         self.session.commit()

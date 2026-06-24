@@ -525,15 +525,17 @@ class ChannelRepository(_ChannelStatsMixin):
         threshold: float = 0.9,
         played_via: str = "manual",
     ) -> bool:
-        """Record VOD watch progress: resume point + sticky completion (Slice 1 chokepoint).
+        """Record VOD watch progress: resume point + completion.
 
         Sets ``watch_progress`` (resume seconds), ``last_played``, and
         ``last_played_via``. When ``position_s / duration_s >= threshold`` the item
-        is marked ``watch_completed`` (sticky — once finished, stays finished) and
-        the resume point is cleared so a finished movie never resurfaces in
-        "continue watching" at 99%. ``play_count`` is owned by ``mark_played`` (at
-        play start) — this method never touches it, so progress capture can't
-        double-count a play.
+        is marked ``watch_completed`` and the resume point is cleared so a finished
+        movie never resurfaces in "continue watching" at 99%. On a partial watch
+        (below threshold), ``watch_completed`` is explicitly cleared so that
+        re-watching a previously-finished title un-completes it — this restores the
+        invariant ``watch_progress > 0 ⟺ not watch_completed``. ``play_count`` is
+        owned by ``mark_played`` (at play start) — this method never touches it, so
+        progress capture can't double-count a play.
 
         Returns True if this call marked the item complete.
         """
@@ -553,6 +555,7 @@ class ChannelRepository(_ChannelStatsMixin):
             channel.watch_completed = True
             channel.watch_progress = 0
         else:
+            channel.watch_completed = False  # re-watching a finished title un-completes it
             channel.watch_progress = max(0, int(position_s))
         channel.updated_at = datetime.now()
         self.session.commit()
