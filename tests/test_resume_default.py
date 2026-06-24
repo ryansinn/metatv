@@ -12,7 +12,7 @@ play_media start_seconds resolution:
 5. mode="resume", in-progress movie  → start_seconds == watch_progress.
 6. mode="beginning", in-progress movie → start_seconds == 0.
 7. mode="resume", live channel  → start_seconds == 0.
-8. mode="resume", watch_completed  → start_seconds == 0.
+8. mode="resume", watch_completed=True + watch_progress=0 → start_seconds == 0 (clean finish).
 9. mode="resume", watch_progress==0 → start_seconds == 0.
 10. start_override=0 forces start_seconds==0 even with mode="resume" and progress>0.
 11. start_override=progress forces start_seconds==progress even with mode="beginning".
@@ -287,8 +287,14 @@ def test_play_media_resume_mode_live_always_zero():
     assert _submitted_start_seconds(host) == 0
 
 
-def test_play_media_resume_mode_completed_always_zero():
-    """mode='resume' + watch_completed=True → start_seconds == 0."""
+def test_play_media_resume_mode_completed_and_no_progress_is_zero():
+    """mode='resume' + watch_completed=True + watch_progress=0 -> start_seconds == 0.
+
+    A cleanly-finished title has progress=0 by the write-side invariant, so the
+    resume condition (watch_progress > 0) is not met. For legacy rows that somehow
+    have progress > 0 AND watch_completed=True, the guard now heals them and resumes
+    (see test_resume_after_rewatch.py::test_resume_guard_heals_legacy_stuck_row).
+    """
     host = _make_streaming_host(resume_mode="resume")
     channel = _make_channel_dto("movie", watch_progress=0, watch_completed=True)
     host.play_media(channel)

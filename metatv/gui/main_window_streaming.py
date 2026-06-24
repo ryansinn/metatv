@@ -326,17 +326,20 @@ class _StreamingMixin:
 
         # Determine resume position.
         # Priority: start_override (explicit per-play) > config.playback_resume_mode > no-resume.
-        # Live channels, already-completed VOD, and unwatched VOD always start at 0.
+        # Live channels and VOD with no saved progress always start at 0.
+        # The write-side invariant (record_watch_progress) guarantees watch_progress > 0
+        # implies watch_completed is False, so the watch_completed check is redundant and
+        # is omitted here — this also heals any legacy rows stuck with progress > 0 and
+        # watch_completed = True from before the fix landed.
         from metatv.core.models import MediaType
         is_live = (channel.media_type == MediaType.LIVE)
         watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
-        watch_completed = bool(getattr(channel, "watch_completed", False))
 
         if start_override is not None:
             # Explicit per-play override wins unconditionally (but still 0 for live).
             start_seconds = start_override if not is_live else 0
-        elif not is_live and watch_progress > 0 and not watch_completed:
-            # VOD with saved, incomplete progress: apply the user's default mode.
+        elif not is_live and watch_progress > 0:
+            # VOD with a saved resume position: apply the user's default mode.
             resume_mode = getattr(self.config, "playback_resume_mode", "resume")
             start_seconds = watch_progress if resume_mode == "resume" else 0
         else:

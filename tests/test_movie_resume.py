@@ -5,7 +5,9 @@ Covered behaviors:
 2. get_playable_dto populates watch_progress and watch_completed.
 3. play_media resolves start_seconds > 0 for a non-live channel with saved progress.
 4. play_media resolves start_seconds == 0 for a live channel (no resume).
-5. play_media resolves start_seconds == 0 when watch_completed is True.
+5. play_media resolves start_seconds == 0 when watch_completed is True and watch_progress==0
+   (a cleanly-finished title has progress=0 by invariant; see test_resume_after_rewatch.py
+   for the legacy-row case where progress>0 + completed=True must now resume).
 6. play_media resolves start_seconds == 0 when watch_progress is 0.
 7. _bg_validate_and_play threads start_seconds into the _stream_ready payload.
 8. _on_stream_ready passes start_seconds to player_manager.play().
@@ -179,8 +181,16 @@ def test_play_media_no_resume_for_live_channel():
     assert start_seconds == 0
 
 
-def test_play_media_no_resume_when_completed():
-    """play_media submits start_seconds=0 when watch_completed is True."""
+def test_play_media_no_resume_when_completed_and_no_progress():
+    """play_media submits start_seconds=0 when watch_completed is True and watch_progress==0.
+
+    A cleanly-finished title has progress=0 by invariant (record_watch_progress clears
+    it in the completed branch). The resume condition is watch_progress > 0, so
+    watch_progress=0 gives start_seconds=0 regardless of watch_completed. For the
+    legacy case where watch_progress > 0 and watch_completed=True co-exist, the guard
+    now heals the row and resumes at the saved position (tested in
+    test_resume_after_rewatch.py::test_resume_guard_heals_legacy_stuck_row).
+    """
     host = _make_streaming_host()
     channel = _make_channel_dto("movie", watch_progress=0, watch_completed=True)
 
