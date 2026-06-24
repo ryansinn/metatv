@@ -591,3 +591,62 @@ independent OR-groups** AND'd together — e.g. `(Animated OR Anime) AND (Sci-Fi
 explicit grouping, handled later by **drag-ordered consecutive-AND clusters** (arrangement *is* the
 parenthesization). Rare enough to defer; the required+optional model covers the overwhelming majority
 (Animation, Kids, "this genre but only in 4K", …).
+
+---
+
+### DR-0009 — Content identity is a stored field computed once at ingestion; every surface collapses on that one key
+**Status:** Accepted (2026-06-24). Implemented in dedup Slices 1–3 (#204/#205/#206/#210).
+**Ties to:** the two Governing Principles (single chokepoint; compute-once-at-ingestion); the
+"Channel-name fields — computed at ingestion, read at render" rule (`content_key` is the same pattern);
+DR-0006 (a false-positive merge is visible + one-click-correctable); DR-0007 (the key is an engine-layer
+pure function — scoped inputs in, deterministic string out); `content_dedup.py` (the older runtime
+fingerprint Recommendations/Similar still use). **Full spec:** `docs/CONTENT_IDENTITY.md`.
+**Rule to distill:** CLAUDE.md *"Content identity — one stored `content_key`, computed at ingestion,
+collapsed at read."*
+
+**Problem.** Content had **no stable identity**. Five surfaces each re-derived "same thing?" at read
+time and disagreed: Recommendations/Similar on a rich `(norm_title, media_type, year, director)`
+fingerprint; Discover on a *weaker, parallel* `(normalize_title, year)` run post-query and capped to the
+shelf window (so dupes beyond the window leaked); details "Other Versions" on a `normalize_title` match;
+and Browse / Recipe Show-All / Search / tag YIELDS counts on **no identity at all** — the same title
+appeared ×N with inflated facet counts. Categories→tags didn't break this; it *exposed* it by surfacing
+the whole cross-source corpus at once. It worsens with more sources and mixed source types.
+
+**Insight.** Identity is **data**, not a per-view read-time computation. The codebase already proved the
+pattern with `detected_*` / `tag_fingerprint`: derive once at ingestion, store, read everywhere. Dedup
+keying must follow the same discipline — one stored key, one set of collapse sites reading it — or the
+five-way disagreement simply re-grows.
+
+**Decision — stored `content_key`, applied through that one key:**
+1. **Compute once at ingestion.** Indexed `content_key` on `ChannelDB`, written in the same
+   `update_detected_prefixes()` pass as `detected_title`/`detected_year`; chunked backfill on launch.
+   The key is **coarse by design** — `{norm_title}|{media_type}` for series/live (year dropped: provider
+   year labels are noisy and split same productions), `{norm_title}|movie|{start_year}` for movies (year
+   discriminates remakes). **Director + metadata-year excluded** — neither is available at upsert time.
+2. **One per-domain strategy seam** (`content_identity.content_key_for`, dispatched on
+   `source_domain`) — only Xtream filled in; Spotify/YouTube/Plex slot in later with no surface change.
+3. **Collapse reads the stored key, never a parallel heuristic.** SQL window-function collapse
+   (`tag.py:_build_collapsed_sample_query`) + `COUNT(DISTINCT COALESCE(content_key,'id:'||id))` for
+   browse/counts; `discovery_engine._dedup_cards` for shelves; `content_key ==` match for details
+   "Other Versions". The NULL-guard `COALESCE(…, 'id:'||id)` is mandatory — a bare `PARTITION BY
+   content_key` merges all un-backfilled rows into one phantom group. The collapsed set **is** the
+   details variant set, so the card "×N" and the details "N versions" always agree.
+4. **Always-on collapse; no global un-collapse toggle.** The details-pane "Other Versions" *is* the
+   variant view. A genuine over-merge (same-title reboot) is corrected per-group ("not the same",
+   janitor-fed #57/#50), not by spreading variants across the browse list (DR-0006).
+
+**Phase 2 (deferred).** Recommendations/Similar stay on the richer runtime fingerprint for now — they
+work, and re-basing a working feature is its own wave. When metadata lands, a resolved TMDb/IMDb id
+(e.g. `tmdb:movie:603`) replaces the heuristic string **in the same column**, so every collapse site
+inherits canonical identity with zero surface changes — the reason for storing an opaque-but-stable key
+instead of dedup-ing per surface.
+
+**Rejected.**
+- *Per-surface dedup ("each view fixes its own")* — the exact five-way drift this replaces; a subset
+  copy mis-counts (Discover's window-capped key) and every new surface re-invents the heuristic.
+- *A materialized canonical-group table now* — premature without canonical IDs; a stored key on the row
+  is lighter and upgrades in place.
+- *An opaque md5 key* — unreadable in the DB and in logs; the structured `title|type|year` string is
+  debuggable and degrades gracefully to the `id:` fallback.
+- *A global "show all variants" toggle* — splits the browse list and competes with the details variant
+  view; collapse stays always-on (Q3).

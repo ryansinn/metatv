@@ -54,6 +54,14 @@ _p = parse_channel_name(channel.name)
 
 **One accepted exception:** `_make_recommendation_item` / `_make_channel_item` in `gui/epg_watchlist_mixin.py` still parse at render to derive audio/lang chips — there is no stored `detected_*` field for those. The audit does not flag this; every other surface reads stored fields.
 
+### Content identity — one stored `content_key`, computed at ingestion, collapsed at read (DR-0009)
+Cross-source dedup has **one identity field**, not a per-surface heuristic. `content_key` is computed at ingestion by `content_identity.content_key_for()` inside `update_detected_prefixes()` and stored (indexed) on `ChannelDB`. Full spec: [docs/CONTENT_IDENTITY.md](docs/CONTENT_IDENTITY.md); rationale: DR-0009.
+
+- **Compute once, read everywhere** (same rule as `detected_*`): the key is `{norm_title}|{media_type}` for series/live (year dropped — provider year labels are noisy) and `{norm_title}|movie|{start_year}` for movies. Director + metadata-year are excluded (unavailable at ingest). Never re-derive a dedup key at query/render time.
+- **Collapse reads the stored key — never a parallel heuristic.** Browse/Recipe Show-All + tag counts collapse via `tag.py`'s `collapse_variants` path (`_build_collapsed_sample_query` window functions / `COUNT(DISTINCT …)`); Discover via `discovery_engine._dedup_cards`; details "Other Versions" via `content_key ==`. Adding a new browse/shelf/count surface → route through one of these, don't write a third dedup.
+- **NULL-guard is mandatory:** group on `COALESCE(content_key, 'id:' || id)`. A bare `PARTITION BY content_key` merges every un-backfilled NULL row into one phantom group.
+- **Phase 2 exception:** Recommendations + the Similar lightbox still use the richer runtime fingerprint in `content_dedup.py` (includes director) — don't "unify" them onto `content_key` without the deliberate re-base wave (DR-0009).
+
 ### Lookup tables — single source of truth
 Region/country codes, quality tokens, audio-format maps, and channel-name parsing data live only in `metatv/core/channel_name_utils.py` (`REGION_FULL_NAMES`, `normalize_region_code`, …). All other modules import from there — never define parallel dicts. A new code or alias goes in `channel_name_utils.py` only.
 
@@ -279,6 +287,8 @@ Providers tried in priority order until sufficient data found:
 **Year is derived at ingestion — read `metadata.year` directly everywhere.** `MetadataManager._derive_year()` populates `MetadataDB.year` at write (`_save_metadata_cache`, from `release_date` when `year` is absent) and backfills pre-fix rows on read (`_metadata_db_to_result`). No runtime parsing or fallback outside `metadata_manager.py`. `release_date` keeps the full ISO string (e.g. "2024-07-03").
 
 ## Content Dedup — Known Compromises
+
+> **Two dedup layers coexist (see DR-0009 + [docs/CONTENT_IDENTITY.md](docs/CONTENT_IDENTITY.md)).** Browse / Recipe Show-All / Discover / details "Other Versions" / tag counts collapse on the **stored `content_key`** (coarse: no director). The runtime fingerprint below is the **richer** key still used only by **Recommendations + the Similar lightbox** (Phase 2 will re-base those onto `content_key`). When metadata lands, a canonical TMDb/IMDb id replaces the `content_key` string in place.
 
 `content_dedup.py` groups same-production channels across providers by a `(norm_title, media_type, year, director)` fingerprint — a heuristic stopgap until TMDb/IMDb canonical IDs are wired up (ROADMAP). Deliberate trade-offs:
 
