@@ -923,6 +923,7 @@ class TagRepository:
         excluded_categories: Optional[Set[str]] = None,
         limit: int = 24,
         offset: int = 0,
+        name_filter: Optional[str] = None,
     ) -> list:
         """Return *limit* result cards matching the faceted constraints, from *offset*.
 
@@ -956,6 +957,12 @@ class TagRepository:
                 :meth:`_faceted_channel_id_query`.
             limit: Max cards to return (default 24 — the results-shelf cap).
             offset: Number of leading matches to skip (for paged "Show all").
+            name_filter: Optional substring to match against
+                ``COALESCE(detected_title, name)`` (case-insensitive).  When
+                set, only channels whose clean title contains this string are
+                returned.  Used by the "Show all" browse filter box so every
+                page — including lazy-loaded ones — honours the filter at the
+                SQL level rather than filtering an already-loaded subset.
 
         Returns:
             List of ``ContentCard`` value objects in clean-title
@@ -964,6 +971,7 @@ class TagRepository:
         """
         from metatv.core.database import ChannelDB
         from metatv.core.discovery_engine import _to_card
+        from sqlalchemy import func as _func
 
         # The faceted match set as a subquery of channel ids (EXISTS-filtered and
         # scoped) — never materialised in Python.
@@ -985,15 +993,21 @@ class TagRepository:
         # successive OFFSET/LIMIT pages disjoint + gap-free; the teaser (offset 0)
         # and every "Show all" page share it, so variants of one title sit
         # adjacent.
-        from sqlalchemy import func as _func
-
-        _title_sort = _func.coalesce(
+        _title_expr = _func.coalesce(
             _func.nullif(ChannelDB.detected_title, ""), ChannelDB.name
-        ).collate("NOCASE")
-        rows = (
+        )
+        _title_sort = _title_expr.collate("NOCASE")
+        q = (
             self.session.query(ChannelDB)
             .join(matching, matching.c.channel_id == ChannelDB.id)
-            .order_by(_title_sort, ChannelDB.id)
+        )
+        if name_filter:
+            # SQL-level filter: COALESCE(detected_title, name) LIKE '%<filter>%'.
+            # Applied before OFFSET/LIMIT so every page respects the filter, not
+            # just the already-loaded subset (Bug D fix).
+            q = q.filter(_title_expr.ilike(f"%{name_filter}%"))
+        rows = (
+            q.order_by(_title_sort, ChannelDB.id)
             .offset(offset)
             .limit(limit)
             .all()

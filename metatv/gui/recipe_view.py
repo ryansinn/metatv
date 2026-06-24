@@ -986,6 +986,10 @@ class RecipeView(QWidget):
         self._browse.cardDoubleClicked.connect(self.playRequested)
         # Lazy DB pagination: each near-bottom scroll asks for the next page.
         self._browse.loadMoreRequested.connect(self._load_more_see_all)
+        # Filter-change: wire into the DB-level filter so every lazy page also
+        # respects the filter (Bug D — previously only already-loaded cards were
+        # filtered, and new pages appended unfiltered content below them).
+        self._browse.filterChanged.connect(self._on_see_all_filter_changed)
         # cardContextMenu intentionally left unconnected — the Now Plating strip
         # has no context-menu wiring, so the browse drill-down matches it (no-op).
         self._stack.addWidget(self._browse)
@@ -1248,6 +1252,81 @@ class RecipeView(QWidget):
         """Browse 'Back' → return to the constructor (page 0)."""
         self._stack.setCurrentIndex(0)
 
+    def _on_see_all_filter_changed(self, text: str) -> None:
+        """Filter text changed in the browse view — trigger a SQL-filtered fresh fetch.
+
+        Bug D fix: the previous ``_apply_filter`` in ``_BrowseView`` only
+        filtered already-loaded cards.  Lazy-loaded subsequent pages ignored the
+        filter and appended everything, making results below the visible viewport
+        appear unfiltered.  By re-seeding the browse pagination here — bumping
+        the token, resetting offset to 0, and loading the first filtered page
+        from the DB — every page (including all subsequent lazy loads) passes
+        ``name_filter`` to ``sample_channels_by_tag_facets`` at the SQL level.
+
+        The ``_BrowseView._apply_filter`` still rebuilds the in-memory subset
+        immediately (fast feedback while the DB fetch is in flight), but that
+        subset is limited to already-loaded cards.  The DB fetch replaces the
+        view with the correct full-corpus filtered result once it arrives.
+
+        Clearing the filter (``text == ""``) behaves the same way: a fresh
+        unfiltered fetch re-seeds from offset=0.
+        """
+        # Bump token so any in-flight un-filtered page is dropped.
+        self._see_all_token[0] += 1
+        self._see_all_loading = False
+        self._see_all_offset = 0
+        # Total is unknown until the new filtered fetch arrives; assume non-zero
+        # so _load_more_see_all can fire.  It will be capped correctly once the
+        # first filtered page lands (offset advances; set_has_more compares to total).
+        # If the filter yields fewer than one page the offset will meet total and stop.
+        # We keep the existing total as an upper bound — it will only over-arm the
+        # guard, which is safe (next scroll fires a query that returns 0 cards and
+        # stops).
+        name_filter = text.strip() or None
+
+        includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
+        excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        limit = self._SEE_ALL_PAGE
+
+        def _query(repos):
+            hidden = repos.providers.get_hidden_provider_ids()
+            return repos.tags.sample_channels_by_tag_facets(
+                includes=includes,
+                excludes=excludes,
+                excluded_provider_ids=hidden,
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
+                limit=limit,
+                offset=0,
+                name_filter=name_filter,
+            )
+
+        self._run_query(
+            _query,
+            self._on_see_all_filter_loaded,
+            token_ref=self._see_all_token,
+            on_error=self._on_see_all_error,
+        )
+
+    def _on_see_all_filter_loaded(self, cards: list) -> None:
+        """Main-thread slot: replace the browse grid with the first filtered page.
+
+        Called when the DB-side filtered fetch started by
+        :meth:`_on_see_all_filter_changed` delivers its first page.  Replaces
+        (not appends) the browse view so the user sees only results matching the
+        filter string.  Arms ``set_has_more`` so further scrolling lazy-loads
+        additional filtered pages.
+        """
+        if not self._active:
+            return
+        # Replace (not append): load() resets has_more + pending so the
+        # pagination state starts clean for the filtered set.
+        self._browse.load(self._browse_title(), cards)
+        self._see_all_offset = len(cards)
+        self._see_all_loading = False
+        self._browse.set_has_more(self._see_all_offset < self._see_all_total)
+
     def _load_more_see_all(self) -> None:
         """Fetch+append the next browse page from the DB (off-thread).
 
@@ -1257,7 +1336,9 @@ class RecipeView(QWidget):
         ``get_hidden_provider_ids()``) and the SAME deterministic ordering so the
         page is disjoint from what's already shown.  Guarded by
         ``_see_all_loading`` (no overlapping loads) and ``_see_all_token`` (drop a
-        stale page after a recipe change / deactivate).
+        stale page after a recipe change / deactivate).  When a filter is active
+        (``_browse.current_filter()`` is non-empty), it is threaded into the
+        query so every page respects it at the SQL level.
         """
         if self._see_all_loading or self._see_all_offset >= self._see_all_total:
             return
@@ -1268,6 +1349,9 @@ class RecipeView(QWidget):
         excl_prefixes, excl_categories = self._global_exclusion_sets()
         limit = self._SEE_ALL_PAGE
         offset = self._see_all_offset
+        # Thread the current filter text (if any) into the DB query so lazy pages
+        # also respect it (Bug D fix — previously new pages ignored the filter).
+        name_filter = self._browse.current_filter().strip() or None
 
         def _query(repos):
             hidden = repos.providers.get_hidden_provider_ids()
@@ -1279,6 +1363,7 @@ class RecipeView(QWidget):
                 excluded_categories=excl_categories,
                 limit=limit,
                 offset=offset,
+                name_filter=name_filter,
             )
 
         self._run_query(
