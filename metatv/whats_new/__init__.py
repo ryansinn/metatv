@@ -28,6 +28,7 @@ class WhatsNewEntry:
     date: str                # ISO "YYYY-MM-DD"
     title: str
     items: tuple[str, ...]   # user-facing bullet points (frozen dataclass → tuple, not list)
+    test_steps: tuple[str, ...] = ()  # dev-only manual QA steps; omit when not applicable
 
 
 def _load_entries() -> list[WhatsNewEntry]:

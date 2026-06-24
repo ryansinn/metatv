@@ -27,4 +27,11 @@ ENTRY = WhatsNewEntry(
             "produced it, the provenance label, and the confidence percentage."
         ),
     ),
+    test_steps=(
+        "Select a live channel with a prefix (e.g. 'UK BBC One') → open the details pane"
+        " → confirm a 'Tags' collapsible section appears with at least one chip.",
+        "Verify chips show either a solid ■ (source-given) or hollow □ (inferred) provenance marker.",
+        "Hover a tag chip → tooltip must show feeder name, provenance label, and confidence %.",
+        "Select a channel with no tags → 'Tags' section must be absent or empty (not a blank header).",
+    ),
 )

@@ -13,4 +13,9 @@ ENTRY = WhatsNewEntry(
         "Hover over any rated row to see the tooltip: "
         '"You rated this 👍" or "You rated this 👎".',
     ),
+    test_steps=(
+        "Rate a channel 👍 via the details pane → the row in the channel list should show a 👍 glyph at the end.",
+        "Rate a channel 👎 → channel list row shows 👎 glyph (unrated rows show no glyph).",
+        "Hover over a rated row → tooltip reads 'You rated this 👍' or 'You rated this 👎'.",
+    ),
 )

@@ -72,6 +72,7 @@ from metatv.gui.refresh_queue_manager import RefreshQueueManager
 from metatv.core.preference_engine import version_score as _version_score
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
+from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
 
 _YEAR_IN_NAME = re.compile(r'\b(19[5-9]\d|20[0-2]\d)\b')
 
@@ -368,6 +369,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._whats_new_checked: bool = False
         QTimer.singleShot(0, self.maybe_show_whats_new)
 
+        # Dev-only QA checklist — lazy instance, only when METATV_DEV is set
+        self._qa_checklist_window: object | None = None
+        if _dev_mode_enabled():
+            QTimer.singleShot(0, self._maybe_show_qa_checklist)
+
         # Series monitor startup check — runs after channels are loaded (deferred 0ms
         # yields to the event loop so channel load and UI paint happen first).
         QTimer.singleShot(0, self.series_monitor.check_all)
@@ -518,6 +524,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         whats_new_action.setToolTip("See what changed in recent updates")
         whats_new_action.triggered.connect(self.show_whats_new)
         help_menu.addAction(whats_new_action)
+
+        if _dev_mode_enabled():
+            qa_action = QAction(f"{_icons.qa_checklist_icon}  Testing Checklist", self)
+            qa_action.setToolTip("Open the dev QA testing checklist (METATV_DEV mode)")
+            qa_action.triggered.connect(self._open_qa_checklist)
+            help_menu.addAction(qa_action)
+
         help_menu.addSeparator()
         help_menu.addAction("&About", self.show_about)
     
@@ -1436,6 +1449,49 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dlg.exec()
         self.config.last_seen_whats_new_id = _whats_new.latest_id()
         self.config.save()
+
+    # ------------------------------------------------------------------
+    # Dev-only QA Testing Checklist (gated by METATV_DEV env var)
+    # ------------------------------------------------------------------
+
+    def _open_qa_checklist(self) -> None:
+        """Open (or focus) the floating QA Testing Checklist window.
+
+        Constructs lazily on first call; subsequent calls bring the existing
+        window to the front.  No-op when not in dev mode.
+        """
+        if not _dev_mode_enabled():
+            return
+        from metatv.gui.qa_checklist_window import QAChecklistWindow  # local import — dev only
+        if self._qa_checklist_window is None:
+            self._qa_checklist_window = QAChecklistWindow(
+                self.config, _whats_new.WHATS_NEW, parent=self
+            )
+        win = self._qa_checklist_window
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _maybe_show_qa_checklist(self) -> None:
+        """Auto-show the QA checklist on startup if there are open test items.
+
+        Only fires when METATV_DEV is set.  An "open" item is an entry with
+        test_steps, id > qa_verified_id, and at least one unchecked step.
+        """
+        if not _dev_mode_enabled():
+            return
+        verified = self.config.qa_verified_id
+        for entry in _whats_new.WHATS_NEW:
+            if not entry.test_steps or entry.id <= verified:
+                continue
+            checked = set(self.config.qa_checked_steps.get(str(entry.id), []))
+            if len(checked) < len(entry.test_steps):
+                # At least one open item — show the window
+                logger.debug(
+                    "QA checklist: open items found (entry id={}), auto-showing", entry.id
+                )
+                self._open_qa_checklist()
+                return
     
     def _save_filter_panel_width(self):
         """Persist filter panel width when inner splitter is moved."""

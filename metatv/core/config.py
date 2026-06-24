@@ -832,6 +832,12 @@ class Config(BaseModel):
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0
 
+    # Dev-only QA checklist — gated by METATV_DEV env var; ignored in normal use.
+    # qa_checked_steps: maps str(entry_id) → list of checked step indices.
+    # qa_verified_id: purge cursor — entries with id <= this value are hidden.
+    qa_checked_steps: dict = Field(default_factory=dict)
+    qa_verified_id: int = 0
+
     # Source refresh behaviour
     # When True (default), "Refresh All" enqueues every source including ones the
     # user has toggled OFF (is_active=False).  Set to False to skip inactive sources
@@ -1170,3 +1176,27 @@ class Config(BaseModel):
             except:
                 pass
             raise
+
+
+# ---------------------------------------------------------------------------
+# Dev-mode gate
+# ---------------------------------------------------------------------------
+
+import os as _os  # noqa: E402 — placed after class to avoid polluting module namespace
+
+
+def dev_mode_enabled() -> bool:
+    """Return True when the METATV_DEV environment variable is set to a truthy value.
+
+    Falsey values (absent, empty string, "0", "false", "False", "no") all return
+    False.  Any other non-empty string (e.g. "1", "true", "yes") returns True.
+
+    This is the single gate for every dev-only feature (Testing Checklist window,
+    menu item, auto-show on startup).  When False, no dev UI is constructed and
+    normal users are completely unaffected.
+
+    Returns:
+        bool: True when dev mode is active.
+    """
+    val = _os.environ.get("METATV_DEV", "").strip().lower()
+    return val not in ("", "0", "false", "no")
