@@ -42,6 +42,7 @@ from loguru import logger
 
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.repositories.epg import EpgRepository
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.epg_widgets import (
@@ -76,9 +77,9 @@ class _EpgBrowseMixin:
         self.search_input.setPlaceholderText("Search programmes…")
         self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
-        browse_clear = QPushButton(self.config.close_icon)
-        browse_clear.setFixedWidth(24)
-        browse_clear.setToolTip("Clear")
+        browse_clear = QPushButton(_icons.close_icon)
+        browse_clear.setFixedWidth(30)
+        browse_clear.setToolTip("Clear search")
         browse_clear.setStyleSheet(_theme.CLEAR_BTN)
         browse_clear.clicked.connect(self.search_input.clear)
         search_row.addWidget(browse_clear)
