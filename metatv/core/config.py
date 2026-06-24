@@ -835,8 +835,11 @@ class Config(BaseModel):
     # Dev-only QA checklist — gated by METATV_DEV env var; ignored in normal use.
     # qa_checked_steps: maps str(entry_id) → list of checked step indices.
     # qa_verified_id: purge cursor — entries with id <= this value are hidden.
+    # qa_archived_ids: per-entry archive — entry ids individually tucked away after
+    #   all their steps are checked, without waiting for every entry to be done.
     qa_checked_steps: dict = Field(default_factory=dict)
     qa_verified_id: int = 0
+    qa_archived_ids: list = Field(default_factory=list)
 
     # Source refresh behaviour
     # When True (default), "Refresh All" enqueues every source including ones the

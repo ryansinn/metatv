@@ -187,6 +187,10 @@ COLOR_RECIPE_MUTED_2   = "#5b626f"   # tertiary / very dim text
 # Recipe builder overlays
 OVERLAY_RECIPE_SELECTED  = "rgba(245,183,61,0.08)"   # amber tint — selected facet row
 
+# Hyperlink color — used for clickable QLabel rich-text links (e.g. PR# in QA checklist).
+# Intentionally reuses the same blue as other interactive link elements in the app.
+COLOR_LINK = COLOR_ACCENT_BLUE
+
 # --- misc preserved accents ---
 COLOR_RED_BRIGHT        = "#ff8888"
 COLOR_ERR_MUTED         = "#aa6666"

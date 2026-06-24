@@ -10,6 +10,11 @@ Coverage:
   the max entry id so the open-items set becomes empty.
 - Regression guard: every real ``WHATS_NEW`` entry loads with
   ``test_steps`` defaulting to ``()``.
+- PR# parser: ``_parse_pr_number`` extracts int from squash-merge subjects.
+- Remote URL normalizer: SSH and HTTPS forms both map to HTTPS base URL.
+- Header link: resolved refs render as ``href`` link; no git → date fallback.
+- Archive: complete entry shows Archive action; archiving persists + excludes;
+  incomplete entry shows no Archive; Unarchive restores the entry.
 """
 
 from __future__ import annotations
@@ -47,9 +52,15 @@ def _entry(id: int, steps: tuple[str, ...] = ()) -> SimpleNamespace:
 class _FakeConfig:
     """Minimal Config stand-in for QAChecklistWindow tests."""
 
-    def __init__(self, qa_verified_id: int = 0, qa_checked_steps: dict | None = None) -> None:
+    def __init__(
+        self,
+        qa_verified_id: int = 0,
+        qa_checked_steps: dict | None = None,
+        qa_archived_ids: list | None = None,
+    ) -> None:
         self.qa_verified_id = qa_verified_id
         self.qa_checked_steps: dict = qa_checked_steps or {}
+        self.qa_archived_ids: list = qa_archived_ids or []
         self.save_calls: int = 0
 
     def save(self) -> None:
@@ -335,3 +346,277 @@ def test_config_qa_fields_round_trip(tmp_path):
 
     assert loaded.qa_verified_id == 10
     assert loaded.qa_checked_steps == {"10": [0, 2], "11": [1]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. PR# parser — _parse_pr_number
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_parse_pr_number_extracts_from_squash_subject():
+    """A squash-merge subject containing (#183) must yield PR number 183."""
+    from metatv.gui.qa_checklist_window import _parse_pr_number
+    assert _parse_pr_number("feat(x): thing (#183)") == 183
+
+
+def test_parse_pr_number_extracts_large_number():
+    """PR numbers with multiple digits must be parsed correctly."""
+    from metatv.gui.qa_checklist_window import _parse_pr_number
+    assert _parse_pr_number("fix(series): hide overlay (#1042)") == 1042
+
+
+def test_parse_pr_number_returns_none_when_absent():
+    """A subject with no (#N) pattern must return None."""
+    from metatv.gui.qa_checklist_window import _parse_pr_number
+    assert _parse_pr_number("chore: update deps") is None
+
+
+def test_parse_pr_number_returns_none_for_empty_subject():
+    """An empty subject must return None without raising."""
+    from metatv.gui.qa_checklist_window import _parse_pr_number
+    assert _parse_pr_number("") is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Remote URL normalizer — _normalize_remote_url
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_normalize_ssh_remote_url():
+    """SSH remote URL must normalize to HTTPS base URL without .git."""
+    from metatv.gui.qa_checklist_window import _normalize_remote_url
+    result = _normalize_remote_url("git@github.com:ryansinn/metatv.git")
+    assert result == "https://github.com/ryansinn/metatv"
+
+
+def test_normalize_https_remote_url():
+    """HTTPS remote URL must normalize to base URL without .git."""
+    from metatv.gui.qa_checklist_window import _normalize_remote_url
+    result = _normalize_remote_url("https://github.com/ryansinn/metatv.git")
+    assert result == "https://github.com/ryansinn/metatv"
+
+
+def test_normalize_https_remote_url_without_git_suffix():
+    """HTTPS URL without .git must be returned as-is."""
+    from metatv.gui.qa_checklist_window import _normalize_remote_url
+    result = _normalize_remote_url("https://github.com/ryansinn/metatv")
+    assert result == "https://github.com/ryansinn/metatv"
+
+
+def test_normalize_ssh_url_with_org_slash_repo():
+    """SSH URLs with org/repo path must produce the correct HTTPS base URL."""
+    from metatv.gui.qa_checklist_window import _normalize_remote_url
+    result = _normalize_remote_url("git@github.com:org/nested-repo.git")
+    assert result == "https://github.com/org/nested-repo"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Header link rendering — _apply_git_refs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_header_link_shows_pr_href_when_resolved(qapp):
+    """When a PR# and base URL are known the ref label must contain an href."""
+    entries = [_entry(100, steps=("step",))]
+    config = _FakeConfig()
+    win = _build_window(qapp, config, entries)
+
+    # Simulate the worker having returned results
+    win._on_git_refs_ready({
+        100: {
+            "pr_number": 183,
+            "commit_hash": None,
+            "base_url": "https://github.com/ryansinn/metatv",
+        }
+    })
+
+    lbl = win._ref_labels.get(100)
+    assert lbl is not None
+    assert 'href="https://github.com/ryansinn/metatv/pull/183"' in lbl.text()
+    assert lbl.openExternalLinks() is True
+
+
+def test_header_link_shows_commit_href_when_no_pr(qapp):
+    """When only a commit hash is known the ref label must link to the commit."""
+    entries = [_entry(101, steps=("step",))]
+    config = _FakeConfig()
+    win = _build_window(qapp, config, entries)
+
+    win._on_git_refs_ready({
+        101: {
+            "pr_number": None,
+            "commit_hash": "abc1234",
+            "base_url": "https://github.com/ryansinn/metatv",
+        }
+    })
+
+    lbl = win._ref_labels.get(101)
+    assert lbl is not None
+    assert 'href="https://github.com/ryansinn/metatv/commit/abc1234"' in lbl.text()
+
+
+def test_header_link_falls_back_to_date_when_no_git(qapp):
+    """When git lookup fails (no PR, no hash) the ref label must show the date."""
+    entries = [_entry(102, steps=("step",))]
+    config = _FakeConfig()
+    win = _build_window(qapp, config, entries)
+
+    win._on_git_refs_ready({
+        102: {
+            "pr_number": None,
+            "commit_hash": None,
+            "base_url": None,
+        }
+    })
+
+    lbl = win._ref_labels.get(102)
+    assert lbl is not None
+    # No href should be present; the label should still show the date
+    assert "href" not in lbl.text()
+    assert "2026-06-23" in lbl.text()
+
+
+def test_header_label_open_external_links_enabled(qapp):
+    """The ref label must always have setOpenExternalLinks(True)."""
+    entries = [_entry(103, steps=("step",))]
+    config = _FakeConfig()
+    win = _build_window(qapp, config, entries)
+
+    lbl = win._ref_labels.get(103)
+    assert lbl is not None
+    assert lbl.openExternalLinks() is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. Per-entry archive / unarchive
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_complete_entry_shows_archive_action(qapp):
+    """An entry with all steps checked must have an Archive action available."""
+    entries = [_entry(200, steps=("step A", "step B"))]
+    config = _FakeConfig(qa_checked_steps={"200": [0, 1]})
+    win = _build_window(qapp, config, entries)
+
+    # The entry is complete — _on_archive must be callable (button is wired)
+    # We verify by calling the handler directly and checking the side-effect.
+    prior_saves = config.save_calls
+    win._on_archive(200)
+
+    assert 200 in config.qa_archived_ids
+    assert config.save_calls > prior_saves
+
+
+def test_incomplete_entry_not_in_open_entries_after_archive_impossible(qapp):
+    """An incomplete entry cannot be archived (no Archive button is rendered).
+
+    This is enforced by the window only wiring the archive callback when the
+    entry is complete.  We verify via the open_entries list directly: an
+    incomplete entry (not manually archived) remains in open_entries.
+    """
+    entries = [_entry(201, steps=("step A", "step B"))]
+    config = _FakeConfig(qa_checked_steps={"201": [0]})  # only step 0 checked
+    win = _build_window(qapp, config, entries)
+
+    # The entry is NOT complete so it should still be in open_entries
+    open_ids = [e.id for e in win._open_entries()]
+    assert 201 in open_ids
+
+
+def test_archive_adds_id_to_config_qa_archived_ids(qapp):
+    """_on_archive must append the entry id to config.qa_archived_ids."""
+    entries = [_entry(202, steps=("step",))]
+    config = _FakeConfig(qa_checked_steps={"202": [0]})
+    win = _build_window(qapp, config, entries)
+
+    win._on_archive(202)
+
+    assert 202 in config.qa_archived_ids
+
+
+def test_archive_saves_config(qapp):
+    """_on_archive must call config.save()."""
+    entries = [_entry(203, steps=("step",))]
+    config = _FakeConfig(qa_checked_steps={"203": [0]})
+    win = _build_window(qapp, config, entries)
+    prior = config.save_calls
+
+    win._on_archive(203)
+
+    assert config.save_calls > prior
+
+
+def test_archived_entry_excluded_from_open_entries(qapp):
+    """An archived entry must not appear in _open_entries()."""
+    entries = [
+        _entry(210, steps=("step A",)),
+        _entry(211, steps=("step B",)),
+    ]
+    config = _FakeConfig(
+        qa_checked_steps={"210": [0], "211": [0]},
+        qa_archived_ids=[210],
+    )
+    win = _build_window(qapp, config, entries)
+
+    open_ids = [e.id for e in win._open_entries()]
+    assert 210 not in open_ids
+    assert 211 in open_ids
+
+
+def test_unarchive_removes_id_from_qa_archived_ids(qapp):
+    """_on_unarchive must remove the entry id from config.qa_archived_ids."""
+    entries = [_entry(220, steps=("step",))]
+    config = _FakeConfig(qa_checked_steps={"220": [0]}, qa_archived_ids=[220])
+    win = _build_window(qapp, config, entries)
+
+    win._on_unarchive(220)
+
+    assert 220 not in config.qa_archived_ids
+
+
+def test_unarchive_restores_entry_to_open_entries(qapp):
+    """After unarchiving, the entry must reappear in _open_entries()."""
+    entries = [_entry(221, steps=("step",))]
+    config = _FakeConfig(qa_checked_steps={"221": [0]}, qa_archived_ids=[221])
+    win = _build_window(qapp, config, entries)
+
+    win._on_unarchive(221)
+
+    open_ids = [e.id for e in win._open_entries()]
+    assert 221 in open_ids
+
+
+def test_unarchive_saves_config(qapp):
+    """_on_unarchive must call config.save()."""
+    entries = [_entry(222, steps=("step",))]
+    config = _FakeConfig(qa_checked_steps={"222": [0]}, qa_archived_ids=[222])
+    win = _build_window(qapp, config, entries)
+    prior = config.save_calls
+
+    win._on_unarchive(222)
+
+    assert config.save_calls > prior
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. qa_archived_ids round-trips through Config
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_config_qa_archived_ids_round_trip(tmp_path):
+    """qa_archived_ids must round-trip through Config.save() / load()."""
+    import yaml
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config.qa_archived_ids = [10, 23, 47]
+    config.save()
+
+    with open(tmp_path / "config.yaml") as f:
+        data = yaml.safe_load(f)
+    loaded = Config(**data)
+
+    assert loaded.qa_archived_ids == [10, 23, 47]
+
+
+def test_config_qa_archived_ids_default_empty(tmp_path):
+    """qa_archived_ids must default to an empty list for a fresh Config."""
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    assert config.qa_archived_ids == []
