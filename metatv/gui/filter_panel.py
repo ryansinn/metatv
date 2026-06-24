@@ -37,8 +37,10 @@ class FilterPanel(QWidget):
     # Section keys in display order.
     # "category" (live-channel kind: Sports/News/Kids…) sits between quality and
     # genre — both are content descriptors; category is the live-channel variant.
+    # subtitle/dub/format sit after genre — audio presentation axis.
     _SECTION_KEYS = ["media", "language", "region", "platform",
-                     "quality", "category", "genre", "untagged"]
+                     "quality", "category", "genre", "subtitle", "dub",
+                     "format", "untagged"]
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -206,6 +208,42 @@ class FilterPanel(QWidget):
             info_icon=_ii, config=self.config)
         self._genre_sec.changed.connect(self._on_changed)
         self._sl.addWidget(self._genre_sec)
+        self._add_divider()
+
+        self._subtitle_sec = _Section(
+            "subtitle", "Subtitle Language",
+            initially_expanded=_expanded("subtitle", False),
+            info_text=(
+                "Filter by subtitle language detected in the channel name.\n\n"
+                "Multi = channel offers subtitles in multiple languages."
+            ),
+            info_icon=_ii, config=self.config)
+        self._subtitle_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._subtitle_sec)
+        self._add_divider()
+
+        self._dub_sec = _Section(
+            "dub", "Dub Language",
+            initially_expanded=_expanded("dub", False),
+            info_text=(
+                "Filter by dub (dubbed audio) language detected in the channel name."
+            ),
+            info_icon=_ii, config=self.config)
+        self._dub_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._dub_sec)
+        self._add_divider()
+
+        self._format_sec = _Section(
+            "format", "Audio Format",
+            initially_expanded=_expanded("format", False),
+            info_text=(
+                "Filter by audio presentation format detected in the channel name.\n\n"
+                "Dub = dubbed audio track. Original = original-language audio with "
+                "subtitles. Multi = multiple subtitle languages. Dual = two audio tracks."
+            ),
+            info_icon=_ii, config=self.config)
+        self._format_sec.changed.connect(self._on_changed)
+        self._sl.addWidget(self._format_sec)
         self._add_divider()
 
         self._untagged_sec = _Section(
@@ -394,6 +432,40 @@ class FilterPanel(QWidget):
                 # Fresh install / no saved selection (None): show everything
                 self._genre_sec.select_all()
 
+        # ── Subtitle language
+        subtitle_values: dict[str, int] = tag_counts.get('subtitle', {})
+        subtitle_items = sorted(
+            [(k, k, v) for k, v in subtitle_values.items() if v > 0],
+            key=lambda x: (-x[2], x[1]),
+        )
+        prev_subtitle = set(self._subtitle_sec.get_selected_keys())
+        self._subtitle_sec.set_flat_items(subtitle_items)
+        _restore(self._subtitle_sec, prev_subtitle)
+
+        # ── Dub language
+        dub_values: dict[str, int] = tag_counts.get('dub', {})
+        dub_items = sorted(
+            [(k, k, v) for k, v in dub_values.items() if v > 0],
+            key=lambda x: (-x[2], x[1]),
+        )
+        prev_dub = set(self._dub_sec.get_selected_keys())
+        self._dub_sec.set_flat_items(dub_items)
+        _restore(self._dub_sec, prev_dub)
+
+        # ── Audio format
+        format_order = ["Dub", "Original", "Multi", "Dual"]
+        format_values: dict[str, int] = tag_counts.get('format', {})
+        format_items = [
+            (n, n, format_values[n]) for n in format_order
+            if n in format_values and format_values[n] > 0
+        ]
+        for n, v in format_values.items():
+            if n not in format_order and v > 0:
+                format_items.append((n, n, v))
+        prev_format = set(self._format_sec.get_selected_keys())
+        self._format_sec.set_flat_items(format_items)
+        _restore(self._format_sec, prev_format)
+
         # ── Untagged — static items (no count source in tag model; counts stay at 0).
         # This section controls whether channels with NO prefix/quality tag pass through
         # the filter. It remains functional even without accurate counts.
@@ -419,7 +491,8 @@ class FilterPanel(QWidget):
             f"FilterPanel updated (tag model): {len(lang_items)} languages, "
             f"{len(region_data)} region groups, {len(plat_items)} platforms, "
             f"{len(qual_items)} quality tiers, {len(category_items)} categories, "
-            f"{len(genre_items)} genres"
+            f"{len(genre_items)} genres, {len(subtitle_items)} subtitle langs, "
+            f"{len(dub_items)} dub langs, {len(format_items)} audio formats"
         )
 
         # On the very first call the channel list was loaded before dynamic
@@ -502,6 +575,24 @@ class FilterPanel(QWidget):
             if selected:
                 tag_includes["genre"] = selected
 
+        # Subtitle language facet
+        if not self._subtitle_sec.is_all_selected() and self._subtitle_sec.get_all_keys():
+            selected = set(self._subtitle_sec.get_selected_keys())
+            if selected:
+                tag_includes["subtitle"] = selected
+
+        # Dub language facet
+        if not self._dub_sec.is_all_selected() and self._dub_sec.get_all_keys():
+            selected = set(self._dub_sec.get_selected_keys())
+            if selected:
+                tag_includes["dub"] = selected
+
+        # Audio format facet
+        if not self._format_sec.is_all_selected() and self._format_sec.get_all_keys():
+            selected = set(self._format_sec.get_selected_keys())
+            if selected:
+                tag_includes["format"] = selected
+
         return {
             'media_types':        media_types,
             'language_groups':    self._lang_sec.get_selected_keys(),
@@ -510,6 +601,9 @@ class FilterPanel(QWidget):
             'platform_groups':    self._platform_sec.get_selected_keys(),
             'category_filters':   self._category_sec.get_selected_keys(),
             'genre_filters':      self._genre_sec.get_selected_keys(),
+            'subtitle_filters':   self._subtitle_sec.get_selected_keys(),
+            'dub_filters':        self._dub_sec.get_selected_keys(),
+            'format_filters':     self._format_sec.get_selected_keys(),
             'include_untagged':          include_untagged,
             'include_untagged_quality':  include_untagged_quality,
             'adult_mode':         getattr(self.config, 'filter_adult_mode', 'hide'),
@@ -594,6 +688,9 @@ class FilterPanel(QWidget):
                 self.config.filter_included_platforms   = state['platform_groups']
                 self.config.filter_included_categories  = state['category_filters']
                 self.config.filter_included_genres      = state['genre_filters']
+                self.config.filter_included_subtitles   = state['subtitle_filters']
+                self.config.filter_included_dubs        = state['dub_filters']
+                self.config.filter_included_formats     = state['format_filters']
             self.config.filter_adult_mode = state['adult_mode']
 
             # Save per-section collapse states
@@ -639,7 +736,8 @@ class FilterPanel(QWidget):
     def _all_sections(self) -> list[_Section]:
         return [self._media_sec, self._lang_sec, self._region_sec,
                 self._platform_sec, self._quality_sec, self._category_sec,
-                self._genre_sec, self._untagged_sec]
+                self._genre_sec, self._subtitle_sec, self._dub_sec,
+                self._format_sec, self._untagged_sec]
 
     def _persisted_section_attrs(self) -> list[tuple[str, object]]:
         """Return (config_attr_name, section) pairs for all dynamic sections.
@@ -654,6 +752,9 @@ class FilterPanel(QWidget):
             ('filter_included_platforms',  self._platform_sec),
             ('filter_included_categories', self._category_sec),
             ('filter_included_genres',     self._genre_sec),
+            ('filter_included_subtitles',  self._subtitle_sec),
+            ('filter_included_dubs',       self._dub_sec),
+            ('filter_included_formats',    self._format_sec),
         ]
 
     def _add_divider(self):
@@ -685,7 +786,7 @@ class FilterPanel(QWidget):
 
     # Sections where "Exclude globally" makes sense — maps section key to the
     # config lookup that resolves a display key to its prefix codes.
-    _GLOBALLY_EXCLUDABLE = {"language", "region", "platform"}
+    _GLOBALLY_EXCLUDABLE = {"language", "region", "platform", "subtitle", "dub", "format"}
 
     def _on_item_right_clicked(self, item_key: str, section_key: str, pos: QPoint):
         menu = QMenu(self)

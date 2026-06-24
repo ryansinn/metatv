@@ -67,18 +67,21 @@ if TYPE_CHECKING:
 # "category" (live-channel kind: Sports/News/Kids…) sits immediately before
 # "genre" — both are content descriptors; category is the live-channel variant.
 _FACET_META: dict[str, tuple[str, str, str]] = {
-    "category":   ("Category",   _theme.COLOR_FACET_CATEGORY,   "KIND"),
-    "genre":      ("Genre",      _theme.COLOR_FACET_GENRE,      "BASE"),
-    "language":   ("Language",   _theme.COLOR_FACET_LANGUAGE,   "IN"),
-    "region":     ("Region",     _theme.COLOR_FACET_REGION,     "FROM"),
-    "platform":   ("Platform",   _theme.COLOR_FACET_PLATFORM,   "ON"),
-    "decade":     ("Decade",     _theme.COLOR_FACET_DECADE,     "ERA"),
-    "quality":    ("Quality",    _theme.COLOR_FACET_QUALITY,    "FINISH"),
-    "collection": ("Collection", _theme.COLOR_FACET_COLLECTION, "SET"),
+    "category":   ("Category",      _theme.COLOR_FACET_CATEGORY,   "KIND"),
+    "genre":      ("Genre",         _theme.COLOR_FACET_GENRE,      "BASE"),
+    "language":   ("Language",      _theme.COLOR_FACET_LANGUAGE,   "IN"),
+    "subtitle":   ("Subtitle Lang", _theme.COLOR_FACET_SUBTITLE,   "IN"),
+    "dub":        ("Dub Lang",      _theme.COLOR_FACET_DUB,        "IN"),
+    "format":     ("Audio Format",  _theme.COLOR_FACET_FORMAT,     "AUDIO"),
+    "region":     ("Region",        _theme.COLOR_FACET_REGION,     "FROM"),
+    "platform":   ("Platform",      _theme.COLOR_FACET_PLATFORM,   "ON"),
+    "decade":     ("Decade",        _theme.COLOR_FACET_DECADE,     "ERA"),
+    "quality":    ("Quality",       _theme.COLOR_FACET_QUALITY,    "FINISH"),
+    "collection": ("Collection",    _theme.COLOR_FACET_COLLECTION, "SET"),
 }
 
 # Role display order in the recipe rail
-_ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "FROM", "ON", "ERA", "FINISH", "SET"]
+_ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "FINISH", "SET"]
 
 
 def _facet_color(facet_type: str) -> str:

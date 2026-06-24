@@ -32,6 +32,9 @@ from metatv.gui import theme as _theme
 _ACCENT = {
     "media":    _theme.COLOR_ACCENT_BLUE,
     "language": _theme.COLOR_ACCENT_BLUE,
+    "subtitle": _theme.COLOR_FACET_SUBTITLE,
+    "dub":      _theme.COLOR_FACET_DUB,
+    "format":   _theme.COLOR_FACET_FORMAT,
     "region":   _theme.COLOR_ACCENT_GREEN,
     "platform": _theme.COLOR_ACCENT_PURPLE,
     "quality":  _theme.COLOR_ACCENT_ORANGE,
