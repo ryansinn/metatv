@@ -18,6 +18,7 @@ from metatv.core.channel_name_utils import (
 )
 from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
+from metatv.core.content_identity import content_key_for
 
 
 # _GENRE_NORM and normalize_genre now live in metatv.core.filter_utils (a dependency-free
@@ -842,12 +843,29 @@ class ChannelRepository(_ChannelStatsMixin):
                     if _strip_m:
                         new_title = _strip_m.group(1).strip()
 
+                # Compute the content_key from the UPDATED fields (not the old ORM values)
+                # so the key is always in sync with detected_title/year/media_type.
+                # Build a lightweight proxy that reflects the new field values without
+                # mutating the channel yet — this lets us include content_key in the
+                # changed comparison atomically.
+                class _NewFields:
+                    __slots__ = ("detected_title", "media_type", "detected_year", "id")
+                    def __init__(self, title, mt, year, ch_id):
+                        self.detected_title = title
+                        self.media_type = mt
+                        self.detected_year = year
+                        self.id = ch_id
+                new_content_key = content_key_for(
+                    _NewFields(new_title, channel.media_type, new_year, channel.id)
+                )
+
                 changed = (
                     prefix != channel.detected_prefix
                     or quality != channel.detected_quality
                     or region != channel.detected_region
                     or new_title != channel.detected_title
                     or new_year  != channel.detected_year
+                    or new_content_key != channel.content_key
                 )
                 if changed:
                     channel.detected_prefix = prefix
@@ -855,6 +873,7 @@ class ChannelRepository(_ChannelStatsMixin):
                     channel.detected_region = region
                     channel.detected_title  = new_title
                     channel.detected_year   = new_year
+                    channel.content_key     = new_content_key
                     channel.updated_at = datetime.now()
                     updated += 1
 
@@ -873,6 +892,97 @@ class ChannelRepository(_ChannelStatsMixin):
 
         logger.info(f"Updated parsed name fields for {updated} of {processed} channels")
         return updated
+
+    def backfill_content_keys(
+        self,
+        progress_cb=None,
+        is_cancelled=None,
+    ) -> int:
+        """Compute and store ``content_key`` for rows where it is currently NULL.
+
+        Reads only ``detected_title``, ``media_type``, ``detected_year``, and
+        ``id`` — no raw name re-parsing.  Processes rows in 2000-row batches
+        with a commit + expunge_all between batches to stay memory-safe on
+        million-row tables.
+
+        Idempotent: rows that already have a ``content_key`` are skipped.
+        Running it again after all rows have been populated is a fast no-op
+        (zero rows matched).
+
+        Args:
+            progress_cb: Optional ``(done: int, total: int) -> None`` called
+                after each batch commit.
+            is_cancelled: Optional ``() -> bool`` checked at the top of each
+                batch.  Early exit leaves all previously committed batches
+                durable; the task version is not bumped so it restarts next
+                launch.
+
+        Returns:
+            Number of rows that had their ``content_key`` written.
+        """
+        _BATCH = 2000
+
+        # Only fetch rows whose content_key is still NULL.
+        all_ids = [
+            row[0]
+            for row in self.session.query(ChannelDB.id)
+            .filter(ChannelDB.content_key.is_(None))
+            .all()
+        ]
+        total = len(all_ids)
+
+        if total == 0:
+            logger.debug("backfill_content_keys: nothing to do (all rows have content_key)")
+            return 0
+
+        logger.info(f"backfill_content_keys: backfilling {total} rows")
+        filled = 0
+
+        for batch_start in range(0, total, _BATCH):
+            if is_cancelled is not None and is_cancelled():
+                logger.info(
+                    "backfill_content_keys: cancelled at {}/{}", batch_start, total
+                )
+                break
+
+            chunk_ids = all_ids[batch_start : batch_start + _BATCH]
+            # Project only the columns we need to stay memory-safe.
+            rows = (
+                self.session.query(
+                    ChannelDB.id,
+                    ChannelDB.detected_title,
+                    ChannelDB.media_type,
+                    ChannelDB.detected_year,
+                )
+                .filter(ChannelDB.id.in_(chunk_ids))
+                .all()
+            )
+
+            for (ch_id, det_title, media_type, det_year) in rows:
+                class _Proxy:
+                    __slots__ = ("detected_title", "media_type", "detected_year", "id")
+                    def __init__(self, t, m, y, i):
+                        self.detected_title = t
+                        self.media_type = m
+                        self.detected_year = y
+                        self.id = i
+                key = content_key_for(_Proxy(det_title, media_type, det_year, ch_id))
+                # Update via bulk UPDATE to avoid loading the full ORM object (raw_data JSON blob).
+                self.session.execute(
+                    update(ChannelDB)
+                    .where(ChannelDB.id == ch_id)
+                    .values(content_key=key)
+                )
+                filled += 1
+
+            self.session.commit()
+            self.session.expunge_all()
+
+            if progress_cb is not None:
+                progress_cb(min(batch_start + _BATCH, total), total)
+
+        logger.info(f"backfill_content_keys: filled {filled} of {total} rows")
+        return filled
 
     # ── User category methods ──────────────────────────────────────────────────
 
