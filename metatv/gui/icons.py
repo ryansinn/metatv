@@ -145,6 +145,8 @@ recipe_edit_icon: str = "✎"     # U+270E LOWER RIGHT PENCIL — edit/rename re
 qa_checklist_icon: str = "🧪"      # Testing Checklist menu item / window header
 qa_all_clear_icon: str = "🎉"      # Empty state — nothing left to test
 qa_purge_icon: str = "✓"           # Purge / mark-all-done button
+qa_archive_icon: str = "📦"        # Archive a single fully-checked entry
+qa_unarchive_icon: str = "↩"       # Unarchive / restore an archived entry
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
