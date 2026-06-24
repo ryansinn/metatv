@@ -205,8 +205,15 @@ _YEAR_RE = re.compile(
 
 # Trailing parenthetical single-token qualifier — no internal space, letter-first.
 # Strips:  (US), (VOSTFR), (HQ), (LQ), (BR), (ENG-SUB), (MULTI-DUB), (Dubbed), …
-# Keeps:   (30 Monedas), (Soleil Noir), (ENG DUB) — internal space → alt-language title.
+# Multi-word qualifiers like (ENG DUB) or (SPANISH ENG-SUB) are NOT matched here;
+# they are handled by PAREN_MULTI_QUALIFIER_RE + _is_all_qualifier_tokens() below.
 PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z][A-Za-z0-9\-/]{0,25}\)\s*$")
+
+# Trailing parenthetical that contains an internal space — may be a multi-token
+# dub/sub/lang qualifier like (ENG DUB) or (SPANISH ENG-SUB), or a real alt-title
+# like (Soleil Noir) or (30 Monedas).  The strip decision is NOT made by regex
+# alone — _is_all_qualifier_tokens() checks every leaf against the recognized vocab.
+PAREN_MULTI_QUALIFIER_RE = re.compile(r"\s*\(([^()]+)\)\s*$")
 
 # Trailing parenthetical digit-starting quality tokens: (4K), (8K).
 # Separate from PAREN_QUALIFIER_RE because that regex requires a letter-first token.
@@ -243,20 +250,24 @@ QUALITY_ANYWHERE_RE = re.compile(
 
 
 def strip_title_qualifiers(bare: str) -> str:
-    """Strip trailing single-token parenthetical/bracket qualifiers from a bare title.
+    """Strip trailing single-token and recognized multi-token qualifier parentheticals.
 
     Applies a loop until stable, removing:
     - Single-token paren qualifiers with no internal space: (US), (VOSTFR), (HQ), (LQ),
-      (BR), (ENG-SUB), (Dubbed), …
+      (BR), (ENG-SUB), (MULTI-DUB), (Dubbed), …
+    - Multi-token parens where EVERY space/dash/slash-split leaf is a recognized lang,
+      region, quality, or sub/dub marker token: (ENG DUB), (SPANISH ENG-SUB),
+      (DUAL AUDIO), (MULTI SUB), (VOST FR), (LEG PT), (PT BR).
     - Digit-starting quality tokens in parens: (4K), (8K).
     - Bracket qualifiers with internal separators: [Multi Audio/Sub], [ENG-SUB].
     - Parenthesized/bracketed year markers ONLY: (2024), [2024], (2000-2005).
 
-    Preserves multi-word alt-language titles in parens: (30 Monedas), (Soleil Noir),
-    (ENG DUB) all contain an internal space and are NEVER stripped. Also preserves a
-    bare trailing number that is part of the real title — "Blade Runner 2049",
-    "Space 1999", "The 4400" — by stripping only PARENTHESIZED years, never a bare
-    ``\\s+\\d{4}$`` (that aggressive form stays in content_dedup's key normalization).
+    Preserves multi-word alt-language titles where ANY token is unrecognized:
+    (30 Monedas), (Soleil Noir), (New York), (The Beginning) all stay intact.
+    Also preserves a bare trailing number that is part of the real title —
+    "Blade Runner 2049", "Space 1999", "The 4400" — by stripping only
+    PARENTHESIZED years, never a bare ``\\s+\\d{4}$`` (that aggressive form stays
+    in content_dedup's key normalization).
 
     Args:
         bare: The bare channel name after prefix and quality stripping.
@@ -271,6 +282,10 @@ def strip_title_qualifiers(bare: str) -> str:
         bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
         bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
         bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
+        # Multi-token parentheticals: strip only when EVERY leaf token is recognized.
+        m = PAREN_MULTI_QUALIFIER_RE.search(bare)
+        if m and _is_all_qualifier_tokens(m.group(1)):
+            bare = bare[: m.start()].strip()
     return bare
 
 # ── Audio format normalization ───────────────────────────────────────────────── #
@@ -299,6 +314,21 @@ _AUDIO_NORM: dict[str, str] = {
     "SUB": "Sub", "SUBTITLED": "Sub", "SUBTITULADO": "Sub",
     "SUBTITLE": "Sub",
 }
+
+# Bare subtitle/dub markers that appear as *leaf tokens* inside multi-word
+# parentheticals like "(SPANISH ENG-SUB)" or "(ENG DUB)".  These are NOT full
+# _AUDIO_NORM keys (which cover complete bracket/paren contents), but individual
+# tokens within a compound qualifier.  The recognized-qualifier allowlist in
+# _is_all_qualifier_tokens() checks each space/dash/slash-split leaf against this
+# set alongside lang codes and quality tokens.
+_SUB_DUB_TOKENS: frozenset[str] = frozenset({
+    "SUB", "SUBS", "SUBBED", "SUBTITLED", "SUBTITULADO", "SUBTITLE",
+    "DUB", "DUBBED", "DUBBING",
+    "VOST", "VOSTFR", "VOSTA",
+    "LEG", "LEGENDADO", "LEGENDADA",
+    "OV", "OMU",
+    "AUDIO", "DUAL",
+})
 
 
 # ── Region/platform lookup tables ────────────────────────────────────────────── #
@@ -589,6 +619,64 @@ CODE_FACETS: dict[str, list[tuple[str, str, float]]] = {
     # CODE_FACETS takes priority: the decomposer checks here before REGION_FULL_NAMES.
     "AR":  [("language", "Arabic",                CONF_DENOTED)],
 }
+
+
+# Pre-built recognized-token set for _is_all_qualifier_tokens() — covers all
+# vocabulary that can legitimately appear as individual leaf tokens inside a
+# multi-word trailing parenthetical qualifier.  Built once at import time.
+#
+# Includes: uppercase lang full-names, bracket-lang keys, region codes in
+# REGION_FULL_NAMES, quality tokens, and bare sub/dub markers.
+# A leaf is recognized when its uppercased/stripped form is in this set.
+_RECOGNIZED_QUALIFIER_TOKENS: frozenset[str] = (
+    frozenset(_BRACKET_LANG_NORM.keys())                  # SPANISH, FRENCH, HINDI …
+    | frozenset(k.upper() for k in _FULL_NAME_TO_CODE)   # ARGENTINA, BRAZIL …
+    | frozenset(k.upper() for k in _ALIAS_MAP)            # ENG, USA, LATIN …
+    | frozenset(REGION_FULL_NAMES.keys())                  # US, UK, FR, ARG, LAT …
+    | QUALITY_TOKENS                                        # 4K, 8K, HD, HEVC …
+    | _SUB_DUB_TOKENS                                      # SUB, DUB, VOSTFR, LEG …
+    # Single-word _AUDIO_NORM keys (e.g. MULTI, MUTI) — multi-word keys like
+    # "MULTI SUB" are compound phrases; their individual words are already covered
+    # by _SUB_DUB_TOKENS, but "MULTI"/"MUTI" alone need explicit inclusion.
+    | frozenset(k for k in _AUDIO_NORM if " " not in k and "-" not in k and "/" not in k)
+)
+
+
+def _is_all_qualifier_tokens(inner: str) -> bool:
+    """Return True when every leaf token in *inner* is a recognized qualifier token.
+
+    Used to decide whether a space-containing trailing parenthetical is a
+    strippable dub/sub/lang qualifier or a real alt-title to preserve.
+
+    Algorithm:
+    1. Split *inner* on whitespace, hyphens, and slashes into leaf tokens.
+    2. Discard empty strings (consecutive separators).
+    3. Return True only when the content is non-empty AND every leaf token,
+       uppercased, appears in the pre-built ``_RECOGNIZED_QUALIFIER_TOKENS`` set.
+
+    Examples that return True (all leaves recognized):
+        "ENG DUB"         → {"ENG", "DUB"}   — both recognized
+        "SPANISH ENG-SUB" → {"SPANISH", "ENG", "SUB"} — all recognized
+        "DUAL AUDIO"      → {"DUAL", "AUDIO"} — both recognized
+        "VOST FR"         → {"VOST", "FR"}    — both recognized
+        "PT BR"           → {"PT", "BR"}      — both recognized (lang + region)
+
+    Examples that return False (an unrecognized leaf → preserve as alt-title):
+        "Soleil Noir"     → {"SOLEIL", "NOIR"} — neither recognized
+        "30 Monedas"      → {"30", "MONEDAS"}  — neither recognized
+        "New York"        → {"NEW", "YORK"}    — neither recognized
+        "The Beginning"   → {"THE", "BEGINNING"} — neither recognized
+
+    Args:
+        inner: The text content between the outer parentheses (not including them).
+
+    Returns:
+        True when the parenthetical is a strippable qualifier; False to preserve.
+    """
+    leaves = [t for t in re.split(r"[\s\-/]+", inner.strip()) if t]
+    if not leaves:
+        return False
+    return all(leaf.upper() in _RECOGNIZED_QUALIFIER_TOKENS for leaf in leaves)
 
 
 def is_event_placeholder(name: str) -> bool:

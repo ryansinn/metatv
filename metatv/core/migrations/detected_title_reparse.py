@@ -1,19 +1,29 @@
 """Migration task: re-parse detected_title to strip trailing quality/region/subtitle qualifiers.
 
-Fix #78.  Before this fix, ``parse_channel_name`` left trailing single-token
+Fix #78 (version 1) and #78 follow-up (version 2).
+
+Version 1 — Before fix, ``parse_channel_name`` left trailing single-token
 parenthetical qualifiers in ``detected_title`` when no year was present to anchor
 stripping.  Examples:
 
   "NF - 13 Reasons Why (US) (4K)"  → detected_title = "13 Reasons Why (US) (4K)"  (wrong)
   "FR - 1883 (VOSTFR)"             → detected_title = "1883 (VOSTFR)"              (wrong)
 
-After this fix:
+After version 1:
 
   "NF - 13 Reasons Why (US) (4K)"  → detected_title = "13 Reasons Why"             (correct)
   "FR - 1883 (VOSTFR)"             → detected_title = "1883"                        (correct)
 
+Version 2 — Space-containing parentheticals where EVERY token is a recognized
+lang/region/quality/sub/dub marker are now also stripped (recognized-token allowlist).
+Examples:
+
+  "Title (ENG DUB)"              → detected_title = "Title"                          (correct)
+  "As Linas Descontinuas (2025) (SPANISH ENG-SUB)" → "As Linas Descontinuas"        (correct)
+  "Title (Soleil Noir)"          → preserved — "SOLEIL"/"NOIR" unrecognized          (correct)
+
 Multi-word alt-language titles — (30 Monedas), (Soleil Noir) — are preserved because
-the new strip regex requires no internal space inside the parens.
+they contain tokens that are not in the recognized-qualifier vocabulary.
 
 Because ``update_detected_prefixes`` computes BOTH ``detected_title`` AND
 ``content_key`` in one pass, a single full re-run is sufficient.  There is no need
@@ -41,7 +51,11 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial strip: remove trailing quality/region/subtitle paren qualifiers from
 #       detected_title and recompute content_key in one update_detected_prefixes pass.
-CURRENT_VERSION: int = 1
+#   2 — recognized-token allowlist: space-containing parentheticals where EVERY
+#       space/dash/slash-split leaf is a lang/region/quality/sub/dub token are now
+#       also stripped (e.g. "(ENG DUB)", "(SPANISH ENG-SUB)", "(DUAL AUDIO)").
+#       Genuine alt-titles like "(Soleil Noir)" are preserved (unrecognized tokens).
+CURRENT_VERSION: int = 2
 
 
 class DetectedTitleReparseTask:
