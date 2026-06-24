@@ -154,6 +154,9 @@ def _make_view(qapp):
         favorite_icon = "❤"
         queue_icon = "▶"
         watched_icon = "✓"
+        # _BrowseView (the "Show all" drill-down) reads these at build time.
+        list_view_icon = "☰"
+        grid_view_icon = "▦"
 
     class _FakeImageCacheQ(QObject):
         # _ContentCard.request_image() connects to these signals; they never fire
@@ -1321,3 +1324,193 @@ def test_on_deactivate_stops_debounce_timer(qapp):
     assert not view._results_debounce.isActive(), (
         "Debounce timer must be stopped when the view deactivates"
     )
+
+
+# ---------------------------------------------------------------------------
+# "Show all →" full-results browse drill-down
+# ---------------------------------------------------------------------------
+#
+# "Show all" swaps the 3-column constructor (stack page 0) for the full-results
+# browse grid (page 1, reusing Discover's _BrowseView).  The see-all query
+# reuses _load_results' scoping but with limit=500 (parity with Discover's
+# See-All cap).  Re-entering via on_activate / browse Back returns to page 0.
+
+def test_show_all_button_hidden_until_matches(qapp):
+    """The 'Show all' button is hidden at 0 matches and shown when matches exist."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    # No results yet → button hidden.
+    assert not view._now_plating._show_all_btn.isVisible()
+
+    view._on_results_loaded(([_FakeCard("c1", "A")], 5))
+    # Visibility flag is set even on a not-yet-shown widget.
+    assert view._now_plating._show_all_btn.isVisible() or \
+        not view._now_plating._show_all_btn.isHidden()
+
+    # Zero matches → button hidden again.
+    view._on_results_loaded(([], 0))
+    assert view._now_plating._show_all_btn.isHidden()
+
+
+def test_show_all_switches_stack_to_browse_page(qapp):
+    """_on_show_all switches the stack to the browse page (index 1)."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    assert view._stack.currentIndex() == 0
+
+    view._on_results_loaded(([_FakeCard("c1", "A"), _FakeCard("c2", "B")], 2))
+    view._on_show_all()
+
+    assert view._stack.currentIndex() == 1
+    assert view._stack.currentWidget() is view._browse
+
+
+def test_show_all_seeds_browse_with_cached_cards(qapp):
+    """_on_show_all loads the browse view instantly with the strip's cards."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view._on_results_loaded(([_FakeCard("c1", "A"), _FakeCard("c2", "B")], 2))
+    view._on_show_all()
+
+    # The browse view got the cards already rendered in the strip (instant feedback).
+    assert [c.channel_id for c in view._browse._all_cards] == ["c1", "c2"]
+
+
+def test_show_all_fires_see_all_query_with_limit_and_scoping(qapp):
+    """_on_show_all fires a see-all query with limit=500 + scoping kwargs."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
+    view._recipe_includes = {"genre": {"Drama"}}
+
+    view._on_results_loaded(([_FakeCard("c1", "A")], 7))
+    seam.calls.clear()
+    view._on_show_all()
+
+    # The last queued query targets the see-all slot.
+    entry = next(c for c in seam.calls if c["on_result"] == view._on_see_all_loaded)
+    repos = _RecordingRepos()
+    entry["query_fn"](repos)
+
+    sample = repos.tags.calls["sample"]
+    assert sample["limit"] == 500, "See-all must fetch up to 500 cards (Discover parity)"
+    assert sample["excluded_provider_ids"] == ["prov_hidden"]
+    assert sample["excluded_prefixes"] == {"AR"}
+    assert sample["excluded_categories"] == {"Kids"}
+
+
+def test_see_all_loaded_renders_cards_in_browse(qapp):
+    """_on_see_all_loaded hands the fetched cards to the browse grid."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    full = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(120)]
+    view._on_see_all_loaded(full)
+
+    # _BrowseView.load stores the full card set (more than the 60-card teaser cap).
+    assert len(view._browse._all_cards) == 120
+    assert len(view._browse._all_cards) > view.__class__._RESULTS_CARD_CAP
+
+
+def test_browse_back_returns_to_constructor(qapp):
+    """backRequested → _on_browse_back switches the stack back to page 0."""
+    view, seam = _make_view(qapp)
+    view._active = True
+
+    view._on_results_loaded(([_FakeCard("c1", "A")], 1))
+    view._on_show_all()
+    assert view._stack.currentIndex() == 1
+
+    # Emitting the browse view's backRequested must return to the constructor.
+    view._browse.backRequested.emit()
+    assert view._stack.currentIndex() == 0
+
+
+def test_on_activate_resets_stack_to_constructor(qapp):
+    """Re-entering via the Recipe chip lands on the constructor, never browse."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._on_results_loaded(([_FakeCard("c1", "A")], 1))
+    view._on_show_all()
+    assert view._stack.currentIndex() == 1
+
+    # Navigating away then re-activating must reset to page 0.
+    view.on_deactivate()
+    view.on_activate()
+    assert view._stack.currentIndex() == 0
+
+
+def test_on_deactivate_cancels_see_all_token(qapp):
+    """on_deactivate bumps the see-all token so a late result is dropped."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._on_results_loaded(([_FakeCard("c1", "A")], 1))
+    view._on_show_all()
+
+    before = view._see_all_token[0]
+    view.on_deactivate()
+    assert view._see_all_token[0] > before, (
+        "See-all token must advance on deactivate to drop in-flight loads"
+    )
+
+
+def test_browse_card_click_emits_channel_selected(qapp):
+    """A click in the browse grid emits the SAME channelSelected signal as the strip."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    captured: list[str] = []
+    view.channelSelected.connect(captured.append)
+
+    view._browse.cardClicked.emit("chan_99")
+    assert captured == ["chan_99"]
+
+
+def test_browse_card_double_click_emits_play_requested(qapp):
+    """A double-click in the browse grid emits the SAME playRequested signal."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    captured: list[str] = []
+    view.playRequested.connect(captured.append)
+
+    view._browse.cardDoubleClicked.emit("chan_77")
+    assert captured == ["chan_77"]
+
+
+def test_reload_refreshes_browse_when_showing(qapp):
+    """reload() re-runs the see-all query when the browse page is showing."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    view._recipe_includes = {"genre": {"Drama"}}
+    view._on_results_loaded(([_FakeCard("c1", "A")], 9))
+    view._on_show_all()
+
+    seam.calls.clear()
+    view.reload()
+
+    assert any(c["on_result"] == view._on_see_all_loaded for c in seam.calls), (
+        "reload() must re-run the see-all query while the browse page is visible"
+    )
+
+
+def test_reload_skips_browse_query_when_on_constructor(qapp):
+    """reload() does NOT fire a see-all query when the constructor is showing."""
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    view._recipe_includes = {"genre": {"Drama"}}
+    assert view._stack.currentIndex() == 0
+
+    seam.calls.clear()
+    view.reload()
+
+    assert not any(c["on_result"] == view._on_see_all_loaded for c in seam.calls)
+
+
+def test_see_all_limit_matches_discover_cap():
+    """_RECIPE_SEE_ALL_LIMIT mirrors Discover's See-All cap (500)."""
+    from metatv.gui.recipe_view import RecipeView
+    assert RecipeView._RECIPE_SEE_ALL_LIMIT == 500
