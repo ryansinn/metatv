@@ -1,4 +1,4 @@
-"""Migration task: backfill ``content_key`` for all channel rows where it is NULL.
+"""Migration task: backfill ``content_key`` for all channel rows.
 
 Content-identity Slice 1.  The ``content_key`` column was added to the
 ``channels`` table; this task computes it from the already-stored
@@ -10,9 +10,12 @@ Idempotency
 ``needs_run`` returns True when ``config.content_key_backfill_version`` is
 behind ``CURRENT_VERSION``.  On completion the version is bumped and saved.
 An interrupted run leaves the version unbumped so the task restarts on the
-next launch from scratch — but since ``backfill_content_keys()`` only touches
-rows with a NULL ``content_key``, the re-run is safe and cheap (previously
-committed rows are skipped automatically).
+next launch from scratch.
+
+When the version is bumped (formula change), ``backfill_content_keys()`` is
+called with ``recompute_all=True`` so that EVERY row is recomputed — not just
+rows with a NULL key.  The NULL-only path (``recompute_all=False``) is still
+used for version 1 (initial population of rows that had no key at all).
 
 Memory safety
 -------------
@@ -36,7 +39,16 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial backfill: populate content_key from detected_title / media_type /
 #       detected_year for all rows that existed before Slice 1 shipped.
-CURRENT_VERSION: int = 1
+#   2 — formula change (QA 10bc0a7): series/live drop year from the key so
+#       cross-source variants with inconsistent year labels collapse correctly;
+#       movie years are normalized to start-year (first 4-digit group).
+#       Requires recompute_all=True so existing non-NULL rows get the new key.
+CURRENT_VERSION: int = 2
+
+# Versions whose formula changed and therefore need every row recomputed, not
+# just NULL rows.  Add the new CURRENT_VERSION here whenever the key formula
+# changes.
+_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2})
 
 
 class ContentKeyBackfillTask:
@@ -76,6 +88,7 @@ class ContentKeyBackfillTask:
         self,
         progress_cb: Callable[[int, int], None],
         is_cancelled: Callable[[], bool],
+        config: "Config | None" = None,
     ) -> None:
         """Execute the content_key backfill.
 
@@ -83,11 +96,23 @@ class ContentKeyBackfillTask:
         to ``ChannelRepository.backfill_content_keys()`` which processes rows
         in 2000-row batches.
 
+        When the current version requires a full recompute (formula change —
+        ``CURRENT_VERSION`` is in ``_RECOMPUTE_ALL_VERSIONS``), passes
+        ``recompute_all=True`` so that rows whose key is already set are
+        also updated to the new formula.  The NULL-only path is used for
+        versions that only add keys for rows that never had one.
+
         Args:
             progress_cb: ``(done, total)`` called after each batch commit.
             is_cancelled: Returns True when the manager has been asked to stop.
+            config: Unused; accepted for forward-compat with MigrationManager
+                callers that pass config as a keyword arg.
         """
-        logger.info("ContentKeyBackfillTask: starting (version={})", CURRENT_VERSION)
+        recompute_all = CURRENT_VERSION in _RECOMPUTE_ALL_VERSIONS
+        logger.info(
+            "ContentKeyBackfillTask: starting (version={}, recompute_all={})",
+            CURRENT_VERSION, recompute_all,
+        )
 
         from metatv.core.repositories import RepositoryFactory
 
@@ -96,6 +121,7 @@ class ContentKeyBackfillTask:
             repos.channels.backfill_content_keys(
                 progress_cb=progress_cb,
                 is_cancelled=is_cancelled,
+                recompute_all=recompute_all,
             )
 
         logger.info("ContentKeyBackfillTask: completed")
