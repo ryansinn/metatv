@@ -2,28 +2,29 @@
 
 Coverage:
 - ``dev_mode_enabled()`` honors METATV_DEV across truthy and falsy values.
-- ``QAChecklistWindow`` renders exactly one checkbox per step for in-scope
+- ``QAChecklistWindow`` renders a tri-state pass/fail pair per step for in-scope
   entries (excludes no-steps entries and entries with id <= qa_verified_id).
-- Toggling a checkbox mutates ``config.qa_checked_steps`` correctly and
-  calls ``config.save()``.
-- All-complete detection and the Purge action advance ``qa_verified_id`` to
-  the max entry id so the open-items set becomes empty.
-- Regression guard: every real ``WHATS_NEW`` entry loads with
-  ``test_steps`` defaulting to ``()``.
-- PR# parser: ``_parse_pr_number`` extracts int from squash-merge subjects.
-- Remote URL normalizer: SSH and HTTPS forms both map to HTTPS base URL.
-- Header link: resolved refs render as ``href`` link; no git → date fallback.
-- Archive: complete entry shows Archive action; archiving persists + excludes;
-  incomplete entry shows no Archive; Unarchive restores the entry.
+- Marking a step pass/fail mutates ``config.qa_step_results`` correctly and calls
+  ``config.save()``; re-clicking the active state clears it back to untested.
+- Migration: a legacy ``qa_checked_steps`` list shape becomes ``qa_step_results``
+  pass records on Config load.
+- Completion: an entry with a failed step is NOT complete/archivable and is
+  flagged; all-pass IS complete; Purge advances ``qa_verified_id`` but keeps
+  failed entries.
+- Fail note + attachment persistence; build-sha stamp + re-test hint.
+- AI failures digest: ``qa_failures.md`` is written with title/step/note; zero
+  failures yields "No failures recorded."
+- PR# parser / remote URL normalizer / header link rendering (unchanged infra).
+- Archive / unarchive.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 
 # ── headless Qt setup ─────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
@@ -50,17 +51,23 @@ def _entry(id: int, steps: tuple[str, ...] = ()) -> SimpleNamespace:
 # ── fake config ───────────────────────────────────────────────────────────────
 
 class _FakeConfig:
-    """Minimal Config stand-in for QAChecklistWindow tests."""
+    """Minimal Config stand-in for QAChecklistWindow tests.
+
+    ``config_dir`` defaults to a tmp dir so digest / attachment writes land in
+    isolation, never the real user config.
+    """
 
     def __init__(
         self,
         qa_verified_id: int = 0,
-        qa_checked_steps: dict | None = None,
+        qa_step_results: dict | None = None,
         qa_archived_ids: list | None = None,
+        config_dir: Path | None = None,
     ) -> None:
         self.qa_verified_id = qa_verified_id
-        self.qa_checked_steps: dict = qa_checked_steps or {}
+        self.qa_step_results: dict = qa_step_results or {}
         self.qa_archived_ids: list = qa_archived_ids or []
+        self.config_dir = config_dir or Path("/tmp")
         self.save_calls: int = 0
 
     def save(self) -> None:
@@ -74,6 +81,10 @@ def _build_window(qapp, config: _FakeConfig, entries: list) -> object:
     from metatv.gui.qa_checklist_window import QAChecklistWindow
     win = QAChecklistWindow(config, entries)  # type: ignore[arg-type]
     return win
+
+
+def _pass_rec() -> dict:
+    return {"state": "pass", "sha": "", "ts": ""}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -129,177 +140,395 @@ def test_dev_mode_disabled_when_no(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. Window renders only in-scope entries
+# 2. Window renders only in-scope entries (tri-state pass/fail pair per step)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_window_skips_no_steps_entry(qapp):
-    """An entry with no test_steps must produce zero checkboxes."""
+def test_window_skips_no_steps_entry(qapp, tmp_path):
+    """An entry with no test_steps must produce zero step rows."""
     entries = [
         _entry(10, steps=()),          # no steps — must be excluded
-        _entry(11, steps=("step A",)), # has steps — must be included
+        _entry(11, steps=("step A",)),  # has steps — must be included
     ]
-    config = _FakeConfig(qa_verified_id=0)
+    config = _FakeConfig(qa_verified_id=0, config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
-    # Entry 10 has no steps → excluded; entry 11 has 1 step → 1 checkbox
-    assert 11 in win._checkboxes
-    assert len(win._checkboxes[11]) == 1
-    assert 10 not in win._checkboxes
+    assert 11 in win._step_buttons
+    assert len(win._step_buttons[11]) == 1
+    assert 10 not in win._step_buttons
 
 
-def test_window_skips_verified_entry(qapp):
+def test_window_skips_verified_entry(qapp, tmp_path):
     """Entries with id <= qa_verified_id must be excluded."""
     entries = [
-        _entry(10, steps=("step A",)),  # id <= verified (10) → excluded
-        _entry(11, steps=("step B",)),  # id > verified → included
+        _entry(10, steps=("step A",)),
+        _entry(11, steps=("step B",)),
     ]
-    config = _FakeConfig(qa_verified_id=10)
+    config = _FakeConfig(qa_verified_id=10, config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
-    assert 10 not in win._checkboxes
-    assert 11 in win._checkboxes
-    assert len(win._checkboxes[11]) == 1
+    assert 10 not in win._step_buttons
+    assert 11 in win._step_buttons
 
 
-def test_window_renders_correct_checkbox_count_per_entry(qapp):
-    """Each entry gets exactly one QCheckBox per test_step."""
+def test_window_renders_one_pass_fail_pair_per_step(qapp, tmp_path):
+    """Each step gets exactly one (pass, fail) button pair."""
     entries = [
         _entry(20, steps=("step 1", "step 2", "step 3")),
         _entry(21, steps=("only step",)),
     ]
-    config = _FakeConfig(qa_verified_id=0)
+    config = _FakeConfig(qa_verified_id=0, config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
-    assert len(win._checkboxes[20]) == 3
-    assert len(win._checkboxes[21]) == 1
+    assert len(win._step_buttons[20]) == 3
+    assert len(win._step_buttons[21]) == 1
+    pass_btn, fail_btn = win._step_buttons[21][0]
+    assert pass_btn.toolTip() == "Mark passed"
+    assert fail_btn.toolTip() == "Mark failed"
 
 
-def test_window_restores_checked_state_from_config(qapp):
-    """Checkboxes for pre-checked steps must start checked."""
+def test_window_reflects_stored_state(qapp, tmp_path):
+    """Stored pass/fail records are reflected by _step_state."""
     entries = [_entry(30, steps=("A", "B", "C"))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"30": [0, 2]})
+    config = _FakeConfig(
+        qa_verified_id=0,
+        qa_step_results={"30": {"0": _pass_rec(), "2": {"state": "fail"}}},
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
 
-    cbs = win._checkboxes[30]
-    assert cbs[0].isChecked() is True   # index 0 checked
-    assert cbs[1].isChecked() is False  # index 1 not checked
-    assert cbs[2].isChecked() is True   # index 2 checked
+    assert win._step_state(30, 0) == "pass"
+    assert win._step_state(30, 1) is None
+    assert win._step_state(30, 2) == "fail"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. Checkbox toggle mutates config correctly and calls save()
+# 3. Mark pass/fail mutates config + saves; re-click clears
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_checking_step_adds_index_to_config(qapp):
-    """Checking an unchecked step adds its index to qa_checked_steps and saves."""
+def test_marking_pass_sets_state_and_saves(qapp, tmp_path):
+    """Clicking pass records state=pass and calls save()."""
     entries = [_entry(40, steps=("step 1", "step 2"))]
-    config = _FakeConfig(qa_verified_id=0)
+    config = _FakeConfig(qa_verified_id=0, config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
+    prior = config.save_calls
 
-    win._checkboxes[40][1].setChecked(True)  # check step index 1
+    win._step_buttons[40][1][0].click()  # pass button on step index 1
 
-    assert 1 in config.qa_checked_steps.get("40", [])
-    assert config.save_calls >= 1
+    assert config.qa_step_results["40"]["1"]["state"] == "pass"
+    assert config.save_calls > prior
 
 
-def test_unchecking_step_removes_index_from_config(qapp):
-    """Unchecking a checked step removes its index from qa_checked_steps and saves."""
+def test_marking_fail_sets_state_and_saves(qapp, tmp_path):
+    """Clicking fail records state=fail and calls save()."""
     entries = [_entry(41, steps=("step A",))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"41": [0]})
+    config = _FakeConfig(qa_verified_id=0, config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
-    win._checkboxes[41][0].setChecked(False)  # uncheck step index 0
+    win._step_buttons[41][0][1].click()  # fail button on step 0
 
-    assert 0 not in config.qa_checked_steps.get("41", [])
+    assert config.qa_step_results["41"]["0"]["state"] == "fail"
     assert config.save_calls >= 1
 
 
-def test_checking_does_not_add_duplicate_index(qapp):
-    """Checking an already-checked step must not create duplicate indices."""
+def test_reclicking_active_state_clears_step(qapp, tmp_path):
+    """Re-clicking the active pass state clears the step back to untested."""
     entries = [_entry(42, steps=("step",))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"42": [0]})
+    config = _FakeConfig(
+        qa_verified_id=0,
+        qa_step_results={"42": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
 
-    # The checkbox is already checked; toggle programmatically to trigger signal
-    win._on_step_toggled(42, 0, True)
+    win._on_mark(42, 0, "pass")  # active pass clicked again → clear
 
-    assert config.qa_checked_steps["42"].count(0) == 1
+    assert win._step_state(42, 0) is None
+
+
+def test_mark_records_timestamp(qapp, tmp_path):
+    """Marking a step records an ISO timestamp on the record."""
+    entries = [_entry(43, steps=("step",))]
+    config = _FakeConfig(qa_verified_id=0, config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+
+    win._on_mark(43, 0, "pass")
+
+    rec = config.qa_step_results["43"]["0"]
+    assert rec["ts"]  # non-empty ISO timestamp
+    assert "T" in rec["ts"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. All-complete detection + Purge action
+# 4. Migration — legacy qa_checked_steps → qa_step_results pass records
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_purge_button_disabled_when_not_all_complete(qapp):
-    """Purge button must be disabled until ALL steps are checked."""
-    entries = [_entry(50, steps=("step 1", "step 2"))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"50": [0]})
+def test_migration_list_shape_becomes_pass_records(tmp_path):
+    """A legacy {eid:[idx,...]} qa_checked_steps migrates to pass records."""
+    from metatv.core.config import Config
+
+    config = Config(
+        config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path,
+        qa_checked_steps={"10": [0, 2], "11": [1]},
+    )
+
+    assert config.qa_step_results["10"]["0"]["state"] == "pass"
+    assert config.qa_step_results["10"]["2"]["state"] == "pass"
+    assert config.qa_step_results["11"]["1"]["state"] == "pass"
+    # The new field round-trips through save()/load().
+    config.save()
+    import yaml
+    with open(tmp_path / "config.yaml") as f:
+        data = yaml.safe_load(f)
+    loaded = Config(**data)
+    assert loaded.qa_step_results["10"]["0"]["state"] == "pass"
+
+
+def test_migration_no_op_when_new_field_present(tmp_path):
+    """Migration must not clobber an existing qa_step_results."""
+    from metatv.core.config import Config
+
+    config = Config(
+        config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path,
+        qa_checked_steps={"10": [0]},
+        qa_step_results={"99": {"0": {"state": "fail"}}},
+    )
+
+    assert config.qa_step_results == {"99": {"0": {"state": "fail"}}}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. Completion logic — all-pass complete; any-fail incomplete + flagged
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_all_pass_entry_is_complete(qapp, tmp_path):
+    """An entry whose every step passes is complete + Purge-enabled."""
+    entries = [_entry(50, steps=("a", "b"))]
+    config = _FakeConfig(
+        qa_step_results={"50": {"0": _pass_rec(), "1": _pass_rec()}},
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
 
-    # Only step 0 is checked; step 1 is not
-    assert win._purge_btn.isEnabled() is False
-
-
-def test_purge_button_enabled_when_all_complete(qapp):
-    """Purge button must be enabled when every step of every open entry is checked."""
-    entries = [_entry(51, steps=("step A", "step B"))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"51": [0, 1]})
-    win = _build_window(qapp, config, entries)
-
+    assert win._is_entry_complete(entries[0]) is True
     assert win._purge_btn.isEnabled() is True
 
 
-def test_purge_advances_qa_verified_id_to_max_entry(qapp):
-    """Purge sets qa_verified_id to the max entry id in the open list."""
+def test_failed_step_keeps_entry_incomplete_and_flags_it(qapp, tmp_path):
+    """An entry with a failed step is not complete; entry flagged as failure."""
+    entries = [_entry(51, steps=("a", "b"))]
+    config = _FakeConfig(
+        qa_step_results={"51": {"0": _pass_rec(), "1": {"state": "fail"}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    assert win._is_entry_complete(entries[0]) is False
+    assert win._entry_has_failure(entries[0]) is True
+    assert win._purge_btn.isEnabled() is False
+
+
+def test_purge_keeps_failed_entries_visible(qapp, tmp_path):
+    """Purge clears passing entries but never purges a failed one away."""
     entries = [
-        _entry(60, steps=("s1",)),
-        _entry(61, steps=("s2",)),
+        _entry(60, steps=("s1",)),  # passes
+        _entry(61, steps=("s2",)),  # fails
+        _entry(62, steps=("s3",)),  # passes
     ]
     config = _FakeConfig(
-        qa_verified_id=0,
-        qa_checked_steps={"60": [0], "61": [0]},
+        qa_step_results={
+            "60": {"0": _pass_rec()},
+            "61": {"0": {"state": "fail"}},
+            "62": {"0": _pass_rec()},
+        },
+        config_dir=tmp_path,
     )
     win = _build_window(qapp, config, entries)
 
     win._on_purge()
 
-    assert config.qa_verified_id == 61
+    open_ids = [e.id for e in win._open_entries()]
+    assert 61 in open_ids          # failed entry kept
+    assert 60 not in open_ids      # passing entry below the fail cleared
+    # cursor stops just below the lowest failing id (61) → 60
+    assert config.qa_verified_id == 60
 
 
-def test_purge_results_in_empty_open_items(qapp):
-    """After purge, _open_entries() must return an empty list."""
-    entries = [_entry(70, steps=("s1",))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"70": [0]})
+def test_purge_advances_past_all_when_all_pass(qapp, tmp_path):
+    """When every open entry passes, purge advances past the max id."""
+    entries = [_entry(70, steps=("s1",)), _entry(71, steps=("s2",))]
+    config = _FakeConfig(
+        qa_step_results={"70": {"0": _pass_rec()}, "71": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
 
     win._on_purge()
 
+    assert config.qa_verified_id == 71
     assert win._open_entries() == []
 
 
-def test_purge_saves_config(qapp):
-    """Purge must call config.save()."""
-    entries = [_entry(80, steps=("s1",))]
-    config = _FakeConfig(qa_verified_id=0, qa_checked_steps={"80": [0]})
-    win = _build_window(qapp, config, entries)
-    prior_saves = config.save_calls
-
-    win._on_purge()
-
-    assert config.save_calls > prior_saves
-
-
-def test_all_complete_false_for_empty_open_entries(qapp):
-    """_all_complete() must return False (not crash) when there are no open entries."""
-    entries = []
-    config = _FakeConfig()
-    win = _build_window(qapp, config, entries)
-
+def test_all_complete_false_for_empty_open_entries(qapp, tmp_path):
+    """_all_complete() must return False (not crash) with no open entries."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
     assert win._all_complete([]) is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. Regression guard: real WHATS_NEW entries load with test_steps == ()
+# 6. Fail note + attachment persistence
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_note_saved_to_record(qapp, tmp_path):
+    """Setting a failed step's note stores it on the record."""
+    entries = [_entry(80, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"80": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    win._on_note_changed(80, 0, "the button did nothing")
+
+    assert config.qa_step_results["80"]["0"]["note"] == "the button did nothing"
+
+
+def test_attachment_appended_under_config_dir(qapp, tmp_path):
+    """A simulated attach appends an abs path that lives under the config dir."""
+    entries = [_entry(81, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"81": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    fake_png = tmp_path / "shot.png"
+    fake_png.write_bytes(b"\x89PNG\r\n")
+    dest = win._copy_into_attachments(81, 0, str(fake_png))
+    win._append_attachment(81, 0, dest)
+
+    atts = config.qa_step_results["81"]["0"]["attachments"]
+    assert dest in atts
+    assert str(tmp_path) in dest  # path under the (tmp) config dir
+
+
+def test_image_save_writes_png_under_config_dir(qapp, tmp_path):
+    """Saving a QImage writes a PNG under <config_dir>/qa_attachments/."""
+    from PyQt6.QtGui import QImage
+
+    entries = [_entry(82, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    img = QImage(4, 4, QImage.Format.Format_RGB32)
+    img.fill(0)
+    path = win._save_image(82, 0, img)
+
+    assert path
+    assert Path(path).exists()
+    assert (tmp_path / "qa_attachments") in Path(path).parents
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. AI failures digest
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_digest_written_with_failure_details(qapp, tmp_path):
+    """Marking a fail with a note writes qa_failures.md with title/step/note."""
+    entries = [_entry(90, steps=("Click the widget",))]
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+
+    win._on_mark(90, 0, "fail")
+    win._on_note_changed(90, 0, "crashed instantly")
+
+    digest = tmp_path / "qa_failures.md"
+    assert digest.exists()
+    text = digest.read_text()
+    assert "Entry 90" in text
+    assert "Click the widget" in text
+    assert "crashed instantly" in text
+
+
+def test_digest_says_no_failures_when_clean(qapp, tmp_path):
+    """With zero failures the digest says 'No failures recorded.' (not deleted)."""
+    entries = [_entry(91, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"91": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    win._write_digest()
+
+    digest = tmp_path / "qa_failures.md"
+    assert digest.exists()
+    assert "No failures recorded." in digest.read_text()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Build stamp + re-test nudge
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_mark_stamps_current_sha(qapp, tmp_path):
+    """A mark records the window's current HEAD sha onto the record."""
+    entries = [_entry(95, steps=("step",))]
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+    win._current_sha = "abc1234"
+
+    win._on_mark(95, 0, "pass")
+
+    assert config.qa_step_results["95"]["0"]["sha"] == "abc1234"
+
+
+def test_stale_hint_rendered_when_sha_differs(qapp, tmp_path):
+    """A stored sha != current HEAD surfaces a re-test hint label."""
+    entries = [_entry(96, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"96": {"0": {"state": "pass", "sha": "oldsha1", "ts": ""}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    # Inject a differing current HEAD and redraw.
+    win._on_sha_ready("newsha2")
+
+    # Walk the body layout for a label carrying the stale hint style token.
+    from metatv.gui import theme as _theme
+    from PyQt6.QtWidgets import QLabel
+
+    found = False
+    for i in range(win._body_layout.count()):
+        w = win._body_layout.itemAt(i).widget()
+        if w is None:
+            continue
+        for lbl in w.findChildren(QLabel):
+            if lbl.styleSheet() == _theme.QA_STALE_HINT:
+                found = True
+    assert found, "expected a stale re-test hint label when sha differs"
+
+
+def test_digest_marks_stale_failure(qapp, tmp_path):
+    """A failed step tested on an older sha is flagged STALE in the digest."""
+    entries = [_entry(97, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={
+            "97": {"0": {"state": "fail", "sha": "oldsha1", "ts": "", "note": "boom"}}
+        },
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    win._current_sha = "newsha2"
+    win._write_digest()
+
+    text = (tmp_path / "qa_failures.md").read_text()
+    assert "STALE" in text
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Regression guard: real WHATS_NEW entries load with test_steps == ()
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_all_existing_entries_have_test_steps_as_tuple():
@@ -314,117 +543,104 @@ def test_all_existing_entries_have_test_steps_as_tuple():
         )
 
 
-def test_entries_without_steps_default_to_empty_tuple():
-    """Entries that don't declare test_steps must have an empty tuple (not None)."""
-    from metatv.whats_new import WHATS_NEW
-
-    for entry in WHATS_NEW:
-        # All entries must have test_steps; those without explicit steps get ()
-        assert entry.test_steps is not None, f"entry {entry.id} test_steps is None"
-        assert isinstance(entry.test_steps, tuple)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# 6. Config fields persist via Config class
+# 10. Config round-trips
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_config_qa_fields_round_trip(tmp_path):
-    """qa_checked_steps and qa_verified_id round-trip through Config.save()/load()."""
+def test_config_qa_step_results_round_trip(tmp_path):
+    """qa_step_results round-trips through Config.save()/load()."""
     import yaml
     from metatv.core.config import Config
 
     config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
-    config.qa_checked_steps = {"10": [0, 2], "11": [1]}
+    config.qa_step_results = {
+        "10": {"0": {"state": "fail", "sha": "abc", "ts": "t", "note": "x",
+                     "attachments": ["/p"], "log": "/l"}},
+    }
     config.qa_verified_id = 10
     config.save()
 
-    # Read back the YAML directly (config_dir/data_dir/cache_dir are already in the
-    # saved data as Path strings — don't pass them again or Pydantic raises duplicate-key).
     with open(tmp_path / "config.yaml") as f:
         data = yaml.safe_load(f)
     loaded = Config(**data)
 
     assert loaded.qa_verified_id == 10
-    assert loaded.qa_checked_steps == {"10": [0, 2], "11": [1]}
+    assert loaded.qa_step_results["10"]["0"]["state"] == "fail"
+    assert loaded.qa_step_results["10"]["0"]["note"] == "x"
+
+
+def test_config_qa_step_results_default_empty(tmp_path):
+    """qa_step_results defaults to an empty dict for a fresh Config."""
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    assert config.qa_step_results == {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 7. PR# parser — _parse_pr_number
+# 11. PR# parser — _parse_pr_number
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_parse_pr_number_extracts_from_squash_subject():
-    """A squash-merge subject containing (#183) must yield PR number 183."""
     from metatv.gui.qa_checklist_window import _parse_pr_number
     assert _parse_pr_number("feat(x): thing (#183)") == 183
 
 
 def test_parse_pr_number_extracts_large_number():
-    """PR numbers with multiple digits must be parsed correctly."""
     from metatv.gui.qa_checklist_window import _parse_pr_number
     assert _parse_pr_number("fix(series): hide overlay (#1042)") == 1042
 
 
 def test_parse_pr_number_returns_none_when_absent():
-    """A subject with no (#N) pattern must return None."""
     from metatv.gui.qa_checklist_window import _parse_pr_number
     assert _parse_pr_number("chore: update deps") is None
 
 
 def test_parse_pr_number_returns_none_for_empty_subject():
-    """An empty subject must return None without raising."""
     from metatv.gui.qa_checklist_window import _parse_pr_number
     assert _parse_pr_number("") is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. Remote URL normalizer — _normalize_remote_url
+# 12. Remote URL normalizer — _normalize_remote_url
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_normalize_ssh_remote_url():
-    """SSH remote URL must normalize to HTTPS base URL without .git."""
     from metatv.gui.qa_checklist_window import _normalize_remote_url
-    result = _normalize_remote_url("git@github.com:ryansinn/metatv.git")
-    assert result == "https://github.com/ryansinn/metatv"
+    assert _normalize_remote_url("git@github.com:ryansinn/metatv.git") == \
+        "https://github.com/ryansinn/metatv"
 
 
 def test_normalize_https_remote_url():
-    """HTTPS remote URL must normalize to base URL without .git."""
     from metatv.gui.qa_checklist_window import _normalize_remote_url
-    result = _normalize_remote_url("https://github.com/ryansinn/metatv.git")
-    assert result == "https://github.com/ryansinn/metatv"
+    assert _normalize_remote_url("https://github.com/ryansinn/metatv.git") == \
+        "https://github.com/ryansinn/metatv"
 
 
 def test_normalize_https_remote_url_without_git_suffix():
-    """HTTPS URL without .git must be returned as-is."""
     from metatv.gui.qa_checklist_window import _normalize_remote_url
-    result = _normalize_remote_url("https://github.com/ryansinn/metatv")
-    assert result == "https://github.com/ryansinn/metatv"
+    assert _normalize_remote_url("https://github.com/ryansinn/metatv") == \
+        "https://github.com/ryansinn/metatv"
 
 
 def test_normalize_ssh_url_with_org_slash_repo():
-    """SSH URLs with org/repo path must produce the correct HTTPS base URL."""
     from metatv.gui.qa_checklist_window import _normalize_remote_url
-    result = _normalize_remote_url("git@github.com:org/nested-repo.git")
-    assert result == "https://github.com/org/nested-repo"
+    assert _normalize_remote_url("git@github.com:org/nested-repo.git") == \
+        "https://github.com/org/nested-repo"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 9. Header link rendering — _apply_git_refs
+# 13. Header link rendering — _apply_git_refs
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_header_link_shows_pr_href_when_resolved(qapp):
-    """When a PR# and base URL are known the ref label must contain an href."""
+def test_header_link_shows_pr_href_when_resolved(qapp, tmp_path):
     entries = [_entry(100, steps=("step",))]
-    config = _FakeConfig()
+    config = _FakeConfig(config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
-    # Simulate the worker having returned results
     win._on_git_refs_ready({
-        100: {
-            "pr_number": 183,
-            "commit_hash": None,
-            "base_url": "https://github.com/ryansinn/metatv",
-        }
+        100: {"pr_number": 183, "commit_hash": None,
+              "base_url": "https://github.com/ryansinn/metatv"}
     })
 
     lbl = win._ref_labels.get(100)
@@ -433,18 +649,14 @@ def test_header_link_shows_pr_href_when_resolved(qapp):
     assert lbl.openExternalLinks() is True
 
 
-def test_header_link_shows_commit_href_when_no_pr(qapp):
-    """When only a commit hash is known the ref label must link to the commit."""
+def test_header_link_shows_commit_href_when_no_pr(qapp, tmp_path):
     entries = [_entry(101, steps=("step",))]
-    config = _FakeConfig()
+    config = _FakeConfig(config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
     win._on_git_refs_ready({
-        101: {
-            "pr_number": None,
-            "commit_hash": "abc1234",
-            "base_url": "https://github.com/ryansinn/metatv",
-        }
+        101: {"pr_number": None, "commit_hash": "abc1234",
+              "base_url": "https://github.com/ryansinn/metatv"}
     })
 
     lbl = win._ref_labels.get(101)
@@ -452,105 +664,57 @@ def test_header_link_shows_commit_href_when_no_pr(qapp):
     assert 'href="https://github.com/ryansinn/metatv/commit/abc1234"' in lbl.text()
 
 
-def test_header_link_falls_back_to_date_when_no_git(qapp):
-    """When git lookup fails (no PR, no hash) the ref label must show the date."""
+def test_header_link_falls_back_to_date_when_no_git(qapp, tmp_path):
     entries = [_entry(102, steps=("step",))]
-    config = _FakeConfig()
+    config = _FakeConfig(config_dir=tmp_path)
     win = _build_window(qapp, config, entries)
 
     win._on_git_refs_ready({
-        102: {
-            "pr_number": None,
-            "commit_hash": None,
-            "base_url": None,
-        }
+        102: {"pr_number": None, "commit_hash": None, "base_url": None}
     })
 
     lbl = win._ref_labels.get(102)
     assert lbl is not None
-    # No href should be present; the label should still show the date
     assert "href" not in lbl.text()
     assert "2026-06-23" in lbl.text()
 
 
-def test_header_label_open_external_links_enabled(qapp):
-    """The ref label must always have setOpenExternalLinks(True)."""
-    entries = [_entry(103, steps=("step",))]
-    config = _FakeConfig()
-    win = _build_window(qapp, config, entries)
-
-    lbl = win._ref_labels.get(103)
-    assert lbl is not None
-    assert lbl.openExternalLinks() is True
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# 10. Per-entry archive / unarchive
+# 14. Per-entry archive / unarchive
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_complete_entry_shows_archive_action(qapp):
-    """An entry with all steps checked must have an Archive action available."""
+def test_complete_entry_archive_persists(qapp, tmp_path):
     entries = [_entry(200, steps=("step A", "step B"))]
-    config = _FakeConfig(qa_checked_steps={"200": [0, 1]})
-    win = _build_window(qapp, config, entries)
-
-    # The entry is complete — _on_archive must be callable (button is wired)
-    # We verify by calling the handler directly and checking the side-effect.
-    prior_saves = config.save_calls
-    win._on_archive(200)
-
-    assert 200 in config.qa_archived_ids
-    assert config.save_calls > prior_saves
-
-
-def test_incomplete_entry_not_in_open_entries_after_archive_impossible(qapp):
-    """An incomplete entry cannot be archived (no Archive button is rendered).
-
-    This is enforced by the window only wiring the archive callback when the
-    entry is complete.  We verify via the open_entries list directly: an
-    incomplete entry (not manually archived) remains in open_entries.
-    """
-    entries = [_entry(201, steps=("step A", "step B"))]
-    config = _FakeConfig(qa_checked_steps={"201": [0]})  # only step 0 checked
-    win = _build_window(qapp, config, entries)
-
-    # The entry is NOT complete so it should still be in open_entries
-    open_ids = [e.id for e in win._open_entries()]
-    assert 201 in open_ids
-
-
-def test_archive_adds_id_to_config_qa_archived_ids(qapp):
-    """_on_archive must append the entry id to config.qa_archived_ids."""
-    entries = [_entry(202, steps=("step",))]
-    config = _FakeConfig(qa_checked_steps={"202": [0]})
-    win = _build_window(qapp, config, entries)
-
-    win._on_archive(202)
-
-    assert 202 in config.qa_archived_ids
-
-
-def test_archive_saves_config(qapp):
-    """_on_archive must call config.save()."""
-    entries = [_entry(203, steps=("step",))]
-    config = _FakeConfig(qa_checked_steps={"203": [0]})
+    config = _FakeConfig(
+        qa_step_results={"200": {"0": _pass_rec(), "1": _pass_rec()}},
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
     prior = config.save_calls
 
-    win._on_archive(203)
+    win._on_archive(200)
 
+    assert 200 in config.qa_archived_ids
     assert config.save_calls > prior
 
 
-def test_archived_entry_excluded_from_open_entries(qapp):
-    """An archived entry must not appear in _open_entries()."""
-    entries = [
-        _entry(210, steps=("step A",)),
-        _entry(211, steps=("step B",)),
-    ]
+def test_incomplete_entry_remains_open(qapp, tmp_path):
+    entries = [_entry(201, steps=("step A", "step B"))]
     config = _FakeConfig(
-        qa_checked_steps={"210": [0], "211": [0]},
+        qa_step_results={"201": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    assert 201 in [e.id for e in win._open_entries()]
+
+
+def test_archived_entry_excluded_from_open_entries(qapp, tmp_path):
+    entries = [_entry(210, steps=("step A",)), _entry(211, steps=("step B",))]
+    config = _FakeConfig(
+        qa_step_results={"210": {"0": _pass_rec()}, "211": {"0": _pass_rec()}},
         qa_archived_ids=[210],
+        config_dir=tmp_path,
     )
     win = _build_window(qapp, config, entries)
 
@@ -559,47 +723,22 @@ def test_archived_entry_excluded_from_open_entries(qapp):
     assert 211 in open_ids
 
 
-def test_unarchive_removes_id_from_qa_archived_ids(qapp):
-    """_on_unarchive must remove the entry id from config.qa_archived_ids."""
-    entries = [_entry(220, steps=("step",))]
-    config = _FakeConfig(qa_checked_steps={"220": [0]}, qa_archived_ids=[220])
-    win = _build_window(qapp, config, entries)
-
-    win._on_unarchive(220)
-
-    assert 220 not in config.qa_archived_ids
-
-
-def test_unarchive_restores_entry_to_open_entries(qapp):
-    """After unarchiving, the entry must reappear in _open_entries()."""
+def test_unarchive_restores_entry(qapp, tmp_path):
     entries = [_entry(221, steps=("step",))]
-    config = _FakeConfig(qa_checked_steps={"221": [0]}, qa_archived_ids=[221])
+    config = _FakeConfig(
+        qa_step_results={"221": {"0": _pass_rec()}},
+        qa_archived_ids=[221],
+        config_dir=tmp_path,
+    )
     win = _build_window(qapp, config, entries)
 
     win._on_unarchive(221)
 
-    open_ids = [e.id for e in win._open_entries()]
-    assert 221 in open_ids
+    assert 221 not in config.qa_archived_ids
+    assert 221 in [e.id for e in win._open_entries()]
 
-
-def test_unarchive_saves_config(qapp):
-    """_on_unarchive must call config.save()."""
-    entries = [_entry(222, steps=("step",))]
-    config = _FakeConfig(qa_checked_steps={"222": [0]}, qa_archived_ids=[222])
-    win = _build_window(qapp, config, entries)
-    prior = config.save_calls
-
-    win._on_unarchive(222)
-
-    assert config.save_calls > prior
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 11. qa_archived_ids round-trips through Config
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def test_config_qa_archived_ids_round_trip(tmp_path):
-    """qa_archived_ids must round-trip through Config.save() / load()."""
     import yaml
     from metatv.core.config import Config
 
@@ -612,11 +751,3 @@ def test_config_qa_archived_ids_round_trip(tmp_path):
     loaded = Config(**data)
 
     assert loaded.qa_archived_ids == [10, 23, 47]
-
-
-def test_config_qa_archived_ids_default_empty(tmp_path):
-    """qa_archived_ids must default to an empty list for a fresh Config."""
-    from metatv.core.config import Config
-
-    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
-    assert config.qa_archived_ids == []

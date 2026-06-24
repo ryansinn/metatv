@@ -148,6 +148,10 @@ qa_all_clear_icon: str = "🎉"      # Empty state — nothing left to test
 qa_purge_icon: str = "✓"           # Purge / mark-all-done button
 qa_archive_icon: str = "📦"        # Archive a single fully-checked entry
 qa_unarchive_icon: str = "↩"       # Unarchive / restore an archived entry
+qa_pass_icon: str = "✓"            # U+2713 CHECK MARK — mark a step PASSED (tri-state)
+qa_fail_icon: str = "✗"            # U+2717 BALLOT X — mark a step FAILED (tri-state)
+qa_attach_icon: str = "📎"         # Attach a screenshot to a failed step
+qa_stale_icon: str = "⚠"           # Newer build available — re-test hint
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [

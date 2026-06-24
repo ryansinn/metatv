@@ -734,3 +734,64 @@ RECIPE_CLEAR_BTN = (
     " font-size: " + FONT_MD + "; }"
     "QPushButton:hover { background: " + OVERLAY_05 + "; color: " + COLOR_TEXT_2 + "; }"
 )
+
+
+# ── Dev-only QA Testing Checklist — tri-state pass/fail ───────────────────────
+# Pass/fail toggle buttons.  Each has an inactive (ghost) and active state; the
+# active state tints to the OK (green) / ERR (red) palette so the chosen state
+# reads at a glance.  Composed from existing tokens — no new colour literals.
+QA_PASS_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
+    " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_MD + "; }"
+    "QPushButton:hover { background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
+)
+QA_PASS_BTN_ACTIVE = (
+    "QPushButton { border: 1px solid " + COLOR_OK + "; background: " + OVERLAY_GREEN_15 + ";"
+    " color: " + COLOR_OK + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_MD + "; font-weight: bold; }"
+)
+QA_FAIL_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
+    " color: " + COLOR_MUTED + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_MD + "; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR2_15 + "; color: " + COLOR_ERR_2 + "; }"
+)
+QA_FAIL_BTN_ACTIVE = (
+    "QPushButton { border: 1px solid " + COLOR_ERR_2 + "; background: " + OVERLAY_ERR2_15 + ";"
+    " color: " + COLOR_ERR_2 + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_MD + "; font-weight: bold; }"
+)
+
+# Fail comment box — revealed beneath a failed step.
+QA_FAIL_NOTE_BOX = (
+    "QPlainTextEdit { background: " + OVERLAY_ERR2_15 + "; color: " + COLOR_TEXT + ";"
+    " border: 1px solid " + COLOR_ERR_2 + "; border-radius: 4px; padding: 4px;"
+    " font-size: " + FONT_MD + "; }"
+)
+
+# Attachment chip — small removable label for a saved screenshot / log path.
+QA_ATTACHMENT_CHIP = (
+    "QPushButton { background: " + OVERLAY_05 + "; color: " + COLOR_DIM + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 3px; padding: 0 6px;"
+    " font-size: " + FONT_SM + "; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR2_15 + "; color: " + COLOR_ERR_2 + "; }"
+)
+QA_ATTACH_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: transparent;"
+    " color: " + COLOR_DIM + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_MD + "; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + "; }"
+)
+
+# "Newer build — re-test" amber hint (a step's stored sha differs from current HEAD).
+QA_STALE_HINT = "color: " + COLOR_WARN + "; font-size: " + FONT_SM + "; font-weight: 600;"
+
+# Failed-entry header badge — red flag on the entry title row.
+QA_ENTRY_FAILED_TITLE = (
+    "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_ERR_2 + ";"
+)
+QA_FAIL_BADGE = (
+    "color: " + COLOR_ERR_2 + "; font-size: " + FONT_SM + "; font-weight: bold;"
+    " padding-left: 4px;"
+)
