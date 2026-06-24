@@ -85,7 +85,15 @@ def _set_backfill_active(active: bool) -> None:
 #       Portuguese, Greek, Russian, Hebrew, Turkish, Romanian, and Persian
 #       mappings so foreign-language genre names fold into their canonical
 #       English equivalents before tags are stored.
-CURRENT_TAG_BACKFILL_VERSION = 2
+#   3 — category→genre cross-walk for movies + series (#77): added
+#       recognized_genre() strict-allowlist predicate to filter_utils and a
+#       genre pass in _decompose_compound so provider category tokens that
+#       match a known canonical genre (e.g. "ACTION/THRILLER", "DRAME",
+#       "KOMEDIE") emit genre tags at CONF_STRONG_PRIOR.  Movies previously
+#       produced zero genre tags (no raw_data["genre"] field); ~15% of movies
+#       now gain genre tags from their provider category.  TMDb will supersede
+#       at higher confidence when integrated.
+CURRENT_TAG_BACKFILL_VERSION = 3
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for

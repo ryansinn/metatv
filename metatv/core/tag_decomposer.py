@@ -80,12 +80,18 @@ from loguru import logger
 from metatv.core.channel_name_utils import (
     CODE_FACETS,
     CONF_DENOTED,
+    CONF_STRONG_PRIOR,
     PLATFORM_CODES,
     QUALITY_TOKENS,
     REGION_FULL_NAMES,
     normalize_region_code,
 )
-from metatv.core.filter_utils import DEFAULT_PREFIX_SEPARATORS, categorize_prefix, normalize_genre
+from metatv.core.filter_utils import (
+    DEFAULT_PREFIX_SEPARATORS,
+    categorize_prefix,
+    normalize_genre,
+    recognized_genre,
+)
 
 # ── Compound-token splitters ────────────────────────────────────────────────── #
 # Provider categories / header labels are compound strings like:
@@ -257,6 +263,24 @@ def _decompose_compound(raw: str, config) -> list[tuple[str, str, float]]:
 
         # Unclassified → candidate for collection residual.
         residual_parts.append(tok)
+
+    # Genre cross-walk: scan residual tokens for recognized genre segments.
+    # Each residual token may itself be a slash/comma-delimited genre compound
+    # (e.g. "ACTION/THRILLER" → Action + Thriller).  We use recognized_genre()
+    # — the strict allowlist predicate — so only known canonical genres are
+    # emitted.  Residual tokens remain in residual_parts for collection (additive
+    # — "|EN| ACTION/THRILLER" yields language:English + collection + genre:Action
+    # + genre:Thriller; nothing is removed).
+    # Confidence: CONF_STRONG_PRIOR (not CONF_DENOTED) — a provider category label
+    # is an *inferred* genre, ranked below a source-denoted raw_data["genre"] field.
+    for residual_tok in residual_parts:
+        for leaf in re.split(r"[,/]", residual_tok):
+            leaf = leaf.strip()
+            if not leaf:
+                continue
+            canon = recognized_genre(leaf)
+            if canon:
+                tags.append(("genre", canon, CONF_STRONG_PRIOR))
 
     # Build collection from the unclassified residual tokens.
     collection_label = _build_collection(residual_parts)

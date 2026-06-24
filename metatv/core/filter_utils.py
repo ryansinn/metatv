@@ -633,3 +633,54 @@ def normalize_genre(genre: str) -> str:
     """
     unescaped = html.unescape(genre)
     return _GENRE_NORM.get(unescaped.lower(), unescaped)
+
+
+# The canonical genre vocabulary — the set of all values produced by
+# ``normalize_genre``.  Used as a **strict allowlist** for the category→genre
+# cross-walk: a token is only emitted as a genre tag when it normalizes to one
+# of these known values.  This prevents junk provider labels like
+# "NETFLIX MOVIES" or "TOP IMDB" from leaking into the genre namespace.
+KNOWN_GENRES: frozenset[str] = frozenset(_GENRE_NORM.values())
+
+
+def recognized_genre(s: str) -> str | None:
+    """Return the canonical genre if *s* is a recognized genre string, else None.
+
+    Unlike :func:`normalize_genre`, which passes through unknown strings
+    unchanged, this function returns ``None`` for any input that does NOT
+    resolve to a known canonical genre.  Use this as the **strict** predicate
+    for the category→genre cross-walk, where the input is a raw provider
+    category token and many tokens are NOT genres.
+
+    Args:
+        s: A raw string to test (e.g. a provider category segment like
+           ``"ACTION"`` or ``"THRILLER"`` or ``"NETFLIX MOVIES"``).
+
+    Returns:
+        The canonical genre string (e.g. ``"Action"``, ``"Drama"``) if *s* is
+        a recognized genre, or ``None`` if it is not.
+
+    Examples::
+
+        recognized_genre("action")          → "Action"
+        recognized_genre("drame")           → "Drama"
+        recognized_genre("KOMEDIE")         → "Comedy"
+        recognized_genre("DRAMAT")          → "Drama"
+        recognized_genre("NETFLIX MOVIES")  → None
+        recognized_genre("TOP IMDB")        → None
+        recognized_genre("")                → None
+    """
+    if not s or not s.strip():
+        return None
+    # Primary lookup: s.lower() is a key in _GENRE_NORM.
+    lowered = s.strip().lower()
+    canon = _GENRE_NORM.get(lowered)
+    if canon is not None:
+        return canon
+    # Secondary: normalize_genre pass-through — if the result is itself a known
+    # canonical value (e.g. "Action" → "Action"), accept it.
+    unescaped = html.unescape(s.strip())
+    result = _GENRE_NORM.get(unescaped.lower(), unescaped)
+    if result in KNOWN_GENRES:
+        return result
+    return None
