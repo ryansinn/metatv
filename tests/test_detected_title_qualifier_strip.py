@@ -1,20 +1,26 @@
-"""Behavioral tests for fix #78: strip trailing quality/region/subtitle qualifiers
-from detected_title in parse_channel_name() and update_detected_prefixes().
+"""Behavioral tests for strip_title_qualifiers (#78 and #78 follow-up).
 
-Guards five invariants:
+Guards six invariants:
 
 1. ``parse_channel_name`` strips trailing single-token paren qualifiers from
    the bare title (the underlying ``detected_title`` source).
 
 2. Known strip cases: (US), (4K), (HQ), (LQ), (BR), (VOSTFR).
 
-3. Preserve cases: multi-word alt-titles (30 Monedas), (Soleil Noir), (ENG DUB)
-   must NOT be stripped (internal space = alt-language title).
+3. Recognized multi-token qualifier strip cases (follow-up): space-containing
+   parentheticals where EVERY token is a recognized lang/region/quality/sub/dub
+   token are also stripped: (ENG DUB), (SPANISH ENG-SUB), (DUAL AUDIO), etc.
+   This includes the interior-year peel: after stripping (SPANISH ENG-SUB) from
+   "As Linas Descontinuas (2025) (SPANISH ENG-SUB)" the now-trailing (2025)
+   is removed by the next loop iteration.
 
-4. End-to-end via ``update_detected_prefixes``: two series that differ only by a
+4. Preserve cases: multi-word parentheticals with ANY unrecognized token stay:
+   (30 Monedas), (Soleil Noir), (New York), (The Beginning).
+
+5. End-to-end via ``update_detected_prefixes``: two series that differ only by a
    paren qualifier get the same ``detected_title`` AND the same ``content_key``.
 
-5. ``DetectedTitleReparseTask`` ``needs_run`` / ``on_completed`` gate logic.
+6. ``DetectedTitleReparseTask`` ``needs_run`` / ``on_completed`` gate logic.
 
 All DB tests use file-backed (tmp_path) SQLite — not :memory: (pooled connections
 each see an empty schema per CLAUDE.md rule).
@@ -61,7 +67,7 @@ def db(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 1+2. parse_channel_name — strip cases
+# 1+2. parse_channel_name — single-token strip cases
 # ---------------------------------------------------------------------------
 
 
@@ -126,37 +132,149 @@ class TestParseChannelNameStrip:
 
 
 # ---------------------------------------------------------------------------
-# 3. Preserve cases — multi-word alt-language titles must NOT be stripped
+# 3. Multi-token recognized qualifier strip cases (#78 follow-up)
 # ---------------------------------------------------------------------------
 
 
-class TestParseChannelNamePreserve:
-    """Multi-word parenthetical alt-titles (internal space) must be preserved."""
+class TestMultiTokenQualifierStrip:
+    """Space-containing parentheticals where ALL tokens are recognized are stripped.
+
+    This is the #78 follow-up fix: the old heuristic (internal space = preserve)
+    was too crude and left sub/dub/lang qualifiers like (ENG DUB) and
+    (SPANISH ENG-SUB) in the title.  The new allowlist strips them only when
+    every leaf token (split on space, dash, slash) is in the recognized vocab.
+    """
 
     def _bare(self, name: str) -> str:
         from metatv.core.channel_name_utils import parse_channel_name
         return parse_channel_name(name).bare_name
 
+    def _strip(self, title: str) -> str:
+        from metatv.core.channel_name_utils import strip_title_qualifiers
+        return strip_title_qualifiers(title)
+
+    def test_motivating_case_as_linas_descontinuas(self):
+        """'As Linas Descontinuas (2025) (SPANISH ENG-SUB)' → 'As Linas Descontinuas'.
+
+        The motivating real-world case from the PR: both the dub qualifier AND the
+        interior year must be gone.  After stripping (SPANISH ENG-SUB), the loop
+        continues and removes the now-trailing (2025).
+        """
+        result = self._strip("As Linas Descontinuas (2025) (SPANISH ENG-SUB)")
+        assert result == "As Linas Descontinuas", (
+            f"Expected 'As Linas Descontinuas', got {result!r}. "
+            "(SPANISH ENG-SUB) must be stripped as a recognized qualifier; "
+            "then (2025) must peel off in the next loop iteration."
+        )
+
+    def test_strip_eng_dub(self):
+        """(ENG DUB) is stripped — ENG (lang) + DUB (marker) both recognized."""
+        assert self._strip("Movie (ENG DUB)") == "Movie"
+
+    def test_strip_eng_sub(self):
+        """(ENG SUB) is stripped — ENG + SUB both recognized."""
+        assert self._strip("Movie (ENG SUB)") == "Movie"
+
+    def test_strip_eng_sub_hyphenated(self):
+        """(ENG-SUB) is stripped by single-token regex (no space, so existing path)."""
+        assert self._strip("Movie (ENG-SUB)") == "Movie"
+
+    def test_strip_spanish_eng_sub(self):
+        """(SPANISH ENG-SUB) — SPANISH (lang full name) + ENG + SUB all recognized."""
+        assert self._strip("Title (SPANISH ENG-SUB)") == "Title"
+
+    def test_strip_dual_audio(self):
+        """(DUAL AUDIO) — both tokens recognized as sub/dub markers."""
+        assert self._strip("Title (DUAL AUDIO)") == "Title"
+
+    def test_strip_multi_sub(self):
+        """(MULTI SUB) — MULTI in audio norm keys + SUB in sub/dub tokens."""
+        assert self._strip("Title (MULTI SUB)") == "Title"
+
+    def test_strip_vost_fr(self):
+        """(VOST FR) — VOST (sub/dub marker) + FR (region code) both recognized."""
+        assert self._strip("Title (VOST FR)") == "Title"
+
+    def test_strip_leg_pt(self):
+        """(LEG PT) — LEG (legendado marker) + PT (lang code) both recognized."""
+        assert self._strip("Title (LEG PT)") == "Title"
+
+    def test_strip_pt_br(self):
+        """(PT BR) — PT (Portuguese lang code) + BR (Brazil region) both recognized."""
+        assert self._strip("Title (PT BR)") == "Title"
+
+    def test_interior_year_peels_after_multi_token_strip(self):
+        """Interior (year) is removed after multi-token qualifier is stripped in the loop."""
+        result = self._strip("Title (2022) (ENG DUB)")
+        assert result == "Title", (
+            f"After stripping (ENG DUB), the now-trailing (2022) must also strip; "
+            f"got {result!r}"
+        )
+
+    def test_via_parse_channel_name_eng_dub(self):
+        """parse_channel_name: 'Movie (ENG DUB)' bare == 'Movie'."""
+        assert self._bare("Movie (ENG DUB)") == "Movie"
+
+    def test_via_parse_channel_name_spanish_eng_sub(self):
+        """parse_channel_name: interior year + multi-token qualifier both stripped."""
+        assert self._bare("As Linas Descontinuas (2025) (SPANISH ENG-SUB)") == "As Linas Descontinuas"
+
+
+# ---------------------------------------------------------------------------
+# 4. Preserve cases — only preserve when ANY token is unrecognized
+# ---------------------------------------------------------------------------
+
+
+class TestParseChannelNamePreserve:
+    """Multi-word parentheticals with ANY unrecognized token must be preserved."""
+
+    def _bare(self, name: str) -> str:
+        from metatv.core.channel_name_utils import parse_channel_name
+        return parse_channel_name(name).bare_name
+
+    def _strip(self, title: str) -> str:
+        from metatv.core.channel_name_utils import strip_title_qualifiers
+        return strip_title_qualifiers(title)
+
     def test_preserve_30_monedas(self):
-        """'30 Coins (30 Monedas)' keeps '(30 Monedas)' — internal space."""
+        """'30 Coins (30 Monedas)' keeps '(30 Monedas)' — MONEDAS unrecognized."""
         bare = self._bare("30 Coins (30 Monedas)")
         assert "(30 Monedas)" in bare, (
             f"Alt-title '(30 Monedas)' must be preserved; got {bare!r}"
         )
 
     def test_preserve_soleil_noir(self):
-        """'Under a Dark Sun (Soleil Noir)' keeps '(Soleil Noir)' — internal space."""
+        """'Under a Dark Sun (Soleil Noir)' keeps '(Soleil Noir)' — SOLEIL/NOIR unrecognized."""
         bare = self._bare("Under a Dark Sun (Soleil Noir)")
         assert "(Soleil Noir)" in bare, (
             f"Alt-title '(Soleil Noir)' must be preserved; got {bare!r}"
         )
 
-    def test_preserve_eng_dub_with_space(self):
-        """'Movie (ENG DUB)' keeps '(ENG DUB)' — internal space prevents stripping."""
+    def test_preserve_new_york(self):
+        """'Show (New York)' keeps '(New York)' — YORK is not a recognized token."""
+        result = self._strip("Show (New York)")
+        assert "(New York)" in result, (
+            f"'(New York)' must be preserved (YORK unrecognized); got {result!r}"
+        )
+
+    def test_preserve_the_beginning(self):
+        """'Show (The Beginning)' keeps '(The Beginning)' — THE/BEGINNING unrecognized."""
+        result = self._strip("Show (The Beginning)")
+        assert "(The Beginning)" in result, (
+            f"'(The Beginning)' must be preserved; got {result!r}"
+        )
+
+    def test_eng_dub_now_stripped_not_preserved(self):
+        """(ENG DUB) is now STRIPPED (recognized tokens) — the #78 test flip.
+
+        Previously preserved due to the crude 'internal space = keep' heuristic.
+        Under the correct allowlist, ENG (lang code) + DUB (dub marker) are both
+        recognized, so (ENG DUB) is a strippable dub qualifier, not an alt-title.
+        """
         bare = self._bare("Movie (ENG DUB)")
-        # ENG DUB has internal space — _PAREN_QUALIFIER_RE requires no space
-        assert "(ENG DUB)" in bare, (
-            f"'(ENG DUB)' has an internal space and must be preserved; got {bare!r}"
+        assert bare == "Movie", (
+            f"(ENG DUB) must now be STRIPPED (ENG=lang, DUB=marker, both recognized); "
+            f"got {bare!r}"
         )
 
 
@@ -204,7 +322,7 @@ class TestParseChannelNamePreserveNumericTitles:
 
 
 # ---------------------------------------------------------------------------
-# 4. End-to-end: update_detected_prefixes collapses variants
+# 5. End-to-end: update_detected_prefixes collapses variants
 # ---------------------------------------------------------------------------
 
 
@@ -287,8 +405,38 @@ def test_thirteen_reasons_why_us_4k_collapses(db):
     )
 
 
+def test_as_linas_descontinuas_spanish_eng_sub_collapses(db):
+    """Motivating case: 'As Linas Descontinuas (2025) (SPANISH ENG-SUB)' → clean title.
+
+    End-to-end: update_detected_prefixes must strip both the multi-token qualifier
+    (SPANISH ENG-SUB) and the now-exposed interior year (2025), yielding
+    detected_title='As Linas Descontinuas'.
+    """
+    from metatv.core.database import ChannelDB
+    from metatv.core.repositories import RepositoryFactory
+
+    with db.session_scope() as session:
+        cid = _make_channel(
+            session,
+            name="As Linas Descontinuas (2025) (SPANISH ENG-SUB)",
+            media_type="movie",
+        )
+
+    with db.session_scope() as session:
+        repos = RepositoryFactory(session)
+        repos.channels.update_detected_prefixes()
+
+    with db.session_scope(commit=False) as session:
+        title = session.query(ChannelDB.detected_title).filter_by(id=cid).scalar()
+
+    assert title == "As Linas Descontinuas", (
+        f"Expected 'As Linas Descontinuas'; got {title!r}. "
+        "Both (SPANISH ENG-SUB) and the interior (2025) must be stripped."
+    )
+
+
 # ---------------------------------------------------------------------------
-# 5. DetectedTitleReparseTask — needs_run / on_completed gate
+# 6. DetectedTitleReparseTask — needs_run / on_completed gate
 # ---------------------------------------------------------------------------
 
 
