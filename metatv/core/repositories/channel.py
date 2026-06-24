@@ -897,17 +897,14 @@ class ChannelRepository(_ChannelStatsMixin):
         self,
         progress_cb=None,
         is_cancelled=None,
+        recompute_all: bool = False,
     ) -> int:
-        """Compute and store ``content_key`` for rows where it is currently NULL.
+        """Compute and store ``content_key`` for channel rows.
 
         Reads only ``detected_title``, ``media_type``, ``detected_year``, and
         ``id`` — no raw name re-parsing.  Processes rows in 2000-row batches
         with a commit + expunge_all between batches to stay memory-safe on
         million-row tables.
-
-        Idempotent: rows that already have a ``content_key`` are skipped.
-        Running it again after all rows have been populated is a fast no-op
-        (zero rows matched).
 
         Args:
             progress_cb: Optional ``(done: int, total: int) -> None`` called
@@ -916,26 +913,35 @@ class ChannelRepository(_ChannelStatsMixin):
                 batch.  Early exit leaves all previously committed batches
                 durable; the task version is not bumped so it restarts next
                 launch.
+            recompute_all: When ``False`` (default), only rows with a NULL
+                ``content_key`` are processed (the initial-population path,
+                idempotent: a no-op once all rows are filled).  When ``True``,
+                EVERY row is recomputed — used when the key formula changes so
+                that existing non-NULL keys are updated to the new formula.
 
         Returns:
             Number of rows that had their ``content_key`` written.
         """
         _BATCH = 2000
 
-        # Only fetch rows whose content_key is still NULL.
-        all_ids = [
-            row[0]
-            for row in self.session.query(ChannelDB.id)
-            .filter(ChannelDB.content_key.is_(None))
-            .all()
-        ]
+        # Fetch row ids to process: NULL-only by default, all rows on formula change.
+        q = self.session.query(ChannelDB.id)
+        if not recompute_all:
+            q = q.filter(ChannelDB.content_key.is_(None))
+        all_ids = [row[0] for row in q.all()]
         total = len(all_ids)
 
         if total == 0:
-            logger.debug("backfill_content_keys: nothing to do (all rows have content_key)")
+            logger.debug(
+                "backfill_content_keys: nothing to do "
+                "(recompute_all={}, all rows already keyed)", recompute_all
+            )
             return 0
 
-        logger.info(f"backfill_content_keys: backfilling {total} rows")
+        logger.info(
+            "backfill_content_keys: processing {} rows (recompute_all={})",
+            total, recompute_all,
+        )
         filled = 0
 
         for batch_start in range(0, total, _BATCH):

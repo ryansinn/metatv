@@ -140,15 +140,27 @@ class _BrowseView(QWidget):
 
         vl.addWidget(self._stack)
 
-    def load(self, title: str, cards: list[ContentCard]) -> None:
+    def load(self, title: str, cards: list[ContentCard], *, preserve_filter: bool = False) -> None:
         """Replace the browse contents with *cards* (the fresh page-1 / replace path).
 
         Resets pagination state so a subsequent caller starts clean — Discover's
         one-shot use never touches has_more, so its behaviour is unchanged.
+
+        Args:
+            title: Header label for the browse page.
+            cards: Cards to display (page-1 seed).
+            preserve_filter: When ``True``, the current filter text is kept so
+                that a filter-triggered DB reseed preserves the user's search
+                string across the reload.  When ``False`` (default, Discover +
+                fresh recipe entry / recipe-change reseeds), the search box is
+                cleared so the new page starts unfiltered.  The Discover path
+                never passes ``preserve_filter=True``, so its behaviour is
+                unchanged.
         """
         self._title_lbl.setText(title)
         self._all_cards = cards
-        self._search_box.clear()
+        if not preserve_filter:
+            self._search_box.clear()
         # A fresh load starts clean: no pending page request, and no "more"
         # until the caller opts in via set_has_more(True).
         self._has_more = False

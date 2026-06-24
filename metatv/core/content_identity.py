@@ -15,8 +15,25 @@ The key is **coarse by design**:
   the title component.  We do NOT call ``content_dedup.normalize_title()`` or
   re-parse the raw name — this is the compute-once-at-ingestion principle.
 
-- ``detected_year`` is included so reboots/remakes with the same title but a
-  different year get distinct keys.
+- **Year handling is media_type-specific (v2, see QA bug 10bc0a7):**
+
+  * **Series and live:** year is **omitted** from the key.  Key format:
+    ``"{norm_title}|{media_type}"``.  Rationale: providers label the same
+    series inconsistently — some embed a start year or a range (2015-2018),
+    others omit it entirely.  All of these refer to the same production, so
+    including year splits them instead of collapsing them.  This mirrors how
+    ``content_dedup.build_dedup_key()`` already drops *director* for series.
+    Trade-off: a rare same-title reboot (e.g. two different "The Office" series
+    from different eras) will collapse into one card — accepted per DR-0006
+    (false positive is visible and one-click-correctable; false negative is
+    invisible).  Canonical TMDb IDs (Slice 3+) will disambiguate reboots.
+
+  * **Movies:** year is **kept but normalized to the start year** (first
+    4-digit group extracted from ``detected_year``; junk/empty → omit).  Key
+    format: ``"{norm_title}|movie|{start_year}"``.  Year is a meaningful
+    remake discriminator for movies (same title, different year = different
+    production), and movie years are typically clean (a single 4-digit year).
+    Examples: ``"2015-2018"`` → ``"2015"``; ``"(2024)"`` → ``"2024"``.
 
 - ``media_type`` is included so a channel named "Sherlock" (live) is kept
   separate from the movie and the series.
@@ -55,6 +72,8 @@ from loguru import logger
 
 _NONWORD_RE = re.compile(r"[^\w\s]")
 _WHITESPACE_RE = re.compile(r"\s+")
+# Matches the first four-digit year anywhere in detected_year (e.g. "2015-2018" → "2015").
+_YEAR_RE = re.compile(r"\b(\d{4})\b")
 
 
 def _normalize_for_key(title: str) -> str:
@@ -75,6 +94,22 @@ def _normalize_for_key(title: str) -> str:
     lowered = title.lower()
     no_punct = _NONWORD_RE.sub(" ", lowered)
     return _WHITESPACE_RE.sub(" ", no_punct).strip()
+
+
+def _start_year(detected_year: str) -> str:
+    """Extract the first 4-digit year from *detected_year*, or return empty string.
+
+    Handles ranges (``"2015-2018"`` → ``"2015"``), parenthesised years
+    (``"(2024)"`` → ``"2024"``), and junk/empty values (``""`` → ``""``).
+
+    Args:
+        detected_year: Raw ``detected_year`` value from the channel row.
+
+    Returns:
+        The first 4-digit year as a string, or ``""`` when none is found.
+    """
+    m = _YEAR_RE.search(detected_year)
+    return m.group(1) if m else ""
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +147,18 @@ class _ContentKeyStrategy(ABC):
 class _XtreamContentKeyStrategy(_ContentKeyStrategy):
     """Content key strategy for Xtream/IPTV channel rows.
 
-    Key format: ``"{norm_title}|{media_type}|{year}"``.
+    Key format varies by media_type:
+
+    * **series / live:** ``"{norm_title}|{media_type}"`` — year omitted.
+      Cross-provider year labelling for the same series is noisy (some embed
+      a start year, others a range, others nothing), so including year
+      over-splits same-production variants.  Mirrors ``content_dedup`` dropping
+      director for series.
+
+    * **movie (everything else):** ``"{norm_title}|{media_type}|{start_year}"``
+      — year is the first 4-digit group from ``detected_year`` (e.g.
+      ``"2015-2018"`` → ``"2015"``; absent/junk → empty string omitted).
+      Year is a meaningful remake discriminator for movies.
 
     Fallback: when ``detected_title`` is empty/None the channel's own ``id``
     is used as the norm_title component so the row always gets a unique key and
@@ -122,7 +168,7 @@ class _XtreamContentKeyStrategy(_ContentKeyStrategy):
     def compute_key(self, channel) -> str:
         raw_title: str | None = getattr(channel, "detected_title", None)
         media_type: str = getattr(channel, "media_type", None) or ""
-        year: str = getattr(channel, "detected_year", None) or ""
+        raw_year: str = getattr(channel, "detected_year", None) or ""
 
         if raw_title:
             norm = _normalize_for_key(raw_title)
@@ -138,7 +184,13 @@ class _XtreamContentKeyStrategy(_ContentKeyStrategy):
                 norm,
             )
 
-        return f"{norm}|{media_type}|{year}"
+        # Series and live: omit year — cross-provider year labels are noisy.
+        # Movies: include start year — it discriminates remakes.
+        if media_type in ("series", "live"):
+            return f"{norm}|{media_type}"
+        else:
+            year = _start_year(raw_year) if raw_year else ""
+            return f"{norm}|{media_type}|{year}"
 
 
 # ---------------------------------------------------------------------------

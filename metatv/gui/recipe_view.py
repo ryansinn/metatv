@@ -1320,12 +1320,19 @@ class RecipeView(QWidget):
         (not appends) the browse view so the user sees only results matching the
         filter string.  Arms ``set_has_more`` so further scrolling lazy-loads
         additional filtered pages.
+
+        ``preserve_filter=True`` is critical here: without it ``load()`` would
+        clear the search box, making ``current_filter()`` return ``""`` so the
+        next lazy page (``_load_more_see_all``) would fetch unfiltered results
+        and append them below the filtered ones (QA bug 10bc0a7 Fix B).
         """
         if not self._active:
             return
         # Replace (not append): load() resets has_more + pending so the
         # pagination state starts clean for the filtered set.
-        self._browse.load(self._browse_title(), cards)
+        # preserve_filter=True keeps the search-box text so subsequent lazy
+        # pages (via _load_more_see_all → current_filter()) stay filtered.
+        self._browse.load(self._browse_title(), cards, preserve_filter=True)
         self._see_all_offset = len(cards)
         self._see_all_loading = False
         self._browse.set_has_more(self._see_all_offset < self._see_all_total)
