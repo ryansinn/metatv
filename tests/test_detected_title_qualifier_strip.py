@@ -523,3 +523,167 @@ def test_detected_title_reparse_task_run_idempotent(tmp_path: Path):
     )
 
     d.close()
+
+
+# ---------------------------------------------------------------------------
+# 7. Marker-anchored sub/dub strip — rule-2 recall (#82)
+#    Strips language+sub qualifiers whose language word is not in the vocab.
+# ---------------------------------------------------------------------------
+
+
+class TestMarkerAnchoredSubDubStrip:
+    """Trailing parentheticals with an unambiguous sub/dub marker are stripped
+    even when a co-occurring language word is not in the recognized vocabulary.
+
+    All leaves must be alphabetic — a digit in the parenthetical blocks the rule
+    so that things like "Episode 5 SUB" are preserved.
+    """
+
+    def _strip(self, title: str) -> str:
+        from metatv.core.channel_name_utils import strip_title_qualifiers
+        return strip_title_qualifiers(title)
+
+    def _bare(self, name: str) -> str:
+        from metatv.core.channel_name_utils import parse_channel_name
+        return parse_channel_name(name).bare_name
+
+    # -- STRIPPED (rule-2 recall) --
+
+    def test_strip_japanese_eng_sub(self):
+        """(JAPANESE ENG-SUB) is stripped — JAPANESE is not in vocab, but SUB is an
+        unambiguous marker and every leaf is alphabetic."""
+        assert self._strip("Some Show (JAPANESE ENG-SUB)") == "Some Show"
+
+    def test_strip_persian_sub(self):
+        """(PERSIAN SUB) — PERSIAN not in vocab, SUB is unambiguous."""
+        assert self._strip("Film (PERSIAN SUB)") == "Film"
+
+    def test_strip_kurdish_dub(self):
+        """(KURDISH DUB) — KURDISH not in vocab, DUB is unambiguous."""
+        assert self._strip("Film (KURDISH DUB)") == "Film"
+
+    def test_strip_chinese_eng_sub(self):
+        """(CHINESE ENG-SUB) — CHINESE not in vocab, SUB is unambiguous."""
+        assert self._strip("Title (CHINESE ENG-SUB)") == "Title"
+
+    def test_strip_norwegian_sub(self):
+        """(NORWEGIAN SUB) — NORWEGIAN not in vocab, SUB is unambiguous."""
+        assert self._strip("Title (NORWEGIAN SUB)") == "Title"
+
+    def test_strip_vostfr_alone(self):
+        """(VOSTFR) is an unambiguous marker; stripped as a multi-token qualifier."""
+        assert self._strip("Title (VOSTFR)") == "Title"
+
+    def test_strip_subtitled_alone(self):
+        """(SUBTITLED) — single-leaf, but SUBTITLED is in the unambiguous set."""
+        assert self._strip("Title (SUBTITLED)") == "Title"
+
+    def test_strip_dubbed_alone(self):
+        """(DUBBED) — single-leaf, DUBBED is in the unambiguous set."""
+        assert self._strip("Title (DUBBED)") == "Title"
+
+    def test_strip_lang_vostfr(self):
+        """(FRENCH VOSTFR) — FRENCH may or may not be in vocab; VOSTFR is unambiguous."""
+        assert self._strip("Title (FRENCH VOSTFR)") == "Title"
+
+    def test_strip_lang_leg(self):
+        """(PORTUGUESE LEG) — LEG is unambiguous."""
+        assert self._strip("Title (PORTUGUESE LEG)") == "Title"
+
+    # -- PRESERVED (no false positives) --
+
+    def test_preserve_dual_survival_no_parens(self):
+        """'Dual Survival' has no parens — preserved as-is."""
+        assert self._strip("Dual Survival") == "Dual Survival"
+
+    def test_preserve_soleil_noir(self):
+        """(Soleil Noir) — no unambiguous marker, all-alpha but not a sub/dub qualifier."""
+        result = self._strip("Title (Soleil Noir)")
+        assert "(Soleil Noir)" in result, (
+            f"'(Soleil Noir)' must be preserved (no unambiguous marker); got {result!r}"
+        )
+
+    def test_preserve_30_monedas(self):
+        """(30 Monedas) — contains a digit so all-alpha guard blocks rule-2; also no marker."""
+        result = self._strip("Title (30 Monedas)")
+        assert "(30 Monedas)" in result, (
+            f"'(30 Monedas)' must be preserved (digit blocks rule); got {result!r}"
+        )
+
+    def test_preserve_blade_runner_2049(self):
+        """'Blade Runner 2049' — no parens, no qualifier; title preserved intact."""
+        assert self._strip("Blade Runner 2049") == "Blade Runner 2049"
+
+    def test_preserve_welcome_reprise(self):
+        """(Reprise) — a real alt-title word, not a sub/dub marker; preserved."""
+        result = self._strip("Welcome (Reprise)")
+        assert "(Reprise)" in result, (
+            f"'(Reprise)' must be preserved (not a sub/dub marker); got {result!r}"
+        )
+
+    def test_preserve_episode_5_sub_digit_guard(self):
+        """(Episode 5 SUB) — '5' is not alphabetic, so all-alpha guard blocks rule-2."""
+        result = self._strip("Title (Episode 5 SUB)")
+        assert "(Episode 5 SUB)" in result, (
+            f"'(Episode 5 SUB)' must be preserved (digit '5' blocks all-alpha guard); "
+            f"got {result!r}"
+        )
+
+    def test_preserve_non_marker_alpha_parens(self):
+        """(The Awakening) — all-alpha but contains no unambiguous sub/dub marker."""
+        result = self._strip("Show (The Awakening)")
+        assert "(The Awakening)" in result, (
+            f"'(The Awakening)' must be preserved (no unambiguous marker); got {result!r}"
+        )
+
+    # -- Via parse_channel_name end-to-end --
+
+    def test_bare_japanese_eng_sub_via_parse(self):
+        """parse_channel_name: 'JP - Some Show (JAPANESE ENG-SUB)' bare == 'Some Show'."""
+        bare = self._bare("JP - Some Show (JAPANESE ENG-SUB)")
+        assert bare == "Some Show", f"Expected 'Some Show', got {bare!r}"
+
+    def test_bare_persian_sub_via_parse(self):
+        """parse_channel_name: 'Film (PERSIAN SUB)' bare == 'Film'."""
+        bare = self._bare("Film (PERSIAN SUB)")
+        assert bare == "Film", f"Expected 'Film', got {bare!r}"
+
+
+def test_japanese_eng_sub_collapses_with_clean_variant(tmp_path):
+    """End-to-end: 'Show (JAPANESE ENG-SUB)' and 'Show' get the same content_key.
+
+    Guards that update_detected_prefixes + the marker-anchored rule produce
+    matching detected_title and content_key so the dedup engine collapses them.
+    """
+    from metatv.core.database import ChannelDB, Database
+    from metatv.core.repositories import RepositoryFactory
+
+    d = Database(f"sqlite:///{tmp_path / 'marker_anchored.db'}")
+    d.create_tables()
+
+    with d.session_scope() as session:
+        cid_dirty = _make_channel(session, name="Show (JAPANESE ENG-SUB)", media_type="series")
+        cid_clean = _make_channel(session, name="Show", media_type="series")
+
+    with d.session_scope() as session:
+        repos = RepositoryFactory(session)
+        repos.channels.update_detected_prefixes()
+
+    with d.session_scope(commit=False) as session:
+        ch_dirty = session.query(ChannelDB).filter_by(id=cid_dirty).one()
+        ch_clean = session.query(ChannelDB).filter_by(id=cid_clean).one()
+        title_dirty = ch_dirty.detected_title
+        title_clean = ch_clean.detected_title
+        key_dirty = ch_dirty.content_key
+        key_clean = ch_clean.content_key
+
+    d.close()
+
+    assert title_dirty == "Show", (
+        f"'Show (JAPANESE ENG-SUB)' → detected_title should be 'Show'; got {title_dirty!r}"
+    )
+    assert title_clean == "Show"
+    assert key_dirty is not None and key_clean is not None
+    assert key_dirty == key_clean, (
+        f"Both 'Show' variants must share content_key; got {key_dirty!r} vs {key_clean!r}"
+    )

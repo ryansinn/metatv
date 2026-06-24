@@ -55,7 +55,13 @@ if TYPE_CHECKING:
 #       space/dash/slash-split leaf is a lang/region/quality/sub/dub token are now
 #       also stripped (e.g. "(ENG DUB)", "(SPANISH ENG-SUB)", "(DUAL AUDIO)").
 #       Genuine alt-titles like "(Soleil Noir)" are preserved (unrecognized tokens).
-CURRENT_VERSION: int = 2
+#   3 — marker-anchored rule: strip a trailing parenthetical when it contains an
+#       unambiguous sub/dub marker (SUB/SUBS/SUBBED/SUBTITLED/DUB/DUBBED/VOST/
+#       VOSTFR/LEG/LEGENDADO/MULTISUB/ENGSUB) AND every leaf token is alphabetic.
+#       Catches ~170 language+sub qualifiers whose language word (JAPANESE, KURDISH,
+#       PERSIAN, NORWEGIAN, CHINESE, …) is not in the recognized-token vocab.
+#       All-alpha guard prevents stripping parentheticals with digits (e.g. "Episode 5 SUB").
+CURRENT_VERSION: int = 3
 
 
 class DetectedTitleReparseTask:

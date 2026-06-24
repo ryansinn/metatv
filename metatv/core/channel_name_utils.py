@@ -282,9 +282,15 @@ def strip_title_qualifiers(bare: str) -> str:
         bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
         bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
         bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
-        # Multi-token parentheticals: strip only when EVERY leaf token is recognized.
+        # Multi-token parentheticals: strip when EVERY leaf token is recognized, OR
+        # when the parenthetical is all-alphabetic and contains an unambiguous sub/dub
+        # marker (catches language+sub qualifiers like "(JAPANESE ENG-SUB)", "(KURDISH DUB)",
+        # "(NORWEGIAN SUB)" whose language word is absent from the recognized vocab).
         m = PAREN_MULTI_QUALIFIER_RE.search(bare)
-        if m and _is_all_qualifier_tokens(m.group(1)):
+        if m and (
+            _is_all_qualifier_tokens(m.group(1))
+            or _has_unambiguous_subdub(m.group(1))
+        ):
             bare = bare[: m.start()].strip()
     return bare
 
@@ -328,6 +334,19 @@ _SUB_DUB_TOKENS: frozenset[str] = frozenset({
     "LEG", "LEGENDADO", "LEGENDADA",
     "OV", "OMU",
     "AUDIO", "DUAL",
+})
+
+# Unambiguous subtitle/dub markers.  Their PRESENCE in a trailing parenthetical is
+# strong enough to treat the whole parenthetical as a qualifier annotation even when a
+# co-occurring language word (KURDISH, PERSIAN, NORWEGIAN, …) is not in the recognized
+# vocabulary.  DUAL / AUDIO / MULTI are DELIBERATELY EXCLUDED — they appear in real
+# titles ("Dual Survival", "Multiplicity") and are ambiguous.
+_UNAMBIGUOUS_SUBDUB_MARKERS: frozenset[str] = frozenset({
+    "SUB", "SUBS", "SUBBED", "SUBTITLED", "SUBTITLES",
+    "DUB", "DUBBED",
+    "VOST", "VOSTFR",
+    "LEG", "LEGENDADO", "LEGENDADOS",
+    "MULTISUB", "ENGSUB",
 })
 
 
@@ -677,6 +696,30 @@ def _is_all_qualifier_tokens(inner: str) -> bool:
     if not leaves:
         return False
     return all(leaf.upper() in _RECOGNIZED_QUALIFIER_TOKENS for leaf in leaves)
+
+
+def _has_unambiguous_subdub(inner: str) -> bool:
+    """True when *inner* is an all-alphabetic token run containing an unambiguous sub/dub marker.
+
+    Anchored on an unambiguous marker (SUB/DUB/VOST/LEG family), this strips
+    language+sub qualifiers whose language word is not in the recognized vocab
+    (e.g. "JAPANESE ENG-SUB", "KURDISH SUB", "PERSIAN DUB") while the all-alpha
+    guard prevents matching real titles that merely end in a parenthetical
+    containing a digit (e.g. "Episode 5 SUB" is left intact because "5" is
+    not alphabetic).
+
+    Args:
+        inner: The text content between the outer parentheses (not including them).
+
+    Returns:
+        True when the parenthetical is a strippable sub/dub annotation; False to preserve.
+    """
+    leaves = [p for p in re.split(r"[\s\-/]+", inner.strip()) if p]
+    if not leaves:
+        return False
+    if not all(leaf.isalpha() for leaf in leaves):
+        return False
+    return any(leaf.upper() in _UNAMBIGUOUS_SUBDUB_MARKERS for leaf in leaves)
 
 
 def is_event_placeholder(name: str) -> bool:
