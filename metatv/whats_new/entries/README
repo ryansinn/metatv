@@ -22,22 +22,25 @@ Content: a single top-level ENTRY variable:
         ),
     )
 
-Optional: test_steps
---------------------
-Add ``test_steps=(...)`` after ``items`` to attach dev-only manual QA steps for
-the feature.  Each step is one concise string: one action + the expected outcome.
-Example:
+test_steps (default — include them)
+-----------------------------------
+Every entry for a user-visible change (feature OR bug-fix) carries a non-empty
+``test_steps=(...)`` after ``items`` — the smoke test the tester/user steps
+through in the dev QA checklist.  Each step is one concise string: one action +
+the expected outcome, together covering the changed path end-to-end so there is
+always a concrete set of tasks to verify the change.  Example:
 
     test_steps=(
         "Open the Recipe chip → add a Genre tag → 'Now Plating' strip populates with matching cards.",
         "Click the tag again → it toggles to ⊘ excluded → result count drops.",
     ),
 
-Omit ``test_steps`` (or pass ``test_steps=()`` / leave the field absent) when
-there is nothing requiring manual UX testing.  The dev-only Testing Checklist
-floating window (gated by METATV_DEV env var) reads these steps and shows them
-only for entries that have at least one step and whose id exceeds the
-``qa_verified_id`` config cursor.
+Leave ``test_steps`` off (``test_steps=()`` / field absent) ONLY when there is
+nothing to test by hand — a pure internal refactor with no behavior change, or
+dev-only tooling like the checklist window itself; note why in the PR.  The
+dev-only Testing Checklist floating window (gated by METATV_DEV env var) reads
+these steps and shows them only for entries that have at least one step and
+whose id exceeds the ``qa_verified_id`` config cursor.
 
 Rules
 -----

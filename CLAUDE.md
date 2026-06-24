@@ -297,7 +297,7 @@ MD5(url) as filename in `~/.cache/metatv/images/`, LRU cleanup at 500MB. Always 
 - Imports: stdlib → third-party → local, separated by blank lines.
 - Files under 1000 lines; one class per file (helper classes excepted).
 - `ThreadPoolExecutor` for blocking I/O; `asyncio` for async providers; `QTimer.singleShot(0, ...)` for deferred main-thread execution.
-- User-facing changes add a **new file** `metatv/whats_new/entries/NNNN_slug.py` (zero-padded id, e.g. `0016_my_feature.py`) with `ENTRY = WhatsNewEntry(...)` — never edit the shared list. Confirm the next id: `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`. Format: `metatv/whats_new/entries/README`.
+- **Every PR with user-visible behavior (feature OR bug-fix) adds a new file** `metatv/whats_new/entries/NNNN_slug.py` (zero-padded id, e.g. `0016_my_feature.py`) with `ENTRY = WhatsNewEntry(...)` **including a non-empty `test_steps` tuple** — the smoke test the tester/user steps through in the dev QA checklist (`METATV_DEV=1`). Each step is one action + its expected outcome, together covering the changed path end-to-end so there is always a concrete set of tasks to verify the change. `test_steps` is the **default, not optional**. Omit it (with a one-line PR note saying why) only for changes with nothing to test by hand — pure internal refactors with no behavior change, or dev-only tooling like the checklist window itself. Never edit the shared list. Confirm the next id: `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`. Format + examples: `metatv/whats_new/entries/README`.
 
 ## Session Wrap SOP
 
