@@ -134,6 +134,9 @@ tag_exclude_icon: str = "⊘"   # U+2298 CIRCLED DIVISION SLASH — "this facet 
 # Tag cloud — sort / filter controls
 sort_icon: str = "⇅"   # U+21C5 UPWARDS ARROW LEFTWARDS OF DOWNWARDS ARROW — sort toggle
 
+# Content variant count badge (dedup Slice 2 — shown on collapsed cards with >1 variant)
+variant_count_icon: str = "×"    # U+00D7 MULTIPLICATION SIGN — "×N" variant count badge prefix
+
 # Recipe builder (task #56)
 recipe_icon: str = "✦"          # U+2726 BLACK FOUR POINTED STAR — Recipe chip (same as whats_new star)
 recipe_check_icon: str = "✓"    # U+2713 CHECK MARK — included ingredient indicator (alias of tag_include_icon)

@@ -859,13 +859,25 @@ class TagRepository:
         excluded_provider_ids: Optional[List[str]] = None,
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
+        collapse_variants: bool = False,
     ) -> int:
         """Count channels matching the faceted constraints — entirely in SQL.
 
         Issues a single ``SELECT count(*) FROM (SELECT DISTINCT channel_id …)``,
         so a 170k-match facet costs one integer round-trip, not 170k id strings
         crossing into Python.  Arguments match :meth:`_faceted_channel_id_query`.
+
+        Args:
+            collapse_variants: When True, count DISTINCT content_key groups
+                (one per collapsed production) using
+                ``COUNT(DISTINCT COALESCE(content_key, 'id:' || id))``.
+                When False (default), counts raw matching channel rows.  The
+                collapsed count matches the number of cards returned by
+                ``sample_channels_by_tag_facets(collapse_variants=True)``.
         """
+        from metatv.core.database import ChannelDB
+        from sqlalchemy import func as _func, text as _text
+
         query = self._faceted_channel_id_query(
             includes, excludes,
             base_channel_ids=base_channel_ids,
@@ -873,6 +885,22 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
         )
+        if collapse_variants:
+            # COUNT(DISTINCT group_key) — one per collapsed production.
+            # The match query selects distinct channel_ids; we join ChannelDB to
+            # read content_key, then count distinct group keys.
+            matching = query.subquery()
+            _group_key = _func.coalesce(
+                ChannelDB.content_key,
+                _func.concat("id:", ChannelDB.id),
+            )
+            return (
+                self.session.query(
+                    _func.count(_func.distinct(_group_key))
+                )
+                .join(matching, matching.c.channel_id == ChannelDB.id)
+                .scalar()
+            ) or 0
         return query.count()
 
     def sample_channel_names_by_tag_facets(
@@ -912,6 +940,127 @@ class TagRepository:
         )
         return [name for (name,) in rows]
 
+
+    # ------------------------------------------------------------------
+    # Variant-collapse helper (shared chokepoint for dedup Slice 2)
+    # ------------------------------------------------------------------
+
+    # Quality rank constants used in the representative-pick CASE expression.
+    # Lower rank = higher quality = preferred representative.
+    # All tiers: 4K/8K/UHD=0, FHD/HDR=1, HD=2, everything else (SD/LQ/NULL)=3.
+    _QUALITY_RANK_CASE = (
+        "CASE detected_quality"
+        " WHEN '4K'  THEN 0"
+        " WHEN '8K'  THEN 0"
+        " WHEN 'UHD' THEN 0"
+        " WHEN 'FHD' THEN 1"
+        " WHEN 'HDR' THEN 1"
+        " WHEN 'HD'  THEN 2"
+        " ELSE 3 END"
+    )
+
+    def _build_collapsed_sample_query(
+        self,
+        matching_subq,
+        *,
+        name_filter: Optional[str] = None,
+    ):
+        """Wrap *matching_subq* (channel ids) with window-function collapse.
+
+        Applies SQLite ROW_NUMBER() + COUNT() window functions partitioned by
+        ``COALESCE(content_key, 'id:' || id)`` so:
+        - Every NULL content_key row forms its OWN singleton group (the COALESCE
+          guard — a bare PARTITION BY content_key would merge ALL unkeyed rows).
+        - The representative per group is the highest-quality variant
+          (``detected_quality`` ranked lowest-int-wins) with ``id`` as a
+          deterministic tiebreaker.
+        - ``_variant_count`` carries the group size into the outer result.
+
+        Returns a query over ``ChannelDB`` restricted to the ``_rn = 1``
+        representatives, ordered alphabetically by the stored clean title
+        (``detected_title`` NOCASE, fallback to ``name``).  The caller applies
+        OFFSET/LIMIT on top.
+
+        Args:
+            matching_subq: The already-built subquery of matching channel_ids
+                (the output of ``_faceted_channel_id_query(...).subquery()``).
+            name_filter: Optional ILIKE filter applied before collapse so every
+                collapsed page respects it at the SQL level.
+
+        Returns:
+            An unexecuted SQLAlchemy query yielding ``(ChannelDB, int)`` tuples
+            where the int is ``_variant_count``.  Caller slices with
+            ``.offset(n).limit(k).all()``.
+        """
+        from metatv.core.database import ChannelDB
+        from sqlalchemy import func as _func, text as _text
+
+        # ── INNER ── join ChannelDB to the faceted match set; apply name filter.
+        _title_expr = _func.coalesce(
+            _func.nullif(ChannelDB.detected_title, ""), ChannelDB.name
+        )
+        inner_q = (
+            self.session.query(ChannelDB)
+            .join(matching_subq, matching_subq.c.channel_id == ChannelDB.id)
+        )
+        if name_filter:
+            inner_q = inner_q.filter(_title_expr.ilike(f"%{name_filter}%"))
+        inner = inner_q.subquery(name="inner_ch")
+
+        # ── MIDDLE ── window functions over the inner set.
+        # GROUP KEY: COALESCE(content_key, 'id:' || id) — NULL-safe per the spec.
+        # REP RANK:  quality CASE (lower = better), tiebreak by id.
+        _group_key = _func.coalesce(
+            inner.c.content_key,
+            _func.concat("id:", inner.c.id),
+        )
+        _rep_rank = _text(
+            "CASE inner_ch.detected_quality"
+            " WHEN '4K'  THEN 0"
+            " WHEN '8K'  THEN 0"
+            " WHEN 'UHD' THEN 0"
+            " WHEN 'FHD' THEN 1"
+            " WHEN 'HDR' THEN 1"
+            " WHEN 'HD'  THEN 2"
+            " ELSE 3 END"
+        )
+
+        # SQLAlchemy doesn't have a first-class window-function API that maps
+        # cleanly to PARTITION BY arbitrary expressions here.  We use text()
+        # for the window clauses and label the results for the outer query.
+        _rn = _func.row_number().over(
+            partition_by=_group_key,
+            order_by=[_rep_rank, inner.c.id],
+        ).label("_rn")
+        _vc = _func.count(inner.c.id).over(
+            partition_by=_group_key,
+        ).label("_variant_count")
+
+        # Select all ChannelDB columns + the two window labels.
+        middle = (
+            self.session.query(inner, _rn, _vc)
+        ).subquery(name="windowed")
+
+        # ── OUTER ── keep the representative (rn=1), order by clean title.
+        # We can only SELECT the windowed subquery columns, not the ORM directly.
+        # Strategy: collect the representative channel ids + variant_counts, then
+        # join back to ChannelDB for the full ORM objects in the right order.
+        #
+        # The outer query needs: id, _variant_count, and the title sort expression.
+        _outer_title_sort = _func.coalesce(
+            _func.nullif(middle.c.detected_title, ""), middle.c.name
+        ).collate("NOCASE")
+
+        reps_q = (
+            self.session.query(
+                middle.c.id.label("rep_id"),
+                middle.c._variant_count.label("vc"),
+            )
+            .filter(middle.c._rn == 1)
+            .order_by(_outer_title_sort, middle.c.id)
+        )
+        return reps_q
+
     def sample_channels_by_tag_facets(
         self,
         includes: dict[str, set[str]],
@@ -924,6 +1073,7 @@ class TagRepository:
         limit: int = 24,
         offset: int = 0,
         name_filter: Optional[str] = None,
+        collapse_variants: bool = False,
     ) -> list:
         """Return *limit* result cards matching the faceted constraints, from *offset*.
 
@@ -963,6 +1113,11 @@ class TagRepository:
                 returned.  Used by the "Show all" browse filter box so every
                 page — including lazy-loaded ones — honours the filter at the
                 SQL level rather than filtering an already-loaded subset.
+            collapse_variants: When True, collapse same-``content_key`` channels
+                into one representative card per group (highest-quality variant,
+                tiebreak by id).  The card's ``variant_count`` is set to the
+                group size.  When False (default), behaviour is exactly as before
+                this parameter was added — no change for existing callers.
 
         Returns:
             List of ``ContentCard`` value objects in clean-title
@@ -971,7 +1126,6 @@ class TagRepository:
         """
         from metatv.core.database import ChannelDB
         from metatv.core.discovery_engine import _to_card
-        from sqlalchemy import func as _func
 
         # The faceted match set as a subquery of channel ids (EXISTS-filtered and
         # scoped) — never materialised in Python.
@@ -983,16 +1137,39 @@ class TagRepository:
             excluded_categories=excluded_categories,
         ).subquery()
 
-        # Page over the matching channels in one stable, human-friendly order:
-        # the stored clean title (detected_title — "4K -"/"|EN|"/category junk
-        # stripped at ingestion), case-insensitive, falling back to the raw name
-        # when no title was detected, with channel_id as a deterministic
-        # tiebreaker.  Ordering by the CLEAN title (the CLAUDE.md "read
-        # detected_title, never the raw name" rule, applied to sort order) gives
-        # ONE true A→Z run instead of per-prefix / per-case sub-runs, and keeps
-        # successive OFFSET/LIMIT pages disjoint + gap-free; the teaser (offset 0)
-        # and every "Show all" page share it, so variants of one title sit
-        # adjacent.
+        if collapse_variants:
+            # ── Collapsed path ─────────────────────────────────────────────
+            # One representative per content_key group, ordered by clean title.
+            # _build_collapsed_sample_query returns (rep_id, vc) rows in order.
+            reps_q = self._build_collapsed_sample_query(
+                matching, name_filter=name_filter
+            )
+            reps = reps_q.offset(offset).limit(limit).all()
+            if not reps:
+                return []
+            # Build a mapping rep_id → variant_count before re-fetching ORM rows.
+            vc_by_id = {row.rep_id: row.vc for row in reps}
+            rep_ids = [row.rep_id for row in reps]
+            # Preserve the collapse-ordered sequence (alphabetical by title, not
+            # insertion order) by doing a SELECT then restoring the order.
+            rows_unordered = (
+                self.session.query(ChannelDB)
+                .filter(ChannelDB.id.in_(rep_ids))
+                .all()
+            )
+            # Restore the collapsed order (reps list is already ordered).
+            order_map = {rid: i for i, rid in enumerate(rep_ids)}
+            rows = sorted(rows_unordered, key=lambda ch: order_map.get(ch.id, 0))
+            cards = []
+            for ch in rows:
+                card = _to_card(ch)
+                card.variant_count = vc_by_id.get(ch.id, 1)
+                cards.append(card)
+            return cards
+
+        # ── Non-collapsed path (existing behaviour, unchanged) ──────────────
+        from sqlalchemy import func as _func
+
         _title_expr = _func.coalesce(
             _func.nullif(ChannelDB.detected_title, ""), ChannelDB.name
         )
@@ -1015,6 +1192,7 @@ class TagRepository:
         # _to_card builds a session-free ContentCard from each ORM row; engagement
         # badge sets are omitted (the preview shelf doesn't decorate them).
         return [_to_card(ch) for ch in rows]
+
 
 
 # ---------------------------------------------------------------------------

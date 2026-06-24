@@ -47,6 +47,7 @@ class ContentCard:
     is_liked: bool = False
     detected_prefix: str | None = None  # provider category label (e.g. "DE", "KU")
     progress_fraction: float = 0.0      # 0.0 = none or completed; 0–1 = partial resume
+    variant_count: int = 1              # number of same-production variants collapsed into this card (≥ 1)
 
 
 # ---------------------------------------------------------------------------
