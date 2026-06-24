@@ -833,11 +833,23 @@ class Config(BaseModel):
     last_seen_whats_new_id: int = 0
 
     # Dev-only QA checklist — gated by METATV_DEV env var; ignored in normal use.
-    # qa_checked_steps: maps str(entry_id) → list of checked step indices.
+    # qa_checked_steps: LEGACY — maps str(entry_id) → list of checked step indices.
+    #   Kept for back-compat read of old configs only; migrated into qa_step_results
+    #   on first load and never written again.
+    # qa_step_results: consolidated tri-state per-step record (the new source of truth).
+    #   Shape: str(entry_id) → { str(step_idx): record }, where record is a plain dict:
+    #     {"state": "pass" | "fail",
+    #      "sha":   "<short HEAD sha at mark time>",
+    #      "ts":    "<ISO-8601 timestamp>",
+    #      "note":  "<text, fail only>",
+    #      "attachments": ["<abs path>", ...],  # screenshots, fail only
+    #      "log":   "<abs path to log snapshot>"}  # fail only
+    #   A step absent from the dict (or with no record) is untested.
     # qa_verified_id: purge cursor — entries with id <= this value are hidden.
     # qa_archived_ids: per-entry archive — entry ids individually tucked away after
-    #   all their steps are checked, without waiting for every entry to be done.
+    #   all their steps pass, without waiting for every entry to be done.
     qa_checked_steps: dict = Field(default_factory=dict)
+    qa_step_results: dict = Field(default_factory=dict)
     qa_verified_id: int = 0
     qa_archived_ids: list = Field(default_factory=list)
 
@@ -1049,6 +1061,38 @@ class Config(BaseModel):
             if self.filter_included_genres == []:
                 self.filter_included_genres = None
             self.filter_config_version = 1
+        # Migrate legacy dev-QA qa_checked_steps → qa_step_results (tri-state).
+        # Old shape: {str(entry_id): [checked_idx, ...]}.  Every previously-checked
+        # step becomes a "pass" record.  Only runs when the new field is still empty
+        # so a real config is never clobbered; the old field is left intact for
+        # back-compat but never written again.
+        self._migrate_qa_step_results()
+
+    def _migrate_qa_step_results(self) -> None:
+        """Backfill ``qa_step_results`` from the legacy ``qa_checked_steps`` list shape.
+
+        Idempotent: a no-op once ``qa_step_results`` is populated.  Each previously
+        checked step index becomes a ``{"state": "pass", "sha": "", "ts": ""}`` record.
+        Tolerates both the historical list form (``{eid: [idx, ...]}``) and a
+        dict-of-bools form (``{eid: {idx: bool}}``) in case an old variant exists.
+        """
+        if self.qa_step_results or not self.qa_checked_steps:
+            return
+        migrated: dict = {}
+        for entry_id, checked in self.qa_checked_steps.items():
+            indices: list[int] = []
+            if isinstance(checked, dict):
+                indices = [int(idx) for idx, on in checked.items() if on]
+            elif isinstance(checked, (list, tuple, set)):
+                indices = [int(idx) for idx in checked]
+            if not indices:
+                continue
+            migrated[str(entry_id)] = {
+                str(idx): {"state": "pass", "sha": "", "ts": ""}
+                for idx in indices
+            }
+        if migrated:
+            self.qa_step_results = migrated
 
     class Config:
         arbitrary_types_allowed = True

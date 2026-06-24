@@ -1476,16 +1476,22 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Auto-show the QA checklist on startup if there are open test items.
 
         Only fires when METATV_DEV is set.  An "open" item is an entry with
-        test_steps, id > qa_verified_id, and at least one unchecked step.
+        test_steps, id > qa_verified_id, and at least one step that is not yet
+        marked ``pass`` in ``qa_step_results`` (untested OR failed).
         """
         if not _dev_mode_enabled():
             return
         verified = self.config.qa_verified_id
+        results = self.config.qa_step_results or {}
         for entry in _whats_new.WHATS_NEW:
             if not entry.test_steps or entry.id <= verified:
                 continue
-            checked = set(self.config.qa_checked_steps.get(str(entry.id), []))
-            if len(checked) < len(entry.test_steps):
+            ent = results.get(str(entry.id), {})
+            n_pass = sum(
+                1 for i in range(len(entry.test_steps))
+                if (ent.get(str(i)) or {}).get("state") == "pass"
+            )
+            if n_pass < len(entry.test_steps):
                 # At least one open item — show the window
                 logger.debug(
                     "QA checklist: open items found (entry id={}), auto-showing", entry.id
