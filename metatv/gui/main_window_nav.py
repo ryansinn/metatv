@@ -58,9 +58,27 @@ class _NavMixin:
     # ── Switch-to helpers ───────────────────────────────────────────────────
 
     def switch_to_series_view(self):
-        """Switch content area to series tree view."""
+        """Switch content area to series tree view.
+
+        Records the originating view so that the Back button can return to it
+        (e.g. Recipe → series drill → Back → Recipe, not channel list).
+        """
+        # Capture origin BEFORE hiding, so isVisible() still reflects the truth.
+        if "recipe_view" in self.__dict__ and self.recipe_view.isVisible():
+            self._series_return_view = "recipe"
+        elif "discover_view" in self.__dict__ and self.discover_view.isVisible():
+            self._series_return_view = "discover"
+        else:
+            self._series_return_view = "list"
+
+        # Deactivate+hide every content overlay (recipe, discover, epg, preferences).
+        # This is the fix for the stacking bug: without it the recipe_view overlay
+        # remained visible when the series tree was shown on top of it.
+        self._hide_all_content_views()
+
         self.view_mode = "series"
-        self.channels_list.setVisible(False)
+        # _hide_all_content_views() hides both channels_list and series_tree; re-show
+        # only what series view needs.
         self.series_tree.setVisible(True)
         self.back_button.setVisible(True)
         self.breadcrumb_label.setText(f"{self.series_icon} {self.current_series.name}")
@@ -151,8 +169,19 @@ class _NavMixin:
         self.recipe_view.on_activate()
 
     def navigate_back(self):
-        """Navigate back from series view to channel list."""
-        self.switch_to_list_view()
+        """Navigate back from series view to the originating view.
+
+        If the drill came from the Recipe or Discover view, return there;
+        otherwise fall back to the standard channel list.
+        """
+        origin = getattr(self, "_series_return_view", "list")
+        self._series_return_view = "list"  # reset so stale state never leaks
+        if origin == "recipe" and "recipe_view" in self.__dict__:
+            self.switch_to_recipe_view()
+        elif origin == "discover" and "discover_view" in self.__dict__:
+            self.switch_to_discover_view()
+        else:
+            self.switch_to_list_view()
 
     # ── View/chip wiring ────────────────────────────────────────────────────
 
