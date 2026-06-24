@@ -839,6 +839,12 @@ class Config(BaseModel):
     # quality/region/subtitle qualifiers from detected_title and recomputes content_key.
     detected_reparse_version: int = 0
 
+    # Internal migration version for the category-facet re-facet.
+    # Bump CURRENT_VERSION in metatv/core/migrations/category_facet_refacet.py to trigger
+    # a one-time pass that moves content-descriptor group tags (Sports/Adult/Kids/Music/
+    # News/Religious/24-7) from language:/platform: to category: (live) or genre: (VOD).
+    category_facet_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

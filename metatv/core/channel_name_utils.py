@@ -530,6 +530,22 @@ CONF_DENOTED: float = 0.9
 CONF_STRONG_PRIOR: float = 0.3
 CONF_WEAK_PRIOR: float = 0.15
 
+# ── Content-descriptor groups (single source of truth for the `category:` facet) ── #
+# These group names appear in BASE_PREFIX_GROUPS or BASE_PLATFORM_GROUPS for
+# display-grouping purposes, but they are NOT locales or platforms.  They denote
+# a content KIND, so their facet depends on media_type at tag time:
+#   - live  channel → `category:` (a live-channel kind / programming genre)
+#   - movie / series → `genre:` (a VOD content descriptor)
+#
+# Routing is performed by remap_content_descriptor_facets() in tag_decomposer.py,
+# called from _collect_tags() in tag_backfill.py (the ONE per-channel tag builder).
+#
+# "Pay TV" is deliberately absent — it is a real distribution platform (channels
+# from a pay-TV bundle) and correctly stays as `platform:Pay TV`.
+CONTENT_DESCRIPTOR_GROUPS: frozenset[str] = frozenset({
+    "Adult", "Sports", "Kids", "Music", "News", "Religious", "24/7",
+})
+
 # ── Dual-facet code table (DR-0006) ─────────────────────────────────────────── #
 # Maps a normalized IPTV prefix code → one or more (facet_type, value, confidence)
 # entries.  Rules (see DR-0006 and CLAUDE.md "Tags/facets" rule):

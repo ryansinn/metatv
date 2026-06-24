@@ -253,7 +253,8 @@ class TagBackfillTask:
             repos = RepositoryFactory(session)
 
             # Load only the columns we need for the four feeders — no JSON for
-            # channels that have none.
+            # channels that have none.  media_type is required for content-descriptor
+            # facet routing (category: live vs genre: movie/series).
             rows = (
                 session.query(
                     ChannelDB.id,
@@ -264,6 +265,7 @@ class TagBackfillTask:
                     ChannelDB.detected_region,
                     ChannelDB.detected_year,
                     ChannelDB.raw_data,
+                    ChannelDB.media_type,
                 )
                 .filter(ChannelDB.id.in_(channel_ids))
                 .yield_per(_YIELD_SIZE)
@@ -280,6 +282,7 @@ class TagBackfillTask:
                     detected_region,
                     detected_year,
                     raw_data,
+                    media_type,
                 ) = row
 
                 # 1. Scrub only this channel's generated tags (user tags survive).
@@ -295,6 +298,7 @@ class TagBackfillTask:
                     detected_region=detected_region,
                     detected_year=detected_year,
                     raw_data=raw_data,
+                    media_type=media_type,
                 )
 
                 if not all_tags:
@@ -318,6 +322,7 @@ def _collect_tags(
     detected_region: str | None,
     detected_year: str | None,
     raw_data: dict | None,
+    media_type: str | None = None,
 ) -> list[tuple[str, str, str]]:
     """Run all four feeders and return a merged ``(type, value, feeder)`` list.
 
@@ -326,21 +331,34 @@ def _collect_tags(
     count as the v1 confidence signal, so more independent feeders → higher
     confidence automatically.
 
+    After all feeders run, content-descriptor group tags (see
+    :data:`~metatv.core.channel_name_utils.CONTENT_DESCRIPTOR_GROUPS` — e.g.
+    ``"Sports"``, ``"Adult"``, ``"Kids"``) are re-faceted by *media_type* via
+    :func:`~metatv.core.tag_decomposer.remap_content_descriptor_facets`:
+    ``category:`` for live channels, ``genre:`` for movies / series / unknown.
+
     Args:
         config: Live Config instance.
-        category:       ``ChannelDB.category`` (provider_category feeder).
-        source_category: ``ChannelDB.source_category`` (header feeder).
+        category:         ``ChannelDB.category`` (provider_category feeder).
+        source_category:  ``ChannelDB.source_category`` (header feeder).
         detected_prefix:  ``ChannelDB.detected_prefix`` (name_parse feeder).
         detected_quality: ``ChannelDB.detected_quality`` (name_parse feeder).
         detected_region:  ``ChannelDB.detected_region`` (name_parse feeder).
         detected_year:    ``ChannelDB.detected_year`` (name_parse feeder).
         raw_data:         ``ChannelDB.raw_data`` dict (genre feeder).
+        media_type:       ``ChannelDB.media_type`` — used to route content-
+                          descriptor groups to the correct facet.  ``None`` /
+                          ``"unknown"`` maps to ``genre:``.
 
     Returns:
         List of ``(type, value, feeder)`` tuples ready for
         :meth:`~metatv.core.repositories.tag.TagRepository.set_content_tags`.
     """
-    from metatv.core.tag_decomposer import decompose, decompose_name_parse
+    from metatv.core.tag_decomposer import (
+        decompose,
+        decompose_name_parse,
+        remap_content_descriptor_facets,
+    )
 
     # key: (type, value)  →  value: set of feeder names
     feeder_map: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -377,6 +395,12 @@ def _collect_tags(
             "genre", str(genre_raw), config=config
         ):
             feeder_map[(tag_type, tag_value)].add("genre")
+
+    # Re-facet content-descriptor groups by media_type.
+    # Groups like "Sports", "Adult", "Kids" are placed in language/platform config
+    # dicts for display-grouping but they are not locales or platforms; they denote
+    # a content KIND.  Route them: category: for live, genre: for everything else.
+    remap_content_descriptor_facets(feeder_map, media_type)
 
     # Flatten: each (type, value) pair is emitted once per contributing feeder.
     # TagRepository.set_content_tags will merge feeders on the link and compute

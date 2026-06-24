@@ -307,6 +307,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(ContentKeyBackfillTask(self.db))
         from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
         self.migration_manager.register(DetectedTitleReparseTask(self.db))
+        from metatv.core.migrations.category_facet_refacet import CategoryFacetRefacetTask
+        self.migration_manager.register(CategoryFacetRefacetTask(self.db, config=self.config))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
 
         # Serial refresh queue — must be created BEFORE setup_ui() because
