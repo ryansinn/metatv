@@ -121,8 +121,14 @@ def _primary_genre(channel) -> str | None:
 def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
              watched_ids=None, liked_ids=None,
              progress_map: "dict[str, float] | None" = None) -> ContentCard:
-    title = display_title(channel)
-    # Fallback to MetadataDB title when display_title yields a non-alpha string (e.g. "2013")
+    # Read the stored clean title (computed at ingestion by update_detected_prefixes).
+    # Using detected_title is the CLAUDE.md canonical rule: "compute once at ingestion,
+    # read everywhere else."  display_title() re-parses channel.name at render time
+    # and misses leading-pipe prefixes like "|EN|"/"| MULTI|" (whose first char is
+    # "|", not "[A-Z]"), causing dirty titles in Show-All / Discover / Recommendations.
+    title = channel.detected_title or channel.name
+    # Fallback to MetadataDB title when the stored title is still a non-alpha string
+    # (e.g. "2013" — an edge case where the channel name is just a year).
     if meta and meta.title and not any(c.isalpha() for c in title):
         title = meta.title
     _r = _raw_rating(channel)
