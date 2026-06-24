@@ -201,6 +201,65 @@ _YEAR_RE = re.compile(
     r'\s*$'
 )
 
+# ── Title-qualifier strip patterns (single-source-of-truth; also used by content_dedup) ── #
+
+# Trailing parenthetical single-token qualifier — no internal space, letter-first.
+# Strips:  (US), (VOSTFR), (HQ), (LQ), (BR), (ENG-SUB), (MULTI-DUB), (Dubbed), …
+# Keeps:   (30 Monedas), (Soleil Noir), (ENG DUB) — internal space → alt-language title.
+PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z][A-Za-z0-9\-/]{0,25}\)\s*$")
+
+# Trailing parenthetical digit-starting quality tokens: (4K), (8K).
+# Separate from PAREN_QUALIFIER_RE because that regex requires a letter-first token.
+PAREN_DIGIT_QUALITY_RE = re.compile(r"\s*\((4K|8K)\)\s*$", re.IGNORECASE)
+
+# Trailing bracket qualifier that contains an internal separator (space, slash, or dash):
+# [Multi Audio/Sub], [ENG-SUB], [Multi-Sub]. The separator requirement keeps single-token
+# brackets (already handled by _bracket_suffix steps) from being double-stripped.
+BRACKET_QUALIFIER_RE = re.compile(r"\s*\[[^\[\]]*[\s/\-][^\[\]]*\]\s*$")
+
+# Trailing year in parens/brackets (dedup-style, wider than _YEAR_RE):
+# (2024), [2024], (2000-2005), (2024?), bare "2024", or "- 2024".
+YEAR_SUFFIX_RE = re.compile(
+    r"\s*[\(\[]\d{4}(?:[-–]\d{4})?[?]?[\)\]]$"
+    r"|\s+\d{4}$"
+    r"|\s+-\s+\d{4}$"
+)
+
+# Trailing quality markers used in the dedup normalization pass (global, no anchoring).
+# Distinct from _QUALITY_SUFFIX_RE (which is anchored to end-of-bare-name for parsing).
+QUALITY_ANYWHERE_RE = re.compile(
+    r"\b(4K|8K|UHD|FHD|HD|SDR|HDR10?\+?|SD|HQ|LQ|RAW|HEVC|H\.?265)\b", re.IGNORECASE
+)
+
+
+def strip_title_qualifiers(bare: str) -> str:
+    """Strip trailing single-token parenthetical/bracket qualifiers from a bare title.
+
+    Applies a loop until stable, removing:
+    - Single-token paren qualifiers with no internal space: (US), (VOSTFR), (HQ), (LQ),
+      (BR), (ENG-SUB), (Dubbed), …
+    - Digit-starting quality tokens in parens: (4K), (8K).
+    - Bracket qualifiers with internal separators: [Multi Audio/Sub], [ENG-SUB].
+    - Trailing year markers (dedup-style): (2024), [2024], 2024, - 2024.
+
+    Preserves multi-word alt-language titles in parens: (30 Monedas), (Soleil Noir),
+    (ENG DUB) all contain an internal space and are NEVER stripped.
+
+    Args:
+        bare: The bare channel name after prefix and quality stripping.
+
+    Returns:
+        The title with trailing qualifiers removed, whitespace-stripped.
+    """
+    prev = None
+    while prev != bare:
+        prev = bare
+        bare = YEAR_SUFFIX_RE.sub("", bare).strip()
+        bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
+        bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
+        bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
+    return bare
+
 # ── Audio format normalization ───────────────────────────────────────────────── #
 
 # All known variants → canonical form. Keys are uppercased for matching.
@@ -788,6 +847,15 @@ def parse_channel_name(name: str) -> ParsedChannel:
     # 6b. Second quality pass — catches "Name HEVC (2024)" where HEVC was before year
     bare, quality2 = _strip_quality(bare)
     quality = quality2 + quality  # prepend (quality2 came from closer to the name)
+
+    # 6c. Trailing-qualifier strip loop — catches single-token parenthetical/bracket
+    #     qualifiers that earlier steps leave behind when there is no year to anchor the
+    #     strip.  Examples: "Name (US) (4K)", "Name (VOSTFR)", "Name (HQ)".
+    #     Multi-word alt-titles ("Name (30 Monedas)", "Name (Soleil Noir)") are preserved
+    #     because PAREN_QUALIFIER_RE requires no internal space inside the parens.
+    #     Already-committed field assignments (lang, year, audio, quality) are NOT
+    #     re-derived here — this pass only cleans the displayed title.
+    bare = strip_title_qualifiers(bare)
 
     # 7. Append prefix quality (standalone "4K - Movie" or compound "4K-DE") at lowest
     # priority so name-suffix quality (step 2/6b) — which describes the actual encode —
