@@ -13,7 +13,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
-from metatv.core.epg_utils import epg_is_stale, epg_interval_delta, now_utc
+from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, epg_interval_delta, now_utc
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
@@ -78,6 +78,10 @@ class EpgManager(QObject):
     _progress_done   = pyqtSignal(str, str)             # notif_id, final_message
     _progress_error  = pyqtSignal(str)                  # notif_id — dismiss on error
 
+    # Periodic scheduler interval — poke needs_refresh every hour.  The per-provider
+    # throttle inside needs_refresh does the real gating; this is just the clock tick.
+    _SCHEDULER_INTERVAL_MS = 60 * 60 * 1_000  # 1 hour
+
     def __init__(self, db: Database, config: Config, notifications=None, parent=None) -> None:
         super().__init__(parent)
         self.db = db
@@ -86,6 +90,7 @@ class EpgManager(QObject):
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
         self._notification_timer: QTimer | None = None
+        self._scheduler_timer: QTimer | None = None
         self._notify.connect(self._do_notify)
         self._progress_update.connect(self._do_progress_update)
         self._progress_done.connect(self._do_progress_done)
@@ -177,7 +182,9 @@ class EpgManager(QObject):
            (``config.epg_default_refresh_interval``).
         5. ``every_open`` → True.
         6. ``when_stale`` → True only if guide has fully expired.
-        7. Time interval → True if elapsed since last fetch ≥ delta **OR** guide
+        7. ``auto`` → delta = half the guide depth, clamped to [6 h, 7 d], then same
+           expiry-floor check as time-based intervals.
+        8. Time interval → True if elapsed since last fetch ≥ delta **OR** guide
            has fully expired (expiry floor — time intervals must never leave an
            empty "On Now").
         """
@@ -194,7 +201,7 @@ class EpgManager(QObject):
         # Resolve effective interval
         per_source = getattr(provider, "epg_refresh_interval", None) or "default"
         if per_source == "default":
-            effective = getattr(self.config, "epg_default_refresh_interval", "3d") or "3d"
+            effective = getattr(self.config, "epg_default_refresh_interval", "auto") or "auto"
         else:
             effective = per_source
 
@@ -206,6 +213,15 @@ class EpgManager(QObject):
 
         if effective == "when_stale":
             return guide_expired
+
+        if effective == "auto":
+            # Self-tuning: half the guide depth, clamped to [6 h, 7 d].
+            # Expiry floor still applies: refresh immediately when guide ran out.
+            if guide_expired:
+                return True
+            data_start = getattr(provider, "epg_data_start", None)
+            delta = epg_auto_delta(data_start, data_end)
+            return now_utc() - last_fetched >= delta
 
         # Time-based interval
         delta = epg_interval_delta(effective)
@@ -371,15 +387,22 @@ class EpgManager(QObject):
                     f"Parsing… {count:,} programmes",
                 )
 
+            # Phase 1: download — indeterminate (no Content-Length on most XMLTV feeds)
+            self._progress_update.emit(
+                notif_id or "", 0, -1, "Downloading guide…"
+            )
+
             # Parse the XMLTV feed
             channels, programmes = parse_xmltv_url(
                 epg_url, timeout=180,
                 on_progress=on_parse_progress if notif_id else None,
             )
             total_progs = len(programmes)
+
+            # Phase 2: channel matching — indeterminate (fast, no useful fraction)
             self._progress_update.emit(
-                notif_id or "", 0, total_progs,
-                f"Matching {total_progs:,} programmes to channels…"
+                notif_id or "", 0, -1,
+                f"Matching channels to your streams…"
             )
 
             # Build channel match map: epg_id → channel_db_id
@@ -389,15 +412,17 @@ class EpgManager(QObject):
             # later DB-only relink can fuzzy-match (tiers 2/3) without re-downloading.
             chan_name_map = {ch.epg_id: ch.display_name for ch in channels}
 
-            # Clear existing data — commit delete immediately so the write lock is released
-            # before the bulk insert begins.  Each insert batch is also committed
-            # separately so concurrent writers (provider loader, second EPG feed) can
-            # interleave rather than waiting 30-40 s for one giant transaction.
+            # Phase 3: clear old guide — indeterminate (one DELETE, fast)
             self._progress_update.emit(
-                notif_id or "", 0, total_progs, f"Saving {total_progs:,} programmes…"
+                notif_id or "", 0, -1, "Clearing old guide…"
             )
             session.query(EpgProgramDB).filter_by(provider_id=provider_id).delete()
             session.commit()  # release write lock before inserts start
+
+            # Phase 4: bulk insert — now we know total, switch to determinate
+            self._progress_update.emit(
+                notif_id or "", 0, total_progs, f"Saving {total_progs:,} programmes…"
+            )
 
             batch: list[EpgProgramDB] = []
             min_start: datetime | None = None
@@ -738,6 +763,29 @@ class EpgManager(QObject):
     # Notification timer
     # ------------------------------------------------------------------
 
+    def start_scheduler(self) -> None:
+        """Start the periodic refresh scheduler (1-hour tick).
+
+        The scheduler calls ``refresh_all_if_needed()`` on every tick.  The
+        per-provider ``needs_refresh`` throttle does all the real gating — this
+        timer is just the clock that makes sure we check while the app is running.
+
+        Safe to call multiple times: subsequent calls are no-ops.
+        """
+        if self._scheduler_timer is not None:
+            return
+        self._scheduler_timer = QTimer(self)
+        self._scheduler_timer.setInterval(self._SCHEDULER_INTERVAL_MS)
+        self._scheduler_timer.timeout.connect(self.refresh_all_if_needed)
+        self._scheduler_timer.start()
+        logger.info("EPG periodic refresh scheduler started (1-hour tick)")
+
+    def stop_scheduler(self) -> None:
+        """Stop the periodic refresh scheduler."""
+        if self._scheduler_timer:
+            self._scheduler_timer.stop()
+            self._scheduler_timer = None
+
     def start_notification_timer(self) -> None:
         """Start a 60-second repeating timer to check for watchlist shows starting soon."""
         if self._notification_timer is not None:
@@ -810,4 +858,5 @@ class EpgManager(QObject):
     def shutdown(self) -> None:
         """Clean up resources on app exit."""
         self.stop_notification_timer()
+        self.stop_scheduler()
         self._executor.shutdown(wait=False)

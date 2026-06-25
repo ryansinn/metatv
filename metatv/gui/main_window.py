@@ -394,6 +394,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # VOD watch-alert startup check — same deferred strategy as series_monitor.
         QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
 
+        # EPG startup refresh check — run after the event loop settles (2 s) so the
+        # channel list is loaded and the match map can be built correctly.  The
+        # per-provider needs_refresh() throttle handles all gating; this is the
+        # first poke so the app honors the configured interval from launch without
+        # requiring the user to open the EPG view.
+        QTimer.singleShot(2000, self.epg_manager.refresh_all_if_needed)
+
         logger.info("Main window initialized")
     
     def setup_ui(self):
@@ -1227,6 +1234,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._list_layout.addWidget(self.recipe_view)
 
         self.epg_manager.start_notification_timer()
+        # Periodic scheduler: poke refresh_all_if_needed every hour so long-running
+        # sessions honor the configured interval without requiring the EPG view to open.
+        # needs_refresh() does the real per-provider gating; this is just the clock tick.
+        self.epg_manager.start_scheduler()
         self.epg_manager.refresh_finished.connect(self._refresh_watch_alerts)
         # Recolor the sidebar EPG indicator (and clear its spinner) when a fetch ends.
         self.epg_manager.refresh_finished.connect(self._on_provider_epg_refreshed)
