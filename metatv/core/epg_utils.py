@@ -175,9 +175,11 @@ def progress_pct(start: datetime, stop: datetime, _now: datetime | None = None) 
 # global settings dropdown. All label/enum data lives here (one place).
 # ---------------------------------------------------------------------------
 
-# Ordered (value, human_label) pairs. "every_open" and "when_stale" are
-# sentinels; all others map to a timedelta via epg_interval_delta().
+# Ordered (value, human_label) pairs. "auto" self-tunes from guide depth;
+# "every_open" and "when_stale" are sentinels; all others map to a timedelta
+# via epg_interval_delta().
 EPG_INTERVAL_CHOICES: list[tuple[str, str]] = [
+    ("auto",       "Auto (recommended)"),
     ("every_open", "Every time EPG opens"),
     ("4h",         "Every 4 hours"),
     ("8h",         "Every 8 hours"),
@@ -199,19 +201,54 @@ _EPG_INTERVAL_DELTA_MAP: dict[str, timedelta] = {
     "7d":  timedelta(days=7),
 }
 
+# Auto-interval clamp bounds: never refresh more often than 6 h or less often
+# than 7 d, regardless of feed depth.
+EPG_AUTO_MIN_DELTA = timedelta(hours=6)
+EPG_AUTO_MAX_DELTA = timedelta(days=7)
+
+
+def epg_auto_delta(epg_data_start: "datetime | None",
+                   epg_data_end: "datetime | None") -> timedelta:
+    """Compute the Auto refresh interval from guide depth (half-depth, clamped).
+
+    Fetches at half the guide's depth so there is always ~50 % headroom
+    before the data runs out.  Clamped to [6 hours, 7 days] so a 1-hour toy
+    feed does not hammer the server and a month-long mega-feed still refreshes
+    at least weekly.
+
+    Args:
+        epg_data_start: Earliest programme start stored on the provider (UTC-naive).
+        epg_data_end:   Latest non-filler programme stop stored (UTC-naive).
+
+    Returns:
+        A :class:`~datetime.timedelta` — the computed refresh delta.
+    """
+    if epg_data_start is None or epg_data_end is None:
+        # No depth information yet — fall back to daily so a fresh provider
+        # does not wait a week before its first scheduled re-fetch.
+        return timedelta(days=1)
+    depth = epg_data_end - epg_data_start
+    half = depth / 2
+    if half < EPG_AUTO_MIN_DELTA:
+        return EPG_AUTO_MIN_DELTA
+    if half > EPG_AUTO_MAX_DELTA:
+        return EPG_AUTO_MAX_DELTA
+    return half
+
 
 def epg_interval_delta(value: str) -> timedelta | None:
     """Map an interval enum value to a timedelta.
 
-    Returns ``None`` for the two non-time sentinels (``"every_open"`` and
-    ``"when_stale"``). Callers should handle those branches explicitly
-    before calling this helper.
+    Returns ``None`` for the non-time sentinels (``"every_open"``,
+    ``"when_stale"``, and ``"auto"``).  Callers must handle those branches
+    explicitly before calling this helper (``"auto"`` → call
+    :func:`epg_auto_delta` instead).
 
     Args:
         value: One of the :data:`EPG_INTERVAL_CHOICES` values.
 
     Returns:
         A :class:`~datetime.timedelta` for time-based intervals, or ``None``
-        for ``"every_open"`` / ``"when_stale"``.
+        for ``"every_open"`` / ``"when_stale"`` / ``"auto"``.
     """
     return _EPG_INTERVAL_DELTA_MAP.get(value)

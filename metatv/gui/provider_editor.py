@@ -612,7 +612,10 @@ class ProviderEditorView(QWidget):
             self._epg_interval_combo.addItem(label, value)
         self._epg_interval_combo.setToolTip(
             "How often to re-fetch this provider's EPG guide. "
-            "'Use default' inherits the global setting from Settings → EPG refresh. "
+            "'Use default' inherits the global setting from Settings → EPG refresh "
+            "(the default is Auto). "
+            "'Auto' self-tunes: it refreshes at half the guide's depth, clamped to "
+            "6 hours – 7 days, so there is always guide headroom. "
             "'Only when data is stale' waits until the guide has fully expired."
         )
         form.addRow("Refresh interval:", self._epg_interval_combo)
@@ -747,11 +750,22 @@ class ProviderEditorView(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def _set_epg_status_label(self, epg_url, epg_data_end) -> None:
+    def _set_epg_status_label(self, epg_url, epg_data_end,
+                              epg_data_start=None) -> None:
         """Populate the EPG-guide status line from the provider's cached EPG fields.
 
-        Uses the canonical epg_is_stale boundary so this matches the EPG view notice."""
-        from metatv.core.epg_utils import epg_is_stale, to_local
+        When the effective refresh interval is Auto, also shows the guide depth and
+        the resolved interval so the user can see exactly what Auto computed.
+
+        Uses the canonical epg_is_stale boundary so this matches the EPG view notice.
+
+        Args:
+            epg_url:        Effective EPG URL (auto-detected or override).
+            epg_data_end:   Latest non-filler programme stop (UTC-naive).
+            epg_data_start: Earliest programme start (UTC-naive); used only for the
+                            Auto depth annotation.
+        """
+        from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, to_local
         if not epg_url:
             self._acct_epg_lbl.setText("Not configured")
             self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
@@ -770,7 +784,21 @@ class ProviderEditorView(QWidget):
             )
             self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_WARN};")
         else:
-            self._acct_epg_lbl.setText(f"Current — guide through {day}")
+            # Build auto-interval annotation when depth info is available.
+            auto_note = ""
+            if epg_data_start is not None and epg_data_end is not None:
+                depth = epg_data_end - epg_data_start
+                depth_days = depth.total_seconds() / 86400
+                resolved = epg_auto_delta(epg_data_start, epg_data_end)
+                resolved_hours = resolved.total_seconds() / 3600
+                if resolved_hours < 24:
+                    resolved_str = f"{resolved_hours:.0f}h"
+                else:
+                    resolved_str = f"{resolved_hours / 24:.0f}d"
+                auto_note = (
+                    f" · Auto: ~{depth_days:.0f}-day feed → refreshing ~every {resolved_str}"
+                )
+            self._acct_epg_lbl.setText(f"Current — guide through {day}{auto_note}")
             self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
 
     def load_provider(self, provider_id: str, force: bool = False):
@@ -854,7 +882,10 @@ class ProviderEditorView(QWidget):
                 "active_cons": db_prov.account_active_cons or 0,
                 "max_connections": db_prov.max_connections or 1,
             }, from_cache=True)
-            self._set_epg_status_label(db_prov.epg_url, db_prov.epg_data_end)
+            self._set_epg_status_label(
+                db_prov.epg_url, db_prov.epg_data_end,
+                epg_data_start=getattr(db_prov, "epg_data_start", None),
+            )
 
             self._rebuild_url_list()
             self._set_fields_enabled(True)

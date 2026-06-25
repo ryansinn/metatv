@@ -321,6 +321,8 @@ class SettingsDialog(QDialog):
         self._epg_interval_combo.setToolTip(
             "Default EPG guide refresh frequency for all providers. "
             "Individual providers can override this in their editor. "
+            "'Auto' (the default) self-tunes: it refreshes at half the guide depth, "
+            "clamped to 6 hours – 7 days, so there is always headroom. "
             "'Only when data is stale' waits until the guide has fully expired before re-fetching."
         )
         epg_form.addRow("EPG refresh:", self._epg_interval_combo)

@@ -178,9 +178,13 @@ class NotificationCard(QFrame):
             progress_layout = QHBoxLayout()
 
             self.progress_bar = QProgressBar()
-            self.progress_bar.setMaximum(100)
             if self.notification.progress is not None:
+                # Determinate: known fraction
+                self.progress_bar.setRange(0, 100)
                 self.progress_bar.setValue(int(self.notification.progress * 100))
+            else:
+                # Indeterminate: busy/marquee animation — no fraction known yet
+                self.progress_bar.setRange(0, 0)
             progress_layout.addWidget(self.progress_bar)
 
             layout.addLayout(progress_layout)
@@ -240,8 +244,16 @@ class NotificationCard(QFrame):
             self.message_label.setText(notification.message)
 
         # Update progress bar when present (all PROGRESS notifications).
-        if hasattr(self, 'progress_bar') and notification.progress is not None:
-            self.progress_bar.setValue(int(notification.progress * 100))
+        if hasattr(self, 'progress_bar'):
+            if notification.progress is not None:
+                # Switch to determinate mode and update value
+                if self.progress_bar.maximum() == 0:
+                    self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(int(notification.progress * 100))
+            else:
+                # Switch to indeterminate/busy mode (animated marquee)
+                if self.progress_bar.maximum() != 0:
+                    self.progress_bar.setRange(0, 0)
 
         if hasattr(self, 'progress_label'):
             if notification.progress_current is not None and notification.progress_total is not None:
