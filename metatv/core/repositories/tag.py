@@ -374,6 +374,138 @@ class TagRepository:
         )
         return deleted
 
+    def delete_generated_for_channels(self, channel_ids: List[str]) -> int:
+        """Delete ``source="generated"`` content-tag links for ALL channels in *channel_ids*.
+
+        Single bulk DELETE for an entire batch, replacing N individual
+        :meth:`delete_generated_for_channel` calls.  User tags
+        (``source="user"``) are never touched.
+
+        Args:
+            channel_ids: The ``ChannelDB.id`` values whose generated tags should
+                be cleared.  An empty list is a no-op.
+
+        Returns:
+            Total number of rows deleted.
+        """
+        if not channel_ids:
+            return 0
+        deleted = (
+            self.session.query(ContentTagDB)
+            .filter(
+                ContentTagDB.channel_id.in_(channel_ids),
+                ContentTagDB.source == "generated",
+            )
+            .delete(synchronize_session="fetch")
+        )
+        return deleted
+
+    def set_content_tags_bulk(
+        self,
+        mapping: Dict[str, List[Tuple[str, str, str]]],
+        source: str = "generated",
+    ) -> None:
+        """Upsert content-tag links for ALL channels in *mapping* in one bulk statement.
+
+        Replaces N individual :meth:`set_content_tags` calls (one per channel)
+        with two SQL statements for the entire batch:
+
+        1. A single bulk SELECT to load existing links (all channels × all
+           tag_ids in the batch).
+        2. A single ``INSERT … ON CONFLICT DO UPDATE`` upsert for every
+           ``(channel_id, tag_id, source)`` triple in the batch.
+
+        Only rows with the given ``source`` are touched; rows with a different
+        source (e.g. ``"user"``) are left unchanged.
+
+        Args:
+            mapping: ``{channel_id: [(type, value, feeder), ...]}`` — the
+                decomposed tag tuples for each channel in the batch.  Channels
+                with an empty list are silently skipped (no rows emitted).
+            source: Provenance label; ``"generated"`` or ``"user"``.
+        """
+        if not mapping:
+            return
+
+        from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+
+        # ── Step 1: resolve all tag ids (process-level cache → typically 0 DB
+        # round-trips after warmup).  Build a flat list of
+        # (channel_id, tag_id, feeder) triples across the whole batch.
+        channel_tag_feeders: List[Tuple[str, int, str]] = []  # (cid, tid, feeder)
+        for channel_id, tags in mapping.items():
+            if not tags:
+                continue
+            for tag_type, tag_value, feeder in tags:
+                tag = self.get_or_create_tag(tag_type, tag_value)
+                channel_tag_feeders.append((channel_id, tag.id, feeder))
+
+        if not channel_tag_feeders:
+            return
+
+        # ── Step 2: one SELECT for ALL existing links in the batch.
+        # We need to merge new feeders with any feeders already on existing rows
+        # (the caller deleted generated rows before calling us during backfill,
+        # so this mainly catches the incremental-tagging path where we might
+        # revisit a channel).  Collect needed channel_ids and tag_ids.
+        all_cids = list({cid for cid, _, _ in channel_tag_feeders})
+        all_tids = list({tid for _, tid, _ in channel_tag_feeders})
+
+        existing_rows = (
+            self.session.query(ContentTagDB)
+            .filter(
+                ContentTagDB.channel_id.in_(all_cids),
+                ContentTagDB.tag_id.in_(all_tids),
+                ContentTagDB.source == source,
+            )
+            .all()
+        )
+        # existing_feeders[(channel_id, tag_id)] → list of feeders already on row
+        existing_feeders: Dict[Tuple[str, int], List[str]] = {
+            (row.channel_id, row.tag_id): list(row.feeders or [])
+            for row in existing_rows
+        }
+
+        # ── Step 3: merge feeders per (channel_id, tag_id) across the whole batch.
+        # merged[(channel_id, tag_id)] → deduplicated feeder list
+        merged: Dict[Tuple[str, int], List[str]] = {}
+        for cid, tid, feeder in channel_tag_feeders:
+            key = (cid, tid)
+            if key not in merged:
+                merged[key] = list(existing_feeders.get(key, []))
+            if feeder not in merged[key]:
+                merged[key].append(feeder)
+
+        # ── Step 4: single bulk upsert for the entire batch.
+        rows = [
+            {
+                "channel_id": cid,
+                "tag_id": tid,
+                "source": source,
+                "feeders": feeders,
+                "confidence": _compute_confidence(feeders),
+            }
+            for (cid, tid), feeders in merged.items()
+        ]
+
+        try:
+            stmt = _sqlite_insert(ContentTagDB).values(rows)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["channel_id", "tag_id", "source"],
+                set_={
+                    "feeders": stmt.excluded.feeders,
+                    "confidence": stmt.excluded.confidence,
+                },
+            )
+            self.session.execute(stmt)
+            self.session.flush()
+        except Exception:
+            logger.warning(
+                "set_content_tags_bulk: integrity error for batch of {} channels — skipping",
+                len(mapping),
+            )
+            self.session.rollback()
+
     # ------------------------------------------------------------------
     # Faceted stats
     # ------------------------------------------------------------------

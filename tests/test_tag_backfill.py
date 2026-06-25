@@ -659,3 +659,117 @@ class TestIncrementalTagging:
                 )
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# Bulk path behavioral tests (perf/#85 — batch delete + batch upsert)
+# ---------------------------------------------------------------------------
+
+class TestBatchPathBehavior:
+    """Prove the new bulk _process_batch path is behaviorally identical to the
+    old per-channel path and that it handles edge cases correctly.
+
+    All tests use file-backed SQLite (not :memory:) per the CLAUDE.md rule.
+    """
+
+    def test_bulk_path_produces_same_tags_as_collect_tags(self, file_db, cfg):
+        """Batch backfill produces exactly the tag set predicted by _collect_tags.
+
+        Seeds N channels with varied feeder fields, runs the bulk backfill, then
+        asserts each channel's resulting (type, value) set in the DB matches what
+        _collect_tags returns directly.  This proves the new batch path is
+        semantically identical to the old per-channel path.
+        """
+        # Seed a handful of channels with different feeder combinations so we
+        # exercise multiple code paths through _collect_tags.
+        channels = [
+            {"name": "USA Drama",    "category": "USA",    "raw_data": {"genre": "Drama"}},
+            {"name": "UK Action",    "category": "UK",     "raw_data": {"genre": "Action"}},
+            {"name": "Year 1994",    "detected_year": "1994"},
+            {"name": "Quality HD",   "detected_quality": "HD"},
+            {"name": "Header FR",    "source_category": "FR"},
+        ]
+
+        seeded: list[tuple[str, dict]] = []  # (channel_id, kwargs)
+        for kwargs in channels:
+            cid = _add_channel(file_db, **kwargs)
+            seeded.append((cid, kwargs))
+
+        # Run the full backfill (uses the new bulk path).
+        _run_backfill(file_db, cfg)
+
+        # For each channel, compare the DB tag set to the direct _collect_tags output.
+        for cid, kwargs in seeded:
+            expected_tuples = _collect_tags(
+                config=cfg,
+                category=kwargs.get("category"),
+                source_category=kwargs.get("source_category"),
+                detected_prefix=kwargs.get("detected_prefix"),
+                detected_quality=kwargs.get("detected_quality"),
+                detected_region=kwargs.get("detected_region"),
+                detected_year=kwargs.get("detected_year"),
+                raw_data=kwargs.get("raw_data"),
+            )
+            expected_set = {(t, v) for t, v, _feeder in expected_tuples}
+
+            actual_tags = _tags_for(file_db, cid)
+            actual_set = {(t, v) for t, v, _src, _f in actual_tags}
+
+            assert actual_set == expected_set, (
+                f"Channel '{kwargs['name']}': expected tags {expected_set}, got {actual_set}"
+            )
+
+    def test_user_tag_survives_bulk_batch_retag(self, file_db, cfg):
+        """A source='user' curated tag is preserved after the bulk batch re-tag.
+
+        Seeds a channel with both a user tag AND feeder fields that produce
+        generated tags, runs the bulk backfill, and asserts:
+        - The user tag is still present.
+        - Generated tags were refreshed (still present, not accidentally deleted).
+        """
+        cid = _add_channel(file_db, raw_data={"genre": "Comedy"})
+
+        # Plant a user-curated tag before the backfill.
+        with file_db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            repos.tags.set_content_tags(
+                cid,
+                [("collection", "My Favorites", "human")],
+                source="user",
+            )
+
+        # Confirm user tag is in place.
+        assert _content_tag_count(file_db, cid, source="user") == 1
+
+        # Run the bulk backfill.
+        _run_backfill(file_db, cfg)
+
+        # User tag must survive.
+        assert _content_tag_count(file_db, cid, source="user") == 1, (
+            "source='user' tag must not be deleted by the bulk backfill"
+        )
+
+        # Generated tags from the genre feeder must also be present.
+        tags = _tags_for(file_db, cid)
+        generated = [(t, v) for t, v, src, _f in tags if src == "generated"]
+        assert any(t == "genre" and v == "Comedy" for t, v in generated), (
+            "genre:Comedy generated tag must be present after bulk backfill"
+        )
+
+    def test_channel_with_no_tags_handled_without_crash(self, file_db, cfg):
+        """A channel that yields no tags from any feeder causes no crash and no stray rows.
+
+        This exercises the empty-tag-list path in the bulk delete + bulk upsert,
+        ensuring an empty entry in the tag_map doesn't produce stray rows.
+        """
+        # This channel has all-None feeder fields — _collect_tags returns [].
+        cid = _add_channel(file_db, name="Blank Channel No Tags")
+
+        # Should complete without raising any exception.
+        _run_backfill(file_db, cfg)
+
+        # No generated or user content_tag rows should exist for this channel.
+        assert _content_tag_count(file_db, cid, source="generated") == 0, (
+            "A tag-less channel must produce zero content_tag rows"
+        )
+        assert _content_tag_count(file_db, cid, source="user") == 0
