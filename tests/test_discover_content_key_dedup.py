@@ -373,7 +373,13 @@ class TestBgFetchVersionsContentKeyPath:
         db.close()
 
     def test_disabled_provider_excluded_in_content_key_path(self, tmp_path):
-        """Even with a matching content_key, a variant on a disabled provider is excluded."""
+        """A variant on a disabled provider with matching content_key appears as is_inactive=True.
+
+        Source-picker chips show ALL variants (including inactive) so the user can
+        opt into an inactive source explicitly (mirror-not-cage).  Inactive variants
+        are marked is_inactive=True and rendered dimmed with a 'Reactivate & play'
+        affordance rather than hidden entirely.
+        """
         db = _make_db(tmp_path)
 
         with db.session_scope() as session:
@@ -394,12 +400,19 @@ class TestBgFetchVersionsContentKeyPath:
 
         assert obj._emitted
         _, versions = obj._emitted[0]
-        version_ids = {v.channel_id for v in versions}
+        version_map = {v.channel_id: v for v in versions}
 
-        assert "ch-dead" not in version_ids, (
-            "Variant on disabled provider must be excluded even when content_key matches"
+        # Inactive-source variant IS included but flagged is_inactive=True
+        assert "ch-dead" in version_map, (
+            "Inactive-source variant must be included in version chips (dimmed, with reactivate affordance)"
         )
-        assert "ch-ok" in version_ids, "Active-provider variant must still appear"
+        assert version_map["ch-dead"].is_inactive is True, (
+            "Variant on disabled provider must be marked is_inactive=True even when content_key matches"
+        )
+        assert "ch-ok" in version_map, "Active-provider variant must still appear"
+        assert version_map["ch-ok"].is_inactive is False, (
+            "Active-provider variant must have is_inactive=False"
+        )
 
         db.close()
 

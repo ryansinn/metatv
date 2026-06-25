@@ -107,7 +107,9 @@ class _MetadataMixin:
                 ck = channel.content_key if not is_live else None  # content_key not used for live
 
                 if is_live:
-                    # Live channels: always use normalize_title matching (no content_key path)
+                    # Live channels: always use normalize_title matching (no content_key path).
+                    # Include ALL providers (active and inactive) — inactive are marked so
+                    # the source-picker chip can display them dimmed with a reactivate affordance.
                     norm = normalize_title(channel.name, channel.detected_prefix)
                     if not norm:
                         self._versions_loaded.emit(channel_id, [])
@@ -125,19 +127,16 @@ class _MetadataMixin:
                     versions_raw = [
                         ch for ch in candidates
                         if normalize_title(ch.name, ch.detected_prefix) == norm
-                        and ch.provider_id not in hidden_provider_ids
                     ]
                 elif ck:
                     # VOD/series — primary path: group by stored content_key (indexed).
-                    # content_key already encodes the year policy so NO additional
-                    # _version_years_compatible guard is applied here — same key IS
-                    # the compatibility decision.
+                    # Include ALL providers (active and inactive) for the source-picker chips;
+                    # inactive ones are marked is_inactive so the chip renders them dimmed.
                     versions_raw = (
                         session.query(ChannelDB)
                         .filter(
                             ChannelDB.content_key == ck,
                             ChannelDB.id != channel_id,
-                            ~ChannelDB.provider_id.in_(hidden_provider_ids),
                         )
                         .all()
                     )
@@ -165,13 +164,16 @@ class _MetadataMixin:
                         ch for ch in candidates
                         if normalize_title(ch.name, ch.detected_prefix) == current_norm
                         and _version_years_compatible(ch.name, channel.name)
-                        and ch.provider_id not in hidden_provider_ids
                     ]
 
+                # Score only active-source versions for preferred selection (inactive
+                # sources can't be "preferred" — they're off by user choice)
                 current_score = _version_score(channel, self.config)
                 best_score = current_score
                 best_ch = None
                 for ch in versions_raw:
+                    if ch.provider_id in hidden_provider_ids:
+                        continue
                     s = _version_score(ch, self.config)
                     if s > best_score:
                         best_score = s
@@ -185,6 +187,8 @@ class _MetadataMixin:
                         detected_prefix=ch.detected_prefix,
                         detected_title=ch.detected_title,
                         detected_year=ch.detected_year,
+                        detected_quality=ch.detected_quality,
+                        detected_region=ch.detected_region,
                         is_preferred=(ch is best_ch),
                         is_filtered=_is_filtered(ch) if not ch.is_hidden else False,
                         is_hidden=bool(ch.is_hidden),
@@ -192,10 +196,13 @@ class _MetadataMixin:
                         is_favorite=bool(ch.is_favorite),
                         in_history=bool(ch.play_count),
                         provider_name=provider_names.get(ch.provider_id),
+                        provider_id=ch.provider_id,
+                        is_inactive=ch.provider_id in hidden_provider_ids,
                     )
                     for ch in versions_raw
                 ]
                 versions.sort(key=lambda v: (
+                    v.is_inactive,          # active providers first
                     v.is_hidden,
                     v.is_filtered,
                     -_version_score(

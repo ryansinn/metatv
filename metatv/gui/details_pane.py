@@ -34,6 +34,7 @@ class DetailsPaneWidget(QWidget):
 
     # Public signals — wired by main_window (unchanged API)
     play_requested             = pyqtSignal(str)        # channel_id
+    play_version_requested     = pyqtSignal(str)        # channel_id — play a specific source variant
     favorite_toggled           = pyqtSignal(str)        # channel_id
     monitor_toggled            = pyqtSignal(str)        # channel_id (series monitor toggle)
     queue_toggled              = pyqtSignal(str)        # channel_id
@@ -42,7 +43,7 @@ class DetailsPaneWidget(QWidget):
     hide_requested             = pyqtSignal(str)        # channel_id
     unhide_requested           = pyqtSignal(str)        # channel_id
     channel_versions_requested = pyqtSignal(str)        # channel_id
-    version_selected           = pyqtSignal(str)        # channel_id
+    version_selected           = pyqtSignal(str)        # channel_id — show details
     prefix_block_requested     = pyqtSignal(str)        # prefix
     prefix_unblock_requested   = pyqtSignal(str)        # prefix
     prefix_name_saved          = pyqtSignal(str, str)   # prefix, name
@@ -83,7 +84,7 @@ class DetailsPaneWidget(QWidget):
         self._provider_map = provider_map
 
     def set_versions(self, versions: list[ChannelVersion]) -> None:
-        self._versions.load(versions)
+        self._versions.load(versions, provider_map=self._provider_map)
 
     def set_similar_titles(self, titles: list[ChannelVersion]) -> None:
         origin = self.current_channel.name if self.current_channel else ""
@@ -227,6 +228,7 @@ class DetailsPaneWidget(QWidget):
         # Version chips
         v = self._versions
         v.version_selected.connect(self.version_selected)
+        v.play_version_requested.connect(self.play_version_requested)
         v.favorite_toggled.connect(self.favorite_toggled)
         v.queue_toggled.connect(self.queue_toggled)
         v.hide_requested.connect(self.hide_requested)
