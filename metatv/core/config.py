@@ -873,6 +873,9 @@ class Config(BaseModel):
     qa_step_results: dict = Field(default_factory=dict)
     qa_verified_id: int = 0
     qa_archived_ids: list = Field(default_factory=list)
+    # qa_archived_collapsed: persist the Archived section collapse state.
+    #   True (default) = hidden; False = expanded.
+    qa_archived_collapsed: bool = True
 
     # Source refresh behaviour
     # When True (default), "Refresh All" enqueues every source including ones the

@@ -62,11 +62,13 @@ class _FakeConfig:
         qa_verified_id: int = 0,
         qa_step_results: dict | None = None,
         qa_archived_ids: list | None = None,
+        qa_archived_collapsed: bool = True,
         config_dir: Path | None = None,
     ) -> None:
         self.qa_verified_id = qa_verified_id
         self.qa_step_results: dict = qa_step_results or {}
         self.qa_archived_ids: list = qa_archived_ids or []
+        self.qa_archived_collapsed: bool = qa_archived_collapsed
         self.config_dir = config_dir or Path("/tmp")
         self.save_calls: int = 0
 
@@ -751,3 +753,96 @@ def test_config_qa_archived_ids_round_trip(tmp_path):
     loaded = Config(**data)
 
     assert loaded.qa_archived_ids == [10, 23, 47]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 15. Archived section — collapsible (Commit 1, issue #92)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_archived_section_defaults_collapsed(qapp, tmp_path):
+    """Archived section _qa_collapsed flag must be True when qa_archived_collapsed=True."""
+    entries = [_entry(300, steps=("step A",))]
+    config = _FakeConfig(
+        qa_step_results={"300": {"0": _pass_rec()}},
+        qa_archived_ids=[300],
+        qa_archived_collapsed=True,
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    assert win._archived_container is not None, "archived_container must exist"
+    # Use the explicit flag rather than isVisible(), which is unreliable in
+    # headless test environments (parent window never shown → always False).
+    assert getattr(win._archived_container, "_qa_collapsed", None) is True, (
+        "archived container _qa_collapsed must be True when qa_archived_collapsed=True"
+    )
+
+
+def test_archived_section_expands_when_collapsed_false(qapp, tmp_path):
+    """Archived section _qa_collapsed flag must be False when qa_archived_collapsed=False."""
+    entries = [_entry(301, steps=("step A",))]
+    config = _FakeConfig(
+        qa_step_results={"301": {"0": _pass_rec()}},
+        qa_archived_ids=[301],
+        qa_archived_collapsed=False,
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    assert win._archived_container is not None
+    assert getattr(win._archived_container, "_qa_collapsed", None) is False, (
+        "archived container _qa_collapsed must be False when qa_archived_collapsed=False"
+    )
+
+
+def test_archived_toggle_flips_collapsed_state_and_persists(qapp, tmp_path):
+    """Clicking the archived toggle flips qa_archived_collapsed and saves."""
+    entries = [_entry(302, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"302": {"0": _pass_rec()}},
+        qa_archived_ids=[302],
+        qa_archived_collapsed=True,   # start collapsed
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    prior_saves = config.save_calls
+
+    # Simulate click via the toggle button.
+    assert win._archived_toggle_btn is not None
+    win._archived_toggle_btn.click()
+
+    # _qa_collapsed flag now False; config persisted.
+    assert getattr(win._archived_container, "_qa_collapsed", True) is False, (
+        "_qa_collapsed must be False after expanding"
+    )
+    assert config.qa_archived_collapsed is False
+    assert config.save_calls > prior_saves
+
+
+def test_archived_toggle_re_collapses(qapp, tmp_path):
+    """A second toggle click re-collapses the archived section."""
+    entries = [_entry(303, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"303": {"0": _pass_rec()}},
+        qa_archived_ids=[303],
+        qa_archived_collapsed=False,  # start expanded
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    # Click once → collapse.
+    win._archived_toggle_btn.click()
+    assert getattr(win._archived_container, "_qa_collapsed", False) is True
+    assert config.qa_archived_collapsed is True
+
+
+def test_archived_section_absent_when_no_archived_entries(qapp, tmp_path):
+    """With no archived entries the archived container should not be rendered."""
+    entries = [_entry(304, steps=("step",))]
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+
+    assert win._archived_container is None, (
+        "archived_container must be None when there are no archived entries"
+    )
+

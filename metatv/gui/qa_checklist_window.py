@@ -46,6 +46,14 @@ Enhancement — PR# links
 A single background QThread resolves each open entry's source file → PR number
 (``git log``) and derives the GitHub base URL from the remote, then updates the
 header labels.  No subprocess runs on the UI thread.
+
+Archived section (collapsible)
+------------------------------
+Individually-archived entries are shown in a collapsible "Archived (N)" group
+at the bottom of the body.  The group is **collapsed by default** (state
+``config.qa_archived_collapsed = True``) to avoid horizontal-scroll bulk.
+Clicking the toggle button shows/hides the archived rows and persists the state.
+
 """
 
 from __future__ import annotations
@@ -543,6 +551,9 @@ class QAChecklistWindow(QWidget):
         self._sha_worker: _HeadShaWorker | None = None
         self._log_workers: list[_LogSnapshotWorker] = []   # keep refs alive until done
         self._current_sha: str = ""
+        # Archived section collapse: toggle button + container (rebuilt on refresh)
+        self._archived_toggle_btn: QPushButton | None = None
+        self._archived_container: QWidget | None = None
 
         self.setWindowTitle("Testing Checklist")
         self.setMinimumWidth(560)
@@ -716,6 +727,8 @@ class QAChecklistWindow(QWidget):
         self._step_buttons.clear()
         self._note_edits.clear()
         self._ref_labels.clear()
+        self._archived_toggle_btn = None
+        self._archived_container = None
 
     def _refresh(self) -> None:
         """Rebuild the body from current config state."""
@@ -772,14 +785,23 @@ class QAChecklistWindow(QWidget):
 
         self._body_layout.addWidget(container)
 
-    def _render_entry(self, entry, *, archived: bool = False) -> None:
+    def _render_entry(
+        self,
+        entry,
+        *,
+        archived: bool = False,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render one entry block: header + per-step tri-state rows.
 
         Args:
             entry: The WhatsNewEntry to render.
             archived: When True the entry is rendered in compact read-only form
                 inside the archived section (no step rows; Unarchive button only).
+            parent_layout: Layout to append widgets to.  Defaults to
+                ``self._body_layout`` when ``None``.
         """
+        layout = parent_layout if parent_layout is not None else self._body_layout
         n_total = len(entry.test_steps)
         n_pass = self._entry_pass_count(entry)
         has_failure = self._entry_has_failure(entry)
@@ -842,7 +864,7 @@ class QAChecklistWindow(QWidget):
             )
             header_layout.addWidget(unarchive_btn)
 
-        self._body_layout.addWidget(header_widget)
+        layout.addWidget(header_widget)
 
         if archived:
             return
@@ -850,14 +872,22 @@ class QAChecklistWindow(QWidget):
         # ── per-step tri-state rows ───────────────────────────────────────────
         self._step_buttons[entry.id] = {}
         for idx, step in enumerate(entry.test_steps):
-            self._render_step_row(entry, idx, step)
+            self._render_step_row(entry, idx, step, parent_layout=layout)
 
         spacer = QWidget()
         spacer.setFixedHeight(6)
-        self._body_layout.addWidget(spacer)
+        layout.addWidget(spacer)
 
-    def _render_step_row(self, entry, idx: int, step: str) -> None:
+    def _render_step_row(
+        self,
+        entry,
+        idx: int,
+        step: str,
+        *,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render a single step's row: pass/fail buttons + label + fail comment."""
+        layout = parent_layout if parent_layout is not None else self._body_layout
         state = self._step_state(entry.id, idx)
         rec = self._step_record(entry.id, idx)
 
@@ -908,14 +938,22 @@ class QAChecklistWindow(QWidget):
             row_layout.addWidget(stale_lbl, alignment=Qt.AlignmentFlag.AlignTop)
 
         self._step_buttons[entry.id][idx] = (pass_btn, fail_btn)
-        self._body_layout.addWidget(row)
+        layout.addWidget(row)
 
         # Fail comment area — only present when the step is failed.
         if state == "fail":
-            self._render_fail_comment(entry.id, idx, rec or {})
+            self._render_fail_comment(entry.id, idx, rec or {}, parent_layout=layout)
 
-    def _render_fail_comment(self, entry_id: int, idx: int, rec: dict) -> None:
+    def _render_fail_comment(
+        self,
+        entry_id: int,
+        idx: int,
+        rec: dict,
+        *,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render the inline comment box + attach controls for a failed step."""
+        layout = parent_layout if parent_layout is not None else self._body_layout
         container = QWidget()
         clayout = QVBoxLayout(container)
         clayout.setContentsMargins(40, 2, 0, 6)
@@ -968,29 +1006,90 @@ class QAChecklistWindow(QWidget):
 
         chips_layout.addStretch(1)
         clayout.addWidget(chips_row)
-        self._body_layout.addWidget(container)
+        layout.addWidget(container)
 
     def _render_archived_section(self, archived: list) -> None:
-        """Render an 'Archived (N)' section at the bottom of the body."""
+        """Render a collapsible 'Archived (N)' section at the bottom of the body.
+
+        The section is collapsed by default (``config.qa_archived_collapsed = True``).
+        The toggle button uses ``icons.collapse_icon`` when expanded and
+        ``icons.expand_icon`` when collapsed — never the ordering arrows.
+        """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
         self._body_layout.addWidget(sep)
 
+        # ── header row with toggle ────────────────────────────────────────────
+        collapsed: bool = getattr(self._config, "qa_archived_collapsed", True)
+
+        hdr_row = QWidget()
+        hdr_layout = QHBoxLayout(hdr_row)
+        hdr_layout.setContentsMargins(0, 6, 0, 4)
+        hdr_layout.setSpacing(6)
+
+        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
+        toggle_btn = QPushButton(toggle_icon)
+        toggle_btn.setToolTip(
+            "Show archived entries" if collapsed else "Hide archived entries"
+        )
+        toggle_btn.setFixedWidth(24)
+        toggle_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}"
+        )
+        self._archived_toggle_btn = toggle_btn
+        hdr_layout.addWidget(toggle_btn)
+
         section_hdr = QLabel(f"Archived ({len(archived)})")
         section_hdr.setStyleSheet(
             f"font-size: {_theme.FONT_SM}; font-weight: bold;"
             f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;"
-            f" padding: 8px 0 4px 0;"
         )
-        self._body_layout.addWidget(section_hdr)
+        hdr_layout.addWidget(section_hdr, stretch=1)
+        self._body_layout.addWidget(hdr_row)
+
+        # ── collapsible container ─────────────────────────────────────────────
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        self._archived_container = container
 
         for entry in archived:
-            self._render_entry(entry, archived=True)
+            self._render_entry(entry, archived=True, parent_layout=container_layout)
             inner_sep = QFrame()
             inner_sep.setFrameShape(QFrame.Shape.HLine)
             inner_sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
-            self._body_layout.addWidget(inner_sep)
+            container_layout.addWidget(inner_sep)
+
+        # Track the hidden attribute explicitly — Qt's isVisible() returns False
+        # on widgets inside non-shown parent windows (common in headless tests).
+        container.setVisible(not collapsed)
+        container._qa_collapsed = collapsed   # type: ignore[attr-defined]
+        self._body_layout.addWidget(container)
+
+        # Wire toggle after container is wired so the lambda captures it safely.
+        def _on_toggle() -> None:
+            # Use the explicit _qa_collapsed flag, not isVisible(), so the toggle
+            # works correctly in headless test environments too.
+            current_collapsed: bool = getattr(
+                self._archived_container, "_qa_collapsed", True
+            )
+            want_collapsed = not current_collapsed
+            self._archived_container.setVisible(not want_collapsed)
+            self._archived_container._qa_collapsed = want_collapsed   # type: ignore[attr-defined]
+            self._archived_toggle_btn.setText(
+                _icons.expand_icon if want_collapsed else _icons.collapse_icon
+            )
+            self._archived_toggle_btn.setToolTip(
+                "Show archived entries" if want_collapsed else "Hide archived entries"
+            )
+            self._config.qa_archived_collapsed = want_collapsed
+            self._config.save()
+            logger.debug("QA checklist: archived section collapsed={}", want_collapsed)
+
+        toggle_btn.clicked.connect(_on_toggle)
 
     # ── git ref + sha lookups ─────────────────────────────────────────────────
 
