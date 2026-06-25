@@ -34,44 +34,61 @@ class _TaskRow(QWidget):
         self.task_id = task_id
         self._done = False
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(6)
+        # Two-line row so a long task label is never squeezed by the bar:
+        #   line 1 — [glyph]  label  (label gets the full panel width)
+        #   line 2 —          [────── progress bar ──────]  pct%
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 3, 0, 3)
+        outer.setSpacing(3)
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(6)
 
         self._glyph = QLabel(_icons.migration_pending_icon)
         self._glyph.setFixedWidth(14)
-        self._glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._glyph.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self._glyph.setToolTip("Migration in progress")
         self._glyph.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
-        layout.addWidget(self._glyph)
+        top.addWidget(self._glyph)
 
         self._label = QLabel(label)
         self._label.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM};")
+        self._label.setWordWrap(True)            # wrap rather than clip long labels
+        self._label.setToolTip(label)
         self._label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
-        layout.addWidget(self._label)
+        top.addWidget(self._label, 1)
+        outer.addLayout(top)
+
+        bottom = QHBoxLayout()
+        bottom.setContentsMargins(20, 0, 0, 0)   # indent under the label, past the glyph column
+        bottom.setSpacing(6)
 
         self._bar = QProgressBar()
         self._bar.setMinimum(0)
         self._bar.setMaximum(0)  # indeterminate until first progress_cb fires
         self._bar.setValue(0)
-        self._bar.setFixedWidth(100)
         self._bar.setFixedHeight(8)
         self._bar.setTextVisible(False)
+        self._bar.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._bar.setToolTip("Migration progress")
         self._bar.setStyleSheet(
             f"QProgressBar {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px;"
             f" background: {_theme.COLOR_LINE}; }}"
             f"QProgressBar::chunk {{ background: {_theme.COLOR_ACCENT_BLUE}; border-radius: 2px; }}"
         )
-        layout.addWidget(self._bar)
+        bottom.addWidget(self._bar, 1)
 
         self._pct = QLabel("")
-        self._pct.setFixedWidth(32)
+        self._pct.setFixedWidth(36)
         self._pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._pct.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};")
-        layout.addWidget(self._pct)
+        bottom.addWidget(self._pct)
+        outer.addLayout(bottom)
 
     # ── Slots called by MigrationProgressWidget ─────────────────────────────
 
@@ -166,7 +183,7 @@ class MigrationProgressWidget(QFrame):
 
         # Task rows are added dynamically in on_task_started
         self._rows_container = QVBoxLayout()
-        self._rows_container.setSpacing(2)
+        self._rows_container.setSpacing(6)
         self._outer.addLayout(self._rows_container)
 
     # ── Public slots (connect MigrationManager signals here) ────────────────
