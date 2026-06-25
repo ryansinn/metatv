@@ -545,9 +545,9 @@ class QAChecklistWindow(QWidget):
         self._current_sha: str = ""
 
         self.setWindowTitle("Testing Checklist")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(560)
         self.setMinimumHeight(200)
-        self.resize(500, 580)
+        self.resize(720, 600)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -588,6 +588,9 @@ class QAChecklistWindow(QWidget):
         # ── scrollable body ───────────────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        # Never scroll horizontally — fail-note boxes / step rows wrap to the
+        # viewport width instead of forcing a horizontal scrollbar or a resize.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
