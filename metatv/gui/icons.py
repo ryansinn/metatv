@@ -155,6 +155,8 @@ qa_pass_icon: str = "✓"            # U+2713 CHECK MARK — mark a step PASSED 
 qa_fail_icon: str = "✗"            # U+2717 BALLOT X — mark a step FAILED (tri-state)
 qa_attach_icon: str = "📎"         # Attach a screenshot to a failed step
 qa_stale_icon: str = "⚠"           # Newer build available — re-test hint
+qa_flag_icon: str = "🚩"            # Flagged Items section header + add-item indicator
+qa_triaged_icon: str = "✔"         # U+2714 HEAVY CHECK MARK — flagged item triaged status
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [

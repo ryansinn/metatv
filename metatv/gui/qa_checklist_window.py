@@ -46,6 +46,24 @@ Enhancement — PR# links
 A single background QThread resolves each open entry's source file → PR number
 (``git log``) and derives the GitHub base URL from the remote, then updates the
 header labels.  No subprocess runs on the UI thread.
+
+Archived section (collapsible)
+------------------------------
+Individually-archived entries are shown in a collapsible "Archived (N)" group
+at the bottom of the body.  The group is **collapsed by default** (state
+``config.qa_archived_collapsed = True``) to avoid horizontal-scroll bulk.
+Clicking the toggle button shows/hides the archived rows and persists the state.
+
+Flagged Items section
+---------------------
+A persistent, open-ended capture section where the tester records observations
+that fall outside any specific PR's test_steps.  Items have a title, free-text
+notes (with pasted-screenshot capture via ``_FailNoteEdit``), optional
+attachments, and an open / triaged status toggle.
+
+Items are persisted in ``config.qa_flagged_items`` (list of dicts).  Whenever
+items change the ``<config_dir>/qa_flagged_items.md`` digest is re-written —
+the file a future session reads to triage items into tasks/PRs.
 """
 
 from __future__ import annotations
@@ -55,6 +73,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -68,6 +87,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -408,6 +428,81 @@ def _write_failures_digest(
         return ""
 
 
+# ── flagged items digest (Markdown) ──────────────────────────────────────────
+
+def _build_flagged_digest(config: "Config") -> str:
+    """Build the Markdown digest of all tester-flagged items.
+
+    Each item lists its title, note, attachment paths, build_sha, timestamp,
+    and status.  The header explains these are tester-flagged observations
+    queued for triage into tasks/PRs.  When there are no items the body is a
+    short "No flagged items." note (the file is written, never deleted).
+
+    Args:
+        config: App config (reads ``qa_flagged_items``).
+
+    Returns:
+        The full Markdown document as a string.
+    """
+    items: list[dict] = getattr(config, "qa_flagged_items", []) or []
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    header = [
+        "# QA Flagged Items",
+        "",
+        "_Tester-flagged observations queued for triage into tasks/PRs._",
+        "",
+        f"_Generated {now} · {len(items)} item(s)_",
+        "",
+    ]
+
+    if not items:
+        return "\n".join(header + ["No flagged items.", ""])
+
+    blocks: list[str] = []
+    for item in items:
+        status = item.get("status", "open")
+        title = item.get("title", "").strip() or "_(untitled)_"
+        note = (item.get("note", "") or "").strip() or "_(no note)_"
+        sha = item.get("build_sha", "") or "?"
+        created = item.get("created", "") or "?"
+        attachments = item.get("attachments") or []
+
+        lines = [
+            f"### {title}",
+            "",
+            f"- **Status:** {status}",
+            f"- **Flagged:** `{created}` on build `{sha}`",
+            f"- **Note:** {note}",
+        ]
+        if attachments:
+            lines.append("- **Screenshots:**")
+            lines.extend(f"    - `{p}`" for p in attachments)
+        else:
+            lines.append("- **Screenshots:** none")
+        lines.append("")
+        blocks.append("\n".join(lines))
+
+    return "\n".join(header + blocks)
+
+
+def _write_flagged_digest(config: "Config") -> str:
+    """Render and write ``<config_dir>/qa_flagged_items.md``; return its path.
+
+    Always writes the file (even with zero items — never deleted).  Errors are
+    logged and swallowed; an empty string is returned on failure.
+    """
+    try:
+        text = _build_flagged_digest(config)
+        dest = _config_dir(config) / "qa_flagged_items.md"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+        return str(dest)
+    except Exception:  # noqa: BLE001
+        logger.debug("qa_checklist: failed to write flagged items digest")
+        return ""
+
+
 # ── background workers ────────────────────────────────────────────────────────
 
 class _GitRefWorker(QThread):
@@ -543,6 +638,13 @@ class QAChecklistWindow(QWidget):
         self._sha_worker: _HeadShaWorker | None = None
         self._log_workers: list[_LogSnapshotWorker] = []   # keep refs alive until done
         self._current_sha: str = ""
+        # Archived section collapse: toggle button + container (rebuilt on refresh)
+        self._archived_toggle_btn: QPushButton | None = None
+        self._archived_container: QWidget | None = None
+        # Flagged items: item_id → (title_edit, note_edit, status_btn, remove_btn,
+        #                            attachments_container_layout)
+        self._flagged_note_edits: dict[str, _FailNoteEdit] = {}
+        self._flagged_title_edits: dict[str, QLineEdit] = {}
 
         self.setWindowTitle("Testing Checklist")
         self.setMinimumWidth(560)
@@ -605,8 +707,9 @@ class QAChecklistWindow(QWidget):
         self._refresh()
         self._start_git_lookup()
         self._start_sha_lookup()
-        # Write an initial digest so the file always reflects current state.
+        # Write initial digests so the files always reflect current state.
         self._write_digest()
+        _write_flagged_digest(self._config)
 
     # ── public ───────────────────────────────────────────────────────────────
 
@@ -716,6 +819,10 @@ class QAChecklistWindow(QWidget):
         self._step_buttons.clear()
         self._note_edits.clear()
         self._ref_labels.clear()
+        self._flagged_note_edits.clear()
+        self._flagged_title_edits.clear()
+        self._archived_toggle_btn = None
+        self._archived_container = None
 
     def _refresh(self) -> None:
         """Rebuild the body from current config state."""
@@ -740,6 +847,7 @@ class QAChecklistWindow(QWidget):
         if archived:
             self._render_archived_section(archived)
 
+        self._render_flagged_section()
         self._body_layout.addStretch(1)
 
         if self._git_refs:
@@ -772,14 +880,23 @@ class QAChecklistWindow(QWidget):
 
         self._body_layout.addWidget(container)
 
-    def _render_entry(self, entry, *, archived: bool = False) -> None:
+    def _render_entry(
+        self,
+        entry,
+        *,
+        archived: bool = False,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render one entry block: header + per-step tri-state rows.
 
         Args:
             entry: The WhatsNewEntry to render.
             archived: When True the entry is rendered in compact read-only form
                 inside the archived section (no step rows; Unarchive button only).
+            parent_layout: Layout to append widgets to.  Defaults to
+                ``self._body_layout`` when ``None``.
         """
+        layout = parent_layout if parent_layout is not None else self._body_layout
         n_total = len(entry.test_steps)
         n_pass = self._entry_pass_count(entry)
         has_failure = self._entry_has_failure(entry)
@@ -842,7 +959,7 @@ class QAChecklistWindow(QWidget):
             )
             header_layout.addWidget(unarchive_btn)
 
-        self._body_layout.addWidget(header_widget)
+        layout.addWidget(header_widget)
 
         if archived:
             return
@@ -850,14 +967,22 @@ class QAChecklistWindow(QWidget):
         # ── per-step tri-state rows ───────────────────────────────────────────
         self._step_buttons[entry.id] = {}
         for idx, step in enumerate(entry.test_steps):
-            self._render_step_row(entry, idx, step)
+            self._render_step_row(entry, idx, step, parent_layout=layout)
 
         spacer = QWidget()
         spacer.setFixedHeight(6)
-        self._body_layout.addWidget(spacer)
+        layout.addWidget(spacer)
 
-    def _render_step_row(self, entry, idx: int, step: str) -> None:
+    def _render_step_row(
+        self,
+        entry,
+        idx: int,
+        step: str,
+        *,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render a single step's row: pass/fail buttons + label + fail comment."""
+        layout = parent_layout if parent_layout is not None else self._body_layout
         state = self._step_state(entry.id, idx)
         rec = self._step_record(entry.id, idx)
 
@@ -908,14 +1033,22 @@ class QAChecklistWindow(QWidget):
             row_layout.addWidget(stale_lbl, alignment=Qt.AlignmentFlag.AlignTop)
 
         self._step_buttons[entry.id][idx] = (pass_btn, fail_btn)
-        self._body_layout.addWidget(row)
+        layout.addWidget(row)
 
         # Fail comment area — only present when the step is failed.
         if state == "fail":
-            self._render_fail_comment(entry.id, idx, rec or {})
+            self._render_fail_comment(entry.id, idx, rec or {}, parent_layout=layout)
 
-    def _render_fail_comment(self, entry_id: int, idx: int, rec: dict) -> None:
+    def _render_fail_comment(
+        self,
+        entry_id: int,
+        idx: int,
+        rec: dict,
+        *,
+        parent_layout: QVBoxLayout | None = None,
+    ) -> None:
         """Render the inline comment box + attach controls for a failed step."""
+        layout = parent_layout if parent_layout is not None else self._body_layout
         container = QWidget()
         clayout = QVBoxLayout(container)
         clayout.setContentsMargins(40, 2, 0, 6)
@@ -968,29 +1101,464 @@ class QAChecklistWindow(QWidget):
 
         chips_layout.addStretch(1)
         clayout.addWidget(chips_row)
-        self._body_layout.addWidget(container)
+        layout.addWidget(container)
 
     def _render_archived_section(self, archived: list) -> None:
-        """Render an 'Archived (N)' section at the bottom of the body."""
+        """Render a collapsible 'Archived (N)' section at the bottom of the body.
+
+        The section is collapsed by default (``config.qa_archived_collapsed = True``).
+        The toggle button uses ``icons.collapse_icon`` when expanded and
+        ``icons.expand_icon`` when collapsed — never the ordering arrows.
+        """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
         self._body_layout.addWidget(sep)
 
+        # ── header row with toggle ────────────────────────────────────────────
+        collapsed: bool = getattr(self._config, "qa_archived_collapsed", True)
+
+        hdr_row = QWidget()
+        hdr_layout = QHBoxLayout(hdr_row)
+        hdr_layout.setContentsMargins(0, 6, 0, 4)
+        hdr_layout.setSpacing(6)
+
+        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
+        toggle_btn = QPushButton(toggle_icon)
+        toggle_btn.setToolTip(
+            "Show archived entries" if collapsed else "Hide archived entries"
+        )
+        toggle_btn.setFixedWidth(24)
+        toggle_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}"
+        )
+        self._archived_toggle_btn = toggle_btn
+        hdr_layout.addWidget(toggle_btn)
+
         section_hdr = QLabel(f"Archived ({len(archived)})")
         section_hdr.setStyleSheet(
             f"font-size: {_theme.FONT_SM}; font-weight: bold;"
             f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;"
-            f" padding: 8px 0 4px 0;"
         )
-        self._body_layout.addWidget(section_hdr)
+        hdr_layout.addWidget(section_hdr, stretch=1)
+        self._body_layout.addWidget(hdr_row)
+
+        # ── collapsible container ─────────────────────────────────────────────
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        self._archived_container = container
 
         for entry in archived:
-            self._render_entry(entry, archived=True)
+            self._render_entry(entry, archived=True, parent_layout=container_layout)
             inner_sep = QFrame()
             inner_sep.setFrameShape(QFrame.Shape.HLine)
             inner_sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
-            self._body_layout.addWidget(inner_sep)
+            container_layout.addWidget(inner_sep)
+
+        # Track the hidden attribute explicitly — Qt's isVisible() returns False
+        # on widgets inside non-shown parent windows (common in headless tests).
+        container.setVisible(not collapsed)
+        container._qa_collapsed = collapsed   # type: ignore[attr-defined]
+        self._body_layout.addWidget(container)
+
+        # Wire toggle after container is wired so the lambda captures it safely.
+        def _on_toggle() -> None:
+            # Use the explicit _qa_collapsed flag, not isVisible(), so the toggle
+            # works correctly in headless test environments too.
+            current_collapsed: bool = getattr(
+                self._archived_container, "_qa_collapsed", True
+            )
+            want_collapsed = not current_collapsed
+            self._archived_container.setVisible(not want_collapsed)
+            self._archived_container._qa_collapsed = want_collapsed   # type: ignore[attr-defined]
+            self._archived_toggle_btn.setText(
+                _icons.expand_icon if want_collapsed else _icons.collapse_icon
+            )
+            self._archived_toggle_btn.setToolTip(
+                "Show archived entries" if want_collapsed else "Hide archived entries"
+            )
+            self._config.qa_archived_collapsed = want_collapsed
+            self._config.save()
+            logger.debug("QA checklist: archived section collapsed={}", want_collapsed)
+
+        toggle_btn.clicked.connect(_on_toggle)
+
+    # ── flagged items section ─────────────────────────────────────────────────
+
+    def _render_flagged_section(self) -> None:
+        """Render the collapsible '🚩 Flagged Items' section.
+
+        Default expanded (``config.qa_flagged_collapsed = False``).  A
+        "+ Add item" button creates a new persisted flagged item row.  Items
+        have a title, notes box (reuses ``_FailNoteEdit`` for screenshot paste),
+        attachment chips, a status toggle, and a remove button.
+        """
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {_theme.COLOR_LINE};")
+        self._body_layout.addWidget(sep)
+
+        collapsed: bool = getattr(self._config, "qa_flagged_collapsed", False)
+        items: list[dict] = list(getattr(self._config, "qa_flagged_items", []) or [])
+
+        # ── section header row ────────────────────────────────────────────────
+        hdr_row = QWidget()
+        hdr_layout = QHBoxLayout(hdr_row)
+        hdr_layout.setContentsMargins(0, 6, 0, 4)
+        hdr_layout.setSpacing(6)
+
+        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
+        flagged_toggle_btn = QPushButton(toggle_icon)
+        flagged_toggle_btn.setToolTip(
+            "Show flagged items" if collapsed else "Hide flagged items"
+        )
+        flagged_toggle_btn.setFixedWidth(24)
+        flagged_toggle_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}"
+        )
+        hdr_layout.addWidget(flagged_toggle_btn)
+
+        count = len(items)
+        section_hdr = QLabel(
+            f"{_icons.qa_flag_icon} Flagged Items ({count})"
+        )
+        section_hdr.setStyleSheet(
+            f"font-size: {_theme.FONT_SM}; font-weight: bold;"
+            f" color: {_theme.COLOR_MUTED_2}; letter-spacing: 1px;"
+        )
+        hdr_layout.addWidget(section_hdr, stretch=1)
+
+        add_btn = QPushButton(f"+ Add item")
+        add_btn.setToolTip("Add a new flagged observation to capture something noticed during testing")
+        add_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        hdr_layout.addWidget(add_btn)
+
+        self._body_layout.addWidget(hdr_row)
+
+        # ── collapsible items container ───────────────────────────────────────
+        flagged_container = QWidget()
+        flagged_layout = QVBoxLayout(flagged_container)
+        flagged_layout.setContentsMargins(0, 4, 0, 4)
+        flagged_layout.setSpacing(8)
+
+        for item in items:
+            self._render_flagged_item(item, flagged_layout)
+
+        flagged_container.setVisible(not collapsed)
+        self._body_layout.addWidget(flagged_container)
+
+        # Wire toggle button.
+        def _on_flagged_toggle() -> None:
+            want_collapsed = flagged_container.isVisible()
+            flagged_container.setVisible(not want_collapsed)
+            flagged_toggle_btn.setText(
+                _icons.expand_icon if want_collapsed else _icons.collapse_icon
+            )
+            flagged_toggle_btn.setToolTip(
+                "Show flagged items" if want_collapsed else "Hide flagged items"
+            )
+            self._config.qa_flagged_collapsed = want_collapsed
+            self._config.save()
+            logger.debug("QA checklist: flagged section collapsed={}", want_collapsed)
+
+        flagged_toggle_btn.clicked.connect(_on_flagged_toggle)
+
+        # Wire "+ Add item" button.
+        def _on_add_item() -> None:
+            item_dict = self._create_flagged_item()
+            # Reveal the container and update the toggle if it was collapsed.
+            if not flagged_container.isVisible():
+                flagged_container.setVisible(True)
+                flagged_toggle_btn.setText(_icons.collapse_icon)
+                flagged_toggle_btn.setToolTip("Hide flagged items")
+                self._config.qa_flagged_collapsed = False
+                self._config.save()
+            self._render_flagged_item(item_dict, flagged_layout)
+            # Update the section label count.
+            new_count = len(getattr(self._config, "qa_flagged_items", []) or [])
+            section_hdr.setText(
+                f"{_icons.qa_flag_icon} Flagged Items ({new_count})"
+            )
+
+        add_btn.clicked.connect(_on_add_item)
+
+    def _render_flagged_item(self, item: dict, parent_layout: QVBoxLayout) -> None:
+        """Render one flagged item row into *parent_layout*.
+
+        Each row contains:
+        - One-line title QLineEdit.
+        - Notes box (reuses _FailNoteEdit — captures pasted screenshots).
+        - Attachment chips.
+        - Status toggle (open / triaged).
+        - Remove (×) button.
+        """
+        item_id: str = item.get("id", "")
+        if not item_id:
+            return
+
+        card = QWidget()
+        card.setStyleSheet(
+            f"QWidget {{ background: {_theme.OVERLAY_04};"
+            f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; }}"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(8, 6, 8, 6)
+        card_layout.setSpacing(4)
+
+        # ── title row ─────────────────────────────────────────────────────────
+        title_row = QWidget()
+        title_row_layout = QHBoxLayout(title_row)
+        title_row_layout.setContentsMargins(0, 0, 0, 0)
+        title_row_layout.setSpacing(4)
+
+        title_edit = QLineEdit()
+        title_edit.setPlaceholderText("What did you notice?")
+        title_edit.setText(item.get("title", ""))
+        title_edit.setToolTip("Brief title for this observation")
+        title_edit.setStyleSheet(
+            f"QLineEdit {{ background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_LINE};"
+            f" border-radius: 3px; padding: 2px 6px; color: {_theme.COLOR_TEXT};"
+            f" font-size: {_theme.FONT_MD}; }}"
+        )
+        self._flagged_title_edits[item_id] = title_edit
+        title_row_layout.addWidget(title_edit, stretch=1)
+
+        status = item.get("status", "open")
+        status_label = _icons.qa_triaged_icon if status == "triaged" else _icons.qa_flag_icon
+        status_btn = QPushButton(status_label)
+        status_btn.setToolTip(
+            "Mark as triaged (converted to a task/PR)" if status == "open"
+            else "Mark as open (not yet triaged)"
+        )
+        status_btn.setFixedWidth(28)
+        status_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_OK if status == 'triaged' else _theme.COLOR_WARN};"
+            f" font-size: {_theme.FONT_MD}; }}"
+        )
+        title_row_layout.addWidget(status_btn)
+
+        remove_btn = QPushButton(_icons.close_icon)
+        remove_btn.setToolTip("Remove this flagged item")
+        remove_btn.setFixedWidth(24)
+        remove_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_MD}; }}"
+        )
+        title_row_layout.addWidget(remove_btn)
+
+        card_layout.addWidget(title_row)
+
+        # ── note box ──────────────────────────────────────────────────────────
+        note_edit = _FailNoteEdit()
+        note_edit.setPlaceholderText("Notes… (Ctrl+V pastes a screenshot)")
+        note_edit.setStyleSheet(_theme.QA_FAIL_NOTE_BOX)
+        note_edit.setFixedHeight(56)
+        note_edit.setPlainText(item.get("note", ""))
+        note_edit.setToolTip("Free-text notes for this observation; Ctrl+V pastes a clipboard screenshot")
+        self._flagged_note_edits[item_id] = note_edit
+        card_layout.addWidget(note_edit)
+
+        # ── attachment chips row ──────────────────────────────────────────────
+        chips_row = QWidget()
+        chips_layout = QHBoxLayout(chips_row)
+        chips_layout.setContentsMargins(0, 0, 0, 0)
+        chips_layout.setSpacing(4)
+
+        attach_btn = QPushButton(f"{_icons.qa_attach_icon} Attach")
+        attach_btn.setToolTip("Attach a screenshot file to this observation")
+        attach_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        chips_layout.addWidget(attach_btn)
+
+        for att_path in (item.get("attachments") or []):
+            att_name = os.path.basename(att_path)
+            chip = QPushButton(f"{att_name}  {_icons.close_icon}")
+            chip.setToolTip(f"Remove attachment: {att_path}")
+            chip.setStyleSheet(_theme.QA_ATTACHMENT_CHIP)
+            chip.clicked.connect(
+                lambda _, iid=item_id, p=att_path: self._on_flagged_remove_attachment(iid, p)
+            )
+            chips_layout.addWidget(chip)
+
+        chips_layout.addStretch(1)
+
+        # meta: build sha + created timestamp
+        sha = item.get("build_sha", "") or "?"
+        created = item.get("created", "") or "?"
+        meta_lbl = QLabel(f"build {sha} · {created[:10]}")
+        meta_lbl.setToolTip(f"Flagged on build {sha} at {created}")
+        meta_lbl.setStyleSheet(
+            f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_FAINT};"
+        )
+        chips_layout.addWidget(meta_lbl)
+
+        card_layout.addWidget(chips_row)
+        parent_layout.addWidget(card)
+
+        # ── wire signals ──────────────────────────────────────────────────────
+        title_edit.textChanged.connect(
+            lambda text, iid=item_id: self._on_flagged_title_changed(iid, text)
+        )
+        note_edit.text_committed.connect(
+            lambda text, iid=item_id: self._on_flagged_note_changed(iid, text)
+        )
+        note_edit.image_pasted.connect(
+            lambda img, iid=item_id: self._on_flagged_image_pasted(iid, img)
+        )
+        attach_btn.clicked.connect(
+            lambda _, iid=item_id: self._on_flagged_attach_clicked(iid)
+        )
+        status_btn.clicked.connect(
+            lambda _, iid=item_id: self._on_flagged_status_toggle(iid)
+        )
+        remove_btn.clicked.connect(
+            lambda _, iid=item_id: self._on_flagged_remove(iid)
+        )
+
+    # ── flagged item data helpers ─────────────────────────────────────────────
+
+    def _get_flagged_items(self) -> list[dict]:
+        """Return a mutable copy of the current flagged items list."""
+        return list(getattr(self._config, "qa_flagged_items", []) or [])
+
+    def _save_flagged_items(self, items: list[dict]) -> None:
+        """Persist *items* to config and rewrite the digest."""
+        self._config.qa_flagged_items = items
+        self._config.save()
+        _write_flagged_digest(self._config)
+
+    def _create_flagged_item(self) -> dict:
+        """Create, persist, and return a new empty flagged item dict."""
+        item: dict = {
+            "id": str(uuid.uuid4()),
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "build_sha": self._current_sha or "",
+            "title": "",
+            "note": "",
+            "attachments": [],
+            "status": "open",
+        }
+        items = self._get_flagged_items()
+        items.append(item)
+        self._save_flagged_items(items)
+        logger.debug("QA checklist: created flagged item id={}", item["id"])
+        return item
+
+    def _find_flagged_item(self, item_id: str) -> dict | None:
+        """Return the flagged item dict with *item_id*, or ``None``."""
+        for item in self._get_flagged_items():
+            if item.get("id") == item_id:
+                return item
+        return None
+
+    def _update_flagged_item(self, item_id: str, **kwargs) -> None:
+        """Patch fields on a flagged item and save."""
+        items = self._get_flagged_items()
+        for item in items:
+            if item.get("id") == item_id:
+                item.update(kwargs)
+                break
+        self._save_flagged_items(items)
+
+    # ── flagged item event handlers ───────────────────────────────────────────
+
+    def _on_flagged_title_changed(self, item_id: str, text: str) -> None:
+        """Persist a changed title (does not redraw — avoids cursor loss)."""
+        item = self._find_flagged_item(item_id)
+        if item and item.get("title", "") != text:
+            self._update_flagged_item(item_id, title=text)
+
+    def _on_flagged_note_changed(self, item_id: str, text: str) -> None:
+        """Persist a changed note (does not redraw — avoids cursor loss)."""
+        item = self._find_flagged_item(item_id)
+        if item and item.get("note", "") != text:
+            self._update_flagged_item(item_id, note=text)
+
+    def _on_flagged_image_pasted(self, item_id: str, image: QImage) -> None:
+        """Save a pasted clipboard image for a flagged item."""
+        path = self._save_flagged_image(item_id, image)
+        if path:
+            self._on_flagged_append_attachment(item_id, path)
+
+    def _save_flagged_image(self, item_id: str, image: QImage) -> str:
+        """Save *image* to a PNG in the attachments dir; return its abs path."""
+        adir = _attachments_dir(self._config)
+        short_id = item_id[:8]
+        n = 1
+        while True:
+            candidate = adir / f"flagged_{short_id}_{n}.png"
+            if not candidate.exists():
+                break
+            n += 1
+        if image.save(str(candidate), "PNG"):
+            logger.debug("QA: saved flagged item image to {}", candidate)
+            return str(candidate)
+        logger.debug("QA: failed to save flagged item image for id={}", item_id)
+        return ""
+
+    def _on_flagged_attach_clicked(self, item_id: str) -> None:
+        """Open a file dialog to attach a screenshot to a flagged item."""
+        start_dir = str(_attachments_dir(self._config))
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Attach screenshot", start_dir,
+            "Images (*.png *.jpg *.jpeg *.gif *.webp)",
+        )
+        if not path:
+            return
+        try:
+            adir = _attachments_dir(self._config)
+            short_id = item_id[:8]
+            ext = (os.path.splitext(path)[1].lstrip(".") or "png").lower()
+            n = 1
+            while True:
+                candidate = adir / f"flagged_{short_id}_{n}.{ext}"
+                if not candidate.exists():
+                    break
+                n += 1
+            shutil.copy2(path, candidate)
+            self._on_flagged_append_attachment(item_id, str(candidate))
+        except Exception:  # noqa: BLE001
+            logger.debug("QA: failed to copy flagged attachment {}", path)
+
+    def _on_flagged_append_attachment(self, item_id: str, path: str) -> None:
+        """Append *path* to a flagged item's attachments and redraw."""
+        item = self._find_flagged_item(item_id)
+        if not item:
+            return
+        atts = list(item.get("attachments") or [])
+        if path not in atts:
+            atts.append(path)
+        self._update_flagged_item(item_id, attachments=atts)
+        self._refresh()
+
+    def _on_flagged_remove_attachment(self, item_id: str, path: str) -> None:
+        """Remove an attachment path from a flagged item and redraw."""
+        item = self._find_flagged_item(item_id)
+        if not item:
+            return
+        atts = [p for p in (item.get("attachments") or []) if p != path]
+        self._update_flagged_item(item_id, attachments=atts)
+        self._refresh()
+
+    def _on_flagged_status_toggle(self, item_id: str) -> None:
+        """Toggle a flagged item between 'open' and 'triaged' and redraw."""
+        item = self._find_flagged_item(item_id)
+        if not item:
+            return
+        new_status = "triaged" if item.get("status", "open") == "open" else "open"
+        self._update_flagged_item(item_id, status=new_status)
+        logger.debug("QA checklist: flagged item {} → {}", item_id, new_status)
+        self._refresh()
+
+    def _on_flagged_remove(self, item_id: str) -> None:
+        """Remove a flagged item from config and redraw."""
+        items = [i for i in self._get_flagged_items() if i.get("id") != item_id]
+        self._save_flagged_items(items)
+        logger.debug("QA checklist: removed flagged item id={}", item_id)
+        self._refresh()
 
     # ── git ref + sha lookups ─────────────────────────────────────────────────
 

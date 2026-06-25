@@ -873,6 +873,22 @@ class Config(BaseModel):
     qa_step_results: dict = Field(default_factory=dict)
     qa_verified_id: int = 0
     qa_archived_ids: list = Field(default_factory=list)
+    # qa_archived_collapsed: persist the Archived section collapse state.
+    #   True (default) = hidden; False = expanded.
+    qa_archived_collapsed: bool = True
+    # qa_flagged_items: open-ended tester-flagged observations, persisted across sessions.
+    #   Each item is a plain dict:
+    #     {"id": str,           # uuid4 string — stable identity across edits
+    #      "created": str,      # ISO-8601 timestamp (UTC)
+    #      "build_sha": str,    # repo HEAD short sha at creation time
+    #      "title": str,        # one-line description
+    #      "note": str,         # free-text notes (may be multi-line)
+    #      "attachments": [...], # list of abs paths to saved screenshots
+    #      "status": str}        # "open" | "triaged"
+    qa_flagged_items: list = Field(default_factory=list)
+    # qa_flagged_collapsed: persist the Flagged Items section collapse state.
+    #   False (default) = expanded.
+    qa_flagged_collapsed: bool = False
 
     # Source refresh behaviour
     # When True (default), "Refresh All" enqueues every source including ones the
