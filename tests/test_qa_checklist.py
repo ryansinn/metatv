@@ -63,12 +63,16 @@ class _FakeConfig:
         qa_step_results: dict | None = None,
         qa_archived_ids: list | None = None,
         qa_archived_collapsed: bool = True,
+        qa_flagged_items: list | None = None,
+        qa_flagged_collapsed: bool = False,
         config_dir: Path | None = None,
     ) -> None:
         self.qa_verified_id = qa_verified_id
         self.qa_step_results: dict = qa_step_results or {}
         self.qa_archived_ids: list = qa_archived_ids or []
         self.qa_archived_collapsed: bool = qa_archived_collapsed
+        self.qa_flagged_items: list = qa_flagged_items or []
+        self.qa_flagged_collapsed: bool = qa_flagged_collapsed
         self.config_dir = config_dir or Path("/tmp")
         self.save_calls: int = 0
 
@@ -846,3 +850,191 @@ def test_archived_section_absent_when_no_archived_entries(qapp, tmp_path):
         "archived_container must be None when there are no archived entries"
     )
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 16. Flagged Items — add / persist / remove / digest (Commit 2, issue #95)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_create_flagged_item_persists_to_config(qapp, tmp_path):
+    """_create_flagged_item() appends a dict to config.qa_flagged_items."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    prior_count = len(config.qa_flagged_items)
+
+    item = win._create_flagged_item()
+
+    assert len(config.qa_flagged_items) == prior_count + 1
+    assert item["id"] in [i["id"] for i in config.qa_flagged_items]
+    assert config.save_calls >= 1
+
+
+def test_create_flagged_item_stamps_current_sha(qapp, tmp_path):
+    """New flagged item records the window's current_sha as build_sha."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    win._current_sha = "deadbeef"
+
+    item = win._create_flagged_item()
+
+    assert item["build_sha"] == "deadbeef"
+    assert config.qa_flagged_items[-1]["build_sha"] == "deadbeef"
+
+
+def test_flagged_title_change_persists(qapp, tmp_path):
+    """_on_flagged_title_changed() updates the item's title in config."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+
+    win._on_flagged_title_changed(iid, "Button explodes on click")
+
+    found = next(i for i in config.qa_flagged_items if i["id"] == iid)
+    assert found["title"] == "Button explodes on click"
+
+
+def test_flagged_note_change_persists(qapp, tmp_path):
+    """_on_flagged_note_changed() updates the item's note in config."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+
+    win._on_flagged_note_changed(iid, "Reproducible with two sources active")
+
+    found = next(i for i in config.qa_flagged_items if i["id"] == iid)
+    assert found["note"] == "Reproducible with two sources active"
+
+
+def test_flagged_remove_drops_item(qapp, tmp_path):
+    """_on_flagged_remove() removes the item from config.qa_flagged_items."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+    assert any(i["id"] == iid for i in config.qa_flagged_items)
+
+    win._on_flagged_remove(iid)
+
+    assert not any(i["id"] == iid for i in config.qa_flagged_items)
+
+
+def test_flagged_status_toggle_open_to_triaged(qapp, tmp_path):
+    """_on_flagged_status_toggle() flips an open item to triaged."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+    assert item["status"] == "open"
+
+    win._on_flagged_status_toggle(iid)
+
+    found = next(i for i in config.qa_flagged_items if i["id"] == iid)
+    assert found["status"] == "triaged"
+
+
+def test_flagged_status_toggle_triaged_to_open(qapp, tmp_path):
+    """_on_flagged_status_toggle() flips a triaged item back to open."""
+    config = _FakeConfig(
+        qa_flagged_items=[{
+            "id": "abc-123", "created": "2026-06-24T00:00:00+00:00",
+            "build_sha": "", "title": "t", "note": "", "attachments": [],
+            "status": "triaged",
+        }],
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [])
+
+    win._on_flagged_status_toggle("abc-123")
+
+    found = next(i for i in config.qa_flagged_items if i["id"] == "abc-123")
+    assert found["status"] == "open"
+
+
+def test_flagged_digest_written_with_item_details(qapp, tmp_path):
+    """Adding a flagged item with title+note writes qa_flagged_items.md."""
+    from metatv.gui.qa_checklist_window import _write_flagged_digest
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+
+    win._on_flagged_title_changed(iid, "Crash on filter click")
+    win._on_flagged_note_changed(iid, "Happens every time")
+
+    # Digest is always written on save; also call it explicitly to be certain.
+    _write_flagged_digest(config)
+
+    digest = tmp_path / "qa_flagged_items.md"
+    assert digest.exists()
+    text = digest.read_text()
+    assert "Crash on filter click" in text
+    assert "Happens every time" in text
+    assert item["build_sha"] in text or "?" in text
+
+
+def test_flagged_digest_written_when_empty(qapp, tmp_path):
+    """qa_flagged_items.md says 'No flagged items.' when the list is empty."""
+    from metatv.gui.qa_checklist_window import _write_flagged_digest
+    config = _FakeConfig(config_dir=tmp_path)
+    _write_flagged_digest(config)
+
+    digest = tmp_path / "qa_flagged_items.md"
+    assert digest.exists()
+    assert "No flagged items." in digest.read_text()
+
+
+def test_flagged_digest_written_on_remove(qapp, tmp_path):
+    """Removing a flagged item rewrites the digest without the removed item."""
+    from metatv.gui.qa_checklist_window import _write_flagged_digest
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+    win._on_flagged_title_changed(iid, "Should disappear after remove")
+
+    win._on_flagged_remove(iid)
+    _write_flagged_digest(config)
+
+    text = (tmp_path / "qa_flagged_items.md").read_text()
+    assert "Should disappear after remove" not in text
+
+
+def test_config_qa_flagged_collapsed_defaults_false(tmp_path):
+    """qa_flagged_collapsed defaults to False (section expanded by default)."""
+    from metatv.core.config import Config
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    assert config.qa_flagged_collapsed is False
+
+
+def test_config_qa_archived_collapsed_defaults_true(tmp_path):
+    """qa_archived_collapsed defaults to True (section collapsed by default)."""
+    from metatv.core.config import Config
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    assert config.qa_archived_collapsed is True
+
+
+def test_config_qa_flagged_items_round_trip(tmp_path):
+    """qa_flagged_items round-trips through Config.save()/load()."""
+    import yaml
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config.qa_flagged_items = [{
+        "id": "test-uuid", "created": "2026-06-24T00:00:00+00:00",
+        "build_sha": "abc123", "title": "Test flag", "note": "Some notes",
+        "attachments": ["/tmp/shot.png"], "status": "open",
+    }]
+    config.save()
+
+    with open(tmp_path / "config.yaml") as f:
+        data = yaml.safe_load(f)
+    loaded = Config(**data)
+
+    assert len(loaded.qa_flagged_items) == 1
+    item = loaded.qa_flagged_items[0]
+    assert item["id"] == "test-uuid"
+    assert item["title"] == "Test flag"
+    assert item["note"] == "Some notes"
+    assert item["status"] == "open"
+    assert item["build_sha"] == "abc123"
