@@ -115,9 +115,9 @@ def test_epg_interval_choices_includes_sentinels():
 
 
 def test_epg_interval_choices_ordered_correctly():
-    """EPG_INTERVAL_CHOICES starts with 'every_open' and ends with 'when_stale'."""
+    """EPG_INTERVAL_CHOICES starts with 'auto' (the default) and ends with 'when_stale'."""
     values = [v for v, _ in EPG_INTERVAL_CHOICES]
-    assert values[0] == "every_open", "First entry must be 'every_open'"
+    assert values[0] == "auto", "First entry must be 'auto' (the recommended default)"
     assert values[-1] == "when_stale", "Last entry must be 'when_stale'"
 
 
