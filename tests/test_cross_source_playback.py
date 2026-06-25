@@ -465,3 +465,46 @@ def test_inactive_chip_does_not_emit_play_on_click_but_shows_menu(qapp):
     )
     # The context-menu helper was invoked instead
     mock_menu.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Reactivate & play — a provider mutation must route through the canonical refresh
+# ---------------------------------------------------------------------------
+
+def test_reactivate_and_play_sibling_refreshes_dependent_views(tmp_path):
+    """Reactivating an inactive source must call _refresh_provider_dependent_views.
+
+    Toggling a provider active is a provider mutation; per the canonical-refresh
+    rule the sidebar Sources / channel list / Discover must be refreshed so the
+    now-active source's content appears. Without it the stream plays but those
+    views stay stale until the next refresh trigger.
+    """
+    from metatv.gui.main_window_streaming import _StreamingMixin
+    from metatv.core.repositories import RepositoryFactory
+
+    db = _make_db(tmp_path)
+    pid = "prov-inactive"
+    with db.session_scope() as session:
+        _insert_provider(session, pid, "Disabled Source", is_active=False)
+
+    host = _StreamingMixin.__new__(_StreamingMixin)
+    host.db = db
+    host.player_manager = MagicMock()
+    host._refresh_provider_dependent_views = MagicMock()
+
+    host._reactivate_and_play_sibling(pid, "http://stream/176821.ts", "Fox East")
+
+    # 1. Provider is now active in the DB.
+    with db.session_scope() as session:
+        prov = RepositoryFactory(session).providers.get_by_id(pid)
+        assert prov.is_active is True, "provider must be reactivated"
+
+    # 2. The canonical refresh fired (the gap this guards).
+    host._refresh_provider_dependent_views.assert_called_once()
+
+    # 3. The stream was played with the source's provider_id (split-keying rule).
+    host.player_manager.play.assert_called_once()
+    _, kwargs = host.player_manager.play.call_args
+    assert kwargs.get("provider_id") == pid
+
+    db.close()

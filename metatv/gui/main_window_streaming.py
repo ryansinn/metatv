@@ -703,14 +703,22 @@ class _StreamingMixin:
             channel_name: Display name for the player window.
             force_new_window: When True, open/replace a separate per-source window.
         """
+        reactivated = False
         try:
             with self.db.session_scope() as session:
                 from metatv.core.repositories import RepositoryFactory as _RF
                 provider = _RF(session).providers.get_by_id(provider_id)
                 if provider:
                     provider.is_active = True
+                    reactivated = True
         except Exception as exc:
             logger.warning(f"_reactivate_and_play_sibling: failed to reactivate {provider_id}: {exc}")
+        # Provider mutation → route through the canonical refresh so the sidebar
+        # Sources / channel list / Discover reflect the now-active source (matches
+        # toggle_provider_active). Without this the stream plays but those views
+        # stay stale until the next refresh trigger.
+        if reactivated:
+            self._refresh_provider_dependent_views()
         self.player_manager.play(
             stream_url, channel_name,
             provider_id=provider_id,
