@@ -130,6 +130,14 @@ class _StreamingMixin:
             ) as response:
                 if response.status_code >= 400:
                     logger.warning(f"Stream URL returned HTTP {response.status_code}")
+                    # Auth/gating codes (401 Unauthorized, 403 Forbidden, 511 Network
+                    # Authentication Required) are treated as *uncertain* — the stream
+                    # may still play in mpv (e.g. a shared-account cap the server reports
+                    # as HTTP 511, but mpv negotiates differently).  Return a sentinel
+                    # error string that the failure path can distinguish from a hard text
+                    # error, so "Play Anyway" is always offered.
+                    if response.status_code in (401, 403, 511):
+                        return False, f"HTTP {response.status_code}"
                     return False, f"HTTP {response.status_code}"
                 chunk = next(response.iter_content(chunk_size=256), None)
                 if chunk is None:
@@ -359,6 +367,32 @@ class _StreamingMixin:
             open_ended_buffer,
         )
 
+    # ── Auth/gating HTTP codes that are treated as uncertain (advisory, not hard) ──
+    # mpv negotiates differently from requests — a pre-flight HTTP 511 or 403 that
+    # signals a shared-account cap may still play fine in mpv.  These codes always
+    # surface "Play Anyway" rather than suppressing the stream silently.
+    _ADVISORY_HTTP_CODES: frozenset[int] = frozenset({401, 403, 511})
+
+    def _is_advisory_error(self, stream_err: str) -> bool:
+        """Return True if *stream_err* is an uncertain pre-flight error code.
+
+        Advisory errors offer "Play Anyway" in the failure toast and are NOT
+        fed to ``stream_retry_manager`` as confirmed dead streams.
+
+        Args:
+            stream_err: The error string from ``validate_stream_url``, e.g.
+                ``"HTTP 511"`` or a server-supplied text message.
+
+        Returns:
+            ``True`` when the error is a known advisory HTTP status code.
+        """
+        if not stream_err:
+            return False
+        for code in self._ADVISORY_HTTP_CODES:
+            if stream_err == f"HTTP {code}":
+                return True
+        return False
+
     def _bg_validate_and_play(
         self,
         channel_id: str,
@@ -370,77 +404,234 @@ class _StreamingMixin:
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
     ) -> None:
-        """Worker: validate + failover stream URL, then emit _stream_ready.
+        """Worker: validate + failover (same-source, then cross-source siblings).
+
+        Phase 1 — same-source failover (existing path):
+            Try the channel's primary URL; if that fails, cycle through the
+            provider's alternate base URLs via ``validate_and_failover_stream_url``.
+
+        Phase 2 — cross-source sibling failover (new):
+            If every same-source URL fails and the channel has a ``content_key``,
+            look up sibling channels on OTHER providers that share the same
+            ``content_key`` (``ChannelRepository.get_content_key_siblings``).
+            Try each active sibling in ranked order (active providers first, then
+            by quality tier).  First one that validates wins; emit success silently
+            (no failure toast).
+
+        On total failure the emit payload carries the original channel's URL,
+        any sibling alternatives (so the failure toast can offer them), and
+        a flag marking whether the error is advisory (→ "Play Anyway" offered).
 
         Runs in ``self.executor``.  Must NOT touch Qt widgets — all UI work is
         done in ``_on_stream_ready``, which runs on the main thread via the signal.
         """
+        # ── Phase 1: same-source validate + failover ────────────────────────
         try:
             final_url, stream_err = self.validate_and_failover_stream_url(
                 stream_url, provider_id
             )
-            self._stream_ready.emit({
-                "ok": bool(final_url),
-                "channel_id": channel_id,
-                "channel_name": channel_name,
-                "original_url": stream_url,
-                "final_url": final_url or "",
-                "stream_err": stream_err or "",
-                "notif_id": notif_id,
-                "provider_id": provider_id,
-                "force_new_window": force_new_window,
-                "start_seconds": start_seconds,
-                "open_ended_buffer": open_ended_buffer,
-            })
         except Exception as e:
-            logger.error(f"Error in _bg_validate_and_play: {e}")
+            logger.error(f"Error in _bg_validate_and_play phase 1: {e}")
+            final_url, stream_err = "", str(e)
+
+        if final_url:
             self._stream_ready.emit({
-                "ok": False,
+                "ok": True,
                 "channel_id": channel_id,
                 "channel_name": channel_name,
                 "original_url": stream_url,
-                "final_url": "",
-                "stream_err": str(e),
+                "final_url": final_url,
+                "stream_err": "",
                 "notif_id": notif_id,
                 "provider_id": provider_id,
                 "force_new_window": force_new_window,
                 "start_seconds": start_seconds,
                 "open_ended_buffer": open_ended_buffer,
+                "advisory": False,
+                "siblings": [],
             })
+            return
+
+        # ── Phase 2: cross-source sibling failover ───────────────────────────
+        siblings: list[dict] = []
+        content_key: str = ""
+        try:
+            with self.db.session_scope(commit=False) as session:
+                from metatv.core.repositories import RepositoryFactory as _RF
+                ch = session.get(
+                    __import__("metatv.core.database", fromlist=["ChannelDB"]).ChannelDB,
+                    channel_id,
+                )
+                if ch:
+                    content_key = ch.content_key or ""
+                if content_key:
+                    all_siblings = _RF(session).channels.get_content_key_siblings(
+                        content_key, channel_id
+                    )
+                    siblings = all_siblings   # includes inactive — failure toast shows them
+                    active_siblings = [s for s in all_siblings if s.get("is_active")]
+                    # Try active siblings in ranked order (up to 3 attempts)
+                    for sib in active_siblings[:3]:
+                        sib_url = sib.get("stream_url") or ""
+                        if not sib_url:
+                            continue
+                        sib_ok, _sib_err = self.validate_stream_url(sib_url)
+                        if sib_ok:
+                            # Sibling works — emit success using the sibling's provider_id
+                            self._stream_ready.emit({
+                                "ok": True,
+                                "channel_id": sib["id"],
+                                "channel_name": channel_name,   # keep user-facing name
+                                "original_url": stream_url,
+                                "final_url": sib_url,
+                                "stream_err": "",
+                                "notif_id": notif_id,
+                                "provider_id": sib["provider_id"],
+                                "force_new_window": force_new_window,
+                                "start_seconds": start_seconds,
+                                "open_ended_buffer": open_ended_buffer,
+                                "advisory": False,
+                                "siblings": [],
+                                "sibling_failover": True,   # for status-bar annotation
+                                "sibling_name": sib.get("name", ""),
+                            })
+                            return
+        except Exception as e:
+            logger.warning(f"Error in _bg_validate_and_play phase 2 (sibling failover): {e}")
+            siblings = []
+
+        # ── Total failure — emit for the failure toast ───────────────────────
+        is_advisory = self._is_advisory_error(stream_err)
+        self._stream_ready.emit({
+            "ok": False,
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "original_url": stream_url,
+            "final_url": "",
+            "stream_err": stream_err or "",
+            "notif_id": notif_id,
+            "provider_id": provider_id,
+            "force_new_window": force_new_window,
+            "start_seconds": start_seconds,
+            "open_ended_buffer": open_ended_buffer,
+            "advisory": is_advisory,
+            "siblings": siblings,   # list of dicts for the failure toast
+        })
 
     def _on_stream_ready(self, data: dict) -> None:
-        """Main-thread slot: finish player launch or show error after validation."""
+        """Main-thread slot: finish player launch or show error after validation.
+
+        Deduplication: the same channel_id can race through multiple failover
+        attempts.  We track the most-recently-shown failure notif per channel so
+        duplicate toasts are dismissed before a new one is shown (one toast only).
+        """
+        if "_stream_fail_notifs" not in self.__dict__:
+            self._stream_fail_notifs: dict[str, str] = {}  # channel_id → notif_id
+
         channel_id = data["channel_id"]
         channel_name = data.get("channel_name", "")
         final_url = data.get("final_url", "")
         original_url = data.get("original_url", "")
         stream_err = data.get("stream_err", "")
         notif_id = data.get("notif_id", "")
+        is_advisory = data.get("advisory", False)
+        siblings: list[dict] = data.get("siblings", [])
 
         if not data.get("ok"):
             logger.error(f"All stream URLs failed validation for {channel_name}")
             self.status_bar.showMessage(f"Error: Stream unavailable for {channel_name}")
             detail = stream_err or "All URLs failed (possibly geo-blocked)"
             self.notification_manager.dismiss(notif_id)
+            # Dismiss any prior failure toast for this channel (deduplicate)
+            prior_fail_notif = self._stream_fail_notifs.pop(channel_id, None)
+            if prior_fail_notif:
+                self.notification_manager.dismiss(prior_fail_notif)
+
             _p = _pcn(channel_name)
             _display = _p.bare_name or channel_name
-            self.notification_manager.show(
+
+            # Build actions: always Copy Error; advisory → Play Anyway; siblings → extra
+            actions = []
+
+            # Play Anyway — offered for advisory (auth/gating) errors AND as a
+            # general escape hatch so the user can override the pre-flight check.
+            _pid = data.get("provider_id")
+            _fnw = data.get("force_new_window", False)
+            actions.append((
+                "Play Anyway",
+                lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw:
+                    self.player_manager.play(
+                        _url, _name,
+                        provider_id=_p,
+                        force_new_window=_fnw,
+                    )
+            ))
+
+            # Active sibling sources — each gets an "Also on X" action (up to 3)
+            active_sibs = [s for s in siblings if s.get("is_active")]
+            for sib in active_sibs[:3]:
+                sib_name = sib.get("name", "")
+                sib_url = sib.get("stream_url") or ""
+                sib_pid = sib.get("provider_id")
+                sib_label = f"Try {sib.get('detected_prefix') or sib.get('detected_region') or sib_name}"
+                if not sib_url:
+                    continue
+                actions.append((
+                    sib_label,
+                    lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw:
+                        self.player_manager.play(
+                            _u, _n,
+                            provider_id=_p,
+                            force_new_window=_fnw,
+                        )
+                ))
+
+            # Inactive sibling sources (offer reactivate + play)
+            inactive_sibs = [s for s in siblings if not s.get("is_active")]
+            for sib in inactive_sibs[:2]:
+                sib_name = sib.get("name", "")
+                sib_url = sib.get("stream_url") or ""
+                sib_pid = sib.get("provider_id")
+                sib_prefix = sib.get("detected_prefix") or sib.get("detected_region") or ""
+                if not sib_url or not sib_pid:
+                    continue
+                label = f"Reactivate & play {sib_prefix or sib_name}"
+                actions.append((
+                    label,
+                    lambda _pid=sib_pid, _u=sib_url, _n=channel_name, _fnw=_fnw:
+                        self._reactivate_and_play_sibling(_pid, _u, _n, _fnw)
+                ))
+
+            actions.append(
+                ("Copy Error", lambda n=channel_name, u=original_url, d=detail:
+                    QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))
+            )
+
+            fail_notif_id = self.notification_manager.show(
                 title="Stream Unavailable",
                 message=f"{_display}\n{detail}",
                 type="error",
                 dismissible=True,
                 auto_dismiss_seconds=None,
-                actions=[("Copy Error", lambda n=channel_name, u=original_url, d=detail:
-                    QApplication.clipboard().setText(f"{n}\nURL: {u}\nError: {d}"))],
+                actions=actions,
             )
-            if hasattr(self, "stream_retry_manager"):
+            self._stream_fail_notifs[channel_id] = fail_notif_id
+
+            # Only record a confirmed failure for non-advisory errors
+            if not is_advisory and hasattr(self, "stream_retry_manager"):
                 self.stream_retry_manager.add_failure(
                     channel_id, channel_name, original_url, detail
                 )
             self.loading_channels.discard(channel_id)
             return
 
-        if final_url != original_url:
+        if data.get("sibling_failover"):
+            sib_label = data.get("sibling_name", "")
+            logger.info(f"Cross-source failover: using sibling {sib_label!r}")
+            self.status_bar.showMessage(
+                f"Switched to alternate source for {channel_name}…"
+            )
+        elif final_url != original_url:
             logger.info(f"Using failover URL: {final_url}")
 
         self.status_bar.showMessage(f"Loading: {channel_name}...")
@@ -490,6 +681,49 @@ class _StreamingMixin:
             self.status_bar.showMessage(f"Error playing: {channel_name}")
 
         QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
+
+    def _reactivate_and_play_sibling(
+        self,
+        provider_id: str,
+        stream_url: str,
+        channel_name: str,
+        force_new_window: bool = False,
+    ) -> None:
+        """Main-thread action: reactivate a disabled provider, then play its stream.
+
+        Called by the "Reactivate & play" action in the failure toast when the user
+        explicitly opts into an inactive-source variant (mirror-not-cage: we surfaced
+        the option; they chose it).  The provider is re-activated then the URL is
+        passed directly to player_manager (no extra validation — the user already
+        consented to the playback attempt).
+
+        Args:
+            provider_id: The inactive provider to reactivate.
+            stream_url: The sibling channel's stream URL to play immediately after.
+            channel_name: Display name for the player window.
+            force_new_window: When True, open/replace a separate per-source window.
+        """
+        reactivated = False
+        try:
+            with self.db.session_scope() as session:
+                from metatv.core.repositories import RepositoryFactory as _RF
+                provider = _RF(session).providers.get_by_id(provider_id)
+                if provider:
+                    provider.is_active = True
+                    reactivated = True
+        except Exception as exc:
+            logger.warning(f"_reactivate_and_play_sibling: failed to reactivate {provider_id}: {exc}")
+        # Provider mutation → route through the canonical refresh so the sidebar
+        # Sources / channel list / Discover reflect the now-active source (matches
+        # toggle_provider_active). Without this the stream plays but those views
+        # stay stale until the next refresh trigger.
+        if reactivated:
+            self._refresh_provider_dependent_views()
+        self.player_manager.play(
+            stream_url, channel_name,
+            provider_id=provider_id,
+            force_new_window=force_new_window,
+        )
 
     def _bg_mark_played(self, channel_id: str, key: str | None = None) -> None:
         """Worker: write play-count + last-played to DB (off main thread).

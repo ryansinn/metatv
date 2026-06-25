@@ -1013,6 +1013,78 @@ class ChannelRepository(_ChannelStatsMixin):
         logger.info(f"backfill_content_keys: filled {filled} of {total} rows")
         return filled
 
+    # ── Cross-source sibling lookup (content_key-based failover) ───────────────
+
+    def get_content_key_siblings(
+        self,
+        content_key: str,
+        exclude_channel_id: str,
+    ) -> list[dict]:
+        """Return sibling channels that share *content_key* but differ from the given channel.
+
+        Used by the cross-source playback failover path: when a stream fails, the
+        caller can try these sibling channels in order.
+
+        Ranking:
+        1. Active providers first (``ProviderDB.is_active == True``).
+        2. Higher detected quality (4K > FHD > HD > SD — channels without a quality
+           token sort last within each tier).
+        3. Name for stable ordering within each tier.
+
+        NULL-guard: a NULL or empty ``content_key`` has no siblings by definition
+        (rows with no key have arbitrary semantics) — returns [] immediately.
+
+        Args:
+            content_key: The stored ``content_key`` to match on.
+            exclude_channel_id: The channel that just failed; excluded from results.
+
+        Returns:
+            List of plain dicts — safe to cross the Qt thread boundary:
+            ``{id, name, stream_url, provider_id, detected_quality,
+               detected_region, detected_prefix, is_active}``
+            (``is_active`` comes from the joined ``ProviderDB.is_active`` flag).
+        """
+        from metatv.core.database import ProviderDB  # local import avoids circular
+
+        if not content_key:
+            return []
+
+        _QUALITY_ORDER: dict[str, int] = {
+            "4K": 0, "UHD": 0, "FHD": 1, "FHD+": 1, "HD": 2, "SD": 3,
+        }
+
+        rows = (
+            self.session.query(ChannelDB, ProviderDB.is_active)
+            .join(ProviderDB, ChannelDB.provider_id == ProviderDB.id, isouter=True)
+            .filter(
+                ChannelDB.content_key == content_key,
+                ChannelDB.id != exclude_channel_id,
+            )
+            .all()
+        )
+
+        result: list[dict] = []
+        for ch, is_active in rows:
+            quality_rank = _QUALITY_ORDER.get(ch.detected_quality or "", 4)
+            result.append({
+                "id": ch.id,
+                "name": ch.name,
+                "stream_url": ch.stream_url,
+                "provider_id": ch.provider_id,
+                "detected_quality": ch.detected_quality,
+                "detected_region": ch.detected_region,
+                "detected_prefix": ch.detected_prefix,
+                "is_active": bool(is_active),
+                "_quality_rank": quality_rank,
+            })
+
+        # Sort: active first, then quality rank, then name for stability
+        result.sort(key=lambda r: (not r["is_active"], r["_quality_rank"], r["name"]))
+        # Strip the private sort key before returning
+        for r in result:
+            r.pop("_quality_rank", None)
+        return result
+
     # ── User category methods ──────────────────────────────────────────────────
 
     def get_all_user_categories(self) -> list[dict]:

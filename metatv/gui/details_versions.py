@@ -43,6 +43,8 @@ class ChannelVersion:
     detected_prefix: str | None = None
     detected_title: str | None = None   # stored bare title (ingestion) — render without re-parse
     detected_year: str | None = None    # stored year (ingestion)
+    detected_quality: str | None = None # e.g. "HD", "FHD", "4K" — shown in source-picker chip
+    detected_region: str | None = None  # e.g. "US", "FR" — shown in source-picker chip
     is_preferred: bool = False
     is_filtered: bool = False
     is_hidden: bool = False
@@ -50,6 +52,8 @@ class ChannelVersion:
     is_favorite: bool = False
     in_history: bool = False
     provider_name: str | None = None
+    provider_id: str | None = None      # for source-picker chip play action + icon lookup
+    is_inactive: bool = False           # True when provider is toggled off (inactive)
     media_type: str = ""            # "movie" | "series" | "live" | ""
     user_rating: int = 0            # +1 liked, -1 disliked, 0 no rating
 
@@ -168,9 +172,16 @@ class _CategoryNamePopup(QFrame):
 # ---------------------------------------------------------------------------
 
 class _VersionSection(QWidget):
-    """Preferred-version nudge banner + wrapping category chip row."""
+    """Preferred-version nudge banner + wrapping source-picker chip row.
 
-    version_selected         = pyqtSignal(str)        # channel_id
+    Each chip shows the source icon (from *provider_map*), region/prefix, and
+    quality tier.  Clicking a chip plays that source's variant directly via
+    ``play_version_requested``; right-clicking shows the full context menu.
+    Inactive-source chips are dimmed and offer a "Reactivate & play" menu option.
+    """
+
+    version_selected         = pyqtSignal(str)        # channel_id — show details
+    play_version_requested   = pyqtSignal(str)        # channel_id — play that variant
     favorite_toggled         = pyqtSignal(str)        # channel_id
     queue_toggled            = pyqtSignal(str)        # channel_id
     hide_requested           = pyqtSignal(str)        # channel_id
@@ -211,13 +222,13 @@ class _VersionSection(QWidget):
         self._pref_nudge.hide()
         layout.addWidget(self._pref_nudge)
 
-        # Chip row: "Categories: [chip] [chip] …"
+        # Chip row: "Also available as: [chip] [chip] …"
         self._row_container = QWidget()
         row_layout = QHBoxLayout(self._row_container)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(6)
 
-        cat_label = QLabel("Categories:")
+        cat_label = QLabel("Also available as:")
         cat_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         row_layout.addWidget(cat_label, 0)
@@ -231,8 +242,20 @@ class _VersionSection(QWidget):
         self._row_container.hide()
         layout.addWidget(self._row_container)
 
-    def load(self, versions: list[ChannelVersion]) -> None:
-        """Rebuild the chip row from a fresh version list."""
+    def load(
+        self,
+        versions: list[ChannelVersion],
+        provider_map: dict | None = None,
+    ) -> None:
+        """Rebuild the chip row from a fresh version list.
+
+        Args:
+            versions: Alternative versions of the current channel.
+            provider_map: Optional ``{provider_id: {"icon": str, "name": str}}`` map
+                from ``DetailsPaneWidget._provider_map``.  When provided, chips show
+                the provider icon to the left of the region/quality label.
+        """
+        self._provider_map: dict = provider_map or {}
         layout = self._chips_layout
         while layout.count():
             item = layout.takeAt(0)
@@ -280,27 +303,93 @@ class _VersionSection(QWidget):
     # Chip factories                                                       #
     # ------------------------------------------------------------------ #
 
+    def _chip_label(self, v: ChannelVersion) -> str:
+        """Build the chip label text: [source_icon] [region/prefix] [quality].
+
+        Source icon comes from provider_map (set at load() time).  Falls back to
+        no icon when provider_map is absent or the provider has no configured icon.
+        """
+        from metatv.gui import icons as _icons_mod
+        parts = []
+        if v.provider_id:
+            pm = getattr(self, "_provider_map", {})
+            src_icon = pm.get(v.provider_id, {}).get("icon", "")
+            if src_icon:
+                parts.append(src_icon)
+        # Region / prefix label
+        prefix = v.detected_prefix or ""
+        if prefix:
+            full = resolve_category_name(prefix, self.config)
+            parts.append(full or prefix)
+        # Quality tier
+        if v.detected_quality:
+            parts.append(v.detected_quality)
+        # Fallback: use prefix raw if nothing else resolved
+        if not parts:
+            parts.append(v.detected_prefix or "?")
+        return " ".join(parts)
+
+    def _chip_tooltip(self, v: ChannelVersion, suffix: str = "") -> str:
+        """Build a rich tooltip: source name + region + resolution + status badges."""
+        lines = []
+        pm = getattr(self, "_provider_map", {})
+        src_name = v.provider_name or ""
+        if v.provider_id and not src_name:
+            src_name = pm.get(v.provider_id, {}).get("name", "")
+        if src_name:
+            lines.append(f"Source: {src_name}")
+        if v.detected_region:
+            lines.append(f"Region: {v.detected_region}")
+        if v.detected_quality:
+            lines.append(f"Quality: {v.detected_quality}")
+        if v.is_inactive:
+            lines.append("(source is inactive — click to reactivate & play)")
+        if suffix:
+            lines.append(suffix)
+        return "\n".join(lines) if lines else v.name
+
     def _make_active_chip(self, v: ChannelVersion) -> QPushButton:
-        prefix = v.detected_prefix or "?"
+        """Build an active-source chip that plays on click."""
+        from metatv.gui import icons as _icons_mod
+
         status = ""
         if v.is_preferred: status += f" {self.config.preferred_version_icon}"
         if v.in_queue:     status += f" {self.config.queue_icon}"
         if v.is_favorite:  status += f" {self.config.favorite_icon}"
         if v.in_history:   status += f" {self.config.history_icon}"
 
-        chip = QPushButton(prefix + status)
-        chip.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT}; border: 1px solid {_theme.COLOR_FAINT};"
-            " border-radius: 4px; padding: 2px 8px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; border-color: {_theme.COLOR_MUTED};"
-            f" background: {_theme.OVERLAY_05}; }}"
-        )
-        full = resolve_category_name(prefix, self.config)
-        tip = full or prefix
-        if v.provider_name:
-            tip += f"\nSource: {v.provider_name}"
-        chip.setToolTip(tip)
-        chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
+        label = self._chip_label(v) + status
+
+        if v.is_inactive:
+            # Inactive: dimmed, right-click only (no accidental single-click reactivation)
+            chip = QPushButton(label)
+            chip.setStyleSheet(
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};"
+                f" border: 1px solid {_theme.COLOR_LINE}; border-radius: 4px; padding: 2px 8px;"
+                " opacity: 0.6; }"
+                f"QPushButton:hover {{ color: {_theme.COLOR_MUTED};"
+                f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_04}; }}"
+            )
+            tip = self._chip_tooltip(v)
+            chip.setToolTip(tip)
+            # Click on inactive chip → context menu (offers reactivate & play)
+            chip.clicked.connect(
+                lambda _, _v=v, _c=chip:
+                    self._show_version_chip_menu(_c.mapToGlobal(_c.rect().bottomLeft()), _v)
+            )
+        else:
+            chip = QPushButton(label)
+            chip.setStyleSheet(
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
+                f" border: 1px solid {_theme.COLOR_FAINT}; border-radius: 4px; padding: 2px 8px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
+                f" border-color: {_theme.COLOR_MUTED}; background: {_theme.OVERLAY_05}; }}"
+            )
+            tip = self._chip_tooltip(v, suffix="Click to play this source")
+            chip.setToolTip(tip)
+            # Left-click → play this source's variant
+            chip.clicked.connect(lambda _, cid=v.channel_id: self.play_version_requested.emit(cid))
+
         chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         chip.customContextMenuRequested.connect(
             lambda pos, _v=v, _c=chip: self._show_version_chip_menu(_c.mapToGlobal(pos), _v)
@@ -311,7 +400,7 @@ class _VersionSection(QWidget):
         prefix = v.detected_prefix or "?"
         is_hidden_cat = v.is_hidden_category
         extra = "text-decoration: line-through;" if is_hidden_cat else ""
-        chip = QPushButton(prefix)
+        chip = QPushButton(self._chip_label(v))
         chip.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
             f" border-radius: 4px; padding: 2px 8px; {extra} }}"
@@ -333,21 +422,36 @@ class _VersionSection(QWidget):
     def _show_version_chip_menu(self, global_pos, v: ChannelVersion) -> None:
         prefix = v.detected_prefix or "?"
         full = resolve_category_name(prefix, self.config)
-        header = f"{full} ({prefix})" if full else prefix
+        pm = getattr(self, "_provider_map", {})
+        src_name = v.provider_name or pm.get(v.provider_id or "", {}).get("name", "") or ""
+        header_parts = [full or prefix]
+        if src_name:
+            header_parts.append(f"({src_name})")
+        header = " ".join(header_parts)
 
         menu = QMenu(self)
         title_act = menu.addAction(header)
         title_act.setEnabled(False)
         menu.addSeparator()
 
-        show_act = menu.addAction(f"Show details for {prefix} version")
-        show_act.setToolTip(v.name)
+        if v.is_inactive:
+            # Inactive source: offer reactivate & play prominently
+            reactivate_act = menu.addAction("Reactivate source & play")
+            reactivate_act.setToolTip(f"Re-enable {src_name or prefix} and play this variant")
+            show_act = menu.addAction(f"Show details for {prefix} version")
+            show_act.setToolTip(v.name)
+        else:
+            play_act = menu.addAction(f"Play {prefix} version")
+            play_act.setToolTip(f"Play: {v.name}")
+            show_act = menu.addAction(f"Show details for {prefix} version")
+            show_act.setToolTip(v.name)
         menu.addSeparator()
 
         fav_act   = menu.addAction("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         queue_act = menu.addAction("Remove from Queue" if v.in_queue else "Add to Queue")
-        hide_act  = menu.addAction(f"Hide this {prefix} version")
-        hide_act.setToolTip(f"Hides only: {v.name}")
+        if not v.is_inactive:
+            hide_act = menu.addAction(f"Hide this {prefix} version")
+            hide_act.setToolTip(f"Hides only: {v.name}")
         menu.addSeparator()
 
         filter_act   = menu.addAction(f'Filter out ALL "{prefix}" content')
@@ -359,14 +463,23 @@ class _VersionSection(QWidget):
         edit_act = menu.addAction("Edit Category Name…")
 
         chosen = menu.exec(global_pos)
-        if chosen == show_act:
-            self.version_selected.emit(v.channel_id)
-        elif chosen == fav_act:
+        if v.is_inactive:
+            if chosen == reactivate_act:
+                self.play_version_requested.emit(v.channel_id)
+            elif chosen == show_act:
+                self.version_selected.emit(v.channel_id)
+        else:
+            if chosen == play_act:
+                self.play_version_requested.emit(v.channel_id)
+            elif chosen == show_act:
+                self.version_selected.emit(v.channel_id)
+            elif chosen == hide_act:
+                self.hide_requested.emit(v.channel_id)
+
+        if chosen == fav_act:
             self.favorite_toggled.emit(v.channel_id)
         elif chosen == queue_act:
             self.queue_toggled.emit(v.channel_id)
-        elif chosen == hide_act:
-            self.hide_requested.emit(v.channel_id)
         elif chosen in (filter_act, hide_cat_act):
             self.prefix_block_requested.emit(prefix)
         elif chosen == edit_act:

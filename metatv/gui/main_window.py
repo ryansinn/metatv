@@ -446,6 +446,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Right details pane
         self.details_pane = DetailsPaneWidget(self.config, self.image_cache, self.db)
         self.details_pane.play_requested.connect(self.play_channel_by_id)
+        self.details_pane.play_version_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
         self.details_pane.rating_requested.connect(self._toggle_rating)
