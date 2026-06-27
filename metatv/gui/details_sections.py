@@ -16,7 +16,7 @@ from metatv.core.channel_name_utils import (
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name
+from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
 from metatv.metadata_providers.base import MetadataResult
 
 
@@ -378,15 +378,24 @@ class _MetadataSection(QWidget):
         badge_row.addStretch()
         layout.addLayout(badge_row)
 
-        # Genres — each genre renders as a clickable link
-        self.genres_label = QLabel()
-        self.genres_label.setWordWrap(True)
-        self.genres_label.setTextFormat(Qt.TextFormat.RichText)
-        self.genres_label.setOpenExternalLinks(False)
-        self.genres_label.linkActivated.connect(
-            lambda url: self.genre_clicked.emit(url)
+        # Genres — flow-layout row of clickable chip buttons; wraps cleanly at panel width.
+        # _genres_loading_lbl is shown while metadata is loading; _genres_container replaces
+        # it once genres arrive.  Both start hidden; load_basic() shows the loading label;
+        # load_metadata() hides it and populates the flow container.
+        self._genres_loading_lbl = QLabel()
+        self._genres_loading_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};"
         )
-        layout.addWidget(self.genres_label)
+        self._genres_loading_lbl.hide()
+        layout.addWidget(self._genres_loading_lbl)
+
+        self._genres_container = QWidget()
+        self._genres_container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self._genres_layout = _FlowLayout(self._genres_container, h_spacing=4, v_spacing=4)
+        self._genres_container.hide()
+        layout.addWidget(self._genres_container)
 
         # Watch-completion status (VOD only) — "✓ Watched" or "Resume at M:SS"
         self._watch_status_lbl = QLabel()
@@ -403,7 +412,9 @@ class _MetadataSection(QWidget):
 
     def set_mode(self, is_live: bool) -> None:
         self._media_row.setVisible(not is_live)
-        self.genres_label.setVisible(not is_live)
+        if is_live:
+            self._genres_loading_lbl.hide()
+            self._genres_container.hide()
         if is_live:
             self.title_label.setStyleSheet(f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
             self._tagline_lbl.hide()
@@ -525,13 +536,15 @@ class _MetadataSection(QWidget):
             self._rating_row.hide()
 
         # Show loading indicator for categories (will be populated by load_metadata).
-        # LIVE channels have no metadata genres — hide the label; the version chips
+        # LIVE channels have no metadata genres — hide the area; the version chips
         # (set_versions) handle their category display instead.
         if getattr(channel, "media_type", None) == "live":
-            self.genres_label.hide()
+            self._genres_loading_lbl.hide()
+            self._genres_container.hide()
         else:
-            self.genres_label.setText(f"{_icons.loading_icon} Loading categories...")
-            self.genres_label.show()
+            self._genres_container.hide()
+            self._genres_loading_lbl.setText(f"{_icons.loading_icon} Loading categories...")
+            self._genres_loading_lbl.show()
 
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
@@ -577,6 +590,7 @@ class _MetadataSection(QWidget):
             self._tmdb_lbl.setText(f"TMDb {metadata.tmdb_id}")
             self._tmdb_lbl.show()
 
+        self._genres_loading_lbl.hide()
         if metadata.genres:
             genres: list[str] = []
             for g in metadata.genres:
@@ -584,17 +598,10 @@ class _MetadataSection(QWidget):
                     genres.extend(p.strip() for p in g.split('/') if p.strip())
                 else:
                     genres.append(g)
-            link_col = _theme.COLOR_ACCENT_BLUE_2
-            genre_html = " &bull; ".join(
-                f'<a href="{html.escape(g, quote=True)}" '
-                f'style="color:{link_col}; text-decoration:none;">'
-                f'{html.escape(g)}</a>'
-                for g in genres
-            )
-            self.genres_label.setText(genre_html)
+            self._populate_genre_chips(genres)
         else:
-            # No genres available — hide the loading indicator
-            self.genres_label.hide()
+            # No genres available — hide the container too
+            self._genres_container.hide()
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         if reason:
@@ -616,12 +623,38 @@ class _MetadataSection(QWidget):
         self.rating_label.clear()
         self._content_rating_lbl.hide()
         self._rating_row.hide()
-        self.genres_label.clear()
+        self._genres_loading_lbl.hide()
+        self._clear_genre_chips()
+        self._genres_container.hide()
         self.source_label.clear()
         self.source_label.hide()
         self.adult_indicator.hide()
         self._watch_status_lbl.hide()
         self.rec_reason_label.hide()
+
+    # ------------------------------------------------------------------ #
+    # Genre chips — private helpers                                        #
+    # ------------------------------------------------------------------ #
+
+    def _clear_genre_chips(self) -> None:
+        """Remove all genre chip buttons from the flow layout."""
+        while self._genres_layout.count():
+            item = self._genres_layout.takeAt(0)
+            if w := item.widget():
+                w.deleteLater()
+
+    def _populate_genre_chips(self, genres: list[str]) -> None:
+        """Replace the flow layout contents with one chip button per genre."""
+        self._clear_genre_chips()
+        for g in genres:
+            chip = QPushButton(g)
+            chip.setFlat(True)
+            chip.setStyleSheet(_theme.GENRE_CHIP)
+            chip.setToolTip(f"Filter by genre: {g}")
+            chip.clicked.connect(lambda _checked, _g=g: self.genre_clicked.emit(_g))
+            self._genres_layout.addWidget(chip)
+        self._genres_container.updateGeometry()
+        self._genres_container.show()
 
 
 # ---------------------------------------------------------------------------

@@ -303,6 +303,15 @@ class _VersionSection(QWidget):
     # Chip factories                                                       #
     # ------------------------------------------------------------------ #
 
+    def _chip_status_suffix(self, v: ChannelVersion) -> str:
+        """Return the status-icon suffix appended to a chip label (preferred/queue/fav/history)."""
+        status = ""
+        if v.is_preferred: status += f" {self.config.preferred_version_icon}"
+        if v.in_queue:     status += f" {self.config.queue_icon}"
+        if v.is_favorite:  status += f" {self.config.favorite_icon}"
+        if v.in_history:   status += f" {self.config.history_icon}"
+        return status
+
     def _chip_label(self, v: ChannelVersion) -> str:
         """Build the chip label text: [source_icon] [region/prefix] [quality].
 
@@ -350,15 +359,7 @@ class _VersionSection(QWidget):
 
     def _make_active_chip(self, v: ChannelVersion) -> QPushButton:
         """Build an active-source chip that plays on click."""
-        from metatv.gui import icons as _icons_mod
-
-        status = ""
-        if v.is_preferred: status += f" {self.config.preferred_version_icon}"
-        if v.in_queue:     status += f" {self.config.queue_icon}"
-        if v.is_favorite:  status += f" {self.config.favorite_icon}"
-        if v.in_history:   status += f" {self.config.history_icon}"
-
-        label = self._chip_label(v) + status
+        label = self._chip_label(v) + self._chip_status_suffix(v)
 
         if v.is_inactive:
             # Inactive: dimmed, right-click only (no accidental single-click reactivation)
@@ -375,7 +376,7 @@ class _VersionSection(QWidget):
             # Click on inactive chip → context menu (offers reactivate & play)
             chip.clicked.connect(
                 lambda _, _v=v, _c=chip:
-                    self._show_version_chip_menu(_c.mapToGlobal(_c.rect().bottomLeft()), _v)
+                    self._show_version_chip_menu(_c.mapToGlobal(_c.rect().bottomLeft()), _v, _c)
             )
         else:
             chip = QPushButton(label)
@@ -392,7 +393,7 @@ class _VersionSection(QWidget):
 
         chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         chip.customContextMenuRequested.connect(
-            lambda pos, _v=v, _c=chip: self._show_version_chip_menu(_c.mapToGlobal(pos), _v)
+            lambda pos, _v=v, _c=chip: self._show_version_chip_menu(_c.mapToGlobal(pos), _v, _c)
         )
         return chip
 
@@ -419,7 +420,9 @@ class _VersionSection(QWidget):
     # Context menus                                                        #
     # ------------------------------------------------------------------ #
 
-    def _show_version_chip_menu(self, global_pos, v: ChannelVersion) -> None:
+    def _show_version_chip_menu(
+        self, global_pos, v: ChannelVersion, chip: QPushButton | None = None
+    ) -> None:
         prefix = v.detected_prefix or "?"
         full = resolve_category_name(prefix, self.config)
         pm = getattr(self, "_provider_map", {})
@@ -480,6 +483,11 @@ class _VersionSection(QWidget):
             self.favorite_toggled.emit(v.channel_id)
         elif chosen == queue_act:
             self.queue_toggled.emit(v.channel_id)
+            # Optimistic flip so the next right-click shows the correct "Add/Remove" label
+            # and the chip icon reflects the new queue state immediately.
+            v.in_queue = not v.in_queue
+            if chip is not None:
+                chip.setText(self._chip_label(v) + self._chip_status_suffix(v))
         elif chosen in (filter_act, hide_cat_act):
             self.prefix_block_requested.emit(prefix)
         elif chosen == edit_act:
