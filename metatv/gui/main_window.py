@@ -1231,6 +1231,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # DiscoverView) so provider_id threading + the canonical play path are reused.
         self.recipe_view.channelSelected.connect(self.show_channel_details_by_id)
         self.recipe_view.playRequested.connect(self.play_channel_by_id)
+        # Route right-click on Now-Plating / Show-All cards through the unified
+        # channel menu (same seam as DiscoverView and Recommendations).
+        self.recipe_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 
