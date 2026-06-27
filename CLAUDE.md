@@ -88,20 +88,14 @@ Every play path threads the channel's `provider_id` through to `player_manager.p
 ### Early returns must clean up acquired state
 Any resource or set membership acquired before a guard check (locks, sets, progress trackers) must be released on every early-return path. Example: [docs/CRITICAL_RULES.md#early-returns-cleanup](docs/CRITICAL_RULES.md#early-returns-cleanup).
 
-### View lifecycle — `on_activate`/`on_deactivate` must be symmetric
-A view with `on_activate()` (starts timers/loads) must have `on_deactivate()` (stops timers/cancels work); the host calls them on switch, safest from `_hide_all_content_views()`. Detail: [docs/CRITICAL_RULES.md#view-lifecycle](docs/CRITICAL_RULES.md#view-lifecycle).
-
-### Modal/overlay views (sidebar-triggered) must hide on all view switches
-A sidebar-triggered modal stacked in `_list_layout` must register in `_hide_all_content_views()`, guard existence via `"view_name" in self.__dict__`, and pair enter/exit with `on_activate`/`on_deactivate` — else it lingers and keeps consuming async loads. Sibling: dialogs/editors emit a signal so the host refreshes dependent views. Steps: [docs/CRITICAL_RULES.md#modal-and-overlay-views](docs/CRITICAL_RULES.md#modal-and-overlay-views).
+### View lifecycle & modal hiding — symmetric activate/deactivate
+A view with `on_activate()` (timers/loads) must have a matching `on_deactivate()` (stop/cancel); the host calls them on switch, safest from `_hide_all_content_views()`. A sidebar-triggered modal in `_list_layout` must *also* register in `_hide_all_content_views()`, guard existence via `"view_name" in self.__dict__`, and pair enter/exit with activate/deactivate — else it lingers and keeps consuming async loads. Sibling: dialogs/editors emit a signal so the host refreshes dependent views. Detail: [docs/CRITICAL_RULES.md#view-lifecycle](docs/CRITICAL_RULES.md#view-lifecycle) · [#modal-and-overlay-views](docs/CRITICAL_RULES.md#modal-and-overlay-views).
 
 ### Provider/source mutations → one canonical refresh
 Every view derived from the provider/channel corpus refreshes through the single `MainWindow._refresh_provider_dependent_views()`; all mutations (add/edit/delete/toggle-active/visibility) funnel through it — never a partial per-call-site refresh (e.g. `load_providers()` alone leaves views stale). The account-info poll is the one sidebar-only exception. Detail: [docs/CRITICAL_RULES.md#provider-mutations-refresh](docs/CRITICAL_RULES.md#provider-mutations-refresh).
 
-### Active-source scoping → one helper
-Content from inactive/expired sources never appears in a forward-looking view; scope via `ProviderRepository.get_hidden_provider_ids()` (= inactive ∪ expired) as `excluded_provider_ids`, never an ad-hoc set. EPG sibling: `get_epg_active_provider_ids()`. Record/engaged views (History/Favorites/Queue) are exempt. Engine stays scope-agnostic (DR-0007). Detail: [docs/CRITICAL_RULES.md#active-source-scoping](docs/CRITICAL_RULES.md#active-source-scoping).
-
-### The data engine is preference-free (DR-0007)
-Three layers, one-way: **engine ← control ← view.** The engine takes scoped inputs and returns data with no visibility/encoding assumptions; every "what's visible / what `##` means" decision lives in the control layer. Never re-inline a visibility predicate; resolve content-format guesses at ingest, never in queries. Full split: DR-0007 · [docs/CRITICAL_RULES.md#active-source-scoping](docs/CRITICAL_RULES.md#active-source-scoping).
+### Engine/control/view layering & active-source scoping (DR-0007)
+Three layers, one-way: **engine ← control ← view.** The engine takes scoped inputs and returns data with no visibility/encoding assumptions; every "what's visible / what `##` means" decision lives in the control layer (never re-inline a visibility predicate; resolve content-format guesses at ingest, not in queries). Scope forward-looking views via `ProviderRepository.get_hidden_provider_ids()` (= inactive ∪ expired) as `excluded_provider_ids`, never an ad-hoc set; EPG sibling `get_epg_active_provider_ids()`. Record/engaged views (History/Favorites/Queue) are exempt. Full split DR-0007; detail: [docs/CRITICAL_RULES.md#active-source-scoping](docs/CRITICAL_RULES.md#active-source-scoping).
 
 ### Resource cleanup in closeEvent — use the cleanup registry
 Register each new background manager's shutdown right after construction via `self._register_cleanable("name", mgr.shutdown)` — never hand-edit `closeEvent` or add a `hasattr` block. Background pools/threads are owned once per object and stopped in the owner's cleanup path. Detail: [docs/CRITICAL_RULES.md#closeevent-cleanup-registry](docs/CRITICAL_RULES.md#closeevent-cleanup-registry).
@@ -109,11 +103,8 @@ Register each new background manager's shutdown right after construction via `se
 ### Background DB reads — offload, route through the async seam, surface failure
 Any query scanning/aggregating large tables (channels, EPG — 240k+ rows) runs in an executor, never on the UI thread. New `MainWindow` reads go through the single `_run_query` seam (`_AsyncMixin`); sidebar `CollapsibleSection`s compose `BackgroundRefreshMixin`. `query_fn` returns plain data (DTOs), never ORM objects. On the `None`/error branch, render a visible error row via `show_load_error()` — never `clear(); return`. Detail: [docs/CRITICAL_RULES.md#async-background-db-reads](docs/CRITICAL_RULES.md#async-background-db-reads).
 
-### Tests must prove behavior, not shape
-A green shape suite (`"x" in func`, attribute checks) is not coverage. Every behavior-changing PR adds ≥1 test that executes the changed path and asserts the outcome that would break — for DB-session work, drive the real handler against a real `Database` on a `tmp_path` file (not `:memory:`); for async reads, test the main-thread slot. Never write a test or docstring whose only effect is to look like coverage. Detail: [docs/CRITICAL_RULES.md#tests](docs/CRITICAL_RULES.md#tests).
-
-### Tests must never write the real user config
-The autouse `_isolate_user_config` fixture (`tests/conftest.py`) patches `Path.home()` to a tmp dir so tests can't overwrite `~/.config/metatv/config.yaml` (a real, repeated data-loss bug); never remove/weaken it, and `tests/test_config_isolation.py` must stay green. A test needing config on disk passes `config_dir=tmp_path`. Detail: [docs/CRITICAL_RULES.md#tests](docs/CRITICAL_RULES.md#tests).
+### Tests — prove behavior, never write real config
+A green shape suite (`"x" in func`, attribute checks) is not coverage: every behavior-changing PR adds ≥1 test that executes the changed path and asserts the outcome that would break (DB-session work → real `Database` on a `tmp_path` file, not `:memory:`; async reads → the main-thread slot). Never write a test/docstring whose only effect is to look like coverage. And never touch the real user config — the autouse `_isolate_user_config` fixture (`tests/conftest.py`) patches `Path.home()` to a tmp dir (guards a real data-loss bug); never weaken it, keep `tests/test_config_isolation.py` green, pass `config_dir=tmp_path` if a test needs config on disk. Detail: [docs/CRITICAL_RULES.md#tests](docs/CRITICAL_RULES.md#tests).
 
 ### UI state persistence — all sections must remember state
 Every UI section (splitter size, collapse state, filter selections) saves to config and restores on startup: save immediately on change, restore during `__init__`. Full pattern: [DESIGN.md](DESIGN.md).
@@ -130,18 +121,11 @@ Providers tried in priority order until sufficient data found:
 
 `MetadataResult.merge()` uses confidence scores (0.0–1.0) to prefer higher-quality data per field.
 
-**Year is derived at ingestion — read `metadata.year` directly everywhere.** `MetadataManager._derive_year()` populates `MetadataDB.year` at write (`_save_metadata_cache`, from `release_date` when `year` is absent) and backfills pre-fix rows on read (`_metadata_db_to_result`). No runtime parsing or fallback outside `metadata_manager.py`. `release_date` keeps the full ISO string (e.g. "2024-07-03").
+**Year is derived at ingestion — read `metadata.year` everywhere** (`MetadataManager._derive_year()` populates it at write from `release_date`, backfills pre-fix rows on read; no runtime parsing outside `metadata_manager.py`). Full system: [docs/METADATA_SYSTEM.md](docs/METADATA_SYSTEM.md).
 
 ## Content Dedup — Known Compromises
 
-> **Two dedup layers coexist (see DR-0009 + [docs/CONTENT_IDENTITY.md](docs/CONTENT_IDENTITY.md)).** Browse / Recipe Show-All / Discover / details "Other Versions" / tag counts collapse on the **stored `content_key`** (coarse: no director). The runtime fingerprint below is the **richer** key still used only by **Recommendations + the Similar lightbox** (Phase 2 will re-base those onto `content_key`). When metadata lands, a canonical TMDb/IMDb id replaces the `content_key` string in place.
-
-`content_dedup.py` groups same-production channels across providers by a `(norm_title, media_type, year, director)` fingerprint — a heuristic stopgap until TMDb/IMDb canonical IDs are wired up (ROADMAP). Deliberate trade-offs:
-
-- **Director excluded for series.** Many episode directors / inconsistent attribution cause false splits (same show appearing twice). Movies keep director — a single director is reliably credited and distinguishes remakes.
-- **Null-year absorption.** A candidate with no year (in name or MetadataDB) is suppressed if a year-bearing engaged variant with the same `(norm, media_type)` exists (e.g. a no-year `Rick and Morty` when `Rick And Morty (2013)` is queued). Risk: a genuinely different same-name no-year series could be suppressed — accepted as rare.
-
-Net effect: the recommendations list may occasionally hide a legitimate alternative or surface an unexpected variant. Don't tighten these without first checking the failing case isn't better fixed by improving metadata completeness (year in channel name, consistent director field). Canonical-ID primary key and a dedup-transparency toggle are tracked in ROADMAP.
+Two dedup layers coexist (DR-0009 + [docs/CONTENT_IDENTITY.md](docs/CONTENT_IDENTITY.md)): browse/Discover/tag-counts collapse on the **stored `content_key`** (coarse, no director), while **Recommendations + the Similar lightbox** still use the richer runtime `(norm_title, media_type, year, director)` fingerprint in `content_dedup.py` (Phase 2 re-bases them). The fingerprint has deliberate trade-offs (director excluded for series; null-year absorption) — don't tighten them without first checking the failing case isn't better fixed by metadata completeness. Detail: [docs/CRITICAL_RULES.md#content-dedup-compromises](docs/CRITICAL_RULES.md#content-dedup-compromises).
 
 ## Image Cache
 
@@ -153,19 +137,11 @@ MD5(url) as filename in `~/.cache/metatv/images/`, LRU cleanup at 500MB. Always 
 - Imports: stdlib → third-party → local, separated by blank lines.
 - Files under 1000 lines; one class per file (helper classes excepted).
 - `ThreadPoolExecutor` for blocking I/O; `asyncio` for async providers; `QTimer.singleShot(0, ...)` for deferred main-thread execution.
-- **Every PR with user-visible behavior (feature OR bug-fix) adds a new file** `metatv/whats_new/entries/NNNN_slug.py` (zero-padded id, e.g. `0016_my_feature.py`) with `ENTRY = WhatsNewEntry(...)` **including a non-empty `test_steps` tuple** — the smoke test the tester/user steps through in the dev QA checklist (`METATV_DEV=1`). Each step is one action + its expected outcome, together covering the changed path end-to-end so there is always a concrete set of tasks to verify the change. `test_steps` is the **default, not optional**. Omit it (with a one-line PR note saying why) only for changes with nothing to test by hand — pure internal refactors with no behavior change, or dev-only tooling like the checklist window itself. Never edit the shared list. Confirm the next id: `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`. Format + examples: `metatv/whats_new/entries/README`.
+- **Every PR with user-visible behavior adds `metatv/whats_new/entries/NNNN_slug.py`** (zero-padded next id via `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`) with `ENTRY = WhatsNewEntry(...)` including a **non-empty `test_steps`** tuple — the dev-QA smoke test (`METATV_DEV=1`), each step an action + expected outcome covering the changed path. `test_steps` is the default; omit (with a one-line PR note) only for no-behavior refactors or dev-only tooling. Never edit the shared list. Format + examples: `metatv/whats_new/entries/README`.
 
 ## Session Wrap SOP
 
-On "let's wrap up" / "wrap this session", do all of the following in order:
-
-1. **Tests** — `venv/bin/python -m pytest tests/ -x -q`; confirm all pass. If new behavior was added, note missing coverage in the FILTERING_DESIGN / ROADMAP test-coverage sections.
-2. **Commit** everything uncommitted with a descriptive message; never leave working changes untracked.
-3. **Docs** — update any now-stale design/reference docs: `docs/FILTERING_DESIGN.md`, `ROADMAP.md`, `docs/UI_UX_GUIDELINES.md` (if interaction patterns changed).
-4. **CLAUDE.md** — update if new critical rules, architecture patterns, or file locations were established.
-5. **Memory** — refresh `~/.claude/projects/…/memory/`: `project_session_handoff.md` (branch/commit/open work) and relevant pattern/decision files.
-6. **Push** — `git push origin main`; confirm no errors.
-7. **Confirm** — report what was committed, pushed, and written to memory; call out anything that couldn't be done and why.
+On "let's wrap up" / "wrap this session", follow [docs/SESSION_WRAP.md](docs/SESSION_WRAP.md) in order: tests (`pytest tests/ -x -q`) → commit everything → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.
 
 ## Migration Status (incremental — follow the rule in new code, don't extend the debt)
 

@@ -51,6 +51,17 @@ Cross-source dedup has **one identity field**, not a per-surface heuristic. `con
 - **NULL-guard is mandatory:** group on `COALESCE(content_key, 'id:' || id)`. A bare `PARTITION BY content_key` merges every un-backfilled NULL row into one phantom group.
 - **Phase 2 exception:** Recommendations + the Similar lightbox still use the richer runtime fingerprint in `content_dedup.py` (includes director) — don't "unify" them onto `content_key` without the deliberate re-base wave (DR-0009).
 
+## Content dedup compromises
+
+Two dedup layers coexist (see DR-0009 + [CONTENT_IDENTITY.md](CONTENT_IDENTITY.md)). Browse / Recipe Show-All / Discover / details "Other Versions" / tag counts collapse on the **stored `content_key`** (coarse: no director). The runtime fingerprint below is the **richer** key still used only by **Recommendations + the Similar lightbox** (Phase 2 will re-base those onto `content_key`). When metadata lands, a canonical TMDb/IMDb id replaces the `content_key` string in place.
+
+`content_dedup.py` groups same-production channels across providers by a `(norm_title, media_type, year, director)` fingerprint — a heuristic stopgap until TMDb/IMDb canonical IDs are wired up (ROADMAP). Deliberate trade-offs:
+
+- **Director excluded for series.** Many episode directors / inconsistent attribution cause false splits (same show appearing twice). Movies keep director — a single director is reliably credited and distinguishes remakes.
+- **Null-year absorption.** A candidate with no year (in name or MetadataDB) is suppressed if a year-bearing engaged variant with the same `(norm, media_type)` exists (e.g. a no-year `Rick and Morty` when `Rick And Morty (2013)` is queued). Risk: a genuinely different same-name no-year series could be suppressed — accepted as rare.
+
+Net effect: the recommendations list may occasionally hide a legitimate alternative or surface an unexpected variant. Don't tighten these without first checking the failing case isn't better fixed by improving metadata completeness (year in channel name, consistent director field). Canonical-ID primary key and a dedup-transparency toggle are tracked in ROADMAP.
+
 ## Tags and facets
 
 In the guessing zone, bias to recall: a false negative is invisible and unfixable; a false positive is visible and one-click-correctable (and teaches the system). Full rationale + worked examples: DESIGN_RATIONALE **DR-0006**. Chokepoint: `tag_decomposer.py`. Curated code→facet + base-confidence data: `channel_name_utils.py`.
