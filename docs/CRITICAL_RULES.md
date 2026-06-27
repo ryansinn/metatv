@@ -117,9 +117,15 @@ metadata.cast = result.cast      # assign a list
 cast = metadata.cast or []       # read a list back
 ```
 
-## Per-provider EPG config
+## EPG manager internals
 
-Each `ProviderDB` row carries three EPG columns:
+Rules for code inside `EpgManager` / the EPG fetch path.
+
+**Notifications — never from a worker thread.** `NotificationManager.show()` creates an auto-dismiss `QTimer` (main thread only); all worker notifications go through private signals (`_notify`, `_progress_update`, `_progress_done`, `_progress_error`) that Qt queues to the main thread.
+
+**One fetch worker at a time.** `EpgManager` uses `ThreadPoolExecutor(max_workers=1)`; two concurrent XMLTV fetches cause SQLite `database is locked` (each does bulk-delete + bulk-insert). Providers fetch sequentially.
+
+**Per-provider config — three columns + one URL chokepoint.** Each `ProviderDB` row carries:
 
 - `epg_enabled` (bool) — `False` skips the provider in the fetcher, excludes it via `get_epg_active_provider_ids()`, and purges its programmes via `EpgManager.purge_provider_epg()`.
 - `epg_refresh_interval` (String enum) — `"default"` inherits `Config.epg_default_refresh_interval` (default `"3d"`); throttle logic in `EpgManager.needs_refresh()`.
@@ -127,9 +133,7 @@ Each `ProviderDB` row carries three EPG columns:
 
 Resolve the fetch URL only via `EpgManager.effective_epg_url(provider)` — never read `provider.epg_url` directly.
 
-## EPG channel name at fetch
-
-`EpgProgramDB.channel_name` stores the XMLTV display-name, written at fetch (`_fetch_worker` builds `chan_name_map`). `EpgManager.relink_all()` re-matches existing rows by this name (fuzzy tiers) — which is what makes the watchlist/Watch-Alerts populate without a manual Refresh. **Never stop populating it** or the "watchlist empty until you click Refresh" bug returns. Legacy nameless rows trigger a one-time re-fetch via `EpgRepository.has_unmatched_unnamed_epg()`.
+**`channel_name` must be populated at fetch.** `EpgProgramDB.channel_name` stores the XMLTV display-name, written at fetch (`_fetch_worker` builds `chan_name_map`). `EpgManager.relink_all()` re-matches existing rows by this name (fuzzy tiers) — which is what makes the watchlist/Watch-Alerts populate without a manual Refresh. **Never stop populating it** or the "watchlist empty until you click Refresh" bug returns. Legacy nameless rows trigger a one-time re-fetch via `EpgRepository.has_unmatched_unnamed_epg()`.
 
 ## Context filter chips
 
@@ -155,20 +159,6 @@ mpv runs as a per-source instance registry (Split Streams). `PlayerManager.play(
 
 - Every play path **threads the channel's `provider_id`**: `play_media` → `_bg_validate_and_play` → `_stream_ready` payload → `_on_stream_ready` → `player_manager.play(provider_id=…)`. Dropping it breaks Split Streams.
 - `is_running`/`stop`/`get_properties`/`active_keys` go through `PlayerManager(..., key=…)`. Never touch `MPVPlayer`'s process/socket directly.
-
-## Early returns cleanup
-
-Any resource or set membership acquired before a guard check must be released on every early-return path.
-
-```python
-self.refreshing_providers.add(pid)
-provider = repos.get(pid)
-if not provider:
-    self.refreshing_providers.discard(pid)   # release before returning
-    return
-```
-
-Applies to locks, sets, progress trackers — anything set before a validation check.
 
 ## View lifecycle
 
