@@ -408,9 +408,9 @@ class TestEpgDecompose:
     """epg feeder — genre normalization, best-effort."""
 
     def test_sport(self, cfg):
-        """EPG 'Sport' → genre:Sport."""
+        """EPG 'Sport' → genre:Sports (plural canonical, #103 fold)."""
         tags = decompose("epg", "Sport", config=cfg)
-        assert any(t == "genre" and v == "Sport" for t, v, _ in tags)
+        assert any(t == "genre" and v == "Sports" for t, v, _ in tags)
 
     def test_documentary(self, cfg):
         tags = decompose("epg", "Documentary", config=cfg)

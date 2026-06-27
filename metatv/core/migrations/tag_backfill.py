@@ -97,7 +97,12 @@ def _set_backfill_active(active: bool) -> None:
 #       produce language: (union), subtitle:, dub:, and format: tags from the
 #       stored ChannelDB.detected_audio dict.  Full re-tag required so existing
 #       rows gain these facets.
-CURRENT_TAG_BACKFILL_VERSION = 4
+#   5 — Sport → Sports fold (#103): _GENRE_NORM in filter_utils now maps both
+#       "sport" and "sports" to the plural canonical "Sports" (matching
+#       CONTENT_DESCRIPTOR_GROUPS and BASE_PLATFORM_GROUPS).  Existing
+#       source="generated" tags with value "Sport" (singular) must be
+#       regenerated as "Sports" to eliminate the split facet.
+CURRENT_TAG_BACKFILL_VERSION = 5
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
