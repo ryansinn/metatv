@@ -157,6 +157,10 @@ qa_attach_icon: str = "📎"         # Attach a screenshot to a failed step
 qa_stale_icon: str = "⚠"           # Newer build available — re-test hint
 qa_flag_icon: str = "🚩"            # Flagged Items section header + add-item indicator
 qa_triaged_icon: str = "✔"         # U+2714 HEAVY CHECK MARK — flagged item triaged status
+qa_retest_icon: str = "↻"          # U+21BB CLOCKWISE OPEN CIRCLE — Re-test log snapshot
+qa_type_bug_icon: str = "🐛"       # Flagged item type: bug
+qa_type_feature_icon: str = "✨"   # Flagged item type: feature request
+qa_type_note_icon: str = "📝"      # Flagged item type: general note
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
