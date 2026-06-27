@@ -45,7 +45,17 @@ def _entry(id: int, steps: tuple[str, ...] = ()) -> SimpleNamespace:
         title=f"Entry {id}",
         items=("bullet",),
         test_steps=steps,
+        addresses=(),
     )
+
+
+def _entry_with_addresses(
+    id: int, steps: tuple[str, ...] = (), addresses: tuple[str, ...] = ()
+) -> SimpleNamespace:
+    """Return a WhatsNewEntry-shaped object with an ``addresses`` tuple."""
+    ns = _entry(id, steps)
+    ns.addresses = addresses
+    return ns
 
 
 # ── fake config ───────────────────────────────────────────────────────────────
@@ -65,6 +75,7 @@ class _FakeConfig:
         qa_archived_collapsed: bool = True,
         qa_flagged_items: list | None = None,
         qa_flagged_collapsed: bool = False,
+        qa_addressed: dict | None = None,
         config_dir: Path | None = None,
     ) -> None:
         self.qa_verified_id = qa_verified_id
@@ -73,6 +84,7 @@ class _FakeConfig:
         self.qa_archived_collapsed: bool = qa_archived_collapsed
         self.qa_flagged_items: list = qa_flagged_items or []
         self.qa_flagged_collapsed: bool = qa_flagged_collapsed
+        self.qa_addressed: dict = qa_addressed or {}
         self.config_dir = config_dir or Path("/tmp")
         self.save_calls: int = 0
 
@@ -1248,3 +1260,532 @@ def test_section_order_flagged_before_archived(qapp, tmp_path):
     assert flagged_pos < archived_pos, (
         f"Flagged (pos {flagged_pos}) must appear before Archived (pos {archived_pos})"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 18. Addressed-by-PR linkage (#109)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 18a. WhatsNewEntry backward-compat ───────────────────────────────────────
+
+def test_whats_new_entry_without_addresses_loads():
+    """WhatsNewEntry without 'addresses' loads with the default empty tuple."""
+    from metatv.whats_new import WhatsNewEntry
+    e = WhatsNewEntry(
+        id=1, version="1.0", date="2026-01-01", title="T", items=("x",),
+        test_steps=("s",),
+    )
+    assert e.addresses == ()
+
+
+def test_whats_new_entry_with_addresses_field_stores_correctly():
+    """WhatsNewEntry with addresses=(...) stores the tuple without modification."""
+    from metatv.whats_new import WhatsNewEntry
+    e = WhatsNewEntry(
+        id=2, version="1.0", date="2026-01-01", title="T", items=(), test_steps=(),
+        addresses=("e1_s0", "flagged:some-uuid"),
+    )
+    assert e.addresses == ("e1_s0", "flagged:some-uuid")
+
+
+def test_all_existing_whats_new_entries_have_addresses_tuple():
+    """Every real WHATS_NEW entry has ``addresses`` as a tuple (default or explicit)."""
+    from metatv.whats_new import WHATS_NEW
+    for entry in WHATS_NEW:
+        assert isinstance(getattr(entry, "addresses", None), tuple), (
+            f"entry {entry.id} 'addresses' must be a tuple"
+        )
+
+
+# ── 18b. _parse_address_ref ───────────────────────────────────────────────────
+
+def test_parse_address_ref_step_format():
+    """_parse_address_ref('e82_s4') returns the tuple (82, 4)."""
+    from metatv.gui.qa_checklist_window import QAChecklistWindow
+    assert QAChecklistWindow._parse_address_ref("e82_s4") == (82, 4)
+
+
+def test_parse_address_ref_step_zero():
+    """_parse_address_ref('e10_s0') returns (10, 0) — zero step is valid."""
+    from metatv.gui.qa_checklist_window import QAChecklistWindow
+    assert QAChecklistWindow._parse_address_ref("e10_s0") == (10, 0)
+
+
+def test_parse_address_ref_flagged_format():
+    """_parse_address_ref('flagged:abc-123') returns the string as-is."""
+    from metatv.gui.qa_checklist_window import QAChecklistWindow
+    ref = "flagged:abc-123-def"
+    assert QAChecklistWindow._parse_address_ref(ref) == ref
+
+
+def test_parse_address_ref_invalid_returns_none():
+    """_parse_address_ref with an unrecognised format returns None."""
+    from metatv.gui.qa_checklist_window import QAChecklistWindow
+    assert QAChecklistWindow._parse_address_ref("bogus") is None
+    assert QAChecklistWindow._parse_address_ref("") is None
+    assert QAChecklistWindow._parse_address_ref("e82") is None
+
+
+# ── 18c. _build_addressed_index ───────────────────────────────────────────────
+
+def test_addressed_index_built_from_step_addresses(qapp, tmp_path):
+    """An entry with addresses=('e82_s4',) creates a reverse index hit for (82, 4)."""
+    e82 = _entry(82, steps=("s0", "s1", "s2", "s3", "s4"))
+    e89 = _entry_with_addresses(89, steps=("fix step",), addresses=("e82_s4",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"4": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    assert (82, 4) in win._addressed_index
+    info = win._addressed_index[(82, 4)]
+    assert info["addressing_entry_id"] == 89
+    # PR number may be None if git refs haven't resolved yet — just check the key.
+
+
+def test_addressed_index_built_from_flagged_addresses(qapp, tmp_path):
+    """An entry with addresses=('flagged:test-uuid',) creates a flagged index hit."""
+    e10 = _entry_with_addresses(10, steps=("fix",), addresses=("flagged:test-uuid",))
+    config = _FakeConfig(
+        qa_flagged_items=[{
+            "id": "test-uuid", "created": "2026-01-01T00:00:00+00:00",
+            "build_sha": "", "title": "Some bug", "note": "", "attachments": [],
+            "status": "open", "type": "bug",
+        }],
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e10])
+
+    assert "flagged:test-uuid" in win._addressed_index
+    assert win._addressed_index["flagged:test-uuid"]["addressing_entry_id"] == 10
+
+
+def test_addressed_index_empty_when_no_addresses(qapp, tmp_path):
+    """When no entry declares addresses, the index is empty."""
+    entries = [_entry(1, steps=("step",)), _entry(2, steps=("other",))]
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+
+    assert win._addressed_index == {}
+
+
+def test_addressed_index_includes_pr_number_from_git_refs(qapp, tmp_path):
+    """When git refs resolve, the index stores the pr_number from the ref dict."""
+    e82 = _entry(82, steps=("step",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [e82, e89])
+
+    # Simulate git refs arriving for entry 89.
+    win._on_git_refs_ready({
+        89: {"pr_number": 109, "commit_hash": None,
+             "base_url": "https://github.com/ryansinn/metatv"},
+    })
+
+    assert (82, 0) in win._addressed_index
+    assert win._addressed_index[(82, 0)]["pr_number"] == 109
+
+
+# ── 18d. _effective_addressed — auto + manual lookup ─────────────────────────
+
+def test_effective_addressed_returns_auto_info(qapp, tmp_path):
+    """_effective_addressed returns the auto-indexed info for a referenced step."""
+    e82 = _entry(82, steps=("step A",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [e82, e89])
+
+    info = win._effective_addressed(82, 0)
+    assert info is not None
+    assert info["addressing_entry_id"] == 89
+
+
+def test_effective_addressed_returns_manual_info(qapp, tmp_path):
+    """_effective_addressed returns manual config.qa_addressed info when auto absent."""
+    e82 = _entry(82, steps=("step A",))
+    config = _FakeConfig(
+        qa_addressed={"e82_s0": {"pr": 42, "entry_id": None, "ts": "", "manual": True}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82])
+
+    info = win._effective_addressed(82, 0)
+    assert info is not None
+    assert info["pr_number"] == 42
+
+
+def test_effective_addressed_returns_none_when_absent(qapp, tmp_path):
+    """_effective_addressed returns None when the step has no addressed info."""
+    e82 = _entry(82, steps=("step",))
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [e82])
+
+    assert win._effective_addressed(82, 0) is None
+
+
+# ── 18e. Addressed badge rendered on failed steps ─────────────────────────────
+
+def test_addressed_badge_rendered_for_auto_addressed_step(qapp, tmp_path):
+    """A failed step addressed by a newer entry's 'addresses' shows QA_ADDRESSED_BADGE."""
+    from PyQt6.QtWidgets import QLabel
+    from metatv.gui import theme as _theme
+
+    e82 = _entry(82, steps=("s0", "s1", "s2", "s3", "s4"))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s4",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"4": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    # Walk all labels in the body; at least one must carry QA_ADDRESSED_BADGE style.
+    found = False
+    for i in range(win._body_layout.count()):
+        w = win._body_layout.itemAt(i).widget()
+        if w is None:
+            continue
+        for lbl in w.findChildren(QLabel):
+            if lbl.styleSheet() == _theme.QA_ADDRESSED_BADGE:
+                found = True
+    assert found, "expected a QA_ADDRESSED_BADGE label for an auto-addressed failed step"
+
+
+def test_addressed_step_state_remains_fail_not_auto_passed(qapp, tmp_path):
+    """When a newer entry addresses a failed step, the step's state stays 'fail'."""
+    e82 = _entry(82, steps=("step A",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    # State must remain fail — addressed-by-PR is never an auto-pass.
+    assert win._step_state(82, 0) == "fail"
+
+
+def test_no_addressed_badge_for_non_failed_step(qapp, tmp_path):
+    """No addressed badge appears on a step that is passed (not failed)."""
+    from PyQt6.QtWidgets import QLabel
+    from metatv.gui import theme as _theme
+
+    e82 = _entry(82, steps=("step A",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    for i in range(win._body_layout.count()):
+        w = win._body_layout.itemAt(i).widget()
+        if w is None:
+            continue
+        for lbl in w.findChildren(QLabel):
+            assert lbl.styleSheet() != _theme.QA_ADDRESSED_BADGE, (
+                "addressed badge must NOT appear on a passed step"
+            )
+
+
+# ── 18f. Manual mark — _on_mark_step_addressed ───────────────────────────────
+
+def test_manual_mark_step_addressed_persists_to_config(qapp, tmp_path, monkeypatch):
+    """_on_mark_step_addressed() stores addressed state in config.qa_addressed."""
+    entries = [_entry(700, steps=("step A",))]
+    config = _FakeConfig(
+        qa_step_results={"700": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    # Monkeypatch QInputDialog.getText to return ("109", True) (PR 109, confirmed).
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("109", True),
+    )
+
+    win._on_mark_step_addressed(700, 0)
+
+    key = "e700_s0"
+    assert key in config.qa_addressed
+    assert config.qa_addressed[key]["pr"] == 109
+    assert config.qa_addressed[key]["manual"] is True
+    assert config.save_calls >= 1
+
+
+def test_manual_mark_step_addressed_without_pr_number(qapp, tmp_path, monkeypatch):
+    """_on_mark_step_addressed() with blank PR input still marks the step addressed."""
+    entries = [_entry(701, steps=("step B",))]
+    config = _FakeConfig(
+        qa_step_results={"701": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("", True),  # blank PR → pr=None
+    )
+
+    win._on_mark_step_addressed(701, 0)
+
+    assert "e701_s0" in config.qa_addressed
+    assert config.qa_addressed["e701_s0"]["pr"] is None
+
+
+def test_manual_mark_step_addressed_cancelled_is_noop(qapp, tmp_path, monkeypatch):
+    """_on_mark_step_addressed() does nothing when the dialog is cancelled."""
+    entries = [_entry(702, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"702": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    prior_saves = config.save_calls
+
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("", False),  # cancelled
+    )
+
+    win._on_mark_step_addressed(702, 0)
+
+    assert "e702_s0" not in config.qa_addressed
+    assert config.save_calls == prior_saves
+
+
+def test_manual_mark_shows_in_effective_addressed(qapp, tmp_path, monkeypatch):
+    """After manual mark, _effective_addressed returns non-None for the step."""
+    entries = [_entry(703, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"703": {"0": {"state": "fail", "note": "", "attachments": []}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    assert win._effective_addressed(703, 0) is None  # not yet
+
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("99", True),
+    )
+    win._on_mark_step_addressed(703, 0)
+
+    info = win._effective_addressed(703, 0)
+    assert info is not None
+    assert info["pr_number"] == 99
+
+
+# ── 18g. Manual mark — _on_mark_flagged_addressed ────────────────────────────
+
+def test_manual_mark_flagged_addressed_persists(qapp, tmp_path, monkeypatch):
+    """_on_mark_flagged_addressed() stores addressed state for the flagged item."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("55", True),
+    )
+
+    win._on_mark_flagged_addressed(iid)
+
+    key = f"flagged:{iid}"
+    assert key in config.qa_addressed
+    assert config.qa_addressed[key]["pr"] == 55
+    assert config.qa_addressed[key]["manual"] is True
+
+
+def test_manual_mark_flagged_addressed_cancelled_is_noop(qapp, tmp_path, monkeypatch):
+    """_on_mark_flagged_addressed() does nothing when the dialog is cancelled."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+    prior_saves = config.save_calls
+
+    monkeypatch.setattr(
+        "metatv.gui.qa_checklist_window.QInputDialog.getText",
+        lambda *a, **kw: ("", False),
+    )
+
+    win._on_mark_flagged_addressed(iid)
+
+    assert f"flagged:{iid}" not in config.qa_addressed
+    assert config.save_calls == prior_saves
+
+
+# ── 18h. Failures digest reflects addressed status ────────────────────────────
+
+def test_failures_digest_shows_addressed_for_auto_addressed_step(qapp, tmp_path):
+    """qa_failures.md shows 'Addressed' for a step referenced by a newer entry's PR."""
+    from metatv.gui.qa_checklist_window import _build_failures_digest
+
+    e82 = _entry(82, steps=("Click widget",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": {"state": "fail", "sha": "", "ts": "", "note": "boom",
+                                      "attachments": [], "log": ""}}},
+        config_dir=tmp_path,
+    )
+    addressed = {"e82_s0": {"addressing_entry_id": 89, "pr_number": 109}}
+    text = _build_failures_digest(
+        config, [e82], git_refs={}, current_sha="", addressed=addressed,
+    )
+
+    assert "Addressed" in text
+    assert "PR #109" in text
+    assert "entry #89" in text
+    assert "re-test pending" in text
+
+
+def test_failures_digest_shows_open_when_not_addressed(qapp, tmp_path):
+    """qa_failures.md says 'open — not yet addressed' when no addressing info."""
+    from metatv.gui.qa_checklist_window import _build_failures_digest
+
+    e82 = _entry(82, steps=("Click widget",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": {"state": "fail", "sha": "", "ts": "", "note": "",
+                                      "attachments": [], "log": ""}}},
+        config_dir=tmp_path,
+    )
+    text = _build_failures_digest(
+        config, [e82], git_refs={}, current_sha="", addressed={},
+    )
+
+    assert "open — not yet addressed" in text
+
+
+def test_digest_addressed_status_from_window_write_digest(qapp, tmp_path):
+    """_write_digest() on the window produces a digest with addressed status."""
+    e82 = _entry(82, steps=("step",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(
+        qa_step_results={"82": {"0": {"state": "fail", "sha": "", "ts": "", "note": "oops",
+                                      "attachments": [], "log": ""}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+    # Simulate git refs with PR number.
+    win._git_refs = {89: {"pr_number": 109, "commit_hash": None, "base_url": None}}
+    win._addressed_index = win._build_addressed_index()
+
+    win._write_digest()
+
+    text = (tmp_path / "qa_failures.md").read_text()
+    assert "Addressed" in text
+    assert "PR #109" in text
+
+
+# ── 18i. Flagged items digest reflects addressed status ───────────────────────
+
+def test_flagged_digest_shows_addressed_when_flagged_item_referenced(qapp, tmp_path):
+    """qa_flagged_items.md shows 'Addressed' when a flagged item is in the addressed dict."""
+    from metatv.gui.qa_checklist_window import _build_flagged_digest
+
+    config = _FakeConfig(
+        qa_flagged_items=[{
+            "id": "flag-001", "created": "2026-01-01T00:00:00+00:00",
+            "build_sha": "abc", "title": "Button crash", "note": "every time",
+            "attachments": [], "status": "open", "type": "bug",
+        }],
+        config_dir=tmp_path,
+    )
+    addressed = {"flagged:flag-001": {"addressing_entry_id": 89, "pr_number": 109}}
+    text = _build_flagged_digest(config, addressed=addressed)
+
+    assert "Addressed" in text
+    assert "PR #109" in text
+    assert "entry #89" in text
+
+
+def test_flagged_digest_shows_open_status_when_not_addressed(qapp, tmp_path):
+    """qa_flagged_items.md shows the regular status when no addressed info."""
+    from metatv.gui.qa_checklist_window import _build_flagged_digest
+
+    config = _FakeConfig(
+        qa_flagged_items=[{
+            "id": "flag-002", "created": "2026-01-01T00:00:00+00:00",
+            "build_sha": "abc", "title": "Some bug", "note": "",
+            "attachments": [], "status": "open", "type": "bug",
+        }],
+        config_dir=tmp_path,
+    )
+    text = _build_flagged_digest(config, addressed={})
+
+    # Should show the item's own status, not "Addressed".
+    assert "Addressed" not in text
+    assert "open" in text
+
+
+# ── 18j. Config qa_addressed persistence ─────────────────────────────────────
+
+def test_config_qa_addressed_defaults_empty(tmp_path):
+    """qa_addressed defaults to an empty dict for a fresh Config."""
+    from metatv.core.config import Config
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    assert config.qa_addressed == {}
+
+
+def test_config_qa_addressed_round_trips(tmp_path):
+    """qa_addressed round-trips through Config.save()/load()."""
+    import yaml
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config.qa_addressed = {
+        "e82_s4": {"pr": 109, "entry_id": 89, "ts": "2026-06-27T00:00:00+00:00",
+                   "manual": True},
+        "flagged:some-uuid": {"pr": None, "entry_id": None,
+                              "ts": "2026-06-27T00:00:00+00:00", "manual": True},
+    }
+    config.save()
+
+    with open(tmp_path / "config.yaml") as f:
+        data = yaml.safe_load(f)
+    loaded = Config(**data)
+
+    assert loaded.qa_addressed["e82_s4"]["pr"] == 109
+    assert loaded.qa_addressed["e82_s4"]["manual"] is True
+    assert "flagged:some-uuid" in loaded.qa_addressed
+
+
+# ── 18k. _merge_addressed combines auto + manual ─────────────────────────────
+
+def test_merge_addressed_combines_auto_and_manual(qapp, tmp_path):
+    """_merge_addressed() yields string-keyed dict combining auto index + manual config."""
+    e82 = _entry(82, steps=("step A", "step B"))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(
+        qa_addressed={"e82_s1": {"pr": 55, "entry_id": None, "ts": "", "manual": True}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    merged = win._merge_addressed()
+
+    # Auto-indexed: e82_s0 via e89's addresses.
+    assert "e82_s0" in merged
+    assert merged["e82_s0"]["addressing_entry_id"] == 89
+    # Manual: e82_s1 via config.qa_addressed.
+    assert "e82_s1" in merged
+    assert merged["e82_s1"]["pr"] == 55
+
+
+def test_merge_addressed_auto_takes_precedence(qapp, tmp_path):
+    """When both auto and manual entries exist for the same key, auto wins."""
+    e82 = _entry(82, steps=("step A",))
+    e89 = _entry_with_addresses(89, steps=("fix",), addresses=("e82_s0",))
+    config = _FakeConfig(
+        qa_addressed={
+            "e82_s0": {"pr": 999, "entry_id": None, "ts": "", "manual": True}
+        },
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [e82, e89])
+
+    merged = win._merge_addressed()
+
+    # Auto-indexed entry (addressing_entry_id=89) should take precedence.
+    assert merged["e82_s0"].get("addressing_entry_id") == 89

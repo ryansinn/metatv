@@ -161,6 +161,8 @@ qa_retest_icon: str = "↻"          # U+21BB CLOCKWISE OPEN CIRCLE — Re-test 
 qa_type_bug_icon: str = "🐛"       # Flagged item type: bug
 qa_type_feature_icon: str = "✨"   # Flagged item type: feature request
 qa_type_note_icon: str = "📝"      # Flagged item type: general note
+qa_addressed_icon: str = "↺"       # U+21BA ANTICLOCKWISE OPEN CIRCLE — addressed-by-later-PR badge
+qa_jump_icon: str = "↑"            # U+2191 UPWARDS ARROW — jump to the addressing entry
 
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
