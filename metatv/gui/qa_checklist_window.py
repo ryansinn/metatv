@@ -1598,7 +1598,10 @@ class QAChecklistWindow(QWidget):
         attach_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
         chips_layout.addWidget(attach_btn)
 
-        # Addressed-by-PR badge or "Mark addressed" button for this flagged item.
+        # Addressed-by-PR badge for this flagged item. Flagged items are a one-way
+        # FEEDER — the tester never resolves them; a flag evolves to "addressed" ONLY
+        # via a later PR's WhatsNewEntry addresses=("flagged:<id>") declaration.
+        # There is deliberately NO manual "mark addressed" button on flags.
         flagged_addr_info = self._flagged_effective_addressed(item_id)
         if flagged_addr_info:
             fa_pr = flagged_addr_info.get("pr_number")
@@ -1611,17 +1614,6 @@ class QAChecklistWindow(QWidget):
             )
             fa_chip.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
             chips_layout.addWidget(fa_chip)
-        else:
-            fa_mark_btn = QPushButton(f"{_icons.qa_addressed_icon} Mark addressed")
-            fa_mark_btn.setToolTip(
-                "Record that a later PR addresses this observation.\n"
-                "The item stays open until re-tested and triaged."
-            )
-            fa_mark_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
-            fa_mark_btn.clicked.connect(
-                lambda _, iid=item_id: self._on_mark_flagged_addressed(iid)
-            )
-            chips_layout.addWidget(fa_mark_btn)
 
         for att_path in (item.get("attachments") or []):
             att_name = os.path.basename(att_path)
@@ -1998,20 +1990,13 @@ class QAChecklistWindow(QWidget):
         return None
 
     def _flagged_effective_addressed(self, item_id: str) -> dict | None:
-        """Return addressed info for a flagged item, or ``None`` if not addressed.
+        """Return AUTO addressed info for a flagged item, or ``None``.
 
-        Checks auto index then ``config.qa_addressed``.
+        Flagged items are a one-way feeder — they evolve to "addressed" ONLY via a
+        later PR's ``WhatsNewEntry.addresses=("flagged:<id>")`` declaration (the
+        reverse index). There is no manual/tester resolution path for flags.
         """
-        info = self._addressed_index.get(f"flagged:{item_id}")
-        if info:
-            return info
-        manual = (getattr(self._config, "qa_addressed", {}) or {}).get(f"flagged:{item_id}")
-        if manual:
-            return {
-                "addressing_entry_id": manual.get("entry_id"),
-                "pr_number": manual.get("pr"),
-            }
-        return None
+        return self._addressed_index.get(f"flagged:{item_id}")
 
     def _merge_addressed(self) -> dict:
         """Merge auto-indexed and manually-marked addressed info into string-keyed dict.
@@ -2083,49 +2068,6 @@ class QAChecklistWindow(QWidget):
         )
         self._refresh_preserving_scroll()
         self._write_digest()
-
-    def _on_mark_flagged_addressed(self, item_id: str) -> None:
-        """Manually mark a flagged item as addressed by a later PR.
-
-        Opens an input dialog asking for the PR number (optional), persists
-        the addressed state in ``config.qa_addressed``, then redraws + rewrites
-        the flagged digest.
-
-        Args:
-            item_id: UUID of the flagged item being marked addressed.
-        """
-        pr_text, ok = QInputDialog.getText(
-            self,
-            "Mark Addressed",
-            "PR number that addresses this flagged item\n"
-            "(leave blank to mark addressed without a specific PR number):",
-        )
-        if not ok:
-            return
-
-        pr_num: int | None = None
-        stripped = pr_text.strip().lstrip("#")
-        if stripped:
-            try:
-                pr_num = int(stripped)
-            except ValueError:
-                pass
-
-        key = f"flagged:{item_id}"
-        addressed = dict(getattr(self._config, "qa_addressed", {}) or {})
-        addressed[key] = {
-            "pr": pr_num,
-            "entry_id": None,
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "manual": True,
-        }
-        self._config.qa_addressed = addressed
-        self._config.save()
-        logger.debug(
-            "QA: flagged item {} manually marked addressed (PR {})", item_id, pr_num,
-        )
-        self._refresh_preserving_scroll()
-        _write_flagged_digest(self._config, addressed=self._merge_addressed())
 
     # ── event handlers ────────────────────────────────────────────────────────
 
