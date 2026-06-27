@@ -79,7 +79,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import (
     QApplication,
@@ -462,17 +462,24 @@ def _build_flagged_digest(config: "Config") -> str:
     blocks: list[str] = []
     for item in items:
         status = item.get("status", "open")
+        item_type = item.get("type", "bug")
         title = item.get("title", "").strip() or "_(untitled)_"
         note = (item.get("note", "") or "").strip() or "_(no note)_"
         sha = item.get("build_sha", "") or "?"
         created = item.get("created", "") or "?"
         attachments = item.get("attachments") or []
+        last_retested = item.get("last_retested") or ""
 
         lines = [
-            f"### {title}",
+            f"### [{item_type.upper()}] {title}",
             "",
+            f"- **Type:** {item_type}",
             f"- **Status:** {status}",
             f"- **Flagged:** `{created}` on build `{sha}`",
+        ]
+        if last_retested:
+            lines.append(f"- **Last re-reviewed:** `{last_retested}`")
+        lines += [
             f"- **Note:** {note}",
         ]
         if attachments:
@@ -645,6 +652,8 @@ class QAChecklistWindow(QWidget):
         #                            attachments_container_layout)
         self._flagged_note_edits: dict[str, _FailNoteEdit] = {}
         self._flagged_title_edits: dict[str, QLineEdit] = {}
+        # Flagged section container (rebuilt on refresh; stored for section-order tests)
+        self._flagged_container: QWidget | None = None
 
         self.setWindowTitle("Testing Checklist")
         self.setMinimumWidth(560)
@@ -689,6 +698,8 @@ class QAChecklistWindow(QWidget):
 
         # ── scrollable body ───────────────────────────────────────────────────
         scroll = QScrollArea()
+        # Store reference so handlers can preserve scroll position across rebuilds.
+        self._scroll = scroll
         scroll.setWidgetResizable(True)
         # Never scroll horizontally — fail-note boxes / step rows wrap to the
         # viewport width instead of forcing a horizontal scrollbar or a resize.
@@ -716,6 +727,21 @@ class QAChecklistWindow(QWidget):
     def refresh(self) -> None:
         """Re-read config and redraw the checklist (e.g. after a purge)."""
         self._refresh()
+
+    # ── scroll-preserving rebuild ─────────────────────────────────────────────
+
+    def _refresh_preserving_scroll(self) -> None:
+        """Rebuild the body while restoring the vertical scroll position.
+
+        Captures the current scrollbar value before the rebuild and schedules
+        a deferred restore via ``QTimer.singleShot(0, …)`` so Qt finishes
+        laying out the new widgets before the value is applied.  This prevents
+        the jarring jump-to-top when marking pass/fail mid-checklist.
+        """
+        scrollbar = self._scroll.verticalScrollBar()
+        saved = scrollbar.value()
+        self._refresh()
+        QTimer.singleShot(0, lambda v=saved: scrollbar.setValue(v))
 
     # ── per-step record access ────────────────────────────────────────────────
 
@@ -823,6 +849,7 @@ class QAChecklistWindow(QWidget):
         self._flagged_title_edits.clear()
         self._archived_toggle_btn = None
         self._archived_container = None
+        self._flagged_container = None
 
     def _refresh(self) -> None:
         """Rebuild the body from current config state."""
@@ -843,11 +870,14 @@ class QAChecklistWindow(QWidget):
             all_done = self._all_complete(open_entries)
             self._purge_btn.setEnabled(all_done)
 
+        # Flagged Items before Archived — active capture is more important for
+        # workflow than reviewing what was already individually archived.
+        self._render_flagged_section()
+
         archived = self._archived_entries()
         if archived:
             self._render_archived_section(archived)
 
-        self._render_flagged_section()
         self._body_layout.addStretch(1)
 
         if self._git_refs:
@@ -1082,6 +1112,17 @@ class QAChecklistWindow(QWidget):
         )
         chips_layout.addWidget(attach_btn)
 
+        retest_btn = QPushButton(f"{_icons.qa_retest_icon} Re-test")
+        retest_btn.setToolTip(
+            "Re-run the log snapshot and record that this item was re-reviewed,\n"
+            "making it visually distinct from a stale unreviewed failure."
+        )
+        retest_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        retest_btn.clicked.connect(
+            lambda _, eid=entry_id, si=idx: self._on_retest_clicked(eid, si)
+        )
+        chips_layout.addWidget(retest_btn)
+
         for path in (rec.get("attachments") or []):
             name = os.path.basename(path)
             chip = QPushButton(f"{name}  {_icons.close_icon}")
@@ -1098,6 +1139,15 @@ class QAChecklistWindow(QWidget):
             log_chip.setToolTip(f"Log snapshot: {log_path}")
             log_chip.setStyleSheet(_theme.QA_FAIL_BADGE)
             chips_layout.addWidget(log_chip)
+
+        last_retested = rec.get("last_retested")
+        if last_retested:
+            retested_lbl = QLabel(f"re-reviewed {last_retested[:10]}")
+            retested_lbl.setToolTip(f"Last re-reviewed at {last_retested}")
+            retested_lbl.setStyleSheet(
+                f"font-size: {_theme.FONT_XS}; color: {_theme.COLOR_OK};"
+            )
+            chips_layout.addWidget(retested_lbl)
 
         chips_layout.addStretch(1)
         clayout.addWidget(chips_row)
@@ -1241,6 +1291,7 @@ class QAChecklistWindow(QWidget):
 
         # ── collapsible items container ───────────────────────────────────────
         flagged_container = QWidget()
+        self._flagged_container = flagged_container  # stored for section-order tests
         flagged_layout = QVBoxLayout(flagged_container)
         flagged_layout.setContentsMargins(0, 4, 0, 4)
         flagged_layout.setSpacing(8)
@@ -1277,7 +1328,9 @@ class QAChecklistWindow(QWidget):
                 flagged_toggle_btn.setToolTip("Hide flagged items")
                 self._config.qa_flagged_collapsed = False
                 self._config.save()
-            self._render_flagged_item(item_dict, flagged_layout)
+            # Insert the new card at position 0 (top of the list) so it's
+            # immediately visible without any scrolling.
+            self._render_flagged_item(item_dict, flagged_layout, insert_at=0)
             # Update the section label count.
             new_count = len(getattr(self._config, "qa_flagged_items", []) or [])
             section_hdr.setText(
@@ -1286,15 +1339,37 @@ class QAChecklistWindow(QWidget):
 
         add_btn.clicked.connect(_on_add_item)
 
-    def _render_flagged_item(self, item: dict, parent_layout: QVBoxLayout) -> None:
+    def _flagged_type_label(self, item_type: str) -> str:
+        """Return the display label for a flagged item type cycle button."""
+        return {
+            "bug": f"{_icons.qa_type_bug_icon} bug",
+            "feature": f"{_icons.qa_type_feature_icon} feature",
+            "note": f"{_icons.qa_type_note_icon} note",
+        }.get(item_type, f"{_icons.qa_type_bug_icon} bug")
+
+    def _render_flagged_item(
+        self,
+        item: dict,
+        parent_layout: QVBoxLayout,
+        *,
+        insert_at: int | None = None,
+    ) -> None:
         """Render one flagged item row into *parent_layout*.
 
         Each row contains:
         - One-line title QLineEdit.
+        - Type cycle button (bug / feature / note).
         - Notes box (reuses _FailNoteEdit — captures pasted screenshots).
         - Attachment chips.
         - Status toggle (open / triaged).
         - Remove (×) button.
+
+        Args:
+            item: The flagged item dict from ``config.qa_flagged_items``.
+            parent_layout: Layout to add the card to.
+            insert_at: If given, insert the card at this position in the layout
+                (e.g. ``0`` places it at the top).  Otherwise the card is
+                appended to the end.
         """
         item_id: str = item.get("id", "")
         if not item_id:
@@ -1326,6 +1401,22 @@ class QAChecklistWindow(QWidget):
         )
         self._flagged_title_edits[item_id] = title_edit
         title_row_layout.addWidget(title_edit, stretch=1)
+
+        # Type cycle button: bug → feature → note → bug
+        item_type = item.get("type", "bug")
+        type_btn = QPushButton(self._flagged_type_label(item_type))
+        type_btn.setToolTip(
+            "Item type — click to cycle: bug → feature → note.\n"
+            "bug = reproducible defect  feature = enhancement request  note = observation"
+        )
+        type_btn.setFixedWidth(88)
+        type_btn.setStyleSheet(
+            f"QPushButton {{ border: 1px solid {_theme.COLOR_LINE}; border-radius: 3px;"
+            f" color: {_theme.COLOR_TEXT_LOW}; font-size: {_theme.FONT_SM};"
+            f" padding: 1px 4px; }}"
+            f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+        )
+        title_row_layout.addWidget(type_btn)
 
         status = item.get("status", "open")
         status_label = _icons.qa_triaged_icon if status == "triaged" else _icons.qa_flag_icon
@@ -1396,7 +1487,10 @@ class QAChecklistWindow(QWidget):
         chips_layout.addWidget(meta_lbl)
 
         card_layout.addWidget(chips_row)
-        parent_layout.addWidget(card)
+        if insert_at is not None:
+            parent_layout.insertWidget(insert_at, card)
+        else:
+            parent_layout.addWidget(card)
 
         # ── wire signals ──────────────────────────────────────────────────────
         title_edit.textChanged.connect(
@@ -1413,6 +1507,9 @@ class QAChecklistWindow(QWidget):
         )
         status_btn.clicked.connect(
             lambda _, iid=item_id: self._on_flagged_status_toggle(iid)
+        )
+        type_btn.clicked.connect(
+            lambda _, iid=item_id: self._on_flagged_type_cycle(iid)
         )
         remove_btn.clicked.connect(
             lambda _, iid=item_id: self._on_flagged_remove(iid)
@@ -1431,7 +1528,11 @@ class QAChecklistWindow(QWidget):
         _write_flagged_digest(self._config)
 
     def _create_flagged_item(self) -> dict:
-        """Create, persist, and return a new empty flagged item dict."""
+        """Create, persist, and return a new empty flagged item dict.
+
+        The new item is **prepended** to ``config.qa_flagged_items`` (index 0)
+        so it appears at the top of the section without any scrolling needed.
+        """
         item: dict = {
             "id": str(uuid.uuid4()),
             "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1440,9 +1541,10 @@ class QAChecklistWindow(QWidget):
             "note": "",
             "attachments": [],
             "status": "open",
+            "type": "bug",
         }
         items = self._get_flagged_items()
-        items.append(item)
+        items.insert(0, item)  # prepend so newest is always at the top
         self._save_flagged_items(items)
         logger.debug("QA checklist: created flagged item id={}", item["id"])
         return item
@@ -1532,7 +1634,7 @@ class QAChecklistWindow(QWidget):
         if path not in atts:
             atts.append(path)
         self._update_flagged_item(item_id, attachments=atts)
-        self._refresh()
+        self._refresh_preserving_scroll()
 
     def _on_flagged_remove_attachment(self, item_id: str, path: str) -> None:
         """Remove an attachment path from a flagged item and redraw."""
@@ -1541,7 +1643,7 @@ class QAChecklistWindow(QWidget):
             return
         atts = [p for p in (item.get("attachments") or []) if p != path]
         self._update_flagged_item(item_id, attachments=atts)
-        self._refresh()
+        self._refresh_preserving_scroll()
 
     def _on_flagged_status_toggle(self, item_id: str) -> None:
         """Toggle a flagged item between 'open' and 'triaged' and redraw."""
@@ -1551,14 +1653,25 @@ class QAChecklistWindow(QWidget):
         new_status = "triaged" if item.get("status", "open") == "open" else "open"
         self._update_flagged_item(item_id, status=new_status)
         logger.debug("QA checklist: flagged item {} → {}", item_id, new_status)
-        self._refresh()
+        self._refresh_preserving_scroll()
+
+    def _on_flagged_type_cycle(self, item_id: str) -> None:
+        """Cycle the flagged item type: bug → feature → note → bug and redraw."""
+        item = self._find_flagged_item(item_id)
+        if not item:
+            return
+        cycle = {"bug": "feature", "feature": "note", "note": "bug"}
+        new_type = cycle.get(item.get("type", "bug"), "bug")
+        self._update_flagged_item(item_id, type=new_type)
+        logger.debug("QA checklist: flagged item {} type → {}", item_id, new_type)
+        self._refresh_preserving_scroll()
 
     def _on_flagged_remove(self, item_id: str) -> None:
         """Remove a flagged item from config and redraw."""
         items = [i for i in self._get_flagged_items() if i.get("id") != item_id]
         self._save_flagged_items(items)
         logger.debug("QA checklist: removed flagged item id={}", item_id)
-        self._refresh()
+        self._refresh_preserving_scroll()
 
     # ── git ref + sha lookups ─────────────────────────────────────────────────
 
@@ -1646,7 +1759,7 @@ class QAChecklistWindow(QWidget):
             # Re-clicking the active state clears it back to untested.
             self._write_step_record(entry_id, step_idx, None)
             logger.debug("QA step {}/{} → untested", entry_id, step_idx)
-            self._refresh()
+            self._refresh_preserving_scroll()
             self._write_digest()
             return
 
@@ -1667,7 +1780,7 @@ class QAChecklistWindow(QWidget):
             self._write_step_record(entry_id, step_idx, record)
 
         logger.debug("QA step {}/{} → {}", entry_id, step_idx, target)
-        self._refresh()
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     def _start_log_snapshot(self, entry_id: int, step_idx: int) -> None:
@@ -1691,7 +1804,26 @@ class QAChecklistWindow(QWidget):
         updated = dict(rec)
         updated["log"] = path
         self._write_step_record(entry_id, step_idx, updated)
-        self._refresh()
+        self._refresh_preserving_scroll()
+        self._write_digest()
+
+    def _on_retest_clicked(self, entry_id: int, step_idx: int) -> None:
+        """Re-run log snapshot and stamp a re-review timestamp on the record.
+
+        Called from the "↻ Re-test" button on a failed step's comment area.
+        Records ``last_retested`` (ISO timestamp) so a freshly-reviewed failure
+        is visually distinct from a stale unreviewed one, then kicks off a fresh
+        log snapshot off-thread.
+        """
+        rec = self._step_record(entry_id, step_idx)
+        if not rec or rec.get("state") != "fail":
+            return
+        updated = dict(rec)
+        updated["last_retested"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._write_step_record(entry_id, step_idx, updated)
+        self._start_log_snapshot(entry_id, step_idx)
+        logger.debug("QA: re-test requested e={} s={}", entry_id, step_idx)
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     def _on_note_changed(self, entry_id: int, step_idx: int, text: str) -> None:
@@ -1734,7 +1866,7 @@ class QAChecklistWindow(QWidget):
         updated = dict(rec)
         updated["attachments"] = [p for p in (rec.get("attachments") or []) if p != path]
         self._write_step_record(entry_id, step_idx, updated)
-        self._refresh()
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     # ── attachment save helpers (QImage on main thread) ───────────────────────
@@ -1783,7 +1915,7 @@ class QAChecklistWindow(QWidget):
             atts.append(path)
         updated["attachments"] = atts
         self._write_step_record(entry_id, step_idx, updated)
-        self._refresh()
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     # ── archive / purge ───────────────────────────────────────────────────────
@@ -1796,7 +1928,7 @@ class QAChecklistWindow(QWidget):
         self._config.qa_archived_ids = archived
         self._config.save()
         logger.info("QA checklist: archived entry id={}", entry_id)
-        self._refresh()
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     def _on_unarchive(self, entry_id: int) -> None:
@@ -1807,7 +1939,7 @@ class QAChecklistWindow(QWidget):
         self._config.qa_archived_ids = archived
         self._config.save()
         logger.info("QA checklist: unarchived entry id={}", entry_id)
-        self._refresh()
+        self._refresh_preserving_scroll()
         self._write_digest()
 
     def _on_purge(self) -> None:

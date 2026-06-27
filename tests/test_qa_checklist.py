@@ -877,7 +877,8 @@ def test_create_flagged_item_stamps_current_sha(qapp, tmp_path):
     item = win._create_flagged_item()
 
     assert item["build_sha"] == "deadbeef"
-    assert config.qa_flagged_items[-1]["build_sha"] == "deadbeef"
+    # New item is prepended → lives at index 0.
+    assert config.qa_flagged_items[0]["build_sha"] == "deadbeef"
 
 
 def test_flagged_title_change_persists(qapp, tmp_path):
@@ -1038,3 +1039,212 @@ def test_config_qa_flagged_items_round_trip(tmp_path):
     assert item["note"] == "Some notes"
     assert item["status"] == "open"
     assert item["build_sha"] == "abc123"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 17. UX pass — scroll preservation, prepend, section order, type field, re-test
+#     (feat/qa-checklist-ux-pass)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_new_flagged_item_prepended_to_config(qapp, tmp_path):
+    """_create_flagged_item() prepends to qa_flagged_items so newest is at index 0."""
+    config = _FakeConfig(
+        qa_flagged_items=[{
+            "id": "old-item", "created": "2026-01-01T00:00:00+00:00",
+            "build_sha": "aaa", "title": "Old item", "note": "", "attachments": [],
+            "status": "open", "type": "bug",
+        }],
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, [])
+
+    new_item = win._create_flagged_item()
+
+    # New item must be at position 0.
+    assert config.qa_flagged_items[0]["id"] == new_item["id"]
+    # Old item is now at index 1.
+    assert config.qa_flagged_items[1]["id"] == "old-item"
+
+
+def test_new_flagged_item_written_to_digest(qapp, tmp_path):
+    """A new flagged item created via _create_flagged_item() appears in the digest."""
+    from metatv.gui.qa_checklist_window import _write_flagged_digest
+
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    win._on_flagged_title_changed(item["id"], "Prepend test crash")
+
+    _write_flagged_digest(config)
+
+    text = (tmp_path / "qa_flagged_items.md").read_text()
+    assert "Prepend test crash" in text
+
+
+def test_flagged_item_type_defaults_to_bug(qapp, tmp_path):
+    """A freshly-created flagged item has type='bug' by default."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+
+    item = win._create_flagged_item()
+
+    assert item.get("type") == "bug"
+    assert config.qa_flagged_items[0].get("type") == "bug"
+
+
+def test_flagged_item_type_cycles_bug_feature_note(qapp, tmp_path):
+    """_on_flagged_type_cycle() cycles bug → feature → note → bug."""
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, [])
+    item = win._create_flagged_item()
+    iid = item["id"]
+
+    assert item.get("type") == "bug"
+
+    win._on_flagged_type_cycle(iid)
+    assert next(i for i in config.qa_flagged_items if i["id"] == iid)["type"] == "feature"
+
+    win._on_flagged_type_cycle(iid)
+    assert next(i for i in config.qa_flagged_items if i["id"] == iid)["type"] == "note"
+
+    win._on_flagged_type_cycle(iid)
+    assert next(i for i in config.qa_flagged_items if i["id"] == iid)["type"] == "bug"
+
+
+def test_flagged_item_type_in_digest(qapp, tmp_path):
+    """The flagged-item digest includes the item type (as [BUG], [FEATURE], [NOTE])."""
+    from metatv.gui.qa_checklist_window import _write_flagged_digest
+
+    config = _FakeConfig(
+        qa_flagged_items=[
+            {
+                "id": "t1", "created": "2026-06-27T00:00:00+00:00",
+                "build_sha": "abc", "title": "A bug title", "note": "",
+                "attachments": [], "status": "open", "type": "bug",
+            },
+            {
+                "id": "t2", "created": "2026-06-27T00:00:00+00:00",
+                "build_sha": "abc", "title": "A feature title", "note": "",
+                "attachments": [], "status": "open", "type": "feature",
+            },
+            {
+                "id": "t3", "created": "2026-06-27T00:00:00+00:00",
+                "build_sha": "abc", "title": "A note title", "note": "",
+                "attachments": [], "status": "open", "type": "note",
+            },
+        ],
+        config_dir=tmp_path,
+    )
+    _write_flagged_digest(config)
+
+    text = (tmp_path / "qa_flagged_items.md").read_text()
+    assert "[BUG]" in text
+    assert "[FEATURE]" in text
+    assert "[NOTE]" in text
+    assert "A bug title" in text
+    assert "A feature title" in text
+    assert "A note title" in text
+
+
+def test_flagged_item_type_round_trips_through_config(tmp_path):
+    """The 'type' field round-trips through Config.save()/load()."""
+    import yaml
+    from metatv.core.config import Config
+
+    config = Config(config_dir=tmp_path, data_dir=tmp_path, cache_dir=tmp_path)
+    config.qa_flagged_items = [{
+        "id": "round-trip", "created": "2026-06-27T00:00:00+00:00",
+        "build_sha": "sha1", "title": "Test", "note": "",
+        "attachments": [], "status": "open", "type": "feature",
+    }]
+    config.save()
+
+    with open(tmp_path / "config.yaml") as f:
+        data = yaml.safe_load(f)
+    loaded = Config(**data)
+
+    assert loaded.qa_flagged_items[0]["type"] == "feature"
+
+
+def test_mark_pass_preserves_scroll_reference(qapp, tmp_path):
+    """The window has _scroll so scroll position can be preserved across rebuilds."""
+    entries = [_entry(600, steps=("step 1", "step 2", "step 3"))]
+    config = _FakeConfig(config_dir=tmp_path)
+    win = _build_window(qapp, config, entries)
+
+    # _scroll attribute must exist for the scroll-preservation mechanism.
+    assert hasattr(win, "_scroll")
+
+    # Marking a step must still update state correctly (the core behavior).
+    win._on_mark(600, 0, "pass")
+    assert config.qa_step_results["600"]["0"]["state"] == "pass"
+
+
+def test_retest_stamps_last_retested_and_persists(qapp, tmp_path):
+    """_on_retest_clicked() stamps last_retested on the record and saves."""
+    entries = [_entry(610, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"610": {"0": {"state": "fail", "note": "", "attachments": [],
+                                       "sha": "abc", "ts": "2026-06-27T00:00:00Z"}}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    assert config.qa_step_results["610"]["0"].get("last_retested") is None
+
+    win._on_retest_clicked(610, 0)
+
+    rec = config.qa_step_results["610"]["0"]
+    assert "last_retested" in rec
+    assert rec["last_retested"]  # non-empty ISO timestamp
+    assert "T" in rec["last_retested"]
+
+
+def test_retest_noop_on_non_fail_step(qapp, tmp_path):
+    """_on_retest_clicked() is a no-op when the step is not currently failed."""
+    entries = [_entry(611, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"611": {"0": _pass_rec()}},
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+    prior_saves = config.save_calls
+
+    win._on_retest_clicked(611, 0)
+
+    # No save should have occurred for a passing step.
+    assert config.save_calls == prior_saves
+
+
+def test_section_order_flagged_before_archived(qapp, tmp_path):
+    """Flagged Items section must appear in the body layout before Archived section."""
+    entries = [_entry(620, steps=("step",))]
+    config = _FakeConfig(
+        qa_step_results={"620": {"0": _pass_rec()}},
+        qa_archived_ids=[620],
+        qa_flagged_items=[{
+            "id": "order-test", "created": "2026-06-27T00:00:00+00:00",
+            "build_sha": "", "title": "Test flag", "note": "",
+            "attachments": [], "status": "open", "type": "bug",
+        }],
+        config_dir=tmp_path,
+    )
+    win = _build_window(qapp, config, entries)
+
+    assert win._archived_container is not None, "archived container must exist"
+    assert win._flagged_container is not None, "flagged container must exist"
+
+    # Find both containers' positions in the body layout.
+    body = win._body_layout
+    flagged_pos = archived_pos = None
+    for i in range(body.count()):
+        widget = body.itemAt(i).widget()
+        if widget is win._flagged_container:
+            flagged_pos = i
+        elif widget is win._archived_container:
+            archived_pos = i
+
+    assert flagged_pos is not None, "flagged_container not found in body layout"
+    assert archived_pos is not None, "archived_container not found in body layout"
+    assert flagged_pos < archived_pos, (
+        f"Flagged (pos {flagged_pos}) must appear before Archived (pos {archived_pos})"
+    )
