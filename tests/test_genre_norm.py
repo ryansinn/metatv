@@ -69,7 +69,7 @@ def test_spanish_italian_genres(raw, expected):
     ("رعب",                 "Horror"),
     ("إثارة",               "Thriller"),
     ("رومانسي",             "Romance"),
-    ("رياضة",               "Sport"),
+    ("رياضة",               "Sports"),
     # Extended Arabic (high-count live values)
     ("حركة ومغامرة",        "Action & Adventure"),
     ("غموض",                "Mystery"),
@@ -247,9 +247,13 @@ def test_romanian_genres(raw, expected):
 # ── Pass-through for already-English and unknown ──────────────────────────────
 
 def test_english_passthrough():
-    """Known English genres should pass through unchanged."""
-    for g in ("Drama", "Comedy", "Documentary", "Crime", "Horror", "Sport"):
+    """Known English genres should pass through unchanged (or fold to canonical form)."""
+    for g in ("Drama", "Comedy", "Documentary", "Crime", "Horror"):
         assert normalize_genre(g) == g
+    # "Sport" (singular) folds to "Sports" (plural) — not a passthrough
+    assert normalize_genre("Sport") == "Sports"
+    # "Sports" itself is canonical and passes through
+    assert normalize_genre("Sports") == "Sports"
 
 
 def test_unknown_genre_passthrough():

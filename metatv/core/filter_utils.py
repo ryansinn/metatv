@@ -432,9 +432,13 @@ _GENRE_NORM: dict[str, str] = {
     "music":                    "Music",
     "musique":                  "Music",
     "música":                   "Music",
-    # Sport
-    "sport":                    "Sport",
-    "sports":                   "Sport",
+    # Sport — canonical form is plural "Sports" (matches CONTENT_DESCRIPTOR_GROUPS
+    # and BASE_PLATFORM_GROUPS).  Both singular and plural provider strings fold here
+    # so the raw_data genre path and the compound-decomposer/remap path produce the
+    # same facet value ("Sports"), eliminating the split "Sport" / "Sports" facet
+    # that made the singular entry show 450+ count but return nothing on filter.
+    "sport":                    "Sports",
+    "sports":                   "Sports",
     # News / Current affairs
     "news":                     "News",
     "actualité":                "News",
@@ -456,7 +460,7 @@ _GENRE_NORM: dict[str, str] = {
     "أكشن":                     "Action",
     "أطفال":                    "Kids",
     "تاريخي":                   "History",
-    "رياضة":                    "Sport",
+    "رياضة":                    "Sports",
     # Arabic — additional high-count compound and individual terms
     "حركة ومغامرة":              "Action & Adventure",   # Action & Adventure
     "غموض":                     "Mystery",               # Mystery
