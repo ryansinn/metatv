@@ -64,6 +64,21 @@ attachments, and an open / triaged status toggle.
 Items are persisted in ``config.qa_flagged_items`` (list of dicts).  Whenever
 items change the ``<config_dir>/qa_flagged_items.md`` digest is re-written —
 the file a future session reads to triage items into tasks/PRs.
+
+Addressed-by-PR linkage
+------------------------
+A later entry can declare ``addresses=("e82_s4", "flagged:uuid", ...)`` to
+announce that its PR fixes a specific prior failure or flagged item.  On the
+failing step / open flagged item the window renders:
+
+  ``↺ Addressed in PR #NNN (entry #NNN) — re-test``
+
+…with a jump button (↑) that scrolls to the addressing entry.  The step's state
+stays **fail** — auto-pass is explicitly out of scope; the human re-tests and
+manually marks pass.  When no forward declaration exists the tester can use the
+"Mark addressed" button on the failed step's comment area to persist the same
+signal in ``config.qa_addressed`` (string-keyed dict, same "e{id}_s{idx}" /
+"flagged:{uuid}" format).  Both paths surface in the ``qa_failures.md`` digest.
 """
 
 from __future__ import annotations
@@ -86,6 +101,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -337,13 +353,15 @@ def _build_failures_digest(
     open_entries: list,
     git_refs: dict,
     current_sha: str,
+    addressed: dict | None = None,
 ) -> str:
     """Build the Markdown digest of all current failures across *open_entries*.
 
     For each failed step the digest lists the entry title + id, its PR number
     (from the resolved git refs), the step text, ``tested on <sha> · current
     <HEAD>`` with a stale marker when they differ, the note, attachment paths,
-    and the log snapshot path.  When there are no failures the body is a short
+    the log snapshot path, and an addressed badge when the failure has been
+    claimed by a newer PR.  When there are no failures the body is a short
     "No failures recorded." note (the file is written, never deleted).
 
     Args:
@@ -351,11 +369,16 @@ def _build_failures_digest(
         open_entries: The currently-open WhatsNewEntry list.
         git_refs: ``{entry_id: {"pr_number": int|None, ...}}`` from the worker.
         current_sha: The current repo HEAD short sha (``""`` if unresolved).
+        addressed: Pre-merged addressed dict mapping string key
+            ``"e{id}_s{idx}"`` → ``{"addressing_entry_id": int|None,
+            "pr_number": int|None}`` (may also carry ``"pr"`` from manual marks).
+            ``None`` means no addressed info.
 
     Returns:
         The full Markdown document as a string.
     """
     results = config.qa_step_results or {}
+    addressed = addressed or {}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     fail_blocks: list[str] = []
@@ -379,10 +402,27 @@ def _build_failures_digest(
             attachments = rec.get("attachments") or []
             log_path = rec.get("log") or ""
 
+            # Addressed-by-PR status — check the pre-merged index.
+            addr_key = f"e{entry.id}_s{idx}"
+            addr_info = addressed.get(addr_key)
+            if addr_info:
+                addr_pr = addr_info.get("pr_number") or addr_info.get("pr")
+                addr_eid = addr_info.get("addressing_entry_id") or addr_info.get("entry_id")
+                parts = ["↺ Addressed"]
+                if addr_pr:
+                    parts.append(f"in PR #{addr_pr}")
+                if addr_eid:
+                    parts.append(f"(entry #{addr_eid})")
+                parts.append("— re-test pending")
+                addr_status = " ".join(parts)
+            else:
+                addr_status = "open — not yet addressed"
+
             lines = [
                 f"### {entry.title} (entry {entry.id}, {pr_str})",
                 "",
                 f"- **Step {idx + 1}:** {step}",
+                f"- **Status:** {addr_status}",
                 f"- tested on `{tested_sha}` · current `{current_sha or '?'}`{stale_marker}",
                 f"- **Note:** {note}",
             ]
@@ -411,6 +451,7 @@ def _write_failures_digest(
     open_entries: list,
     git_refs: dict,
     current_sha: str,
+    addressed: dict | None = None,
 ) -> str:
     """Render and write ``<config_dir>/qa_failures.md``; return its path.
 
@@ -418,7 +459,9 @@ def _write_failures_digest(
     are logged and swallowed; an empty string is returned on failure.
     """
     try:
-        text = _build_failures_digest(config, open_entries, git_refs, current_sha)
+        text = _build_failures_digest(
+            config, open_entries, git_refs, current_sha, addressed=addressed
+        )
         dest = _config_dir(config) / "qa_failures.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
@@ -430,21 +473,25 @@ def _write_failures_digest(
 
 # ── flagged items digest (Markdown) ──────────────────────────────────────────
 
-def _build_flagged_digest(config: "Config") -> str:
+def _build_flagged_digest(config: "Config", addressed: dict | None = None) -> str:
     """Build the Markdown digest of all tester-flagged items.
 
     Each item lists its title, note, attachment paths, build_sha, timestamp,
-    and status.  The header explains these are tester-flagged observations
-    queued for triage into tasks/PRs.  When there are no items the body is a
-    short "No flagged items." note (the file is written, never deleted).
+    status, and an addressed badge when the item has been claimed by a newer PR.
+    The header explains these are tester-flagged observations queued for triage
+    into tasks/PRs.  When there are no items the body is a short "No flagged
+    items." note (the file is written, never deleted).
 
     Args:
         config: App config (reads ``qa_flagged_items``).
+        addressed: Pre-merged addressed dict mapping ``"flagged:{item_id}"``
+            keys → addressed info.  ``None`` means no addressed info available.
 
     Returns:
         The full Markdown document as a string.
     """
     items: list[dict] = getattr(config, "qa_flagged_items", []) or []
+    addressed = addressed or {}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     header = [
@@ -470,11 +517,27 @@ def _build_flagged_digest(config: "Config") -> str:
         attachments = item.get("attachments") or []
         last_retested = item.get("last_retested") or ""
 
+        # Addressed-by-PR status for this flagged item.
+        item_id = item.get("id", "")
+        addr_info = addressed.get(f"flagged:{item_id}") if item_id else None
+        if addr_info:
+            addr_pr = addr_info.get("pr_number") or addr_info.get("pr")
+            addr_eid = addr_info.get("addressing_entry_id") or addr_info.get("entry_id")
+            parts = ["↺ Addressed"]
+            if addr_pr:
+                parts.append(f"in PR #{addr_pr}")
+            if addr_eid:
+                parts.append(f"(entry #{addr_eid})")
+            parts.append("— re-test pending")
+            display_status = " ".join(parts)
+        else:
+            display_status = status
+
         lines = [
             f"### [{item_type.upper()}] {title}",
             "",
             f"- **Type:** {item_type}",
-            f"- **Status:** {status}",
+            f"- **Status:** {display_status}",
             f"- **Flagged:** `{created}` on build `{sha}`",
         ]
         if last_retested:
@@ -493,14 +556,14 @@ def _build_flagged_digest(config: "Config") -> str:
     return "\n".join(header + blocks)
 
 
-def _write_flagged_digest(config: "Config") -> str:
+def _write_flagged_digest(config: "Config", addressed: dict | None = None) -> str:
     """Render and write ``<config_dir>/qa_flagged_items.md``; return its path.
 
     Always writes the file (even with zero items — never deleted).  Errors are
     logged and swallowed; an empty string is returned on failure.
     """
     try:
-        text = _build_flagged_digest(config)
+        text = _build_flagged_digest(config, addressed=addressed)
         dest = _config_dir(config) / "qa_flagged_items.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
@@ -645,6 +708,10 @@ class QAChecklistWindow(QWidget):
         self._sha_worker: _HeadShaWorker | None = None
         self._log_workers: list[_LogSnapshotWorker] = []   # keep refs alive until done
         self._current_sha: str = ""
+        # Addressed-by-PR reverse index: built from entries' addresses= declarations.
+        # Maps (entry_id: int, step_idx: int) → {"addressing_entry_id": int, "pr_number": int|None}
+        # or "flagged:{item_id}" str → same shape.
+        self._addressed_index: dict = {}
         # Archived section collapse: toggle button + container (rebuilt on refresh)
         self._archived_toggle_btn: QPushButton | None = None
         self._archived_container: QWidget | None = None
@@ -720,7 +787,7 @@ class QAChecklistWindow(QWidget):
         self._start_sha_lookup()
         # Write initial digests so the files always reflect current state.
         self._write_digest()
-        _write_flagged_digest(self._config)
+        _write_flagged_digest(self._config, addressed={})
 
     # ── public ───────────────────────────────────────────────────────────────
 
@@ -853,6 +920,8 @@ class QAChecklistWindow(QWidget):
 
     def _refresh(self) -> None:
         """Rebuild the body from current config state."""
+        # Rebuild the reverse addressed index so step rows see up-to-date info.
+        self._addressed_index = self._build_addressed_index()
         self._clear_body()
         open_entries = self._open_entries()
 
@@ -1062,6 +1131,43 @@ class QAChecklistWindow(QWidget):
             stale_lbl.setStyleSheet(_theme.QA_STALE_HINT)
             row_layout.addWidget(stale_lbl, alignment=Qt.AlignmentFlag.AlignTop)
 
+        # Addressed-by-PR badge — shown when a newer entry's PR claims this failure.
+        if state == "fail":
+            addr_info = self._effective_addressed(entry.id, idx)
+            if addr_info:
+                addr_pr = addr_info.get("pr_number")
+                addr_eid = addr_info.get("addressing_entry_id")
+                badge_parts = [_icons.qa_addressed_icon, "Addressed"]
+                if addr_pr:
+                    badge_parts.append(f"PR #{addr_pr}")
+                if addr_eid:
+                    badge_parts.append(f"(entry #{addr_eid})")
+                badge_parts.append("— re-test")
+                badge_lbl = QLabel(" ".join(badge_parts))
+                badge_lbl.setToolTip(
+                    "This failure was addressed in a later PR.\n"
+                    "Re-test and mark pass once confirmed."
+                )
+                badge_lbl.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
+                row_layout.addWidget(badge_lbl, alignment=Qt.AlignmentFlag.AlignTop)
+
+                # Jump button — scroll to the addressing entry if it's visible.
+                if addr_eid and addr_eid in self._ref_labels:
+                    jump_btn = QPushButton(_icons.qa_jump_icon)
+                    jump_btn.setToolTip(
+                        f"Jump to addressing entry #{addr_eid} in this checklist"
+                    )
+                    jump_btn.setFixedWidth(24)
+                    jump_btn.setStyleSheet(
+                        f"QPushButton {{ border: none; color: {_theme.COLOR_OK};"
+                        f" font-size: {_theme.FONT_MD}; }}"
+                        f" QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+                    )
+                    jump_btn.clicked.connect(
+                        lambda _, eid=addr_eid: self._jump_to_entry(eid)
+                    )
+                    row_layout.addWidget(jump_btn, alignment=Qt.AlignmentFlag.AlignTop)
+
         self._step_buttons[entry.id][idx] = (pass_btn, fail_btn)
         layout.addWidget(row)
 
@@ -1122,6 +1228,34 @@ class QAChecklistWindow(QWidget):
             lambda _, eid=entry_id, si=idx: self._on_retest_clicked(eid, si)
         )
         chips_layout.addWidget(retest_btn)
+
+        # Addressed-by-PR: "Mark addressed" when not yet addressed; or an info
+        # chip when the step is already addressed (auto or manual).
+        addr_info = self._effective_addressed(entry_id, idx)
+        if addr_info:
+            # Already addressed — show a compact chip so the tester knows.
+            addr_pr = addr_info.get("pr_number")
+            addr_lbl_text = f"{_icons.qa_addressed_icon} Addressed"
+            if addr_pr:
+                addr_lbl_text += f" PR #{addr_pr}"
+            addr_chip = QLabel(addr_lbl_text)
+            addr_chip.setToolTip(
+                "This failure has been claimed by a later PR. Re-test to confirm."
+            )
+            addr_chip.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
+            chips_layout.addWidget(addr_chip)
+        else:
+            # Not yet addressed — offer a manual-mark button.
+            mark_addr_btn = QPushButton(f"{_icons.qa_addressed_icon} Mark addressed")
+            mark_addr_btn.setToolTip(
+                "Record that a later PR addresses this failure.\n"
+                "The step stays FAILED until you re-test and mark it pass."
+            )
+            mark_addr_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+            mark_addr_btn.clicked.connect(
+                lambda _, eid=entry_id, si=idx: self._on_mark_step_addressed(eid, si)
+            )
+            chips_layout.addWidget(mark_addr_btn)
 
         for path in (rec.get("attachments") or []):
             name = os.path.basename(path)
@@ -1464,6 +1598,31 @@ class QAChecklistWindow(QWidget):
         attach_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
         chips_layout.addWidget(attach_btn)
 
+        # Addressed-by-PR badge or "Mark addressed" button for this flagged item.
+        flagged_addr_info = self._flagged_effective_addressed(item_id)
+        if flagged_addr_info:
+            fa_pr = flagged_addr_info.get("pr_number")
+            fa_text = f"{_icons.qa_addressed_icon} Addressed"
+            if fa_pr:
+                fa_text += f" PR #{fa_pr}"
+            fa_chip = QLabel(fa_text)
+            fa_chip.setToolTip(
+                "This flagged item has been addressed by a later PR. Re-test to confirm."
+            )
+            fa_chip.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
+            chips_layout.addWidget(fa_chip)
+        else:
+            fa_mark_btn = QPushButton(f"{_icons.qa_addressed_icon} Mark addressed")
+            fa_mark_btn.setToolTip(
+                "Record that a later PR addresses this observation.\n"
+                "The item stays open until re-tested and triaged."
+            )
+            fa_mark_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+            fa_mark_btn.clicked.connect(
+                lambda _, iid=item_id: self._on_mark_flagged_addressed(iid)
+            )
+            chips_layout.addWidget(fa_mark_btn)
+
         for att_path in (item.get("attachments") or []):
             att_name = os.path.basename(att_path)
             chip = QPushButton(f"{att_name}  {_icons.close_icon}")
@@ -1525,7 +1684,7 @@ class QAChecklistWindow(QWidget):
         """Persist *items* to config and rewrite the digest."""
         self._config.qa_flagged_items = items
         self._config.save()
-        _write_flagged_digest(self._config)
+        _write_flagged_digest(self._config, addressed=self._merge_addressed())
 
     def _create_flagged_item(self) -> dict:
         """Create, persist, and return a new empty flagged item dict.
@@ -1704,9 +1863,24 @@ class QAChecklistWindow(QWidget):
         self._write_digest()
 
     def _on_git_refs_ready(self, refs: dict) -> None:
-        """Main-thread slot: cache resolved refs, update labels, rewrite digest."""
+        """Main-thread slot: cache resolved refs, update labels, rewrite digest.
+
+        Also rebuilds the addressed index — PR numbers are now available so the
+        index may gain ``pr_number`` values that were ``None`` at startup.  When
+        the index is non-empty a full re-render is needed to populate the PR#
+        inside any addressed badges (lightweight path: just update labels when
+        there are no addressed steps to show).
+        """
         self._git_refs = refs
-        self._apply_git_refs(refs)
+        new_index = self._build_addressed_index()
+        if new_index:
+            # Addressed steps exist: full re-render so PR# appears in the badges.
+            self._addressed_index = new_index
+            self._refresh_preserving_scroll()
+        else:
+            # No addressed steps: just update the header ref labels (lightweight).
+            self._addressed_index = new_index
+            self._apply_git_refs(refs)
         self._write_digest()
 
     def _apply_git_refs(self, refs: dict) -> None:
@@ -1741,8 +1915,217 @@ class QAChecklistWindow(QWidget):
     def _write_digest(self) -> str:
         """(Re)write ``<config_dir>/qa_failures.md`` for the current state."""
         return _write_failures_digest(
-            self._config, self._open_entries(), self._git_refs, self._current_sha
+            self._config, self._open_entries(), self._git_refs, self._current_sha,
+            addressed=self._merge_addressed(),
         )
+
+    # ── addressed-by-PR helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_address_ref(ref: str):
+        """Parse an addresses reference string into a dict key.
+
+        Args:
+            ref: ``"e{id}_s{idx}"`` for a step, or ``"flagged:{uuid}"`` for a
+                tester-flagged item.
+
+        Returns:
+            A ``(entry_id: int, step_idx: int)`` tuple for step refs, the
+            original ``"flagged:{uuid}"`` string for flagged refs, or ``None``
+            when the format is unrecognised.
+        """
+        if ref.startswith("flagged:"):
+            return ref  # string key
+        m = re.match(r'^e(\d+)_s(\d+)$', ref)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+        return None
+
+    def _build_addressed_index(self) -> dict:
+        """Build the reverse index from entries' ``addresses`` declarations.
+
+        Iterates every entry in ``self._all_entries`` looking for an
+        ``addresses`` attribute, then maps each reference to the addressing
+        entry's id and resolved PR number (from ``self._git_refs``).
+
+        Returns:
+            Dict mapping:
+            - ``(entry_id: int, step_idx: int)`` → ``{"addressing_entry_id": int,
+              "pr_number": int|None}`` for step refs.
+            - ``"flagged:{item_id}"`` str → same shape for flagged-item refs.
+        """
+        index: dict = {}
+        for entry in self._all_entries:
+            addresses = getattr(entry, "addresses", ()) or ()
+            if not addresses:
+                continue
+            pr_number = (self._git_refs.get(entry.id) or {}).get("pr_number")
+            for ref in addresses:
+                key = self._parse_address_ref(ref)
+                if key is None:
+                    logger.warning(
+                        "qa_checklist: unrecognised address ref '{}' on entry {} — skipped",
+                        ref, entry.id,
+                    )
+                    continue
+                index[key] = {
+                    "addressing_entry_id": entry.id,
+                    "pr_number": pr_number,
+                }
+        return index
+
+    def _effective_addressed(self, entry_id: int, step_idx: int) -> dict | None:
+        """Return addressed info for a failed step, or ``None`` if not addressed.
+
+        Checks the auto reverse index (from ``addresses`` declarations) first,
+        then the manual ``config.qa_addressed`` dict.
+
+        Returns:
+            Dict with keys ``"addressing_entry_id"`` (int|None),
+            ``"pr_number"`` (int|None) — or ``None`` if not addressed.
+        """
+        info = self._addressed_index.get((entry_id, step_idx))
+        if info:
+            return info
+        # Manual fallback from config.
+        manual_key = f"e{entry_id}_s{step_idx}"
+        manual = (getattr(self._config, "qa_addressed", {}) or {}).get(manual_key)
+        if manual:
+            return {
+                "addressing_entry_id": manual.get("entry_id"),
+                "pr_number": manual.get("pr"),
+            }
+        return None
+
+    def _flagged_effective_addressed(self, item_id: str) -> dict | None:
+        """Return addressed info for a flagged item, or ``None`` if not addressed.
+
+        Checks auto index then ``config.qa_addressed``.
+        """
+        info = self._addressed_index.get(f"flagged:{item_id}")
+        if info:
+            return info
+        manual = (getattr(self._config, "qa_addressed", {}) or {}).get(f"flagged:{item_id}")
+        if manual:
+            return {
+                "addressing_entry_id": manual.get("entry_id"),
+                "pr_number": manual.get("pr"),
+            }
+        return None
+
+    def _merge_addressed(self) -> dict:
+        """Merge auto-indexed and manually-marked addressed info into string-keyed dict.
+
+        Returns:
+            Dict mapping string keys (``"e{id}_s{idx}"`` or ``"flagged:{id}"``)
+            → addressed info dicts.  Auto-indexed entries take precedence over
+            manual ones when both exist for the same key.
+        """
+        merged: dict = {}
+        # Auto from addresses declarations (tuple or string keys).
+        for key, info in self._addressed_index.items():
+            str_key = f"e{key[0]}_s{key[1]}" if isinstance(key, tuple) else key
+            merged[str_key] = info
+        # Manual from config.qa_addressed (string keys; auto takes precedence).
+        for mkey, minfo in (getattr(self._config, "qa_addressed", {}) or {}).items():
+            if mkey not in merged:
+                merged[mkey] = minfo
+        return merged
+
+    def _jump_to_entry(self, entry_id: int) -> None:
+        """Scroll the body so the header of *entry_id* is visible."""
+        lbl = self._ref_labels.get(entry_id)
+        if lbl is not None:
+            self._scroll.ensureWidgetVisible(lbl)
+
+    def _on_mark_step_addressed(self, entry_id: int, step_idx: int) -> None:
+        """Manually mark a failed step as addressed by a later PR.
+
+        Opens an input dialog asking for the PR number (optional), persists
+        the addressed state in ``config.qa_addressed``, then redraws + rewrites
+        the digest.  The step's ``qa_step_results`` state stays ``"fail"`` —
+        the human must still re-test and manually mark it pass.
+
+        Args:
+            entry_id: Entry whose step is being marked addressed.
+            step_idx: Index of the failed step.
+        """
+        pr_text, ok = QInputDialog.getText(
+            self,
+            "Mark Addressed",
+            "PR number that addresses this failure\n"
+            "(leave blank to mark addressed without a specific PR number):",
+        )
+        if not ok:
+            return  # tester cancelled
+
+        pr_num: int | None = None
+        stripped = pr_text.strip().lstrip("#")
+        if stripped:
+            try:
+                pr_num = int(stripped)
+            except ValueError:
+                pass  # non-numeric entry → no PR number stored
+
+        key = f"e{entry_id}_s{step_idx}"
+        addressed = dict(getattr(self._config, "qa_addressed", {}) or {})
+        addressed[key] = {
+            "pr": pr_num,
+            "entry_id": None,
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "manual": True,
+        }
+        self._config.qa_addressed = addressed
+        self._config.save()
+        logger.debug(
+            "QA: step e{}_s{} manually marked addressed (PR {})",
+            entry_id, step_idx, pr_num,
+        )
+        self._refresh_preserving_scroll()
+        self._write_digest()
+
+    def _on_mark_flagged_addressed(self, item_id: str) -> None:
+        """Manually mark a flagged item as addressed by a later PR.
+
+        Opens an input dialog asking for the PR number (optional), persists
+        the addressed state in ``config.qa_addressed``, then redraws + rewrites
+        the flagged digest.
+
+        Args:
+            item_id: UUID of the flagged item being marked addressed.
+        """
+        pr_text, ok = QInputDialog.getText(
+            self,
+            "Mark Addressed",
+            "PR number that addresses this flagged item\n"
+            "(leave blank to mark addressed without a specific PR number):",
+        )
+        if not ok:
+            return
+
+        pr_num: int | None = None
+        stripped = pr_text.strip().lstrip("#")
+        if stripped:
+            try:
+                pr_num = int(stripped)
+            except ValueError:
+                pass
+
+        key = f"flagged:{item_id}"
+        addressed = dict(getattr(self._config, "qa_addressed", {}) or {})
+        addressed[key] = {
+            "pr": pr_num,
+            "entry_id": None,
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "manual": True,
+        }
+        self._config.qa_addressed = addressed
+        self._config.save()
+        logger.debug(
+            "QA: flagged item {} manually marked addressed (PR {})", item_id, pr_num,
+        )
+        self._refresh_preserving_scroll()
+        _write_flagged_digest(self._config, addressed=self._merge_addressed())
 
     # ── event handlers ────────────────────────────────────────────────────────
 

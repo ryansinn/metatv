@@ -806,3 +806,8 @@ QA_FAIL_BADGE = (
     "color: " + COLOR_ERR_2 + "; font-size: " + FONT_SM + "; font-weight: bold;"
     " padding-left: 4px;"
 )
+# "Addressed in PR #NNN — re-test" green badge on a failed step that a newer PR fixes.
+QA_ADDRESSED_BADGE = (
+    "color: " + COLOR_OK + "; font-size: " + FONT_SM + "; font-weight: bold;"
+    " padding-left: 4px;"
+)

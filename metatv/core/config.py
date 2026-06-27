@@ -889,6 +889,15 @@ class Config(BaseModel):
     # qa_flagged_collapsed: persist the Flagged Items section collapse state.
     #   False (default) = expanded.
     qa_flagged_collapsed: bool = False
+    # qa_addressed: manually-marked "addressed by PR" state for failed steps / flagged items.
+    #   Written by the tester when a later PR fixes a known failure but no forward addresses=
+    #   declaration exists on that entry.  Key format:
+    #     "e{entry_id}_s{step_idx}" for a failed step
+    #     "flagged:{item_id}"       for a tester-flagged item
+    #   Value shape: {"pr": int|None, "entry_id": int|None, "ts": "<ISO timestamp>",
+    #                 "manual": true}
+    #   The step's qa_step_results state remains "fail" — this is not an auto-pass.
+    qa_addressed: dict = Field(default_factory=dict)
 
     # Source refresh behaviour
     # When True (default), "Refresh All" enqueues every source including ones the

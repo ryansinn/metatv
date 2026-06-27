@@ -29,6 +29,14 @@ class WhatsNewEntry:
     title: str
     items: tuple[str, ...]   # user-facing bullet points (frozen dataclass → tuple, not list)
     test_steps: tuple[str, ...] = ()  # dev-only manual QA steps; omit when not applicable
+    addresses: tuple[str, ...] = ()
+    # Optional: references to prior items this entry's PR fixes.
+    # Format: "e{id}_s{idx}" for a specific test-step  (e.g. "e82_s4" = entry 82, step 4)
+    #      or "flagged:{uuid}" for a tester-flagged item (e.g. "flagged:abc123-...").
+    # When a referenced step or flagged item is FAILED/OPEN, the QA checklist shows an
+    # "↺ Addressed in PR #NNN — re-test" badge and marks it "resolved — pending re-test".
+    # The human must still re-test and manually mark it pass; nothing is auto-passed.
+    # Backward-compatible: omit from existing entries (defaults to empty tuple).
 
 
 def _load_entries() -> list[WhatsNewEntry]:
