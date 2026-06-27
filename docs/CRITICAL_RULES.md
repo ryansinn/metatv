@@ -128,7 +128,7 @@ Rules for code inside `EpgManager` / the EPG fetch path.
 **Per-provider config — three columns + one URL chokepoint.** Each `ProviderDB` row carries:
 
 - `epg_enabled` (bool) — `False` skips the provider in the fetcher, excludes it via `get_epg_active_provider_ids()`, and purges its programmes via `EpgManager.purge_provider_epg()`.
-- `epg_refresh_interval` (String enum) — `"default"` inherits `Config.epg_default_refresh_interval` (default `"3d"`); throttle logic in `EpgManager.needs_refresh()`.
+- `epg_refresh_interval` (String enum) — `"default"` inherits `Config.epg_default_refresh_interval` (default `"auto"` = half the guide depth, clamped to [6h, 7d]); throttle logic in `EpgManager.needs_refresh()`.
 - `epg_url_override` (optional XMLTV URL).
 
 Resolve the fetch URL only via `EpgManager.effective_epg_url(provider)` — never read `provider.epg_url` directly.
