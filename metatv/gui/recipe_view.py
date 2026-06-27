@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -278,6 +279,27 @@ class _PantrySidebar(QWidget):
         pantry_hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
         outer.addWidget(pantry_hdr)
 
+        # Filter row: search box + × clear button
+        filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(0, 4, 0, 2)
+        filter_row.setSpacing(4)
+
+        self._filter_box = QLineEdit()
+        self._filter_box.setPlaceholderText("Filter…")
+        self._filter_box.setToolTip("Filter the facet list by name")
+        self._filter_box.textChanged.connect(self._apply_pantry_filter)
+        filter_row.addWidget(self._filter_box)
+
+        self._filter_clear_btn = QPushButton(_icons.close_icon)
+        self._filter_clear_btn.setFixedWidth(24)
+        self._filter_clear_btn.setStyleSheet(_theme.CLEAR_BTN)
+        self._filter_clear_btn.setToolTip("Clear facet filter")
+        self._filter_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._filter_clear_btn.clicked.connect(self._filter_box.clear)
+        filter_row.addWidget(self._filter_clear_btn)
+
+        outer.addLayout(filter_row)
+
         # Facet rows (populated dynamically via load_facets)
         self._facets_layout = QVBoxLayout()
         self._facets_layout.setContentsMargins(0, 4, 0, 0)
@@ -317,6 +339,16 @@ class _PantrySidebar(QWidget):
         for btn in self._facet_buttons:
             btn.set_selected(btn.facet_type == facet_type)
         self.facet_selected.emit(facet_type)
+
+    def _apply_pantry_filter(self, text: str) -> None:
+        """Show only facet buttons whose display name matches *text*."""
+        q = text.strip().lower()
+        for btn in self._facet_buttons:
+            btn.setVisible(not q or q in btn.text().lower())
+
+    def clear_filter(self) -> None:
+        """Clear the pantry filter text box (shows all facets)."""
+        self._filter_box.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -622,9 +654,10 @@ class _NowPlatingStrip(QWidget):
     on the main thread inside each card's own ``image_loaded`` slot.
     """
 
-    cardClicked       = pyqtSignal(str)   # channel_id
-    cardDoubleClicked = pyqtSignal(str)   # channel_id
-    showAllRequested  = pyqtSignal()      # "Show all →" → full-results browse page
+    cardClicked       = pyqtSignal(str)        # channel_id
+    cardDoubleClicked = pyqtSignal(str)        # channel_id
+    cardContextMenu   = pyqtSignal(str, int, int)  # channel_id, gx, gy
+    showAllRequested  = pyqtSignal()           # "Show all →" → full-results browse page
 
     def __init__(self, image_cache, config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -679,6 +712,7 @@ class _NowPlatingStrip(QWidget):
             w = _ContentCard(card, self._image_cache, self._config, self._grid_container)
             w.clicked.connect(self.cardClicked)
             w.doubleClicked.connect(self.cardDoubleClicked)
+            w.contextMenuRequested.connect(self.cardContextMenu)
             self._flow.add(w)
             w.show()
             self._card_widgets.append(w)
@@ -798,8 +832,9 @@ class RecipeView(QWidget):
             on_deactivate).
     """
 
-    channelSelected = pyqtSignal(str)   # channel_id — select → details pane
-    playRequested   = pyqtSignal(str)   # channel_id — play (host-delegated)
+    channelSelected              = pyqtSignal(str)        # channel_id — select → details pane
+    playRequested                = pyqtSignal(str)        # channel_id — play (host-delegated)
+    channelContextMenuRequested  = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     def __init__(
         self,
@@ -899,11 +934,16 @@ class RecipeView(QWidget):
     # ── Public helpers ────────────────────────────────────────────────────
 
     def clear_recipe(self) -> None:
-        """Remove all ingredients and refresh the view."""
+        """Remove all ingredients and refresh the view.
+
+        Also clears the Pantry filter text box so the full facet list is restored.
+        """
         self._recipe_includes.clear()
         self._recipe_excludes.clear()
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, 0)
         self._now_plating.load_results([], 0)
+        # Clear pantry filter so the full facet list is visible after a recipe reset.
+        self._pantry.clear_filter()
         # Rebuild cloud with no states
         self._rebuild_cloud()
 
@@ -963,6 +1003,7 @@ class RecipeView(QWidget):
         self._now_plating = _NowPlatingStrip(self._image_cache, self._config)
         self._now_plating.cardClicked.connect(self.channelSelected)
         self._now_plating.cardDoubleClicked.connect(self.playRequested)
+        self._now_plating.cardContextMenu.connect(self.channelContextMenuRequested)
         self._now_plating.showAllRequested.connect(self._on_show_all)
         center_layout.addWidget(self._now_plating, stretch=1)
 
@@ -990,14 +1031,13 @@ class RecipeView(QWidget):
         self._browse.backRequested.connect(self._on_browse_back)
         self._browse.cardClicked.connect(self.channelSelected)
         self._browse.cardDoubleClicked.connect(self.playRequested)
+        self._browse.cardContextMenu.connect(self.channelContextMenuRequested)
         # Lazy DB pagination: each near-bottom scroll asks for the next page.
         self._browse.loadMoreRequested.connect(self._load_more_see_all)
         # Filter-change: wire into the DB-level filter so every lazy page also
         # respects the filter (Bug D — previously only already-loaded cards were
         # filtered, and new pages appended unfiltered content below them).
         self._browse.filterChanged.connect(self._on_see_all_filter_changed)
-        # cardContextMenu intentionally left unconnected — the Now Plating strip
-        # has no context-menu wiring, so the browse drill-down matches it (no-op).
         self._stack.addWidget(self._browse)
 
     # ── Data loading ──────────────────────────────────────────────────────
