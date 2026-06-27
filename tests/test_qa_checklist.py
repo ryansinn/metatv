@@ -1576,45 +1576,29 @@ def test_manual_mark_shows_in_effective_addressed(qapp, tmp_path, monkeypatch):
     assert info["pr_number"] == 99
 
 
-# ── 18g. Manual mark — _on_mark_flagged_addressed ────────────────────────────
+# ── 18g. Flagged items auto-resolve only (no tester-facing manual mark) ───────
 
-def test_manual_mark_flagged_addressed_persists(qapp, tmp_path, monkeypatch):
-    """_on_mark_flagged_addressed() stores addressed state for the flagged item."""
+def test_flagged_items_have_no_manual_mark_handler(qapp, tmp_path):
+    """Flagged items are a one-way feeder — there is NO manual resolve path.
+
+    The tester never resolves a flag; it evolves to addressed only via a later
+    PR's WhatsNewEntry addresses=("flagged:<id>"). Guard that the removed manual
+    handler stays gone and flags auto-resolve solely from the reverse index.
+    """
     config = _FakeConfig(config_dir=tmp_path)
     win = _build_window(qapp, config, [])
     item = win._create_flagged_item()
     iid = item["id"]
 
-    monkeypatch.setattr(
-        "metatv.gui.qa_checklist_window.QInputDialog.getText",
-        lambda *a, **kw: ("55", True),
+    # No tester-facing manual-resolve handler exists on the window.
+    assert not hasattr(win, "_on_mark_flagged_addressed"), (
+        "flagged items must have no tester-facing manual 'mark addressed' path"
     )
-
-    win._on_mark_flagged_addressed(iid)
-
-    key = f"flagged:{iid}"
-    assert key in config.qa_addressed
-    assert config.qa_addressed[key]["pr"] == 55
-    assert config.qa_addressed[key]["manual"] is True
-
-
-def test_manual_mark_flagged_addressed_cancelled_is_noop(qapp, tmp_path, monkeypatch):
-    """_on_mark_flagged_addressed() does nothing when the dialog is cancelled."""
-    config = _FakeConfig(config_dir=tmp_path)
-    win = _build_window(qapp, config, [])
-    item = win._create_flagged_item()
-    iid = item["id"]
-    prior_saves = config.save_calls
-
-    monkeypatch.setattr(
-        "metatv.gui.qa_checklist_window.QInputDialog.getText",
-        lambda *a, **kw: ("", False),
-    )
-
-    win._on_mark_flagged_addressed(iid)
-
-    assert f"flagged:{iid}" not in config.qa_addressed
-    assert config.save_calls == prior_saves
+    # Not addressed until a PR's reverse-index entry references it.
+    assert win._flagged_effective_addressed(iid) is None
+    win._addressed_index[f"flagged:{iid}"] = {"pr_number": 99, "addressing_entry_id": 7}
+    info = win._flagged_effective_addressed(iid)
+    assert info and info.get("pr_number") == 99
 
 
 # ── 18h. Failures digest reflects addressed status ────────────────────────────
