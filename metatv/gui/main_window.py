@@ -454,7 +454,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         # Right details pane
         self.details_pane = DetailsPaneWidget(self.config, self.image_cache, self.db)
-        self.details_pane.play_requested.connect(self.play_channel_by_id)
+        # The explicit details-pane Play button always starts from the beginning
+        # (its sibling Resume always resumes); only the bare double-click default is
+        # governed by config.playback_resume_mode.  Routing play_requested through the
+        # from-beginning path decouples the button from that setting.
+        self.details_pane.play_requested.connect(self.play_channel_from_beginning_by_id)
         self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
@@ -1147,14 +1151,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._channel_filter_btn.clicked.connect(self._show_filtered_results)
         self._list_layout.addWidget(self._channel_filter_btn)
 
-        # Virtualized channel list — QListView backed by ChannelListModel
+        # Virtualized channel list — ChannelListView (QListView + middle_clicked)
+        # backed by ChannelListModel
         from metatv.gui.channel_list_model import ChannelListModel
+        from metatv.gui.channel_list_view import ChannelListView
         from PyQt6.QtWidgets import QAbstractItemView
         self.channel_model = ChannelListModel(self)
         # Wire page requests from the model through the async seam.
         # The lambda captures self (MainWindow) so it can call _run_query.
         self.channel_model.page_requested.connect(self._on_channel_page_requested)
-        self.channels_list = QListView()
+        self.channels_list = ChannelListView()
         self.channels_list.setModel(self.channel_model)
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
@@ -1162,6 +1168,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
         self.channels_list.doubleClicked.connect(self._on_channel_double_clicked)
+        # Middle-click plays the OPPOSITE of the bare double-click default.
+        self.channels_list.middle_clicked.connect(self._on_channel_middle_clicked)
         self.channels_list.selectionModel().currentChanged.connect(
             self.on_channel_selection_changed
         )

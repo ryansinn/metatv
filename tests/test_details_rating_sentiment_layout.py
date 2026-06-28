@@ -218,8 +218,8 @@ def _wire_rail(poster, action_bar):
 def test_infrequent_buttons_reparented_to_rail(qapp):
     """After set_action_buttons(), the infrequent action buttons live in _action_rail.
 
-    Play and Resume are NOT in the rail any more — they graduate to the primary
-    action row below the poster (see test_play_resume_in_primary_row).
+    Play and Resume graduate to the primary row below the poster, and Queue ("Watch
+    Later") graduates to the secondary row — none of those three are in the rail.
     """
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
@@ -231,7 +231,7 @@ def test_infrequent_buttons_reparented_to_rail(qapp):
     _wire_rail(poster, action_bar)
 
     for btn in (
-        action_bar.favorite_button, action_bar.queue_button,
+        action_bar.favorite_button,
         action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
         action_bar.watchlist_button, action_bar.monitor_button, action_bar.hide_button,
     ):
@@ -239,13 +239,14 @@ def test_infrequent_buttons_reparented_to_rail(qapp):
             f"{btn!r} must be reparented to _action_rail after set_action_buttons()"
         )
 
-    # Play/Resume must NOT be in the rail.
+    # Play/Resume/Queue must NOT be in the rail.
     rail_widgets = [
         poster._action_rail_layout.itemAt(i).widget()
         for i in range(poster._action_rail_layout.count())
     ]
     assert action_bar.play_button not in rail_widgets, "Play must NOT be in the rail"
     assert action_bar.resume_button not in rail_widgets, "Resume must NOT be in the rail"
+    assert action_bar.queue_button not in rail_widgets, "Queue must NOT be in the rail"
 
 
 def test_play_resume_in_primary_row(qapp):
@@ -265,6 +266,32 @@ def test_play_resume_in_primary_row(qapp):
     assert action_bar.resume_button.parent() is poster._primary_action_row, (
         "Resume must live in the primary action row below the poster"
     )
+
+
+def test_queue_in_secondary_zone_full_width_button(qapp):
+    """Queue ("Watch Later") graduates out of the rail to a labeled full-width button
+    in the secondary zone directly under the Play/Resume row."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+
+    _wire_rail(poster, action_bar)
+
+    assert action_bar.queue_button.parent() is poster._secondary_action_row, (
+        "Queue must live in the secondary action row (under Play/Resume), not the rail"
+    )
+    # It is a labeled, checkable button (not a bare icon) with a tooltip.
+    assert "Watch Later" in action_bar.queue_button.text(), (
+        f"Queue button must be labeled 'Watch Later'; got {action_bar.queue_button.text()!r}"
+    )
+    assert action_bar.queue_button.isCheckable(), "Queue button must stay checkable"
+    assert action_bar.queue_button.toolTip(), "Queue button must keep a tooltip"
+    # In the secondary row it is the sole, full-width widget.
+    srow = poster._secondary_row_layout
+    assert srow.count() == 1 and srow.itemAt(0).widget() is action_bar.queue_button
 
 
 def test_primary_row_play_full_width_when_no_resume(qapp):

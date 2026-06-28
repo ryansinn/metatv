@@ -986,6 +986,26 @@ class _ChannelListMixin:
             return
         self.play_channel_by_id(channel_id)
 
+    def _on_channel_middle_clicked(self, index) -> None:
+        """Middle-click plays the OPPOSITE of the bare double-click default.
+
+        The double-click default honors ``config.playback_resume_mode``:
+        * "resume"    → double-click resumes  → middle-click starts from beginning.
+        * "beginning" → double-click from 0   → middle-click resumes saved position.
+
+        A thin call into the existing per-play paths (``play_channel_from_beginning_by_id``
+        / ``play_channel_resume_by_id``) — no parallel play path.
+        """
+        from PyQt6.QtCore import Qt
+        channel_id = index.data(Qt.ItemDataRole.UserRole)
+        if not channel_id:
+            return
+        mode = getattr(self.config, "playback_resume_mode", "resume")
+        if mode == "beginning":
+            self.play_channel_resume_by_id(channel_id)
+        else:
+            self.play_channel_from_beginning_by_id(channel_id)
+
     def _on_channel_page_requested(self, query_params: dict, offset: int, page_size: int) -> None:
         """Handle a ``page_requested`` signal from ChannelListModel (main thread).
 
