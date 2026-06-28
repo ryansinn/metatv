@@ -276,15 +276,20 @@ def test_filter_reseed_preserves_text_so_lazy_page_stays_filtered(qapp):
 # ---------------------------------------------------------------------------
 
 def test_clear_button_clears_search_box_and_filter(qapp):
-    """Clicking the clear button empties _search_box and resets current_filter."""
+    """Clearing _search_box empties it and resets current_filter.
+
+    The external × button has been replaced by the inline clear from
+    setClearButtonEnabled(True); the clearing path (search_box.clear()) is
+    unchanged, so the behavior contract is the same.
+    """
     view = _make_browse(qapp)
     view.load("Title", _cards("dark", 5))
 
     view._search_box.setText("dark")
     assert view._search_box.text() == "dark"
 
-    # Simulate a click: call the connected slot directly (no event loop needed).
-    view._clear_btn.clicked.emit()
+    # The inline × calls clear() on the text box — simulate that directly.
+    view._search_box.clear()
 
     assert view._search_box.text() == ""
     assert view.current_filter() == ""

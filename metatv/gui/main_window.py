@@ -1057,15 +1057,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Filter channels by name, category...")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_text_changed)
         controls_layout.addWidget(self.search_input)
-        
-        # Clear search button
-        clear_btn = QPushButton(self.close_icon)
-        clear_btn.setFixedWidth(30)
-        clear_btn.setToolTip("Clear search")
-        clear_btn.clicked.connect(lambda: self.search_input.clear())
-        controls_layout.addWidget(clear_btn)
         
         self.content_layout.addWidget(self.search_controls)
 
