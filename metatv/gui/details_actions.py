@@ -100,9 +100,16 @@ class _ActionBar(QWidget):
         self.favorite_button = self._mk(self.config.unfavorite_icon, "Add to Favorites")
         self.favorite_button.clicked.connect(self.favorite_clicked)
 
-        self.queue_button = self._mk(
-            self.config.queue_icon, "Add to Watch Queue", checkable=True
+        # Queue ("Watch Later") is a tier-2 action: a full-width labeled button in
+        # the primary zone (under Play/Resume), NOT an icon in the rail — it is the
+        # most-likely follow-up to "not right now".  _PosterSection.set_action_buttons
+        # reparents it there; state reads via :checked + tooltip.
+        self.queue_button = QPushButton(
+            f"{self.config.queue_icon} Watch Later", self
         )
+        self.queue_button.setCheckable(True)
+        self.queue_button.setStyleSheet(_theme.DETAIL_QUEUE_BTN)
+        self.queue_button.setToolTip("Add to Watch Later")
         self.queue_button.clicked.connect(self._on_queue_clicked)
 
         self.hide_button = self._mk(self.config.hide_icon, "Hide this channel from all views")
@@ -279,7 +286,7 @@ class _ActionBar(QWidget):
     def _sync_queue_button(self) -> None:
         self.queue_button.setChecked(self._in_queue)
         self.queue_button.setToolTip(
-            "Remove from Watch Queue" if self._in_queue else "Add to Watch Queue"
+            "Remove from Watch Later" if self._in_queue else "Add to Watch Later"
         )
 
     def _sync_rating_buttons(self) -> None:

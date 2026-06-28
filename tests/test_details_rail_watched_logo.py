@@ -153,8 +153,9 @@ def test_clear_resets_watched_badge(qapp):
 # 2. Live channel LOGO shown in the poster space (_PosterSection)
 # ---------------------------------------------------------------------------
 
-def test_load_live_logo_reveals_poster_and_caps_height(qapp):
-    """load_live_logo shows the poster frame, routes the URL, and caps the box height."""
+def test_load_live_logo_reveals_poster_and_uses_poster_footprint(qapp):
+    """load_live_logo shows the poster frame, routes the URL, and uses the FULL poster
+    footprint (the tall VOD box) — no longer a short 180px strip."""
     from metatv.gui.details_sections import _PosterSection
 
     cache = MagicMock()
@@ -168,9 +169,9 @@ def test_load_live_logo_reveals_poster_and_caps_height(qapp):
     assert poster._is_live_logo is True
     assert poster._poster_url == "http://logo/x.png", "URL must route through the async slot"
     assert not poster._poster_frame.isHidden(), "load_live_logo must reveal the poster frame"
-    # Capped to the short live-logo box, NOT the tall VOD poster height.
-    assert poster.poster_label.maximumHeight() == poster._LIVE_LOGO_MAX_H
-    assert poster._LIVE_LOGO_MAX_H < poster._POSTER_MIN_H
+    # Same footprint as a VOD poster — NOT capped to a short strip.
+    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
     cache.get_image_async.assert_called_once()
 
 
@@ -192,6 +193,32 @@ def test_live_logo_pixmap_set_on_main_thread_slot(qapp):
     assert not poster.poster_label.pixmap().isNull(), "logo pixmap must be displayed"
 
 
+def test_live_logo_small_logo_upscaled_but_capped(qapp):
+    """A small/low-res logo upscales to fill more of the card, but only up to the
+    _LOGO_UPSCALE_CEILING — it does NOT blow up to the full box and pixelate."""
+    from metatv.gui.details_sections import _PosterSection
+
+    cache = MagicMock()
+    cache.get_image_sync.return_value = None
+    poster = _PosterSection(_make_config(), cache)
+    poster.set_mode(is_live=True)
+    poster.load_live_logo("http://logo/small.png")
+
+    native = 20
+    pix = QPixmap(native, native)   # tiny square logo
+    pix.fill()
+    poster.on_image_loaded("http://logo/small.png", pix)
+
+    shown = poster.poster_label.pixmap()
+    assert shown is not None and not shown.isNull()
+    # Upscaled past native, but clamped at the ceiling (not the full ~400px box).
+    assert shown.width() > native, "a small logo should grow to fill more of the card"
+    assert shown.width() == int(native * poster._LOGO_UPSCALE_CEILING), (
+        "upscale must be clamped to the ceiling so low-res logos don't pixelate"
+    )
+    assert shown.width() < poster._POSTER_MIN_H, "must NOT blow up to the full poster box"
+
+
 def test_live_logo_load_failure_falls_back_to_header(qapp):
     """If the logo fails to load, the poster frame hides (live header fallback)."""
     from metatv.gui.details_sections import _PosterSection
@@ -207,8 +234,8 @@ def test_live_logo_load_failure_falls_back_to_header(qapp):
     assert poster._poster_frame.isHidden(), "failed live logo must hide the poster frame"
 
 
-def test_switch_live_logo_to_vod_restores_tall_poster(qapp):
-    """Switching from a live logo back to VOD restores the tall poster box metrics."""
+def test_switch_live_logo_to_vod_keeps_tall_poster(qapp):
+    """A live logo uses the tall poster footprint, and switching back to VOD keeps it."""
     from metatv.gui.details_sections import _PosterSection
 
     cache = MagicMock()
@@ -216,7 +243,9 @@ def test_switch_live_logo_to_vod_restores_tall_poster(qapp):
     poster = _PosterSection(_make_config(), cache)
     poster.set_mode(is_live=True)
     poster.load_live_logo("http://logo/a.png")
-    assert poster.poster_label.maximumHeight() == poster._LIVE_LOGO_MAX_H
+    # Live logo already occupies the full poster footprint.
+    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
 
     poster.set_mode(is_live=False)   # back to VOD
     assert poster._is_live_logo is False

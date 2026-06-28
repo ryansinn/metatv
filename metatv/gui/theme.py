@@ -360,6 +360,21 @@ DETAIL_RESUME_BTN = (
     " border-color: " + COLOR_TEXT_HI + "; }"
 )
 
+# Details-pane SECONDARY action button — the full-width labeled "Watch Later"
+# (queue) promoted out of the rail to sit directly under the primary Play/Resume
+# row.  Outline by default; :checked (already queued) fills subtly so the state
+# reads at a glance.  Neutral palette — orange is reserved for Resume, green for a
+# future "now playing" indicator.
+DETAIL_QUEUE_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
+    " padding: 6px 12px; font-size: " + FONT_LG + "; background: transparent;"
+    " color: " + COLOR_TEXT + "; }"
+    "QPushButton:checked { background: " + OVERLAY_18 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_DIM + "; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_DIM + "; }"
+)
+
 # Poster watched badge — a corner check overlay (Plex/Jellyfin convention).
 # WATCHED: a persistent SOLID badge (hover tints red = "click to unmark").
 # UNWATCHED: a FAINT badge revealed only on poster hover (hover brightens =

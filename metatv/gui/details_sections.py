@@ -143,12 +143,14 @@ class _PosterSection(QWidget):
     # Emitted when the user clicks the poster Watched badge (carries the NEW state)
     watched_toggled = pyqtSignal(bool)
 
-    # Poster area metrics.  VOD posters fill a tall box; a live channel LOGO is
-    # usually small/square, so it gets a short capped box (contained with margin,
-    # never stretched to full poster height).
+    # Poster area metrics.  A live channel LOGO now occupies the SAME footprint as a
+    # VOD poster (the tall _POSTER_MIN_H/_POSTER_MAX_H box) — scaled KeepAspectRatio
+    # and centered on the poster-card background, so a logo no longer renders as a
+    # tiny strip with a big void beneath it.  Small/low-res logos upscale only up to
+    # _LOGO_UPSCALE_CEILING× their native size (then center) so they don't pixelate.
     _POSTER_MIN_H: int = 400
     _POSTER_MAX_H: int = 600
-    _LIVE_LOGO_MAX_H: int = 180
+    _LOGO_UPSCALE_CEILING: float = 2.5
     _BADGE_SIZE: int = 26
     _BADGE_MARGIN: int = 8
 
@@ -265,6 +267,17 @@ class _PosterSection(QWidget):
         self._primary_action_row.hide()
         cc_layout.addWidget(self._primary_action_row)
 
+        # Secondary action row — full-width "Watch Later" (queue), directly under the
+        # primary Play/Resume row.  Promoted out of the rail (it is the most-likely
+        # "not right now" follow-up).  The queue button is reparented in by
+        # set_action_buttons(); hidden until a channel is shown (set_mode).
+        self._secondary_action_row = QWidget()
+        self._secondary_row_layout = QVBoxLayout(self._secondary_action_row)
+        self._secondary_row_layout.setContentsMargins(0, 6, 0, 0)
+        self._secondary_row_layout.setSpacing(0)
+        self._secondary_action_row.hide()
+        cc_layout.addWidget(self._secondary_action_row)
+
         cc_layout.addStretch()
 
         _par_layout.addWidget(self._content_col, 1)
@@ -280,20 +293,23 @@ class _PosterSection(QWidget):
         # _ActionBar.set_mode()/set_monitorable().
         self._action_rail.setVisible(True)
         self._live_header.setVisible(is_live)
-        # Primary action row (Play / Resume) shows for ALL channel types.
+        # Primary action row (Play / Resume) + secondary "Watch Later" show for ALL
+        # channel types.
         self._primary_action_row.setVisible(True)
+        self._secondary_action_row.setVisible(True)
         # Watched badge is a VOD-only affordance — track mode and refresh visibility.
         self._is_live = is_live
         if is_live:
             # Default live layout: poster area hidden, live header shown.  When the
             # channel has a logo, load_live_logo() reveals the poster area and shows
-            # the logo (contained) in it.
+            # the logo in it (occupying the same footprint as a VOD poster).
             self._poster_frame.setVisible(False)
         else:
-            # VOD: restore the tall poster box in case a prior live logo shrank it.
             self._is_live_logo = False
-            self._restore_poster_metrics()
             self._poster_frame.setVisible(True)
+        # The poster box is now the SAME tall footprint for both VOD posters and live
+        # logos, so always restore the full metrics (no short live-logo box).
+        self._restore_poster_metrics()
         self._update_watched_badge()
 
     def set_action_buttons(
@@ -319,8 +335,10 @@ class _PosterSection(QWidget):
         * **Primary row** (below the poster): play + resume, full-size and labeled,
           each with equal stretch (50/50 when both show; Play full-width when Resume
           is hidden).  Resume is the dominant one when present.
-        * **Rail** (slim icon column, top→bottom): favorite · gap · queue · gap ·
-          sentiment trio · watchlist · gap · alert · stretch · hide.
+        * **Secondary row** (under the primary row): the full-width labeled "Watch
+          Later" (queue) button.
+        * **Rail** (slim icon column, top→bottom): favorite · gap · sentiment trio ·
+          watchlist · gap · alert · stretch · hide.
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -332,14 +350,19 @@ class _PosterSection(QWidget):
         prow.addWidget(play, 1)
         prow.addWidget(resume, 1)
 
-        # Rail: the infrequent icon-only set.
+        # Secondary row: full-width "Watch Later" (queue).
+        srow = self._secondary_row_layout
+        while srow.count():
+            srow.takeAt(0)
+        srow.addWidget(queue)
+
+        # Rail: the infrequent icon-only set (queue is NOT here — it graduated to the
+        # secondary row above).
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
         layout.addWidget(favorite)
-        layout.addSpacing(14)
-        layout.addWidget(queue)
         layout.addSpacing(16)
         layout.addWidget(like)
         layout.addWidget(not_interested)
@@ -349,9 +372,9 @@ class _PosterSection(QWidget):
         layout.addWidget(monitor)
         layout.addStretch()
         layout.addWidget(hide)
-        # NOTE: the rail + primary row are left hidden here — they're revealed by
-        # set_mode() when a channel is shown, so action controls don't appear in the
-        # empty/no-selection state.
+        # NOTE: the rail + primary/secondary rows are left hidden here — they're
+        # revealed by set_mode() when a channel is shown, so action controls don't
+        # appear in the empty/no-selection state.
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls
@@ -372,17 +395,17 @@ class _PosterSection(QWidget):
     def load_live_logo(self, url: str) -> None:
         """Show a live channel's LOGO in the poster area (sync-first, async fallback).
 
-        Logos are usually small/square, so the poster box is capped to a short
-        height and the logo is centered with margin (never stretched to full poster
-        height).  Reuses the async image-loading path; the QPixmap is built on the
-        main thread (image_cache emits the path; the slot constructs the pixmap).
-        If the logo can't be loaded, the poster area hides and the live header
-        (country info) remains as the fallback.
+        The logo occupies the SAME footprint as a VOD poster (the tall poster box);
+        _display_live_logo scales it KeepAspectRatio and centers it on the card,
+        upscaling a small logo only up to a sane ceiling so it doesn't pixelate.
+        Reuses the async image-loading path; the QPixmap is built on the main thread
+        (image_cache emits the path; the slot constructs the pixmap).  If the logo
+        can't be loaded, the poster area hides and the live header (country info)
+        remains as the fallback.
         """
         self._is_live_logo = True
         self._poster_url = url   # route the loaded image through on_image_loaded
-        self.poster_label.setMinimumHeight(0)
-        self.poster_label.setMaximumHeight(self._LIVE_LOGO_MAX_H)
+        self._restore_poster_metrics()   # full poster footprint, not a short strip
         self._poster_frame.setVisible(True)
         self.poster_label.setText(f"{_icons.loading_icon} Loading logo...")
         pix = self._image_cache.get_image_sync(url)
@@ -512,11 +535,12 @@ class _PosterSection(QWidget):
             self.poster_label.setText("No poster available")
 
     def _display_live_logo(self, pixmap: QPixmap) -> None:
-        """Show a live channel logo contained within the short capped poster box.
+        """Show a live channel logo on the full poster-card footprint, centered.
 
-        Scales to fit within the available width and the live-logo height cap while
-        keeping aspect ratio, and never upscales beyond the logo's natural size — so
-        a small/square logo sits centered with margin rather than being stretched.
+        Scales KeepAspectRatio to fit within the poster box (same footprint as a VOD
+        poster).  A large logo scales down to fit; a small/low-res logo upscales only
+        up to _LOGO_UPSCALE_CEILING× its native size and then sits centered on the
+        card (poster_label is AlignCenter) rather than blowing up and pixelating.
         """
         if not pixmap or pixmap.isNull():
             self._poster_frame.setVisible(False)
@@ -525,10 +549,16 @@ class _PosterSection(QWidget):
         avail_w = self.poster_label.width()
         if avail_w <= 0:
             avail_w = self.minimumWidth() or 300   # before first layout pass
-        target_w = min(avail_w, pixmap.width())
-        target_h = min(self._LIVE_LOGO_MAX_H, pixmap.height())
+        avail_h = self.poster_label.height()
+        if avail_h <= 0:
+            avail_h = self._POSTER_MIN_H            # before first layout pass
+        # Upscale ceiling: a tiny logo grows to at most ceiling× native, then centers.
+        ceil_w = int(pixmap.width() * self._LOGO_UPSCALE_CEILING)
+        ceil_h = int(pixmap.height() * self._LOGO_UPSCALE_CEILING)
+        target_w = min(avail_w, ceil_w)
+        target_h = min(avail_h, ceil_h)
         scaled = pixmap.scaled(
-            target_w, target_h,
+            max(1, target_w), max(1, target_h),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
@@ -606,13 +636,19 @@ class _MetadataSection(QWidget):
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
 
-        # Media type row: [icon Type] [runtime] stretch [IMDb xxx] [TMDb xxx] [PG-13] [★★★ X of 10]
-        # Rating and content-rating badge sit right-aligned on this row — the right side
-        # is otherwise empty for most channels, so this reclaims wasted vertical space.
+        # Media type row: [icon Type] [runtime] [IMDb xxx] [TMDb xxx] [PG-13] [★★★ X of 10]
+        # A WRAPPING flow layout — never a QHBoxLayout.  A non-wrapping row would sum
+        # its children's widths into a wide minimumSizeHint that pushes the whole
+        # _MetadataSection past the ~500px details viewport (which has the horizontal
+        # scrollbar off), so the genre flow below was handed a too-wide rectangle and
+        # the genres ran off the edge instead of wrapping.  A _FlowLayout's minimum
+        # width is its widest single chip, so the section stays within the viewport and
+        # the badges + genres wrap on their own.
         self._media_row = QWidget()
-        media_row_layout = QHBoxLayout(self._media_row)
-        media_row_layout.setContentsMargins(0, 0, 0, 0)
-        media_row_layout.setSpacing(8)
+        self._media_row.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        media_row_layout = _FlowLayout(self._media_row, h_spacing=8, v_spacing=4)
 
         self._media_type_lbl = QLabel()
         self._media_type_lbl.setStyleSheet(_theme.META_DIM)
@@ -622,8 +658,6 @@ class _MetadataSection(QWidget):
         self.runtime_label.setStyleSheet(_theme.META_DIM)
         self.runtime_label.hide()
         media_row_layout.addWidget(self.runtime_label)
-
-        media_row_layout.addStretch()
 
         self._imdb_lbl = QLabel()
         self._imdb_lbl.setStyleSheet(
