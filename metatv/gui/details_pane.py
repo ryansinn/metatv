@@ -211,6 +211,15 @@ class DetailsPaneWidget(QWidget):
             self._content_layout.addWidget(self._epg_agenda)
             self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
 
+        # Wire sentiment buttons into the poster's left rail.  _ActionBar owns all
+        # state/signals; _PosterSection just provides the visual slot (fixed-width
+        # left column left of the poster).  Must happen after both are constructed.
+        self._poster.set_sentiment_buttons(
+            self._action_bar.like_button,
+            self._action_bar.not_interested_button,
+            self._action_bar.dislike_button,
+        )
+
         self._content_layout.addStretch()
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
