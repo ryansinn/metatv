@@ -147,9 +147,10 @@ class DetailsPaneWidget(QWidget):
         _completed = bool(getattr(channel, "watch_completed", False))
         self._action_bar.set_resume(_is_movie and _progress > 0 and not _completed, _progress)
 
-        # Watched toggle (VOD only) — reflect the stored watch_completed flag.
+        # Watched badge (VOD only) — reflect the stored watch_completed flag on the
+        # clickable poster badge.  (For live, set_mode already hides the badge.)
         if not is_live:
-            self._action_bar.set_watched(_completed)
+            self._poster.set_watched(_completed)
 
         if is_live:
             self._poster.set_country_info(channel.name)
@@ -226,9 +227,10 @@ class DetailsPaneWidget(QWidget):
             self._content_layout.addWidget(self._epg_agenda)
             self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
 
-        # Wire ALL action buttons into the poster's left rail.  _ActionBar owns all
-        # state/signals; _PosterSection just provides the visual slot (fixed-width
-        # left column left of the poster).  Must happen after both are constructed.
+        # Wire action buttons into their tiered visual slots.  _ActionBar owns all
+        # state/signals; _PosterSection provides the slots (Play/Resume → primary
+        # row below the poster; the rest → the slim rail).  Must happen after both
+        # are constructed.
         self._poster.set_action_buttons(
             favorite=self._action_bar.favorite_button,
             play=self._action_bar.play_button,
@@ -239,7 +241,6 @@ class DetailsPaneWidget(QWidget):
             dislike=self._action_bar.dislike_button,
             watchlist=self._action_bar.watchlist_button,
             monitor=self._action_bar.monitor_button,
-            watched=self._action_bar.watched_button,
             hide=self._action_bar.hide_button,
         )
 
@@ -257,8 +258,9 @@ class DetailsPaneWidget(QWidget):
 
     def _connect_sections(self) -> None:
         """Wire internal section signals to public DetailsPaneWidget signals."""
-        # Poster lightbox
+        # Poster lightbox + clickable Watched badge
         self._poster.poster_enlarged.connect(self.poster_enlarged)
+        self._poster.watched_toggled.connect(self._on_watched)
 
         # Version chips
         v = self._versions
@@ -300,7 +302,6 @@ class DetailsPaneWidget(QWidget):
         ab.unhide_clicked.connect(self._on_unhide)
         ab.watchlist_clicked.connect(self._on_watchlist)
         ab.monitor_clicked.connect(self._on_monitor)
-        ab.watched_clicked.connect(self._on_watched)
 
         # Collapse state persistence
         self._tech._toggle_btn.clicked.connect(self._save_tech_state)
@@ -419,12 +420,11 @@ class DetailsPaneWidget(QWidget):
         if self.current_channel:
             self.unhide_requested.emit(self.current_channel.id)
 
-    def _on_watched(self) -> None:
+    def _on_watched(self, is_watched: bool) -> None:
         if self.current_channel:
-            # Emit the new optimistic state so the host routes to mark/unmark.
-            self.watched_toggled.emit(
-                self.current_channel.id, self._action_bar._watched
-            )
+            # The poster badge carries the new optimistic state; route it to the
+            # host's shared mark/unmark chokepoint.
+            self.watched_toggled.emit(self.current_channel.id, is_watched)
 
     # ------------------------------------------------------------------ #
     # Collapse state persistence                                           #

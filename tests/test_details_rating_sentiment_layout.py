@@ -5,8 +5,12 @@ Change A — Rating on the media-type line:
   * Shows when raw_data / metadata provide a rating; hidden + no gap when absent.
   * Content-rating badge (PG-13) also on the media-type row.
 
-Change B — ALL action buttons as an icon-only vertical rail left of the poster:
-  * Every button reaches _PosterSection._action_rail after set_action_buttons().
+Change B — actions tiered by frequency (feat/details-action-hierarchy):
+  * Play + Resume graduate to a full-size primary row below the poster; the
+    infrequent set (favorite/queue/sentiment/alert/watchlist/hide) stays in the
+    slim icon rail left of the poster.
+  * Play is full-width when there's no saved position; Play + Resume split 50/50
+    when partially-watched, with Resume the dominant filled-orange button.
   * The rail is visible for ALL channel types (VOD and live).
   * like_clicked / dislike_clicked / not_interested_clicked signals still fire.
 """
@@ -196,7 +200,7 @@ def test_rating_hidden_for_live_via_media_row(qapp):
 # ── Change B: ALL action buttons in the vertical rail left of the poster ─────
 
 def _wire_rail(poster, action_bar):
-    """Reparent every action button into the poster's left rail (full set)."""
+    """Reparent action buttons into their tiered slots (play/resume → primary row)."""
     poster.set_action_buttons(
         favorite=action_bar.favorite_button,
         play=action_bar.play_button,
@@ -207,13 +211,16 @@ def _wire_rail(poster, action_bar):
         dislike=action_bar.dislike_button,
         watchlist=action_bar.watchlist_button,
         monitor=action_bar.monitor_button,
-        watched=action_bar.watched_button,
         hide=action_bar.hide_button,
     )
 
 
-def test_action_buttons_reparented_to_rail(qapp):
-    """After set_action_buttons(), every action button must be a child of _action_rail."""
+def test_infrequent_buttons_reparented_to_rail(qapp):
+    """After set_action_buttons(), the infrequent action buttons live in _action_rail.
+
+    Play and Resume are NOT in the rail any more — they graduate to the primary
+    action row below the poster (see test_play_resume_in_primary_row).
+    """
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
 
@@ -224,13 +231,94 @@ def test_action_buttons_reparented_to_rail(qapp):
     _wire_rail(poster, action_bar)
 
     for btn in (
-        action_bar.favorite_button, action_bar.play_button, action_bar.queue_button,
+        action_bar.favorite_button, action_bar.queue_button,
         action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
         action_bar.watchlist_button, action_bar.monitor_button, action_bar.hide_button,
     ):
         assert btn.parent() is poster._action_rail, (
             f"{btn!r} must be reparented to _action_rail after set_action_buttons()"
         )
+
+    # Play/Resume must NOT be in the rail.
+    rail_widgets = [
+        poster._action_rail_layout.itemAt(i).widget()
+        for i in range(poster._action_rail_layout.count())
+    ]
+    assert action_bar.play_button not in rail_widgets, "Play must NOT be in the rail"
+    assert action_bar.resume_button not in rail_widgets, "Resume must NOT be in the rail"
+
+
+def test_play_resume_in_primary_row(qapp):
+    """Play and Resume graduate to the full-size primary action row below the poster."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+
+    _wire_rail(poster, action_bar)
+
+    assert action_bar.play_button.parent() is poster._primary_action_row, (
+        "Play must live in the primary action row below the poster"
+    )
+    assert action_bar.resume_button.parent() is poster._primary_action_row, (
+        "Resume must live in the primary action row below the poster"
+    )
+
+
+def test_primary_row_play_full_width_when_no_resume(qapp):
+    """VOD with no saved position → only Play is shown in the primary row (full-width)."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+    _wire_rail(poster, action_bar)
+    poster.set_mode(is_live=False)
+
+    action_bar.set_resume(False)
+    assert not action_bar.play_button.isHidden(), "Play must show"
+    assert action_bar.resume_button.isHidden(), (
+        "Resume must be hidden when there's no saved position → Play fills the row"
+    )
+
+
+def test_primary_row_resume_dominant_when_partially_watched(qapp):
+    """Partially-watched → Play + Resume side-by-side; Resume is the dominant one.
+
+    Both share the primary row (50/50 via equal stretch).  Resume carries the
+    filled-orange dominant style + the M:SS label; Play carries the secondary
+    outline style.
+    """
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+    from metatv.gui import theme as _theme
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+    _wire_rail(poster, action_bar)
+    poster.set_mode(is_live=False)
+
+    action_bar.set_resume(True, position_s=125)
+    assert not action_bar.play_button.isHidden(), "Play must show alongside Resume"
+    assert not action_bar.resume_button.isHidden(), "Resume must show when partially watched"
+    # Resume label shows the saved position; it is the dominant filled-orange button.
+    assert "2:05" in action_bar.resume_button.text(), (
+        f"Resume label must show M:SS; got {action_bar.resume_button.text()!r}"
+    )
+    assert action_bar.resume_button.styleSheet() == _theme.DETAIL_RESUME_BTN, (
+        "Resume must use the dominant filled-orange style"
+    )
+    assert action_bar.play_button.styleSheet() == _theme.DETAIL_PLAY_BTN, (
+        "Play must use the secondary outline style"
+    )
+    # Equal stretch → 50/50 split in the primary row.
+    prow = poster._primary_row_layout
+    assert prow.stretch(prow.indexOf(action_bar.play_button)) == 1
+    assert prow.stretch(prow.indexOf(action_bar.resume_button)) == 1
 
 
 def test_action_rail_hidden_until_channel_shown(qapp):

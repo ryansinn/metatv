@@ -635,3 +635,54 @@ def test_resume_from_visible_in_menu_when_mode_is_beginning(qapp):
         f"'Resume from M:SS' should appear when mode='beginning'; got: {texts}"
     assert any("3:00" in t for t in texts), \
         f"Label should include '3:00' (180s); got: {texts}"
+
+
+# ---------------------------------------------------------------------------
+# 25–26. Double-click = resume-by-default
+# ---------------------------------------------------------------------------
+
+def test_double_click_routes_to_resume_aware_play_by_id(qapp):
+    """Double-clicking a channel row routes to play_channel_by_id (the resume-aware
+    default path) — NOT play_from_beginning.  play_channel_by_id honors the default
+    playback_resume_mode, so a partially-watched title resumes (see below)."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui.main_window_channels import _ChannelListMixin
+
+    host = _ChannelListMixin.__new__(_ChannelListMixin)
+    host.play_channel_by_id = MagicMock()
+
+    index = MagicMock()
+    index.data.return_value = "ch-double"
+
+    _ChannelListMixin._on_channel_double_clicked(host, index)
+
+    index.data.assert_called_once_with(Qt.ItemDataRole.UserRole)
+    host.play_channel_by_id.assert_called_once_with("ch-double")
+
+
+def test_double_click_resumes_partially_watched_movie(qapp):
+    """End-to-end: double-click → play_channel_by_id → play_media resumes a
+    partially-watched movie at the saved position under the default resume mode."""
+    import contextlib
+    from unittest.mock import patch
+    from metatv.gui.main_window_favorites import _FavoritesMixin
+
+    host = _make_streaming_host(resume_mode="resume")
+    # Bind the real play_channel_by_id (resume-aware default play path).
+    host.play_channel_by_id = _FavoritesMixin.play_channel_by_id.__get__(host)
+
+    @contextlib.contextmanager
+    def _scope(*a, **k):
+        yield MagicMock()
+
+    host.db = MagicMock()
+    host.db.session_scope.side_effect = _scope
+
+    dto = _make_channel_dto("movie", watch_progress=300, watch_completed=False)
+    with patch("metatv.gui.main_window_favorites.RepositoryFactory") as RF:
+        RF.return_value.channels.get_playable_dto.return_value = dto
+        host.play_channel_by_id("ch1")
+
+    assert _submitted_start_seconds(host) == 300, (
+        "double-click default play must resume a partially-watched movie at its saved position"
+    )

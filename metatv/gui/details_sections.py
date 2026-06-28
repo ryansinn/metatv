@@ -38,9 +38,16 @@ class _ClickableLabel(QLabel):
 
 
 class _PosterLabel(QLabel):
-    """QLabel that emits ``poster_clicked`` when the user left-clicks a loaded poster."""
+    """QLabel that emits ``poster_clicked`` when the user left-clicks a loaded poster.
+
+    Also surfaces hover and resize events (``hover_changed`` / ``resized``) so an
+    overlaid corner widget — the clickable Watched badge — can reveal itself on
+    poster hover and keep itself pinned to the top-right corner on layout changes.
+    """
 
     poster_clicked = pyqtSignal()
+    hover_changed = pyqtSignal(bool)   # True on enter, False on leave
+    resized = pyqtSignal()             # geometry changed — reposition overlays
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,6 +80,39 @@ class _PosterLabel(QLabel):
             self.poster_clicked.emit()
         super().mousePressEvent(event)
 
+    def enterEvent(self, event) -> None:
+        self.hover_changed.emit(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.hover_changed.emit(False)
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.resized.emit()
+
+
+class _WatchedBadge(QPushButton):
+    """Small clickable corner badge overlaid on the poster (Plex/Jellyfin convention).
+
+    Two visual states (driven by ``_PosterSection``): a persistent SOLID check when
+    watched (click → unmark) and a FAINT check revealed on poster hover when
+    unwatched (click → mark watched).  Emits ``hover_changed`` so the parent can
+    keep the faint badge visible while the cursor is over the badge itself (avoiding
+    the parent-leave/child-enter flicker loop).
+    """
+
+    hover_changed = pyqtSignal(bool)
+
+    def enterEvent(self, event) -> None:
+        self.hover_changed.emit(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.hover_changed.emit(False)
+        super().leaveEvent(event)
+
 
 def _pref_signal(name: str, weights, attr: str) -> str:
     """Return HTML indicator for a person based on their preference weight."""
@@ -90,10 +130,18 @@ def _pref_signal(name: str, weights, attr: str) -> str:
 # ---------------------------------------------------------------------------
 
 class _PosterSection(QWidget):
-    """Poster image (VOD) and live-channel logo/header (logo + country info)."""
+    """Poster image (VOD) and live-channel logo/header (logo + country info).
+
+    Also hosts the two poster-adjacent action surfaces:
+    * the **primary action row** (full-size Play / Resume) directly below the poster;
+    * the clickable two-state **Watched badge** overlaid on the poster corner
+      (VOD only) — ``watched_toggled`` carries the new state to the orchestrator.
+    """
 
     # Emitted when the user clicks an enlarged poster (carries the full-res QPixmap)
     poster_enlarged = pyqtSignal(QPixmap)
+    # Emitted when the user clicks the poster Watched badge (carries the NEW state)
+    watched_toggled = pyqtSignal(bool)
 
     # Poster area metrics.  VOD posters fill a tall box; a live channel LOGO is
     # usually small/square, so it gets a short capped box (contained with margin,
@@ -101,6 +149,8 @@ class _PosterSection(QWidget):
     _POSTER_MIN_H: int = 400
     _POSTER_MAX_H: int = 600
     _LIVE_LOGO_MAX_H: int = 180
+    _BADGE_SIZE: int = 26
+    _BADGE_MARGIN: int = 8
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -111,6 +161,11 @@ class _PosterSection(QWidget):
         self._provider_urls: list = []
         self._full_pixmap: QPixmap | None = None   # full-res image for the lightbox
         self._is_live_logo: bool = False           # poster area is showing a live logo
+        # Watched-badge state (VOD only)
+        self._is_live: bool = False
+        self._watched: bool = False
+        self._poster_hovered: bool = False
+        self._badge_hovered: bool = False
         self._setup()
 
     def _setup(self) -> None:
@@ -165,7 +220,20 @@ class _PosterSection(QWidget):
         self.poster_label.setText("No poster available")
         self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
         self.poster_label.poster_clicked.connect(self._on_poster_clicked)
+        self.poster_label.hover_changed.connect(self._on_poster_hover)
+        self.poster_label.resized.connect(self._reposition_watched_badge)
         pf_layout.addWidget(self.poster_label)
+
+        # Watched badge — a clickable corner overlay on the poster (VOD only).
+        # Child of poster_label so it floats over the image; positioned top-right
+        # and shown/hidden by _update_watched_badge() per watch + hover state.
+        self._watched_badge = _WatchedBadge(_icons.watched_icon, self.poster_label)
+        self._watched_badge.setFixedSize(self._BADGE_SIZE, self._BADGE_SIZE)
+        self._watched_badge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._watched_badge.clicked.connect(self._on_watched_badge_clicked)
+        self._watched_badge.hover_changed.connect(self._on_badge_hover)
+        self._watched_badge.hide()
+
         cc_layout.addWidget(self._poster_frame)
 
         # Live header: country info text.  The channel LOGO (when present) is shown
@@ -184,6 +252,19 @@ class _PosterSection(QWidget):
 
         self._live_header.hide()
         cc_layout.addWidget(self._live_header)
+
+        # Primary action row — full-size Play / Resume, directly below the poster
+        # (and below the live logo/header for live).  Buttons are reparented in by
+        # set_action_buttons(); both get equal stretch so they split 50/50 when
+        # both show, and Play takes the full width when Resume is hidden (Qt skips
+        # the hidden item's stretch).  Hidden until a channel is shown (set_mode).
+        self._primary_action_row = QWidget()
+        self._primary_row_layout = QHBoxLayout(self._primary_action_row)
+        self._primary_row_layout.setContentsMargins(0, 6, 0, 0)
+        self._primary_row_layout.setSpacing(6)
+        self._primary_action_row.hide()
+        cc_layout.addWidget(self._primary_action_row)
+
         cc_layout.addStretch()
 
         _par_layout.addWidget(self._content_col, 1)
@@ -199,6 +280,10 @@ class _PosterSection(QWidget):
         # _ActionBar.set_mode()/set_monitorable().
         self._action_rail.setVisible(True)
         self._live_header.setVisible(is_live)
+        # Primary action row (Play / Resume) shows for ALL channel types.
+        self._primary_action_row.setVisible(True)
+        # Watched badge is a VOD-only affordance — track mode and refresh visibility.
+        self._is_live = is_live
         if is_live:
             # Default live layout: poster area hidden, live header shown.  When the
             # channel has a logo, load_live_logo() reveals the poster area and shows
@@ -209,6 +294,7 @@ class _PosterSection(QWidget):
             self._is_live_logo = False
             self._restore_poster_metrics()
             self._poster_frame.setVisible(True)
+        self._update_watched_badge()
 
     def set_action_buttons(
         self,
@@ -222,31 +308,37 @@ class _PosterSection(QWidget):
         dislike,
         watchlist,
         monitor,
-        watched,
         hide,
     ) -> None:
-        """Reparent ALL action buttons into the left rail in canonical order.
+        """Reparent action buttons into their tiered visual slots.
 
         Called once from details_pane._setup_ui() after both _PosterSection and
         _ActionBar have been constructed.  The buttons are owned by _ActionBar
-        (signals/state/sync live there); we just reparent them into this visual slot.
+        (signals/state/sync live there); we just reparent them into the right slot.
 
-        Order (top→bottom): favorite · gap · play · resume · queue · gap ·
-        sentiment trio · watchlist · gap · alert · stretch · watched · hide (the
-        watched toggle + hide are pinned to the bottom, near the title).  Subgroups
-        are separated by widening gaps; the play/resume/queue triplet stays tight.
-        Mode-conditional buttons (resume=has-progress, sentiment=VOD, watched=VOD,
-        watchlist=live, alert=series) keep their slot but are shown/hidden by
-        _ActionBar.
+        * **Primary row** (below the poster): play + resume, full-size and labeled,
+          each with equal stretch (50/50 when both show; Play full-width when Resume
+          is hidden).  Resume is the dominant one when present.
+        * **Rail** (slim icon column, top→bottom): favorite · gap · queue · gap ·
+          sentiment trio · watchlist · gap · alert · stretch · hide.
+
+        Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
+        alert=series) keep their slot but are shown/hidden by _ActionBar.
         """
+        # Primary row: full-size Play / Resume, equal stretch.
+        prow = self._primary_row_layout
+        while prow.count():
+            prow.takeAt(0)
+        prow.addWidget(play, 1)
+        prow.addWidget(resume, 1)
+
+        # Rail: the infrequent icon-only set.
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
         layout.addWidget(favorite)
         layout.addSpacing(14)
-        layout.addWidget(play)
-        layout.addWidget(resume)
         layout.addWidget(queue)
         layout.addSpacing(16)
         layout.addWidget(like)
@@ -256,11 +348,10 @@ class _PosterSection(QWidget):
         layout.addSpacing(20)
         layout.addWidget(monitor)
         layout.addStretch()
-        layout.addWidget(watched)
         layout.addWidget(hide)
-        # NOTE: the rail is left hidden here — it's revealed by set_mode() when a
-        # channel is shown, so action icons don't appear in the empty/no-selection
-        # state.
+        # NOTE: the rail + primary row are left hidden here — they're revealed by
+        # set_mode() when a channel is shown, so action controls don't appear in the
+        # empty/no-selection state.
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls
@@ -349,6 +440,64 @@ class _PosterSection(QWidget):
         self.poster_label.setPixmap(QPixmap())
         self.poster_label.setText("No poster available")
         self._country_info_lbl.hide()
+        # Reset the Watched badge so a reused pane never shows stale watch state.
+        self._watched = False
+        self._poster_hovered = False
+        self._badge_hovered = False
+        self._update_watched_badge()
+
+    # ------------------------------------------------------------------ #
+    # Watched badge (VOD only)                                            #
+    # ------------------------------------------------------------------ #
+
+    def set_watched(self, is_watched: bool) -> None:
+        """Reflect the stored VOD watch_completed state on the poster badge."""
+        self._watched = is_watched
+        self._update_watched_badge()
+
+    def _on_watched_badge_clicked(self) -> None:
+        """Optimistically flip the badge, then let the host persist the new state."""
+        new_state = not self._watched
+        self.set_watched(new_state)
+        self.watched_toggled.emit(new_state)
+
+    def _on_poster_hover(self, hovered: bool) -> None:
+        self._poster_hovered = hovered
+        self._update_watched_badge()
+
+    def _on_badge_hover(self, hovered: bool) -> None:
+        self._badge_hovered = hovered
+        self._update_watched_badge()
+
+    def _update_watched_badge(self) -> None:
+        """Apply the two-state badge convention.
+
+        Live → never shown.  Watched → persistent SOLID check (click = unmark).
+        Unwatched → FAINT check shown only while the poster (or the badge itself)
+        is hovered (click = mark watched) so unwatched posters stay uncluttered.
+        """
+        if self._is_live:
+            self._watched_badge.hide()
+            return
+
+        if self._watched:
+            self._watched_badge.setStyleSheet(_theme.POSTER_WATCHED_BADGE)
+            self._watched_badge.setToolTip("Watched — click to mark as unwatched")
+            visible = True
+        else:
+            self._watched_badge.setStyleSheet(_theme.POSTER_UNWATCHED_BADGE)
+            self._watched_badge.setToolTip("Mark as watched")
+            visible = self._poster_hovered or self._badge_hovered
+
+        self._watched_badge.setVisible(visible)
+        if visible:
+            self._reposition_watched_badge()
+            self._watched_badge.raise_()
+
+    def _reposition_watched_badge(self) -> None:
+        """Pin the badge to the poster's top-right corner."""
+        x = self.poster_label.width() - self._watched_badge.width() - self._BADGE_MARGIN
+        self._watched_badge.move(max(0, x), self._BADGE_MARGIN)
 
     def _display_poster(self, pixmap: QPixmap) -> None:
         if pixmap and not pixmap.isNull():
