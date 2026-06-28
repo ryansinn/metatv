@@ -1592,3 +1592,35 @@ def test_see_all_page_size_is_a_screenful():
     assert not hasattr(RecipeView, "_RECIPE_SEE_ALL_LIMIT"), (
         "The old 500-card hard cap must be gone"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bug fixes: center facet-value filter clear affordance (#recipe-center-filter)
+# ---------------------------------------------------------------------------
+
+def test_clear_recipe_also_clears_center_cloud_filter(qapp):
+    """clear_recipe() resets the center facet-value filter text so all chips reappear.
+
+    Regression: previously clear_recipe() cleared the Pantry filter but left any
+    text in the center WeightedTagCloud filter intact, so typed filter text persisted
+    across a recipe clear.
+    """
+    view, seam = _make_view(qapp)
+    view._active = True
+    view._selected_facet = "genre"
+    _load_cloud_with_counts(view, [
+        _TagCountDTO("Drama", 100),
+        _TagCountDTO("Action", 80),
+        _TagCountDTO("Documentary", 60),
+    ])
+
+    # Type something in the center filter — hides all but 'Documentary'
+    view._cloud._filter_edit.setText("doc")
+    assert view._cloud._filter_edit.text() == "doc"
+
+    # clear_recipe() must also clear the center filter
+    view.clear_recipe()
+
+    assert view._cloud._filter_edit.text() == "", (
+        "clear_recipe() must clear the center facet-value filter text"
+    )

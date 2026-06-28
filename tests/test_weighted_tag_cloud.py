@@ -261,3 +261,34 @@ def test_set_tags_resets_cap_on_new_data(qapp):
     cloud.set_tags(_make_items(50), facet_color=_theme.COLOR_ACCENT)
     assert cloud._more_btn.cloud_visible, "Cap button should reappear after set_tags with 50 items"
     assert sum(1 for b in cloud._tag_buttons if b.cloud_visible) == 40
+
+
+def test_clear_filter_empties_text_and_restores_tags(qapp):
+    """clear_filter() empties the filter field and all previously hidden tags are visible again.
+
+    Uses cloud_visible (not isVisible()) because headless Qt widgets always
+    report isVisible()==False regardless of show()/hide() calls on children.
+    """
+    cloud = WeightedTagCloud()
+    items = [
+        ("Action", 100, "none"),
+        ("Drama", 80, "none"),
+        ("Documentary", 60, "none"),
+    ]
+    cloud.set_tags(items, facet_color=_theme.COLOR_ACCENT_TEAL, facet_name="Genre")
+
+    # Apply a filter that hides Action and Drama
+    cloud._filter_edit.setText("doc")
+    hidden_before = [b.value() for b in cloud._tag_buttons if not b.cloud_visible]
+    assert set(hidden_before) == {"Action", "Drama"}, (
+        f"Filter 'doc' should hide Action and Drama, got: {hidden_before}"
+    )
+
+    # Call the public clear_filter method
+    cloud.clear_filter()
+
+    assert cloud._filter_edit.text() == "", "Filter text must be empty after clear_filter()"
+    visible_after = [b.value() for b in cloud._tag_buttons if b.cloud_visible]
+    assert set(visible_after) == {"Action", "Drama", "Documentary"}, (
+        f"All tags must be visible after clear_filter(), got: {visible_after}"
+    )
