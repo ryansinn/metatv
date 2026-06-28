@@ -216,6 +216,30 @@ def test_action_buttons_reparented_to_rail(qapp):
         )
 
 
+def test_action_rail_hidden_until_channel_shown(qapp):
+    """Regression: in the empty/no-selection state the rail must be hidden, so
+    favorite/play/queue/hide icons don't appear with nothing selected.  set_mode()
+    (called only when a channel is shown) reveals it."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+
+    _wire_rail(poster, action_bar)
+
+    assert poster._action_rail.isHidden(), (
+        "_action_rail must stay hidden after wiring buttons but before a channel is "
+        "shown — no action icons in the empty state"
+    )
+
+    poster.set_mode(is_live=False)
+    assert not poster._action_rail.isHidden(), (
+        "_action_rail must become visible once a channel is shown (set_mode)"
+    )
+
+
 def test_action_rail_visible_for_vod(qapp):
     """The action rail must be visible for VOD (is_live=False)."""
     from metatv.gui.details_sections import _PosterSection

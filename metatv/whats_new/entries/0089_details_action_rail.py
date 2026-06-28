@@ -16,6 +16,8 @@ ENTRY = WhatsNewEntry(
         "highlighted (checked) button or a swapped icon (e.g. filled vs. outline star).",
     ),
     test_steps=(
+        "With nothing selected (empty details pane), confirm NO action icons appear "
+        "in the rail — the rail only shows once a channel is selected.",
         "Open a movie/series in the details pane. Confirm Favorite (top), then Play, "
         "Add to Queue, the 👍/🙅/👎 trio, and Hide (bottom) appear as a vertical icon "
         "rail left of the poster — and there are no action button rows under the poster.",

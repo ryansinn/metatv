@@ -128,7 +128,7 @@ class _PosterSection(QWidget):
         self._action_rail_layout.setContentsMargins(0, 4, 6, 4)
         self._action_rail_layout.setSpacing(6)
         self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
-        self._action_rail.hide()   # shown once set_action_buttons() populates it
+        self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
         _par_layout.addWidget(self._action_rail)
 
         # Content column — poster (VOD) above, live header (live) below; one shows
@@ -185,9 +185,14 @@ class _PosterSection(QWidget):
         layout.addWidget(_poster_and_rail)
 
     def set_mode(self, is_live: bool) -> None:
-        # The action rail is visible for ALL channel types; only the content
-        # beside it switches (poster for VOD, live header for live).  Per-button
-        # visibility (sentiment/watchlist/alert) is managed by _ActionBar.set_mode().
+        # set_mode runs only when a channel is actually being shown (via
+        # _configure_for), so this is where the rail first becomes visible — it
+        # stays hidden in the empty/no-selection state so action icons don't appear
+        # with nothing selected.  The rail is shown for ALL channel types; only the
+        # content beside it switches (poster for VOD, live header for live).
+        # Per-button visibility (sentiment/watchlist/alert) is managed by
+        # _ActionBar.set_mode()/set_monitorable().
+        self._action_rail.setVisible(True)
         self._poster_frame.setVisible(not is_live)
         self._live_header.setVisible(is_live)
 
@@ -231,8 +236,9 @@ class _PosterSection(QWidget):
         layout.addWidget(monitor)
         layout.addStretch()
         layout.addWidget(hide)
-
-        self._action_rail.show()
+        # NOTE: the rail is left hidden here — it's revealed by set_mode() when a
+        # channel is shown, so action icons don't appear in the empty/no-selection
+        # state.
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls
