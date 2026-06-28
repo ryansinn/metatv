@@ -676,12 +676,28 @@ class _MetadataSection(QWidget):
 
         self._genres_loading_lbl.hide()
         if metadata.genres:
+            # Split combined genre strings into one chip each so they wrap cleanly
+            # in the flow layout.  Providers deliver genres inconsistently: a real
+            # list (["Action", "Drama"]), a slash-joined string ("Action / Drama"),
+            # or a single comma-joined string ("Action, Adventure, Sci-Fi").  An
+            # un-split comma string renders as one over-wide chip whose minimum
+            # width pushes the whole details panel wider (e87956eb).  Split on both
+            # ',' and '/'; never '&' — "Sci-Fi & Fantasy" / "Action & Adventure"
+            # are single TMDB genres.  De-dupe (case-insensitive) so merged
+            # multi-provider metadata doesn't yield duplicate chips.
             genres: list[str] = []
+            seen: set[str] = set()
             for g in metadata.genres:
-                if isinstance(g, str) and re.search(r'\s*/\s*', g):
-                    genres.extend(p.strip() for p in g.split('/') if p.strip())
-                else:
-                    genres.append(g)
+                parts = re.split(r"\s*[/,]\s*", g) if isinstance(g, str) else [g]
+                for p in parts:
+                    name = p.strip() if isinstance(p, str) else p
+                    if not name:
+                        continue
+                    key = name.casefold() if isinstance(name, str) else name
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    genres.append(name)
             self._populate_genre_chips(genres)
         else:
             # No genres available — hide the container too
@@ -750,6 +766,7 @@ class _PlotSection(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._is_live: bool = False
         self._setup()
 
     def _setup(self) -> None:
@@ -772,22 +789,34 @@ class _PlotSection(QWidget):
         layout.addWidget(self.plot_loading)
 
     def set_mode(self, is_live: bool) -> None:
-        self.setVisible(not is_live)
+        self._is_live = is_live
+        self._apply_visibility()
 
     def load(self, plot: str | None, loading_icon: str = "") -> None:
         if plot:
             self.plot_label.setText(plot)
-            self.plot_loading.hide()
         else:
             self.plot_label.clear()
+        self.plot_loading.hide()
+        self._apply_visibility()
 
     def show_loading(self, loading_icon: str = "") -> None:
         self.plot_loading.setText(f"{loading_icon} Loading metadata..." if loading_icon else "Loading metadata...")
         self.plot_loading.show()
+        self._apply_visibility()
 
     def clear(self) -> None:
         self.plot_label.clear()
         self.plot_loading.hide()
+        self._apply_visibility()
+
+    def _apply_visibility(self) -> None:
+        """Hide the whole section (header + body) when live, or when there is no
+        overview text and nothing is loading — so a plot-less title shows no empty
+        'Overview' box.  Re-shown automatically when a reused pane lands on a title
+        that does have a plot."""
+        has_content = bool(self.plot_label.text()) or not self.plot_loading.isHidden()
+        self.setVisible(not self._is_live and has_content)
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +920,8 @@ class _CastSection(QWidget):
         super().__init__(parent)
         self.config = config
         self._collapsed: bool = False
+        self._is_live: bool = False
+        self._has_content: bool = False
         self._setup()
 
     def _setup(self) -> None:
@@ -941,11 +972,10 @@ class _CastSection(QWidget):
         self._apply()
 
     def set_mode(self, is_live: bool) -> None:
-        self._header_widget.setVisible(not is_live)
-        if is_live:
-            self._content.setVisible(False)
-        else:
+        self._is_live = is_live
+        if not is_live:
             self._apply()
+        self._apply_visibility()
 
     def load(self, cast: list, director: str | None = None, weights=None) -> None:
         link_col = _theme.COLOR_ACCENT_BLUE_2
@@ -967,23 +997,35 @@ class _CastSection(QWidget):
         else:
             self._director_lbl.hide()
 
-        if not cast:
+        if cast:
+            parts = []
+            for actor in cast[:10]:
+                name = actor.get("name", "Unknown") if isinstance(actor, dict) else str(actor)
+                sig = _pref_signal(name, weights, "actors") if weights else ""
+                href = html.escape(name, quote=True)
+                parts.append(
+                    f'{sig}<a href="{href}" style="color:{link_col};'
+                    f' text-decoration:none;">{html.escape(name)}</a>'
+                )
+            self.cast_label.setText(", ".join(parts))
+        else:
             self.cast_label.clear()
-            return
-        parts = []
-        for actor in cast[:10]:
-            name = actor.get("name", "Unknown") if isinstance(actor, dict) else str(actor)
-            sig = _pref_signal(name, weights, "actors") if weights else ""
-            href = html.escape(name, quote=True)
-            parts.append(
-                f'{sig}<a href="{href}" style="color:{link_col};'
-                f' text-decoration:none;">{html.escape(name)}</a>'
-            )
-        self.cast_label.setText(", ".join(parts))
+
+        # A director alone OR any cast is enough to show the section.
+        self._has_content = bool(director) or bool(cast)
+        self._apply_visibility()
 
     def clear(self) -> None:
         self._director_lbl.hide()
         self.cast_label.clear()
+        self._has_content = False
+        self._apply_visibility()
+
+    def _apply_visibility(self) -> None:
+        """Hide the whole Cast & Crew section (header + body) when live, or when
+        there is no cast and no crew — so a credit-less title shows no empty box.
+        Re-shown when a reused pane lands on a title that has people."""
+        self.setVisible(not self._is_live and self._has_content)
 
     def _toggle(self) -> None:
         self._collapsed = not self._collapsed

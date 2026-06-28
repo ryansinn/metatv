@@ -310,8 +310,9 @@ class DetailsPaneWidget(QWidget):
 
     def _apply_metadata(self, metadata: MetadataResult) -> None:
         self._meta.load_metadata(metadata)
-        if metadata.plot:
-            self._plot.load(metadata.plot)
+        # Always route through _plot.load — it shows the section when a plot is
+        # present and hides the whole 'Overview' box when it is empty.
+        self._plot.load(metadata.plot)
         if metadata.poster_url:
             self._poster.load_poster(metadata.poster_url, self.provider_urls)
         else:
