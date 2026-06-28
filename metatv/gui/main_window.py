@@ -222,7 +222,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(200)
         self._search_debounce.timeout.connect(self.load_channels)
-        
+
+        # Debounce timer for splitter-drag persistence → a single drag emits
+        # splitterMoved on every pixel; without this each one rewrote (and backed
+        # up) the entire config file dozens of times per second.  Coalesce the
+        # whole burst into ONE config write ~500ms after the drag settles.
+        self._layout_save_debounce = QTimer(self)
+        self._layout_save_debounce.setSingleShot(True)
+        self._layout_save_debounce.setInterval(500)
+        self._layout_save_debounce.timeout.connect(self._persist_layout_now)
+
         # Filter state
         self.current_filter_state = None
         
@@ -503,8 +512,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if not getattr(self.config, 'details_pane_visible', False):
             self.main_splitter.collapse_panel(2)  # Collapse right panel
         
-        # Connect splitter moved signal to save widths
-        self.main_splitter.splitterMoved.connect(self.save_splitter_sizes)
+        # Connect splitter moved signal to save widths (debounced — see
+        # _schedule_layout_save; the raw splitterMoved fires per drag pixel).
+        self.main_splitter.splitterMoved.connect(self._schedule_layout_save)
         
         main_layout.addWidget(self.main_splitter, 1)
         main_layout.addWidget(self._create_bottom_nav_bar())
@@ -591,7 +601,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.sidebar_splitter.setSizes(self.config.sidebar_section_sizes)
         
         # Connect splitter moved signal to save sizes
-        self.sidebar_splitter.splitterMoved.connect(self.save_sidebar_section_sizes)
+        self.sidebar_splitter.splitterMoved.connect(self._schedule_layout_save)
 
         # Wrap in outer widget so a Settings button can live at the bottom
         outer = QWidget()
@@ -1264,7 +1274,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._inner_splitter.setStretchFactor(1, 1)  # list area: takes remaining space
         panel_w = getattr(self.config, 'filter_panel_width', 220)
         self._inner_splitter.setSizes([panel_w, max(300, 800 - panel_w)])
-        self._inner_splitter.splitterMoved.connect(self._save_filter_panel_width)
+        self._inner_splitter.splitterMoved.connect(self._schedule_layout_save)
         self.content_layout.addWidget(self._inner_splitter, 1)
 
         # Stats label below the splitter
@@ -1519,18 +1529,54 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 self._open_qa_checklist()
                 return
     
-    def _save_filter_panel_width(self):
-        """Persist filter panel width when inner splitter is moved."""
+    def _schedule_layout_save(self, *args) -> None:
+        """Debounce splitter-drag persistence.
+
+        Connected to every splitter's ``splitterMoved`` (which fires on each
+        pixel of a drag).  Instead of writing the config file per pixel, restart
+        a single-shot timer; :meth:`_persist_layout_now` runs once ~500ms after
+        the drag settles, collapsing the whole burst into ONE config write.
+        Accepts ``*args`` because ``splitterMoved`` delivers ``(pos, index)``.
+        """
+        self._layout_save_debounce.start()
+
+    def _persist_layout_now(self) -> None:
+        """Write all splitter geometry to config in a SINGLE save.
+
+        The debounce-timer target (and the direct path used by ``closeEvent``).
+        Each helper sets its config fields with ``_persist=False`` so only the
+        one ``config.save()`` here runs — one backup + one YAML write per drag,
+        not three (or hundreds).
+        """
+        self.save_splitter_sizes(_persist=False)
+        self.save_sidebar_section_sizes(_persist=False)
+        self._save_filter_panel_width(_persist=False)
+        try:
+            self.config.save()
+        except Exception as e:
+            logger.warning(f"Could not persist layout sizes: {e}")
+
+    def _save_filter_panel_width(self, _persist: bool = True):
+        """Persist filter panel width when inner splitter is moved.
+
+        ``_persist=False`` updates the in-memory config field only (the single
+        write is done by :meth:`_persist_layout_now`).
+        """
         try:
             sizes = self._inner_splitter.sizes()
             if sizes and sizes[0] > 0:
                 self.config.filter_panel_width = sizes[0]
-                self.config.save()
+                if _persist:
+                    self.config.save()
         except Exception:
             pass
 
-    def save_splitter_sizes(self):
-        """Save all splitter panel sizes to config"""
+    def save_splitter_sizes(self, _persist: bool = True):
+        """Save main splitter (sidebar | content | details) sizes to config.
+
+        ``_persist=False`` updates the in-memory config fields only (the single
+        write is done by :meth:`_persist_layout_now`).
+        """
         try:
             sizes = self.main_splitter.sizes()
             if sizes and len(sizes) >= 3:
@@ -1543,18 +1589,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 # Track if details pane is visible
                 self.config.details_pane_visible = (details_width > 0)
 
-                self.config.save()
+                if _persist:
+                    self.config.save()
                 logger.debug(f"Saved splitter sizes: sidebar={sidebar_width}px, details={details_width}px")
         except Exception as e:
             logger.warning(f"Could not save splitter sizes: {e}")
-    
-    def save_sidebar_section_sizes(self):
-        """Save sidebar section sizes to config"""
+
+    def save_sidebar_section_sizes(self, _persist: bool = True):
+        """Save sidebar section sizes to config.
+
+        ``_persist=False`` updates the in-memory config field only (the single
+        write is done by :meth:`_persist_layout_now`).
+        """
         try:
             sizes = self.sidebar_splitter.sizes()
             if sizes:
                 self.config.sidebar_section_sizes = sizes
-                self.config.save()
+                if _persist:
+                    self.config.save()
                 logger.debug(f"Saved sidebar section sizes: {sizes}")
         except Exception as e:
             logger.warning(f"Could not save sidebar section sizes: {e}")
@@ -1573,8 +1625,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         except Exception as e:
             logger.warning(f"Could not save window geometry: {e}")
 
-        # Save splitter sizes one final time
-        self.save_splitter_sizes()
+        # Persist all splitter geometry one final time in a single write.  Stop
+        # any pending debounce first so it can't fire after teardown.
+        try:
+            self._layout_save_debounce.stop()
+        except Exception:
+            pass
+        self._persist_layout_now()
 
         # Shut down all registered managers (registered in __init__ / setup_ui via
         # _register_cleanable — new managers must be registered there, not added here).

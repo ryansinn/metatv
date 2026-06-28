@@ -224,10 +224,13 @@ class DetailsPaneWidget(QWidget):
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
 
+        # Resizable width range — NOT a fixed width.  setFixedWidth() pins
+        # min==max so the enclosing QSplitter handle can't drag-resize the pane
+        # at all (the "details resize bar does nothing" bug); the saved width is
+        # already applied by MainWindow via main_splitter.setSizes(), and live
+        # drags persist through the debounced layout save.
         self.setMinimumWidth(300)
         self.setMaximumWidth(500)
-        if self.config.details_pane_width:
-            self.setFixedWidth(self.config.details_pane_width)
 
     def _connect_sections(self) -> None:
         """Wire internal section signals to public DetailsPaneWidget signals."""
