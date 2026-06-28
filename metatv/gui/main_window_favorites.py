@@ -33,6 +33,9 @@ class _FavoritesMixin:
             else:
                 session.merge(UserRatingDB(channel_id=channel_id, rating=rating,
                                            rated_at=datetime.utcnow()))
+                # A like/dislike is mutually exclusive with "not interested" —
+                # clear any suppression so the sentiment buttons stay consistent.
+                RepositoryFactory(session).channels.set_rec_suppressed(channel_id, False)
         # Update the channel-list row glyph in place — mirrors update_favorite wiring.
         new_rating = 0 if cleared else rating
         if hasattr(self, 'channel_model'):
@@ -57,9 +60,20 @@ class _FavoritesMixin:
         self.load_channels()
 
     def _not_interested(self, channel_id: str, suppressed: bool = True) -> None:
-        """Suppress (or un-suppress) channel from recommendations only."""
+        """Suppress (or un-suppress) channel from recommendations only.
+
+        Turning suppression on is mutually exclusive with a like/dislike — the
+        rating is cleared so the sentiment buttons stay consistent.
+        """
+        from metatv.core.database import UserRatingDB
         with self.db.session_scope() as session:
             RepositoryFactory(session).channels.set_rec_suppressed(channel_id, suppressed)
+            if suppressed:
+                current = session.get(UserRatingDB, channel_id)
+                if current:
+                    session.delete(current)
+        if suppressed and hasattr(self, "channel_model"):
+            self.channel_model.update_rating(channel_id, 0)
         self.preferences_view.refresh()
         self._refresh_recommended_section()
 

@@ -1,7 +1,7 @@
 """Action bar and channel action state for the details pane."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QWidget, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
 from metatv.gui import icons as _icons
@@ -19,12 +19,19 @@ class ChannelActionState:
 
 
 class _ActionBar(QWidget):
-    """Three-row button group: Watch / Library / Sentiment.
+    """Owns every channel action button (icon-only), its state, and its signals.
+
+    The buttons are laid out *not* here but in the vertical rail left of the poster
+    (see ``_PosterSection.set_action_buttons``); this widget is the logical owner —
+    it never appears in the content layout itself.  Every button is icon-only:
+    state is conveyed via icon-swap, ``:checked`` and tooltips (no text labels), so
+    the rail stays narrow and reclaims the vertical space the old button rows used.
 
     Signals carry no channel_id — the parent orchestrator wraps them.
     """
 
     play_clicked            = pyqtSignal()
+    resume_clicked          = pyqtSignal()
     favorite_clicked        = pyqtSignal()
     queue_clicked           = pyqtSignal()
     like_clicked            = pyqtSignal()
@@ -47,85 +54,78 @@ class _ActionBar(QWidget):
         self._current_epg_title: str = ""
         self._setup()
 
+    def _mk(
+        self, icon: str, tooltip: str, *, checkable: bool = False, style: str | None = None
+    ) -> QPushButton:
+        """Build one icon-only rail button (parented to self until reparented)."""
+        btn = QPushButton(icon, self)
+        btn.setToolTip(tooltip)
+        btn.setStyleSheet(style or _theme.DETAIL_RAIL_BTN)
+        if checkable:
+            btn.setCheckable(True)
+        return btn
+
     def _setup(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        # No layout here — every button is reparented into _PosterSection's rail
+        # via set_action_buttons().  _ActionBar owns state/signals/sync only.
 
-        # Row 1: Watch actions (always visible)
-        row1 = QHBoxLayout()
-        self.play_button = QPushButton(f"{self.config.play_icon} Play")
-        self.play_button.setToolTip("Play this channel")
-        self.play_button.clicked.connect(self.play_clicked)
-        row1.addWidget(self.play_button, 1)
-
-        self.queue_button = QPushButton(f"{self.config.queue_icon} Add to Queue")
-        self.queue_button.setToolTip("Add to Watch Queue")
-        self.queue_button.clicked.connect(self._on_queue_clicked)
-        row1.addWidget(self.queue_button, 1)
-        layout.addLayout(row1)
-
-        # Row 2: Library actions
-        row2 = QHBoxLayout()
-        self.favorite_button = QPushButton()
-        self.favorite_button.setToolTip("Add to Favorites")
+        # Always-visible actions
+        self.favorite_button = self._mk(self.config.unfavorite_icon, "Add to Favorites")
         self.favorite_button.clicked.connect(self.favorite_clicked)
-        row2.addWidget(self.favorite_button, 1)
 
-        self.watchlist_button = QPushButton("+ Watchlist")
-        self.watchlist_button.setToolTip("Add current show to watchlist patterns")
-        self.watchlist_button.clicked.connect(self.watchlist_clicked)
-        self.watchlist_button.hide()
-        row2.addWidget(self.watchlist_button, 1)
+        self.play_button = self._mk(self.config.play_icon, "Play this channel")
+        self.play_button.clicked.connect(self.play_clicked)
 
-        self.monitor_button = QPushButton(f"{_icons.alert_icon} Alert")
-        self.monitor_button.setToolTip("Alert me to new episodes of this series")
-        self.monitor_button.clicked.connect(self._on_monitor_clicked)
-        self.monitor_button.hide()
-        row2.addWidget(self.monitor_button, 1)
-
-        self.hide_button = QPushButton(f"{self.config.hide_icon} Hide")
-        self.hide_button.setToolTip("Hide this channel from all views")
-        row2.addWidget(self.hide_button, 1)
-        layout.addLayout(row2)
-
-        # Sentiment buttons — VOD only, displayed as a vertical bordered-chip rail
-        # left of the poster (see _PosterSection.set_sentiment_buttons).  They are
-        # created here so _ActionBar owns all state/signals/sync; details_pane.py
-        # calls set_sentiment_buttons() after construction to reparent them visually.
-        # Chip style: visible border so they read as distinct interactive targets.
-        _SENTIMENT_CHIP = (
-            f"QPushButton {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px;"
-            f" padding: 4px 2px; font-size: {_theme.FONT_2XL}; background: transparent;"
-            f" color: {_theme.COLOR_DIM}; }}"
-            f"QPushButton:checked {{ background: {_theme.OVERLAY_18};"
-            f" color: {_theme.COLOR_TEXT_HI}; border-color: {_theme.COLOR_DIM}; }}"
-            f"QPushButton:hover   {{ background: {_theme.OVERLAY_10};"
-            f" color: {_theme.COLOR_TEXT}; border-color: {_theme.COLOR_DIM}; }}"
+        # Resume — orange, sits directly below Play; shown only when there's a
+        # saved position (movies with watch_progress > 0).  set_resume() toggles it.
+        self.resume_button = self._mk(
+            _icons.resume_from_icon,
+            "Resume from where you left off",
+            style=_theme.DETAIL_RAIL_BTN_RESUME,
         )
+        self.resume_button.clicked.connect(self.resume_clicked)
+        self.resume_button.hide()
 
-        # Parent=self keeps them owned/cleaned up before set_sentiment_buttons()
-        # reparents them into _PosterSection._sentiment_rail.
-        self.like_button = QPushButton(self.config.like_icon, self)
-        self.like_button.setCheckable(True)
-        self.like_button.setToolTip("Like")
-        self.like_button.setStyleSheet(_SENTIMENT_CHIP)
+        self.queue_button = self._mk(
+            self.config.queue_icon, "Add to Watch Queue", checkable=True
+        )
+        self.queue_button.clicked.connect(self._on_queue_clicked)
+
+        self.hide_button = self._mk(self.config.hide_icon, "Hide this channel from all views")
+        # hide/unhide wired in _sync_hide_button (it reconnects on state change)
+
+        # Sentiment actions — VOD only (shown via set_mode)
+        self.like_button = self._mk(self.config.like_icon, "Like", checkable=True)
         self.like_button.clicked.connect(self._on_like_clicked)
         self.like_button.hide()
 
-        self.not_interested_button = QPushButton(self.config.not_interested_icon, self)
-        self.not_interested_button.setCheckable(True)
-        self.not_interested_button.setToolTip("Not Interested — suppress from recommendations")
-        self.not_interested_button.setStyleSheet(_SENTIMENT_CHIP)
+        self.not_interested_button = self._mk(
+            self.config.not_interested_icon,
+            "Not Interested — suppress from recommendations",
+            checkable=True,
+        )
         self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
         self.not_interested_button.hide()
 
-        self.dislike_button = QPushButton(self.config.dislike_icon, self)
-        self.dislike_button.setCheckable(True)
-        self.dislike_button.setToolTip("Dislike")
-        self.dislike_button.setStyleSheet(_SENTIMENT_CHIP)
+        self.dislike_button = self._mk(self.config.dislike_icon, "Dislike", checkable=True)
         self.dislike_button.clicked.connect(self._on_dislike_clicked)
         self.dislike_button.hide()
+
+        # Watchlist — live only (shown via set_mode)
+        self.watchlist_button = self._mk(
+            _icons.watch_later_icon, "Add current show to watchlist patterns", checkable=True
+        )
+        self.watchlist_button.clicked.connect(self.watchlist_clicked)
+        self.watchlist_button.hide()
+
+        # Alert / monitor — series only (shown via set_monitorable).  Uses the
+        # alert style: the siren glows red when alerting (:checked).
+        self.monitor_button = self._mk(
+            _icons.alert_icon, "Alert me to new episodes of this series",
+            checkable=True, style=_theme.DETAIL_RAIL_BTN_ALERT,
+        )
+        self.monitor_button.clicked.connect(self._on_monitor_clicked)
+        self.monitor_button.hide()
 
         # Wire hide button initial state
         self._sync_hide_button()
@@ -135,7 +135,7 @@ class _ActionBar(QWidget):
     # ------------------------------------------------------------------ #
 
     def load(self, state: ChannelActionState) -> None:
-        """Apply a fetched action state to all button labels/checked states."""
+        """Apply a fetched action state to all button checked states/tooltips."""
         self._in_queue = state.in_queue
         self._rating = state.rating
         self._suppressed = state.is_suppressed
@@ -155,23 +155,31 @@ class _ActionBar(QWidget):
         self._is_monitored = is_monitored
         self._sync_monitor_button()
 
+    def set_resume(self, can_resume: bool, position_s: int = 0) -> None:
+        """Show the Resume button only when there's a saved position to resume from."""
+        self.resume_button.setVisible(can_resume)
+        if can_resume and position_s > 0:
+            minutes, secs = divmod(int(position_s), 60)
+            self.resume_button.setToolTip(f"Resume from {minutes}:{secs:02d}")
+        else:
+            self.resume_button.setToolTip("Resume from where you left off")
+
     def update_favorite(self, is_favorite: bool) -> None:
         if is_favorite:
-            self.favorite_button.setText(f"{self.config.favorite_icon} Favorited")
+            self.favorite_button.setText(self.config.favorite_icon)
             self.favorite_button.setToolTip("Remove from Favorites")
         else:
-            self.favorite_button.setText(f"{self.config.unfavorite_icon} Add to Favorites")
+            self.favorite_button.setText(self.config.unfavorite_icon)
             self.favorite_button.setToolTip("Add to Favorites")
 
     def update_epg_title(self, title: str, watchlist_patterns: list) -> None:
         self._current_epg_title = title
-        if title:
-            already = title in (watchlist_patterns or [])
-            self.watchlist_button.setText(
-                f"{self.config.watched_icon} On Watchlist" if already else "+ Watchlist"
-            )
-        else:
-            self.watchlist_button.setText("+ Watchlist")
+        already = bool(title) and title in (watchlist_patterns or [])
+        self.watchlist_button.setChecked(already)
+        self.watchlist_button.setToolTip(
+            "On watchlist — click to remove" if already
+            else "Add current show to watchlist patterns"
+        )
 
     def clear(self) -> None:
         self._in_queue = False
@@ -181,6 +189,8 @@ class _ActionBar(QWidget):
         self._is_monitored = False
         self._current_epg_title = ""
         self.monitor_button.setVisible(False)
+        self.resume_button.setVisible(False)
+        self.watchlist_button.setChecked(False)
         self._sync_all()
 
     # ------------------------------------------------------------------ #
@@ -194,18 +204,31 @@ class _ActionBar(QWidget):
 
     def _on_like_clicked(self) -> None:
         self._rating = 0 if self._rating == 1 else 1
+        self._clear_suppressed_for_rating()
         self._sync_rating_buttons()
         self.like_clicked.emit()
 
     def _on_dislike_clicked(self) -> None:
         self._rating = 0 if self._rating == -1 else -1
+        self._clear_suppressed_for_rating()
         self._sync_rating_buttons()
         self.dislike_clicked.emit()
 
     def _on_not_interested_clicked(self) -> None:
         self._suppressed = not self._suppressed
+        # Mutually exclusive with like/dislike — turning "not interested" on
+        # clears any rating (the host persists the same cross-clear).
+        if self._suppressed and self._rating != 0:
+            self._rating = 0
+            self._sync_rating_buttons()
         self.not_interested_button.setChecked(self._suppressed)
         self.not_interested_clicked.emit()
+
+    def _clear_suppressed_for_rating(self) -> None:
+        """A like/dislike is mutually exclusive with 'not interested' — clear it."""
+        if self._rating != 0 and self._suppressed:
+            self._suppressed = False
+            self.not_interested_button.setChecked(False)
 
     def _on_hide_clicked(self) -> None:
         self._is_hidden = True
@@ -233,10 +256,9 @@ class _ActionBar(QWidget):
         self._sync_hide_button()
 
     def _sync_queue_button(self) -> None:
-        self.queue_button.setText(
-            f"{self.config.queue_icon} Remove from Queue"
-            if self._in_queue
-            else f"{self.config.queue_icon} Add to Queue"
+        self.queue_button.setChecked(self._in_queue)
+        self.queue_button.setToolTip(
+            "Remove from Watch Queue" if self._in_queue else "Add to Watch Queue"
         )
 
     def _sync_rating_buttons(self) -> None:
@@ -249,18 +271,15 @@ class _ActionBar(QWidget):
         except (RuntimeError, TypeError):
             pass
         if self._is_hidden:
-            self.hide_button.setText(f"{self.config.hide_icon} Unhide")
             self.hide_button.setToolTip("Unhide this channel — restore it to all views")
             self.hide_button.clicked.connect(self._on_unhide_clicked)
         else:
-            self.hide_button.setText(f"{self.config.hide_icon} Hide")
             self.hide_button.setToolTip("Hide this channel from all views")
             self.hide_button.clicked.connect(self._on_hide_clicked)
 
     def _sync_monitor_button(self) -> None:
-        if self._is_monitored:
-            self.monitor_button.setText(f"{_icons.alert_icon} Alerting")
-            self.monitor_button.setToolTip("Stop new-episode alerts for this series")
-        else:
-            self.monitor_button.setText(f"{_icons.alert_icon} Alert")
-            self.monitor_button.setToolTip("Alert me to new episodes of this series")
+        self.monitor_button.setChecked(self._is_monitored)
+        self.monitor_button.setToolTip(
+            "Stop new-episode alerts for this series" if self._is_monitored
+            else "Alert me to new episodes of this series"
+        )

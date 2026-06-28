@@ -110,25 +110,35 @@ class _PosterSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Poster + sentiment-rail wrapper (VOD only).
-        # The left column (_sentiment_rail) holds the 👍/🚫/👎 buttons as a
-        # vertical bordered-chip rail; the poster fills the remaining space.
-        # Buttons are reparented into the rail via set_sentiment_buttons() after
-        # both _PosterSection and _ActionBar have been constructed.
+        # Action-rail + content wrapper.
+        # The left column (_action_rail) is a vertical icon-button rail holding ALL
+        # channel actions (favorite/play/queue/sentiment/alert/watchlist/hide); the
+        # right column (_content_col) shows the poster (VOD) or the live header
+        # (live).  Buttons are reparented into the rail via set_action_buttons()
+        # after both _PosterSection and _ActionBar have been constructed.  The rail
+        # is visible for ALL channel types — per-button visibility is _ActionBar's job.
         _poster_and_rail = QWidget()
         _par_layout = QHBoxLayout(_poster_and_rail)
         _par_layout.setContentsMargins(0, 0, 0, 0)
         _par_layout.setSpacing(0)
 
-        self._sentiment_rail = QWidget()
-        self._sentiment_rail.setFixedWidth(42)
-        self._sentiment_rail_layout = QVBoxLayout(self._sentiment_rail)
-        self._sentiment_rail_layout.setContentsMargins(0, 4, 4, 4)
-        self._sentiment_rail_layout.setSpacing(6)
-        self._sentiment_rail_layout.addStretch()
-        self._sentiment_rail_layout.addStretch()   # placeholder; buttons go between stretches
-        self._sentiment_rail.hide()   # shown only after set_sentiment_buttons() + set_mode(VOD)
-        _par_layout.addWidget(self._sentiment_rail)
+        self._action_rail = QWidget()
+        self._action_rail.setFixedWidth(48)
+        self._action_rail_layout = QVBoxLayout(self._action_rail)
+        # Small top margin so favorite sits just below the poster's top edge.
+        self._action_rail_layout.setContentsMargins(0, 8, 6, 4)
+        self._action_rail_layout.setSpacing(6)
+        self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
+        self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
+        _par_layout.addWidget(self._action_rail)
+
+        # Content column — poster (VOD) above, live header (live) below; one shows
+        # at a time (set_mode).  Trailing stretch keeps the live header top-aligned
+        # next to the taller rail without stretching its single row.
+        self._content_col = QWidget()
+        cc_layout = QVBoxLayout(self._content_col)
+        cc_layout.setContentsMargins(0, 0, 0, 0)
+        cc_layout.setSpacing(0)
 
         # Poster label (VOD)
         self._poster_frame = QWidget()
@@ -148,9 +158,7 @@ class _PosterSection(QWidget):
         self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
         self.poster_label.poster_clicked.connect(self._on_poster_clicked)
         pf_layout.addWidget(self.poster_label)
-
-        _par_layout.addWidget(self._poster_frame, 1)
-        layout.addWidget(_poster_and_rail)
+        cc_layout.addWidget(self._poster_frame)
 
         # Live header: channel icon + country info
         self._live_header = QWidget()
@@ -171,30 +179,72 @@ class _PosterSection(QWidget):
         live_layout.addWidget(self._country_info_lbl, 1)
 
         self._live_header.hide()
-        layout.addWidget(self._live_header)
+        cc_layout.addWidget(self._live_header)
+        cc_layout.addStretch()
+
+        _par_layout.addWidget(self._content_col, 1)
+        layout.addWidget(_poster_and_rail)
 
     def set_mode(self, is_live: bool) -> None:
+        # set_mode runs only when a channel is actually being shown (via
+        # _configure_for), so this is where the rail first becomes visible — it
+        # stays hidden in the empty/no-selection state so action icons don't appear
+        # with nothing selected.  The rail is shown for ALL channel types; only the
+        # content beside it switches (poster for VOD, live header for live).
+        # Per-button visibility (sentiment/watchlist/alert) is managed by
+        # _ActionBar.set_mode()/set_monitorable().
+        self._action_rail.setVisible(True)
         self._poster_frame.setVisible(not is_live)
-        # Sentiment rail follows the poster — both hidden for live channels.
-        # Individual button visibility is managed by _ActionBar.set_mode(); this
-        # just controls whether the rail container itself appears.
-        self._sentiment_rail.setVisible(not is_live)
         self._live_header.setVisible(is_live)
 
-    def set_sentiment_buttons(self, like_btn, not_interested_btn, dislike_btn) -> None:
-        """Reparent the three sentiment buttons into the left-rail vertical stack.
+    def set_action_buttons(
+        self,
+        *,
+        favorite,
+        play,
+        resume,
+        queue,
+        like,
+        not_interested,
+        dislike,
+        watchlist,
+        monitor,
+        hide,
+    ) -> None:
+        """Reparent ALL action buttons into the left rail in canonical order.
 
         Called once from details_pane._setup_ui() after both _PosterSection and
         _ActionBar have been constructed.  The buttons are owned by _ActionBar
         (signals/state/sync live there); we just reparent them into this visual slot.
+
+        Order (top→bottom): favorite · gap · play · resume · queue · gap ·
+        sentiment trio · watchlist · gap · alert · stretch · hide (pinned to the
+        bottom, near the title).  Subgroups are separated by widening gaps; the
+        play/resume/queue triplet stays tight.  Mode-conditional buttons
+        (resume=has-progress, sentiment=VOD, watchlist=live, alert=series) keep
+        their slot but are shown/hidden by _ActionBar.
         """
-        # Clear the two placeholder stretches, then rebuild: stretch → btns → stretch
-        while self._sentiment_rail_layout.count():
-            self._sentiment_rail_layout.takeAt(0)
-        self._sentiment_rail_layout.addStretch()
-        for btn in (like_btn, not_interested_btn, dislike_btn):
-            self._sentiment_rail_layout.addWidget(btn)
-        self._sentiment_rail_layout.addStretch()
+        layout = self._action_rail_layout
+        while layout.count():
+            layout.takeAt(0)
+
+        layout.addWidget(favorite)
+        layout.addSpacing(14)
+        layout.addWidget(play)
+        layout.addWidget(resume)
+        layout.addWidget(queue)
+        layout.addSpacing(16)
+        layout.addWidget(like)
+        layout.addWidget(not_interested)
+        layout.addWidget(dislike)
+        layout.addWidget(watchlist)
+        layout.addSpacing(20)
+        layout.addWidget(monitor)
+        layout.addStretch()
+        layout.addWidget(hide)
+        # NOTE: the rail is left hidden here — it's revealed by set_mode() when a
+        # channel is shown, so action icons don't appear in the empty/no-selection
+        # state.
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls
@@ -556,19 +606,17 @@ class _MetadataSection(QWidget):
 
         # Show rating from raw_data immediately (don't wait for metadata).
         # rating_label lives on the media-type row so no separate row to show/hide.
-        if channel.raw_data:
-            raw_rating = channel.raw_data.get("rating")
-            if raw_rating:
-                try:
-                    rating_val = float(raw_rating)
-                    rating_val = max(0.0, min(10.0, rating_val))  # clamp to 0-10
-                    stars = self.config.rating_star_icon * int(rating_val / 2)
-                    self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
-                    self.rating_label.show()
-                except (ValueError, TypeError):
-                    self.rating_label.hide()
-            else:
-                self.rating_label.hide()
+        # A rating of 0 / "0" / "0.0" means "unrated" — hide it (don't show "0.0 of 10").
+        raw_rating = channel.raw_data.get("rating") if channel.raw_data else None
+        try:
+            rating_val = float(raw_rating) if raw_rating not in (None, "") else 0.0
+        except (ValueError, TypeError):
+            rating_val = 0.0
+        if rating_val > 0:
+            rating_val = min(10.0, rating_val)  # clamp upper bound
+            stars = self.config.rating_star_icon * int(rating_val / 2)
+            self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
+            self.rating_label.show()
         else:
             self.rating_label.hide()
 

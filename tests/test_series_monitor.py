@@ -784,14 +784,17 @@ class TestActionBarMonitorButton:
         bar.set_monitorable(is_series=True, is_monitored=False)
         assert not bar.monitor_button.isHidden(), \
             "Alert button must be shown for series"
-        assert "Alert" in bar.monitor_button.text()
-        assert "Alerting" not in bar.monitor_button.text()
+        # Icon-only rail: state is conveyed via :checked + tooltip, not button text.
+        assert not bar.monitor_button.isChecked(), \
+            "A not-yet-monitored series must show the Alert button unchecked"
+        assert "Alert me" in bar.monitor_button.toolTip()
 
     def test_monitor_button_reflects_monitored_state(self, qapp):
         bar = self._bar()
         bar.set_monitorable(is_series=True, is_monitored=True)
-        assert "Alerting" in bar.monitor_button.text(), \
-            "An alerting series must show the 'Alerting' label"
+        assert bar.monitor_button.isChecked(), \
+            "An alerting series must show the Alert button checked"
+        assert "Stop" in bar.monitor_button.toolTip()
 
     def test_monitor_click_toggles_and_emits(self, qapp):
         bar = self._bar()
@@ -800,7 +803,7 @@ class TestActionBarMonitorButton:
         bar.monitor_clicked.connect(lambda: emitted.append(True))
         bar._on_monitor_clicked()
         assert bar._is_monitored is True
-        assert "Alerting" in bar.monitor_button.text()
+        assert bar.monitor_button.isChecked()
         assert emitted, "monitor_clicked must emit on toggle"
 
 

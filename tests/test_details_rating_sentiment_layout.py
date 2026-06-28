@@ -5,9 +5,9 @@ Change A — Rating on the media-type line:
   * Shows when raw_data / metadata provide a rating; hidden + no gap when absent.
   * Content-rating badge (PG-13) also on the media-type row.
 
-Change B — Sentiment buttons as a vertical rail left of the poster:
-  * Buttons reach the _PosterSection._sentiment_rail after set_sentiment_buttons().
-  * Visible for VOD (after set_mode(is_live=False)), hidden for live.
+Change B — ALL action buttons as an icon-only vertical rail left of the poster:
+  * Every button reaches _PosterSection._action_rail after set_action_buttons().
+  * The rail is visible for ALL channel types (VOD and live).
   * like_clicked / dislike_clicked / not_interested_clicked signals still fire.
 """
 
@@ -107,6 +107,21 @@ def test_rating_hidden_when_raw_data_has_no_rating_key(qapp):
     )
 
 
+@pytest.mark.parametrize("zero_rating", ["0", "0.0", 0, 0.0])
+def test_rating_hidden_when_raw_rating_is_zero(qapp, zero_rating):
+    """A rating of 0 / '0' / '0.0' means unrated — must hide (not show '0.0 of 10')."""
+    from metatv.gui.details_sections import _MetadataSection
+
+    section = _MetadataSection(_make_config())
+    ch = _stub_channel(raw_data={"rating": zero_rating})
+    section.load_basic(ch)
+
+    assert section.rating_label.isHidden(), (
+        f"rating_label must be hidden for a zero rating ({zero_rating!r}) — "
+        "no '0.0 of 10' on unrated content"
+    )
+
+
 def test_rating_shown_via_load_metadata(qapp):
     """load_metadata() with a numeric rating must show rating_label."""
     from metatv.gui.details_sections import _MetadataSection
@@ -178,10 +193,26 @@ def test_rating_hidden_for_live_via_media_row(qapp):
     )
 
 
-# ── Change B: sentiment buttons in vertical rail left of poster ──────────────
+# ── Change B: ALL action buttons in the vertical rail left of the poster ─────
 
-def test_sentiment_buttons_reparented_to_rail(qapp):
-    """After set_sentiment_buttons(), the three buttons must be children of _sentiment_rail."""
+def _wire_rail(poster, action_bar):
+    """Reparent every action button into the poster's left rail (full set)."""
+    poster.set_action_buttons(
+        favorite=action_bar.favorite_button,
+        play=action_bar.play_button,
+        resume=action_bar.resume_button,
+        queue=action_bar.queue_button,
+        like=action_bar.like_button,
+        not_interested=action_bar.not_interested_button,
+        dislike=action_bar.dislike_button,
+        watchlist=action_bar.watchlist_button,
+        monitor=action_bar.monitor_button,
+        hide=action_bar.hide_button,
+    )
+
+
+def test_action_buttons_reparented_to_rail(qapp):
+    """After set_action_buttons(), every action button must be a child of _action_rail."""
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
 
@@ -189,21 +220,22 @@ def test_sentiment_buttons_reparented_to_rail(qapp):
     poster = _PosterSection(cfg, MagicMock())
     action_bar = _ActionBar(cfg)
 
-    poster.set_sentiment_buttons(
-        action_bar.like_button,
-        action_bar.not_interested_button,
-        action_bar.dislike_button,
-    )
+    _wire_rail(poster, action_bar)
 
-    assert action_bar.like_button.parent() is poster._sentiment_rail, (
-        "like_button must be reparented to _sentiment_rail after set_sentiment_buttons()"
-    )
-    assert action_bar.not_interested_button.parent() is poster._sentiment_rail
-    assert action_bar.dislike_button.parent() is poster._sentiment_rail
+    for btn in (
+        action_bar.favorite_button, action_bar.play_button, action_bar.queue_button,
+        action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
+        action_bar.watchlist_button, action_bar.monitor_button, action_bar.hide_button,
+    ):
+        assert btn.parent() is poster._action_rail, (
+            f"{btn!r} must be reparented to _action_rail after set_action_buttons()"
+        )
 
 
-def test_sentiment_rail_visible_for_vod(qapp):
-    """set_mode(is_live=False) must make the sentiment rail visible."""
+def test_action_rail_hidden_until_channel_shown(qapp):
+    """Regression: in the empty/no-selection state the rail must be hidden, so
+    favorite/play/queue/hide icons don't appear with nothing selected.  set_mode()
+    (called only when a channel is shown) reveals it."""
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
 
@@ -211,20 +243,39 @@ def test_sentiment_rail_visible_for_vod(qapp):
     poster = _PosterSection(cfg, MagicMock())
     action_bar = _ActionBar(cfg)
 
-    poster.set_sentiment_buttons(
-        action_bar.like_button,
-        action_bar.not_interested_button,
-        action_bar.dislike_button,
+    _wire_rail(poster, action_bar)
+
+    assert poster._action_rail.isHidden(), (
+        "_action_rail must stay hidden after wiring buttons but before a channel is "
+        "shown — no action icons in the empty state"
     )
+
+    poster.set_mode(is_live=False)
+    assert not poster._action_rail.isHidden(), (
+        "_action_rail must become visible once a channel is shown (set_mode)"
+    )
+
+
+def test_action_rail_visible_for_vod(qapp):
+    """The action rail must be visible for VOD (is_live=False)."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui.details_actions import _ActionBar
+
+    cfg = _make_config()
+    poster = _PosterSection(cfg, MagicMock())
+    action_bar = _ActionBar(cfg)
+
+    _wire_rail(poster, action_bar)
     poster.set_mode(is_live=False)
 
-    assert not poster._sentiment_rail.isHidden(), (
-        "_sentiment_rail must be visible for VOD (is_live=False)"
+    assert not poster._action_rail.isHidden(), (
+        "_action_rail must be visible for VOD (is_live=False)"
     )
 
 
-def test_sentiment_rail_hidden_for_live(qapp):
-    """set_mode(is_live=True) must hide the sentiment rail."""
+def test_action_rail_visible_for_live(qapp):
+    """The action rail stays visible for live channels (regression: 'icons left of
+    poster aren't there').  Only the poster swaps to the live header; the rail stays."""
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
 
@@ -232,19 +283,17 @@ def test_sentiment_rail_hidden_for_live(qapp):
     poster = _PosterSection(cfg, MagicMock())
     action_bar = _ActionBar(cfg)
 
-    poster.set_sentiment_buttons(
-        action_bar.like_button,
-        action_bar.not_interested_button,
-        action_bar.dislike_button,
-    )
-    # Start in VOD mode, then switch to live
+    _wire_rail(poster, action_bar)
     poster.set_mode(is_live=False)
-    assert not poster._sentiment_rail.isHidden()
+    assert not poster._action_rail.isHidden()
 
     poster.set_mode(is_live=True)
-    assert poster._sentiment_rail.isHidden(), (
-        "_sentiment_rail must be hidden for live channels (is_live=True)"
+    assert not poster._action_rail.isHidden(), (
+        "_action_rail must stay visible for live channels (rail is shown for all types)"
     )
+    # The poster frame hides for live; the live header takes its place.
+    assert poster._poster_frame.isHidden(), "poster frame must hide in live mode"
+    assert not poster._live_header.isHidden(), "live header must show in live mode"
 
 
 def test_action_bar_set_mode_hides_sentiment_buttons_for_live(qapp):
@@ -336,3 +385,54 @@ def test_like_dislike_mutually_exclusive_optimistic_state(qapp):
     assert action_bar.dislike_button.isChecked(), (
         "dislike_button must be checked after clicking dislike"
     )
+
+
+def test_not_interested_clears_like_and_dislike(qapp):
+    """Activating Not Interested must clear an active like/dislike (exclusive group)."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    action_bar.set_mode(is_live=False)
+
+    action_bar.like_button.click()            # rating → +1
+    assert action_bar.like_button.isChecked()
+
+    action_bar.not_interested_button.click()  # suppress ON → must clear rating
+    assert action_bar._suppressed is True
+    assert action_bar._rating == 0, "Not Interested must clear the rating"
+    assert not action_bar.like_button.isChecked(), "like must be unchecked by Not Interested"
+    assert not action_bar.dislike_button.isChecked()
+    assert action_bar.not_interested_button.isChecked()
+
+
+def test_like_clears_not_interested(qapp):
+    """Activating like/dislike must clear an active Not Interested (exclusive group)."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    action_bar.set_mode(is_live=False)
+
+    action_bar.not_interested_button.click()  # suppress ON
+    assert action_bar._suppressed is True
+
+    action_bar.like_button.click()            # like ON → must clear suppression
+    assert action_bar._rating == 1
+    assert action_bar._suppressed is False, "like must clear Not Interested"
+    assert not action_bar.not_interested_button.isChecked()
+
+
+def test_resume_button_hidden_until_set(qapp):
+    """The resume button is hidden by default and shown only via set_resume()."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    assert action_bar.resume_button.isHidden(), "resume button must start hidden"
+
+    action_bar.set_resume(True, position_s=125)
+    assert not action_bar.resume_button.isHidden(), "set_resume(True) must show it"
+    assert "2:05" in action_bar.resume_button.toolTip(), (
+        f"resume tooltip should show the M:SS position; got {action_bar.resume_button.toolTip()!r}"
+    )
+
+    action_bar.set_resume(False)
+    assert action_bar.resume_button.isHidden(), "set_resume(False) must hide it"
