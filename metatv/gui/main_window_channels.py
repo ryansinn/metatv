@@ -50,9 +50,25 @@ class _ChannelListMixin:
 
     def _on_search_text_changed(self, text: str) -> None:
         """Handle search input changes — debounce to avoid per-keystroke DB queries."""
+        if getattr(self, "_suppress_search_handler", False):
+            return  # programmatic restore — caller issues the load; skip debounce/save
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
         self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
+
+    def _set_search_text_silently(self, text: str) -> None:
+        """Set the search box text without retriggering the load — keeping the clear ×.
+
+        ``blockSignals(True)`` would suppress the QLineEdit clear button (its
+        visibility is driven by ``textChanged``), so on startup-with-restored-text
+        the × never appeared until the user edited the box.  Guard the handler
+        instead of blocking the signal, so the button stays in sync.
+        """
+        self._suppress_search_handler = True
+        try:
+            self.search_input.setText(text)
+        finally:
+            self._suppress_search_handler = False
 
     # ── Search state persistence ────────────────────────────────────────────
 
@@ -138,11 +154,9 @@ class _ChannelListMixin:
             if src is not None and hasattr(src, 'select_provider'):
                 src.select_provider(provider_id)
 
-        # Restore query text (block signals to avoid double-triggering the debounce)
+        # Restore query text without retriggering the debounce (load is issued below).
         if hasattr(self, 'search_input') and query:
-            self.search_input.blockSignals(True)
-            self.search_input.setText(query)
-            self.search_input.blockSignals(False)
+            self._set_search_text_silently(query)
 
         # Re-run the async channel load with restored state
         self.load_channels(provider_id)
