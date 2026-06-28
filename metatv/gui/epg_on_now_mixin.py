@@ -143,15 +143,9 @@ class _EpgOnNowMixin:
         self.on_now_search = QLineEdit()
         self.on_now_search.setPlaceholderText("Search On Now…")
         self.on_now_search.setFixedWidth(180)
+        self.on_now_search.setClearButtonEnabled(True)
         self.on_now_search.textChanged.connect(self._apply_on_now_filters)
         filter_row.addWidget(self.on_now_search)
-
-        on_now_clear = QPushButton(self.config.close_icon)
-        on_now_clear.setFixedWidth(24)
-        on_now_clear.setToolTip("Clear search")
-        on_now_clear.setStyleSheet(_theme.CLEAR_BTN)
-        on_now_clear.clicked.connect(self.on_now_search.clear)
-        filter_row.addWidget(on_now_clear)
 
         self.on_now_prefix_dropdown = FilterDropdown("Category", {}, all_selected=True)
         self.on_now_prefix_dropdown.filter_changed.connect(self._apply_on_now_filters)

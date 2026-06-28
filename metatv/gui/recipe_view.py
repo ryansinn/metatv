@@ -287,16 +287,9 @@ class _PantrySidebar(QWidget):
         self._filter_box = QLineEdit()
         self._filter_box.setPlaceholderText("Filter…")
         self._filter_box.setToolTip("Filter the facet list by name")
+        self._filter_box.setClearButtonEnabled(True)
         self._filter_box.textChanged.connect(self._apply_pantry_filter)
         filter_row.addWidget(self._filter_box)
-
-        self._filter_clear_btn = QPushButton(_icons.close_icon)
-        self._filter_clear_btn.setFixedWidth(24)
-        self._filter_clear_btn.setStyleSheet(_theme.CLEAR_BTN)
-        self._filter_clear_btn.setToolTip("Clear facet filter")
-        self._filter_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._filter_clear_btn.clicked.connect(self._filter_box.clear)
-        filter_row.addWidget(self._filter_clear_btn)
 
         outer.addLayout(filter_row)
 

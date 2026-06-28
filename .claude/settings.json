@@ -9,7 +9,30 @@
       "Bash(venv/bin/python -m pytest tests/test_streaming_offthread.py::test_failover_success_stat_commit -v)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(venv/bin/python -m pytest tests/ *)"
+      "Bash(venv/bin/python -m pytest tests/ *)",
+      "Bash(venv/bin/python *)",
+      "Bash(/home/ryan/Projects/metatv/venv/bin/python *)",
+      "Bash(python -m pytest *)",
+      "Bash(pytest *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(git push *)",
+      "Bash(gh *)"
     ]
+  },
+  "worktree": {
+    "symlinkDirectories": ["venv"]
+  },
+  "sandbox": {
+    "autoAllowBashIfSandboxed": true,
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com"
+      ]
+    }
   }
 }
