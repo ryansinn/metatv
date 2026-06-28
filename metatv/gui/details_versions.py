@@ -282,7 +282,7 @@ class _VersionSection(QWidget):
         self._filtered_hdr_lbl.setFlat(True)
         self._filtered_hdr_lbl.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
-            " font-weight: bold; border: none; text-align: left; padding: 0; }}"
+            " font-weight: bold; border: none; text-align: left; padding: 0; }"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
         self._filtered_hdr_lbl.setToolTip("Show/hide filtered variants")
