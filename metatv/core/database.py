@@ -537,6 +537,7 @@ class Database:
             index_migrations = [
                 "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
+                "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
             ]
             for idx_sql in index_migrations:
                 try:
