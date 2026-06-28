@@ -89,47 +89,43 @@ class _ActionBar(QWidget):
         row2.addWidget(self.hide_button, 1)
         layout.addLayout(row2)
 
-        # Row 3: Sentiment — compact, VOD only
-        _STYLE = (
-            f"QPushButton {{ border: none; border-radius: 3px; padding: 2px 6px; font-size: {_theme.FONT_2XL}; }}"
-            f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
-            f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
+        # Sentiment buttons — VOD only, displayed as a vertical bordered-chip rail
+        # left of the poster (see _PosterSection.set_sentiment_buttons).  They are
+        # created here so _ActionBar owns all state/signals/sync; details_pane.py
+        # calls set_sentiment_buttons() after construction to reparent them visually.
+        # Chip style: visible border so they read as distinct interactive targets.
+        _SENTIMENT_CHIP = (
+            f"QPushButton {{ border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px;"
+            f" padding: 4px 2px; font-size: {_theme.FONT_2XL}; background: transparent;"
+            f" color: {_theme.COLOR_DIM}; }}"
+            f"QPushButton:checked {{ background: {_theme.OVERLAY_18};"
+            f" color: {_theme.COLOR_TEXT_HI}; border-color: {_theme.COLOR_DIM}; }}"
+            f"QPushButton:hover   {{ background: {_theme.OVERLAY_10};"
+            f" color: {_theme.COLOR_TEXT}; border-color: {_theme.COLOR_DIM}; }}"
         )
-        row3 = QHBoxLayout()
-        row3.addStretch()
 
-        self.like_button = QPushButton(self.config.like_icon)
-        self.like_button.setFixedHeight(22)
+        # Parent=self keeps them owned/cleaned up before set_sentiment_buttons()
+        # reparents them into _PosterSection._sentiment_rail.
+        self.like_button = QPushButton(self.config.like_icon, self)
         self.like_button.setCheckable(True)
-        self.like_button.setFlat(True)
         self.like_button.setToolTip("Like")
-        self.like_button.setStyleSheet(_STYLE)
+        self.like_button.setStyleSheet(_SENTIMENT_CHIP)
         self.like_button.clicked.connect(self._on_like_clicked)
         self.like_button.hide()
-        row3.addWidget(self.like_button)
 
-        self.not_interested_button = QPushButton(self.config.not_interested_icon)
-        self.not_interested_button.setFixedHeight(22)
+        self.not_interested_button = QPushButton(self.config.not_interested_icon, self)
         self.not_interested_button.setCheckable(True)
-        self.not_interested_button.setFlat(True)
         self.not_interested_button.setToolTip("Not Interested — suppress from recommendations")
-        self.not_interested_button.setStyleSheet(_STYLE)
+        self.not_interested_button.setStyleSheet(_SENTIMENT_CHIP)
         self.not_interested_button.clicked.connect(self._on_not_interested_clicked)
         self.not_interested_button.hide()
-        row3.addWidget(self.not_interested_button)
 
-        self.dislike_button = QPushButton(self.config.dislike_icon)
-        self.dislike_button.setFixedHeight(22)
+        self.dislike_button = QPushButton(self.config.dislike_icon, self)
         self.dislike_button.setCheckable(True)
-        self.dislike_button.setFlat(True)
         self.dislike_button.setToolTip("Dislike")
-        self.dislike_button.setStyleSheet(_STYLE)
+        self.dislike_button.setStyleSheet(_SENTIMENT_CHIP)
         self.dislike_button.clicked.connect(self._on_dislike_clicked)
         self.dislike_button.hide()
-        row3.addWidget(self.dislike_button)
-
-        row3.addStretch()
-        layout.addLayout(row3)
 
         # Wire hide button initial state
         self._sync_hide_button()

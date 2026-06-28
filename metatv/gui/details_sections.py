@@ -110,6 +110,26 @@ class _PosterSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # Poster + sentiment-rail wrapper (VOD only).
+        # The left column (_sentiment_rail) holds the 👍/🚫/👎 buttons as a
+        # vertical bordered-chip rail; the poster fills the remaining space.
+        # Buttons are reparented into the rail via set_sentiment_buttons() after
+        # both _PosterSection and _ActionBar have been constructed.
+        _poster_and_rail = QWidget()
+        _par_layout = QHBoxLayout(_poster_and_rail)
+        _par_layout.setContentsMargins(0, 0, 0, 0)
+        _par_layout.setSpacing(0)
+
+        self._sentiment_rail = QWidget()
+        self._sentiment_rail.setFixedWidth(42)
+        self._sentiment_rail_layout = QVBoxLayout(self._sentiment_rail)
+        self._sentiment_rail_layout.setContentsMargins(0, 4, 4, 4)
+        self._sentiment_rail_layout.setSpacing(6)
+        self._sentiment_rail_layout.addStretch()
+        self._sentiment_rail_layout.addStretch()   # placeholder; buttons go between stretches
+        self._sentiment_rail.hide()   # shown only after set_sentiment_buttons() + set_mode(VOD)
+        _par_layout.addWidget(self._sentiment_rail)
+
         # Poster label (VOD)
         self._poster_frame = QWidget()
         pf_layout = QVBoxLayout(self._poster_frame)
@@ -129,7 +149,8 @@ class _PosterSection(QWidget):
         self.poster_label.poster_clicked.connect(self._on_poster_clicked)
         pf_layout.addWidget(self.poster_label)
 
-        layout.addWidget(self._poster_frame)
+        _par_layout.addWidget(self._poster_frame, 1)
+        layout.addWidget(_poster_and_rail)
 
         # Live header: channel icon + country info
         self._live_header = QWidget()
@@ -154,7 +175,26 @@ class _PosterSection(QWidget):
 
     def set_mode(self, is_live: bool) -> None:
         self._poster_frame.setVisible(not is_live)
+        # Sentiment rail follows the poster — both hidden for live channels.
+        # Individual button visibility is managed by _ActionBar.set_mode(); this
+        # just controls whether the rail container itself appears.
+        self._sentiment_rail.setVisible(not is_live)
         self._live_header.setVisible(is_live)
+
+    def set_sentiment_buttons(self, like_btn, not_interested_btn, dislike_btn) -> None:
+        """Reparent the three sentiment buttons into the left-rail vertical stack.
+
+        Called once from details_pane._setup_ui() after both _PosterSection and
+        _ActionBar have been constructed.  The buttons are owned by _ActionBar
+        (signals/state/sync live there); we just reparent them into this visual slot.
+        """
+        # Clear the two placeholder stretches, then rebuild: stretch → btns → stretch
+        while self._sentiment_rail_layout.count():
+            self._sentiment_rail_layout.takeAt(0)
+        self._sentiment_rail_layout.addStretch()
+        for btn in (like_btn, not_interested_btn, dislike_btn):
+            self._sentiment_rail_layout.addWidget(btn)
+        self._sentiment_rail_layout.addStretch()
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls
@@ -307,7 +347,9 @@ class _MetadataSection(QWidget):
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
 
-        # Media type row: [icon Type]  [runtime]  stretch  [IMDb xxx  TMDb xxx]
+        # Media type row: [icon Type] [runtime] stretch [IMDb xxx] [TMDb xxx] [PG-13] [★★★ X of 10]
+        # Rating and content-rating badge sit right-aligned on this row — the right side
+        # is otherwise empty for most channels, so this reclaims wasted vertical space.
         self._media_row = QWidget()
         media_row_layout = QHBoxLayout(self._media_row)
         media_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -338,29 +380,22 @@ class _MetadataSection(QWidget):
         self._tmdb_lbl.hide()
         media_row_layout.addWidget(self._tmdb_lbl)
 
-        layout.addWidget(self._media_row)
-
-        # Rating row: [★★★ X of 10 by N votes]  [PG-13 badge]
-        self._rating_row = QWidget()
-        self._rating_row.hide()
-        rating_row_layout = QHBoxLayout(self._rating_row)
-        rating_row_layout.setContentsMargins(0, 0, 0, 0)
-        rating_row_layout.setSpacing(8)
-
-        self.rating_label = QLabel()
-        self.rating_label.setStyleSheet(f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
-        rating_row_layout.addWidget(self.rating_label)
-
+        # PG-13 / content-rating badge — right of the IDs, left of the stars
         self._content_rating_lbl = QLabel()
         self._content_rating_lbl.setStyleSheet(
             f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
             f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 3px; padding: 1px 4px;"
         )
         self._content_rating_lbl.hide()
-        rating_row_layout.addWidget(self._content_rating_lbl)
-        rating_row_layout.addStretch()
+        media_row_layout.addWidget(self._content_rating_lbl)
 
-        layout.addWidget(self._rating_row)
+        # Star rating — rightmost, hidden when no rating present (no empty gap)
+        self.rating_label = QLabel()
+        self.rating_label.setStyleSheet(f"color: {_theme.COLOR_GOLD}; font-weight: bold;")
+        self.rating_label.hide()
+        media_row_layout.addWidget(self.rating_label)
+
+        layout.addWidget(self._media_row)
 
         # Source badge + adult indicator row
         badge_row = QHBoxLayout()
@@ -418,7 +453,8 @@ class _MetadataSection(QWidget):
         if is_live:
             self.title_label.setStyleSheet(f"font-size: {_theme.FONT_4XL}; font-weight: bold;")
             self._tagline_lbl.hide()
-            self._rating_row.hide()
+            # rating_label and _content_rating_lbl live on _media_row which is
+            # already hidden above via self._media_row.setVisible(not is_live)
         else:
             self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
 
@@ -518,7 +554,8 @@ class _MetadataSection(QWidget):
         else:
             self._watch_status_lbl.hide()
 
-        # Show rating from raw_data immediately (don't wait for metadata)
+        # Show rating from raw_data immediately (don't wait for metadata).
+        # rating_label lives on the media-type row so no separate row to show/hide.
         if channel.raw_data:
             raw_rating = channel.raw_data.get("rating")
             if raw_rating:
@@ -527,13 +564,13 @@ class _MetadataSection(QWidget):
                     rating_val = max(0.0, min(10.0, rating_val))  # clamp to 0-10
                     stars = self.config.rating_star_icon * int(rating_val / 2)
                     self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
-                    self._rating_row.show()
+                    self.rating_label.show()
                 except (ValueError, TypeError):
-                    self._rating_row.hide()
+                    self.rating_label.hide()
             else:
-                self._rating_row.hide()
+                self.rating_label.hide()
         else:
-            self._rating_row.hide()
+            self.rating_label.hide()
 
         # Show loading indicator for categories (will be populated by load_metadata).
         # LIVE channels have no metadata genres — hide the area; the version chips
@@ -570,12 +607,11 @@ class _MetadataSection(QWidget):
             )
             stars = self.config.rating_star_icon * int(metadata.rating / 2)
             self.rating_label.setText(f"{stars} {metadata.rating:.1f} of 10{count_str}")
-            self._rating_row.show()
+            self.rating_label.show()
 
         if metadata.content_rating:
             self._content_rating_lbl.setText(metadata.content_rating)
             self._content_rating_lbl.show()
-            self._rating_row.show()
 
         if metadata.runtime:
             h, m = divmod(metadata.runtime, 60)
@@ -621,8 +657,8 @@ class _MetadataSection(QWidget):
         self._imdb_lbl.hide()
         self._tmdb_lbl.hide()
         self.rating_label.clear()
+        self.rating_label.hide()
         self._content_rating_lbl.hide()
-        self._rating_row.hide()
         self._genres_loading_lbl.hide()
         self._clear_genre_chips()
         self._genres_container.hide()
