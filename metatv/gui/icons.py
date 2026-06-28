@@ -240,6 +240,67 @@ def watch_progress_glyph(
 _WATCH_ICON_CACHE: dict[tuple[str, bool], object] = {}  # (glyph, muted) -> QIcon
 
 
+# ---------------------------------------------------------------------------
+# General glyph → QIcon helper (menu action icons)
+# ---------------------------------------------------------------------------
+# Renders any text glyph to a QIcon for use with QAction.setIcon().  Cached
+# by glyph string — construction is deferred to first use so the module can be
+# imported before a QApplication exists.
+
+_GLYPH_ICON_CACHE: dict[str, object] = {}  # glyph -> QIcon
+
+
+def glyph_icon(glyph: str) -> object:
+    """Return a QIcon rendering *glyph* for use in QAction.setIcon().
+
+    MUST be called on the main thread — builds a QPixmap on first use.
+    The color is taken from the ``COLOR_TEXT`` design token.
+
+    Args:
+        glyph: Text glyph (emoji or symbol) to render.
+
+    Returns:
+        A cached ``QIcon`` instance.
+    """
+    if glyph in _GLYPH_ICON_CACHE:
+        return _GLYPH_ICON_CACHE[glyph]
+
+    from metatv.gui import theme as _theme  # local import to avoid circular at load
+    from PyQt6.QtCore import QRect, Qt
+    from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+    from PyQt6.QtWidgets import QApplication
+
+    color = QColor(_theme.COLOR_TEXT)
+    size = 16
+    screen = QApplication.primaryScreen()
+    dpr = screen.devicePixelRatio() if screen is not None else 1.0
+    phys = int(size * dpr)
+    pixmap = QPixmap(phys, phys)
+    pixmap.setDevicePixelRatio(dpr)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    font = QFont()
+    font.setPixelSize(int(_theme.FONT_LG.replace("px", "")))
+    painter.setFont(font)
+    painter.setPen(color)
+    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, glyph)
+    painter.end()
+
+    icon = QIcon(pixmap)
+    _GLYPH_ICON_CACHE[glyph] = icon
+    return icon
+
+
+def _clear_glyph_icon_cache() -> None:
+    """Discard all cached QIcon entries from :func:`glyph_icon`.
+
+    Called after ``QApplication`` teardown (e.g. between tests) so stale
+    QIcon objects from a previous ``QApplication`` instance are never reused.
+    """
+    _GLYPH_ICON_CACHE.clear()
+
+
 def _clear_watch_icon_cache() -> None:
     """Discard all cached QIcon entries.
 
