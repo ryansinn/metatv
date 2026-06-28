@@ -157,6 +157,9 @@ def _make_window_for_restore(state: dict, remember_search: bool = True):
         sidebar_sections={},
         load_channels=load_channels,
     )
+    # Bind the real helper so restore exercises the actual (non-blockSignals) path.
+    from metatv.gui.main_window_channels import _ChannelListMixin
+    me._set_search_text_silently = _ChannelListMixin._set_search_text_silently.__get__(me)
     return me, load_channels
 
 
@@ -211,9 +214,9 @@ def test_restore_applies_query_and_calls_load():
 
     assert result is True
     me.search_input.setText.assert_called_once_with("adventure")
-    # Signals were blocked during setText
-    me.search_input.blockSignals.assert_any_call(True)
-    me.search_input.blockSignals.assert_any_call(False)
+    # The fix sets the text WITHOUT blockSignals (which suppressed the clear ×);
+    # the search handler is guarded via _suppress_search_handler instead.
+    me.search_input.blockSignals.assert_not_called()
     load_channels.assert_called_once_with(None)
 
 
