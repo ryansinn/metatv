@@ -322,6 +322,14 @@ class WeightedTagCloud(QWidget):
         self._update_header()
         self._rebuild_cloud()
 
+    def clear_filter(self) -> None:
+        """Clear the facet-value filter text, restoring the full tag list.
+
+        Routes through ``_on_filter_changed`` → ``_apply_filter`` so the tag
+        visibility is updated in one place (no duplicate filter-apply logic).
+        """
+        self._filter_edit.setText("")
+
     # ── private: UI construction ──────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -356,6 +364,7 @@ class WeightedTagCloud(QWidget):
         self._filter_edit = QLineEdit()
         self._filter_edit.setPlaceholderText("Filter…")
         self._filter_edit.setFixedWidth(120)
+        self._filter_edit.setClearButtonEnabled(True)
         self._filter_edit.setStyleSheet(
             f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
             f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"

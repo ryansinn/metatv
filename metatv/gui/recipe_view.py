@@ -944,6 +944,8 @@ class RecipeView(QWidget):
         self._now_plating.load_results([], 0)
         # Clear pantry filter so the full facet list is visible after a recipe reset.
         self._pantry.clear_filter()
+        # Clear the center facet-value filter so all tag chips reappear.
+        self._cloud.clear_filter()
         # Rebuild cloud with no states
         self._rebuild_cloud()
 
