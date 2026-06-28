@@ -89,14 +89,31 @@ class _FavoritesMixin:
         self._apply_mark_watched_ui([channel_id], watched=False)
 
     def _bulk_mark_watched(self, channel_ids: list[str]) -> None:
-        """Mark multiple channels as watched atomically then update rows in place.
+        """Toggle the watched state for multiple channels atomically, then update rows in place.
+
+        If ALL selected channels are already watched, unmarks them all; otherwise
+        marks them all as watched.  The decision is always re-derived from the DB
+        (not from the menu context) so stale context data can never mis-toggle.
 
         Args:
-            channel_ids: IDs of the channels to mark watched.
+            channel_ids: IDs of the channels whose watched state should be toggled.
         """
+        from metatv.core.database import ChannelDB
+        with self.db.session_scope(commit=False) as session:
+            watched_count = (
+                session.query(ChannelDB)
+                .filter(
+                    ChannelDB.id.in_(channel_ids),
+                    ChannelDB.watch_completed == True,  # noqa: E712
+                )
+                .count()
+            )
+        all_watched = len(channel_ids) > 0 and watched_count == len(channel_ids)
+        target_watched = not all_watched  # all watched → unmark; otherwise mark
+
         with self.db.session_scope() as session:
-            RepositoryFactory(session).channels.mark_watched_bulk(channel_ids, watched=True)
-        self._apply_mark_watched_ui(channel_ids, watched=True)
+            RepositoryFactory(session).channels.mark_watched_bulk(channel_ids, watched=target_watched)
+        self._apply_mark_watched_ui(channel_ids, watched=target_watched)
 
     def _apply_mark_watched_ui(self, channel_ids: list[str], watched: bool) -> None:
         """Update the channel model after a mark-watched DB write — no full reload.
