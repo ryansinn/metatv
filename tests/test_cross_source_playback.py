@@ -16,7 +16,8 @@ Covered behaviors:
    failure toast before showing a new one.
 
 5. Variant chip: the chip label includes the provider icon from provider_map + region/quality;
-   clicking a chip emits play_version_requested (not version_selected).
+   left-clicking a chip emits version_selected (show details, not play); right-click wires to
+   the context menu which emits play_version_requested.
 
 All DB tests use file-backed SQLite (tmp_path) per CLAUDE.md rule.
 """
@@ -394,14 +395,16 @@ def test_chip_label_includes_provider_icon(qapp):
     assert "HD" in label, f"Expected quality in chip label, got: {label!r}"
 
 
-def test_chip_click_emits_play_version_requested(qapp):
-    """Clicking an active chip emits play_version_requested with the channel_id."""
+def test_chip_click_emits_version_selected(qapp):
+    """Left-clicking an active chip emits version_selected (show details), NOT play_version_requested."""
     from metatv.gui.details_versions import ChannelVersion
 
     section = _make_version_section(qapp)
 
-    received = []
-    section.play_version_requested.connect(received.append)
+    selected_received = []
+    play_received = []
+    section.version_selected.connect(selected_received.append)
+    section.play_version_requested.connect(play_received.append)
 
     provider_map = {"p1": {"icon": "📡", "name": "Source 1"}}
     v = ChannelVersion(
@@ -421,21 +424,25 @@ def test_chip_click_emits_play_version_requested(qapp):
     layout = section._chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
     assert chips, "Expected at least one chip in the layout"
-    chip = chips[0]
-    chip.click()
+    chips[0].click()
 
-    assert received == ["ch-play"], (
-        f"Expected play_version_requested('ch-play'), got: {received!r}"
+    assert selected_received == ["ch-play"], (
+        f"Expected version_selected('ch-play'), got: {selected_received!r}"
+    )
+    assert play_received == [], (
+        f"Left-click must NOT emit play_version_requested, got: {play_received!r}"
     )
 
 
-def test_inactive_chip_does_not_emit_play_on_click_but_shows_menu(qapp):
-    """Clicking an inactive chip does NOT directly emit play_version_requested."""
+def test_inactive_chip_click_emits_version_selected(qapp):
+    """Left-clicking an inactive chip emits version_selected (show details), NOT play_version_requested."""
     from metatv.gui.details_versions import ChannelVersion
 
     section = _make_version_section(qapp)
 
+    selected_received = []
     play_received = []
+    section.version_selected.connect(selected_received.append)
     section.play_version_requested.connect(play_received.append)
 
     provider_map = {"p-off": {"icon": "⛔", "name": "Inactive Source"}}
@@ -455,16 +462,53 @@ def test_inactive_chip_does_not_emit_play_on_click_but_shows_menu(qapp):
     chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
     assert chips, "Expected a chip even for inactive variant"
 
-    # Click should NOT emit play_version_requested directly (it pops a menu instead)
-    # We can't test the menu itself headlessly, but we can verify no play signal fired
-    with patch.object(section, "_show_version_chip_menu") as mock_menu:
-        chips[0].click()
-    # play_version_requested was NOT called directly
-    assert play_received == [], (
-        f"Inactive chip should not directly emit play, got: {play_received!r}"
+    chips[0].click()
+
+    assert selected_received == ["ch-inactive"], (
+        f"Inactive chip left-click must emit version_selected, got: {selected_received!r}"
     )
-    # The context-menu helper was invoked instead
-    mock_menu.assert_called_once()
+    assert play_received == [], (
+        f"Inactive chip left-click must NOT emit play_version_requested, got: {play_received!r}"
+    )
+
+
+def test_chip_right_click_wires_to_context_menu(qapp):
+    """Right-clicking a chip invokes _show_version_chip_menu (which offers Play via play_version_requested)."""
+    from metatv.gui.details_versions import ChannelVersion
+    from PyQt6.QtCore import QPoint
+
+    section = _make_version_section(qapp)
+
+    provider_map = {"p1": {"icon": "📡", "name": "Source 1"}}
+    v = ChannelVersion(
+        channel_id="ch-rightclick",
+        name="ESPN HD",
+        in_queue=False,
+        detected_prefix="US",
+        detected_quality="HD",
+        provider_id="p1",
+        is_inactive=False,
+    )
+
+    section.load([v], provider_map=provider_map)
+
+    from metatv.gui.details_versions import _FlowLayout
+    layout = section._chips_layout
+    chips = [layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget()]
+    assert chips, "Expected at least one chip in the layout"
+    chip = chips[0]
+
+    # Verify the chip is wired for custom context menus
+    from PyQt6.QtCore import Qt
+    assert chip.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu, (
+        "Chip must use CustomContextMenu so right-click reaches _show_version_chip_menu"
+    )
+
+    # Simulate the customContextMenuRequested signal; verify menu helper is called
+    with patch.object(section, "_show_version_chip_menu") as mock_menu:
+        chip.customContextMenuRequested.emit(QPoint(0, 0))
+
+    mock_menu.assert_called_once(), "Right-click must route to _show_version_chip_menu"
 
 
 # ---------------------------------------------------------------------------
