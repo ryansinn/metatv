@@ -40,7 +40,8 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
+from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.repositories.epg import SCHEDULE_TIME_SLOTS
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
@@ -94,14 +95,10 @@ class _EpgBrowseMixin:
 
         self.time_combo = QComboBox()
         self.time_combo.setFixedWidth(120)
-        for label, val in [
-            ("All Day", "all"),
-            ("Morning 6–12", "morning"),
-            ("Afternoon 12–6", "afternoon"),
-            ("Prime Time 6–11", "primetime"),
-            ("Late Night 11–3", "latenight"),
-        ]:
-            self.time_combo.addItem(label, val)
+        # Labels + values come from the single slot definition in the EPG repo, so the
+        # dropdown text and the window math (incl. Late Night 11 PM–5 AM) never drift.
+        for key, label, _h_start, _h_end in SCHEDULE_TIME_SLOTS:
+            self.time_combo.addItem(label, key)
         self.time_combo.currentIndexChanged.connect(self._reload_browse)
 
         self.hide_filler_btn = QPushButton("Hide Filler ✓")
@@ -212,15 +209,15 @@ class _EpgBrowseMixin:
                     excluded_channel_provider_ids=excluded_ch_provider_ids,
                 )
 
-            # Fetch the shallowest epg_data_end among the active providers so the empty
-            # state can tell the user exactly how far the guide actually reaches.
-            rows = (
-                session.query(ProviderDB.epg_data_end)
-                .filter(ProviderDB.id.in_(provider_ids))
-                .filter(ProviderDB.epg_data_end.isnot(None))
-                .all()
+            # Honest coverage for the empty-state: the LAST CONTIGUOUS programme the
+            # scoped sources actually carry from now (stops at the first hole) — NOT
+            # the max stop_time anywhere (ProviderDB.epg_data_end), which a single deep
+            # channel inflates and which dishonestly claimed the guide "reaches
+            # tomorrow" while tonight's late-night block was missing.
+            guide_end = repo.get_contiguous_guide_end(
+                provider_ids,
+                excluded_channel_provider_ids=excluded_ch_provider_ids,
             )
-            guide_end = min((r.epg_data_end for r in rows), default=None)
 
             # Build channel display maps from stored detected_* fields (computed at
             # ingestion). Render reads the clean detected_title — never parse_channel_name
