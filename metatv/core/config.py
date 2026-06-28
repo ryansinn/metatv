@@ -890,6 +890,11 @@ class Config(BaseModel):
     # qa_flagged_collapsed: persist the Flagged Items section collapse state.
     #   False (default) = expanded.
     qa_flagged_collapsed: bool = False
+    # qa_resolved_collapsed: persist the "Resolved" flagged sub-section collapse state.
+    #   True (default) = hidden.  Addressed flagged items (claimed by a later PR's
+    #   addresses=("flagged:<id>") declaration) auto-file into this collapsed group so
+    #   the active Flagged list shows only items still needing work — no manual triage.
+    qa_resolved_collapsed: bool = True
     # qa_addressed: manually-marked "addressed by PR" state for failed steps / flagged items.
     #   Written by the tester when a later PR fixes a known failure but no forward addresses=
     #   declaration exists on that entry.  Key format:
