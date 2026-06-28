@@ -362,6 +362,20 @@ class _MetadataMixin:
         self._refresh_recommended_section()
         self.load_channels()
 
+    def _bulk_hide_channels(self, channel_ids: list[str]) -> None:
+        """Hide multiple channels from the channel list in one pass then refresh.
+
+        Args:
+            channel_ids: IDs of the channels to hide.
+        """
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            for cid in channel_ids:
+                repos.channels.set_hidden(cid, True)
+        self.preferences_view.refresh()
+        self._refresh_recommended_section()
+        self.load_channels()
+
     def _unhide_channel(self, channel_id: str) -> None:
         def _bg() -> None:
             with self.db.session_scope() as session:

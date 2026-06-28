@@ -880,6 +880,11 @@ class _ChannelListMixin:
             "bulk_category": lambda: self._open_category_picker(ids),
             # Multi-select Play All — look up playable DTOs off-thread, then delegate
             "play_all": lambda: self._trigger_play_all_channels(ids),
+            # Multi-select bulk actions
+            "bulk_mark_watched": lambda: self._bulk_mark_watched(ids),
+            "bulk_favorite": lambda: self._bulk_add_to_favorites(ids),
+            "bulk_queue": lambda: self._bulk_add_to_queue(ids),
+            "bulk_hide": lambda: self._bulk_hide_channels(ids),
         }
 
         if fav_section is not None:
