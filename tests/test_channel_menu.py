@@ -705,3 +705,77 @@ def test_on_ctx_data_ready_play_calls_play_channel_by_id(qapp, monkeypatch):
     # Trigger the play handler and verify it calls play_channel_by_id("ch1")
     handlers["play"]()
     host.play_channel_by_id.assert_called_once_with("ch1")
+
+
+# ---------------------------------------------------------------------------
+# 9. Queue surface — Mark as Watched + queue-state-aware queue label
+# ---------------------------------------------------------------------------
+
+def _queue_ctx(**kwargs) -> ChannelMenuContext:
+    """Single-item context on the 'queue' surface with sensible defaults."""
+    defaults = dict(
+        channel_ids=["q1"],
+        surface="queue",
+        media_type="movie",
+        channel_found=True,
+        channel_name="Queued Movie",
+    )
+    defaults.update(kwargs)
+    return ChannelMenuContext(**defaults)
+
+
+def test_queue_surface_layout_includes_mark_watched():
+    """Regression: the queue SURFACE_LAYOUT must include 'mark_watched'."""
+    assert "mark_watched" in SURFACE_LAYOUTS["queue"], (
+        "Watch Queue items need a Mark-as-Watched action in their context menu"
+    )
+
+
+def test_queue_surface_movie_shows_mark_watched(qapp):
+    """A queued movie's menu renders the Mark-as-Watched action wired to its handler."""
+    calls = {"mark": 0}
+    ctx = _queue_ctx(media_type="movie", is_vod_watched=False)
+    handlers = {
+        "play": lambda: None,
+        "favorite": lambda: None,
+        "queue": lambda: None,
+        "mark_watched": lambda: calls.update(mark=calls["mark"] + 1),
+    }
+    menu = build_channel_menu(ctx, handlers, parent=None)
+    act = _action_by_fragment(menu, "Mark as Watched")
+    assert act is not None, "Queued movie should offer 'Mark as Watched'"
+    act.trigger()
+    assert calls["mark"] == 1, "Triggering mark_watched must call its handler exactly once"
+
+
+def test_queue_surface_mark_watched_label_flips_when_watched(qapp):
+    """When the queued item is already watched the label reads 'Mark as Unwatched'."""
+    ctx = _queue_ctx(media_type="movie", is_vod_watched=True)
+    menu = build_channel_menu(ctx, {"mark_watched": lambda: None}, parent=None)
+    act = _action_by_fragment(menu, "Mark as")
+    assert act is not None
+    assert "Unwatched" in act.text(), f"Expected 'Mark as Unwatched', got {act.text()!r}"
+
+
+def test_queue_surface_mark_watched_absent_for_live(qapp):
+    """Live channels in the queue must not offer Mark-as-Watched (movie/series only)."""
+    ctx = _queue_ctx(media_type="live")
+    menu = build_channel_menu(ctx, {"play": lambda: None, "mark_watched": lambda: None}, parent=None)
+    assert _action_by_fragment(menu, "Mark as Watched") is None, (
+        "Mark-as-Watched should not apply to live queue items"
+    )
+
+
+def test_queue_surface_queue_label_flips_with_queue_state(qapp):
+    """The queue action on the queue surface reflects in_queue state (Add/Remove)."""
+    not_queued = build_channel_menu(
+        _queue_ctx(in_queue=False), {"queue": lambda: None}, parent=None
+    )
+    act = _action_by_fragment(not_queued, "Queue")
+    assert act is not None and "Add" in act.text(), f"Expected 'Add to Queue', got {act.text()!r}"
+
+    queued = build_channel_menu(
+        _queue_ctx(in_queue=True), {"queue": lambda: None}, parent=None
+    )
+    act = _action_by_fragment(queued, "Queue")
+    assert act is not None and "Remove" in act.text(), f"Expected 'Remove from Queue', got {act.text()!r}"

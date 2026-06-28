@@ -549,6 +549,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
+        "mark_watched",
+        "sep",
         "monitor_series",
         "sep",
         "hide",
