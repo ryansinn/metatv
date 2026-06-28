@@ -19,6 +19,10 @@ Covered behaviors:
    left-clicking a chip emits version_selected (show details, not play); right-click wires to
    the context menu which emits play_version_requested.
 
+6. Filtered variants collapse: after load() with mixed active + filtered variants,
+   filtered chips live in the collapsed FILTERED VARIANTS container (hidden by default);
+   toggling the header shows them. Label sits above chips in a vertical stack.
+
 All DB tests use file-backed SQLite (tmp_path) per CLAUDE.md rule.
 """
 
@@ -552,3 +556,183 @@ def test_reactivate_and_play_sibling_refreshes_dependent_views(tmp_path):
     assert kwargs.get("provider_id") == pid
 
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# Filtered variants collapsible section (#PR: details-filtered-variants-collapse)
+# ---------------------------------------------------------------------------
+
+def _make_mixed_versions():
+    """Return a list of ChannelVersion with one active and two filtered variants."""
+    from metatv.gui.details_versions import ChannelVersion
+    active = ChannelVersion(
+        channel_id="ch-active",
+        name="FOX SPORTS HD",
+        in_queue=False,
+        detected_prefix="EN",
+        detected_quality="HD",
+        is_filtered=False,
+        is_hidden=False,
+    )
+    filtered_1 = ChannelVersion(
+        channel_id="ch-filtered-1",
+        name="FOX SPORTS SD",
+        in_queue=False,
+        detected_prefix="FR",
+        detected_quality="SD",
+        is_filtered=True,
+        is_hidden=False,
+    )
+    filtered_2 = ChannelVersion(
+        channel_id="ch-filtered-2",
+        name="FOX SPORTS ES",
+        in_queue=False,
+        detected_prefix="ES",
+        is_filtered=True,
+        is_hidden=False,
+    )
+    return [active, filtered_1, filtered_2]
+
+
+def test_filtered_chips_hidden_by_default_after_load(qapp):
+    """After load() with filtered variants, the greyed-chip container is hidden (collapsed by default)."""
+    section = _make_version_section(qapp)
+    section.load(_make_mixed_versions())
+
+    assert not section._filtered_chips_row.isVisible(), (
+        "_filtered_chips_row must be hidden by default after load() — section starts collapsed"
+    )
+    assert section._filtered_collapsed is True, (
+        "_filtered_collapsed must be True after load()"
+    )
+
+
+def test_filtered_chips_go_into_filtered_layout_not_active_layout(qapp):
+    """Filtered variants land in _filtered_chips_layout; active variants land in _chips_layout."""
+    section = _make_version_section(qapp)
+    section.load(_make_mixed_versions())
+
+    active_count = section._chips_layout.count()
+    filtered_count = section._filtered_chips_layout.count()
+
+    assert active_count == 1, (
+        f"_chips_layout should contain exactly 1 active chip, got {active_count}"
+    )
+    assert filtered_count == 2, (
+        f"_filtered_chips_layout should contain exactly 2 filtered chips, got {filtered_count}"
+    )
+
+
+def test_filtered_section_hidden_when_no_filtered_variants(qapp):
+    """When there are no filtered variants, _filtered_section must be hidden entirely."""
+    from metatv.gui.details_versions import ChannelVersion
+    section = _make_version_section(qapp)
+    only_active = [
+        ChannelVersion(
+            channel_id="ch-only",
+            name="FOX SPORTS",
+            in_queue=False,
+            is_filtered=False,
+            is_hidden=False,
+        )
+    ]
+    section.load(only_active)
+
+    assert not section._filtered_section.isVisible(), (
+        "_filtered_section must be hidden when there are no filtered variants"
+    )
+
+
+def test_toggle_filtered_section_shows_and_hides_chips(qapp):
+    """Clicking the toggle button shows the filtered chips; clicking again hides them."""
+    section = _make_version_section(qapp)
+    section.load(_make_mixed_versions())
+
+    # Initially collapsed. NOTE: isVisible() is ancestor-gated and is always False
+    # for a section that was never .show()n in a headless test — assert on the
+    # explicit hidden flag (isHidden()) instead, which reflects setVisible() directly.
+    assert section._filtered_chips_row.isHidden()
+
+    # Click toggle → expanded
+    section._filtered_toggle_btn.click()
+    assert not section._filtered_chips_row.isHidden(), (
+        "Filtered chips row must become visible after one toggle click"
+    )
+    assert section._filtered_collapsed is False
+
+    # Click toggle again → collapsed
+    section._filtered_toggle_btn.click()
+    assert section._filtered_chips_row.isHidden(), (
+        "Filtered chips row must be hidden again after second toggle click"
+    )
+    assert section._filtered_collapsed is True
+
+
+def test_toggle_button_icon_swaps_on_toggle(qapp):
+    """The toggle button text alternates between expand_icon and collapse_icon."""
+    from metatv.gui import icons as _icons
+    section = _make_version_section(qapp)
+    section.load(_make_mixed_versions())
+
+    # Default: collapsed → expand icon
+    assert section._filtered_toggle_btn.text() == _icons.expand_icon, (
+        f"Toggle button must show expand_icon when collapsed, got {section._filtered_toggle_btn.text()!r}"
+    )
+
+    # After expand
+    section._filtered_toggle_btn.click()
+    assert section._filtered_toggle_btn.text() == _icons.collapse_icon, (
+        f"Toggle button must show collapse_icon when expanded, got {section._filtered_toggle_btn.text()!r}"
+    )
+
+    # After collapse again
+    section._filtered_toggle_btn.click()
+    assert section._filtered_toggle_btn.text() == _icons.expand_icon, (
+        f"Toggle button must revert to expand_icon when re-collapsed, got {section._filtered_toggle_btn.text()!r}"
+    )
+
+
+def test_label_row_is_separate_widget_above_chips_row(qapp):
+    """The row_container uses a vertical layout with the label row above _chips_row.
+
+    Asserts via layout/parent structure that the "Also available as:" label and chip
+    flow are stacked (label above chips), not side by side.
+    """
+    from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout
+    from metatv.gui.details_versions import ChannelVersion
+
+    section = _make_version_section(qapp)
+    section.load([
+        ChannelVersion(channel_id="ch-1", name="FOX", in_queue=False, is_filtered=False)
+    ])
+
+    row_container_layout = section._row_container.layout()
+    assert isinstance(row_container_layout, QVBoxLayout), (
+        "_row_container must use QVBoxLayout (vertical stack) so label sits above chips"
+    )
+
+    # _chips_row must be a direct child of the vertical layout
+    chips_row_found = False
+    for i in range(row_container_layout.count()):
+        item = row_container_layout.itemAt(i)
+        if item and item.widget() is section._chips_row:
+            chips_row_found = True
+            break
+    assert chips_row_found, "_chips_row must be a direct item in _row_container's vertical layout"
+
+
+def test_load_resets_filtered_section_to_collapsed(qapp):
+    """Calling load() a second time resets the filtered section back to collapsed."""
+    section = _make_version_section(qapp)
+    section.load(_make_mixed_versions())
+
+    # Expand filtered section (isHidden() is the headless-safe visibility check)
+    section._filtered_toggle_btn.click()
+    assert not section._filtered_chips_row.isHidden()
+
+    # Reload — must reset to collapsed
+    section.load(_make_mixed_versions())
+    assert section._filtered_chips_row.isHidden(), (
+        "Reloading must reset filtered section to collapsed"
+    )
+    assert section._filtered_collapsed is True
