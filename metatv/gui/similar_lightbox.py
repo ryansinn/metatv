@@ -417,16 +417,21 @@ class SimilarTitleLightbox(QWidget):
                     .all()
                 )
                 threshold = max(1, len(words) // 2)
+                # Dedup key prefers the stored content_key (so localized/translated and
+                # "MULTI" variants sharing a key collapse to one entry, matching every
+                # other collapse surface); falls back to the normalized title only for
+                # rows with no content_key.
                 seen: set[str] = set()
                 for c in candidates:
                     c_norm = normalize_title(c.name, c.detected_prefix)
                     c_words = {w for w in c_norm.split() if len(w) >= 4}
                     overlap = sum(1 for w in words if w in c_words)
-                    if overlap >= threshold and c_norm != norm and c_norm not in seen:
+                    c_group = (c.content_key or None) or c_norm
+                    if overlap >= threshold and c_norm != norm and c_group not in seen:
                         c_meta = session.get(MetadataDB, c.metadata_id) if c.metadata_id else None
                         if current_key and build_dedup_key(c, c_meta) == current_key:
                             continue
-                        seen.add(c_norm)
+                        seen.add(c_group)
                         similar.append({"id": c.id, "name": c.name})
                         if len(similar) >= 12:
                             break

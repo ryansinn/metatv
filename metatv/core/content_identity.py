@@ -65,6 +65,11 @@ from abc import ABC, abstractmethod
 
 from loguru import logger
 
+from metatv.core.channel_name_utils import (
+    AUDIO_KEY_NOISE_TOKENS as _AUDIO_KEY_NOISE_TOKENS,
+    AUDIO_KEY_ANCHOR_TOKENS as _AUDIO_KEY_ANCHOR_TOKENS,
+)
+
 
 # ---------------------------------------------------------------------------
 # Shared normalisation helper
@@ -76,12 +81,46 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _YEAR_RE = re.compile(r"\b(\d{4})\b")
 
 
+def _strip_trailing_audio_noise(norm: str) -> str:
+    """Drop a trailing run of bare audio-annotation tokens (the "MULTI" leak).
+
+    Some providers append an audio-track marker as a bare trailing word with no
+    bracket/paren delimiter — e.g. ``"the bridge multi"`` or
+    ``"the killing multi sub"`` — which ``strip_title_qualifiers`` (bracket/paren
+    only) leaves in ``detected_title``.  Those tokens denote the audio track, not
+    the production, so two source variants of one title get split content_keys
+    ("…|series" vs "…multi|series") and never collapse (QA flag 1ebe93bb).
+
+    The trailing run is removed only when it contains a MULTI/MUTI *anchor*
+    (``AUDIO_KEY_ANCHOR_TOKENS``), so standalone real-word titles ending in
+    ``"sub"``/``"audio"``/``"dual"`` are preserved, and never when it would empty
+    the title (a title literally named "Multi" keeps its key).
+
+    Args:
+        norm: An already lowercased, whitespace-collapsed, punctuation-stripped
+            title (output of the first three normalisation steps).
+
+    Returns:
+        ``norm`` with a trailing MULTI-anchored audio-noise run removed, or
+        ``norm`` unchanged when there is no such run.
+    """
+    tokens = norm.split()
+    end = len(tokens)
+    while end > 0 and tokens[end - 1] in _AUDIO_KEY_NOISE_TOKENS:
+        end -= 1
+    if 0 < end < len(tokens) and any(t in _AUDIO_KEY_ANCHOR_TOKENS for t in tokens[end:]):
+        return " ".join(tokens[:end])
+    return norm
+
+
 def _normalize_for_key(title: str) -> str:
-    """Lowercase, strip non-word characters, collapse whitespace.
+    """Lowercase, strip non-word characters, collapse whitespace, drop audio noise.
 
     Mirrors the final three steps of ``content_dedup.normalize_title()`` so
     two ``detected_title`` values that differ only in punctuation or spacing
-    collapse to the same key component.
+    collapse to the same key component, then strips a trailing MULTI-anchored
+    audio-annotation run (``_strip_trailing_audio_noise``) so a bare ``MULTI``
+    token left in the title doesn't split same-production variants.
 
     Args:
         title: Raw (but already-stripped) title string, e.g. from
@@ -93,7 +132,8 @@ def _normalize_for_key(title: str) -> str:
     """
     lowered = title.lower()
     no_punct = _NONWORD_RE.sub(" ", lowered)
-    return _WHITESPACE_RE.sub(" ", no_punct).strip()
+    collapsed = _WHITESPACE_RE.sub(" ", no_punct).strip()
+    return _strip_trailing_audio_noise(collapsed)
 
 
 def _start_year(detected_year: str) -> str:

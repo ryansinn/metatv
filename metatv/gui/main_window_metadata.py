@@ -302,9 +302,13 @@ class _MetadataMixin:
                 current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
                 current_key = build_dedup_key(channel, current_meta)
 
-                # Group by normalized title, keeping the best-scored version per title so
-                # that users who have a preferred prefix (e.g. "EN") see that version when
-                # they click a similar title rather than landing on a non-preferred version.
+                # Collapse same-production variants, keeping the best-scored version per
+                # group so that users who have a preferred prefix (e.g. "EN") see that
+                # version when they click a similar title rather than a non-preferred one.
+                # Group key prefers the stored content_key (so localized/translated and
+                # "MULTI" variants that share a key collapse into one row, exactly as on
+                # Discover/Other-Versions); falls back to the normalized title only for
+                # rows with no content_key (pre-backfill).
                 best_per_title: dict[str, tuple[ChannelDB, int]] = {}
                 for ch in candidates:
                     ch_norm = normalize_title(ch.name, ch.detected_prefix)
@@ -317,10 +321,11 @@ class _MetadataMixin:
                         ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
                         if build_dedup_key(ch, ch_meta) == current_key:
                             continue
+                    group_key = (ch.content_key or None) or ch_norm
                     score = _version_score(ch, self.config)
-                    existing = best_per_title.get(ch_norm)
+                    existing = best_per_title.get(group_key)
                     if existing is None or score > existing[1]:
-                        best_per_title[ch_norm] = (ch, score)
+                        best_per_title[group_key] = (ch, score)
 
                 results = [ch for ch, _ in list(best_per_title.values())[:20]]
 
