@@ -48,7 +48,6 @@ class _SimilarSection(QWidget):
         hdr.setContentsMargins(0, 4, 0, 2)
         hdr.setSpacing(4)
         self._toggle_btn = QPushButton(_icons.collapse_icon)
-        self._toggle_btn.setFlat(True)
         self._toggle_btn.setFixedSize(20, 20)
         self._toggle_btn.setToolTip("Collapse Similar Titles")
         self._toggle_btn.clicked.connect(self._toggle)
