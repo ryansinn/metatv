@@ -98,6 +98,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 excluded_provider_ids: Optional[List[str]] = None,
                 tag_includes: Optional[Dict[str, Set[str]]] = None,
                 tag_excludes: Optional[Dict[str, Set[str]]] = None,
+                exclude_watched: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -125,6 +126,8 @@ class ChannelRepository(_ChannelStatsMixin):
             tag_excludes: Faceted tag exclusion — same shape as tag_includes.  A channel
                 is rejected if it carries *any* matching tag.  Currently unused (reserved
                 for the tri-state slice).
+            exclude_watched: When True, exclude channels where ``watch_completed=True``.
+                Default False (show everything, filter is opt-in).
 
         Returns:
             List of channels matching all filters.
@@ -343,6 +346,17 @@ class ChannelRepository(_ChannelStatsMixin):
                     .correlate(ChannelDB)
                 )
                 query = query.filter(_exists(_subq))
+
+        # ── Watched filter: exclude channels the user has marked complete ──────
+        # OFF by default (show everything). When ON, hides watch_completed=True rows.
+        # Uses NOT (watch_completed == True) to safely pass NULL rows (never watched).
+        if exclude_watched:
+            query = query.filter(
+                or_(
+                    ChannelDB.watch_completed.is_(None),
+                    ChannelDB.watch_completed == False,  # noqa: E712
+                )
+            )
 
         query = query.order_by(ChannelDB.name)
 
@@ -686,19 +700,96 @@ class ChannelRepository(_ChannelStatsMixin):
         logger.info(f"Deleted {count} channels for provider {provider_id}")
         return count
     
-    def count(self, provider_id: Optional[str] = None, 
+    def count(self, provider_id: Optional[str] = None,
               media_type: Optional[str] = None) -> int:
         """Count channels with optional filters"""
         query = self.session.query(ChannelDB).filter_by(is_hidden=False)
-        
+
         if provider_id:
             query = query.filter_by(provider_id=provider_id)
-        
+
         if media_type:
             query = query.filter_by(media_type=media_type)
-        
+
         return query.count()
-    
+
+    def count_watched_matching(
+        self,
+        provider_id=None,
+        media_types: Optional[List[str]] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        search_query: Optional[str] = None,
+        adult_mode: str = "all",
+        force_adult_provider_ids: Optional[List[str]] = None,
+        tag_includes: Optional[Dict[str, Set[str]]] = None,
+    ) -> int:
+        """Count channels with ``watch_completed=True`` matching the given base filters.
+
+        Used to compute the "N hidden because watched" metric shown in the stats
+        label when the "Hide watched" axis is ON.  Applies the same provider /
+        media-type / adult / search / tag-includes constraints as :meth:`get_all`
+        but always adds ``watch_completed == True`` and omits pagination.
+
+        Args:
+            provider_id: Same as ``get_all`` — str, list, or None.
+            media_types: List of media types to include.
+            excluded_provider_ids: Provider IDs to exclude.
+            search_query: Optional search filter (LIKE on name).
+            adult_mode: Adult content mode ("all", "hide", "only").
+            force_adult_provider_ids: Provider IDs to treat as adult.
+            tag_includes: Tier-1 tag-facet constraints (same as get_all).
+
+        Returns:
+            Count of matching channels with ``watch_completed=True``.
+        """
+        query = self.session.query(ChannelDB).filter_by(is_hidden=False)
+
+        if isinstance(provider_id, list):
+            if provider_id:
+                query = query.filter(ChannelDB.provider_id.in_(provider_id))
+        elif provider_id:
+            query = query.filter_by(provider_id=provider_id)
+
+        if excluded_provider_ids:
+            query = query.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
+
+        if media_types:
+            query = query.filter(ChannelDB.media_type.in_(media_types))
+
+        # Apply adult filter
+        query = self._apply_adult_filter(query, adult_mode, force_adult_provider_ids)
+
+        if search_query:
+            query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+
+        # Tag-facet constraints (same EXISTS-subquery pattern as get_all)
+        if tag_includes:
+            from sqlalchemy import exists as _exists, select as _sa_select
+            from sqlalchemy.orm import aliased as _aliased
+            from metatv.core.database import ContentTagDB as _ContentTagDB, TagDB as _TagDB
+
+            for _ftype, _allowed in tag_includes.items():
+                if not _allowed:
+                    continue
+                _ct = _aliased(_ContentTagDB, flat=True)
+                _t  = _aliased(_TagDB, flat=True)
+                _subq = (
+                    _sa_select(_ct.channel_id)
+                    .join(_t, _t.id == _ct.tag_id)
+                    .where(
+                        _ct.channel_id == ChannelDB.id,
+                        _t.type == _ftype,
+                        _t.value.in_(list(_allowed)),
+                    )
+                    .correlate(ChannelDB)
+                )
+                query = query.filter(_exists(_subq))
+
+        # Watched-only constraint — the whole point of this method
+        query = query.filter(ChannelDB.watch_completed == True)  # noqa: E712
+
+        return query.count()
+
     def update_detected_prefixes(
         self,
         provider_id: Optional[str] = None,

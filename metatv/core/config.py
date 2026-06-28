@@ -714,6 +714,7 @@ class Config(BaseModel):
     filter_untagged_selected: list = Field(
         default_factory=lambda: ["no_prefix", "no_quality"])        # Untagged/Unknown section state
     filter_adult_mode: str = "hide"        # "all", "hide", or "only"
+    filter_hide_watched: bool = False      # When True, exclude watch_completed channels
     show_excluded_count: bool = True
     search_includes_filtered: bool = True
     

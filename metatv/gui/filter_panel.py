@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 from loguru import logger
@@ -89,6 +89,28 @@ class FilterPanel(QWidget):
         phl.addWidget(clear_btn)
 
         outer.addWidget(ph)
+
+        # "Hide watched" toggle — compact row between header and scrollable sections.
+        # OFF by default (watched channels are visible); turning it ON hides them.
+        from metatv.gui import icons as _icons
+        hw_row = QWidget()
+        hw_row.setStyleSheet(f"background: {_theme.COLOR_BG_DEEP};")
+        hw_row.setFixedHeight(30)
+        hw_rl = QHBoxLayout(hw_row)
+        hw_rl.setContentsMargins(10, 0, 8, 0)
+        hw_rl.setSpacing(6)
+        self._hide_watched_cb = QCheckBox(f"{_icons.hide_watched_filter_icon} Hide watched")
+        self._hide_watched_cb.setToolTip(
+            "When checked, movies and series you have marked as watched are hidden from the list."
+        )
+        self._hide_watched_cb.setStyleSheet(
+            f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};"
+        )
+        self._hide_watched_cb.setChecked(getattr(self.config, 'filter_hide_watched', False))
+        self._hide_watched_cb.stateChanged.connect(self._on_hide_watched_changed)
+        hw_rl.addWidget(self._hide_watched_cb)
+        hw_rl.addStretch()
+        outer.addWidget(hw_row)
 
         # Scrollable sections
         scroll = QScrollArea()
@@ -607,6 +629,7 @@ class FilterPanel(QWidget):
             'include_untagged':          include_untagged,
             'include_untagged_quality':  include_untagged_quality,
             'adult_mode':         getattr(self.config, 'filter_adult_mode', 'hide'),
+            'hide_watched':       self._hide_watched_cb.isChecked(),
             'excluded_provider_ids': [],
             # Tag-facet includes — used by _query_channels → get_all(tag_includes=…).
             # None means no tag filter active (all channels pass on this axis).
@@ -776,6 +799,13 @@ class FilterPanel(QWidget):
     def _on_changed(self):
         if not self._restoring:
             self.save_state()
+        self.filter_changed.emit()
+
+    def _on_hide_watched_changed(self, _state: int) -> None:
+        """Handle toggling the 'Hide watched' checkbox — persist and reload."""
+        if not self._restoring:
+            self.config.filter_hide_watched = self._hide_watched_cb.isChecked()
+            self.config.save()
         self.filter_changed.emit()
 
     def _region_label(self, code: str) -> str:
