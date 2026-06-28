@@ -187,12 +187,12 @@ laid out to grow editing affordances later without a rewrite.
 - Editing affordances on Panels 4 & 5.
 
 **Out of scope here (tracked elsewhere):**
-- The prefix *lexicon* evaluation itself (which tokens mean what) — that is the existing
-  `SONNET_EXECUTION_PROMPT_INGEST_VISIBILITY.md` Task B. This view *surfaces* the worklist; it
-  does not decide the canonical meanings.
-- The `WWE RAW` quality false-positive — a parser/lexicon bug folded into Task B (a bare
-  normal-script `RAW`/`LIVE`/`CAM` must not be treated as a quality token; require
-  `[RAW]`/`(RAW)`/superscript). Surfaced *by* this analytics work, fixed *in* the lexicon work.
+- The prefix *lexicon* evaluation itself (which tokens mean what) — ongoing tag-curation work,
+  scoped in `docs/SOURCE_INGESTION_GENERALIZATION.md`. This view *surfaces* the worklist; it does
+  not decide the canonical meanings.
+- The `WWE RAW` quality false-positive (a bare normal-script `RAW`/`LIVE`/`CAM` treated as a
+  quality token) — **already fixed** in `channel_name_utils.py` (bare `RAW`/`LIVE`/`CAM` require
+  `[RAW]`/superscript to count). Surfaced *by* this analytics work.
 
 **Open questions:**
 1. Overlap across `media_type` or per `media_type`? (Proposed: per type; movies vs. live have
