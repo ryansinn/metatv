@@ -22,6 +22,13 @@ def now_utc() -> datetime:
 # A provider whose guide ends within this window is "ending soon" (about to run out).
 EPG_ENDING_SOON_HOURS = 24
 
+# A programme longer than this is treated as a multi-day placeholder ("filler")
+# rather than a real broadcast, so it never inflates guide-depth / coverage
+# calculations. 12 h covers all realistic broadcasts. Single source of truth —
+# imported by both epg_manager (provider-wide honest end) and the EPG repository
+# (per-scope contiguous coverage).
+EPG_FILLER_THRESHOLD = timedelta(hours=12)
+
 
 def epg_status(epg_url: str | None, epg_data_end: datetime | None,
                _now: datetime | None = None) -> str:
@@ -167,6 +174,56 @@ def progress_pct(start: datetime, stop: datetime, _now: datetime | None = None) 
         return 100
     elapsed = (_now - start).total_seconds()
     return max(0, min(100, int(elapsed / total * 100)))
+
+
+def contiguous_guide_end(
+    spans: list[tuple[datetime, datetime]],
+    _now: datetime | None = None,
+    gap_threshold: timedelta = timedelta(hours=1),
+) -> datetime | None:
+    """Last guide time reachable from now without a coverage hole.
+
+    Given ``(start, stop)`` spans for the selected sources/scope (UTC-naive),
+    walk them in start order from ``_now`` and return the running-maximum
+    ``stop`` at the point where the next programme would open a gap wider than
+    ``gap_threshold``. This reflects the guide's *real contiguous* depth: a feed
+    missing tonight's late-night block reports coverage ending at the hole, never
+    the far-future max stop somewhere past it (the dishonest "reaches tomorrow").
+
+    Multi-day filler spans (> :data:`EPG_FILLER_THRESHOLD`) are ignored so a
+    placeholder "Program" entry can't bridge a real hole and fake full coverage.
+
+    Args:
+        spans: ``(start_time, stop_time)`` pairs, UTC-naive (order irrelevant).
+        _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+        gap_threshold: A gap larger than this between the running contiguous
+            coverage and the next programme's start ends the contiguous run.
+
+    Returns:
+        The last contiguous ``stop`` datetime, or ``None`` when no non-filler
+        programme ends after ``_now``.
+    """
+    now = _now or now_utc()
+    future = sorted(
+        (
+            (start, stop)
+            for start, stop in spans
+            if stop > now and (stop - start) <= EPG_FILLER_THRESHOLD
+        ),
+        key=lambda s: s[0],
+    )
+    if not future:
+        return None
+    coverage_end: datetime | None = None
+    for start, stop in future:
+        if coverage_end is None:
+            coverage_end = stop
+            continue
+        if start > coverage_end + gap_threshold:
+            break  # hole detected — contiguous coverage ends here
+        if stop > coverage_end:
+            coverage_end = stop
+    return coverage_end
 
 
 # ---------------------------------------------------------------------------

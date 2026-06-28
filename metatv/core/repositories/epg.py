@@ -11,7 +11,31 @@ from loguru import logger
 
 from metatv.core.database import EpgProgramDB, ChannelDB
 from metatv.core.epg_utils import now_utc as _now_utc, local_day_window as _local_day_window
+from metatv.core.epg_utils import contiguous_guide_end as _contiguous_guide_end
 from metatv.core.epg_utils import _local_tz  # re-exported so test patches still work
+
+
+# Browse time-slot windows — SINGLE SOURCE OF TRUTH shared by ``get_schedule`` (the
+# window math) and the Browse-tab dropdown (its labels). Each tuple is
+# ``(key, label, hour_start, hour_end)`` where the hours are offsets from LOCAL
+# midnight; an offset >= 24 spills into the NEXT calendar day. Late Night therefore
+# spans 11 PM → 5 AM (23 → 29), Morning 5 AM → noon (5 → 12) — contiguous and
+# covering the previously-missing 3–5 AM window.
+SCHEDULE_TIME_SLOTS: list[tuple[str, str, int, int]] = [
+    ("all",       "All Day",         0,  24),
+    ("morning",   "Morning 5–12",    5,  12),
+    ("afternoon", "Afternoon 12–6",  12, 18),
+    ("primetime", "Prime Time 6–11", 18, 23),
+    ("latenight", "Late Night 11–5", 23, 29),
+]
+
+# key → (hour_start, hour_end) for the real slots ("all" is excluded so it falls
+# back to the full-day window in ``get_schedule``).
+SCHEDULE_SLOT_RANGES: dict[str, tuple[int, int]] = {
+    key: (h_start, h_end)
+    for key, _label, h_start, h_end in SCHEDULE_TIME_SLOTS
+    if key != "all"
+}
 
 
 class EpgRepository:
@@ -200,10 +224,24 @@ class EpgRepository:
         # target_date is a local date; EPG rows are stored as UTC-naive datetimes.
         day_start, day_end = _local_day_window(target_date, tz=_local_tz())
 
+        # Resolve the query window. A specific time slot REPLACES the day window with
+        # its own [slot_start, slot_end) bounds (hour offsets from local midnight,
+        # i.e. day_start). Late Night ends at hour 29 (= 5 AM the NEXT calendar day),
+        # so the slot window must extend past day_end — applying the day cap here is
+        # the bug that clipped Late Night to 11 PM–midnight and made it look empty
+        # (and made date changes appear to "not reload" while on that slot).
+        slot_ranges = SCHEDULE_SLOT_RANGES
+        if time_slot in slot_ranges:
+            h_start, h_end = slot_ranges[time_slot]
+            window_start = day_start + timedelta(hours=h_start)
+            window_end   = day_start + timedelta(hours=h_end)
+        else:
+            window_start, window_end = day_start, day_end
+
         query = self.session.query(EpgProgramDB).filter(
             EpgProgramDB.provider_id.in_(provider_ids),
-            EpgProgramDB.start_time >= day_start,
-            EpgProgramDB.start_time <  day_end,
+            EpgProgramDB.start_time >= window_start,
+            EpgProgramDB.start_time <  window_end,
             EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
         )
 
@@ -212,23 +250,6 @@ class EpgRepository:
                 query
                 .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
                 .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
-            )
-
-        # Time slot filter. day_start is anchored to local-midnight-in-UTC (see above),
-        # so these hour offsets yield exact local-time windows.
-        slot_ranges = {
-            "morning":   (6,  12),
-            "afternoon": (12, 18),
-            "primetime": (18, 23),
-            "latenight": (23, 27),  # wraps into next day
-        }
-        if time_slot in slot_ranges:
-            h_start, h_end = slot_ranges[time_slot]
-            slot_start = day_start + timedelta(hours=h_start)
-            slot_end   = day_start + timedelta(hours=h_end)
-            query = query.filter(
-                EpgProgramDB.start_time >= slot_start,
-                EpgProgramDB.start_time <  slot_end,
             )
 
         if search_query:
@@ -245,6 +266,51 @@ class EpgRepository:
             query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
 
         return query.order_by(EpgProgramDB.start_time).all()
+
+    def get_contiguous_guide_end(
+        self,
+        provider_ids: list[str],
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+        _now: datetime | None = None,
+    ) -> datetime | None:
+        """Last guide time the selected sources cover *contiguously* from now.
+
+        Unlike ``ProviderDB.epg_data_end`` (the max stop_time anywhere — which a
+        single deep channel inflates), this walks the actual matched programmes for
+        the scoped sources and stops at the first coverage hole. So when a feed is
+        missing tonight's late-night block, the Browse empty-state honestly reports
+        coverage ending at the hole instead of claiming it "reaches tomorrow".
+
+        Filler (multi-day placeholder) programmes are excluded so they can't bridge
+        a real gap. Time math is delegated to ``epg_utils.contiguous_guide_end``.
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: Channel-side scoping — drop programmes
+                whose matched ChannelDB row belongs to a hidden provider (mirrors
+                ``get_schedule`` so coverage matches what Browse actually lists).
+            _now: Reference "now" (UTC-naive); defaults to ``now_utc``.
+
+        Returns:
+            The last contiguous stop_time (UTC-naive), or ``None`` when the scoped
+            sources have no matched programme ending after now.
+        """
+        now = _now or _now_utc()
+        query = self.session.query(
+            EpgProgramDB.start_time, EpgProgramDB.stop_time
+        ).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.channel_db_id.isnot(None),
+            EpgProgramDB.stop_time > now,
+        )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        spans = [(row.start_time, row.stop_time) for row in query.all()]
+        return _contiguous_guide_end(spans, _now=now)
 
     def search_programs(
         self,
