@@ -5,12 +5,12 @@
   - _NowPlatingStrip.cardContextMenu is forwarded to RecipeView.channelContextMenuRequested
   - _BrowseView.cardContextMenu is also forwarded to RecipeView.channelContextMenuRequested
 
-#100 — Pantry filter text box
+#100 — Pantry search box (cross-facet tag search; facet rows are NOT hidden)
   - Pantry has a _filter_box QLineEdit attribute
-  - Typing in the filter box hides non-matching facet buttons
-  - Clearing the filter box restores all facet buttons
-  - _PantrySidebar.clear_filter() empties the filter and shows all facets
-  - RecipeView.clear_recipe() also clears the Pantry filter
+  - Typing in the search box keeps every facet row visible (it searches tag
+    values across all facets into the center cloud, it does not hide rows)
+  - _PantrySidebar.clear_filter() empties the search box
+  - RecipeView.clear_recipe() also clears the Pantry search box
 """
 
 from __future__ import annotations
@@ -205,8 +205,12 @@ def test_pantry_has_filter_box(qapp):
     assert isinstance(pantry._filter_box, QLineEdit)
 
 
-def test_pantry_filter_hides_non_matching_facets(qapp):
-    """Typing in the filter box hides facet buttons whose name doesn't match."""
+def test_pantry_search_keeps_all_facets_visible(qapp):
+    """Typing in the search box NEVER hides facet rows (it searches into the cloud).
+
+    The old name-only facet-row filter is replaced by cross-facet tag search, so
+    every facet row must stay visible regardless of the search text.
+    """
     view, seam = _make_view(qapp)
     view._active = True
 
@@ -219,45 +223,16 @@ def test_pantry_filter_hides_non_matching_facets(qapp):
     buttons = view._pantry._facet_buttons
     assert len(buttons) == 3
 
-    # Type "lang" — only the "Language" button should remain visible.
-    # Use isHidden() (explicit hide state) instead of isVisible() which requires a
-    # shown window hierarchy — in headless tests, all widgets report isVisible()=False.
+    # Type "lang" — under the new behaviour NO facet row is hidden.
+    # Use isHidden() (explicit hide state); headless widgets report isVisible()=False.
     view._pantry._filter_box.setText("lang")
-    not_hidden = [b for b in buttons if not b.isHidden()]
-    explicitly_hidden = [b for b in buttons if b.isHidden()]
-
-    assert len(not_hidden) == 1, (
-        f"Expected 1 visible facet, got {[b.facet_type for b in not_hidden]}"
-    )
-    assert not_hidden[0].facet_type == "language"
-    assert len(explicitly_hidden) == 2
-
-
-def test_pantry_filter_restore_on_clear(qapp):
-    """Clearing the filter box restores visibility of all facet buttons."""
-    view, seam = _make_view(qapp)
-    view._active = True
-
-    summaries = [
-        _FacetSummaryDTO("genre", 100),
-        _FacetSummaryDTO("language", 50),
-    ]
-    view._on_pantry_loaded(summaries)
-    buttons = view._pantry._facet_buttons
-
-    # Filter to narrow list, then clear.
-    # Use isHidden() for headless compatibility (isVisible() needs a shown window).
-    view._pantry._filter_box.setText("genre")
-    assert sum(1 for b in buttons if not b.isHidden()) == 1
-
-    view._pantry._filter_box.clear()
     assert all(not b.isHidden() for b in buttons), (
-        "All facet buttons must be un-hidden after clearing the filter"
+        "Pantry search must not hide any facet row — it searches tag values, not rows"
     )
 
 
 def test_pantry_clear_filter_method(qapp):
-    """_PantrySidebar.clear_filter() empties the filter box and shows all facets."""
+    """_PantrySidebar.clear_filter() empties the search box; facets stay visible."""
     view, seam = _make_view(qapp)
     view._active = True
 
@@ -268,19 +243,16 @@ def test_pantry_clear_filter_method(qapp):
     view._on_pantry_loaded(summaries)
     view._pantry._filter_box.setText("genre")
 
-    # At least one button hidden by the filter (use isHidden() for headless compat).
-    assert any(b.isHidden() for b in view._pantry._facet_buttons)
-
     view._pantry.clear_filter()
 
     assert view._pantry._filter_box.text() == "", "clear_filter must empty the text box"
     assert all(not b.isHidden() for b in view._pantry._facet_buttons), (
-        "All facet buttons must be un-hidden after clear_filter()"
+        "All facet rows must remain visible after clear_filter()"
     )
 
 
 def test_clear_recipe_also_clears_pantry_filter(qapp):
-    """RecipeView.clear_recipe() also clears the Pantry filter text box."""
+    """RecipeView.clear_recipe() also clears the Pantry search box."""
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"
@@ -292,17 +264,17 @@ def test_clear_recipe_also_clears_pantry_filter(qapp):
     ]
     view._on_pantry_loaded(summaries)
 
-    # Set filter text and recipe ingredients.
+    # Set search text and recipe ingredients.
     view._pantry._filter_box.setText("lan")
     view._recipe_includes = {"genre": {"Drama"}}
 
-    # clear_recipe must reset both the recipe AND the pantry filter.
+    # clear_recipe must reset both the recipe AND the pantry search box.
     view.clear_recipe()
 
     assert view._pantry._filter_box.text() == "", (
-        "clear_recipe() must clear the Pantry filter text box"
+        "clear_recipe() must clear the Pantry search box"
     )
     assert all(not b.isHidden() for b in view._pantry._facet_buttons), (
-        "All Pantry facets must be un-hidden after clear_recipe()"
+        "All Pantry facets must remain visible after clear_recipe()"
     )
     assert not view.recipe_includes, "Recipe includes must be empty after clear_recipe()"

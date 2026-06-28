@@ -179,10 +179,12 @@ class _TagButton(QPushButton):
         state: str,
         font_token: str,
         facet_color: str,
+        facet_type: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._value = value
+        self._facet_type = facet_type     # "" in single-facet mode; set in cross-facet search
         self.cloud_visible: bool = True   # logical visibility within the cloud
 
         # Build label: [mark] value countfmt
@@ -219,6 +221,9 @@ class _TagButton(QPushButton):
 
     def value(self) -> str:
         return self._value
+
+    def facet_type(self) -> str:
+        return self._facet_type
 
     def set_cloud_visible(self, visible: bool) -> None:
         """Set both the logical cloud_visible flag and the Qt widget visibility."""
@@ -279,13 +284,18 @@ class WeightedTagCloud(QWidget):
             cloud without reaching into the widget hierarchy by type.
     """
 
-    tag_clicked = pyqtSignal(str)   # emits the value string
+    tag_clicked = pyqtSignal(str)         # single-facet mode → emits the value string
+    tag_clicked_facet = pyqtSignal(str, str)  # cross-facet mode → (facet_type, value)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._sort_az: bool = False          # False = weight (default), True = A-Z
         self._filter_text: str = ""
-        self._all_items: list[tuple[str, int, str]] = []   # (value, count, state)
+        # Each item: (value, count, state, color, facet_type).  In single-facet
+        # mode color is the uniform facet color and facet_type is "" (so clicks
+        # emit tag_clicked); in cross-facet search each item carries its own
+        # facet color + facet_type (so clicks emit tag_clicked_facet).
+        self._all_items: list[tuple[str, int, str, str, str]] = []
         self._facet_color: str = _theme.COLOR_TEXT
         self._facet_name: str = ""
         self._cap_expanded: bool = False
@@ -314,8 +324,40 @@ class WeightedTagCloud(QWidget):
             facet_name:  Optional facet label shown in the header (e.g.
                          ``"Genre"``).  Falls back to ``""`` when omitted.
         """
-        self._all_items = list(items)
+        # Normalise to the internal 5-tuple shape: every tag shares the one
+        # facet color and carries no facet_type (so clicks emit tag_clicked).
+        self._all_items = [(v, c, s, facet_color, "") for (v, c, s) in items]
         self._facet_color = facet_color
+        self._facet_name = facet_name
+        self._cap_expanded = False   # reset on new data
+
+        self._update_header()
+        self._rebuild_cloud()
+
+    def set_multi_facet_tags(
+        self,
+        items: list[tuple[str, int, str, str, str]],
+        facet_name: str = "",
+    ) -> None:
+        """Populate the cloud with cross-facet matches, each colored by its facet.
+
+        The cross-facet sibling of :meth:`set_tags`, used by the Recipe builder's
+        Pantry search: the cloud mixes tags from many facets, so each item carries
+        its OWN color and facet_type rather than the single uniform facet color.
+
+        Clicking a tag emits :data:`tag_clicked_facet` ``(facet_type, value)`` so
+        the recipe can add the ingredient under the correct facet — reusing the
+        same include/exclude cycle as the single-facet path, never a parallel one.
+
+        Args:
+            items: List of ``(value, count, state, color, facet_type)`` tuples
+                where ``state`` is ``"none"``/``"include"``/``"exclude"`` and
+                ``color`` is the per-facet theme color token (use
+                ``recipe_view._facet_color(facet_type)``).
+            facet_name: Optional label shown in the header (e.g. the search term).
+        """
+        self._all_items = list(items)
+        self._facet_color = _theme.COLOR_TEXT   # per-item colors override this
         self._facet_name = facet_name
         self._cap_expanded = False   # reset on new data
 
@@ -424,7 +466,7 @@ class WeightedTagCloud(QWidget):
 
     # ── private: cloud building ───────────────────────────────────────────────
 
-    def _sorted_items(self) -> list[tuple[str, int, str]]:
+    def _sorted_items(self) -> list[tuple[str, int, str, str, str]]:
         """Return items sorted according to the current sort mode."""
         if self._sort_az:
             return sorted(self._all_items, key=lambda t: t[0].lower())
@@ -441,25 +483,34 @@ class WeightedTagCloud(QWidget):
             self._body.refresh_layout()
             return
 
-        counts = [c for _, c, _ in items]
+        counts = [c for _, c, _, _, _ in items]
         min_count = min(counts)
         max_count = max(counts)
 
-        for value, count, state in items:
+        for value, count, state, color, facet_type in items:
             token = _count_to_font_token(count, min_count, max_count)
-            btn = _TagButton(value, count, state, token, self._facet_color)
-            btn.clicked.connect(self._make_click_handler(value))
+            btn = _TagButton(value, count, state, token, color, facet_type=facet_type)
+            btn.clicked.connect(self._make_click_handler(value, facet_type))
             self._body.flow().add(btn)
             self._tag_buttons.append(btn)
 
         # _apply_filter() calls _update_cap() internally — no need to call it twice.
         self._apply_filter()
 
-    def _make_click_handler(self, value: str):
-        """Closure factory so each button captures its own value."""
+    def _make_click_handler(self, value: str, facet_type: str = ""):
+        """Closure factory so each button captures its own value (+ facet_type).
+
+        A button carrying a ``facet_type`` (cross-facet search) emits
+        ``tag_clicked_facet(facet_type, value)``; a plain single-facet button
+        emits ``tag_clicked(value)``.  Both feed the SAME recipe include/exclude
+        cycle in the host — never a parallel add path.
+        """
         def _handler() -> None:
-            logger.debug(f"WeightedTagCloud: tag clicked: {value!r}")
-            self.tag_clicked.emit(value)
+            logger.debug(f"WeightedTagCloud: tag clicked: {value!r} (facet={facet_type!r})")
+            if facet_type:
+                self.tag_clicked_facet.emit(facet_type, value)
+            else:
+                self.tag_clicked.emit(value)
         return _handler
 
     def _apply_filter(self) -> None:

@@ -774,6 +774,86 @@ class TagRepository:
             if cnt > 0
         ]
 
+    def search_tag_values_across_facets(
+        self,
+        query: str,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        limit: int = 300,
+    ) -> list:
+        """Search tag VALUES across ALL facet types, case-insensitively, sorted by count.
+
+        The cross-facet sibling of :meth:`get_tag_counts_for_facet`: instead of
+        restricting to one ``facet_type``, this scans every namespace and returns
+        each ``(facet_type, value)`` group whose value contains *query* (a
+        case-insensitive substring), plus the number of active-source channels
+        carrying it.  Powers the Recipe builder's Pantry search — typing "comedy"
+        surfaces "Comedy" (genre), "Comedy Central" (collection), etc. all at once
+        in the center cloud, color-coded by facet.
+
+        Scoping is IDENTICAL to :meth:`get_tag_counts_for_facet` (the same global
+        exclusion sets + ``excluded_provider_ids`` via
+        :meth:`_scope_to_visible_channels`), so the cross-facet counts agree with
+        the per-facet cloud and the rest of the recipe view.
+
+        Executes a single SQL GROUP BY over content_tags JOIN tags JOIN channels.
+        No Python-side materialisation — safe over 1M+ rows.
+
+        Args:
+            query: Case-insensitive substring to match against the tag value.  An
+                empty / whitespace-only query returns ``[]`` (no search).
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
+                sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
+            excluded_prefixes: Global-exclusion prefix/region codes to drop (see
+                :meth:`_scope_to_visible_channels`).  Caller-supplied — the engine
+                never reads Config.
+            excluded_categories: Global-exclusion ``user_category`` labels to drop
+                (see :meth:`_scope_to_visible_channels`).
+            limit: Cap on the number of ``(facet_type, value)`` groups returned
+                (default 300) so the cloud stays sane on a broad query.  Applied
+                after sorting by count DESC, so the most popular matches win.
+
+        Returns:
+            List of ``TagSearchResultDTO`` (facet_type, value, channel_count),
+            sorted by ``channel_count`` DESC.  Zero-count groups are omitted.
+            No ORM objects are returned.
+        """
+        from sqlalchemy import func as _func
+        from metatv.core.repositories.dtos import TagSearchResultDTO
+
+        q_str = (query or "").strip()
+        if not q_str:
+            return []
+        pattern = f"%{q_str.lower()}%"
+
+        q = (
+            self.session.query(
+                TagDB.type,
+                TagDB.value,
+                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            # Lower-cased LIKE = portable case-insensitive substring match.
+            .filter(_func.lower(TagDB.value).like(pattern))
+        )
+        q = self._scope_to_visible_channels(
+            q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes, excluded_categories,
+        ).group_by(TagDB.type, TagDB.value).order_by(
+            _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
+        )
+        if limit is not None:
+            q = q.limit(limit)
+
+        return [
+            TagSearchResultDTO(
+                facet_type=tag_type, value=value, channel_count=int(cnt)
+            )
+            for tag_type, value, cnt in q.all()
+            if cnt > 0
+        ]
+
     # ------------------------------------------------------------------
     # Faceted query engine
     # ------------------------------------------------------------------

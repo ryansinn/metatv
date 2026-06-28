@@ -181,12 +181,12 @@ class _FacetRowButton(QPushButton):
         self.facet_type = facet_type
         self._color = color
         self._selected = False
+        self._display_name = display_name
+        self._distinct_values = distinct_values
+        self._match_count = 0   # cross-facet search match count (0 → no badge)
 
         # Build label: "■ Genre    512"
-        self.setText(f"■ {display_name}   {distinct_values:,}")
-        self.setToolTip(
-            f"{display_name} — {distinct_values:,} distinct values in your library"
-        )
+        self._refresh_label()
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_style()
 
@@ -198,6 +198,26 @@ class _FacetRowButton(QPushButton):
 
     def is_selected(self) -> bool:
         return self._selected
+
+    def set_match_count(self, n: int) -> None:
+        """Set the cross-facet search match badge ("·N"); 0 hides it."""
+        self._match_count = max(0, int(n))
+        self._refresh_label()
+
+    # ── private ───────────────────────────────────────────────────────────
+
+    def _refresh_label(self) -> None:
+        """Rebuild the row label, appending a subtle "·N" badge when matches exist."""
+        text = f"■ {self._display_name}   {self._distinct_values:,}"
+        tip = f"{self._display_name} — {self._distinct_values:,} distinct values in your library"
+        if self._match_count:
+            text += f"   ·{self._match_count}"
+            tip = (
+                f"{self._display_name} — {self._match_count} value"
+                f"{'s' if self._match_count != 1 else ''} match your search"
+            )
+        self.setText(text)
+        self.setToolTip(tip)
 
     # ── private ───────────────────────────────────────────────────────────
 
@@ -223,10 +243,17 @@ class _FacetRowButton(QPushButton):
 class _PantrySidebar(QWidget):
     """Left sidebar listing all available facets + stub Saved Recipes section.
 
-    Emits ``facet_selected(facet_type)`` when the user clicks a facet row.
+    Emits ``facet_selected(facet_type)`` when the user clicks a facet row, and
+    ``search_changed(text)`` (debounced) when the search box text settles — the
+    owner runs the cross-facet tag search off-thread and fills the center cloud.
     """
 
     facet_selected = pyqtSignal(str)   # facet_type string
+    search_changed = pyqtSignal(str)   # debounced search text (stripped)
+
+    # Debounce window for the search box: rapid keystrokes coalesce into one
+    # cross-facet DB query while the box stays responsive.
+    _SEARCH_DEBOUNCE_MS: int = 220
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -234,6 +261,12 @@ class _PantrySidebar(QWidget):
         self.setStyleSheet(_theme.RECIPE_PANTRY_BG)
         self._facet_buttons: list[_FacetRowButton] = []
         self._selected_facet: str | None = None
+
+        # Restartable single-shot timer — coalesces keystrokes into one emit.
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(self._SEARCH_DEBOUNCE_MS)
+        self._search_debounce.timeout.connect(self._emit_search)
 
         self._build_ui()
 
@@ -285,10 +318,10 @@ class _PantrySidebar(QWidget):
         filter_row.setSpacing(4)
 
         self._filter_box = QLineEdit()
-        self._filter_box.setPlaceholderText("Filter…")
-        self._filter_box.setToolTip("Filter the facet list by name")
+        self._filter_box.setPlaceholderText("Search tags…")
+        self._filter_box.setToolTip("Search tags across all facets")
         self._filter_box.setClearButtonEnabled(True)
-        self._filter_box.textChanged.connect(self._apply_pantry_filter)
+        self._filter_box.textChanged.connect(self._on_search_text)
         filter_row.addWidget(self._filter_box)
 
         outer.addLayout(filter_row)
@@ -333,14 +366,35 @@ class _PantrySidebar(QWidget):
             btn.set_selected(btn.facet_type == facet_type)
         self.facet_selected.emit(facet_type)
 
-    def _apply_pantry_filter(self, text: str) -> None:
-        """Show only facet buttons whose display name matches *text*."""
-        q = text.strip().lower()
+    def _on_search_text(self, text: str) -> None:
+        """Debounce the search box; emit empty immediately so clearing is instant.
+
+        Cross-facet search (non-empty) is debounced so fast typing coalesces into
+        one DB round-trip.  Clearing the box restores today's selected-facet cloud,
+        so we emit ``""`` synchronously (no idle wait) and stop any pending timer.
+        """
+        if not text.strip():
+            self._search_debounce.stop()
+            self.search_changed.emit("")
+        else:
+            self._search_debounce.start()
+
+    def _emit_search(self) -> None:
+        """Debounce timeout: emit the current (stripped) search text."""
+        self.search_changed.emit(self._filter_box.text().strip())
+
+    def set_match_counts(self, counts: dict[str, int]) -> None:
+        """Show a "·N" badge on each facet row (N = matching values in that facet)."""
         for btn in self._facet_buttons:
-            btn.setVisible(not q or q in btn.text().lower())
+            btn.set_match_count(counts.get(btn.facet_type, 0))
+
+    def clear_match_counts(self) -> None:
+        """Remove all per-facet match badges (empty search)."""
+        for btn in self._facet_buttons:
+            btn.set_match_count(0)
 
     def clear_filter(self) -> None:
-        """Clear the pantry filter text box (shows all facets)."""
+        """Clear the pantry search box (restores the selected-facet cloud)."""
         self._filter_box.clear()
 
 
@@ -850,11 +904,19 @@ class RecipeView(QWidget):
         self._tag_counts: list[TagCountDTO] = []
         self._active: bool = False
 
+        # Cross-facet Pantry search state.  When _search_query is non-empty the
+        # center cloud shows matches across ALL facets (color-coded) instead of
+        # the selected facet's tags; _search_results caches the last result set so
+        # a tag click can re-render the search cloud with updated include marks.
+        self._search_query: str = ""
+        self._search_results: list = []
+
         # Tokens for stale-drop on rapid switches
         self._pantry_token: list[int] = [0]
         self._cloud_token: list[int] = [0]
         self._results_token: list[int] = [0]
         self._see_all_token: list[int] = [0]
+        self._search_token: list[int] = [0]
 
         # "Show all" lazy-pagination state: how many cards we've already shown
         # (the page-1 seed reuses the teaser's cards), the known full match
@@ -965,6 +1027,7 @@ class RecipeView(QWidget):
         # LEFT — pantry sidebar
         self._pantry = _PantrySidebar()
         self._pantry.facet_selected.connect(self._on_facet_selected)
+        self._pantry.search_changed.connect(self._on_search_changed)
         root.addWidget(self._pantry)
 
         # Thin separator
@@ -991,6 +1054,8 @@ class RecipeView(QWidget):
         self._cloud = WeightedTagCloud()
         self._cloud.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._cloud.tag_clicked.connect(self._on_tag_clicked)
+        # Cross-facet search tags carry their own facet → add under that facet.
+        self._cloud.tag_clicked_facet.connect(self._on_search_tag_clicked)
         center_layout.addWidget(self._cloud)
 
         # Now Plating grid — real result cards (reuses Discover card surface +
@@ -1451,12 +1516,15 @@ class RecipeView(QWidget):
         self._tag_counts = []
         self._load_cloud(facet_type)
 
-    def _on_tag_clicked(self, value: str) -> None:
-        """Cycle a tag through none → include → exclude → none.
+    def _cycle_tag(self, facet: str | None, value: str) -> None:
+        """Cycle ``(facet, value)`` through none → include → exclude → none.
 
-        Called when the user clicks a tag in the WeightedTagCloud.
+        The single ingredient-mutation chokepoint shared by the single-facet
+        cloud (:meth:`_on_tag_clicked`) and the cross-facet search cloud
+        (:meth:`_on_search_tag_clicked`).  Mutates recipe state, renders the rail
+        instantly, and fires the debounced results load — but leaves the *cloud*
+        re-render to the caller (each mode redraws a different cloud).
         """
-        facet = self._selected_facet
         if facet is None:
             return
 
@@ -1483,11 +1551,97 @@ class RecipeView(QWidget):
         if not exc:
             self._recipe_excludes.pop(facet, None)
 
-        # Re-render rail + cloud immediately (pure in-memory — no DB wait),
-        # then fire the debounced results load so rapid clicks coalesce.
+        # Re-render rail immediately (pure in-memory — no DB wait), then fire the
+        # debounced results load so rapid clicks coalesce.
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
-        self._rebuild_cloud()
         self._results_debounce.start()
+
+    def _on_tag_clicked(self, value: str) -> None:
+        """Single-facet cloud click → cycle the value under the selected facet."""
+        facet = self._selected_facet
+        if facet is None:
+            return
+        self._cycle_tag(facet, value)
+        self._rebuild_cloud()
+
+    def _on_search_tag_clicked(self, facet_type: str, value: str) -> None:
+        """Cross-facet search cloud click → cycle the value under ITS own facet.
+
+        Reuses the same :meth:`_cycle_tag` include/exclude path as the single-facet
+        cloud (never a parallel add), then re-renders the search cloud so the
+        clicked tag immediately shows its new include/exclude mark.
+        """
+        self._cycle_tag(facet_type, value)
+        if self._search_query:
+            self._render_search_cloud(self._search_results)
+        else:
+            self._rebuild_cloud()
+
+    # ── Cross-facet Pantry search ─────────────────────────────────────────
+
+    def _on_search_changed(self, text: str) -> None:
+        """Pantry search text settled — search across facets or restore the facet cloud."""
+        self._search_query = text.strip()
+        if not self._search_query:
+            # Empty search → today's behaviour: drop badges, show selected facet.
+            self._search_results = []
+            self._pantry.clear_match_counts()
+            facet = self._selected_facet
+            if facet is not None:
+                self._stage_hdr.setText(_facet_display(facet))
+            self._rebuild_cloud()
+            return
+        self._load_search(self._search_query)
+
+    def _load_search(self, query: str) -> None:
+        """Run the cross-facet tag search off-thread via the async seam."""
+        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        self._run_query(
+            lambda repos: repos.tags.search_tag_values_across_facets(
+                query,
+                excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+                excluded_prefixes=excl_prefixes,
+                excluded_categories=excl_categories,
+            ),
+            self._on_search_loaded,
+            token_ref=self._search_token,
+            on_error=self._on_search_error,
+        )
+
+    def _on_search_loaded(self, results: list) -> None:
+        """Main-thread slot: fill the cloud with cross-facet matches + set badges."""
+        if not self._active:
+            return
+        # A late result from a stale query (now cleared) must not repaint.
+        if not self._search_query:
+            return
+        self._search_results = results
+        self._render_search_cloud(results)
+        # Per-facet match badge: count distinct matching values per facet.
+        counts: dict[str, int] = {}
+        for dto in results:
+            counts[dto.facet_type] = counts.get(dto.facet_type, 0) + 1
+        self._pantry.set_match_counts(counts)
+        self._stage_hdr.setText(f'Matches for "{self._search_query}"')
+
+    def _render_search_cloud(self, results: list) -> None:
+        """Render *results* (cross-facet matches) into the cloud, colored by facet."""
+        items: list[tuple[str, int, str, str, str]] = []
+        for dto in results:
+            ftype = dto.facet_type
+            if dto.value in self._recipe_includes.get(ftype, set()):
+                state = "include"
+            elif dto.value in self._recipe_excludes.get(ftype, set()):
+                state = "exclude"
+            else:
+                state = "none"
+            items.append(
+                (dto.value, dto.channel_count, state, _facet_color(ftype), ftype)
+            )
+        self._cloud.set_multi_facet_tags(items, facet_name=f'"{self._search_query}"')
+
+    def _on_search_error(self, exc: Exception) -> None:
+        logger.error("RecipeView: tag search failed: {}", exc)
 
     def _on_ingredient_remove(self, facet_type: str, value: str) -> None:
         """Remove an ingredient chip from the recipe rail (cycles state → none)."""
@@ -1502,7 +1656,11 @@ class RecipeView(QWidget):
 
         # Render rail + cloud immediately; debounce the expensive DB count.
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
-        self._rebuild_cloud()
+        # Re-render whichever cloud is showing so the removed tag loses its mark.
+        if self._search_query:
+            self._render_search_cloud(self._search_results)
+        else:
+            self._rebuild_cloud()
         self._results_debounce.start()
 
     # ── Accessors (for tests) ─────────────────────────────────────────────
