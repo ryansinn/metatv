@@ -827,11 +827,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         the user is not surprised by their panel state changing; the keyword alone
         surfaces the relevant content.
         """
-        # Set the search text (block signals to avoid double-triggering the debounce)
+        # Set the search text without retriggering the debounce (load is issued below).
         if hasattr(self, "search_input"):
-            self.search_input.blockSignals(True)
-            self.search_input.setText(text)
-            self.search_input.blockSignals(False)
+            self._set_search_text_silently(text)
 
         self._save_search_state()
         self.switch_to_list_view()
