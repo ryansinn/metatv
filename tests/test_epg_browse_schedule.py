@@ -118,14 +118,13 @@ def test_get_schedule_empty_provider_ids_returns_nothing(seeded_db):
 # data-signal are captured so we can see which path _reload_browse takes.
 # ---------------------------------------------------------------------------
 
-def _make_trigger_host(*, search_text: str, provider_ids):
+def _make_trigger_host(*, search_text: str, provider_ids, anchor=None):
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
     host._provider_ids = list(provider_ids)
     host._filtered_provider_ids = lambda: host._provider_ids
-    # Search box + filter widgets the trigger reads.
+    # Search box + the forward start-anchor combo the trigger reads.
     host.search_input = SimpleNamespace(text=lambda: search_text)
-    host.date_combo = SimpleNamespace(currentData=lambda: now_utc().date())
-    host.time_combo = SimpleNamespace(currentData=lambda: "all")
+    host.anchor_combo = SimpleNamespace(currentData=lambda: anchor)
     host.hide_filler_btn = SimpleNamespace(isChecked=lambda: False)
     # Capture executor submissions and emitted payloads.
     host.submitted = []
@@ -142,17 +141,20 @@ def _make_trigger_host(*, search_text: str, provider_ids):
 # ---------------------------------------------------------------------------
 
 def test_reload_browse_empty_search_fetches_schedule_not_placeholder():
-    """REGRESSION: empty search must reach _fetch_browse (the schedule branch),
-    NOT short-circuit to a placeholder. Fails against dd576bf's gate."""
+    """Empty search must still reach _fetch_browse (the forward schedule branch),
+    NOT short-circuit to a placeholder — Browse's primary, no-search mode."""
     host = _make_trigger_host(search_text="", provider_ids=["p1"])
     _EpgBrowseMixin._reload_browse(host)
-    # A schedule fetch was submitted — Browse is alive with an empty search.
+    # A forward fetch was submitted — Browse is alive with an empty search.
     assert len(host.submitted) == 1, "empty search should still fetch the schedule"
     fn, args = host.submitted[0]
     assert fn == host._fetch_browse
-    provider_ids, target_date, time_slot, search, hide_filler = args
+    # New forward signature: (provider_ids, anchor, search, hide_filler, after, append, gen)
+    provider_ids, anchor, search, hide_filler, after, append, gen = args
     assert search == "", "search term forwarded as empty (schedule mode)"
     assert provider_ids == ["p1"]
+    assert after is None, "a fresh reload starts at page 1 (no keyset cursor)"
+    assert append is False
     # And crucially it did NOT emit the placeholder-only payload.
     assert host.emitted == []
 
@@ -163,7 +165,7 @@ def test_reload_browse_with_search_still_fetches():
     _EpgBrowseMixin._reload_browse(host)
     assert len(host.submitted) == 1
     _, args = host.submitted[0]
-    assert args[3] == "Arsenal"
+    assert args[2] == "Arsenal"  # search is the 3rd positional arg now
     assert host.emitted == []
 
 
@@ -232,7 +234,7 @@ def test_render_browse_empty_schedule_shows_placeholder(qapp):
         qapp, provider_ids=["p1"], search_text="", name_map={}
     )
     _EpgBrowseMixin._render_browse(host, [])
-    assert host.browse_placeholder.text() == "No programmes for the selected day and time."
+    assert host.browse_placeholder.text() == "No upcoming programmes in the guide."
     assert host.browse_stats.text() == ""
     assert host.browse_list.topLevelItemCount() == 0
 

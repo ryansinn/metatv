@@ -319,10 +319,22 @@ class _EpgWatchlistMixin:
                 and payload_search != self.search_input.text().strip()
             ):
                 return
+            # Generation guard: a paginated "load more" page that arrives after the
+            # user changed the anchor (a fresh reload bumped _browse_gen) is stale —
+            # appending it to the freshly-cleared list would corrupt the order.
+            gen = payload.get("gen")
+            if gen is not None and gen != getattr(self, "_browse_gen", gen):
+                return
+            # Advance the keyset cursor / exhausted flag so the scroll handler knows
+            # whether (and from where) to fetch the next page.
+            self._browse_cursor = payload.get("cursor")
+            self._browse_exhausted = payload.get("exhausted", True)
+            self._browse_loading = False
             self._render_browse(
                 payload["programs"],
                 payload.get("placeholder", False),
                 payload.get("guide_end"),
+                payload.get("append", False),
             )
         elif tab == "events":
             self._events_dto_cache = payload["dtos"]

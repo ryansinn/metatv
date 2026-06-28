@@ -4,11 +4,21 @@
 It is mixed into ``EpgView`` via multiple inheritance and accesses all shared
 instance state through ``self`` at runtime (MRO resolution).
 
-Methods moved here (verbatim from ``epg_view.py``):
+Browse is **forward-looking** (Phase 1): instead of a calendar-day × bounded
+time-slot picker it offers a single *start anchor* (Now / Tonight / Tomorrow / …)
+and lists programmes chronologically forward from there — never the past — paged
+in via keyset pagination as the user scrolls. The Phase-2 timeline scrubber will
+reuse the same forward repository query (``EpgRepository.get_schedule_forward``).
+
+Methods here:
     _build_browse_tab
+    _refresh_browse_anchors
     _reload_browse
+    _load_more_browse
+    _on_browse_scroll
     _fetch_browse
     _render_browse
+    _browse_placeholder_text
     _browse_double_click
     _on_browse_context_menu
     _browse_selection_changed
@@ -22,7 +32,7 @@ dicts, etc.) remain in ``EpgView`` and resolve via ``self`` / MRO.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -41,7 +51,6 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.database import ChannelDB, EpgProgramDB
-from metatv.core.repositories.epg import SCHEDULE_TIME_SLOTS
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
@@ -51,10 +60,14 @@ from metatv.gui.epg_widgets import (
 )
 
 from metatv.core.epg_utils import (
+    browse_anchors as _browse_anchors,
     fmt_time as _format_time,
     fmt_duration as _duration_str,
     to_local as _to_local,
 )
+
+# Forward-list page size — one keyset page fetched per scroll-to-bottom.
+_BROWSE_PAGE_SIZE = 200
 
 
 class _EpgBrowseMixin:
@@ -71,6 +84,12 @@ class _EpgBrowseMixin:
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
+        # Forward-list pagination state.
+        self._browse_cursor: tuple | None = None   # keyset (start_time, id) of last row
+        self._browse_exhausted: bool = True         # no more pages to fetch
+        self._browse_loading: bool = False          # a fetch is in flight
+        self._browse_gen: int = 0                   # reload generation (drops stale async pages)
+
         # Search row with clear button
         search_row = QHBoxLayout()
         search_row.setSpacing(4)
@@ -81,34 +100,32 @@ class _EpgBrowseMixin:
         search_row.addWidget(self.search_input, 1)
         layout.addLayout(search_row)
 
-        # Filter row
+        # Filter row — a single forward START-ANCHOR combo (replaces the old
+        # calendar-day + bounded time-slot pair). Selecting an anchor sets where the
+        # forward list begins; it then runs chronologically until data runs out.
         filter_row = QHBoxLayout()
 
-        self.date_combo = QComboBox()
-        self.date_combo.setFixedWidth(110)
-        today = date.today()
-        for i in range(6):
-            d = today + timedelta(days=i)
-            label = "Today" if i == 0 else ("Tomorrow" if i == 1 else d.strftime("%a %b %d"))
-            self.date_combo.addItem(label, d)
-        self.date_combo.currentIndexChanged.connect(self._reload_browse)
+        anchor_label = QLabel("Starting:")
+        anchor_label.setStyleSheet(_theme.LABEL_MUTED)
+        filter_row.addWidget(anchor_label)
 
-        self.time_combo = QComboBox()
-        self.time_combo.setFixedWidth(120)
-        # Labels + values come from the single slot definition in the EPG repo, so the
-        # dropdown text and the window math (incl. Late Night 11 PM–5 AM) never drift.
-        for key, label, _h_start, _h_end in SCHEDULE_TIME_SLOTS:
-            self.time_combo.addItem(label, key)
-        self.time_combo.currentIndexChanged.connect(self._reload_browse)
+        self.anchor_combo = QComboBox()
+        self.anchor_combo.setMinimumWidth(180)
+        self.anchor_combo.setToolTip(
+            "Start browsing the guide forward from this point in time. "
+            "The list runs chronologically and never shows the past."
+        )
+        self._refresh_browse_anchors()
+        self.anchor_combo.currentIndexChanged.connect(self._reload_browse)
 
         self.hide_filler_btn = QPushButton("Hide Filler ✓")
         self.hide_filler_btn.setCheckable(True)
         self.hide_filler_btn.setChecked(self.config.epg_hide_filler)
         self.hide_filler_btn.setFixedWidth(100)
+        self.hide_filler_btn.setToolTip("Hide placeholder / off-air filler programmes.")
         self.hide_filler_btn.clicked.connect(self._reload_browse)
 
-        filter_row.addWidget(self.date_combo)
-        filter_row.addWidget(self.time_combo)
+        filter_row.addWidget(self.anchor_combo)
         filter_row.addStretch()
         filter_row.addWidget(self.hide_filler_btn)
         layout.addLayout(filter_row)
@@ -130,6 +147,8 @@ class _EpgBrowseMixin:
         self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
         self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
+        # Lazy-load the next chronological page when scrolled near the bottom.
+        self.browse_list.verticalScrollBar().valueChanged.connect(self._on_browse_scroll)
         # Restore persisted sort
         _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
         _bord = Qt.SortOrder(self.config.epg_filter_state.get("browse_sort_order", 0))
@@ -140,7 +159,7 @@ class _EpgBrowseMixin:
         self.browse_list.setVisible(False)
         layout.addWidget(self.browse_list)
 
-        self.browse_placeholder = QLabel("Search for a programme, sport, or show above")
+        self.browse_placeholder = QLabel("Loading the upcoming schedule…")
         self.browse_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         layout.addWidget(self.browse_placeholder)
@@ -151,37 +170,93 @@ class _EpgBrowseMixin:
 
         self.stack.addWidget(page)
 
+    def _refresh_browse_anchors(self) -> None:
+        """(Re)populate the start-anchor combo with freshly-resolved local times.
+
+        Called at build and again on each activation so "Now"/"Tonight"/"Tomorrow"
+        resolve against the current clock (the resolved local time shows in each
+        label). The current selection index is preserved. Signals are blocked so a
+        rebuild never triggers a spurious reload.
+        """
+        prev = self.anchor_combo.currentIndex() if self.anchor_combo.count() else 0
+        self.anchor_combo.blockSignals(True)
+        self.anchor_combo.clear()
+        for label, anchor in _browse_anchors():
+            self.anchor_combo.addItem(label, anchor)
+        if 0 <= prev < self.anchor_combo.count():
+            self.anchor_combo.setCurrentIndex(prev)
+        self.anchor_combo.blockSignals(False)
+
     def _reload_browse(self) -> None:
-        # Browse is a date/time-driven schedule browser. An empty search shows the
-        # full schedule for the selected day + time slot (get_schedule); a non-empty
-        # search narrows to matching upcoming programmes (search_programs). Both
-        # branches live in _fetch_browse — never early-return on an empty search, or
-        # the schedule view (the tab's primary function) is dead and only text search
-        # works (regression introduced in dd576bf).
+        # Forward-looking schedule browser. A fresh reload (anchor change, search
+        # keystroke, or filler toggle) restarts the chronological list from page 1.
         #
         # ``search`` is captured up-front and threaded through the fetch → payload so
-        # the main-thread render can drop STALE async results (flagged 454e01bf): a
-        # slow empty-search full-schedule fetch must not land after a newer keystroke
-        # and revert Browse to ALL content. The render guard re-applies the active
-        # search box on every refresh.
+        # the main-thread render can drop STALE async results: a slow page must not
+        # land after a newer keystroke and revert Browse. The render guard re-applies
+        # the active search box AND a per-reload generation token on every refresh.
         search = self.search_input.text().strip()
+        # New generation → any in-flight page (e.g. a slow "load more" for a prior
+        # anchor/search) is dropped on arrival; reset the keyset cursor to page 1.
+        self._browse_gen = getattr(self, "_browse_gen", 0) + 1
+        gen = self._browse_gen
+        self._browse_cursor = None
+        self._browse_exhausted = False
+        self._browse_loading = True
+
         provider_ids = self._filtered_provider_ids()
         if not provider_ids:
             # No EPG sources configured/active → nothing to browse. Surface the
             # placeholder rather than firing a query that can only return empty.
-            self._data_loaded.emit(
-                {"tab": "browse", "programs": [], "placeholder": True, "search": search}
-            )
+            self._browse_loading = False
+            self._browse_exhausted = True
+            self._data_loaded.emit({
+                "tab": "browse", "programs": [], "placeholder": True,
+                "search": search, "append": False, "gen": gen,
+                "cursor": None, "exhausted": True,
+            })
             return
-        target_date = self.date_combo.currentData()
-        time_slot = self.time_combo.currentData()
+
+        anchor = self.anchor_combo.currentData()
         hide_filler = self.hide_filler_btn.isChecked()
         self._executor.submit(
-            self._fetch_browse, provider_ids, target_date, time_slot, search, hide_filler
+            self._fetch_browse, provider_ids, anchor, search, hide_filler, None, False, gen
         )
 
-    def _fetch_browse(self, provider_ids: list[str], target_date: date,
-                      time_slot: str, search: str, hide_filler: bool) -> None:
+    def _load_more_browse(self) -> None:
+        """Fetch + append the next chronological page using the keyset cursor."""
+        if getattr(self, "_browse_loading", False) or getattr(self, "_browse_exhausted", True):
+            return
+        cursor = getattr(self, "_browse_cursor", None)
+        if cursor is None:
+            return
+        provider_ids = self._filtered_provider_ids()
+        if not provider_ids:
+            return
+        self._browse_loading = True
+        gen = getattr(self, "_browse_gen", 0)
+        search = self.search_input.text().strip()
+        anchor = self.anchor_combo.currentData()
+        hide_filler = self.hide_filler_btn.isChecked()
+        self._executor.submit(
+            self._fetch_browse, provider_ids, anchor, search, hide_filler, cursor, True, gen
+        )
+
+    def _on_browse_scroll(self, _value: int = 0) -> None:
+        """Trigger the next page when scrolled near the bottom of the results."""
+        if getattr(self, "_browse_loading", False) or getattr(self, "_browse_exhausted", True):
+            return
+        sb = self.browse_list.verticalScrollBar()
+        maximum = sb.maximum()
+        if maximum <= 0:
+            return
+        # "Near bottom": within ~1.5 viewport-pages of the end (or already at it).
+        threshold = max(maximum - sb.pageStep() * 3 // 2, 0)
+        if sb.value() >= threshold:
+            self._load_more_browse()
+
+    def _fetch_browse(self, provider_ids: list[str], anchor, search: str,
+                      hide_filler: bool, after, append: bool, gen: int) -> None:
         from metatv.core.repositories import RepositoryFactory
 
         session = self.db.get_session()
@@ -193,31 +268,32 @@ class _EpgBrowseMixin:
             # global Exclusions are honoured (active-source scoping, DR-0007).
             excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
             filler = self.config.epg_filler_patterns if hide_filler else []
+            hours = getattr(self.config, "epg_browse_hide_older_than_hours", 0) or 0
+            max_age = timedelta(hours=hours) if hours > 0 else None
 
-            if search:
-                programs = repo.search_programs(
-                    search, provider_ids, hours_ahead=168,
-                    excluded_channel_provider_ids=excluded_ch_provider_ids,
-                )
-            else:
-                programs = repo.get_schedule(
-                    target_date=target_date,
-                    provider_ids=provider_ids,
-                    hide_filler=hide_filler,
-                    filler_patterns=filler,
-                    time_slot=time_slot,
-                    excluded_channel_provider_ids=excluded_ch_provider_ids,
-                )
-
-            # Honest coverage for the empty-state: the LAST CONTIGUOUS programme the
-            # scoped sources actually carry from now (stops at the first hole) — NOT
-            # the max stop_time anywhere (ProviderDB.epg_data_end), which a single deep
-            # channel inflates and which dishonestly claimed the guide "reaches
-            # tomorrow" while tonight's late-night block was missing.
-            guide_end = repo.get_contiguous_guide_end(
-                provider_ids,
+            # Forward-looking, chronological, keyset-paginated. The repo floors the
+            # anchor to "now" so the PAST never appears, and search narrows within.
+            programs = repo.get_schedule_forward(
+                provider_ids=provider_ids,
+                anchor=anchor,
+                search_query=search,
+                hide_filler=hide_filler,
+                filler_patterns=filler,
                 excluded_channel_provider_ids=excluded_ch_provider_ids,
+                after=after,
+                limit=_BROWSE_PAGE_SIZE,
+                max_age=max_age,
             )
+
+            # Honest coverage for the empty-state (first page only): the LAST
+            # CONTIGUOUS programme the scoped sources actually carry from now (stops
+            # at the first hole) — NOT the inflated max stop_time anywhere.
+            guide_end = None
+            if not append:
+                guide_end = repo.get_contiguous_guide_end(
+                    provider_ids,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
+                )
 
             # Build channel display maps from stored detected_* fields (computed at
             # ingestion). Render reads the clean detected_title — never parse_channel_name
@@ -234,22 +310,32 @@ class _EpgBrowseMixin:
             self._channel_name_map.update(name_map)
             self._channel_title_map.update(title_map)
 
+            # Keyset cursor = last (start_time, id) of this page; a short page (fewer
+            # than the requested limit) means the forward timeline is exhausted.
+            cursor = (programs[-1].start_time, programs[-1].id) if programs else after
+            exhausted = len(programs) < _BROWSE_PAGE_SIZE
+
             self._data_loaded.emit({
                 "tab": "browse",
                 "programs": programs,
                 "guide_end": guide_end,
                 "search": search,
+                "append": append,
+                "gen": gen,
+                "cursor": cursor,
+                "exhausted": exhausted,
             })
         except Exception as e:
             logger.error(f"EpgView browse fetch error: {e}")
+            self._browse_loading = False
         finally:
             session.close()
 
     def _render_browse(self, programs: list[EpgProgramDB], placeholder: bool = False,
-                       guide_end=None) -> None:
-        if placeholder or not programs:
-            # No data (no EPG sources, or the selected day/slot/search has no
-            # programmes) → show the placeholder instead of an empty tree.
+                       guide_end=None, append: bool = False) -> None:
+        if not append and (placeholder or not programs):
+            # No data (no EPG sources, or nothing upcoming from the anchor/search) →
+            # show the placeholder instead of an empty tree.
             self.browse_list.setVisible(False)
             self.browse_placeholder.setText(self._browse_placeholder_text(guide_end=guide_end))
             self.browse_placeholder.setVisible(True)
@@ -259,14 +345,15 @@ class _EpgBrowseMixin:
         self.browse_placeholder.setVisible(False)
         self.browse_list.setVisible(True)
         self.browse_list.setSortingEnabled(False)
-        self.browse_list.clear()
+        if not append:
+            # Fresh load replaces the list; a "load more" page appends to it.
+            self.browse_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
 
         for prog in programs:
             cid = prog.channel_db_id or ""
             # Show the clean detected_title (prefix/quality/region stripped at
-            # ingestion); fall back to the raw name, then the EPG channel id
-            # (flagged 8f941952).
+            # ingestion); fall back to the raw name, then the EPG channel id.
             ch_name = (
                 self._channel_title_map.get(cid)
                 or self._channel_name_map.get(cid)
@@ -294,27 +381,28 @@ class _EpgBrowseMixin:
             self.browse_list.addTopLevelItem(item)
 
         self.browse_list.setSortingEnabled(True)
-        count = len(programs)
-        self.browse_stats.setText(f"{count:,} programmes")
+        count = self.browse_list.topLevelItemCount()
+        more = "" if getattr(self, "_browse_exhausted", True) else "+"
+        self.browse_stats.setText(f"{count:,}{more} programmes")
         self.status_message.emit(f"EPG: {count:,} programmes")
 
     def _browse_placeholder_text(self, guide_end=None) -> str:
-        """Context-aware empty-state message for the Browse tab.
+        """Context-aware empty-state message for the forward-looking Browse tab.
 
-        When the selected day/time window has no programmes but guide_end is known
-        (from the provider's stored epg_data_end), the message tells the user exactly
-        how far the guide actually reaches, so an empty prime-time slot reads as
-        "guide only goes to <date/time>" rather than a blank list that looks like a bug.
+        When nothing is upcoming from the chosen anchor but guide_end is known, the
+        message reports exactly how far the guide actually reaches (the last
+        contiguous programme) so an empty list reads as "guide only goes to
+        <date/time>" rather than a blank list that looks like a bug.
         """
         if not self._filtered_provider_ids():
             return "No EPG sources — enable a source's guide to browse the schedule."
         if self.search_input.text().strip():
-            return "No programmes match your search."
+            return "No upcoming programmes match your search."
         if guide_end is not None:
             local_end = _to_local(guide_end)
             end_str = local_end.strftime("%a %b %-d at %-I:%M %p")
-            return f"No programmes scheduled in this window — this source's guide currently reaches {end_str}."
-        return "No programmes for the selected day and time."
+            return f"No more programmes from here — this source's guide currently reaches {end_str}."
+        return "No upcoming programmes in the guide."
 
     def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))

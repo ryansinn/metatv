@@ -267,6 +267,115 @@ class EpgRepository:
 
         return query.order_by(EpgProgramDB.start_time).all()
 
+    def get_schedule_forward(
+        self,
+        provider_ids: list[str],
+        anchor: datetime | None = None,
+        search_query: str = "",
+        hide_filler: bool = True,
+        filler_patterns: list[str] | None = None,
+        lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+        after: tuple[datetime, int] | None = None,
+        limit: int = 200,
+        max_age: timedelta | None = None,
+        _now: datetime | None = None,
+    ) -> list[EpgProgramDB]:
+        """Forward-looking, chronological, keyset-paginated schedule.
+
+        The Browse-tab successor to :meth:`get_schedule`'s calendar-day ×
+        bounded-time-slot model. Returns programmes whose ``start_time`` is at or
+        after the *effective anchor* — ``max(now, anchor)`` so the PAST is never
+        shown — ordered ascending by ``(start_time, id)`` and capped at ``limit``.
+
+        Pagination is keyset (cursor): pass the last ``(start_time, id)`` from the
+        previous page as ``after`` to fetch the next page. Keyset (vs OFFSET) keeps
+        each page O(log n) on the 100k+/day ``epg_programmes`` table.
+
+        Scoping/filter parity with :meth:`get_schedule` — ``provider_ids``,
+        ``excluded_channel_provider_ids`` (channel-side hidden-provider scoping),
+        ``search_query``, ``hide_filler``/``filler_patterns``, ``lang_code``, and
+        ``channel_db_id IS NOT NULL`` (playable channels only).
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            anchor: Requested start instant (UTC-naive). Floored to ``now`` so a
+                past anchor never surfaces already-aired programmes. ``None`` = now.
+            search_query: Optional keyword filter on title + description.
+            hide_filler: Skip filler titles.
+            filler_patterns: Title substrings considered filler.
+            lang_code: Restrict to channels whose epg id ends ``.<lang_code>``.
+            excluded_channel_provider_ids: Channel-side scoping — drop programmes
+                whose matched ChannelDB row belongs to a hidden provider (mirrors
+                :meth:`get_schedule`; pass ``get_hidden_provider_ids()``).
+            after: Keyset cursor — the ``(start_time, id)`` of the last row from
+                the previous page. ``None`` starts at the first page.
+            limit: Max rows returned (one page).
+            max_age: Left-bound guard ``start_time >= now - max_age``. In Phase-1
+                forward-only browsing this is dominated by the ``>= now`` floor, so
+                it is effectively inert; it is wired so the Phase-2 timeline
+                scrubber can reuse this method with a real left bound.
+            _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+
+        Returns:
+            Up to ``limit`` programmes ordered ascending by ``(start_time, id)``.
+        """
+        now = _now or _now_utc()
+        # Never the past: a requested anchor only moves the window FORWARD.
+        effective_anchor = anchor if (anchor is not None and anchor > now) else now
+
+        query = self.session.query(EpgProgramDB).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.start_time >= effective_anchor,
+            EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
+        )
+
+        # Max-age floor (Phase-2 left bound). Dominated by the >= effective_anchor
+        # filter in Phase-1 forward mode, but wired so it is honoured everywhere.
+        if max_age is not None:
+            query = query.filter(EpgProgramDB.start_time >= now - max_age)
+
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+
+        if search_query:
+            like = f"%{search_query}%"
+            query = query.filter(
+                EpgProgramDB.title.ilike(like) | EpgProgramDB.description.ilike(like)
+            )
+
+        if hide_filler and filler_patterns:
+            for pattern in filler_patterns:
+                query = query.filter(~EpgProgramDB.title.ilike(f"%{pattern}%"))
+
+        if lang_code:
+            query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
+
+        if after is not None:
+            from sqlalchemy import and_, or_
+            after_start, after_id = after
+            # Keyset: rows strictly after (start_time, id) in the sort order.
+            query = query.filter(
+                or_(
+                    EpgProgramDB.start_time > after_start,
+                    and_(
+                        EpgProgramDB.start_time == after_start,
+                        EpgProgramDB.id > after_id,
+                    ),
+                )
+            )
+
+        return (
+            query
+            .order_by(EpgProgramDB.start_time, EpgProgramDB.id)
+            .limit(limit)
+            .all()
+        )
+
     def get_contiguous_guide_end(
         self,
         provider_ids: list[str],

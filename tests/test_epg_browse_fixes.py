@@ -243,15 +243,16 @@ def test_fetch_browse_applies_hidden_provider_scoping(scoped_db):
     db, _ = scoped_db
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
     host.db = db
-    host.config = SimpleNamespace(epg_filler_patterns=[])
+    host.config = SimpleNamespace(epg_filler_patterns=[], epg_browse_hide_older_than_hours=0)
     host._channel_name_map = {}
     host._channel_title_map = {}
     host.emitted = []
     host._data_loaded = SimpleNamespace(emit=lambda p: host.emitted.append(p))
 
+    # Forward signature: (provider_ids, anchor, search, hide_filler, after, append, gen)
     _EpgBrowseMixin._fetch_browse(
-        host, provider_ids=["p1"], target_date=now_utc().date(),
-        time_slot="all", search="Arsenal", hide_filler=False,
+        host, provider_ids=["p1"], anchor=None, search="Arsenal",
+        hide_filler=False, after=None, append=False, gen=1,
     )
     assert len(host.emitted) == 1
     payload = host.emitted[0]
@@ -280,9 +281,13 @@ def _make_browse_tab_host(qapp, config=None):
     host.config = cfg
     host.stack = QStackedWidget(host)
     host._build_browse_tab = lambda: EpgView._build_browse_tab(host)
+    # Real anchor-combo populate runs during build (uses browse_anchors()).
+    host._refresh_browse_anchors = lambda: EpgView._refresh_browse_anchors(host)
     # Stubs for the signal targets connected during build
     host._on_search_changed = lambda *_: None
     host._reload_browse = lambda *_: None
+    host._load_more_browse = lambda *_: None
+    host._on_browse_scroll = lambda *_: None
     host._browse_double_click = lambda *_: None
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None

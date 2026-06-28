@@ -122,6 +122,8 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._epg_interval_combo = QComboBox()
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
+    dlg._epg_hide_older_spin = QSpinBox()
+    dlg._epg_hide_older_spin.setRange(0, 168)
 
     # -- Interface tab widgets (Search + Sources + Sidebar) --
     dlg._remember_search_check = QCheckBox()

@@ -332,6 +332,17 @@ class SettingsDialog(QDialog):
         )
         epg_form.addRow("EPG refresh:", self._epg_interval_combo)
 
+        self._epg_hide_older_spin = QSpinBox()
+        self._epg_hide_older_spin.setRange(0, 168)  # 0 = no extra trim … up to 7 days
+        self._epg_hide_older_spin.setSuffix(" h")
+        self._epg_hide_older_spin.setToolTip(
+            "Browse looks forward from your chosen start point and never shows the\n"
+            "past, but this also trims the left edge of the guide timeline: programmes\n"
+            "that started more than this many hours ago are hidden. 0 keeps everything\n"
+            "from 'now' onward (the default forward behaviour)."
+        )
+        epg_form.addRow("Hide EPG older than:", self._epg_hide_older_spin)
+
         layout.addWidget(epg_group)
 
         layout.addStretch()
@@ -490,6 +501,9 @@ class SettingsDialog(QDialog):
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
         self._epg_interval_combo.setCurrentIndex(epg_idx if epg_idx >= 0 else 0)
+        self._epg_hide_older_spin.setValue(
+            getattr(c, "epg_browse_hide_older_than_hours", 24)
+        )
 
         # Metadata
         self._meta_enabled_check.setChecked(c.metadata_enabled)
@@ -558,6 +572,7 @@ class SettingsDialog(QDialog):
         epg_val = self._epg_interval_combo.currentData()
         if epg_val:
             c.epg_default_refresh_interval = epg_val
+        c.epg_browse_hide_older_than_hours = self._epg_hide_older_spin.value()
 
         # Metadata
         c.metadata_enabled = self._meta_enabled_check.isChecked()
