@@ -503,6 +503,10 @@ class _VersionSection(QWidget):
             header_parts.append(f"({src_name})")
         header = " ".join(header_parts)
 
+        # Import here to keep the module-level import surface small and to avoid
+        # a circular import at load time (glyph_icon calls QPixmap which needs QApplication).
+        from metatv.gui.icons import glyph_icon as _glyph_icon
+
         menu = QMenu(self)
         title_act = menu.addAction(header)
         title_act.setEnabled(False)
@@ -512,22 +516,30 @@ class _VersionSection(QWidget):
             # Inactive source: offer reactivate & play prominently
             reactivate_act = menu.addAction("Reactivate source & play")
             reactivate_act.setToolTip(f"Re-enable {src_name or prefix} and play this variant")
+            reactivate_act.setIcon(_glyph_icon(_icons.play_icon))
             show_act = menu.addAction(f"Show details for {prefix} version")
             show_act.setToolTip(v.name)
+            show_act.setIcon(_glyph_icon(_icons.info_icon))
         else:
             play_act = menu.addAction(f"Play {prefix} version")
             play_act.setToolTip(f"Play: {v.name}")
+            play_act.setIcon(_glyph_icon(_icons.play_icon))
             show_act = menu.addAction(f"Show details for {prefix} version")
             show_act.setToolTip(v.name)
+            show_act.setIcon(_glyph_icon(_icons.info_icon))
         menu.addSeparator()
 
-        fav_act   = menu.addAction("Remove from Favorites" if v.is_favorite else "Add to Favorites")
+        fav_act = menu.addAction("Remove from Favorites" if v.is_favorite else "Add to Favorites")
+        fav_act.setIcon(_glyph_icon(_icons.unfavorite_icon if v.is_favorite else _icons.favorite_icon))
         queue_act = menu.addAction("Remove from Queue" if v.in_queue else "Add to Queue")
+        queue_act.setIcon(_glyph_icon(_icons.queue_icon))
         if not v.is_inactive:
             hide_act = menu.addAction(f"Hide this {prefix} version")
             hide_act.setToolTip(f"Hides only: {v.name}")
+            hide_act.setIcon(_glyph_icon(_icons.hide_icon))
         menu.addSeparator()
 
+        # Admin/destructive rows — no icon (blank column signals a different tier)
         filter_act   = menu.addAction(f'Filter out ALL "{prefix}" content')
         filter_act.setToolTip(f"Deselects {prefix} from Content Categories — easy to undo from filter panel")
         hide_cat_act = menu.addAction(f"Hide the {prefix} category")

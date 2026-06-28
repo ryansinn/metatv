@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QMenu
 
 from metatv.gui import icons as _icons
@@ -424,22 +424,22 @@ ACTIONS: dict[str, ChannelAction] = {
     # ── Multi-select (channel surface only) ─────────────────────────────────
     "quickpick_trash": ChannelAction(
         id="quickpick_trash",
-        label=lambda c: f"{_icons.delete_icon} Trash",
-        icon="",
+        label=lambda c: "Trash",
+        icon=_icons.delete_icon,
         tooltip="Assign to Trash — Dislike mood, added to Global Exclusions",
         applies=lambda c: c.is_multi,
     ),
     "quickpick_watch_later": ChannelAction(
         id="quickpick_watch_later",
-        label=lambda c: f"{_icons.watch_later_icon} Watch Later",
-        icon="",
+        label=lambda c: "Watch Later",
+        icon=_icons.watch_later_icon,
         tooltip="Assign to Watch Later — Neutral mood",
         applies=lambda c: c.is_multi,
     ),
     "quickpick_explore": ChannelAction(
         id="quickpick_explore",
-        label=lambda c: f"{_icons.curious_icon} Explore",
-        icon="",
+        label=lambda c: "Explore",
+        icon=_icons.curious_icon,
         tooltip="Assign to Explore — Curious mood, surfaces more like this",
         applies=lambda c: c.is_multi,
     ),
@@ -448,6 +448,35 @@ ACTIONS: dict[str, ChannelAction] = {
         label=_bulk_category_label,
         icon=_icons.queue_icon,
         tooltip="Assign a user-defined category to the selected channels",
+        applies=lambda c: c.is_multi,
+    ),
+    # ── Multi-select bulk actions ────────────────────────────────────────────
+    "bulk_favorite": ChannelAction(
+        id="bulk_favorite",
+        label=lambda c: "Add to Favorites",
+        icon=_icons.favorite_icon,
+        tooltip="Add all selected channels to Favorites",
+        applies=lambda c: c.is_multi,
+    ),
+    "bulk_queue": ChannelAction(
+        id="bulk_queue",
+        label=lambda c: "Add to Queue",
+        icon=_icons.queue_icon,
+        tooltip="Add all selected channels to the Watch Queue",
+        applies=lambda c: c.is_multi,
+    ),
+    "bulk_mark_watched": ChannelAction(
+        id="bulk_mark_watched",
+        label=lambda c: "Mark as Watched",
+        icon=_icons.watched_icon,
+        tooltip="Mark all selected movies/series as watched",
+        applies=lambda c: c.is_multi,
+    ),
+    "bulk_hide": ChannelAction(
+        id="bulk_hide",
+        label=lambda c: "Hide Selected",
+        icon=_icons.hide_icon,
+        tooltip="Hide all selected channels from the channel list",
         applies=lambda c: c.is_multi,
     ),
 }
@@ -477,6 +506,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         # Multi-select extras (applies = is_multi; single-select actions apply = is_single)
         "sep",
         "play_all",
+        "sep",
+        "bulk_favorite", "bulk_queue", "bulk_mark_watched", "bulk_hide",
         "sep",
         "quickpick_trash", "quickpick_watch_later", "quickpick_explore",
         "sep",
@@ -630,22 +661,21 @@ def build_channel_menu(
             menu.addSeparator()
             pending_sep = False
 
-        # Build the label with icon prefix when applicable.
-        # For "favorite" the icon flips depending on is_favorite — compute it
-        # separately so the label function itself stays icon-free.
-        if token == "favorite":
-            raw_label = action_def.label(ctx)
-            icon_prefix = (_icons.unfavorite_icon if ctx.is_favorite else _icons.favorite_icon)
-            label_text = f"{icon_prefix} {raw_label}"
-        elif action_def.icon:
-            label_text = f"{action_def.icon} {action_def.label(ctx)}"
-        else:
-            label_text = action_def.label(ctx)
-
         # Parent the QAction to the menu (not to parent widget) so Qt owns
         # the object and it is not garbage-collected while the menu is open.
+        label_text = action_def.label(ctx)
         act = QAction(label_text, menu)
         act.setToolTip(action_def.tooltip)
+
+        # Set icon via QAction.setIcon() so Qt reserves a uniform icon column.
+        # Frequent-action rows get a rendered glyph icon; admin/rare rows get
+        # no icon (the blank column on those rows signals a different tier).
+        # For "favorite" the icon flips on is_favorite — compute it dynamically.
+        if token == "favorite":
+            fav_glyph = _icons.unfavorite_icon if ctx.is_favorite else _icons.favorite_icon
+            act.setIcon(_icons.glyph_icon(fav_glyph))
+        elif action_def.icon:
+            act.setIcon(_icons.glyph_icon(action_def.icon))
 
         if action_def.checkable:
             act.setCheckable(True)
