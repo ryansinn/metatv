@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=76,
+    id=78,
     version="0.8.0",
     date="2026-06-28",
     title="Details pane: rating on type line + sentiment rail left of poster",
