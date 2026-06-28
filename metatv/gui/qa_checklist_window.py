@@ -721,6 +721,8 @@ class QAChecklistWindow(QWidget):
         self._flagged_title_edits: dict[str, QLineEdit] = {}
         # Flagged section container (rebuilt on refresh; stored for section-order tests)
         self._flagged_container: QWidget | None = None
+        # Resolved sub-section container (addressed flags auto-file here; None when empty)
+        self._resolved_container: QWidget | None = None
 
         self.setWindowTitle("Testing Checklist")
         self.setMinimumWidth(560)
@@ -932,6 +934,7 @@ class QAChecklistWindow(QWidget):
         self._archived_toggle_btn = None
         self._archived_container = None
         self._flagged_container = None
+        self._resolved_container = None
 
     def _refresh(self) -> None:
         """Rebuild the body from current config state."""
@@ -1390,6 +1393,11 @@ class QAChecklistWindow(QWidget):
     def _render_flagged_section(self) -> None:
         """Render the collapsible '🚩 Flagged Items' section.
 
+        Active (unaddressed) items render in the main list.  Items a later PR has
+        claimed via ``WhatsNewEntry.addresses=("flagged:<id>")`` auto-file into a
+        collapsed "✓ Resolved (N)" sub-group so the active list shows only what
+        still needs work — the tester never manually triages a fixed flag.
+
         Default expanded (``config.qa_flagged_collapsed = False``).  A
         "+ Add item" button creates a new persisted flagged item row.  Items
         have a title, notes box (reuses ``_FailNoteEdit`` for screenshot paste),
@@ -1401,7 +1409,13 @@ class QAChecklistWindow(QWidget):
         self._body_layout.addWidget(sep)
 
         collapsed: bool = getattr(self._config, "qa_flagged_collapsed", False)
-        items: list[dict] = list(getattr(self._config, "qa_flagged_items", []) or [])
+        all_items: list[dict] = list(getattr(self._config, "qa_flagged_items", []) or [])
+        active_items = [
+            i for i in all_items if not self._is_flagged_resolved(i.get("id", ""))
+        ]
+        resolved_items = [
+            i for i in all_items if self._is_flagged_resolved(i.get("id", ""))
+        ]
 
         # ── section header row ────────────────────────────────────────────────
         hdr_row = QWidget()
@@ -1421,9 +1435,8 @@ class QAChecklistWindow(QWidget):
         )
         hdr_layout.addWidget(flagged_toggle_btn)
 
-        count = len(items)
         section_hdr = QLabel(
-            f"{_icons.qa_flag_icon} Flagged Items ({count})"
+            f"{_icons.qa_flag_icon} Flagged Items ({len(active_items)})"
         )
         section_hdr.setStyleSheet(
             f"font-size: {_theme.FONT_SM}; font-weight: bold;"
@@ -1438,14 +1451,14 @@ class QAChecklistWindow(QWidget):
 
         self._body_layout.addWidget(hdr_row)
 
-        # ── collapsible items container ───────────────────────────────────────
+        # ── collapsible items container (ACTIVE items only) ───────────────────
         flagged_container = QWidget()
         self._flagged_container = flagged_container  # stored for section-order tests
         flagged_layout = QVBoxLayout(flagged_container)
         flagged_layout.setContentsMargins(0, 4, 0, 4)
         flagged_layout.setSpacing(8)
 
-        for item in items:
+        for item in active_items:
             self._render_flagged_item(item, flagged_layout)
 
         flagged_container.setVisible(not collapsed)
@@ -1480,13 +1493,100 @@ class QAChecklistWindow(QWidget):
             # Insert the new card at position 0 (top of the list) so it's
             # immediately visible without any scrolling.
             self._render_flagged_item(item_dict, flagged_layout, insert_at=0)
-            # Update the section label count.
-            new_count = len(getattr(self._config, "qa_flagged_items", []) or [])
+            # Update the section label count (active items only — a new item is
+            # never already-addressed).
+            new_active = [
+                i for i in (getattr(self._config, "qa_flagged_items", []) or [])
+                if not self._is_flagged_resolved(i.get("id", ""))
+            ]
             section_hdr.setText(
-                f"{_icons.qa_flag_icon} Flagged Items ({new_count})"
+                f"{_icons.qa_flag_icon} Flagged Items ({len(new_active)})"
             )
 
         add_btn.clicked.connect(_on_add_item)
+
+        # ── resolved sub-section (addressed items auto-file here) ──────────────
+        if resolved_items:
+            self._render_resolved_subsection(resolved_items)
+
+    def _is_flagged_resolved(self, item_id: str) -> bool:
+        """Return True when a flagged item has been claimed by a later PR.
+
+        A flag is "resolved" once any entry declares
+        ``addresses=("flagged:<item_id>")`` — surfaced through the reverse
+        addressed index.  Resolved flags auto-file into the collapsed Resolved
+        sub-section so the active Flagged list stays focused on outstanding work;
+        the tester never manually marks a fixed flag done.
+        """
+        return bool(item_id) and self._flagged_effective_addressed(item_id) is not None
+
+    def _render_resolved_subsection(self, resolved: list[dict]) -> None:
+        """Render the collapsible '✓ Resolved (N)' flagged sub-section.
+
+        Collapsed by default (``config.qa_resolved_collapsed = True``).  Items
+        here were addressed by a later PR's ``addresses=`` declaration; they keep
+        their Addressed badge and stay removable, but no longer clutter the
+        active Flagged list.
+        """
+        collapsed: bool = getattr(self._config, "qa_resolved_collapsed", True)
+
+        hdr_row = QWidget()
+        hdr_layout = QHBoxLayout(hdr_row)
+        hdr_layout.setContentsMargins(0, 4, 0, 4)
+        hdr_layout.setSpacing(6)
+
+        toggle_icon = _icons.expand_icon if collapsed else _icons.collapse_icon
+        toggle_btn = QPushButton(toggle_icon)
+        toggle_btn.setToolTip(
+            "Show resolved items" if collapsed else "Hide resolved items"
+        )
+        toggle_btn.setFixedWidth(24)
+        toggle_btn.setStyleSheet(
+            f"QPushButton {{ border: none; color: {_theme.COLOR_MUTED_2};"
+            f" font-size: {_theme.FONT_SM}; }}"
+        )
+        hdr_layout.addWidget(toggle_btn)
+
+        section_hdr = QLabel(f"{_icons.qa_addressed_icon} Resolved ({len(resolved)})")
+        section_hdr.setToolTip(
+            "Flagged items a later PR has addressed — re-test, then remove."
+        )
+        section_hdr.setStyleSheet(
+            f"font-size: {_theme.FONT_SM}; font-weight: bold;"
+            f" color: {_theme.COLOR_OK}; letter-spacing: 1px;"
+        )
+        hdr_layout.addWidget(section_hdr, stretch=1)
+        self._body_layout.addWidget(hdr_row)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 4, 0, 4)
+        container_layout.setSpacing(8)
+        self._resolved_container = container
+        for item in resolved:
+            self._render_flagged_item(item, container_layout)
+
+        # Track the collapse flag explicitly — isVisible() is unreliable inside
+        # non-shown parent windows (headless tests).
+        container.setVisible(not collapsed)
+        container._qa_collapsed = collapsed  # type: ignore[attr-defined]
+        self._body_layout.addWidget(container)
+
+        def _on_toggle() -> None:
+            want_collapsed = not getattr(container, "_qa_collapsed", True)
+            container.setVisible(not want_collapsed)
+            container._qa_collapsed = want_collapsed  # type: ignore[attr-defined]
+            toggle_btn.setText(
+                _icons.expand_icon if want_collapsed else _icons.collapse_icon
+            )
+            toggle_btn.setToolTip(
+                "Show resolved items" if want_collapsed else "Hide resolved items"
+            )
+            self._config.qa_resolved_collapsed = want_collapsed
+            self._config.save()
+            logger.debug("QA checklist: resolved section collapsed={}", want_collapsed)
+
+        toggle_btn.clicked.connect(_on_toggle)
 
     def _flagged_type_label(self, item_type: str) -> str:
         """Return the display label for a flagged item type cycle button."""

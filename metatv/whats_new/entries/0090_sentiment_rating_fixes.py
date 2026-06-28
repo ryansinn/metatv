@@ -19,4 +19,8 @@ ENTRY = WhatsNewEntry(
         "Open a title the provider gives no rating for (or a 0 rating) and confirm the "
         "star rating line is hidden — not shown as '0.0 of 10'.",
     ),
+    # These fixes (shipped in PR #248) resolve the two failures logged against
+    # entry 78 (PR #235) in the dev QA checklist — declaring them here marks
+    # those steps Addressed so the tester only needs to re-test and pass.
+    addresses=("e78_s3", "e78_s5"),
 )
