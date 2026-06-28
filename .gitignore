@@ -67,5 +67,5 @@ mpv-shot*.jpg
 .claude/worktrees/
 
 # Local scratch / personal notes accidentally committed once in #128
-design/main_ui_mockup.html
+design/
 open issues notes
