@@ -41,7 +41,6 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
-from metatv.core.repositories.epg import EpgRepository
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
@@ -162,13 +161,21 @@ class _EpgBrowseMixin:
         # branches live in _fetch_browse — never early-return on an empty search, or
         # the schedule view (the tab's primary function) is dead and only text search
         # works (regression introduced in dd576bf).
+        #
+        # ``search`` is captured up-front and threaded through the fetch → payload so
+        # the main-thread render can drop STALE async results (flagged 454e01bf): a
+        # slow empty-search full-schedule fetch must not land after a newer keystroke
+        # and revert Browse to ALL content. The render guard re-applies the active
+        # search box on every refresh.
+        search = self.search_input.text().strip()
         provider_ids = self._filtered_provider_ids()
         if not provider_ids:
             # No EPG sources configured/active → nothing to browse. Surface the
             # placeholder rather than firing a query that can only return empty.
-            self._data_loaded.emit({"tab": "browse", "programs": [], "placeholder": True})
+            self._data_loaded.emit(
+                {"tab": "browse", "programs": [], "placeholder": True, "search": search}
+            )
             return
-        search = self.search_input.text().strip()
         target_date = self.date_combo.currentData()
         time_slot = self.time_combo.currentData()
         hide_filler = self.hide_filler_btn.isChecked()
@@ -178,13 +185,23 @@ class _EpgBrowseMixin:
 
     def _fetch_browse(self, provider_ids: list[str], target_date: date,
                       time_slot: str, search: str, hide_filler: bool) -> None:
+        from metatv.core.repositories import RepositoryFactory
+
         session = self.db.get_session()
         try:
-            repo = EpgRepository(session)
+            repos = RepositoryFactory(session)
+            repo = repos.epg
+            # Scope Browse to visible sources exactly like On Now: exclude channels
+            # belonging to hidden providers (inactive ∪ expired ∪ orphaned) so the
+            # global Exclusions are honoured (active-source scoping, DR-0007).
+            excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
             filler = self.config.epg_filler_patterns if hide_filler else []
 
             if search:
-                programs = repo.search_programs(search, provider_ids, hours_ahead=168)
+                programs = repo.search_programs(
+                    search, provider_ids, hours_ahead=168,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
+                )
             else:
                 programs = repo.get_schedule(
                     target_date=target_date,
@@ -192,6 +209,7 @@ class _EpgBrowseMixin:
                     hide_filler=hide_filler,
                     filler_patterns=filler,
                     time_slot=time_slot,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
                 )
 
             # Fetch the shallowest epg_data_end among the active providers so the empty
@@ -204,19 +222,26 @@ class _EpgBrowseMixin:
             )
             guide_end = min((r.epg_data_end for r in rows), default=None)
 
-            # Build channel name map
+            # Build channel display maps from stored detected_* fields (computed at
+            # ingestion). Render reads the clean detected_title — never parse_channel_name
+            # at render time (CLAUDE.md: channel-name fields computed at ingestion).
             name_map: dict[str, str] = {}
+            title_map: dict[str, str] = {}
             for p in programs:
-                if p.channel_db_id and p.channel_db_id not in name_map:
-                    ch = session.query(ChannelDB).filter_by(id=p.channel_db_id).first()
+                cid = p.channel_db_id
+                if cid and cid not in name_map:
+                    ch = session.query(ChannelDB).filter_by(id=cid).first()
                     if ch:
-                        name_map[p.channel_db_id] = ch.name
+                        name_map[cid] = ch.name
+                        title_map[cid] = ch.detected_title or ch.name
             self._channel_name_map.update(name_map)
+            self._channel_title_map.update(title_map)
 
             self._data_loaded.emit({
                 "tab": "browse",
                 "programs": programs,
                 "guide_end": guide_end,
+                "search": search,
             })
         except Exception as e:
             logger.error(f"EpgView browse fetch error: {e}")
@@ -241,7 +266,15 @@ class _EpgBrowseMixin:
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
 
         for prog in programs:
-            ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
+            cid = prog.channel_db_id or ""
+            # Show the clean detected_title (prefix/quality/region stripped at
+            # ingestion); fall back to the raw name, then the EPG channel id
+            # (flagged 8f941952).
+            ch_name = (
+                self._channel_title_map.get(cid)
+                or self._channel_name_map.get(cid)
+                or prog.channel_epg_id
+            )
             time_str = _format_time(prog.start_time)
             dur = _duration_str(prog.start_time, prog.stop_time)
             title = prog.title
