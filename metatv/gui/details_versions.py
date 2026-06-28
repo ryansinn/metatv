@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 from loguru import logger
 
 from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 # ---------------------------------------------------------------------------
@@ -198,6 +199,7 @@ class _VersionSection(QWidget):
         self._setup()
 
     def _setup(self) -> None:
+        from PyQt6.QtWidgets import QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -224,22 +226,69 @@ class _VersionSection(QWidget):
         self._pref_nudge.hide()
         layout.addWidget(self._pref_nudge)
 
-        # Chip row: "Also available as: [chip] [chip] …"
+        # Chip section: "Also available as:" label above chips (vertical stack, full width)
         self._row_container = QWidget()
-        row_layout = QHBoxLayout(self._row_container)
+        row_layout = QVBoxLayout(self._row_container)
         row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(6)
+        row_layout.setSpacing(4)
 
+        # Label row — left-aligned, full width
+        label_row = QWidget()
+        label_row_layout = QHBoxLayout(label_row)
+        label_row_layout.setContentsMargins(0, 0, 0, 0)
+        label_row_layout.setSpacing(0)
         cat_label = QLabel("Also available as:")
         cat_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         cat_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        row_layout.addWidget(cat_label, 0)
+        label_row_layout.addWidget(cat_label)
+        label_row_layout.addStretch()
+        row_layout.addWidget(label_row)
 
+        # Active chips — full width
         self._chips_row = QWidget()
-        from PyQt6.QtWidgets import QSizePolicy
         self._chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._chips_layout = _FlowLayout(self._chips_row, h_spacing=4, v_spacing=4)
-        row_layout.addWidget(self._chips_row, 1)
+        row_layout.addWidget(self._chips_row)
+
+        # Filtered variants collapsible sub-section (hidden until ≥1 filtered chip)
+        self._filtered_section = QWidget()
+        filtered_section_layout = QVBoxLayout(self._filtered_section)
+        filtered_section_layout.setContentsMargins(0, 4, 0, 0)
+        filtered_section_layout.setSpacing(2)
+
+        # Header row: [> btn] [FILTERED VARIANTS label]
+        self._filtered_header = QWidget()
+        filtered_header_layout = QHBoxLayout(self._filtered_header)
+        filtered_header_layout.setContentsMargins(0, 2, 0, 2)
+        filtered_header_layout.setSpacing(4)
+        self._filtered_toggle_btn = QPushButton(_icons.expand_icon)
+        self._filtered_toggle_btn.setFixedSize(16, 16)
+        self._filtered_toggle_btn.setFlat(True)
+        self._filtered_toggle_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+        )
+        self._filtered_toggle_btn.setToolTip("Show/hide filtered variants")
+        self._filtered_toggle_btn.clicked.connect(self._toggle_filtered_section)
+        filtered_header_layout.addWidget(self._filtered_toggle_btn)
+        filtered_hdr_lbl = QLabel("FILTERED VARIANTS")
+        filtered_hdr_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; font-weight: bold;"
+        )
+        filtered_header_layout.addWidget(filtered_hdr_lbl)
+        filtered_header_layout.addStretch()
+        filtered_section_layout.addWidget(self._filtered_header)
+
+        # Greyed chips container (hidden by default — collapsed)
+        self._filtered_chips_row = QWidget()
+        self._filtered_chips_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self._filtered_chips_layout = _FlowLayout(self._filtered_chips_row, h_spacing=4, v_spacing=4)
+        self._filtered_chips_row.hide()
+        filtered_section_layout.addWidget(self._filtered_chips_row)
+
+        self._filtered_collapsed: bool = True
+        self._filtered_section.hide()
+        row_layout.addWidget(self._filtered_section)
 
         self._row_container.hide()
         layout.addWidget(self._row_container)
@@ -258,9 +307,15 @@ class _VersionSection(QWidget):
                 the provider icon to the left of the region/quality label.
         """
         self._provider_map: dict = provider_map or {}
+        # Clear active chips layout
         layout = self._chips_layout
         while layout.count():
             item = layout.takeAt(0)
+            if w := item.widget():
+                w.deleteLater()
+        # Clear filtered chips layout
+        while self._filtered_chips_layout.count():
+            item = self._filtered_chips_layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
 
@@ -270,6 +325,11 @@ class _VersionSection(QWidget):
             pass
         self._pref_nudge.hide()
         self._row_container.hide()
+        self._filtered_section.hide()
+        # Reset filtered section to collapsed on every load
+        self._filtered_collapsed = True
+        self._filtered_chips_row.hide()
+        self._filtered_toggle_btn.setText(_icons.expand_icon)
 
         if not versions:
             return
@@ -293,13 +353,26 @@ class _VersionSection(QWidget):
         for v in active:
             layout.addWidget(self._make_active_chip(v))
         for v in filtered:
-            layout.addWidget(self._make_greyed_chip(v))
+            self._filtered_chips_layout.addWidget(self._make_greyed_chip(v))
+
+        if filtered:
+            self._filtered_section.show()
 
         self._row_container.show()
         self._chips_row.updateGeometry()
+        if filtered:
+            self._filtered_chips_row.updateGeometry()
 
     def clear(self) -> None:
         self.load([])
+
+    def _toggle_filtered_section(self) -> None:
+        """Toggle the collapsed state of the FILTERED VARIANTS sub-section."""
+        self._filtered_collapsed = not self._filtered_collapsed
+        self._filtered_chips_row.setVisible(not self._filtered_collapsed)
+        self._filtered_toggle_btn.setText(
+            _icons.expand_icon if self._filtered_collapsed else _icons.collapse_icon
+        )
 
     # ------------------------------------------------------------------ #
     # Chip factories                                                       #
@@ -320,7 +393,6 @@ class _VersionSection(QWidget):
         Source icon comes from provider_map (set at load() time).  Falls back to
         no icon when provider_map is absent or the provider has no configured icon.
         """
-        from metatv.gui import icons as _icons_mod
         parts = []
         if v.provider_id:
             pm = getattr(self, "_provider_map", {})
