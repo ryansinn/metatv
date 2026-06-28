@@ -19,7 +19,24 @@
       "Bash(git checkout *)",
       "Bash(git branch *)",
       "Bash(git push *)",
-      "Bash(gh *)"
+      "Bash(gh *)",
+      "Bash(git status*)",
+      "Bash(git switch *)",
+      "Bash(git diff*)",
+      "Bash(git show *)",
+      "Bash(git stash*)",
+      "Bash(git restore*)",
+      "Bash(git fetch*)",
+      "Bash(git worktree *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(sed -n *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)"
     ]
   },
   "worktree": {
