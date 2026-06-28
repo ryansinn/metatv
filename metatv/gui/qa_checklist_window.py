@@ -1525,6 +1525,7 @@ class QAChecklistWindow(QWidget):
         title_row_layout.setSpacing(4)
 
         title_edit = QLineEdit()
+        title_edit.setClearButtonEnabled(True)
         title_edit.setPlaceholderText("What did you notice?")
         title_edit.setText(item.get("title", ""))
         title_edit.setToolTip("Brief title for this observation")

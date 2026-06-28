@@ -184,6 +184,7 @@ class _AssignCategoryDialog(QDialog):
         lay.addWidget(QLabel("Category code (e.g. BEIN, US, UK, NHL):"))
 
         self._edit = QLineEdit()
+        self._edit.setClearButtonEnabled(True)
         self._edit.setPlaceholderText("Type a code or pick from list below…")
         lay.addWidget(self._edit)
 

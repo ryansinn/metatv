@@ -338,6 +338,7 @@ class PreferencesView(QWidget):
 
         prefix_btn_row = QHBoxLayout()
         self._ver_prefix_input = QLineEdit()
+        self._ver_prefix_input.setClearButtonEnabled(True)
         self._ver_prefix_input.setPlaceholderText("Add prefix (e.g. EN, US)")
         self._ver_prefix_input.setMaximumWidth(140)
         self._ver_prefix_input.returnPressed.connect(self._add_version_prefix)

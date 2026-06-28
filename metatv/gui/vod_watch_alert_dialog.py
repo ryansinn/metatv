@@ -61,6 +61,7 @@ class WatchForDialog(QDialog):
         vl.addWidget(lbl_kw)
 
         self._text_edit = QLineEdit()
+        self._text_edit.setClearButtonEnabled(True)
         self._text_edit.setPlaceholderText("e.g.  Dune,  Breaking Bad,  Severance")
         self._text_edit.setStyleSheet(
             f"font-size: {_theme.FONT_MD}; padding: 4px 6px;"

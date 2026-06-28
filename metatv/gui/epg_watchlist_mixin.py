@@ -106,6 +106,7 @@ class _EpgWatchlistMixin:
 
         add_row = QHBoxLayout()
         self.add_pattern_input = QLineEdit()
+        self.add_pattern_input.setClearButtonEnabled(True)
         self.add_pattern_input.setPlaceholderText("e.g.  NHL  ·  Jeopardy  ·  MasterChef Canada")
         self.add_pattern_input.setToolTip("Pattern matching is not case-sensitive")
         self.add_pattern_input.returnPressed.connect(self._on_add_pattern)

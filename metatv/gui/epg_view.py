@@ -247,6 +247,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # Add-pattern row
         add_row = QHBoxLayout()
         add_input = QLineEdit()
+        add_input.setClearButtonEnabled(True)
         add_input.setPlaceholderText("Add filler pattern…")
         add_btn = QPushButton("Add")
         add_btn.setFixedWidth(50)

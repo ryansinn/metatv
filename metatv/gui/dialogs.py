@@ -41,6 +41,7 @@ class AddProviderDialog(QDialog):
         form = QFormLayout()
         
         self.name_input = QLineEdit()
+        self.name_input.setClearButtonEnabled(True)
         form.addRow("Name:", self.name_input)
         
         self.type_combo = QComboBox()
@@ -61,6 +62,7 @@ class AddProviderDialog(QDialog):
         # URL input and buttons
         url_input_layout = QHBoxLayout()
         self.url_input = QLineEdit()
+        self.url_input.setClearButtonEnabled(True)
         self.url_input.setPlaceholderText("http://example.com:8000")
         url_input_layout.addWidget(self.url_input)
         
@@ -80,9 +82,11 @@ class AddProviderDialog(QDialog):
         form.addRow("", url_container)
         
         self.username_input = QLineEdit()
+        self.username_input.setClearButtonEnabled(True)
         form.addRow("Username:", self.username_input)
-        
+
         self.password_input = QLineEdit()
+        self.password_input.setClearButtonEnabled(True)
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow("Password:", self.password_input)
 
