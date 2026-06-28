@@ -43,12 +43,18 @@ if TYPE_CHECKING:
 #       cross-source variants with inconsistent year labels collapse correctly;
 #       movie years are normalized to start-year (first 4-digit group).
 #       Requires recompute_all=True so existing non-NULL rows get the new key.
-CURRENT_VERSION: int = 2
+#   3 — formula change (QA flag 1ebe93bb): key normalisation now strips a trailing
+#       MULTI-anchored audio-annotation run ("The Bridge MULTI" → "the bridge|series")
+#       so "MULTI" source variants collapse onto their plain siblings.
+#       Requires recompute_all=True so existing non-NULL rows get the new key.
+#       (Recomputes only the generated content_key column — user tags/ratings/
+#       favorites are untouched.)
+CURRENT_VERSION: int = 3
 
 # Versions whose formula changed and therefore need every row recomputed, not
 # just NULL rows.  Add the new CURRENT_VERSION here whenever the key formula
 # changes.
-_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2})
+_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2, 3})
 
 
 class ContentKeyBackfillTask:

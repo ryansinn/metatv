@@ -416,6 +416,25 @@ _UNAMBIGUOUS_SUBDUB_MARKERS: frozenset[str] = frozenset({
     "MULTISUB", "ENGSUB",
 })
 
+# Bare audio-track annotation tokens that providers sometimes append to a title as a
+# *trailing word with no bracket/paren delimiter*, e.g. "The Bridge MULTI" or
+# "The Killing MULTI SUB".  Bracketed/parenthesised forms ([MULTI], (Multi-Sub)) are
+# already stripped by strip_title_qualifiers; this set targets the bare-word leak.
+# They denote the audio track, NOT the production, so the content-identity key
+# normalisation (content_identity.py) strips a trailing run of them — but only when it
+# is anchored by a MULTI/MUTI token (AUDIO_KEY_ANCHOR_TOKENS), so standalone real-word
+# titles ending in "Sub"/"Audio"/"Dual" are preserved (see the DUAL/AUDIO/MULTI caveat
+# above).  Single source of truth — keep in sync with the canonical _AUDIO_NORM forms;
+# lowercase because the key normaliser lowercases before matching.
+AUDIO_KEY_NOISE_TOKENS: frozenset[str] = frozenset({
+    "multi", "muti", "sub", "audio", "au",
+})
+
+# Anchor subset of AUDIO_KEY_NOISE_TOKENS: a trailing audio-noise run is stripped from a
+# content_key only when it contains one of these, so "Dual Survival" / "<title> Sub" stay
+# intact while "<title> MULTI" / "<title> MULTI SUB" collapse onto the base title.
+AUDIO_KEY_ANCHOR_TOKENS: frozenset[str] = frozenset({"multi", "muti"})
+
 
 # ── Region/platform lookup tables ────────────────────────────────────────────── #
 

@@ -130,12 +130,38 @@ def director_key(meta) -> str | None:
     return parts[0].split()[-1].lower()   # last name of primary director
 
 
+# Sentinel for the stored-identity form of a dedup key.  A content_key-based key is
+# the 2-tuple ``(_CK_TAG, content_key)``; the runtime fingerprint is the legacy
+# 4-tuple ``(norm, media_type, year, director)``.  The two never collide (different
+# arity), so callers can branch on ``is_content_key_dedup(key)``.
+_CK_TAG = "\x00ck"
+
+
+def is_content_key_dedup(key: tuple) -> bool:
+    """Return True when *key* is a stored-``content_key`` dedup key (vs. the fingerprint).
+
+    The content_key form is ``(_CK_TAG, content_key)``; the runtime fingerprint is the
+    4-tuple ``(norm, media_type, year, director)``.  Callers that special-case the
+    fingerprint's year/series handling (``preference_engine.score_candidates``) skip it
+    for content_key keys, since the stored key already collapses year/audio noise at
+    ingestion.
+    """
+    return len(key) == 2 and key[0] == _CK_TAG
+
+
 def build_dedup_key(channel, meta) -> tuple:
     """Content fingerprint for grouping same-production channels.
 
-    Key: ``(norm_title, media_type, year, director)``.
+    Prefers the **stored** ``content_key`` (the indexed, computed-at-ingestion
+    identity used by Discover/Browse/Other-Versions): when present the key is
+    ``(_CK_TAG, content_key)``, so localized/translated and "MULTI" variants that
+    share a stored key collapse here exactly as they do on every other surface
+    (CLAUDE.md "Content identity").
 
-    Two channels share a key when they have the same normalized title,
+    Falls back to the runtime fingerprint ``(norm_title, media_type, year,
+    director)`` only for rows with **no** ``content_key`` (e.g. pre-backfill):
+
+    Two channels share a fingerprint when they have the same normalized title,
     media type, production year, and primary director. Language variants
     (EN/FR/DE) of the same production all share a key; the highest-scoring
     copy wins.
@@ -151,6 +177,9 @@ def build_dedup_key(channel, meta) -> tuple:
     Falls back to ``(channel.id, '', None, None)`` when normalization
     produces nothing, so the channel still participates in scoring.
     """
+    content_key = getattr(channel, "content_key", None) or None
+    if content_key:
+        return (_CK_TAG, content_key)
     norm = normalize_title(channel.name, getattr(channel, "detected_prefix", None))
     if not norm:
         return (channel.id, "", None, None)
@@ -199,6 +228,12 @@ def build_engaged_normalized(
             engaged_meta_map[meta.id] = meta
 
     for ch in engaged_channel_map.values():
+        # Prefer the stored content_key so an engaged localized/MULTI variant
+        # suppresses its siblings exactly as it collapses elsewhere.
+        content_key = getattr(ch, "content_key", None) or None
+        if content_key:
+            engaged.add((_CK_TAG, content_key))
+            continue
         norm = normalize_title(ch.name, getattr(ch, "detected_prefix", None))
         if not norm:
             continue
@@ -211,9 +246,9 @@ def build_engaged_normalized(
         ))
 
     # Watched channels — column-only query to avoid loading raw_data JSON.
-    # Columns needed: id, name, detected_prefix, media_type, metadata_id (channel);
-    # director, year (metadata via outerjoin on nullable metadata_id).
-    for (ch_id, ch_name, ch_prefix, ch_media_type, ch_meta_id,
+    # Columns needed: id, name, detected_prefix, media_type, metadata_id, content_key
+    # (channel); director, year (metadata via outerjoin on nullable metadata_id).
+    for (ch_id, ch_name, ch_prefix, ch_media_type, ch_meta_id, ch_content_key,
          meta_director, meta_year) in (
         session.query(
             ChannelDB.id,
@@ -221,6 +256,7 @@ def build_engaged_normalized(
             ChannelDB.detected_prefix,
             ChannelDB.media_type,
             ChannelDB.metadata_id,
+            ChannelDB.content_key,
             MetadataDB.director,
             MetadataDB.year,
         )
@@ -232,6 +268,9 @@ def build_engaged_normalized(
         .all()
     ):
         if ch_id in overrides:
+            continue
+        if ch_content_key:
+            engaged.add((_CK_TAG, ch_content_key))
             continue
         norm = normalize_title(ch_name, ch_prefix)
         if norm:

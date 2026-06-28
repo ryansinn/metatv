@@ -276,7 +276,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     """
     from datetime import datetime
     from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB, WatchQueueDB
-    from metatv.core.content_dedup import build_dedup_key, build_engaged_normalized
+    from metatv.core.content_dedup import (
+        build_dedup_key, build_engaged_normalized, is_content_key_dedup,
+    )
 
     if weights.is_empty():
         return []
@@ -402,32 +404,38 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         if channel.id not in _overrides and dedup_key in engaged_normalized:
             continue
 
-        # Bidirectional null-year suppression for series.
-        # Applied only when one side has year=None; both-year mismatches are reboots.
-        norm_mt = (dedup_key[0], dedup_key[1])
-        if channel.id not in _overrides and channel.media_type == "series":
-            if dedup_key[2] is None and norm_mt in engaged_series_with_year:
-                continue  # null-year candidate, year-bearing engaged variant
-            if dedup_key[2] is not None and norm_mt in engaged_series_null_year:
-                continue  # year-bearing candidate, null-year engaged variant
+        # The year/series fingerprint reconciliation below exists only to absorb the
+        # noisy-year problem in the runtime fingerprint. The stored content_key already
+        # collapses year/audio variants at ingestion, so for content_key keys we group
+        # on the key as-is and skip the (year-positional) fingerprint logic entirely.
+        ck_key = is_content_key_dedup(dedup_key)
+        if not ck_key:
+            # Bidirectional null-year suppression for series.
+            # Applied only when one side has year=None; both-year mismatches are reboots.
+            norm_mt = (dedup_key[0], dedup_key[1])
+            if channel.id not in _overrides and channel.media_type == "series":
+                if dedup_key[2] is None and norm_mt in engaged_series_with_year:
+                    continue  # null-year candidate, year-bearing engaged variant
+                if dedup_key[2] is not None and norm_mt in engaged_series_null_year:
+                    continue  # year-bearing candidate, null-year engaged variant
 
-        # Null-year absorption within the recommendation list:
-        # If a year-bearing entry for this (norm, mt) already exists, absorb this
-        # null-year variant into it so the same show doesn't appear twice.
-        if dedup_key[2] is None:
-            canonical = null_year_map.get(norm_mt)
-            if canonical is not None:
-                dedup_key = canonical   # merge into the year-bearing entry
-        else:
-            existing = null_year_map.get(norm_mt)
-            if existing is None:
-                null_year_map[norm_mt] = dedup_key
-            elif existing[2] is None:
-                # Upgrade the null-year key to this year-bearing key
-                if existing in best_per_title:
-                    best_per_title[dedup_key] = best_per_title.pop(existing)
-                    variant_counts[dedup_key] = variant_counts.pop(existing, 0)
-                null_year_map[norm_mt] = dedup_key
+            # Null-year absorption within the recommendation list:
+            # If a year-bearing entry for this (norm, mt) already exists, absorb this
+            # null-year variant into it so the same show doesn't appear twice.
+            if dedup_key[2] is None:
+                canonical = null_year_map.get(norm_mt)
+                if canonical is not None:
+                    dedup_key = canonical   # merge into the year-bearing entry
+            else:
+                existing = null_year_map.get(norm_mt)
+                if existing is None:
+                    null_year_map[norm_mt] = dedup_key
+                elif existing[2] is None:
+                    # Upgrade the null-year key to this year-bearing key
+                    if existing in best_per_title:
+                        best_per_title[dedup_key] = best_per_title.pop(existing)
+                        variant_counts[dedup_key] = variant_counts.pop(existing, 0)
+                    null_year_map[norm_mt] = dedup_key
 
         genres = _split_genres(_loads(meta.genres) or [])
         cast   = _loads(meta.cast)   or []
