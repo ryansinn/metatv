@@ -43,6 +43,7 @@ class DetailsPaneWidget(QWidget):
     suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
     hide_requested             = pyqtSignal(str)        # channel_id
     unhide_requested           = pyqtSignal(str)        # channel_id
+    watched_toggled            = pyqtSignal(str, bool)  # channel_id, is_watched (VOD)
     channel_versions_requested = pyqtSignal(str)        # channel_id
     version_selected           = pyqtSignal(str)        # channel_id — show details
     prefix_block_requested     = pyqtSignal(str)        # prefix
@@ -146,11 +147,15 @@ class DetailsPaneWidget(QWidget):
         _completed = bool(getattr(channel, "watch_completed", False))
         self._action_bar.set_resume(_is_movie and _progress > 0 and not _completed, _progress)
 
+        # Watched toggle (VOD only) — reflect the stored watch_completed flag.
+        if not is_live:
+            self._action_bar.set_watched(_completed)
+
         if is_live:
             self._poster.set_country_info(channel.name)
             logo = getattr(channel, "logo_url", None)
             if logo:
-                self._poster.load_logo(logo)
+                self._poster.load_live_logo(logo)
 
         # EPG agenda (live only)
         if self._epg_agenda:
@@ -234,6 +239,7 @@ class DetailsPaneWidget(QWidget):
             dislike=self._action_bar.dislike_button,
             watchlist=self._action_bar.watchlist_button,
             monitor=self._action_bar.monitor_button,
+            watched=self._action_bar.watched_button,
             hide=self._action_bar.hide_button,
         )
 
@@ -294,6 +300,7 @@ class DetailsPaneWidget(QWidget):
         ab.unhide_clicked.connect(self._on_unhide)
         ab.watchlist_clicked.connect(self._on_watchlist)
         ab.monitor_clicked.connect(self._on_monitor)
+        ab.watched_clicked.connect(self._on_watched)
 
         # Collapse state persistence
         self._tech._toggle_btn.clicked.connect(self._save_tech_state)
@@ -411,6 +418,13 @@ class DetailsPaneWidget(QWidget):
     def _on_unhide(self) -> None:
         if self.current_channel:
             self.unhide_requested.emit(self.current_channel.id)
+
+    def _on_watched(self) -> None:
+        if self.current_channel:
+            # Emit the new optimistic state so the host routes to mark/unmark.
+            self.watched_toggled.emit(
+                self.current_channel.id, self._action_bar._watched
+            )
 
     # ------------------------------------------------------------------ #
     # Collapse state persistence                                           #

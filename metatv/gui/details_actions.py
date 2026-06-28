@@ -41,6 +41,7 @@ class _ActionBar(QWidget):
     unhide_clicked          = pyqtSignal()
     watchlist_clicked       = pyqtSignal()
     monitor_clicked         = pyqtSignal()
+    watched_clicked         = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -51,6 +52,7 @@ class _ActionBar(QWidget):
         self._suppressed: bool = False
         self._is_hidden: bool = False
         self._is_monitored: bool = False
+        self._watched: bool = False
         self._current_epg_title: str = ""
         self._setup()
 
@@ -93,6 +95,15 @@ class _ActionBar(QWidget):
 
         self.hide_button = self._mk(self.config.hide_icon, "Hide this channel from all views")
         # hide/unhide wired in _sync_hide_button (it reconnects on state change)
+
+        # Watched toggle — VOD only (shown via set_mode), sits directly above Hide.
+        # Pure visual indicator + toggle: dim when unwatched, glows (:checked) when
+        # watched.  State persists through the host's mark-watched chokepoint.
+        self.watched_button = self._mk(
+            _icons.watched_icon, "Mark as watched", checkable=True
+        )
+        self.watched_button.clicked.connect(self._on_watched_clicked)
+        self.watched_button.hide()
 
         # Sentiment actions — VOD only (shown via set_mode)
         self.like_button = self._mk(self.config.like_icon, "Like", checkable=True)
@@ -148,12 +159,26 @@ class _ActionBar(QWidget):
         self.not_interested_button.setVisible(not is_live)
         self.dislike_button.setVisible(not is_live)
         self.watchlist_button.setVisible(is_live)
+        # Watched toggle is a VOD-only affordance (movies/series) — never for live.
+        self.watched_button.setVisible(not is_live)
 
     def set_monitorable(self, is_series: bool, is_monitored: bool) -> None:
         """Show the Alert button for series only; reflect the alert state."""
         self.monitor_button.setVisible(is_series)
         self._is_monitored = is_monitored
         self._sync_monitor_button()
+
+    def set_watched(self, is_watched: bool) -> None:
+        """Reflect the VOD watched state on the rail toggle.
+
+        Checked = watched (icon glows); unchecked = unwatched (dim).  The tooltip
+        reads as the action a click would perform.
+        """
+        self._watched = is_watched
+        self.watched_button.setChecked(is_watched)
+        self.watched_button.setToolTip(
+            "Mark as unwatched" if is_watched else "Mark as watched"
+        )
 
     def set_resume(self, can_resume: bool, position_s: int = 0) -> None:
         """Show the Resume button only when there's a saved position to resume from."""
@@ -187,10 +212,12 @@ class _ActionBar(QWidget):
         self._suppressed = False
         self._is_hidden = False
         self._is_monitored = False
+        self._watched = False
         self._current_epg_title = ""
         self.monitor_button.setVisible(False)
         self.resume_button.setVisible(False)
         self.watchlist_button.setChecked(False)
+        self.set_watched(False)
         self._sync_all()
 
     # ------------------------------------------------------------------ #
@@ -239,6 +266,12 @@ class _ActionBar(QWidget):
         self._is_monitored = not self._is_monitored
         self._sync_monitor_button()
         self.monitor_clicked.emit()
+
+    def _on_watched_clicked(self) -> None:
+        # Optimistic toggle: flip state + tooltip immediately, then let the host
+        # persist via the shared mark-watched chokepoint.
+        self.set_watched(not self._watched)
+        self.watched_clicked.emit()
 
     def _on_unhide_clicked(self) -> None:
         self._is_hidden = False

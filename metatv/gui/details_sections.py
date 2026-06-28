@@ -90,10 +90,17 @@ def _pref_signal(name: str, weights, attr: str) -> str:
 # ---------------------------------------------------------------------------
 
 class _PosterSection(QWidget):
-    """Poster image (VOD) and live-channel header (icon + country info)."""
+    """Poster image (VOD) and live-channel logo/header (logo + country info)."""
 
     # Emitted when the user clicks an enlarged poster (carries the full-res QPixmap)
     poster_enlarged = pyqtSignal(QPixmap)
+
+    # Poster area metrics.  VOD posters fill a tall box; a live channel LOGO is
+    # usually small/square, so it gets a short capped box (contained with margin,
+    # never stretched to full poster height).
+    _POSTER_MIN_H: int = 400
+    _POSTER_MAX_H: int = 600
+    _LIVE_LOGO_MAX_H: int = 180
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -103,6 +110,7 @@ class _PosterSection(QWidget):
         self._logo_url: str | None = None
         self._provider_urls: list = []
         self._full_pixmap: QPixmap | None = None   # full-res image for the lightbox
+        self._is_live_logo: bool = False           # poster area is showing a live logo
         self._setup()
 
     def _setup(self) -> None:
@@ -147,8 +155,8 @@ class _PosterSection(QWidget):
 
         self.poster_label = _PosterLabel()
         self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.poster_label.setMinimumHeight(400)
-        self.poster_label.setMaximumHeight(600)
+        self.poster_label.setMinimumHeight(self._POSTER_MIN_H)
+        self.poster_label.setMaximumHeight(self._POSTER_MAX_H)
         self.poster_label.setStyleSheet(
             f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
             f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
@@ -160,17 +168,13 @@ class _PosterSection(QWidget):
         pf_layout.addWidget(self.poster_label)
         cc_layout.addWidget(self._poster_frame)
 
-        # Live header: channel icon + country info
+        # Live header: country info text.  The channel LOGO (when present) is shown
+        # in the poster area above (load_live_logo); the header carries the
+        # category/country line beneath it.
         self._live_header = QWidget()
         live_layout = QHBoxLayout(self._live_header)
         live_layout.setContentsMargins(0, 4, 0, 4)
         live_layout.setSpacing(8)
-
-        self._channel_icon_lbl = QLabel()
-        self._channel_icon_lbl.setFixedSize(32, 32)
-        self._channel_icon_lbl.setScaledContents(True)
-        self._channel_icon_lbl.hide()
-        live_layout.addWidget(self._channel_icon_lbl)
 
         self._country_info_lbl = QLabel()
         self._country_info_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED}; font-style: italic;")
@@ -194,8 +198,17 @@ class _PosterSection(QWidget):
         # Per-button visibility (sentiment/watchlist/alert) is managed by
         # _ActionBar.set_mode()/set_monitorable().
         self._action_rail.setVisible(True)
-        self._poster_frame.setVisible(not is_live)
         self._live_header.setVisible(is_live)
+        if is_live:
+            # Default live layout: poster area hidden, live header shown.  When the
+            # channel has a logo, load_live_logo() reveals the poster area and shows
+            # the logo (contained) in it.
+            self._poster_frame.setVisible(False)
+        else:
+            # VOD: restore the tall poster box in case a prior live logo shrank it.
+            self._is_live_logo = False
+            self._restore_poster_metrics()
+            self._poster_frame.setVisible(True)
 
     def set_action_buttons(
         self,
@@ -209,6 +222,7 @@ class _PosterSection(QWidget):
         dislike,
         watchlist,
         monitor,
+        watched,
         hide,
     ) -> None:
         """Reparent ALL action buttons into the left rail in canonical order.
@@ -218,11 +232,12 @@ class _PosterSection(QWidget):
         (signals/state/sync live there); we just reparent them into this visual slot.
 
         Order (top→bottom): favorite · gap · play · resume · queue · gap ·
-        sentiment trio · watchlist · gap · alert · stretch · hide (pinned to the
-        bottom, near the title).  Subgroups are separated by widening gaps; the
-        play/resume/queue triplet stays tight.  Mode-conditional buttons
-        (resume=has-progress, sentiment=VOD, watchlist=live, alert=series) keep
-        their slot but are shown/hidden by _ActionBar.
+        sentiment trio · watchlist · gap · alert · stretch · watched · hide (the
+        watched toggle + hide are pinned to the bottom, near the title).  Subgroups
+        are separated by widening gaps; the play/resume/queue triplet stays tight.
+        Mode-conditional buttons (resume=has-progress, sentiment=VOD, watched=VOD,
+        watchlist=live, alert=series) keep their slot but are shown/hidden by
+        _ActionBar.
         """
         layout = self._action_rail_layout
         while layout.count():
@@ -241,6 +256,7 @@ class _PosterSection(QWidget):
         layout.addSpacing(20)
         layout.addWidget(monitor)
         layout.addStretch()
+        layout.addWidget(watched)
         layout.addWidget(hide)
         # NOTE: the rail is left hidden here — it's revealed by set_mode() when a
         # channel is shown, so action icons don't appear in the empty/no-selection
@@ -262,16 +278,32 @@ class _PosterSection(QWidget):
         else:
             self._image_cache.get_image_async(url, self._provider_urls)
 
-    def load_logo(self, url: str) -> None:
-        """Load channel icon for live header (sync-first, async fallback)."""
-        self._logo_url = url
+    def load_live_logo(self, url: str) -> None:
+        """Show a live channel's LOGO in the poster area (sync-first, async fallback).
+
+        Logos are usually small/square, so the poster box is capped to a short
+        height and the logo is centered with margin (never stretched to full poster
+        height).  Reuses the async image-loading path; the QPixmap is built on the
+        main thread (image_cache emits the path; the slot constructs the pixmap).
+        If the logo can't be loaded, the poster area hides and the live header
+        (country info) remains as the fallback.
+        """
+        self._is_live_logo = True
+        self._poster_url = url   # route the loaded image through on_image_loaded
+        self.poster_label.setMinimumHeight(0)
+        self.poster_label.setMaximumHeight(self._LIVE_LOGO_MAX_H)
+        self._poster_frame.setVisible(True)
+        self.poster_label.setText(f"{_icons.loading_icon} Loading logo...")
         pix = self._image_cache.get_image_sync(url)
         if pix:
-            self._channel_icon_lbl.setPixmap(pix)
-            self._channel_icon_lbl.show()
+            self._display_live_logo(pix)
         else:
-            self._channel_icon_lbl.hide()
-            self._image_cache.get_image_async(url)
+            self._image_cache.get_image_async(url, self._provider_urls)
+
+    def _restore_poster_metrics(self) -> None:
+        """Restore the tall VOD poster box height range."""
+        self.poster_label.setMinimumHeight(self._POSTER_MIN_H)
+        self.poster_label.setMaximumHeight(self._POSTER_MAX_H)
 
     def set_country_info(self, channel_name: str) -> None:
         """Extract and display category/country prefix from a channel name."""
@@ -294,24 +326,29 @@ class _PosterSection(QWidget):
 
     def on_image_loaded(self, url: str, pixmap: QPixmap) -> None:
         if url == self._poster_url and not pixmap.isNull():
-            self._display_poster(pixmap)
-        if url == self._logo_url and not pixmap.isNull():
-            self._channel_icon_lbl.setPixmap(pixmap)
-            self._channel_icon_lbl.show()
+            if self._is_live_logo:
+                self._display_live_logo(pixmap)
+            else:
+                self._display_poster(pixmap)
 
     def on_image_failed(self, url: str, error: str) -> None:
         if url == self._poster_url:
-            self.poster_label.setText("Failed to load poster")
-            logger.debug(f"Poster load failed: {error}")
+            if self._is_live_logo:
+                # Logo unavailable — fall back to the live header alone.
+                self._poster_frame.setVisible(False)
+            else:
+                self.poster_label.setText("Failed to load poster")
+            logger.debug(f"Poster/logo load failed: {error}")
 
     def clear(self) -> None:
         self._poster_url = None
         self._logo_url = None
         self._full_pixmap = None
+        self._is_live_logo = False
+        self._restore_poster_metrics()
         self.poster_label.setPixmap(QPixmap())
         self.poster_label.setText("No poster available")
         self._country_info_lbl.hide()
-        self._channel_icon_lbl.hide()
 
     def _display_poster(self, pixmap: QPixmap) -> None:
         if pixmap and not pixmap.isNull():
@@ -324,6 +361,29 @@ class _PosterSection(QWidget):
             self.poster_label.setPixmap(scaled)
         else:
             self.poster_label.setText("No poster available")
+
+    def _display_live_logo(self, pixmap: QPixmap) -> None:
+        """Show a live channel logo contained within the short capped poster box.
+
+        Scales to fit within the available width and the live-logo height cap while
+        keeping aspect ratio, and never upscales beyond the logo's natural size — so
+        a small/square logo sits centered with margin rather than being stretched.
+        """
+        if not pixmap or pixmap.isNull():
+            self._poster_frame.setVisible(False)
+            return
+        self._full_pixmap = None   # live logos aren't enlargeable via the lightbox
+        avail_w = self.poster_label.width()
+        if avail_w <= 0:
+            avail_w = self.minimumWidth() or 300   # before first layout pass
+        target_w = min(avail_w, pixmap.width())
+        target_h = min(self._LIVE_LOGO_MAX_H, pixmap.height())
+        scaled = pixmap.scaled(
+            target_w, target_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.poster_label.setPixmap(scaled)
 
     def _on_poster_clicked(self) -> None:
         """Emit poster_enlarged with the full-res pixmap when the poster is clicked."""
@@ -482,11 +542,8 @@ class _MetadataSection(QWidget):
         self._genres_container.hide()
         layout.addWidget(self._genres_container)
 
-        # Watch-completion status (VOD only) — "✓ Watched" or "Resume at M:SS"
-        self._watch_status_lbl = QLabel()
-        self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_DONE)
-        self._watch_status_lbl.hide()
-        layout.addWidget(self._watch_status_lbl)
+        # Watch-completion state is shown in the action rail (Watched toggle +
+        # Resume button), not as a text line here.
 
         # Recommendation reason
         self.rec_reason_label = QLabel()
@@ -581,28 +638,8 @@ class _MetadataSection(QWidget):
         else:
             self.adult_indicator.hide()
 
-        # Watch-completion status (VOD movies only — never shown for live/series).
-        # Reads stored watch_completed / watch_progress fields; never recomputes.
-        is_movie = getattr(channel, "media_type", None) == "movie"
-        if is_movie:
-            watch_completed = bool(getattr(channel, "watch_completed", False))
-            watch_progress = int(getattr(channel, "watch_progress", 0) or 0)
-            if watch_completed:
-                self._watch_status_lbl.setText(f"{_icons.watched_icon} Watched")
-                self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_DONE)
-                self._watch_status_lbl.setToolTip("You have finished watching this title.")
-                self._watch_status_lbl.show()
-            elif watch_progress > 0:
-                minutes, secs = divmod(watch_progress, 60)
-                resume_str = f"{minutes}:{secs:02d}"
-                self._watch_status_lbl.setText(f"{_icons.episode_icon} Resume at {resume_str}")
-                self._watch_status_lbl.setStyleSheet(_theme.WATCH_STATUS_PROGRESS)
-                self._watch_status_lbl.setToolTip(f"Playback paused at {resume_str}. Resume from here.")
-                self._watch_status_lbl.show()
-            else:
-                self._watch_status_lbl.hide()
-        else:
-            self._watch_status_lbl.hide()
+        # Watch-completion state is surfaced in the action rail (the Watched toggle
+        # and the Resume button), not as a text line here — see details_pane.
 
         # Show rating from raw_data immediately (don't wait for metadata).
         # rating_label lives on the media-type row so no separate row to show/hide.
@@ -729,7 +766,6 @@ class _MetadataSection(QWidget):
         self.source_label.clear()
         self.source_label.hide()
         self.adult_indicator.hide()
-        self._watch_status_lbl.hide()
         self.rec_reason_label.hide()
 
     # ------------------------------------------------------------------ #

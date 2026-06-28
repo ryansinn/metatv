@@ -464,6 +464,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
         self.details_pane.monitor_toggled.connect(self._on_details_monitor_toggled)
         self.details_pane.unhide_requested.connect(self._unhide_channel)
+        self.details_pane.watched_toggled.connect(self._on_details_watched_toggled)
         self.details_pane.channel_versions_requested.connect(self._fetch_channel_versions)
         self.details_pane.version_selected.connect(self.show_channel_details_by_id)
         self.details_pane.prefix_block_requested.connect(self._on_prefix_block)
