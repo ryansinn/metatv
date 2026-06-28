@@ -175,9 +175,11 @@ class _VersionSection(QWidget):
     """Preferred-version nudge banner + wrapping source-picker chip row.
 
     Each chip shows the source icon (from *provider_map*), region/prefix, and
-    quality tier.  Clicking a chip plays that source's variant directly via
-    ``play_version_requested``; right-clicking shows the full context menu.
-    Inactive-source chips are dimmed and offer a "Reactivate & play" menu option.
+    quality tier.  Left-clicking a chip shows that variant's details in the
+    details pane via ``version_selected``; right-clicking opens the full context
+    menu (play / favorite / queue / hide / filter / reactivate).
+    Inactive-source chips are dimmed and offer a "Reactivate & play" menu option
+    via right-click only.
     """
 
     version_selected         = pyqtSignal(str)        # channel_id — show details
@@ -352,17 +354,17 @@ class _VersionSection(QWidget):
         if v.detected_quality:
             lines.append(f"Quality: {v.detected_quality}")
         if v.is_inactive:
-            lines.append("(source is inactive — click to reactivate & play)")
+            lines.append("(source is inactive — right-click to reactivate & play)")
         if suffix:
             lines.append(suffix)
         return "\n".join(lines) if lines else v.name
 
     def _make_active_chip(self, v: ChannelVersion) -> QPushButton:
-        """Build an active-source chip that plays on click."""
+        """Build an active-source chip that shows details on left-click."""
         label = self._chip_label(v) + self._chip_status_suffix(v)
 
         if v.is_inactive:
-            # Inactive: dimmed, right-click only (no accidental single-click reactivation)
+            # Inactive: dimmed; left-click shows details, right-click offers reactivate & play
             chip = QPushButton(label)
             chip.setStyleSheet(
                 f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED};"
@@ -371,13 +373,10 @@ class _VersionSection(QWidget):
                 f"QPushButton:hover {{ color: {_theme.COLOR_MUTED};"
                 f" border-color: {_theme.COLOR_BORDER}; background: {_theme.OVERLAY_04}; }}"
             )
-            tip = self._chip_tooltip(v)
+            tip = self._chip_tooltip(v, suffix="Click to show this version's details")
             chip.setToolTip(tip)
-            # Click on inactive chip → context menu (offers reactivate & play)
-            chip.clicked.connect(
-                lambda _, _v=v, _c=chip:
-                    self._show_version_chip_menu(_c.mapToGlobal(_c.rect().bottomLeft()), _v, _c)
-            )
+            # Left-click → show this variant's details
+            chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
         else:
             chip = QPushButton(label)
             chip.setStyleSheet(
@@ -386,10 +385,10 @@ class _VersionSection(QWidget):
                 f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
                 f" border-color: {_theme.COLOR_MUTED}; background: {_theme.OVERLAY_05}; }}"
             )
-            tip = self._chip_tooltip(v, suffix="Click to play this source")
+            tip = self._chip_tooltip(v, suffix="Click to show this version's details")
             chip.setToolTip(tip)
-            # Left-click → play this source's variant
-            chip.clicked.connect(lambda _, cid=v.channel_id: self.play_version_requested.emit(cid))
+            # Left-click → show this variant's details
+            chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
 
         chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         chip.customContextMenuRequested.connect(
