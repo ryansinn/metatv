@@ -340,13 +340,43 @@ DETAIL_RAIL_BTN_ALERT = (
     " border-color: " + COLOR_DIM + "; }"
 )
 
-# Resume rail button — orange-tinted so it reads as the distinct "continue from
-# where you left off" affordance, sitting directly below the plain Play button.
-DETAIL_RAIL_BTN_RESUME = (
+# Details-pane PRIMARY action buttons — full-size, labeled (icon + text), shown in
+# a row directly below the poster (the most-used actions get the prominent slot).
+# Play is the SECONDARY/outline action (always starts from the beginning); Resume
+# is the DOMINANT filled-orange action (continue from the saved position).  Orange,
+# never green — green is reserved for a future "currently playing" indicator.
+DETAIL_PLAY_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
+    " padding: 8px 12px; font-size: " + FONT_XL + "; font-weight: bold;"
+    " background: transparent; color: " + COLOR_TEXT + "; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_DIM + "; }"
+)
+DETAIL_RESUME_BTN = (
     "QPushButton { border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 4px;"
-    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_ORANGE_12 + ";"
-    " color: " + COLOR_ACCENT_ORANGE + "; }"
-    "QPushButton:hover { background: " + OVERLAY_ORANGE_18 + "; color: " + COLOR_TEXT_HI + "; }"
+    " padding: 8px 12px; font-size: " + FONT_XL + "; font-weight: bold;"
+    " background: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_BG_SECTION + "; }"
+    "QPushButton:hover { background: " + COLOR_ACCENT_ORANGE + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_TEXT_HI + "; }"
+)
+
+# Poster watched badge — a corner check overlay (Plex/Jellyfin convention).
+# WATCHED: a persistent SOLID badge (hover tints red = "click to unmark").
+# UNWATCHED: a FAINT badge revealed only on poster hover (hover brightens =
+# "click to mark watched").  Neutral palette — NOT green (reserved as above).
+POSTER_WATCHED_BADGE = (
+    "QPushButton { background: " + OVERLAY_BLACK_65 + "; color: " + COLOR_TEXT_HI + ";"
+    " border: 1px solid " + COLOR_TEXT_HI + "; border-radius: 13px;"
+    " font-size: " + FONT_XL + "; font-weight: bold; }"
+    "QPushButton:hover { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_ERR + "; }"
+)
+POSTER_UNWATCHED_BADGE = (
+    "QPushButton { background: " + OVERLAY_BLACK_30 + "; color: " + COLOR_DIM + ";"
+    " border: 1px solid " + COLOR_DIM + "; border-radius: 13px;"
+    " font-size: " + FONT_XL + "; }"
+    "QPushButton:hover { background: " + OVERLAY_BLACK_55 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_TEXT_HI + "; }"
 )
 
 # Channel-name labels (EPG rows)

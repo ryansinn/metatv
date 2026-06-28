@@ -1,12 +1,12 @@
-"""Behavioral tests for the details action-rail Watched toggle + live logo poster.
+"""Behavioral tests for the poster Watched badge + live-logo poster.
 
-Covers the two changes in PR feat/details-rail-watched:
+Covers (feat/details-action-hierarchy supersedes the original rail-watched PR):
 
-1. Watched toggle button in the action rail:
-   - Reflects the channel's watch_completed state (checked = watched).
-   - Toggling flips state + emits, and tooltip reads the next action.
-   - Hidden for live channels, shown for VOD (set_mode gating).
-   - set_action_buttons places the Watched button directly above Hide.
+1. Clickable two-state Watched badge on the poster (VOD only):
+   - Watched → persistent SOLID badge (visible); click → emits new state False.
+   - Unwatched → FAINT badge revealed on poster (or badge) hover; click → emits True.
+   - Hidden for live channels (set_mode gating).
+   - clear() resets the badge so a reused pane shows no stale state.
    - DetailsPaneWidget emits watched_toggled(channel_id, new_state) and the host
      routes it through the shared mark/unmark chokepoint (no parallel path).
 
@@ -41,126 +41,116 @@ def _make_config():
 
 
 # ---------------------------------------------------------------------------
-# 1. Watched toggle button on _ActionBar
+# 1. Clickable two-state Watched badge on _PosterSection
 # ---------------------------------------------------------------------------
 
-def test_watched_button_hidden_for_live_shown_for_vod(qapp):
-    """set_mode gates the Watched toggle: shown for VOD, hidden for live."""
-    from metatv.gui.details_actions import _ActionBar
-
-    ab = _ActionBar(_make_config())
-
-    ab.set_mode(is_live=False)
-    assert not ab.watched_button.isHidden(), "Watched toggle must show for VOD"
-
-    ab.set_mode(is_live=True)
-    assert ab.watched_button.isHidden(), "Watched toggle must hide for live channels"
-
-
-def test_set_watched_reflects_state_and_tooltip(qapp):
-    """set_watched checks the button when watched and sets the next-action tooltip."""
-    from metatv.gui.details_actions import _ActionBar
-
-    ab = _ActionBar(_make_config())
-
-    ab.set_watched(True)
-    assert ab.watched_button.isChecked(), "watched_button must be checked when watched"
-    assert ab._watched is True
-    assert ab.watched_button.toolTip() == "Mark as unwatched"
-
-    ab.set_watched(False)
-    assert not ab.watched_button.isChecked(), "watched_button must be unchecked when unwatched"
-    assert ab._watched is False
-    assert ab.watched_button.toolTip() == "Mark as watched"
-
-
-def test_watched_button_click_toggles_state_and_emits(qapp):
-    """Clicking the Watched toggle flips the optimistic state and emits watched_clicked."""
-    from metatv.gui.details_actions import _ActionBar
-
-    ab = _ActionBar(_make_config())
-    ab.set_mode(is_live=False)
-    ab.set_watched(False)
-
-    fired: list[bool] = []
-    ab.watched_clicked.connect(lambda: fired.append(True))
-
-    ab.watched_button.click()       # unwatched → watched
-    assert ab._watched is True, "click must flip optimistic watched state to True"
-    assert ab.watched_button.isChecked()
-    assert ab.watched_button.toolTip() == "Mark as unwatched"
-    assert fired == [True], "watched_clicked must emit once per click"
-
-    ab.watched_button.click()       # watched → unwatched
-    assert ab._watched is False, "second click must flip back to unwatched"
-    assert not ab.watched_button.isChecked()
-    assert len(fired) == 2
-
-
-def test_clear_resets_watched_state(qapp):
-    """clear() resets the Watched toggle so a reused pane doesn't show stale state."""
-    from metatv.gui.details_actions import _ActionBar
-
-    ab = _ActionBar(_make_config())
-    ab.set_watched(True)
-    assert ab.watched_button.isChecked()
-
-    ab.clear()
-    assert ab._watched is False
-    assert not ab.watched_button.isChecked(), "clear() must uncheck the Watched toggle"
-    assert ab.watched_button.toolTip() == "Mark as watched"
-
-
-# ---------------------------------------------------------------------------
-# 2. set_action_buttons places Watched directly above Hide
-# ---------------------------------------------------------------------------
-
-def _rail_widgets_in_order(poster):
-    """Return the rail's widgets in layout order (skipping spacers/stretches)."""
-    layout = poster._action_rail_layout
-    widgets = []
-    for i in range(layout.count()):
-        w = layout.itemAt(i).widget()
-        if w is not None:
-            widgets.append(w)
-    return widgets
-
-
-def test_set_action_buttons_places_watched_directly_above_hide(qapp):
-    """The Watched toggle is the rail item immediately preceding Hide."""
+def test_watched_badge_solid_and_visible_when_watched(qapp):
+    """A watched VOD title shows the SOLID badge persistently (no hover needed)."""
     from metatv.gui.details_sections import _PosterSection
-    from metatv.gui.details_actions import _ActionBar
+    from metatv.gui import theme as _theme
 
-    cfg = _make_config()
-    poster = _PosterSection(cfg, MagicMock())
-    ab = _ActionBar(cfg)
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=False)
 
-    poster.set_action_buttons(
-        favorite=ab.favorite_button,
-        play=ab.play_button,
-        resume=ab.resume_button,
-        queue=ab.queue_button,
-        like=ab.like_button,
-        not_interested=ab.not_interested_button,
-        dislike=ab.dislike_button,
-        watchlist=ab.watchlist_button,
-        monitor=ab.monitor_button,
-        watched=ab.watched_button,
-        hide=ab.hide_button,
+    poster.set_watched(True)
+    assert not poster._watched_badge.isHidden(), "watched badge must be visible"
+    assert poster._watched_badge.styleSheet() == _theme.POSTER_WATCHED_BADGE, (
+        "watched badge must use the SOLID style"
+    )
+    assert "unwatched" in poster._watched_badge.toolTip().lower(), (
+        "watched badge tooltip must offer to mark UNwatched"
     )
 
-    order = _rail_widgets_in_order(poster)
-    assert ab.watched_button in order and ab.hide_button in order
-    w_idx = order.index(ab.watched_button)
-    h_idx = order.index(ab.hide_button)
-    assert w_idx == h_idx - 1, (
-        "Watched toggle must sit directly above Hide in the rail "
-        f"(watched={w_idx}, hide={h_idx})"
+
+def test_watched_badge_faint_and_hover_gated_when_unwatched(qapp):
+    """An unwatched VOD title hides the badge until the poster is hovered (faint)."""
+    from metatv.gui.details_sections import _PosterSection
+    from metatv.gui import theme as _theme
+
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=False)
+
+    poster.set_watched(False)
+    assert poster._watched_badge.isHidden(), (
+        "unwatched badge must stay hidden until hover (uncluttered poster)"
     )
+
+    poster._on_poster_hover(True)   # simulate mouse entering the poster
+    assert not poster._watched_badge.isHidden(), "hover must reveal the faint badge"
+    assert poster._watched_badge.styleSheet() == _theme.POSTER_UNWATCHED_BADGE, (
+        "unwatched badge must use the FAINT style"
+    )
+    assert poster._watched_badge.toolTip() == "Mark as watched"
+
+    poster._on_poster_hover(False)
+    assert poster._watched_badge.isHidden(), "leaving the poster hides the faint badge"
+
+
+def test_watched_badge_stays_visible_while_hovering_badge_itself(qapp):
+    """Moving from poster onto the badge keeps it shown (no leave/enter flicker)."""
+    from metatv.gui.details_sections import _PosterSection
+
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=False)
+    poster.set_watched(False)
+
+    poster._on_poster_hover(True)        # over the poster
+    poster._on_poster_hover(False)       # poster-leave as cursor crosses onto badge
+    poster._on_badge_hover(True)         # badge-enter
+    assert not poster._watched_badge.isHidden(), (
+        "badge must remain visible while the cursor is over the badge itself"
+    )
+
+
+def test_watched_badge_hidden_for_live(qapp):
+    """Live channels have no watched state — the badge never shows."""
+    from metatv.gui.details_sections import _PosterSection
+
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=True)
+
+    poster.set_watched(True)             # even if asked, live must not show it
+    assert poster._watched_badge.isHidden(), "watched badge must hide for live channels"
+    poster._on_poster_hover(True)
+    assert poster._watched_badge.isHidden(), "hover must not reveal the badge for live"
+
+
+def test_watched_badge_click_toggles_and_emits_new_state(qapp):
+    """Clicking the badge flips the optimistic state and emits the NEW state."""
+    from metatv.gui.details_sections import _PosterSection
+
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=False)
+    poster.set_watched(False)
+
+    emitted: list[bool] = []
+    poster.watched_toggled.connect(lambda w: emitted.append(w))
+
+    poster._watched_badge.click()        # unwatched → watched
+    assert poster._watched is True
+    assert emitted == [True], f"badge click must emit new state True; got {emitted}"
+
+    poster._watched_badge.click()        # watched → unwatched
+    assert poster._watched is False
+    assert emitted[-1] is False
+
+
+def test_clear_resets_watched_badge(qapp):
+    """clear() resets the badge so a reused pane doesn't show stale watch state."""
+    from metatv.gui.details_sections import _PosterSection
+
+    poster = _PosterSection(_make_config(), MagicMock())
+    poster.set_mode(is_live=False)
+    poster.set_watched(True)
+    assert not poster._watched_badge.isHidden()
+
+    poster.clear()
+    assert poster._watched is False
+    assert poster._watched_badge.isHidden(), "clear() must reset the badge to unwatched/hidden"
 
 
 # ---------------------------------------------------------------------------
-# 3. Live channel LOGO shown in the poster space (_PosterSection)
+# 2. Live channel LOGO shown in the poster space (_PosterSection)
 # ---------------------------------------------------------------------------
 
 def test_load_live_logo_reveals_poster_and_caps_height(qapp):
@@ -235,7 +225,7 @@ def test_switch_live_logo_to_vod_restores_tall_poster(qapp):
 
 
 # ---------------------------------------------------------------------------
-# 4. DetailsPaneWidget integration: state init, signal emit, live logo routing
+# 3. DetailsPaneWidget integration: badge state init, signal emit, live routing
 # ---------------------------------------------------------------------------
 
 def _fake_channel(media_type="movie", *, watch_completed=False, watch_progress=0,
@@ -266,24 +256,26 @@ def _make_details_pane(qapp):
     return DetailsPaneWidget(_make_config(), cache, db=None)
 
 
-def test_show_channel_initializes_watched_toggle_from_flag(qapp):
-    """show_channel sets the Watched toggle from the channel's watch_completed flag."""
+def test_show_channel_initializes_watched_badge_from_flag(qapp):
+    """show_channel sets the poster badge from the channel's watch_completed flag."""
     pane = _make_details_pane(qapp)
 
     pane.show_channel(_fake_channel("movie", watch_completed=True))
-    assert pane._action_bar.watched_button.isChecked(), (
-        "Watched toggle must be checked for a completed movie"
+    assert pane._poster._watched is True, "badge must reflect a completed movie"
+    assert not pane._poster._watched_badge.isHidden(), (
+        "watched badge must be visible for a completed movie"
     )
 
     # Reuse the pane for an unwatched title — state must reset, not linger.
     pane.show_channel(_fake_channel("movie", watch_completed=False))
-    assert not pane._action_bar.watched_button.isChecked(), (
-        "Watched toggle must reset to unchecked for an unwatched title"
+    assert pane._poster._watched is False, "badge must reset for an unwatched title"
+    assert pane._poster._watched_badge.isHidden(), (
+        "unwatched badge must be hidden (faint, hover-only) on a reused pane"
     )
 
 
-def test_details_watched_toggle_emits_new_state(qapp):
-    """Clicking the Watched toggle emits watched_toggled(channel_id, new_state)."""
+def test_details_watched_badge_emits_new_state(qapp):
+    """Clicking the poster badge emits watched_toggled(channel_id, new_state)."""
     pane = _make_details_pane(qapp)
     ch = _fake_channel("movie", watch_completed=False)
     pane.show_channel(ch)
@@ -291,12 +283,12 @@ def test_details_watched_toggle_emits_new_state(qapp):
     emitted: list[tuple] = []
     pane.watched_toggled.connect(lambda cid, w: emitted.append((cid, w)))
 
-    pane._action_bar.watched_button.click()       # unwatched → watched
+    pane._poster._watched_badge.click()       # unwatched → watched
     assert emitted == [(ch.id, True)], (
         f"watched_toggled must carry the new state True; got {emitted}"
     )
 
-    pane._action_bar.watched_button.click()       # watched → unwatched
+    pane._poster._watched_badge.click()       # watched → unwatched
     assert emitted[-1] == (ch.id, False)
 
 
@@ -326,8 +318,8 @@ def test_show_channel_live_routes_logo_to_poster(qapp):
 
     assert pane._poster._is_live_logo is True, "live logo must populate the poster area"
     assert pane._poster._poster_url == "http://logo/live.png"
-    # Watched toggle is a VOD affordance — hidden for live.
-    assert pane._action_bar.watched_button.isHidden()
+    # Watched badge is a VOD affordance — hidden for live.
+    assert pane._poster._watched_badge.isHidden()
 
 
 def test_show_channel_live_no_logo_keeps_poster_hidden(qapp):
