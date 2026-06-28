@@ -136,4 +136,4 @@ These legacy forms coexist with the rules above — new code follows the rule, d
 | UI state persistence patterns | [DESIGN.md](DESIGN.md) |
 | Roadmap | [ROADMAP.md](ROADMAP.md) |
 | Refactor / dedup / cleanup plan | [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md) |
-| Current refactor audit + remediation | [docs/AUDIT_2026-06-19.md](docs/AUDIT_2026-06-19.md) |
+| Current audit + **Band 10** remediation plan | [docs/AUDIT_2026-06-19.md](docs/AUDIT_2026-06-19.md) |

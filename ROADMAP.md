@@ -139,7 +139,7 @@ What remains is small, not a "massive refactor" — see the **[2026-06-19 audit]
 for the full findings + the **Band 10** remediation plan (P1: `expunge`→DTO, render-parse cleanup;
 P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 
-- [ ] **Band 9 — deferred seam items + EPG cosmetic cleanup**: B9-1 `load_channels`→seam, B9-2 the few remaining `session.expunge` call sites → DTOs (favorites/metadata mixins). B9-3 (cosmetics) done (#59). See **[docs/REFACTOR_PLAN_BAND9.md](docs/REFACTOR_PLAN_BAND9.md)**.
+- [x] **Band 9 — DONE** (folded into Band 10): B9-1 `load_channels`→`_run_query` seam shipped as B10-5 (#74); B9-2 `session.expunge`→DTO as B10-1 (#65); B9-3 cosmetics (#59). Plan doc retired (history in git) — see the **[Band 10 audit](docs/AUDIT_2026-06-19.md)** for remaining refactor work (`main_window.py`/`channel.py` splits).
 - [ ] **Exclusions chip dead zone** — text area of the Exclusions chip is not clickable at cold launch; becomes clickable after a notification appears/dismisses. Root cause unknown (`setCheckable(False)` and solid-fill hover did NOT fix it). Likely z-order/geometry-timing in the bottom nav bar at startup; investigate `notification_widget.py` show/hide side-effects + bottom-nav-bar layout init.
 
 ## Data & Storage
