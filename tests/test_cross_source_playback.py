@@ -648,19 +648,21 @@ def test_toggle_filtered_section_shows_and_hides_chips(qapp):
     section = _make_version_section(qapp)
     section.load(_make_mixed_versions())
 
-    # Initially collapsed
-    assert not section._filtered_chips_row.isVisible()
+    # Initially collapsed. NOTE: isVisible() is ancestor-gated and is always False
+    # for a section that was never .show()n in a headless test — assert on the
+    # explicit hidden flag (isHidden()) instead, which reflects setVisible() directly.
+    assert section._filtered_chips_row.isHidden()
 
     # Click toggle → expanded
     section._filtered_toggle_btn.click()
-    assert section._filtered_chips_row.isVisible(), (
+    assert not section._filtered_chips_row.isHidden(), (
         "Filtered chips row must become visible after one toggle click"
     )
     assert section._filtered_collapsed is False
 
     # Click toggle again → collapsed
     section._filtered_toggle_btn.click()
-    assert not section._filtered_chips_row.isVisible(), (
+    assert section._filtered_chips_row.isHidden(), (
         "Filtered chips row must be hidden again after second toggle click"
     )
     assert section._filtered_collapsed is True
@@ -724,13 +726,13 @@ def test_load_resets_filtered_section_to_collapsed(qapp):
     section = _make_version_section(qapp)
     section.load(_make_mixed_versions())
 
-    # Expand filtered section
+    # Expand filtered section (isHidden() is the headless-safe visibility check)
     section._filtered_toggle_btn.click()
-    assert section._filtered_chips_row.isVisible()
+    assert not section._filtered_chips_row.isHidden()
 
     # Reload — must reset to collapsed
     section.load(_make_mixed_versions())
-    assert not section._filtered_chips_row.isVisible(), (
+    assert section._filtered_chips_row.isHidden(), (
         "Reloading must reset filtered section to collapsed"
     )
     assert section._filtered_collapsed is True
