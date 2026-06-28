@@ -215,7 +215,7 @@ _YEAR_RE = re.compile(
 # Strips:  (US), (VOSTFR), (HQ), (LQ), (BR), (ENG-SUB), (MULTI-DUB), (Dubbed), …
 # Multi-word qualifiers like (ENG DUB) or (SPANISH ENG-SUB) are NOT matched here;
 # they are handled by PAREN_MULTI_QUALIFIER_RE + _is_all_qualifier_tokens() below.
-PAREN_QUALIFIER_RE = re.compile(r"\s*\([A-Za-z][A-Za-z0-9\-/]{0,25}\)\s*$")
+PAREN_QUALIFIER_RE = re.compile(r"\s*\(([A-Za-z][A-Za-z0-9\-/]{0,25})\)\s*$")
 
 # Trailing parenthetical that contains an internal space — may be a multi-token
 # dub/sub/lang qualifier like (ENG DUB) or (SPANISH ENG-SUB), or a real alt-title
@@ -287,7 +287,16 @@ def strip_title_qualifiers(bare: str) -> str:
     while prev != bare:
         prev = bare
         bare = PAREN_YEAR_SUFFIX_RE.sub("", bare).strip()
-        bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
+        # Single-token paren qualifier — strip ONLY when the token is a recognized
+        # qualifier (US, HQ, VOSTFR, ENG-SUB, …) or an unambiguous sub/dub marker.
+        # A bare word like "(Reprise)"/"(Unplugged)"/"(Deluxe)" is a real alt-title
+        # qualifier — preserve it (same vocab gate the multi-token branch uses).
+        m_single = PAREN_QUALIFIER_RE.search(bare)
+        if m_single and (
+            _is_all_qualifier_tokens(m_single.group(1))
+            or _has_unambiguous_subdub(m_single.group(1))
+        ):
+            bare = bare[: m_single.start()].strip()
         bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
         bare = BRACKET_QUALIFIER_RE.sub("", bare).strip()
         # Multi-token parentheticals: strip when EVERY leaf token is recognized, OR
@@ -325,11 +334,15 @@ def _strip_title_qualifiers_collecting(bare: str) -> tuple[str, list[str]]:
         prev = bare
         # Year suffixes — not audio annotations; skip collecting
         bare = PAREN_YEAR_SUFFIX_RE.sub("", bare).strip()
-        # Single-token paren qualifiers — collect inner content
+        # Single-token paren qualifiers — strip + collect ONLY when recognized
+        # (preserve real alt-titles like "(Reprise)"; mirror strip_title_qualifiers).
         m_pq = _PAREN_INNER_RE.search(bare)
-        if m_pq:
+        if m_pq and (
+            _is_all_qualifier_tokens(m_pq.group(1))
+            or _has_unambiguous_subdub(m_pq.group(1))
+        ):
             stripped_inners.append(m_pq.group(1))
-        bare = PAREN_QUALIFIER_RE.sub("", bare).strip()
+            bare = bare[: m_pq.start()].strip()
         # Digit quality in parens — not audio, skip
         bare = PAREN_DIGIT_QUALITY_RE.sub("", bare).strip()
         # Bracket qualifiers — collect inner content
@@ -1047,6 +1060,10 @@ _RECOGNIZED_QUALIFIER_TOKENS: frozenset[str] = (
     | frozenset(REGION_FULL_NAMES.keys())                  # US, UK, FR, ARG, LAT …
     | QUALITY_TOKENS                                        # 4K, 8K, HD, HEVC …
     | _SUB_DUB_TOKENS                                      # SUB, DUB, VOSTFR, LEG …
+    # Bare audio-language words (KURDISH, NORWEGIAN, JAPANESE …) — a single-token
+    # language parenthetical "(KURDISH)" is a strippable qualifier (and an audio-lang
+    # facet feeder), not an alt-title like "(Reprise)". Single-word keys only.
+    | frozenset(k.upper() for k in AUDIO_LANG_WORD_MAP if " " not in k and "-" not in k and "/" not in k)
     # Single-word _AUDIO_NORM keys (e.g. MULTI, MUTI) — multi-word keys like
     # "MULTI SUB" are compound phrases; their individual words are already covered
     # by _SUB_DUB_TOKENS, but "MULTI"/"MUTI" alone need explicit inclusion.

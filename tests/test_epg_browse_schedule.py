@@ -34,7 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from metatv.core.database import ChannelDB, Database, EpgProgramDB
-from metatv.core.epg_utils import now_utc
+from metatv.core.epg_utils import now_utc, to_local
 from metatv.core.repositories.epg import EpgRepository
 from metatv.gui.epg_browse_mixin import _EpgBrowseMixin
 
@@ -86,8 +86,11 @@ def test_get_schedule_returns_day_programmes_without_search(seeded_db):
     db, now = seeded_db
     session = db.get_session()
     try:
+        # get_schedule windows by LOCAL day (its contract); convert the UTC `now`
+        # to the local date so the seeded programme falls in the window regardless
+        # of the run-time UTC offset (CLAUDE.md: never `.date()` UTC-anchored).
         progs = EpgRepository(session).get_schedule(
-            target_date=now.date(), provider_ids=["p1"]
+            target_date=to_local(now).date(), provider_ids=["p1"]
         )
         assert len(progs) == 1
         assert progs[0].title.startswith("Premier League")
@@ -208,7 +211,7 @@ def test_render_browse_renders_schedule_rows(qapp, seeded_db):
     # readable on the main-thread render even after the session closes.
     session = db.get_session()
     progs = EpgRepository(session).get_schedule(
-        target_date=now.date(), provider_ids=["p1"]
+        target_date=to_local(now).date(), provider_ids=["p1"]
     )
     session.close()
     host = _make_render_host(
