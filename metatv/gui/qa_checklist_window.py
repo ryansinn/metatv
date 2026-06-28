@@ -800,14 +800,29 @@ class QAChecklistWindow(QWidget):
     def _refresh_preserving_scroll(self) -> None:
         """Rebuild the body while restoring the vertical scroll position.
 
-        Captures the current scrollbar value before the rebuild and schedules
-        a deferred restore via ``QTimer.singleShot(0, …)`` so Qt finishes
-        laying out the new widgets before the value is applied.  This prevents
-        the jarring jump-to-top when marking pass/fail mid-checklist.
+        Captures the scrollbar value, rebuilds, then restores it **synchronously**
+        after forcing a layout pass — followed by a deferred restore as a backstop.
+
+        The synchronous restore matters for the Re-test path: it kicks off an
+        async log snapshot whose completion fires a *second*
+        ``_refresh_preserving_scroll``.  With a deferred-only restore, that second
+        pass could read (and re-save) the scroll value while the first restore was
+        still pending — capturing the post-rebuild ``0`` and snapping to the top.
+        Forcing the rebuilt body's layout (``activate()``) makes the scrollbar
+        range valid so the immediate ``setValue`` actually sticks instead of being
+        clamped to a stale maximum.
         """
         scrollbar = self._scroll.verticalScrollBar()
         saved = scrollbar.value()
         self._refresh()
+        # Force the rebuilt body to compute its real height so the scrollbar range
+        # is valid for an immediate, synchronous restore (defeats both the
+        # clamp-to-top and the async-retest re-save race).
+        body_layout = self._body.layout()
+        if body_layout is not None:
+            body_layout.activate()
+        scrollbar.setValue(saved)
+        # Backstop for any geometry update still deferred to the next tick.
         QTimer.singleShot(0, lambda v=saved: scrollbar.setValue(v))
 
     # ── per-step record access ────────────────────────────────────────────────
