@@ -174,6 +174,7 @@ class ProviderIconPicker(QWidget):
         lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         custom_row.addWidget(lbl)
         self._custom_input = QLineEdit()
+        self._custom_input.setClearButtonEnabled(True)
         self._custom_input.setPlaceholderText("emoji…")
         self._custom_input.setFixedWidth(80)
         self._custom_input.setMaxLength(8)
@@ -387,6 +388,7 @@ class ProviderEditorView(QWidget):
         lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         name_col.addWidget(lbl)
         self._name_input = QLineEdit()
+        self._name_input.setClearButtonEnabled(True)
         self._name_input.setStyleSheet(f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
         self._name_input.setPlaceholderText("My Provider")
         name_col.addWidget(self._name_input)
@@ -478,6 +480,7 @@ class ProviderEditorView(QWidget):
 
         un_row = QHBoxLayout()
         self._username_input = QLineEdit()
+        self._username_input.setClearButtonEnabled(True)
         self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._username_input.setPlaceholderText("username")
         un_row.addWidget(self._username_input, 1)
@@ -495,6 +498,7 @@ class ProviderEditorView(QWidget):
 
         pw_row = QHBoxLayout()
         self._password_input = QLineEdit()
+        self._password_input.setClearButtonEnabled(True)
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_input.setPlaceholderText("password")
         pw_row.addWidget(self._password_input, 1)
@@ -524,6 +528,7 @@ class ProviderEditorView(QWidget):
 
         add_row = QHBoxLayout()
         self._new_url_input = QLineEdit()
+        self._new_url_input.setClearButtonEnabled(True)
         self._new_url_input.setPlaceholderText("http://newdomain.com:8080")
         self._new_url_input.returnPressed.connect(self._add_url)
         add_row.addWidget(self._new_url_input, 1)
@@ -590,6 +595,7 @@ class ProviderEditorView(QWidget):
 
         # 2. URL override
         self._epg_url_override_input = QLineEdit()
+        self._epg_url_override_input.setClearButtonEnabled(True)
         self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
         self._epg_url_override_input.setToolTip(
             "Optional: supply your own XMLTV URL for this provider. "

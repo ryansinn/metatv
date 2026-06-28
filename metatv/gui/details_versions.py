@@ -156,6 +156,7 @@ class _CategoryNamePopup(QFrame):
         prefix_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;")
         layout.addWidget(prefix_lbl)
         self._edit = QLineEdit(current_name)
+        self._edit.setClearButtonEnabled(True)
         self._edit.setPlaceholderText(f"Name for {prefix}…")
         self._edit.setMinimumWidth(160)
         self._edit.returnPressed.connect(self._on_save)

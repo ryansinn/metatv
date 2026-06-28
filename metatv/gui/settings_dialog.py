@@ -208,6 +208,7 @@ class SettingsDialog(QDialog):
         mpv_layout = QVBoxLayout(mpv_group)
         mpv_layout.setSpacing(4)
         self._mpv_args_input = QLineEdit()
+        self._mpv_args_input.setClearButtonEnabled(True)
         self._mpv_args_input.setPlaceholderText("--cache=yes --demuxer-max-bytes=50M")
         hint = QLabel(
             "Space-separated flags passed directly to mpv. "
@@ -266,6 +267,7 @@ class SettingsDialog(QDialog):
 
         tmdb_key_row = QHBoxLayout()
         self._tmdb_key_input = QLineEdit()
+        self._tmdb_key_input.setClearButtonEnabled(True)
         self._tmdb_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._tmdb_key_input.setPlaceholderText("your-tmdb-api-key")
         tmdb_key_row.addWidget(self._tmdb_key_input, 1)
@@ -282,6 +284,7 @@ class SettingsDialog(QDialog):
         tmdb_form.addRow("API key:", tmdb_key_row)
 
         self._tmdb_lang_input = QLineEdit()
+        self._tmdb_lang_input.setClearButtonEnabled(True)
         self._tmdb_lang_input.setPlaceholderText("en-US")
         self._tmdb_lang_input.setMaxLength(10)
         tmdb_form.addRow("Language:", self._tmdb_lang_input)
@@ -294,6 +297,7 @@ class SettingsDialog(QDialog):
 
         omdb_key_row = QHBoxLayout()
         self._omdb_key_input = QLineEdit()
+        self._omdb_key_input.setClearButtonEnabled(True)
         self._omdb_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._omdb_key_input.setPlaceholderText("your-omdb-api-key")
         omdb_key_row.addWidget(self._omdb_key_input, 1)

@@ -112,13 +112,15 @@ This document defines standard UI/UX behaviors maintained throughout the applica
 - Case-insensitive
 - Clear button (×) resets search
 
-### Filter/search inputs — inline clear standard
-All filter and search `QLineEdit` widgets use **`setClearButtonEnabled(True)`** for the inline ×
-clear button; Qt renders it automatically when the box has text. Do **not** add a bespoke external
-`QPushButton` for this purpose — one such pattern was removed in this refactor. Any future
-filter/search input must call `setClearButtonEnabled(True)` immediately after construction.
-Clearing via the inline button sets text to `""`, which emits `textChanged` — existing
-`textChanged` handlers work without modification.
+### Text-entry inputs — inline clear standard
+All editable single-line `QLineEdit` widgets — search boxes, filter inputs, and free-text entry
+fields (name, URL, username, password, API key, pattern, prefix, etc.) — call
+**`setClearButtonEnabled(True)`** immediately after construction. Qt renders the inline × button
+automatically when the box has text. Do **not** add a bespoke external `QPushButton` for this
+purpose. Read-only fields (`setReadOnly(True)`) are exempt. Clearing via the inline button sets
+text to `""`, which emits `textChanged` — existing handlers work without modification.
+This rule is enforced by the source-scan test in `tests/test_clear_button_standard.py`
+(`test_every_qlineedit_has_clear_button_or_readonly`).
 
 ### Category Organization
 - Channels organized by `## Header` format

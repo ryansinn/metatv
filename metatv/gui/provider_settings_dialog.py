@@ -144,6 +144,7 @@ class ProviderSettingsDialog(QDialog):
         basic_layout = QFormLayout(basic_group)
         
         self.name_input = QLineEdit(self.provider.name)
+        self.name_input.setClearButtonEnabled(True)
         basic_layout.addRow("Name:", self.name_input)
         
         self.refresh_combo = QComboBox()
@@ -178,6 +179,7 @@ class ProviderSettingsDialog(QDialog):
         # Add URL controls
         add_layout = QHBoxLayout()
         self.new_url_input = QLineEdit()
+        self.new_url_input.setClearButtonEnabled(True)
         self.new_url_input.setPlaceholderText("http://newprovider.com:8000")
         add_layout.addWidget(self.new_url_input)
         

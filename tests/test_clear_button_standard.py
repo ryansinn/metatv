@@ -1,6 +1,6 @@
 """Behavioral tests — inline clear button standardization.
 
-Pins the convention that every filter/search QLineEdit uses
+Pins the convention that every editable QLineEdit uses
 setClearButtonEnabled(True) [isClearButtonEnabled() must return True] (the built-in inline × provided by Qt) and that
 the existing clear_filter() public API still works correctly after the removal
 of the bespoke external clear buttons.
@@ -9,9 +9,17 @@ Boxes covered:
   * _PantrySidebar._filter_box          (recipe_view.py)
   * WeightedTagCloud._filter_edit        (weighted_tag_cloud.py)
   * _BrowseView._search_box             (discover_browse.py)
+
+Source-scan guard (no Qt needed):
+  * Every ``= QLineEdit(`` in metatv/gui/*.py must be followed somewhere in the
+    same file by ``<varname>.setClearButtonEnabled(True)`` or
+    ``<varname>.setReadOnly(True)`` — enforcing the project-wide standard.
 """
 
 from __future__ import annotations
+
+import pathlib
+import re
 
 import pytest
 from PyQt6.QtWidgets import QApplication
@@ -129,4 +137,48 @@ def test_browse_view_search_box_has_clear_button(qapp):
     view = _BrowseView(image_cache=_FakeImageCache(), config=_FakeConfig())
     assert view._search_box.isClearButtonEnabled(), (
         "_BrowseView._search_box must call setClearButtonEnabled(True) [isClearButtonEnabled() must return True]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Source-scan guard — every editable QLineEdit must have clear-button or
+# read-only configured in the same file.  Pure text scan; no Qt needed.
+# ---------------------------------------------------------------------------
+
+# Pattern that matches the variable name in an assignment like:
+#   self._foo = QLineEdit(...)   → captures "_foo"  (the \w+ before =)
+#   add_input = QLineEdit(...)   → captures "add_input"
+_QLINEEDIT_ASSIGN_RE = re.compile(r"(\w+)\s*=\s*QLineEdit\s*\(")
+
+
+def _gui_python_files() -> list[pathlib.Path]:
+    """Return all *.py files under metatv/gui/, skipping __pycache__."""
+    gui_root = pathlib.Path(__file__).parent.parent / "metatv" / "gui"
+    return [
+        p for p in gui_root.rglob("*.py")
+        if "__pycache__" not in p.parts
+    ]
+
+
+def test_every_qlineedit_has_clear_button_or_readonly():
+    """Every QLineEdit instantiation in metatv/gui/ must be paired with
+    setClearButtonEnabled(True) or setReadOnly(True) in the same file.
+
+    Violation means an editable text-entry box is missing the inline × button.
+    """
+    violations: list[str] = []
+
+    for path in _gui_python_files():
+        source = path.read_text(encoding="utf-8")
+        for match in _QLINEEDIT_ASSIGN_RE.finditer(source):
+            varname = match.group(1)
+            has_clear = f"{varname}.setClearButtonEnabled(True)" in source
+            has_readonly = f"{varname}.setReadOnly(True)" in source
+            if not (has_clear or has_readonly):
+                violations.append(f"{path.relative_to(path.parent.parent.parent.parent)}:{varname}")
+
+    assert not violations, (
+        "These QLineEdit variables are missing setClearButtonEnabled(True) or "
+        "setReadOnly(True) — add one immediately after construction:\n"
+        + "\n".join(f"  {v}" for v in violations)
     )
