@@ -268,8 +268,7 @@ class _VersionSection(QWidget):
         filtered_header_layout.setContentsMargins(0, 2, 0, 2)
         filtered_header_layout.setSpacing(4)
         self._filtered_toggle_btn = QPushButton(_icons.expand_icon)
-        self._filtered_toggle_btn.setFixedSize(16, 16)
-        self._filtered_toggle_btn.setFlat(True)
+        self._filtered_toggle_btn.setFixedSize(20, 20)
         self._filtered_toggle_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
