@@ -200,8 +200,11 @@ class DetailsPaneWidget(QWidget):
         self._cast.restore_collapse_state(self.config.details_pane_collapsed_sections)
         self._tags.restore_collapse_state(self.config.details_pane_collapsed_sections)
 
+        # NOTE: _action_bar is intentionally NOT added to the content layout — it is
+        # the logical owner of the action buttons, which are reparented into the
+        # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._versions, self._action_bar,
+            self._poster, self._meta, self._versions,
             self._plot, self._cast, self._tech, self._tags, self._similar,
         ):
             self._content_layout.addWidget(widget)
@@ -211,13 +214,19 @@ class DetailsPaneWidget(QWidget):
             self._content_layout.addWidget(self._epg_agenda)
             self._epg_agenda.now_title_changed.connect(self._on_epg_title_changed)
 
-        # Wire sentiment buttons into the poster's left rail.  _ActionBar owns all
+        # Wire ALL action buttons into the poster's left rail.  _ActionBar owns all
         # state/signals; _PosterSection just provides the visual slot (fixed-width
         # left column left of the poster).  Must happen after both are constructed.
-        self._poster.set_sentiment_buttons(
-            self._action_bar.like_button,
-            self._action_bar.not_interested_button,
-            self._action_bar.dislike_button,
+        self._poster.set_action_buttons(
+            favorite=self._action_bar.favorite_button,
+            play=self._action_bar.play_button,
+            queue=self._action_bar.queue_button,
+            like=self._action_bar.like_button,
+            not_interested=self._action_bar.not_interested_button,
+            dislike=self._action_bar.dislike_button,
+            watchlist=self._action_bar.watchlist_button,
+            monitor=self._action_bar.monitor_button,
+            hide=self._action_bar.hide_button,
         )
 
         self._content_layout.addStretch()
