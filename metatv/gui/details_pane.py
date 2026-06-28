@@ -34,6 +34,7 @@ class DetailsPaneWidget(QWidget):
 
     # Public signals — wired by main_window (unchanged API)
     play_requested             = pyqtSignal(str)        # channel_id
+    resume_requested           = pyqtSignal(str)        # channel_id — resume from saved position
     play_version_requested     = pyqtSignal(str)        # channel_id — play a specific source variant
     favorite_toggled           = pyqtSignal(str)        # channel_id
     monitor_toggled            = pyqtSignal(str)        # channel_id (series monitor toggle)
@@ -139,6 +140,12 @@ class DetailsPaneWidget(QWidget):
             _is_mon = bool(_check(channel.id))
         self._action_bar.set_monitorable(_is_series, _is_mon)
 
+        # Resume button — movies with a saved, incomplete position only.
+        _is_movie = getattr(channel, "media_type", None) == MediaType.MOVIE
+        _progress = int(getattr(channel, "watch_progress", 0) or 0)
+        _completed = bool(getattr(channel, "watch_completed", False))
+        self._action_bar.set_resume(_is_movie and _progress > 0 and not _completed, _progress)
+
         if is_live:
             self._poster.set_country_info(channel.name)
             logo = getattr(channel, "logo_url", None)
@@ -220,6 +227,7 @@ class DetailsPaneWidget(QWidget):
         self._poster.set_action_buttons(
             favorite=self._action_bar.favorite_button,
             play=self._action_bar.play_button,
+            resume=self._action_bar.resume_button,
             queue=self._action_bar.queue_button,
             like=self._action_bar.like_button,
             not_interested=self._action_bar.not_interested_button,
@@ -276,6 +284,7 @@ class DetailsPaneWidget(QWidget):
         # Action bar — wrap with channel_id
         ab = self._action_bar
         ab.play_clicked.connect(self._on_play)
+        ab.resume_clicked.connect(self._on_resume)
         ab.favorite_clicked.connect(self._on_favorite)
         ab.queue_clicked.connect(self._on_queue)
         ab.like_clicked.connect(self._on_like)
@@ -364,6 +373,10 @@ class DetailsPaneWidget(QWidget):
     def _on_play(self) -> None:
         if self.current_channel:
             self.play_requested.emit(self.current_channel.id)
+
+    def _on_resume(self) -> None:
+        if self.current_channel:
+            self.resume_requested.emit(self.current_channel.id)
 
     def _on_favorite(self) -> None:
         if self.current_channel:

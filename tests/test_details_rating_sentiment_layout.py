@@ -107,6 +107,21 @@ def test_rating_hidden_when_raw_data_has_no_rating_key(qapp):
     )
 
 
+@pytest.mark.parametrize("zero_rating", ["0", "0.0", 0, 0.0])
+def test_rating_hidden_when_raw_rating_is_zero(qapp, zero_rating):
+    """A rating of 0 / '0' / '0.0' means unrated — must hide (not show '0.0 of 10')."""
+    from metatv.gui.details_sections import _MetadataSection
+
+    section = _MetadataSection(_make_config())
+    ch = _stub_channel(raw_data={"rating": zero_rating})
+    section.load_basic(ch)
+
+    assert section.rating_label.isHidden(), (
+        f"rating_label must be hidden for a zero rating ({zero_rating!r}) — "
+        "no '0.0 of 10' on unrated content"
+    )
+
+
 def test_rating_shown_via_load_metadata(qapp):
     """load_metadata() with a numeric rating must show rating_label."""
     from metatv.gui.details_sections import _MetadataSection
@@ -185,6 +200,7 @@ def _wire_rail(poster, action_bar):
     poster.set_action_buttons(
         favorite=action_bar.favorite_button,
         play=action_bar.play_button,
+        resume=action_bar.resume_button,
         queue=action_bar.queue_button,
         like=action_bar.like_button,
         not_interested=action_bar.not_interested_button,
@@ -369,3 +385,54 @@ def test_like_dislike_mutually_exclusive_optimistic_state(qapp):
     assert action_bar.dislike_button.isChecked(), (
         "dislike_button must be checked after clicking dislike"
     )
+
+
+def test_not_interested_clears_like_and_dislike(qapp):
+    """Activating Not Interested must clear an active like/dislike (exclusive group)."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    action_bar.set_mode(is_live=False)
+
+    action_bar.like_button.click()            # rating → +1
+    assert action_bar.like_button.isChecked()
+
+    action_bar.not_interested_button.click()  # suppress ON → must clear rating
+    assert action_bar._suppressed is True
+    assert action_bar._rating == 0, "Not Interested must clear the rating"
+    assert not action_bar.like_button.isChecked(), "like must be unchecked by Not Interested"
+    assert not action_bar.dislike_button.isChecked()
+    assert action_bar.not_interested_button.isChecked()
+
+
+def test_like_clears_not_interested(qapp):
+    """Activating like/dislike must clear an active Not Interested (exclusive group)."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    action_bar.set_mode(is_live=False)
+
+    action_bar.not_interested_button.click()  # suppress ON
+    assert action_bar._suppressed is True
+
+    action_bar.like_button.click()            # like ON → must clear suppression
+    assert action_bar._rating == 1
+    assert action_bar._suppressed is False, "like must clear Not Interested"
+    assert not action_bar.not_interested_button.isChecked()
+
+
+def test_resume_button_hidden_until_set(qapp):
+    """The resume button is hidden by default and shown only via set_resume()."""
+    from metatv.gui.details_actions import _ActionBar
+
+    action_bar = _ActionBar(_make_config())
+    assert action_bar.resume_button.isHidden(), "resume button must start hidden"
+
+    action_bar.set_resume(True, position_s=125)
+    assert not action_bar.resume_button.isHidden(), "set_resume(True) must show it"
+    assert "2:05" in action_bar.resume_button.toolTip(), (
+        f"resume tooltip should show the M:SS position; got {action_bar.resume_button.toolTip()!r}"
+    )
+
+    action_bar.set_resume(False)
+    assert action_bar.resume_button.isHidden(), "set_resume(False) must hide it"

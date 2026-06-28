@@ -14,6 +14,9 @@ ENTRY = WhatsNewEntry(
         "the action icons are always present regardless of channel type.",
         "Buttons are icon-only with hover tooltips; current state shows as a "
         "highlighted (checked) button or a swapped icon (e.g. filled vs. outline star).",
+        "Partially-watched movies now get an orange Resume button directly below "
+        "Play (Play starts as usual; Resume continues from where you left off).",
+        "The Alert (🚨) button glows red when alerting is active.",
     ),
     test_steps=(
         "With nothing selected (empty details pane), confirm NO action icons appear "
@@ -25,8 +28,11 @@ ENTRY = WhatsNewEntry(
         "channel', 'Add to Watch Queue').",
         "Click Favorite and Add to Queue; confirm the star fills / the queue button "
         "highlights and the change persists (re-open the title).",
-        "Open a SERIES and confirm an Alert (🔔) button appears in the rail; toggle it "
-        "and confirm it highlights.",
+        "Open a SERIES and confirm an Alert (🚨) button appears in the rail; toggle it "
+        "and confirm it glows RED when active.",
+        "Open a partially-watched movie and confirm an orange Resume button appears "
+        "below Play; hover it to see 'Resume from M:SS'; click it and confirm playback "
+        "continues from the saved position (Play still starts normally).",
         "Open a LIVE channel and confirm the action rail is still visible to the left "
         "of the channel header (Favorite, Play, Add to Queue, Watchlist, Hide).",
     ),

@@ -328,6 +328,27 @@ DETAIL_RAIL_BTN = (
     " border-color: " + COLOR_DIM + "; }"
 )
 
+# Alert/monitor rail button — inactive reads like a normal rail button; active
+# (:checked, "alerting") glows red so the siren clearly turns on.
+DETAIL_RAIL_BTN_ALERT = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
+    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: transparent;"
+    " color: " + COLOR_DIM + "; }"
+    "QPushButton:checked { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_ERR + "; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + ";"
+    " border-color: " + COLOR_DIM + "; }"
+)
+
+# Resume rail button — orange-tinted so it reads as the distinct "continue from
+# where you left off" affordance, sitting directly below the plain Play button.
+DETAIL_RAIL_BTN_RESUME = (
+    "QPushButton { border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 4px;"
+    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_ORANGE_12 + ";"
+    " color: " + COLOR_ACCENT_ORANGE + "; }"
+    "QPushButton:hover { background: " + OVERLAY_ORANGE_18 + "; color: " + COLOR_TEXT_HI + "; }"
+)
+
 # Channel-name labels (EPG rows)
 CHANNEL_NAME          = "font-size: " + FONT_MD + ";"
 CHANNEL_NAME_LIVE     = "color: " + COLOR_TEXT + "; font-size: " + FONT_MD + ";"

@@ -125,7 +125,8 @@ class _PosterSection(QWidget):
         self._action_rail = QWidget()
         self._action_rail.setFixedWidth(48)
         self._action_rail_layout = QVBoxLayout(self._action_rail)
-        self._action_rail_layout.setContentsMargins(0, 4, 6, 4)
+        # Small top margin so favorite sits just below the poster's top edge.
+        self._action_rail_layout.setContentsMargins(0, 8, 6, 4)
         self._action_rail_layout.setSpacing(6)
         self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
         self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
@@ -201,6 +202,7 @@ class _PosterSection(QWidget):
         *,
         favorite,
         play,
+        resume,
         queue,
         like,
         not_interested,
@@ -215,9 +217,11 @@ class _PosterSection(QWidget):
         _ActionBar have been constructed.  The buttons are owned by _ActionBar
         (signals/state/sync live there); we just reparent them into this visual slot.
 
-        Order (top→bottom): favorite · gap · play · queue · gap · sentiment trio ·
-        watchlist · alert · stretch · hide (pinned to the bottom, near the title).
-        Mode-conditional buttons (sentiment=VOD, watchlist=live, alert=series) keep
+        Order (top→bottom): favorite · gap · play · resume · queue · gap ·
+        sentiment trio · watchlist · gap · alert · stretch · hide (pinned to the
+        bottom, near the title).  Subgroups are separated by widening gaps; the
+        play/resume/queue triplet stays tight.  Mode-conditional buttons
+        (resume=has-progress, sentiment=VOD, watchlist=live, alert=series) keep
         their slot but are shown/hidden by _ActionBar.
         """
         layout = self._action_rail_layout
@@ -225,14 +229,16 @@ class _PosterSection(QWidget):
             layout.takeAt(0)
 
         layout.addWidget(favorite)
-        layout.addSpacing(10)
+        layout.addSpacing(14)
         layout.addWidget(play)
+        layout.addWidget(resume)
         layout.addWidget(queue)
-        layout.addSpacing(10)
+        layout.addSpacing(16)
         layout.addWidget(like)
         layout.addWidget(not_interested)
         layout.addWidget(dislike)
         layout.addWidget(watchlist)
+        layout.addSpacing(20)
         layout.addWidget(monitor)
         layout.addStretch()
         layout.addWidget(hide)
@@ -600,19 +606,17 @@ class _MetadataSection(QWidget):
 
         # Show rating from raw_data immediately (don't wait for metadata).
         # rating_label lives on the media-type row so no separate row to show/hide.
-        if channel.raw_data:
-            raw_rating = channel.raw_data.get("rating")
-            if raw_rating:
-                try:
-                    rating_val = float(raw_rating)
-                    rating_val = max(0.0, min(10.0, rating_val))  # clamp to 0-10
-                    stars = self.config.rating_star_icon * int(rating_val / 2)
-                    self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
-                    self.rating_label.show()
-                except (ValueError, TypeError):
-                    self.rating_label.hide()
-            else:
-                self.rating_label.hide()
+        # A rating of 0 / "0" / "0.0" means "unrated" — hide it (don't show "0.0 of 10").
+        raw_rating = channel.raw_data.get("rating") if channel.raw_data else None
+        try:
+            rating_val = float(raw_rating) if raw_rating not in (None, "") else 0.0
+        except (ValueError, TypeError):
+            rating_val = 0.0
+        if rating_val > 0:
+            rating_val = min(10.0, rating_val)  # clamp upper bound
+            stars = self.config.rating_star_icon * int(rating_val / 2)
+            self.rating_label.setText(f"{stars} {rating_val:.1f} of 10")
+            self.rating_label.show()
         else:
             self.rating_label.hide()
 

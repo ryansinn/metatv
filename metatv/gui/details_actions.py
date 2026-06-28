@@ -31,6 +31,7 @@ class _ActionBar(QWidget):
     """
 
     play_clicked            = pyqtSignal()
+    resume_clicked          = pyqtSignal()
     favorite_clicked        = pyqtSignal()
     queue_clicked           = pyqtSignal()
     like_clicked            = pyqtSignal()
@@ -53,11 +54,13 @@ class _ActionBar(QWidget):
         self._current_epg_title: str = ""
         self._setup()
 
-    def _mk(self, icon: str, tooltip: str, *, checkable: bool = False) -> QPushButton:
+    def _mk(
+        self, icon: str, tooltip: str, *, checkable: bool = False, style: str | None = None
+    ) -> QPushButton:
         """Build one icon-only rail button (parented to self until reparented)."""
         btn = QPushButton(icon, self)
         btn.setToolTip(tooltip)
-        btn.setStyleSheet(_theme.DETAIL_RAIL_BTN)
+        btn.setStyleSheet(style or _theme.DETAIL_RAIL_BTN)
         if checkable:
             btn.setCheckable(True)
         return btn
@@ -72,6 +75,16 @@ class _ActionBar(QWidget):
 
         self.play_button = self._mk(self.config.play_icon, "Play this channel")
         self.play_button.clicked.connect(self.play_clicked)
+
+        # Resume — orange, sits directly below Play; shown only when there's a
+        # saved position (movies with watch_progress > 0).  set_resume() toggles it.
+        self.resume_button = self._mk(
+            _icons.resume_from_icon,
+            "Resume from where you left off",
+            style=_theme.DETAIL_RAIL_BTN_RESUME,
+        )
+        self.resume_button.clicked.connect(self.resume_clicked)
+        self.resume_button.hide()
 
         self.queue_button = self._mk(
             self.config.queue_icon, "Add to Watch Queue", checkable=True
@@ -105,9 +118,11 @@ class _ActionBar(QWidget):
         self.watchlist_button.clicked.connect(self.watchlist_clicked)
         self.watchlist_button.hide()
 
-        # Alert / monitor — series only (shown via set_monitorable)
+        # Alert / monitor — series only (shown via set_monitorable).  Uses the
+        # alert style: the siren glows red when alerting (:checked).
         self.monitor_button = self._mk(
-            _icons.alert_icon, "Alert me to new episodes of this series", checkable=True
+            _icons.alert_icon, "Alert me to new episodes of this series",
+            checkable=True, style=_theme.DETAIL_RAIL_BTN_ALERT,
         )
         self.monitor_button.clicked.connect(self._on_monitor_clicked)
         self.monitor_button.hide()
@@ -140,6 +155,15 @@ class _ActionBar(QWidget):
         self._is_monitored = is_monitored
         self._sync_monitor_button()
 
+    def set_resume(self, can_resume: bool, position_s: int = 0) -> None:
+        """Show the Resume button only when there's a saved position to resume from."""
+        self.resume_button.setVisible(can_resume)
+        if can_resume and position_s > 0:
+            minutes, secs = divmod(int(position_s), 60)
+            self.resume_button.setToolTip(f"Resume from {minutes}:{secs:02d}")
+        else:
+            self.resume_button.setToolTip("Resume from where you left off")
+
     def update_favorite(self, is_favorite: bool) -> None:
         if is_favorite:
             self.favorite_button.setText(self.config.favorite_icon)
@@ -165,6 +189,7 @@ class _ActionBar(QWidget):
         self._is_monitored = False
         self._current_epg_title = ""
         self.monitor_button.setVisible(False)
+        self.resume_button.setVisible(False)
         self.watchlist_button.setChecked(False)
         self._sync_all()
 
@@ -179,18 +204,31 @@ class _ActionBar(QWidget):
 
     def _on_like_clicked(self) -> None:
         self._rating = 0 if self._rating == 1 else 1
+        self._clear_suppressed_for_rating()
         self._sync_rating_buttons()
         self.like_clicked.emit()
 
     def _on_dislike_clicked(self) -> None:
         self._rating = 0 if self._rating == -1 else -1
+        self._clear_suppressed_for_rating()
         self._sync_rating_buttons()
         self.dislike_clicked.emit()
 
     def _on_not_interested_clicked(self) -> None:
         self._suppressed = not self._suppressed
+        # Mutually exclusive with like/dislike — turning "not interested" on
+        # clears any rating (the host persists the same cross-clear).
+        if self._suppressed and self._rating != 0:
+            self._rating = 0
+            self._sync_rating_buttons()
         self.not_interested_button.setChecked(self._suppressed)
         self.not_interested_clicked.emit()
+
+    def _clear_suppressed_for_rating(self) -> None:
+        """A like/dislike is mutually exclusive with 'not interested' — clear it."""
+        if self._rating != 0 and self._suppressed:
+            self._suppressed = False
+            self.not_interested_button.setChecked(False)
 
     def _on_hide_clicked(self) -> None:
         self._is_hidden = True
