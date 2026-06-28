@@ -76,14 +76,9 @@ class _EpgBrowseMixin:
         search_row.setSpacing(4)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search programmes…")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_input, 1)
-        browse_clear = QPushButton(_icons.close_icon)
-        browse_clear.setFixedWidth(30)
-        browse_clear.setToolTip("Clear search")
-        browse_clear.setStyleSheet(_theme.CLEAR_BTN)
-        browse_clear.clicked.connect(self.search_input.clear)
-        search_row.addWidget(browse_clear)
         layout.addLayout(search_row)
 
         # Filter row
