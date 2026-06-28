@@ -454,9 +454,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         # Right details pane
         self.details_pane = DetailsPaneWidget(self.config, self.image_cache, self.db)
-        self.details_pane.play_requested.connect(self.play_channel_by_id)
-        self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
-        self.details_pane.play_version_requested.connect(self.play_channel_by_id)
+        self._connect_details_play_signals()
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
         self.details_pane.rating_requested.connect(self._toggle_rating)
@@ -526,6 +524,19 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
     
+    def _connect_details_play_signals(self) -> None:
+        """Route the details-pane Play / Resume / variant signals to their play paths.
+
+        The primary **Play** button starts from the BEGINNING — it must route to
+        ``play_channel_from_beginning_by_id``, NOT the resume-honoring
+        ``play_channel_by_id`` (whose default ``playback_resume_mode='resume'`` made
+        the Play button silently resume — the regression this fixes).  **Resume**
+        continues from the saved position; variant chips use the resume-aware default.
+        """
+        self.details_pane.play_requested.connect(self.play_channel_from_beginning_by_id)
+        self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
+        self.details_pane.play_version_requested.connect(self.play_channel_by_id)
+
     def create_menu_bar(self):
         """Create application menu bar"""
         menubar = self.menuBar()
