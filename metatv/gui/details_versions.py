@@ -113,7 +113,12 @@ class _FlowLayout(QLayout):
         x, y, row_h = eff.x(), eff.y(), 0
         for item in self._items:
             w = item.widget()
-            if w and not w.isVisible():
+            # Use isHidden() (explicit hide only) rather than not isVisible()
+            # (ancestor-gated).  When the parent container is collapsed the chips
+            # are not explicitly hidden, so isVisible() wrongly returns False and
+            # _do_layout skips them — causing heightForWidth to return 0 and the
+            # row to render with zero height after expansion.
+            if w and w.isHidden():
                 continue
             hint = item.sizeHint()
             next_x = x + hint.width() + self._h_spacing
@@ -271,11 +276,17 @@ class _VersionSection(QWidget):
         self._filtered_toggle_btn.setToolTip("Show/hide filtered variants")
         self._filtered_toggle_btn.clicked.connect(self._toggle_filtered_section)
         filtered_header_layout.addWidget(self._filtered_toggle_btn)
-        filtered_hdr_lbl = QLabel("FILTERED VARIANTS")
-        filtered_hdr_lbl.setStyleSheet(
-            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; font-weight: bold;"
+        # Flat QPushButton styled as a label so the whole text is also clickable.
+        self._filtered_hdr_lbl = QPushButton("FILTERED VARIANTS")
+        self._filtered_hdr_lbl.setFlat(True)
+        self._filtered_hdr_lbl.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};"
+            " font-weight: bold; border: none; text-align: left; padding: 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
-        filtered_header_layout.addWidget(filtered_hdr_lbl)
+        self._filtered_hdr_lbl.setToolTip("Show/hide filtered variants")
+        self._filtered_hdr_lbl.clicked.connect(self._toggle_filtered_section)
+        filtered_header_layout.addWidget(self._filtered_hdr_lbl)
         filtered_header_layout.addStretch()
         filtered_section_layout.addWidget(self._filtered_header)
 
@@ -357,6 +368,10 @@ class _VersionSection(QWidget):
 
         if filtered:
             self._filtered_section.show()
+        else:
+            # Belt-and-suspenders: ensure the section is hidden even if a previous
+            # load left it visible and this reload has zero filtered variants.
+            self._filtered_section.hide()
 
         self._row_container.show()
         self._chips_row.updateGeometry()
@@ -370,6 +385,10 @@ class _VersionSection(QWidget):
         """Toggle the collapsed state of the FILTERED VARIANTS sub-section."""
         self._filtered_collapsed = not self._filtered_collapsed
         self._filtered_chips_row.setVisible(not self._filtered_collapsed)
+        # After expanding, nudge Qt to re-query heightForWidth so the chips row
+        # gets the correct height (the layout may have cached 0 while collapsed).
+        if not self._filtered_collapsed:
+            self._filtered_chips_row.updateGeometry()
         self._filtered_toggle_btn.setText(
             _icons.expand_icon if self._filtered_collapsed else _icons.collapse_icon
         )
