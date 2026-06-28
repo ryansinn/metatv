@@ -361,6 +361,22 @@ class TagCountDTO:
     channel_count: int    # number of active-source channels carrying this tag value
 
 
+@dataclass(frozen=True)
+class TagSearchResultDTO:
+    """One cross-facet match in the Recipe builder's Pantry search.
+
+    Unlike :class:`TagCountDTO` (which carries values for one already-selected
+    facet), this DTO also carries the ``facet_type`` the value belongs to —
+    because the Pantry search scans tag values across ALL facets at once and the
+    center cloud now mixes facets (each tag colored by its facet).  Built inside
+    a session_scope() by TagRepository.search_tag_values_across_facets() — no
+    ORM objects cross the session boundary.
+    """
+    facet_type: str       # the namespace this value belongs to, e.g. "genre", "collection"
+    value: str            # canonical tag value, e.g. "Comedy", "Dark Comedy"
+    channel_count: int    # number of active-source channels carrying this tag value
+
+
 # ---------------------------------------------------------------------------
 # Cross-repo builder (requires an open session — call inside session_scope())
 # ---------------------------------------------------------------------------
