@@ -9,9 +9,9 @@ actually break if the feature regressed:
 3. ChannelListModel.data(DecorationRole) returns a QIcon for completed movies (glyph in icon lane, not text).
 4. ChannelListModel DecorationRole returns None for live channels.
 3b. DecorationRole returns QIcon for partially-watched movies; text never contains watch glyphs.
-5. Details-pane _MetadataSection shows "✓ Watched" for completed movies.
-6. Details-pane _MetadataSection shows "Resume at M:SS" for partial movies.
-7. Details-pane _MetadataSection hides the watch status for live channels.
+5-7. (removed) The details-pane "✓ Watched" / "Resume" text line was replaced by
+    the action-rail Watched toggle + Resume button — see
+    tests/test_details_rail_watched_logo.py.
 8. ContentCard.progress_fraction is populated from StatusSets.progress_map.
 9. build_status_sets watched_ids uses watch_completed (not last_played).
 10. build_status_sets builds progress_map for partial-play movies with runtimes.
@@ -423,98 +423,10 @@ def test_channel_list_model_no_partial_icon_for_live_with_progress(qapp):
 
 
 # ---------------------------------------------------------------------------
-# 5–7. Details-pane _MetadataSection watch-status label
+# 5–7. (removed) The details-pane "✓ Watched" / "Resume at M:SS" text line was
+# replaced by the action-rail Watched toggle + Resume button — see
+# tests/test_details_rail_watched_logo.py for the replacement coverage.
 # ---------------------------------------------------------------------------
-
-def _make_metadata_section(qapp, config=None):
-    """Build a _MetadataSection directly (no full DetailsPaneWidget needed)."""
-    from metatv.gui.details_sections import _MetadataSection
-    if config is None:
-        config = MagicMock()
-        config.rating_star_icon = "★"
-        config.preferences_icon = "🎯"
-    return _MetadataSection(config)
-
-
-def _fake_channel(media_type="movie", watch_completed=False, watch_progress=0):
-    ch = MagicMock()
-    ch.name = "Test Movie"
-    ch.media_type = media_type
-    ch.detected_title = "Test Movie"
-    ch.detected_prefix = None
-    ch.detected_region = None
-    ch.detected_quality = None
-    ch.detected_year = None
-    ch.provider_id = "p1"
-    ch.is_adult = False
-    ch.raw_data = None
-    ch.watch_completed = watch_completed
-    ch.watch_progress = watch_progress
-    return ch
-
-
-def test_details_section_shows_watched_for_completed_movie(qapp):
-    """_watch_status_lbl is not hidden and contains 'Watched' for a completed movie.
-
-    Uses isHidden() rather than isVisible() because Qt reports isVisible()=False
-    for widgets whose parent has never been shown (headless tests). isHidden()
-    reflects whether hide() was explicitly called, which is all we need to verify.
-    """
-    from metatv.gui import icons as _icons
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="movie", watch_completed=True, watch_progress=0)
-    section.load_basic(ch, {})
-    assert not section._watch_status_lbl.isHidden(), "watch_status_lbl should not be hidden"
-    text = section._watch_status_lbl.text()
-    assert _icons.watched_icon in text, f"Expected ✓ in {text!r}"
-    assert "Watched" in text, f"Expected 'Watched' in {text!r}"
-
-
-def test_details_section_shows_resume_for_partial_movie(qapp):
-    """_watch_status_lbl shows 'Resume at M:SS' when watch_progress > 0 and not completed."""
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="movie", watch_completed=False, watch_progress=125)
-    section.load_basic(ch, {})
-    assert not section._watch_status_lbl.isHidden(), "watch_status_lbl should not be hidden"
-    text = section._watch_status_lbl.text()
-    assert "Resume" in text, f"Expected 'Resume' in {text!r}"
-    assert "2:05" in text, f"Expected '2:05' (125s) in {text!r}"
-
-
-def test_details_section_shows_resume_1_hour_mark(qapp):
-    """3723 seconds → 62:03 (no hours prefix, minutes can exceed 59)."""
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="movie", watch_completed=False, watch_progress=3723)
-    section.load_basic(ch, {})
-    assert not section._watch_status_lbl.isHidden()
-    text = section._watch_status_lbl.text()
-    assert "62:03" in text, f"Expected '62:03' in {text!r}"
-
-
-def test_details_section_hides_watch_status_for_live(qapp):
-    """_watch_status_lbl is hidden for live channels regardless of watch fields."""
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="live", watch_completed=True, watch_progress=100)
-    section.load_basic(ch, {})
-    assert section._watch_status_lbl.isHidden(), "watch_status_lbl must be hidden for live"
-
-
-def test_details_section_hides_watch_status_for_unwatched_movie(qapp):
-    """_watch_status_lbl is hidden when neither completed nor in-progress."""
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="movie", watch_completed=False, watch_progress=0)
-    section.load_basic(ch, {})
-    assert section._watch_status_lbl.isHidden(), "watch_status_lbl should be hidden when unwatched"
-
-
-def test_details_section_clear_hides_watch_status(qapp):
-    """clear() hides the _watch_status_lbl (so switching channels doesn't leave stale state)."""
-    section = _make_metadata_section(qapp)
-    ch = _fake_channel(media_type="movie", watch_completed=True)
-    section.load_basic(ch, {})
-    assert not section._watch_status_lbl.isHidden()
-    section.clear()
-    assert section._watch_status_lbl.isHidden()
 
 
 # ---------------------------------------------------------------------------

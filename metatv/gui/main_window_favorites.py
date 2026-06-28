@@ -102,6 +102,21 @@ class _FavoritesMixin:
             RepositoryFactory(session).channels.mark_watched(channel_id, watched=False)
         self._apply_mark_watched_ui([channel_id], watched=False)
 
+    def _on_details_watched_toggled(self, channel_id: str, watched: bool) -> None:
+        """Details-pane Watched toggle — route through the shared mark-watched chokepoint.
+
+        Reuses the same per-channel mark/unmark path the context-menu "Mark as
+        Watched" action uses, so persistence + in-place row updates stay identical.
+
+        Args:
+            channel_id: The channel whose watched state changed.
+            watched: True to mark watched, False to mark unwatched.
+        """
+        if watched:
+            self._mark_channel_watched(channel_id)
+        else:
+            self._mark_channel_unwatched(channel_id)
+
     def _bulk_mark_watched(self, channel_ids: list[str]) -> None:
         """Toggle the watched state for multiple channels atomically, then update rows in place.
 

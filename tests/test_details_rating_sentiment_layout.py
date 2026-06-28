@@ -207,6 +207,7 @@ def _wire_rail(poster, action_bar):
         dislike=action_bar.dislike_button,
         watchlist=action_bar.watchlist_button,
         monitor=action_bar.monitor_button,
+        watched=action_bar.watched_button,
         hide=action_bar.hide_button,
     )
 
