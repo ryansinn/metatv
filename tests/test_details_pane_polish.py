@@ -2,6 +2,8 @@
 
 #98 — variant chip queue context-menu shows correct "Add/Remove from Queue" label
 #101 — genre chips wrap via _FlowLayout rather than overflowing a single-line QLabel
+e87956eb — comma-joined genre strings split into one chip each (no over-wide chip)
+backlog — empty Overview / Cast & Crew sections hide themselves (no empty boxes)
 """
 
 from __future__ import annotations
@@ -226,3 +228,179 @@ def test_genre_clear_hides_container(qapp):
     assert section._genres_loading_lbl.isHidden(), (
         "Loading label should be hidden after clear()"
     )
+
+
+# ── e87956eb: comma-joined genre strings split into separate wrapping chips ──
+
+def test_comma_joined_genres_split_into_separate_chips(qapp):
+    """A single comma-joined genre string becomes one chip per genre so they wrap.
+
+    Providers (e.g. for "Cowboy Bebop") often deliver all genres as one
+    comma-separated string in a single list element.  Previously only '/' was
+    split, so this produced one over-wide chip; now both ',' and '/' split.
+    """
+    from PyQt6.QtWidgets import QPushButton
+    from metatv.gui.details_sections import _MetadataSection
+    from metatv.metadata_providers.base import MetadataResult
+
+    section = _MetadataSection(_make_config())
+    section.load_metadata(MetadataResult(
+        genres=["Animation, Action, Adventure, Comedy, Drama, Science Fiction"]
+    ))
+    chip_texts = {c.text() for c in section._genres_container.findChildren(QPushButton)}
+    assert chip_texts == {
+        "Animation", "Action", "Adventure", "Comedy", "Drama", "Science Fiction"
+    }, f"comma-joined genres must split into one chip each; got {chip_texts}"
+
+
+def test_comma_joined_genres_do_not_force_wide_minimum(qapp):
+    """The over-wide single chip is the bug e87956eb: after splitting, the flow
+    layout's minimum width is just the widest single genre, never the whole joined
+    string — so it can never push the details panel (min 300px) wider."""
+    from metatv.gui.details_sections import _MetadataSection
+    from metatv.metadata_providers.base import MetadataResult
+
+    joined = "Animation, Action, Adventure, Comedy, Drama, Science Fiction"
+
+    # Sanity: the un-split joined string is genuinely wider than the panel.
+    unsplit = _MetadataSection(_make_config())
+    unsplit._populate_genre_chips([joined])
+    unsplit_w = unsplit._genres_layout.minimumSize().width()
+    assert unsplit_w > 300, (
+        f"precondition: a single joined chip should be over-wide; got {unsplit_w}"
+    )
+
+    section = _MetadataSection(_make_config())
+    section.load_metadata(MetadataResult(genres=[joined]))
+    split_w = section._genres_layout.minimumSize().width()
+    assert split_w < 200, (
+        f"genre flow min width {split_w} too wide — chips not wrapping; "
+        "a single joined chip forces the panel wider than its width"
+    )
+
+
+def test_ampersand_genre_not_split(qapp):
+    """'Sci-Fi & Fantasy' / 'Action & Adventure' are single TMDB genres — '&'
+    must never split them, only ',' and '/' do."""
+    from PyQt6.QtWidgets import QPushButton
+    from metatv.gui.details_sections import _MetadataSection
+    from metatv.metadata_providers.base import MetadataResult
+
+    section = _MetadataSection(_make_config())
+    section.load_metadata(MetadataResult(genres=["Sci-Fi & Fantasy, Action"]))
+    chip_texts = {c.text() for c in section._genres_container.findChildren(QPushButton)}
+    assert chip_texts == {"Sci-Fi & Fantasy", "Action"}, (
+        f"'&' must not split a genre; got {chip_texts}"
+    )
+
+
+def test_duplicate_genres_deduped(qapp):
+    """Merged multi-provider metadata can repeat a genre — render it once."""
+    from PyQt6.QtWidgets import QPushButton
+    from metatv.gui.details_sections import _MetadataSection
+    from metatv.metadata_providers.base import MetadataResult
+
+    section = _MetadataSection(_make_config())
+    section.load_metadata(MetadataResult(genres=["Action, Drama", "drama / Action"]))
+    chips = [c.text() for c in section._genres_container.findChildren(QPushButton)]
+    assert sorted(chips) == ["Action", "Drama"], (
+        f"duplicate genres (case-insensitive) must collapse to one chip; got {chips}"
+    )
+
+
+# ── backlog: empty Overview / Cast & Crew sections hide themselves ──────────
+# The section sequence below (set_mode -> clear -> load) mirrors exactly what
+# DetailsPaneWidget.show_channel() does per selection, so these execute the
+# real reset path used when the reused pane switches between titles.
+
+def test_overview_hidden_when_no_plot(qapp):
+    """A non-live title with no overview text hides the whole Overview section."""
+    from metatv.gui.details_sections import _PlotSection
+
+    s = _PlotSection()
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(None)
+    assert s.isHidden(), "Overview section must be hidden when there is no plot text"
+
+
+def test_overview_visible_when_plot_present(qapp):
+    """A title with an overview shows the Overview section with its text."""
+    from metatv.gui.details_sections import _PlotSection
+
+    s = _PlotSection()
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load("A bounty hunter drifts through space.")
+    assert not s.isHidden(), "Overview section must be visible when a plot is present"
+    assert s.plot_label.text() == "A bounty hunter drifts through space."
+
+
+def test_overview_visible_while_loading(qapp):
+    """While metadata is still loading the Overview section stays visible."""
+    from metatv.gui.details_sections import _PlotSection
+
+    s = _PlotSection()
+    s.set_mode(is_live=False)
+    s.clear()
+    s.show_loading("...")
+    assert not s.isHidden(), "Overview must be visible while metadata is loading"
+
+
+def test_overview_visibility_resets_across_reuse(qapp):
+    """Reused pane: title WITH plot -> title WITHOUT plot hides -> back re-shows."""
+    from metatv.gui.details_sections import _PlotSection
+
+    s = _PlotSection()
+    s.set_mode(is_live=False); s.clear(); s.load("Plot one.")
+    assert not s.isHidden()
+    s.set_mode(is_live=False); s.clear(); s.load(None)
+    assert s.isHidden(), "must hide when reused for a plot-less title"
+    s.set_mode(is_live=False); s.clear(); s.load("Plot three.")
+    assert not s.isHidden(), "must re-show when reused for a title that has a plot"
+
+
+def test_cast_hidden_when_no_cast_or_crew(qapp):
+    """A title with neither cast nor director hides the whole Cast & Crew section."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = _CastSection(_make_config())
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[], director=None)
+    assert s.isHidden(), "Cast & Crew must hide with no cast and no director"
+
+
+def test_cast_visible_with_cast(qapp):
+    """Any cast members make the Cast & Crew section visible."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = _CastSection(_make_config())
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[{"name": "Jane Doe"}], director=None)
+    assert not s.isHidden(), "Cast & Crew must be visible when there is cast"
+
+
+def test_cast_visible_with_director_only(qapp):
+    """A director alone is enough to show the Cast & Crew section."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = _CastSection(_make_config())
+    s.set_mode(is_live=False)
+    s.clear()
+    s.load(cast=[], director="Shinichiro Watanabe")
+    assert not s.isHidden(), "director alone is enough content to show the section"
+
+
+def test_cast_visibility_resets_across_reuse(qapp):
+    """Reused pane: title WITH people -> title WITHOUT -> hides -> back re-shows."""
+    from metatv.gui.details_sections import _CastSection
+
+    s = _CastSection(_make_config())
+    s.set_mode(is_live=False); s.clear(); s.load(cast=[{"name": "A"}], director="D")
+    assert not s.isHidden()
+    s.set_mode(is_live=False); s.clear(); s.load(cast=[], director=None)
+    assert s.isHidden(), "must hide when reused for a title with no cast/crew"
+    s.set_mode(is_live=False); s.clear(); s.load(cast=[{"name": "B"}], director=None)
+    assert not s.isHidden(), "must re-show when reused for a title with cast"
