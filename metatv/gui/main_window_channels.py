@@ -789,11 +789,24 @@ class _ChannelListMixin:
                         channel_found=False,
                     )
         else:
-            # Multi-select — no per-channel DB work needed
+            # Multi-select — query watch state so the bulk-toggle label is accurate.
+            # is_vod_watched=True only when every selected channel is watch_completed.
+            from metatv.core.database import ChannelDB as _ChannelDB
+            with self.db.session_scope(commit=False) as session:
+                watched_count = (
+                    session.query(_ChannelDB)
+                    .filter(
+                        _ChannelDB.id.in_(channel_ids),
+                        _ChannelDB.watch_completed == True,  # noqa: E712
+                    )
+                    .count()
+                )
+            all_watched = len(channel_ids) > 0 and watched_count == len(channel_ids)
             ctx = ChannelMenuContext(
                 channel_ids=channel_ids,
                 surface=surface,
                 entry_id=entry_id,
+                is_vod_watched=all_watched,
             )
 
         self._ctx_data_ready.emit(ctx, gx, gy)

@@ -88,7 +88,7 @@ class ChannelAction:
     id: str
     label: Callable[[ChannelMenuContext], str]
     icon: str = ""                                         # icons.py value or ""
-    tooltip: str = ""
+    tooltip: "str | Callable[[ChannelMenuContext], str]" = ""
     checkable: bool = False
     checked: Callable[[ChannelMenuContext], bool] = field(
         default_factory=lambda: (lambda c: False)
@@ -467,9 +467,13 @@ ACTIONS: dict[str, ChannelAction] = {
     ),
     "bulk_mark_watched": ChannelAction(
         id="bulk_mark_watched",
-        label=lambda c: "Mark as Watched",
+        label=_mark_watched_label,
         icon=_icons.watched_icon,
-        tooltip="Mark all selected movies/series as watched",
+        tooltip=lambda c: (
+            "Mark all selected as unwatched"
+            if c.is_vod_watched
+            else "Mark all selected movies/series as watched"
+        ),
         applies=lambda c: c.is_multi,
     ),
     "bulk_hide": ChannelAction(
@@ -665,7 +669,12 @@ def build_channel_menu(
         # the object and it is not garbage-collected while the menu is open.
         label_text = action_def.label(ctx)
         act = QAction(label_text, menu)
-        act.setToolTip(action_def.tooltip)
+        tooltip_text = (
+            action_def.tooltip(ctx)
+            if callable(action_def.tooltip)
+            else action_def.tooltip
+        )
+        act.setToolTip(tooltip_text)
 
         # Set icon via QAction.setIcon() so Qt reserves a uniform icon column.
         # Frequent-action rows get a rendered glyph icon; admin/rare rows get
