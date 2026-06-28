@@ -324,6 +324,61 @@ class ChannelListModel(QAbstractListModel):
             [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole],
         )
 
+    def update_watch_completed(
+        self,
+        channel_id: str,
+        watch_completed: bool,
+        watch_percent: int = 100,
+        watch_progress: int = 0,
+    ) -> None:
+        """Update the watched indicator for one channel row in place.
+
+        Called from the main thread after a mark-watched DB write succeeds.  The
+        DTO is frozen, so we replace the entry and emit ``dataChanged`` so that
+        only that row repaints.
+
+        Args:
+            channel_id: The channel whose watch state changed.
+            watch_completed: New ``watch_completed`` value.
+            watch_percent: New ``watch_percent`` value (default 100 when marking watched).
+            watch_progress: New ``watch_progress`` value (default 0 when marking watched).
+        """
+        idx = self._id_to_index.get(channel_id)
+        if idx is None:
+            return
+        from dataclasses import replace
+        old = self._channels[idx]
+        self._channels[idx] = replace(
+            old,
+            watch_completed=watch_completed,
+            watch_percent=watch_percent,
+            watch_progress=watch_progress,
+        )
+        model_index = self.createIndex(idx, 0)
+        self.dataChanged.emit(
+            model_index,
+            model_index,
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.DecorationRole],
+        )
+
+    def remove_channel(self, channel_id: str) -> None:
+        """Remove a single channel row from the model.
+
+        Called from the main thread when the "Hide watched" filter is ON and a
+        channel is just marked watched — it should disappear immediately without
+        a full reload.
+
+        Args:
+            channel_id: The channel to remove.
+        """
+        idx = self._id_to_index.get(channel_id)
+        if idx is None:
+            return
+        self.beginRemoveRows(QModelIndex(), idx, idx)
+        del self._channels[idx]
+        self.endRemoveRows()
+        self._rebuild_index()
+
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _rebuild_index(self) -> None:

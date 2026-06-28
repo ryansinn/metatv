@@ -377,6 +377,8 @@ def test_stats_label_grows_as_pages_are_appended(qapp):
     host._stats_total_channels = 10_000
     host._stats_hidden_only = False
     host._stats_panel_filtering = False
+    host._stats_hide_watched = False    # new attr: "Hide watched" filter state
+    host._stats_watched_hidden = 0      # new attr: count hidden because watched
 
     # Page 1: 1,000 rows loaded.
     host.channel_model.set_channels(

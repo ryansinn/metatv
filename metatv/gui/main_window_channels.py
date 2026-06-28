@@ -264,6 +264,8 @@ class _ChannelListMixin:
             given_provider_id=provider_id,
             hidden_only=self._hidden_mode,
             bypassing_tier1=_bypassing,
+            # Watched filter — OFF by default; when ON excludes watch_completed channels
+            hide_watched=filter_state.get('hide_watched', False),
         )
 
         # Run the heavy query off the UI thread via the async seam; stale results
@@ -322,6 +324,7 @@ class _ChannelListMixin:
                 person_filter=params.get('person_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
+                exclude_watched=params.get('hide_watched', False),
                 limit=_page_size,
             )
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
@@ -372,10 +375,25 @@ class _ChannelListMixin:
                 ]
             filtered_out_count = len(unfiltered)
 
+        # When "Hide watched" is ON, count how many results are hidden because they're
+        # watched — used to show "N watched hidden" in the stats label.
+        watched_hidden_count = 0
+        if not hidden_only and params.get('hide_watched', False):
+            watched_hidden_count = repos.channels.count_watched_matching(
+                provider_id=params['provider_id'],
+                media_types=params.get('media_types'),
+                excluded_provider_ids=providers_to_exclude or None,
+                search_query=params.get('search_query'),
+                adult_mode=params.get('adult_mode', 'all'),
+                force_adult_provider_ids=force_adult_ids or None,
+                tag_includes=params.get('tag_includes'),
+            )
+
         # get_all() now returns results sorted and limited — no extra sort needed
         params['total_channels']    = total
         params['has_adult']         = has_adult
         params['filtered_out_count'] = filtered_out_count
+        params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
         # ORM rows → DTOs so no ChannelDB crosses the boundary.
         ratings_map = repos.ratings.get_all_map()
@@ -487,6 +505,9 @@ class _ChannelListMixin:
         self._stats_hidden_only = bool(params.get('hidden_only'))
         # tag_includes is the active filter indicator (Slice B).
         self._stats_panel_filtering = bool(params.get('tag_includes'))
+        # Watched-filter context: count hidden because watched (0 when filter is OFF).
+        self._stats_watched_hidden = int(params.get('watched_hidden_count', 0))
+        self._stats_hide_watched   = bool(params.get('hide_watched', False))
         self._refresh_channel_stats_label()
 
         if params.get('hidden_only'):
@@ -513,9 +534,24 @@ class _ChannelListMixin:
             self.stats_label.setText(f"{shown:,} hidden channel{'s' if shown != 1 else ''}")
         elif getattr(self, '_stats_panel_filtering', False):
             excluded = max(0, total - shown)
-            self.stats_label.setText(
-                f"Showing {shown:,} of {total:,} · {excluded:,} filtered out"
-            )
+            watched_hidden = getattr(self, '_stats_watched_hidden', 0)
+            if getattr(self, '_stats_hide_watched', False) and watched_hidden > 0:
+                self.stats_label.setText(
+                    f"Showing {shown:,} of {total:,} · {excluded:,} filtered out"
+                    f" · {watched_hidden:,} watched hidden"
+                )
+            else:
+                self.stats_label.setText(
+                    f"Showing {shown:,} of {total:,} · {excluded:,} filtered out"
+                )
+        elif getattr(self, '_stats_hide_watched', False):
+            watched_hidden = getattr(self, '_stats_watched_hidden', 0)
+            if watched_hidden > 0:
+                self.stats_label.setText(
+                    f"Showing {shown:,} of {total:,} channels · {watched_hidden:,} watched hidden"
+                )
+            else:
+                self.stats_label.setText(f"Showing {shown:,} of {total:,} channels")
         else:
             self.stats_label.setText(f"Showing {shown:,} of {total:,} channels")
 

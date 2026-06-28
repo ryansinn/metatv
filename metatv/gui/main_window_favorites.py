@@ -72,26 +72,66 @@ class _FavoritesMixin:
     # --- VOD Mark-as-Watched helpers (channel list / history / favorites) ---
 
     def _mark_channel_watched(self, channel_id: str) -> None:
-        """Mark a movie or series channel as watched and refresh the list row."""
+        """Mark a movie or series channel as watched and update the row in place.
+
+        When the "Hide watched" filter is ON, the row is removed from the model
+        immediately (no full reload).  When the filter is OFF, the row's watch
+        indicator updates in place via ``update_watch_completed``.
+        """
         with self.db.session_scope() as session:
             RepositoryFactory(session).channels.mark_watched(channel_id, watched=True)
-        self.load_channels()
+        self._apply_mark_watched_ui([channel_id], watched=True)
 
     def _mark_channel_unwatched(self, channel_id: str) -> None:
-        """Mark a movie or series channel as unwatched and refresh the list row."""
+        """Mark a movie or series channel as unwatched and update the row in place."""
         with self.db.session_scope() as session:
             RepositoryFactory(session).channels.mark_watched(channel_id, watched=False)
-        self.load_channels()
+        self._apply_mark_watched_ui([channel_id], watched=False)
 
     def _bulk_mark_watched(self, channel_ids: list[str]) -> None:
-        """Mark multiple channels as watched atomically then refresh the list.
+        """Mark multiple channels as watched atomically then update rows in place.
 
         Args:
             channel_ids: IDs of the channels to mark watched.
         """
         with self.db.session_scope() as session:
             RepositoryFactory(session).channels.mark_watched_bulk(channel_ids, watched=True)
-        self.load_channels()
+        self._apply_mark_watched_ui(channel_ids, watched=True)
+
+    def _apply_mark_watched_ui(self, channel_ids: list[str], watched: bool) -> None:
+        """Update the channel model after a mark-watched DB write — no full reload.
+
+        If "Hide watched" is ON and we're marking as watched: remove the affected
+        rows from the model and decrement the watched-hidden count so the stats
+        label stays accurate.  Otherwise just refresh the watch indicator in place.
+
+        Args:
+            channel_ids: The channels whose watch state changed.
+            watched: True if marking watched, False if marking unwatched.
+        """
+        hide_watched = bool(getattr(self, '_stats_hide_watched', False))
+        if not hasattr(self, 'channel_model'):
+            # Fallback if model isn't set up yet
+            self.load_channels()
+            return
+
+        if hide_watched and watched:
+            # Filter is ON and item just became watched → remove rows from model.
+            for cid in channel_ids:
+                self.channel_model.remove_channel(cid)
+            # Increment the watched hidden count in the stats (no DB round-trip needed).
+            current_hidden = getattr(self, '_stats_watched_hidden', 0)
+            self._stats_watched_hidden = current_hidden + len(channel_ids)
+            self._refresh_channel_stats_label()
+        else:
+            # Filter is OFF (or unmarking watched) → update the watch indicator in place.
+            for cid in channel_ids:
+                self.channel_model.update_watch_completed(
+                    cid,
+                    watch_completed=watched,
+                    watch_percent=100 if watched else 0,
+                    watch_progress=0,
+                )
 
     def _bulk_add_to_favorites(self, channel_ids: list[str]) -> None:
         """Add multiple channels to Favorites in one session then refresh.
