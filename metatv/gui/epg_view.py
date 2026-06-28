@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.channel_name_utils import parse_channel_name
-from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.database import ChannelDB, EpgProgramDB, ProviderDB
 from metatv.core.repositories.dtos import LiveEventDTO
 from metatv.gui.content_view import ContentView
 from metatv.gui.details_versions import resolve_category_name
@@ -42,6 +42,7 @@ from metatv.gui.epg_events_mixin import (
 )
 
 from metatv.core.epg_utils import (
+    epg_is_stale as _epg_is_stale,
     fmt_duration as _duration_str,
     to_local as _to_local,
 )
@@ -664,12 +665,58 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             self._update_status_label()
             self._reload_all()
 
+    def _epg_source_info(self) -> dict[str, tuple[str, object]]:
+        """Return ``{provider_id: (name, epg_data_end)}`` for the active EPG sources.
+
+        One query — feeds the header label/tooltip detail without a session per
+        provider. ``epg_data_end`` is UTC-naive; staleness is decided by the
+        canonical :func:`epg_utils.epg_is_stale`, never an inline comparison.
+        """
+        if not self._provider_ids:
+            return {}
+        session = self.db.get_session()
+        try:
+            rows = (
+                session.query(ProviderDB.id, ProviderDB.name, ProviderDB.epg_data_end)
+                .filter(ProviderDB.id.in_(self._provider_ids))
+                .all()
+            )
+            return {r.id: (r.name, r.epg_data_end) for r in rows}
+        finally:
+            session.close()
+
     def _update_status_label(self) -> None:
+        """Header EPG status: source names + freshness/staleness (flagged c3e1aaf3).
+
+        Compact label (single source → its freshness; multiple → "N sources" plus a
+        stale count when any guide is stale) with a per-source tooltip naming each
+        source and its freshness via the ``EpgManager.get_status_text`` chokepoint.
+        """
         if not self._provider_ids:
             self.status_label.setText("No EPG sources")
+            self.status_label.setToolTip("")
             return
-        texts = [self.epg_manager.get_status_text(pid) for pid in self._provider_ids]
-        self.status_label.setText(texts[0] if len(texts) == 1 else f"{len(texts)} sources")
+
+        info = self._epg_source_info()
+        lines: list[str] = []
+        stale_count = 0
+        for pid in self._provider_ids:
+            name, end = info.get(pid, (pid, None))
+            status = self.epg_manager.get_status_text(pid)
+            if _epg_is_stale(end):
+                stale_count += 1
+                lines.append(f"{name}: {status}  (stale)")
+            else:
+                lines.append(f"{name}: {status}")
+        self.status_label.setToolTip("\n".join(lines))
+
+        if len(self._provider_ids) == 1:
+            pid = self._provider_ids[0]
+            name, _end = info.get(pid, (pid, None))
+            self.status_label.setText(f"{name} · {self.epg_manager.get_status_text(pid)}")
+        else:
+            suffix = f" · {stale_count} stale" if stale_count else ""
+            self.status_label.setText(f"{len(self._provider_ids)} sources{suffix}")
 
     # ── Watchlist management ───────────────────────────────────────────
 

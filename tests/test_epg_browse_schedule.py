@@ -182,12 +182,13 @@ def test_reload_browse_no_providers_emits_placeholder():
 # Render-layer host: real QTreeWidget + label stubs.
 # ---------------------------------------------------------------------------
 
-def _make_render_host(qapp, *, provider_ids, search_text, name_map):
+def _make_render_host(qapp, *, provider_ids, search_text, name_map, title_map=None):
     from PyQt6.QtWidgets import QTreeWidget, QLabel
 
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
     host.config = SimpleNamespace(epg_watchlist_patterns=[])
     host._channel_name_map = dict(name_map)
+    host._channel_title_map = dict(title_map or {})
     host._provider_ids = list(provider_ids)
     host._filtered_provider_ids = lambda: host._provider_ids
     host.search_input = SimpleNamespace(text=lambda: search_text)

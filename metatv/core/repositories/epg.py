@@ -175,6 +175,7 @@ class EpgRepository:
         filler_patterns: list[str] | None = None,
         time_slot: str = "all",
         lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> list[EpgProgramDB]:
         """All programmes on a given calendar date.
 
@@ -185,6 +186,12 @@ class EpgRepository:
             hide_filler: Skip filler titles.
             filler_patterns: Title substrings considered filler.
             time_slot: "all" | "morning" | "afternoon" | "primetime" | "latenight"
+            excluded_channel_provider_ids: When truthy, programmes whose matched
+                ChannelDB row belongs to one of these provider IDs are excluded —
+                the channel-side scoping complement to the feed-side ``provider_ids``
+                filter (mirrors ``get_current_programs``). Pass
+                ``ProviderRepository.get_hidden_provider_ids()`` so Browse honours
+                the global Exclusions / inactive-source scoping.
 
         Returns:
             Programmes ordered by start_time.
@@ -199,6 +206,13 @@ class EpgRepository:
             EpgProgramDB.start_time <  day_end,
             EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
         )
+
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
 
         # Time slot filter. day_start is anchored to local-midnight-in-UTC (see above),
         # so these hour offsets yield exact local-time windows.
@@ -238,8 +252,16 @@ class EpgRepository:
         provider_ids: list[str],
         hours_ahead: int = 168,
         lang_code: str = "",
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
     ) -> list[EpgProgramDB]:
-        """Full-text search on title + description for upcoming programmes."""
+        """Full-text search on title + description for upcoming programmes.
+
+        Args:
+            excluded_channel_provider_ids: When truthy, programmes whose matched
+                ChannelDB row belongs to one of these provider IDs are excluded
+                (Browse exclusion scoping — mirrors ``get_schedule``). Requires a
+                matched channel, so unmatched rows are dropped only when this is set.
+        """
         now = _now_utc()
         cutoff = now + timedelta(hours=hours_ahead)
         like = f"%{query_str}%"
@@ -252,6 +274,12 @@ class EpgRepository:
                 EpgProgramDB.title.ilike(like) | EpgProgramDB.description.ilike(like),
             )
         )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
         if lang_code:
             query = query.filter(EpgProgramDB.channel_epg_id.ilike(f"%.{lang_code}"))
         return query.order_by(EpgProgramDB.start_time).limit(200).all()

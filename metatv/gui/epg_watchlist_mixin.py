@@ -307,6 +307,18 @@ class _EpgWatchlistMixin:
         elif tab == "on_now":
             self._render_on_now(payload["programs"])
         elif tab == "browse":
+            # Drop STALE async browse results: a payload tagged with a search string
+            # that no longer matches the search box means a newer keystroke (or a
+            # clear) superseded it. Without this guard a slow empty-search full-
+            # schedule fetch can land after the user's search and revert Browse to
+            # ALL content (flagged 454e01bf). This re-applies the active search box
+            # on every refresh.
+            payload_search = payload.get("search")
+            if (
+                payload_search is not None
+                and payload_search != self.search_input.text().strip()
+            ):
+                return
             self._render_browse(
                 payload["programs"],
                 payload.get("placeholder", False),
