@@ -305,6 +305,8 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._epg_interval_combo = QComboBox()
     for value, label in EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
+    dlg._epg_hide_older_spin = QSpinBox()
+    dlg._epg_hide_older_spin.setRange(0, 168)
 
     # Interface
     dlg._remember_search_check = QCheckBox()

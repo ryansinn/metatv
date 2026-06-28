@@ -253,7 +253,7 @@ def test_placeholder_generic_when_guide_end_unknown(qapp):
     """When guide_end is None (not fetched or missing), falls back to generic message."""
     host = _make_browse_host(provider_ids=["p1"], search_text="")
     text = _EpgBrowseMixin._browse_placeholder_text(host, guide_end=None)
-    assert text == "No programmes for the selected day and time."
+    assert text == "No upcoming programmes in the guide."
 
 
 def test_placeholder_no_sources(qapp):
@@ -267,7 +267,7 @@ def test_placeholder_search_nomatch(qapp):
     """Active search with no results → search message, not coverage message."""
     host = _make_browse_host(provider_ids=["p1"], search_text="unknownxyz")
     text = _EpgBrowseMixin._browse_placeholder_text(host, guide_end=datetime(2026, 6, 24))
-    assert "No programmes match" in text
+    assert "match your search" in text
 
 
 # ---------------------------------------------------------------------------

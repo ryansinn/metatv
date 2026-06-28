@@ -801,6 +801,11 @@ class Config(BaseModel):
     epg_filter_state: dict = Field(default_factory=dict)
     epg_events_view_mode: str = "timeline"   # "timeline" | "network" — Events tab sub-view toggle
     epg_events_network_filter: str = "All"   # network combo selection in Events tab
+    # Browse-tab left bound: hide programmes that started more than this many hours
+    # ago. The forward-looking Browse already floors to "now", so in Phase 1 this is
+    # a guard; the Phase-2 timeline scrubber reuses it as the real left edge. 0 = no
+    # extra trim beyond the now-floor.
+    epg_browse_hide_older_than_hours: int = 24
 
     # Details pane UI settings
     details_pane_visible: bool = False  # Show/hide details pane

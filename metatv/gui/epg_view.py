@@ -432,6 +432,9 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._load_provider_ids()
         self._refresh_stale_epg_notice()
         self._update_status_label()
+        # Re-resolve the Browse start anchors ("Now"/"Tonight"/…) against the current
+        # clock so their labels and floored datetimes stay fresh across the session.
+        self._refresh_browse_anchors()
 
         # Default to On Now (tab 3); stay on a watchlist tab only if patterns already exist
         if self.tab_bar.currentIndex() in (0, 1, 2) and not self.config.epg_watchlist_patterns:

@@ -398,6 +398,8 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._epg_interval_combo = QComboBox()
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
+    dlg._epg_hide_older_spin = QSpinBox()
+    dlg._epg_hide_older_spin.setRange(0, 168)
 
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()

@@ -134,6 +134,60 @@ def local_day_window(d: date, tz=None) -> tuple[datetime, datetime]:
     return day_start, day_end
 
 
+def browse_anchors(_now: datetime | None = None, tz=None) -> list[tuple[str, datetime]]:
+    """Forward-looking start anchors for the EPG Browse tab.
+
+    Replaces the old calendar-day × bounded-time-slot model: Browse now runs
+    chronologically forward from a chosen *start anchor* and never shows the past.
+    Each returned pair is ``(label, anchor)`` where ``anchor`` is a UTC-naive
+    datetime (matching EPG storage) and ``label`` shows the resolved LOCAL time
+    (e.g. ``"Tonight · 6 PM"``). "Now" is always first.
+
+    Anchors that fall in the past (e.g. "Tonight" selected at 9 PM) are still
+    returned; the forward query floors any anchor to ``now`` so such a selection
+    simply behaves like "Now". "This Weekend" is omitted when today is already
+    the weekend (it would resolve to the past and duplicate "Now").
+
+    Args:
+        _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+        tz:   Local tzinfo; defaults to the machine's local timezone. Pass
+              explicitly in tests to freeze the timezone.
+
+    Returns:
+        Ordered ``(label, anchor_utc_naive)`` pairs for the anchor dropdown.
+    """
+    _tz = tz if tz is not None else _local_tz()
+    now = _now or now_utc()
+    local_now = now.replace(tzinfo=timezone.utc).astimezone(_tz)
+
+    def _utc_naive(local_dt: datetime) -> datetime:
+        return local_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    tonight = local_now.replace(hour=18, minute=0, second=0, microsecond=0)
+    tomorrow = local_now + timedelta(days=1)
+    tomorrow_midnight = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_night = tomorrow.replace(hour=18, minute=0, second=0, microsecond=0)
+
+    anchors: list[tuple[str, datetime]] = [
+        ("Now", now),
+        (f"Tonight · {tonight.strftime('%-I %p')}", _utc_naive(tonight)),
+        (f"Tomorrow · {tomorrow_midnight.strftime('%a')}", _utc_naive(tomorrow_midnight)),
+        (f"Tomorrow Night · {tomorrow_night.strftime('%-I %p')}", _utc_naive(tomorrow_night)),
+    ]
+
+    # "This Weekend" = upcoming Saturday 00:00 local. Skip when today is already
+    # the weekend (Sat=5 / Sun=6) so the anchor never points to the past or to
+    # "next" weekend.
+    if local_now.weekday() < 5:  # Mon–Fri only
+        days_to_sat = 5 - local_now.weekday()
+        weekend = (local_now + timedelta(days=days_to_sat)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        anchors.append((f"This Weekend · {weekend.strftime('%a')}", _utc_naive(weekend)))
+
+    return anchors
+
+
 def fmt_time(dt: datetime) -> str:
     """UTC-naive EPG datetime → local time string like '5:30 PM'."""
     return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p").lstrip("0") or "12:00 AM"

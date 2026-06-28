@@ -151,6 +151,8 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._epg_interval_combo = QComboBox()
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
+    dlg._epg_hide_older_spin = QSpinBox()
+    dlg._epg_hide_older_spin.setRange(0, 168)
 
     # Metadata — stubs to keep _load_values / _save_values happy
     dlg._meta_enabled_check = _bool_check(qapp)

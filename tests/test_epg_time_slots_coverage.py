@@ -173,16 +173,19 @@ def test_all_day_unaffected_by_slot_change(slot_db):
 
 
 # ---------------------------------------------------------------------------
-# C. Date-change reload — the Browse trigger forwards the selected date.
+# C. Anchor reload — the forward Browse trigger forwards the selected anchor.
+#
+# The bounded calendar-day + time-slot model retired in favour of a forward
+# start anchor; this pins that a reload forwards the chosen anchor and starts a
+# fresh keyset page (after=None) rather than re-deriving a day window.
 # ---------------------------------------------------------------------------
 
-def _make_trigger_host(*, selected_date, time_slot, provider_ids=("p1",)):
+def _make_anchor_trigger_host(*, anchor, provider_ids=("p1",)):
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
     host._provider_ids = list(provider_ids)
     host._filtered_provider_ids = lambda: host._provider_ids
     host.search_input = SimpleNamespace(text=lambda: "")
-    host.date_combo = SimpleNamespace(currentData=lambda: selected_date)
-    host.time_combo = SimpleNamespace(currentData=lambda: time_slot)
+    host.anchor_combo = SimpleNamespace(currentData=lambda: anchor)
     host.hide_filler_btn = SimpleNamespace(isChecked=lambda: False)
     host.submitted = []
     host._executor = SimpleNamespace(submit=lambda fn, *a: host.submitted.append((fn, a)))
@@ -191,21 +194,21 @@ def _make_trigger_host(*, selected_date, time_slot, provider_ids=("p1",)):
     return host
 
 
-def test_reload_forwards_selected_date_to_fetch():
-    """REGRESSION (e52_s1): changing the date reloads to THAT day's window.
-
-    Each selected date must reach _fetch_browse with the matching target_date —
-    proving the reload is not stuck on Today.
-    """
-    for chosen in (date(2026, 6, 28), date(2026, 6, 29), date(2026, 7, 1)):
-        host = _make_trigger_host(selected_date=chosen, time_slot="latenight")
+def test_reload_forwards_selected_anchor_to_fetch():
+    """Changing the start anchor reloads forward from THAT anchor (page 1)."""
+    for chosen in (
+        datetime(2026, 6, 28, 18, 0),
+        datetime(2026, 6, 29, 0, 0),
+        datetime(2026, 7, 1, 18, 0),
+    ):
+        host = _make_anchor_trigger_host(anchor=chosen)
         _EpgBrowseMixin._reload_browse(host)
         assert len(host.submitted) == 1
         fn, args = host.submitted[0]
         assert fn == host._fetch_browse
-        _provider_ids, target_date, time_slot, _search, _hide = args
-        assert target_date == chosen, "reload must use the freshly selected date"
-        assert time_slot == "latenight"
+        _provider_ids, anchor, _search, _hide, after, append, _gen = args
+        assert anchor == chosen, "reload must use the freshly selected anchor"
+        assert after is None and append is False, "fresh reload starts at page 1"
 
 
 # ---------------------------------------------------------------------------
@@ -341,4 +344,4 @@ def test_placeholder_generic_when_no_contiguous_reach(qapp):
     """When contiguous coverage is None, fall back to the generic message."""
     host = _make_placeholder_host(provider_ids=["p1"])
     text = _EpgBrowseMixin._browse_placeholder_text(host, guide_end=None)
-    assert text == "No programmes for the selected day and time."
+    assert text == "No upcoming programmes in the guide."
