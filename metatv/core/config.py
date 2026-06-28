@@ -664,10 +664,13 @@ class Config(BaseModel):
     # Below this percent the item is treated as untouched (no progress glyph shown).
     # Configurable in Settings → Playback next to "Mark as watched at".
     watch_partial_threshold: float = 0.10
-    # Default playback start behaviour for VOD items with saved progress.
+    # Default action for a bare double-click on a VOD item with saved progress.
     # "resume"    → resume from saved position (default; matches the #146 behaviour).
-    # "beginning" → always start from 0; per-play "Resume from M:SS" context action overrides.
-    # Configurable in Settings → Playback → "When starting playback".
+    # "beginning" → always start from 0.
+    # Middle-click does the OPPOSITE of this default; the details-pane Play button
+    # always starts from 0 and Resume always resumes (both decoupled from this).
+    # Per-play "Resume from M:SS" / "Play from Beginning" context actions also override.
+    # Configurable in Settings → Playback → "Default double-click action".
     playback_resume_mode: str = "resume"
 
     # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)

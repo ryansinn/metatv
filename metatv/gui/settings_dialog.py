@@ -81,18 +81,19 @@ class SettingsDialog(QDialog):
         player_form.addRow("", self._autoplay_check)
 
         self._resume_mode_combo = QComboBox()
-        self._resume_mode_combo.addItem("Resume where left off", userData="resume")
+        self._resume_mode_combo.addItem("Resume (when a saved position exists)", userData="resume")
         self._resume_mode_combo.addItem("Start from beginning", userData="beginning")
         self._resume_mode_combo.setToolTip(
-            "What to do when you play a movie you've already started.\n"
+            "What a bare double-click on a movie does when you've already started it.\n"
             "\n"
-            "• Resume where left off — pick up from your saved position (default).\n"
+            "• Resume — pick up from your saved position when one exists (default).\n"
             "• Start from beginning — always start at the beginning.\n"
             "\n"
-            "Right-click any movie in the channel list for a one-time override\n"
-            "('Play from Beginning' or 'Resume from M:SS') without changing this setting."
+            "Middle-click does the opposite of this default.  The details-pane\n"
+            "Play button always starts from the beginning and Resume always resumes;\n"
+            "right-click any movie for a one-time override without changing this setting."
         )
-        player_form.addRow("When starting playback:", self._resume_mode_combo)
+        player_form.addRow("Default double-click action:", self._resume_mode_combo)
 
         self._prompt_after_autoplay_check = QCheckBox(
             "Ask \"Still here?\" after auto-advancing through episodes"
