@@ -83,6 +83,50 @@ class _FavoritesMixin:
             RepositoryFactory(session).channels.mark_watched(channel_id, watched=False)
         self.load_channels()
 
+    def _bulk_mark_watched(self, channel_ids: list[str]) -> None:
+        """Mark multiple channels as watched atomically then refresh the list.
+
+        Args:
+            channel_ids: IDs of the channels to mark watched.
+        """
+        with self.db.session_scope() as session:
+            RepositoryFactory(session).channels.mark_watched_bulk(channel_ids, watched=True)
+        self.load_channels()
+
+    def _bulk_add_to_favorites(self, channel_ids: list[str]) -> None:
+        """Add multiple channels to Favorites in one session then refresh.
+
+        Args:
+            channel_ids: IDs of the channels to favorite.
+        """
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            for cid in channel_ids:
+                ch = repos.channels.get_by_id(cid)
+                if ch:
+                    ch.is_favorite = True
+        self.load_favorites()
+
+    def _bulk_add_to_queue(self, channel_ids: list[str]) -> None:
+        """Add multiple channels to the Watch Queue in one session then refresh.
+
+        Args:
+            channel_ids: IDs of the channels to enqueue.
+        """
+        from metatv.core.database import ChannelDB
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            for cid in channel_ids:
+                ch = session.get(ChannelDB, cid)
+                repos.queue.add(
+                    cid,
+                    channel_name=ch.name if ch else "",
+                    media_type=ch.media_type if ch else "",
+                    source_id=ch.source_id if ch else "",
+                )
+        self._refresh_queue_section()
+        self._refresh_recommended_section()
+
     # --- Watch Queue helpers ---
 
     def _add_to_queue(self, channel_id: str) -> None:
