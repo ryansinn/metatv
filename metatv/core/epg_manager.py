@@ -13,16 +13,23 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
-from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, epg_interval_delta, now_utc
+from metatv.core.epg_utils import (
+    EPG_FILLER_THRESHOLD,
+    epg_auto_delta,
+    epg_is_stale,
+    epg_interval_delta,
+    now_utc,
+)
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
 
 
-# Filler threshold: a programme longer than this is treated as a placeholder slot
-# (e.g. "Program" spanning several days on a sparse XMLTV feed) and excluded from
-# the real guide-depth calculation.  12 h covers all realistic broadcasts.
-EPG_FILLER_THRESHOLD = timedelta(hours=12)
+# ``EPG_FILLER_THRESHOLD`` now lives in ``epg_utils`` (single source of truth) and is
+# imported above; existing ``from metatv.core.epg_manager import EPG_FILLER_THRESHOLD``
+# imports still resolve via this module's namespace. A programme longer than this is a
+# multi-day placeholder slot (e.g. "Program" spanning several days on a sparse XMLTV
+# feed) excluded from the real guide-depth calculation.
 
 
 def _compute_honest_guide_end(
