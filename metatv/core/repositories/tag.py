@@ -864,8 +864,33 @@ class TagRepository:
         # each EXISTS as a correlated scan using the idx on content_tags(tag_id);
         # no full-table materialisation occurs at any facet count.
 
+        # Anchor the driving query directly on the first constrained include
+        # facet's tag membership (JOIN tags … WHERE type/value), so SQLite seeks
+        # the tag_id index and the driving scan is bounded to that facet's
+        # channels — instead of `SELECT DISTINCT channel_id FROM content_tags`
+        # enumerating the entire content_tags table (1M+ rows) and EXISTS-checking
+        # each.  The remaining include facets stay as correlated EXISTS subqueries
+        # (AND across facets), and the exclude block (NOT EXISTS) is unchanged.
+        # The result set is identical — DISTINCT collapses a channel's multiple
+        # anchor-tag rows; only the access path changes.  This took a single-facet
+        # recipe count/sample from ~7.5s to ~0.3-0.5s on a 3GB / 1.2M-tag library.
         outer = aliased(ContentTagDB, flat=True)
-        query = self.session.query(outer.channel_id).distinct()
+        if constrained_facets:
+            anchor_ftype, anchor_values = constrained_facets[0]
+            remaining_facets = constrained_facets[1:]
+            t_anchor = aliased(TagDB, flat=True)
+            query = (
+                self.session.query(outer.channel_id)
+                .join(t_anchor, t_anchor.id == outer.tag_id)
+                .filter(
+                    t_anchor.type == anchor_ftype,
+                    t_anchor.value.in_(list(anchor_values)),
+                )
+                .distinct()
+            )
+        else:
+            remaining_facets = []
+            query = self.session.query(outer.channel_id).distinct()
 
         # Scope to a caller-provided pre-filter if given.
         if base_channel_ids is not None:
@@ -891,7 +916,7 @@ class TagRepository:
         #     AND t_i.value IN (<allowed_values>)
         # )
 
-        for ftype, allowed_values in constrained_facets:
+        for ftype, allowed_values in remaining_facets:
             ct_i = aliased(ContentTagDB, flat=True)
             t_i = aliased(TagDB, flat=True)
             subq = (
