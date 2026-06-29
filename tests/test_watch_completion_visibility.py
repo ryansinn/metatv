@@ -6,9 +6,10 @@ actually break if the feature regressed:
 
 1. Settings threshold round-trip: spin ↔ config.watch_complete_threshold.
 2. ChannelListDTO carries watch_completed / watch_progress from ORM row.
-3. ChannelListModel.data(DecorationRole) returns a QIcon for completed movies (glyph in icon lane, not text).
-4. ChannelListModel DecorationRole returns None for live channels.
-3b. DecorationRole returns QIcon for partially-watched movies; text never contains watch glyphs.
+3. ChannelListModel row text shows the ✓ playback indicator for completed VOD (the
+   far-left DecorationRole icon lane was retired — see test_virtualized_channel_list.py §6).
+4. Live channels never show a watch indicator (always the neutral · separator).
+3b. In-progress VOD shows the ▶ indicator (not the graduated ◐) in the row text.
 5-7. (removed) The details-pane "✓ Watched" / "Resume" text line was replaced by
     the action-rail Watched toggle + Resume button — see
     tests/test_details_rail_watched_logo.py.
@@ -278,9 +279,8 @@ def _make_model(qapp):
 
 
 def test_channel_list_model_shows_watched_check_for_completed_movie(qapp):
-    """DecorationRole returns a QIcon for a completed movie; text has no glyph."""
+    """Completed movie → ✓ in the row TEXT (separator slot); no far-left DecorationRole icon."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
     model = _make_model(qapp)
     dto = _dto(media_type="movie", watch_completed=True)
@@ -292,10 +292,10 @@ def test_channel_list_model_shows_watched_check_for_completed_movie(qapp):
         query_params={},
     )
     idx = model.index(0, 0)
-    icon = idx.data(Qt.ItemDataRole.DecorationRole)
     text = idx.data(Qt.ItemDataRole.DisplayRole)
-    assert isinstance(icon, QIcon), f"Expected QIcon for completed movie, got {icon!r}"
-    assert _icons.watched_icon not in text, f"Glyph must be in icon lane, not text: {text!r}"
+    # The watched ✓ moved out of the far-left icon lane INTO the row text.
+    assert idx.data(Qt.ItemDataRole.DecorationRole) is None
+    assert _icons.watched_icon in text, f"Expected ✓ in row text: {text!r}"
 
 
 def test_channel_list_model_no_watch_check_for_unwatched_movie(qapp):
@@ -331,12 +331,8 @@ def test_channel_list_model_no_watch_check_for_live_even_if_flag_set(qapp):
 
 
 def test_channel_list_model_shows_watch_check_for_series_if_completed(qapp):
-    """Series with watch_completed=True: DecorationRole returns a QIcon, text has no glyph.
-
-    The guard is media_type != 'live' so series with a completion flag also get the icon.
-    """
+    """Completed series → ✓ in the row TEXT too (guard is media_type != 'live'); no icon lane."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
     model = _make_model(qapp)
     dto = _dto(media_type="series", watch_completed=True)
@@ -348,10 +344,9 @@ def test_channel_list_model_shows_watch_check_for_series_if_completed(qapp):
         query_params={},
     )
     idx = model.index(0, 0)
-    icon = idx.data(Qt.ItemDataRole.DecorationRole)
     text = idx.data(Qt.ItemDataRole.DisplayRole)
-    assert isinstance(icon, QIcon), f"Expected QIcon for completed series, got {icon!r}"
-    assert _icons.watched_icon not in text, f"Glyph must be in icon lane, not text: {text!r}"
+    assert idx.data(Qt.ItemDataRole.DecorationRole) is None
+    assert _icons.watched_icon in text, f"Expected ✓ in row text: {text!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -359,44 +354,39 @@ def test_channel_list_model_shows_watch_check_for_series_if_completed(qapp):
 # ---------------------------------------------------------------------------
 
 def test_channel_list_model_shows_partial_icon_for_in_progress_movie(qapp):
-    """Partial-watched movie: DecorationRole returns a QIcon; text has no glyph."""
+    """In-progress movie → ▶ in the row text (no graduated ◐, no ✓); no DecorationRole icon."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
     model = _make_model(qapp)
     dto = _dto(media_type="movie", watch_completed=False, watch_progress=1500, watch_percent=50)
     model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
                        has_more=False, query_params={})
     idx = model.index(0, 0)
-    icon = idx.data(Qt.ItemDataRole.DecorationRole)
     text = idx.data(Qt.ItemDataRole.DisplayRole)
-    assert isinstance(icon, QIcon), f"Expected QIcon for partial-watched movie, got {icon!r}"
+    assert idx.data(Qt.ItemDataRole.DecorationRole) is None
+    assert _icons.playback_in_progress_icon in text, f"Expected ▶ in {text!r}"
     assert _icons.partial_watched_icon not in text, (
-        f"Glyph must be in icon lane, not text: {text!r}"
+        f"Graduated glyph must not appear in the channel list: {text!r}"
     )
     assert _icons.watched_icon not in text, (
-        f"Completed glyph must not appear in text for in-progress row: {text!r}"
+        f"Completed glyph must not appear for an in-progress row: {text!r}"
     )
 
 
 def test_channel_list_model_no_partial_icon_for_completed_movie(qapp):
-    """Completed movie: DecorationRole returns icon; neither glyph appears in text."""
+    """Completed movie → ✓ in the row text (no graduated ◐); no DecorationRole icon."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
     from metatv.gui import icons as _icons
     model = _make_model(qapp)
     dto = _dto(media_type="movie", watch_completed=True, watch_progress=0)
     model.set_channels([dto], provider_icon_map={}, show_provider_icon=False,
                        has_more=False, query_params={})
     idx = model.index(0, 0)
-    icon = idx.data(Qt.ItemDataRole.DecorationRole)
     text = idx.data(Qt.ItemDataRole.DisplayRole)
-    assert isinstance(icon, QIcon), f"Expected QIcon for completed movie, got {icon!r}"
-    assert _icons.watched_icon not in text, (
-        f"Glyph must be in icon lane, not text: {text!r}"
-    )
+    assert idx.data(Qt.ItemDataRole.DecorationRole) is None
+    assert _icons.watched_icon in text, f"Expected ✓ in row text: {text!r}"
     assert _icons.partial_watched_icon not in text, (
-        f"Partial glyph must not appear in text: {text!r}"
+        f"Graduated glyph must not appear in the channel list: {text!r}"
     )
 
 

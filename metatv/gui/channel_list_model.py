@@ -18,6 +18,7 @@ Design rules (from CLAUDE.md):
 
 from __future__ import annotations
 
+import html as _html
 from typing import Any, Callable, Optional
 
 from PyQt6.QtCore import (
@@ -35,6 +36,13 @@ from metatv.gui import theme as _theme
 
 # Pre-built brush for fully-watched non-live rows (built once, reused each data() call).
 _WATCHED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_WATCHED_FG))
+
+# Custom role: the row's display text as colour-marked HTML.  The playback-state
+# separator glyph (▶/✓) is wrapped in a colour <span> so ChannelRowDelegate can
+# paint it in the Resume-orange / watched-green token while the rest of the row
+# keeps the default (or dimmed) foreground.  DisplayRole stays PLAIN text (used for
+# size hints, accessibility, and the model tests).
+CHANNEL_HTML_ROLE = Qt.ItemDataRole.UserRole + 5
 
 
 # ---------------------------------------------------------------------------
@@ -110,19 +118,10 @@ class ChannelListModel(QAbstractListModel):
 
         if role == Qt.ItemDataRole.DisplayRole:
             return self._compose_display_text(channel)
+        if role == CHANNEL_HTML_ROLE:
+            return self._compose_display_html(channel)
         if role == Qt.ItemDataRole.UserRole:
             return channel.id
-        if role == Qt.ItemDataRole.DecorationRole:
-            # Watch indicator icon in a reserved leading slot (non-live VOD only).
-            # Solid for deliberately-watched (last_played_via != "queue");
-            # muted/gray for queue-auto-advanced; blank for live or unwatched.
-            if channel.media_type != "live":
-                pct = _icons.effective_watch_pct(channel.watch_percent, channel.watch_progress)
-                glyph = _icons.watch_progress_glyph(
-                    pct, channel.watch_completed, self._partial_threshold_pct
-                )
-                return _icons.watch_icon_for_channel(glyph, channel.last_played_via)
-            return None
         if role == Qt.ItemDataRole.ForegroundRole:
             # Dim fully-watched non-live rows so finished content recedes visually.
             # Live channels never carry watch state, so they are always full-strength.
@@ -358,7 +357,7 @@ class ChannelListModel(QAbstractListModel):
         self.dataChanged.emit(
             model_index,
             model_index,
-            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.DecorationRole],
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ForegroundRole],
         )
 
     def remove_channel(self, channel_id: str) -> None:
@@ -385,17 +384,40 @@ class ChannelListModel(QAbstractListModel):
         """Rebuild the id→row-index lookup dict."""
         self._id_to_index = {ch.id: i for i, ch in enumerate(self._channels)}
 
-    def _compose_display_text(self, channel: ChannelListDTO) -> str:
-        """Compose the visible row text for *channel*.
+    def _playback_indicator(self, channel: ChannelListDTO) -> tuple[str, str | None]:
+        """Return the (glyph, colour) for the row's fixed playback-state separator.
 
-        Format:
-            ``{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}[ [{category}]][ {rating_glyph}]``
+        The separator is always present (so the title column never shifts) and
+        is one of three mutually-exclusive states.  SHAPE carries the meaning;
+        colour is reinforcement only (None = use the default/dimmed foreground):
 
-        The watch indicator is rendered as a QIcon via ``DecorationRole`` in a
-        reserved leading slot so titles align regardless of watch state.
+            - watched           → ✓  + watched-green token
+            - in progress       → ▶  + Resume-orange token
+            - not started/live  → ·  + None (neutral)
 
-        The user's rating (👍/👎) is appended as a trailing glyph when present
-        so it never disturbs title alignment.  Unrated rows show nothing.
+        Live channels never carry watch state, so they always show the neutral dot.
+        """
+        if channel.media_type == "live":
+            return _icons.playback_neutral_icon, None
+        glyph = _icons.playback_state_glyph(
+            channel.watch_progress, channel.watch_completed
+        )
+        if channel.watch_completed:
+            return glyph, _theme.COLOR_PLAYBACK_WATCHED
+        if channel.watch_progress > 0:
+            return glyph, _theme.COLOR_PLAYBACK_IN_PROGRESS
+        return glyph, None
+
+    def _compose_parts(
+        self, channel: ChannelListDTO
+    ) -> tuple[str, str, str | None, str]:
+        """Compose the row as ``(left, indicator_glyph, indicator_colour, right)``.
+
+        Layout:
+            ``{left}{indicator}{right}`` where ``left`` ends with the leading
+            icons/tags ("{src}{media}{fav} {prefix_group}") and ``right`` begins
+            with a space then the title and trailing badges.  The indicator is the
+            fixed-position playback-state separator (replaces the old "·").
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -409,27 +431,54 @@ class ChannelListModel(QAbstractListModel):
         if self._show_provider_icon and channel.provider_id in self._provider_icon_map:
             src_badge = self._provider_icon_map[channel.provider_id] + " "
 
-        # Watch indicator removed from text; see data() DecorationRole branch.
-
         prefix_str = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
         lang_str = f"[{channel.detected_region}] " if channel.detected_region else ""
         prefix_group = prefix_str + lang_str
-        dot_sep = "· " if prefix_group.strip() else ""
         quality_str = f" · {channel.detected_quality}" if channel.detected_quality else ""
         year_str = f" · {channel.detected_year}" if channel.detected_year else ""
         bare = channel.detected_title or channel.name
-        display_text = (
-            f"{src_badge}{media_icon}{fav_icon} "
-            f"{prefix_group}{dot_sep}{bare}{quality_str}{year_str}"
-        )
+
+        glyph, colour = self._playback_indicator(channel)
+
+        left = f"{src_badge}{media_icon}{fav_icon} {prefix_group}"
+        right = f" {bare}{quality_str}{year_str}"
         if channel.category:
-            display_text += f" [{channel.category}]"
+            right += f" [{channel.category}]"
         # Trailing rating glyph — only shown when the user has rated this channel.
         if channel.user_rating == 1:
-            display_text += f" {_icons.like_icon}"
+            right += f" {_icons.like_icon}"
         elif channel.user_rating == -1:
-            display_text += f" {_icons.dislike_icon}"
-        return display_text
+            right += f" {_icons.dislike_icon}"
+        return left, glyph, colour, right
+
+    def _compose_display_text(self, channel: ChannelListDTO) -> str:
+        """Compose the plain-text row (DisplayRole).
+
+        Format:
+            ``{src_badge}{media_icon}{fav_icon} {prefix_group}{indicator} {bare}{quality_str}{year_str}[ [{category}]][ {rating_glyph}]``
+
+        The ``{indicator}`` is the 3-state playback separator (·/▶/✓) — always
+        present at the same position so the title column never shifts.  Colour is
+        applied only in the HTML role (see ``_compose_display_html``); the plain
+        text carries the SHAPE, which is what makes the indicator colourblind-safe.
+        """
+        left, glyph, _colour, right = self._compose_parts(channel)
+        return f"{left}{glyph}{right}"
+
+    def _compose_display_html(self, channel: ChannelListDTO) -> str:
+        """Compose the colour-marked HTML row (``CHANNEL_HTML_ROLE``).
+
+        Identical text to ``_compose_display_text`` but the playback-state glyph
+        is wrapped in a colour ``<span>`` (Resume-orange for in-progress,
+        watched-green for completed) so ``ChannelRowDelegate`` can paint it as
+        reinforcement.  All non-glyph text is HTML-escaped (titles can contain
+        ``&``/``<``/``>``).
+        """
+        left, glyph, colour, right = self._compose_parts(channel)
+        glyph_html = _html.escape(glyph)
+        if colour:
+            glyph_html = f'<span style="color:{colour}">{glyph_html}</span>'
+        return f"{_html.escape(left)}{glyph_html}{_html.escape(right)}"
 
     # ── Generation accessor (for append_page callers) ─────────────────────────
 

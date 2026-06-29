@@ -1155,6 +1155,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # backed by ChannelListModel
         from metatv.gui.channel_list_model import ChannelListModel
         from metatv.gui.channel_list_view import ChannelListView
+        from metatv.gui.channel_list_delegate import ChannelRowDelegate
         from PyQt6.QtWidgets import QAbstractItemView
         self.channel_model = ChannelListModel(self)
         # Wire page requests from the model through the async seam.
@@ -1162,6 +1163,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channel_model.page_requested.connect(self._on_channel_page_requested)
         self.channels_list = ChannelListView()
         self.channels_list.setModel(self.channel_model)
+        # Rich-text delegate so the playback-state separator glyph (·/▶/✓) can be
+        # coloured (Resume-orange / watched-green) as reinforcement.
+        self.channels_list.setItemDelegate(ChannelRowDelegate(self.channels_list))
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
