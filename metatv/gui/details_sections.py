@@ -172,6 +172,8 @@ class _PosterSection(QWidget):
         self._provider_urls: list = []
         self._full_pixmap: QPixmap | None = None   # full-res image for the lightbox
         self._is_live_logo: bool = False           # poster area is showing a live logo
+        self._logo_src: QPixmap | None = None      # retained original logo for resize re-fit
+        self._rescaling: bool = False              # guards the resize→rescale re-entrancy loop
         # Watched-badge state (VOD only)
         self._is_live: bool = False
         self._watched: bool = False
@@ -230,6 +232,17 @@ class _PosterSection(QWidget):
         self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.poster_label.setMinimumHeight(self._POSTER_MIN_H)
         self.poster_label.setMaximumHeight(self._POSTER_MAX_H)
+        # The poster must SUBORDINATE to the pane width, never drive it.  A QLabel
+        # holding a pixmap reports minimumSizeHint().width() == pixmap width with a
+        # Preferred policy; inside the width-resizable, h-scroll-off details
+        # QScrollArea that floors the whole content column at the pixmap width, so
+        # every section below was laid out wider than the viewport and the genre /
+        # cast / version chips clipped off the right edge.  Ignoring the horizontal
+        # hint lets the column shrink to the pane width; _rescale_current_image()
+        # keeps the pixmap fitted to whatever width the layout grants.
+        _poster_sp = self.poster_label.sizePolicy()
+        _poster_sp.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self.poster_label.setSizePolicy(_poster_sp)
         self.poster_label.setStyleSheet(
             f"QLabel {{ background-color: {_theme.OVERLAY_BLACK_30}; border-radius: 8px;"
             f" color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM}; }}"
@@ -239,6 +252,7 @@ class _PosterSection(QWidget):
         self.poster_label.setToolTip(f"{_icons.zoom_poster_icon} Click to enlarge")
         self.poster_label.poster_clicked.connect(self._on_poster_clicked)
         self.poster_label.hover_changed.connect(self._on_poster_hover)
+        self.poster_label.resized.connect(self._rescale_current_image)
         self.poster_label.resized.connect(self._reposition_watched_badge)
         pf_layout.addWidget(self.poster_label)
 
@@ -496,6 +510,7 @@ class _PosterSection(QWidget):
         self._poster_url = None
         self._logo_url = None
         self._full_pixmap = None
+        self._logo_src = None
         self._is_live_logo = False
         self._restore_poster_metrics()
         self.poster_label.setPixmap(QPixmap())
@@ -586,6 +601,7 @@ class _PosterSection(QWidget):
             self._poster_frame.setVisible(False)
             return
         self._full_pixmap = None   # live logos aren't enlargeable via the lightbox
+        self._logo_src = pixmap    # retain the ORIGINAL so resize can re-fit cleanly
         avail_w = self.poster_label.width()
         if avail_w <= 0:
             avail_w = self.minimumWidth() or 300   # before first layout pass
@@ -603,6 +619,28 @@ class _PosterSection(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self.poster_label.setPixmap(scaled)
+
+    def _rescale_current_image(self) -> None:
+        """Re-fit the retained source image to the poster label's CURRENT size.
+
+        The poster label ignores its pixmap's width hint (so it never widens the
+        pane), which means the pixmap must be re-scaled to the granted width whenever
+        the pane resizes — otherwise a pixmap scaled at load time would be
+        centre-clipped when the pane narrows.  Re-scales from the retained ORIGINAL
+        each time (no cumulative quality loss); guarded against the
+        setPixmap→relayout→resize re-entrancy loop.
+        """
+        if self._rescaling:
+            return
+        self._rescaling = True
+        try:
+            if self._is_live_logo:
+                if self._logo_src and not self._logo_src.isNull():
+                    self._display_live_logo(self._logo_src)
+            elif self._full_pixmap and not self._full_pixmap.isNull():
+                self._display_poster(self._full_pixmap)
+        finally:
+            self._rescaling = False
 
     def _on_poster_clicked(self) -> None:
         """Emit poster_enlarged with the full-res pixmap when the poster is clicked."""
