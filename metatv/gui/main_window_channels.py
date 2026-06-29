@@ -1011,12 +1011,51 @@ class _ChannelListMixin:
         ``play_channel_by_id`` (which already handles series drill-in).  The
         old ``play_channel(item)`` takes a ``QListWidgetItem``; since we now
         use a ``QListView`` we extract the id here and call the by-id path.
+
+        A double-click on a grouped section header toggles its collapse state
+        instead of playing (headers carry no channel id).
         """
         from PyQt6.QtCore import Qt
+        from metatv.gui.channel_list_model import ROW_KIND_ROLE
         channel_id = index.data(Qt.ItemDataRole.UserRole)
-        if not channel_id:
+        if channel_id:
+            self.play_channel_by_id(channel_id)
             return
-        self.play_channel_by_id(channel_id)
+        # No channel id → a grouped section header: toggle its collapse state.
+        if index.data(ROW_KIND_ROLE) == "header":
+            self._on_channel_list_clicked(index)
+
+    def _on_group_by_type_toggled(self, checked: bool) -> None:
+        """Toggle the opt-in "Group by type" view; persist + re-project rows.
+
+        Grouping is a pure display transform over the already-loaded rows, so this
+        does NOT reload from the DB — it just tells the model to re-project the
+        current page set into collapsible Movies/Series/Live sections.
+        """
+        self.config.group_by_type = bool(checked)
+        self.config.save()
+        self.channel_model.set_grouped(
+            bool(checked),
+            collapsed_sections=getattr(self.config, "group_collapsed_types", None) or [],
+        )
+
+    def _on_channel_list_clicked(self, index) -> None:
+        """Toggle a grouped section's collapse state when its header is clicked."""
+        from metatv.gui.channel_list_model import ROW_KIND_ROLE, SECTION_TYPE_ROLE
+        if index.data(ROW_KIND_ROLE) != "header":
+            return
+        section = index.data(SECTION_TYPE_ROLE)
+        if not section:
+            return
+        collapsed = set(getattr(self.config, "group_collapsed_types", None) or [])
+        now_collapsed = section not in collapsed
+        if now_collapsed:
+            collapsed.add(section)
+        else:
+            collapsed.discard(section)
+        self.config.group_collapsed_types = sorted(collapsed)
+        self.config.save()
+        self.channel_model.set_section_collapsed(section, now_collapsed)
 
     def _on_channel_middle_clicked(self, index) -> None:
         """Middle-click plays the user-configured action for the clicked row.

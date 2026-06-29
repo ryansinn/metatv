@@ -1080,7 +1080,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_text_changed)
         controls_layout.addWidget(self.search_input)
-        
+
+        # Opt-in "Group by type" toggle — groups the results into collapsible
+        # Movies / Series / Live sections. OFF by default (flat list). State is
+        # restored from config below and persisted on every toggle.
+        self._group_by_type_check = QCheckBox("Group by type")
+        self._group_by_type_check.setToolTip(
+            "Group the results into collapsible Movies / Series / Live sections"
+        )
+        self._group_by_type_check.blockSignals(True)
+        self._group_by_type_check.setChecked(bool(getattr(self.config, "group_by_type", False)))
+        self._group_by_type_check.blockSignals(False)
+        self._group_by_type_check.toggled.connect(self._on_group_by_type_toggled)
+        controls_layout.addWidget(self._group_by_type_check)
+
         self.content_layout.addWidget(self.search_controls)
 
         # ── Filter panel + inner splitter ─────────────────────────────────────
@@ -1164,6 +1177,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.channel_list_delegate import ChannelRowDelegate
         from PyQt6.QtWidgets import QAbstractItemView
         self.channel_model = ChannelListModel(self)
+        # Restore the persisted "Group by type" state + per-section collapse state.
+        self.channel_model.set_grouped(
+            bool(getattr(self.config, "group_by_type", False)),
+            collapsed_sections=getattr(self.config, "group_collapsed_types", None) or [],
+        )
         # Wire page requests from the model through the async seam.
         # The lambda captures self (MainWindow) so it can call _run_query.
         self.channel_model.page_requested.connect(self._on_channel_page_requested)
@@ -1178,6 +1196,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.channels_list.customContextMenuRequested.connect(self.show_channel_context_menu)
         self.channels_list.doubleClicked.connect(self._on_channel_double_clicked)
+        # Single-click on a grouped section header toggles its collapse state.
+        self.channels_list.clicked.connect(self._on_channel_list_clicked)
         # Middle-click plays the OPPOSITE of the bare double-click default.
         self.channels_list.middle_clicked.connect(self._on_channel_middle_clicked)
         self.channels_list.selectionModel().currentChanged.connect(

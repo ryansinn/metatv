@@ -727,6 +727,11 @@ class Config(BaseModel):
     filter_hide_watched: bool = False      # When True, exclude watch_completed channels
     show_excluded_count: bool = True
     search_includes_filtered: bool = True
+    # Channel-list "Group by type" view toggle (opt-in; flat list is the default).
+    group_by_type: bool = False
+    # media_types whose grouped section is collapsed (header only). Persisted so
+    # collapse state survives restarts.
+    group_collapsed_types: list = Field(default_factory=list)
     
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching
