@@ -667,11 +667,18 @@ class Config(BaseModel):
     # Default action for a bare double-click on a VOD item with saved progress.
     # "resume"    → resume from saved position (default; matches the #146 behaviour).
     # "beginning" → always start from 0.
-    # Middle-click does the OPPOSITE of this default; the details-pane Play button
-    # always starts from 0 and Resume always resumes (both decoupled from this).
-    # Per-play "Resume from M:SS" / "Play from Beginning" context actions also override.
-    # Configurable in Settings → Playback → "Default double-click action".
+    # The details-pane Play button always starts from 0 and Resume always resumes
+    # (both decoupled from this).  Per-play "Resume from M:SS" / "Play from Beginning"
+    # context actions also override.
+    # Configurable in Settings → Interaction → "Default double-click action".
     playback_resume_mode: str = "resume"
+
+    # Action performed by a middle-click on a channel row. Maps to a key in the
+    # gui.middle_click_actions registry (single source of truth for label + play
+    # path); unknown values fall back to the default. Decoupled from the
+    # double-click default above.
+    # Configurable in Settings → Interaction → "Middle-click action".
+    middle_click_action: str = "playback_position"
 
     # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)
     diagnostics_baseline_url: str = "https://speed.cloudflare.com/__down?bytes=25000000"  # Neutral-host speed sample

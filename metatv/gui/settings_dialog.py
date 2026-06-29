@@ -1,4 +1,4 @@
-"""Settings dialog with Playback, Metadata/API Keys, and Interface tabs."""
+"""Settings dialog with Playback, Interaction, Metadata/API Keys, and Interface tabs."""
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -13,6 +13,10 @@ from metatv.core.config import Config
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
 from metatv.core.http_headers import stream_user_agent
 from metatv.gui import theme as _theme
+from metatv.gui.middle_click_actions import (
+    DEFAULT_MIDDLE_CLICK_ACTION,
+    MIDDLE_CLICK_ACTIONS,
+)
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "alerts":      "Alerts",
@@ -26,7 +30,7 @@ _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 
 class SettingsDialog(QDialog):
-    """Modal settings dialog with Playback, Metadata/API Keys, and Interface tabs."""
+    """Modal settings dialog with Playback, Interaction, Metadata/API Keys, and Interface tabs."""
 
     settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
 
@@ -45,6 +49,7 @@ class SettingsDialog(QDialog):
 
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_playback_tab(), "Playback")
+        self._tabs.addTab(self._build_interaction_tab(), "Interaction")
         self._tabs.addTab(self._build_metadata_tab(), "Metadata & API Keys")
         self._tabs.addTab(self._build_interface_tab(), "Interface")
         layout.addWidget(self._tabs)
@@ -79,21 +84,6 @@ class SettingsDialog(QDialog):
 
         self._autoplay_check = QCheckBox("Autoplay next episode when playing from a season")
         player_form.addRow("", self._autoplay_check)
-
-        self._resume_mode_combo = QComboBox()
-        self._resume_mode_combo.addItem("Resume (when a saved position exists)", userData="resume")
-        self._resume_mode_combo.addItem("Start from beginning", userData="beginning")
-        self._resume_mode_combo.setToolTip(
-            "What a bare double-click on a movie does when you've already started it.\n"
-            "\n"
-            "• Resume — pick up from your saved position when one exists (default).\n"
-            "• Start from beginning — always start at the beginning.\n"
-            "\n"
-            "Middle-click does the opposite of this default.  The details-pane\n"
-            "Play button always starts from the beginning and Resume always resumes;\n"
-            "right-click any movie for a one-time override without changing this setting."
-        )
-        player_form.addRow("Default double-click action:", self._resume_mode_combo)
 
         self._prompt_after_autoplay_check = QCheckBox(
             "Ask \"Still here?\" after auto-advancing through episodes"
@@ -230,6 +220,56 @@ class SettingsDialog(QDialog):
         )
         mpv_layout.addWidget(self._override_all_check)
         layout.addWidget(mpv_group)
+
+        layout.addStretch()
+        return tab
+
+    def _build_interaction_tab(self) -> QWidget:
+        """Build the Interaction tab — how clicks on a channel row play it.
+
+        Houses the default double-click action (``playback_resume_mode``) and the
+        configurable middle-click action (``middle_click_action``); the latter's
+        combo is populated from the shared ``MIDDLE_CLICK_ACTIONS`` registry so new
+        actions appear here automatically.
+        """
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        click_group = QGroupBox("Channel row clicks")
+        click_form = QFormLayout(click_group)
+        click_form.setSpacing(8)
+
+        self._resume_mode_combo = QComboBox()
+        self._resume_mode_combo.addItem("Resume (when a saved position exists)", userData="resume")
+        self._resume_mode_combo.addItem("Start from beginning", userData="beginning")
+        self._resume_mode_combo.setToolTip(
+            "What a bare double-click on a movie does when you've already started it.\n"
+            "\n"
+            "• Resume — pick up from your saved position when one exists (default).\n"
+            "• Start from beginning — always start at the beginning.\n"
+            "\n"
+            "The details-pane Play button always starts from the beginning and Resume\n"
+            "always resumes; right-click any movie for a one-time override without\n"
+            "changing this setting."
+        )
+        click_form.addRow("Default double-click action:", self._resume_mode_combo)
+
+        self._middle_click_combo = QComboBox()
+        for action in MIDDLE_CLICK_ACTIONS:
+            self._middle_click_combo.addItem(action.label, userData=action.key)
+        self._middle_click_combo.setToolTip(
+            "What a middle-click on a channel row does.\n"
+            "\n"
+            "• Resume from saved position — pick up where you left off (default).\n"
+            "• Play with endless buffer — disk-backed maximum buffer for unstable streams.\n"
+            "\n"
+            "Independent of the double-click default above."
+        )
+        click_form.addRow("Middle-click action:", self._middle_click_combo)
+
+        layout.addWidget(click_group)
 
         layout.addStretch()
         return tab
@@ -454,10 +494,18 @@ class SettingsDialog(QDialog):
 
         self._autoplay_check.setChecked(c.autoplay_season_episodes)
 
+        # Interaction
         resume_mode = getattr(c, "playback_resume_mode", "resume")
         resume_idx = self._resume_mode_combo.findData(resume_mode)
         self._resume_mode_combo.setCurrentIndex(
             resume_idx if resume_idx >= 0 else self._resume_mode_combo.findData("resume")
+        )
+
+        mc_action = getattr(c, "middle_click_action", DEFAULT_MIDDLE_CLICK_ACTION)
+        mc_idx = self._middle_click_combo.findData(mc_action)
+        self._middle_click_combo.setCurrentIndex(
+            mc_idx if mc_idx >= 0
+            else self._middle_click_combo.findData(DEFAULT_MIDDLE_CLICK_ACTION)
         )
 
         self._prompt_after_autoplay_check.blockSignals(True)
@@ -543,7 +591,6 @@ class SettingsDialog(QDialog):
             else "multiple-instances"
         )
         c.autoplay_season_episodes = self._autoplay_check.isChecked()
-        c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
         c.prompt_after_autoplay = self._prompt_after_autoplay_check.isChecked()
         c.watch_complete_threshold = self._watch_threshold_spin.value() / 100.0
         c.watch_partial_threshold = self._watch_partial_spin.value() / 100.0
@@ -561,6 +608,12 @@ class SettingsDialog(QDialog):
         c.prebuffer_wait_secs = self._prebuffer_wait_spin.value()
         c.mpv_args_override_all = self._override_all_check.isChecked()
         c.split_streams_by_source = self._split_check.isChecked()
+
+        # Interaction
+        c.playback_resume_mode = self._resume_mode_combo.currentData() or "resume"
+        c.middle_click_action = (
+            self._middle_click_combo.currentData() or DEFAULT_MIDDLE_CLICK_ACTION
+        )
 
         # Search
         c.remember_search = self._remember_search_check.isChecked()

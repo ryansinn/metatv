@@ -3,8 +3,8 @@
 Pins three regressions that would break if the tabs were mis-arranged or a
 widget's load/save wiring was dropped during the reorg:
 
-1. Tab structure: exactly 3 tabs named ["Playback", "Metadata & API Keys", "Interface"];
-   no "Sidebar" tab.
+1. Tab structure: exactly 4 tabs named
+   ["Playback", "Interaction", "Metadata & API Keys", "Interface"]; no "Sidebar" tab.
 2. EPG under Metadata: _epg_interval_combo is built inside _build_metadata_tab, so the
    Metadata tab widget tree contains it.
 3. Interface tab persistence: remember_search and sidebar_sections round-trip correctly
@@ -86,6 +86,10 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._resume_mode_combo = QComboBox()
     dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
     dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
+    from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
+    dlg._middle_click_combo = QComboBox()
+    for _action in MIDDLE_CLICK_ACTIONS:
+        dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
@@ -137,23 +141,23 @@ def _full_dialog(qapp) -> SettingsDialog:
 # 1. Tab structure: 3 tabs, correct names, no "Sidebar" tab                   #
 # --------------------------------------------------------------------------- #
 
-def test_settings_dialog_has_exactly_three_tabs(qapp):
-    """The dialog must have exactly 3 tabs after the reorg."""
+def test_settings_dialog_has_exactly_four_tabs(qapp):
+    """The dialog must have exactly 4 tabs after the Interaction tab was added."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    assert dlg._tabs.count() == 3
+    assert dlg._tabs.count() == 4
 
     dlg.close()
 
 
 def test_settings_dialog_tab_names(qapp):
-    """Tabs must be named Playback, Metadata & API Keys, Interface in that order."""
+    """Tabs must be named Playback, Interaction, Metadata & API Keys, Interface in order."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
     tab_titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-    assert tab_titles == ["Playback", "Metadata & API Keys", "Interface"]
+    assert tab_titles == ["Playback", "Interaction", "Metadata & API Keys", "Interface"]
 
     dlg.close()
 

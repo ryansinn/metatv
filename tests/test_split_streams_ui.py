@@ -359,6 +359,10 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._resume_mode_combo = QComboBox()
     dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
     dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
+    from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
+    dlg._middle_click_combo = QComboBox()
+    for _action in MIDDLE_CLICK_ACTIONS:
+        dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
     dlg._prompt_after_autoplay_check = QCheckBox()
 
     # Watch-completion threshold (Slice 2)

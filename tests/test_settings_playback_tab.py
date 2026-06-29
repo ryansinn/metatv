@@ -95,6 +95,12 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._resume_mode_combo.addItem("Resume where left off", userData="resume")
     dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
 
+    # Middle-click action combo (Interaction tab) — populated from the registry
+    from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
+    dlg._middle_click_combo = QComboBox()
+    for _action in MIDDLE_CLICK_ACTIONS:
+        dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
+
     dlg._prompt_after_autoplay_check = _bool_check(qapp)
 
     # Watch-completion threshold spinner (Slice 2)

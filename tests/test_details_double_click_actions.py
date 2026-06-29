@@ -9,9 +9,10 @@ Covered behaviors
    they emit DISTINCT public signals (play_requested vs resume_requested) so the
    host can route Play → from-beginning and Resume → resume, independent of the
    double-click default setting.
-3. Middle-click on a channel row plays the OPPOSITE of the double-click default:
-   - default "resume"    → middle-click → play_channel_from_beginning_by_id
-   - default "beginning" → middle-click → play_channel_resume_by_id
+3. Middle-click on a channel row plays the user-configured action (config.middle_click_action),
+   dispatched through the MIDDLE_CLICK_ACTIONS registry:
+   - "playback_position" → middle-click → play_channel_resume_by_id
+   - "endless_buffer"    → middle-click → play_channel_open_ended_buffer_by_id
 4. ChannelListView emits middle_clicked(index) on a middle-button press only.
 """
 
@@ -114,16 +115,17 @@ def test_play_and_resume_emit_distinct_signals(qapp):
 
 
 # ---------------------------------------------------------------------------
-# 3. Middle-click = the OPPOSITE of the double-click default
+# 3. Middle-click = the user-configured action (config.middle_click_action)
 # ---------------------------------------------------------------------------
 
-def _channels_host(resume_mode: str):
+def _channels_host(middle_click_action: str):
     from metatv.gui.main_window_channels import _ChannelListMixin
     host = _ChannelListMixin.__new__(_ChannelListMixin)
     host.config = MagicMock()
-    host.config.playback_resume_mode = resume_mode
-    host.play_channel_from_beginning_by_id = MagicMock()
+    host.config.middle_click_action = middle_click_action
     host.play_channel_resume_by_id = MagicMock()
+    host.play_channel_open_ended_buffer_by_id = MagicMock()
+    host.play_channel_from_beginning_by_id = MagicMock()
     return host
 
 
@@ -133,37 +135,47 @@ def _index(channel_id):
     return idx
 
 
-def test_middle_click_starts_from_beginning_when_default_resumes(qapp):
-    """Default = resume → middle-click does the opposite (start from beginning)."""
+def test_middle_click_resumes_when_action_is_playback_position(qapp):
+    """'playback_position' → middle-click resumes from the saved position."""
     from metatv.gui.main_window_channels import _ChannelListMixin
-    host = _channels_host("resume")
+    host = _channels_host("playback_position")
 
     _ChannelListMixin._on_channel_middle_clicked(host, _index("c1"))
 
-    host.play_channel_from_beginning_by_id.assert_called_once_with("c1")
-    host.play_channel_resume_by_id.assert_not_called()
+    host.play_channel_resume_by_id.assert_called_once_with("c1")
+    host.play_channel_open_ended_buffer_by_id.assert_not_called()
 
 
-def test_middle_click_resumes_when_default_starts_from_beginning(qapp):
-    """Default = beginning → middle-click does the opposite (resume saved position)."""
+def test_middle_click_endless_buffer_when_action_is_endless_buffer(qapp):
+    """'endless_buffer' → middle-click plays with the open-ended disk-backed buffer."""
     from metatv.gui.main_window_channels import _ChannelListMixin
-    host = _channels_host("beginning")
+    host = _channels_host("endless_buffer")
 
     _ChannelListMixin._on_channel_middle_clicked(host, _index("c2"))
 
-    host.play_channel_resume_by_id.assert_called_once_with("c2")
-    host.play_channel_from_beginning_by_id.assert_not_called()
+    host.play_channel_open_ended_buffer_by_id.assert_called_once_with("c2")
+    host.play_channel_resume_by_id.assert_not_called()
+
+
+def test_middle_click_unknown_action_falls_back_to_default(qapp):
+    """An unknown/stale config value falls back to the default (resume) action."""
+    from metatv.gui.main_window_channels import _ChannelListMixin
+    host = _channels_host("no_such_action")
+
+    _ChannelListMixin._on_channel_middle_clicked(host, _index("c3"))
+
+    host.play_channel_resume_by_id.assert_called_once_with("c3")
 
 
 def test_middle_click_noop_without_channel_id(qapp):
     """An empty index id must not trigger any play path."""
     from metatv.gui.main_window_channels import _ChannelListMixin
-    host = _channels_host("resume")
+    host = _channels_host("playback_position")
 
     _ChannelListMixin._on_channel_middle_clicked(host, _index(None))
 
-    host.play_channel_from_beginning_by_id.assert_not_called()
     host.play_channel_resume_by_id.assert_not_called()
+    host.play_channel_open_ended_buffer_by_id.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
