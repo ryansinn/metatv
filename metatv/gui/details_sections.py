@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QSizePolicy, QApplication,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
@@ -171,6 +171,11 @@ class _PosterSection(QWidget):
     # _LOGO_UPSCALE_CEILING× their native size (then center) so they don't pixelate.
     _POSTER_MIN_H: int = 400
     _POSTER_MAX_H: int = 600
+    # VOD posters FILL the card width (height follows the image's aspect), so they need a
+    # taller ceiling than the logo box — otherwise a portrait 2:3 poster on a wide card
+    # gets height-capped at _POSTER_MAX_H and pillarboxes (the "side padding won't go to
+    # zero" bug).  Generous cap prevents a pathologically tall image from running away.
+    _POSTER_FILL_MAX_H: int = 1000
     _LOGO_UPSCALE_CEILING: float = 2.5
     _BADGE_SIZE: int = 26
     _BADGE_MARGIN: int = 8
@@ -600,69 +605,96 @@ class _PosterSection(QWidget):
         self._watched_badge.move(max(0, x), max(0, y))
 
     def _display_poster(self, pixmap: QPixmap) -> None:
-        if pixmap and not pixmap.isNull():
-            self._full_pixmap = pixmap   # retain original for lightbox enlargement
-            scaled = pixmap.scaled(
-                self.poster_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.poster_label.setPixmap(scaled)
-        else:
+        if not pixmap or pixmap.isNull():
             self.poster_label.setText("No poster available")
+            return
+        self._full_pixmap = pixmap   # retain original for lightbox + resize re-fit
+        self._is_live_logo = False
+        # A VOD poster FILLS the card width (height follows its aspect).  Lift the fixed
+        # box cap so a portrait 2:3 poster isn't height-capped into a pillarbox with side
+        # padding on a wide card.
+        self.poster_label.setMaximumHeight(self._POSTER_FILL_MAX_H)
+        self._apply_scaled_poster()
+        # Re-fill after the layout settles.  During rapid navigation the label width can
+        # be stale when the poster loads, so a one-shot deferred pass re-scales at the
+        # final width — kills the "rapid pass → poster scaled too wide" race (consecutive
+        # variants can share a size, so no resize event fires to self-correct it).
+        QTimer.singleShot(0, self._apply_scaled_poster)
+
+    def _apply_scaled_poster(self) -> None:
+        """Scale the retained VOD poster to FILL the label's current width.
+
+        Width is the stable driver (the label ignores its pixmap's width hint, so its
+        width tracks the pane), so scaling to width — not to the box size — is both
+        race-free and pillarbox-free: the pixmap is exactly the card width, centred with
+        zero side padding, and the label height follows the image aspect.
+        """
+        if self._rescaling or self._is_live_logo:
+            return
+        if not self._full_pixmap or self._full_pixmap.isNull():
+            return
+        w = self.poster_label.width()
+        if w <= 1:
+            return  # not laid out yet — the resize / deferred pass will re-fill
+        self._rescaling = True
+        try:
+            self.poster_label.setPixmap(
+                self._full_pixmap.scaledToWidth(
+                    w, Qt.TransformationMode.SmoothTransformation
+                )
+            )
+        finally:
+            self._rescaling = False
 
     def _display_live_logo(self, pixmap: QPixmap) -> None:
-        """Show a live channel logo on the full poster-card footprint, centered.
+        """Show a live channel logo on the poster-card footprint, centered.
 
-        Scales KeepAspectRatio to fit within the poster box (same footprint as a VOD
-        poster).  A large logo scales down to fit; a small/low-res logo upscales only
-        up to _LOGO_UPSCALE_CEILING× its native size and then sits centered on the
-        card (poster_label is AlignCenter) rather than blowing up and pixelating.
+        Unlike a VOD poster, a logo does NOT fill the card — it is fit (KeepAspectRatio)
+        inside the fixed box and centred, with a small-logo upscale ceiling so it doesn't
+        pixelate.  Retains the original so resize can re-fit cleanly.
         """
         if not pixmap or pixmap.isNull():
             self._poster_frame.setVisible(False)
             return
         self._full_pixmap = None   # live logos aren't enlargeable via the lightbox
         self._logo_src = pixmap    # retain the ORIGINAL so resize can re-fit cleanly
-        avail_w = self.poster_label.width()
-        if avail_w <= 0:
-            avail_w = self.minimumWidth() or 300   # before first layout pass
-        avail_h = self.poster_label.height()
-        if avail_h <= 0:
-            avail_h = self._POSTER_MIN_H            # before first layout pass
-        # Upscale ceiling: a tiny logo grows to at most ceiling× native, then centers.
-        ceil_w = int(pixmap.width() * self._LOGO_UPSCALE_CEILING)
-        ceil_h = int(pixmap.height() * self._LOGO_UPSCALE_CEILING)
-        target_w = min(avail_w, ceil_w)
-        target_h = min(avail_h, ceil_h)
-        scaled = pixmap.scaled(
-            max(1, target_w), max(1, target_h),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.poster_label.setPixmap(scaled)
+        self._restore_poster_metrics()   # logo keeps the fixed 400-600 box (no fill cap)
+        self._apply_scaled_logo()
+        QTimer.singleShot(0, self._apply_scaled_logo)
 
-    def _rescale_current_image(self) -> None:
-        """Re-fit the retained source image to the poster label's CURRENT size.
-
-        The poster label ignores its pixmap's width hint (so it never widens the
-        pane), which means the pixmap must be re-scaled to the granted width whenever
-        the pane resizes — otherwise a pixmap scaled at load time would be
-        centre-clipped when the pane narrows.  Re-scales from the retained ORIGINAL
-        each time (no cumulative quality loss); guarded against the
-        setPixmap→relayout→resize re-entrancy loop.
-        """
-        if self._rescaling:
+    def _apply_scaled_logo(self) -> None:
+        """Fit the retained logo inside the current box (centered, with upscale ceiling)."""
+        if self._rescaling or not self._is_live_logo:
             return
+        if not self._logo_src or self._logo_src.isNull():
+            return
+        pix = self._logo_src
+        avail_w = self.poster_label.width() or (self.minimumWidth() or 300)
+        avail_h = self.poster_label.height() or self._POSTER_MIN_H
+        # Upscale ceiling: a tiny logo grows to at most ceiling× native, then centers.
+        ceil_w = int(pix.width() * self._LOGO_UPSCALE_CEILING)
+        ceil_h = int(pix.height() * self._LOGO_UPSCALE_CEILING)
         self._rescaling = True
         try:
-            if self._is_live_logo:
-                if self._logo_src and not self._logo_src.isNull():
-                    self._display_live_logo(self._logo_src)
-            elif self._full_pixmap and not self._full_pixmap.isNull():
-                self._display_poster(self._full_pixmap)
+            scaled = pix.scaled(
+                max(1, min(avail_w, ceil_w)), max(1, min(avail_h, ceil_h)),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.poster_label.setPixmap(scaled)
         finally:
             self._rescaling = False
+
+    def _rescale_current_image(self) -> None:
+        """Re-fit the current image to the poster label's size on resize.
+
+        Dispatches to the right scaler — a VOD poster fills the width; a live logo fits
+        the box.  Both are self-guarded against the setPixmap→relayout→resize loop.
+        """
+        if self._is_live_logo:
+            self._apply_scaled_logo()
+        else:
+            self._apply_scaled_poster()
 
     def _on_poster_clicked(self) -> None:
         """Emit poster_enlarged with the full-res pixmap when the poster is clicked."""
