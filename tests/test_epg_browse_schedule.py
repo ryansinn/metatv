@@ -59,6 +59,7 @@ def seeded_db(tmp_path):
     db = Database(f"sqlite:///{tmp_path / 'epg_browse.db'}")
     db.create_tables()
     now = now_utc()
+    prog_start = now + timedelta(hours=1)
     with db.session_scope() as session:
         session.add(ChannelDB(id="c1", source_id="s1", provider_id="p1", name="ESPN HD"))
         session.add(
@@ -69,13 +70,18 @@ def seeded_db(tmp_path):
                 channel_name="ESPN HD",
                 title="Premier League: Arsenal vs Chelsea",
                 description="Football match",
-                start_time=now + timedelta(hours=1),
+                start_time=prog_start,
                 stop_time=now + timedelta(hours=3),
                 is_live=True,
                 is_new=False,
             )
         )
-    return db, now
+    # Browse queries by the programme's LOCAL calendar day. Derive that day from the
+    # programme START — not from `now` — so the test is deterministic near local
+    # midnight: when the suite runs after ~23:00 local, `now + 1h` rolls into the
+    # NEXT local day, and `to_local(now).date()` would query the wrong day and find
+    # nothing (a wall-clock-dependent failure). Computed once here = single source.
+    return db, now, to_local(prog_start).date()
 
 
 # ---------------------------------------------------------------------------
@@ -83,14 +89,13 @@ def seeded_db(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_get_schedule_returns_day_programmes_without_search(seeded_db):
-    db, now = seeded_db
+    db, _, query_date = seeded_db
     session = db.get_session()
     try:
-        # get_schedule windows by LOCAL day (its contract); convert the UTC `now`
-        # to the local date so the seeded programme falls in the window regardless
-        # of the run-time UTC offset (CLAUDE.md: never `.date()` UTC-anchored).
+        # query_date is the programme's LOCAL calendar day (see fixture) — get_schedule
+        # windows by local day (its contract; CLAUDE.md: never `.date()` UTC-anchored).
         progs = EpgRepository(session).get_schedule(
-            target_date=to_local(now).date(), provider_ids=["p1"]
+            target_date=query_date, provider_ids=["p1"]
         )
         assert len(progs) == 1
         assert progs[0].title.startswith("Premier League")
@@ -102,7 +107,7 @@ def test_get_schedule_empty_provider_ids_returns_nothing(seeded_db):
     """Guards the other half: an empty provider include-list yields no rows, which is
     why ``_reload_browse`` must short-circuit only on empty providers — not on empty
     search."""
-    db, _ = seeded_db
+    db, _, _ = seeded_db
     session = db.get_session()
     try:
         progs = EpgRepository(session).get_schedule(
@@ -208,13 +213,13 @@ def _make_render_host(qapp, *, provider_ids, search_text, name_map, title_map=No
 # ---------------------------------------------------------------------------
 
 def test_render_browse_renders_schedule_rows(qapp, seeded_db):
-    db, now = seeded_db
+    db, _, query_date = seeded_db
     # Fetch real (then-detached) programmes the way _fetch_browse does: a plain
     # get_session() + close() (no commit/rollback), so loaded scalar columns stay
     # readable on the main-thread render even after the session closes.
     session = db.get_session()
     progs = EpgRepository(session).get_schedule(
-        target_date=to_local(now).date(), provider_ids=["p1"]
+        target_date=query_date, provider_ids=["p1"]
     )
     session.close()
     host = _make_render_host(
