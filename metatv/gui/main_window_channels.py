@@ -987,24 +987,26 @@ class _ChannelListMixin:
         self.play_channel_by_id(channel_id)
 
     def _on_channel_middle_clicked(self, index) -> None:
-        """Middle-click plays the OPPOSITE of the bare double-click default.
+        """Middle-click plays the user-configured action for the clicked row.
 
-        The double-click default honors ``config.playback_resume_mode``:
-        * "resume"    → double-click resumes  → middle-click starts from beginning.
-        * "beginning" → double-click from 0   → middle-click resumes saved position.
-
-        A thin call into the existing per-play paths (``play_channel_from_beginning_by_id``
-        / ``play_channel_resume_by_id``) — no parallel play path.
+        The action is chosen in Settings → Interaction and persisted to
+        ``config.middle_click_action``; this looks the key up in the shared
+        ``MIDDLE_CLICK_ACTIONS`` registry and dispatches to the mapped per-play
+        path (e.g. resume from saved position, or play with endless buffer) —
+        no parallel play path, no hardcoded behaviour.
         """
         from PyQt6.QtCore import Qt
+        from metatv.gui.middle_click_actions import (
+            DEFAULT_MIDDLE_CLICK_ACTION,
+            middle_click_action,
+        )
         channel_id = index.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
-        mode = getattr(self.config, "playback_resume_mode", "resume")
-        if mode == "beginning":
-            self.play_channel_resume_by_id(channel_id)
-        else:
-            self.play_channel_from_beginning_by_id(channel_id)
+        key = getattr(self.config, "middle_click_action", DEFAULT_MIDDLE_CLICK_ACTION)
+        play_fn = getattr(self, middle_click_action(key).method, None)
+        if callable(play_fn):
+            play_fn(channel_id)
 
     def _on_channel_page_requested(self, query_params: dict, offset: int, page_size: int) -> None:
         """Handle a ``page_requested`` signal from ChannelListModel (main thread).

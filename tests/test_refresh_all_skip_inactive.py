@@ -271,6 +271,10 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._resume_mode_combo = QComboBox()
     dlg._resume_mode_combo.addItem("Resume", userData="resume")
     dlg._resume_mode_combo.addItem("Beginning", userData="beginning")
+    from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
+    dlg._middle_click_combo = QComboBox()
+    for _action in MIDDLE_CLICK_ACTIONS:
+        dlg._middle_click_combo.addItem(_action.label, userData=_action.key)
     dlg._prompt_after_autoplay_check = QCheckBox()
     dlg._watch_threshold_spin = QSpinBox()
     dlg._watch_threshold_spin.setRange(50, 100)
