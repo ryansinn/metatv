@@ -310,11 +310,24 @@ class _NavMixin:
         dlg.exec()
         self.load_channels()
 
-    # ── Context filters (genre / person click in details pane) ──────────────
+    # ── Context filters (genre / person / tag click in details pane) ─────────
+
+    def _reset_context_filters(self) -> None:
+        """Null every details-pane context filter state var (mutual exclusion).
+
+        Context filters are mutually exclusive — at most one chip active at a
+        time.  Each handler calls this before setting its own var, and
+        ``_clear_context_filter`` calls it on dismiss.  One chokepoint so a new
+        filter type can never silently coexist with a stale one.
+        """
+        self._details_genre_filter = None
+        self._details_person_filter = None
+        self._details_tag_filter = None
+        self._details_category_filter = None
 
     def _on_genre_filter_requested(self, genre: str) -> None:
         """Strict SQL genre filter from details-pane chip click."""
-        self._details_person_filter = None
+        self._reset_context_filters()
         self._details_genre_filter = genre
         self._context_filter_label.setText(f"Genre: {genre}")
         self._context_filter_chip.show()
@@ -324,7 +337,7 @@ class _NavMixin:
 
     def _on_person_filter_requested(self, name: str) -> None:
         """Strict SQL cast/crew filter from details-pane chip click."""
-        self._details_genre_filter = None
+        self._reset_context_filters()
         self._details_person_filter = name
         self._context_filter_label.setText(f"Cast/Crew: {name}")
         self._context_filter_chip.show()
@@ -332,10 +345,71 @@ class _NavMixin:
         self.switch_to_list_view()
         self.load_channels()
 
+    def _on_tag_filter_requested(self, facet_type: str, value: str) -> None:
+        """Left-click a tag chip → strict context filter for that exact facet.
+
+        COLLECTION is special: it resolves to the curated provider category the
+        current channel belongs to (``ChannelDB.category``), NOT a re-derived
+        query on the lossy 'collection' residual — so the user sees the actual
+        human-curated set.  Every other facet filters on the exact (type, value)
+        tag (no hierarchy rollup, v1).
+        """
+        self._reset_context_filters()
+        if facet_type == "collection":
+            category = self._resolve_current_channel_category()
+            if not category:
+                # No curated category to resolve to — leave the list unchanged.
+                return
+            self._details_category_filter = category
+            self._context_filter_label.setText(f"Collection: {category}")
+        else:
+            self._details_tag_filter = (facet_type, value)
+            label = facet_type.replace("_", " ").title()
+            self._context_filter_label.setText(f"{label}: {value}")
+        self._context_filter_chip.show()
+        self._save_search_state()
+        self.switch_to_list_view()
+        self.load_channels()
+
+    def _on_tag_discover_requested(self, facet_type: str, value: str) -> None:
+        """Right-click a tag chip → open the Recipe view seeded with this one tag.
+
+        Reuses the existing recipe/discover-shelf engine (the tag-facet → poster
+        shelf path) rather than hand-rolling a parallel discover surface: the
+        Recipe view's "Now Plating" grid IS the one-ingredient-recipe shelf.
+        """
+        # Activate the Recipe view the same way clicking the Recipe nav chip does.
+        if "recipe_chip" in self.__dict__:
+            self.recipe_chip.blockSignals(True)
+            self.recipe_chip.set_enabled(True)
+            self.recipe_chip.blockSignals(False)
+            self._deactivate_view_chips(self.recipe_chip)
+        self.switch_to_recipe_view()
+        self.recipe_view.seed_facet(facet_type, value)
+
+    def _resolve_current_channel_category(self) -> str | None:
+        """Return the curated ``category`` of the channel shown in the details pane.
+
+        Single-row PK lookup (the details-pane DTO does not carry category).  Used
+        to resolve a COLLECTION chip click to the human-curated provider grouping.
+        """
+        from metatv.core.database import ChannelDB
+
+        ch = getattr(self.details_pane, "current_channel", None)
+        cid = getattr(ch, "id", None)
+        if not cid:
+            return None
+        with self.db.session_scope() as session:
+            row = (
+                session.query(ChannelDB.category)
+                .filter(ChannelDB.id == cid)
+                .first()
+            )
+        return row[0] if row and row[0] else None
+
     def _clear_context_filter(self) -> None:
         """Dismiss the details-pane context filter and restore normal results."""
-        self._details_genre_filter = None
-        self._details_person_filter = None
+        self._reset_context_filters()
         self._context_filter_chip.hide()
         self._save_search_state()
         self.load_channels()

@@ -1345,7 +1345,21 @@ class _TagsSection(QWidget):
 
     DR-0006: all tags are shown regardless of confidence — confidence is
     ranking + prune-priority only, never a suppression gate.
+
+    Chips are interactive (clickable Tags/Collections):
+    - **Left-click** → ``tag_filter_clicked(facet_type, value)``: activates the
+      strict context-filter chip for that EXACT tag facet (no hierarchy rollup).
+    - **Right-click** → ``tag_discover_clicked(facet_type, value)``: opens the
+      tag-cloud Recipe view seeded with that one ingredient (poster shelf).
+    The host (MainWindow) resolves the COLLECTION facet specially — see
+    ``_on_tag_filter_requested`` — to the curated provider category membership,
+    not a re-derived query on the lossy 'collection' residual.
     """
+
+    # (facet_type, value) — left-click: strict exact-tag context filter
+    tag_filter_clicked = pyqtSignal(str, str)
+    # (facet_type, value) — right-click: seed Discover/Recipe with this one tag
+    tag_discover_clicked = pyqtSignal(str, str)
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -1491,6 +1505,7 @@ class _TagsSection(QWidget):
         chip = QPushButton(label)
         chip.setFlat(True)
         chip.setFixedHeight(22)
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Provenance style: source-given = solid border; inferred = dashed border.
         # Low-confidence = extra dimming on top of provenance style.
@@ -1499,16 +1514,38 @@ class _TagsSection(QWidget):
         else:
             chip.setStyleSheet(_theme.TAG_CHIP_INFERRED)
 
-        # Tooltip: feeder list + provenance label + confidence value
+        # Interactivity: left-click → strict context filter for this exact facet;
+        # right-click → seed Discover/Recipe with this one tag.  Default-arg
+        # capture pins each chip's own (facet_type, value).
+        _ftype, _val = tag.facet_type, tag.value
+        chip.clicked.connect(
+            lambda _checked=False, ft=_ftype, v=_val: self.tag_filter_clicked.emit(ft, v)
+        )
+        chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        chip.customContextMenuRequested.connect(
+            lambda _pos, ft=_ftype, v=_val: self.tag_discover_clicked.emit(ft, v)
+        )
+
+        # Tooltip: feeder list + provenance label + confidence value + actions.
         prov_label = "Given by source" if tag.source_given else "Inferred by MetaTV"
         feeder_str = ", ".join(tag.feeders) if tag.feeders else "unknown"
         conf_pct = round(tag.confidence * 100)
         conf_note = "" if tag.confidence >= _LOW_CONF_THRESHOLD else " (low confidence)"
+        if _ftype == "collection":
+            action_hint = (
+                "Click: show this collection's channels  ·  "
+                "Right-click: Discover this collection"
+            )
+        else:
+            action_hint = (
+                "Click: filter to this tag  ·  Right-click: Discover this tag"
+            )
         chip.setToolTip(
             f"{tag.facet_type}: {tag.value}\n"
             f"Provenance: {prov_label}\n"
             f"Feeder(s): {feeder_str}\n"
-            f"Confidence: {conf_pct}%{conf_note}"
+            f"Confidence: {conf_pct}%{conf_note}\n"
+            f"{action_hint}"
         )
 
         return chip

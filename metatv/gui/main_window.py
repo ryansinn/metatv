@@ -212,10 +212,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._bypass_tier1_filters: bool = False
         self._currently_bypassing: bool = False  # set after load completes, read by filter_channels
 
-        # Details-pane context filters — set when user clicks a genre or person chip.
-        # At most one is active at a time; both are cleared by the chip's dismiss button.
+        # Details-pane context filters — set when user clicks a genre/person/tag chip.
+        # At most one is active at a time; all are cleared by the chip's dismiss button.
         self._details_genre_filter: str | None = None
         self._details_person_filter: str | None = None
+        # Tag-chip context filter: (facet_type, value) for an exact non-collection tag.
+        self._details_tag_filter: tuple[str, str] | None = None
+        # Collection-chip context filter: the curated provider category (ChannelDB.category).
+        self._details_category_filter: str | None = None
 
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
@@ -477,6 +481,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.manage_filters_requested.connect(self.manage_filters)
         self.details_pane.genre_filter_requested.connect(self._on_genre_filter_requested)
         self.details_pane.person_filter_requested.connect(self._on_person_filter_requested)
+        self.details_pane.tag_filter_requested.connect(self._on_tag_filter_requested)
+        self.details_pane.tag_discover_requested.connect(self._on_tag_discover_requested)
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)

@@ -300,6 +300,19 @@ class _PantrySidebar(QWidget):
     def selected_facet(self) -> str | None:
         return self._selected_facet
 
+    def preselect_facet(self, facet_type: str) -> None:
+        """Mark *facet_type* as selected without emitting ``facet_selected``.
+
+        Used when the view is seeded externally (the details-pane tag right-click
+        → Discover path) before the pantry rows have loaded: setting the selection
+        here means a subsequent async ``load_facets`` keeps it (it only
+        auto-selects the first facet when nothing is selected yet), and any rows
+        that already exist get their selected style applied.
+        """
+        self._selected_facet = facet_type
+        for btn in self._facet_buttons:
+            btn.set_selected(btn.facet_type == facet_type)
+
     # ── private ───────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -987,6 +1000,42 @@ class RecipeView(QWidget):
             self._load_results()
 
     # ── Public helpers ────────────────────────────────────────────────────
+
+    def seed_facet(self, facet_type: str, value: str) -> None:
+        """Seed the recipe with a single include ingredient and show its matches.
+
+        Public entry point for the details-pane tag right-click → Discover path.
+        Replaces the current recipe with exactly one ingredient (``facet_type``
+        = ``value``), selects that facet, and loads the "Now Plating" poster
+        shelf + YIELDS through the same recipe→shelf chokepoint a hand-built
+        one-ingredient recipe uses (``count_channels_by_tag_facets`` /
+        ``sample_channels_by_tag_facets``) — no parallel discover path.
+
+        Must be called after the view is activated (``on_activate`` /
+        ``switch_to_recipe_view``) so the async result slots render.
+
+        Args:
+            facet_type: The facet namespace (e.g. ``"genre"``, ``"collection"``).
+            value: The single tag value to seed as an include ingredient.
+        """
+        # Replace any in-progress recipe with just this one ingredient.
+        self._recipe_includes = {facet_type: {value}}
+        self._recipe_excludes = {}
+        self._selected_facet = facet_type
+        # Drop any cross-facet pantry search so the seeded facet's cloud shows.
+        self._search_query = ""
+        self._search_results = []
+        self._pantry.clear_filter()
+        self._pantry.clear_match_counts()
+        # Keep the selection through the async pantry load (preselect → no override).
+        self._pantry.preselect_facet(facet_type)
+        # Always land on the constructor (page 0), never a stale browse page.
+        self._stack.setCurrentIndex(0)
+        self._stage_hdr.setText(_facet_display(facet_type))
+        # Render the rail instantly, then load the seeded facet's cloud + results.
+        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
+        self._load_cloud(facet_type)
+        self._load_results()
 
     def clear_recipe(self) -> None:
         """Remove all ingredients and refresh the view.
