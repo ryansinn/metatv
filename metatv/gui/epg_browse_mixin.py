@@ -336,13 +336,17 @@ class _EpgBrowseMixin:
             self._scrubber_left, scrubber.value(), self._scrubber_increment
         )
 
-    def _configure_scrubber(self, guide_bounds) -> None:
+    def _configure_scrubber(self, guide_bounds, oldest_airing_start=None) -> None:
         """Size the scrubber track from the scoped guide bounds (main thread).
 
         Called from the browse data-loaded dispatch on a fresh (non-append) page.
         Re-reads the snap increment from config each time so a Settings change takes
         effect on the next load. The current handle TIME is preserved across a
         re-size (the track rarely changes), defaulting to "now" on first configure.
+
+        ``oldest_airing_start`` (start of the oldest currently-airing show, from the
+        same fresh page) is the track's DEFAULT left edge — so the timeline reaches
+        back to the beginning of everything on right now, but no further by default.
         """
         if getattr(self, "_browse_scrubber", None) is None:
             return
@@ -372,6 +376,7 @@ class _EpgBrowseMixin:
         left, right = _scrubber_bounds(
             min_start, max_start,
             getattr(self.config, "epg_browse_hide_older_than_hours", 0) or 0,
+            oldest_airing_start=oldest_airing_start,
             _now=now,
         )
 
@@ -490,11 +495,12 @@ class _EpgBrowseMixin:
             hours = getattr(self.config, "epg_browse_hide_older_than_hours", 0) or 0
             max_age = timedelta(hours=hours) if hours > 0 else None
 
-            # Chronological, keyset-paginated. With a configured "hide older than"
-            # window (max_age) the scrubber may seek BACK into the bounded recent past
-            # (floor_to_now=False); with hours==0 the list is strictly forward-only
-            # (floor_to_now=True) — the now-floor and the scrubber's left bound stay
-            # in lock-step. Search narrows within either.
+            # Chronological, keyset-paginated. Inclusion is stop_time > anchor so the
+            # "now" anchor lists currently-airing shows (mid-progress) plus upcoming.
+            # With a configured "Allow browsing back" window (max_age) the scrubber may
+            # seek BACK into the bounded recent past (floor_to_now=False); with hours==0
+            # a past anchor floors to now (currently-airing + upcoming, no earlier).
+            # Search narrows within either.
             programs = repo.get_schedule_forward(
                 provider_ids=provider_ids,
                 anchor=anchor,
@@ -513,6 +519,7 @@ class _EpgBrowseMixin:
             # at the first hole) — NOT the inflated max stop_time anywhere.
             guide_end = None
             guide_bounds = None
+            oldest_airing = None
             if not append:
                 guide_end = repo.get_contiguous_guide_end(
                     provider_ids,
@@ -521,6 +528,12 @@ class _EpgBrowseMixin:
                 # Scoped (min_start, max_start) → sizes the scrubber track. Computed
                 # on the first page only so a "load more" never resizes the track.
                 guide_bounds = repo.get_guide_bounds(
+                    provider_ids,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
+                )
+                # Start of the oldest currently-airing show → the scrubber's DEFAULT
+                # left bound (reach back to the beginning of everything on now).
+                oldest_airing = repo.get_oldest_airing_start(
                     provider_ids,
                     excluded_channel_provider_ids=excluded_ch_provider_ids,
                 )
@@ -550,6 +563,7 @@ class _EpgBrowseMixin:
                 "programs": programs,
                 "guide_end": guide_end,
                 "guide_bounds": guide_bounds,
+                "oldest_airing_start": oldest_airing,
                 "search": search,
                 "append": append,
                 "gen": gen,

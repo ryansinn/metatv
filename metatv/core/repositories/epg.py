@@ -285,9 +285,13 @@ class EpgRepository:
         """Forward-looking, chronological, keyset-paginated schedule.
 
         The Browse-tab successor to :meth:`get_schedule`'s calendar-day ×
-        bounded-time-slot model. Returns programmes whose ``start_time`` is at or
-        after the *effective anchor* — ``max(now, anchor)`` so the PAST is never
-        shown — ordered ascending by ``(start_time, id)`` and capped at ``limit``.
+        bounded-time-slot model. Returns programmes **airing at or after** the
+        *effective anchor* — the inclusion test is ``stop_time > anchor``, NOT
+        ``start_time >= anchor`` — so a show that started before the anchor but is
+        still on (e.g. a 4-hour film 2 h into its run at the "now" anchor) is
+        correctly included, mid-progress, with its real PAST start_time. Rows are
+        ordered ascending by ``(start_time, id)`` (currently-airing rows therefore
+        sort above the upcoming ones) and capped at ``limit``.
 
         Pagination is keyset (cursor): pass the last ``(start_time, id)`` from the
         previous page as ``after`` to fetch the next page. Keyset (vs OFFSET) keeps
@@ -301,7 +305,9 @@ class EpgRepository:
         Args:
             provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
             anchor: Requested start instant (UTC-naive). Floored to ``now`` so a
-                past anchor never surfaces already-aired programmes. ``None`` = now.
+                past anchor never surfaces already-ended programmes (a programme
+                still airing at ``now`` is kept — it is ``stop_time > now``).
+                ``None`` = now.
             search_query: Optional keyword filter on title + description.
             hide_filler: Skip filler titles.
             filler_patterns: Title substrings considered filler.
@@ -315,11 +321,16 @@ class EpgRepository:
             max_age: Left-bound guard ``start_time >= now - max_age``. With
                 ``floor_to_now`` True this is dominated by the ``>= now`` floor; with
                 it False (the Phase-2 scrubber seeking back) it becomes the real
-                hard left edge so the recent past is bounded, never unbounded.
+                hard left edge so the recent past is bounded, never unbounded. It
+                guards ``start_time`` (how far back a row may have STARTED), so a
+                currently-airing row whose start precedes the window is still
+                excluded — the inclusion test is on ``stop_time``, the bound on
+                ``start_time``.
             floor_to_now: When True (default, Phase-1 forward browsing) a past anchor
-                is floored to ``now`` so already-aired programmes never surface. When
-                False (the Phase-2 scrubber seeking back to its left bound) the anchor
-                is honoured exactly — combine with ``max_age`` to bound how far back.
+                is floored to ``now`` so already-ended programmes never surface (a
+                programme still airing at ``now`` is kept). When False (the Phase-2
+                scrubber seeking back to its left bound) the anchor is honoured
+                exactly — combine with ``max_age`` to bound how far back.
             _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
 
         Returns:
@@ -327,15 +338,18 @@ class EpgRepository:
         """
         now = _now or _now_utc()
         if floor_to_now:
-            # Never the past: a requested anchor only moves the window FORWARD.
+            # Never already-ended: a requested anchor only moves the window FORWARD.
             effective_anchor = anchor if (anchor is not None and anchor > now) else now
         else:
             # Scrubber seek-back: honour the anchor as given (bounded by max_age).
             effective_anchor = anchor if anchor is not None else now
 
+        # Inclusion is ``stop_time > anchor`` (currently-airing + upcoming), NOT
+        # ``start_time >= anchor``: a show 2 h into a 4 h run is on RIGHT NOW and must
+        # appear (mid-progress, with its real PAST start_time) instead of vanishing.
         query = self.session.query(EpgProgramDB).filter(
             EpgProgramDB.provider_id.in_(provider_ids),
-            EpgProgramDB.start_time >= effective_anchor,
+            EpgProgramDB.stop_time > effective_anchor,
             EpgProgramDB.channel_db_id.isnot(None),  # playable channels only
         )
 
@@ -472,6 +486,50 @@ class EpgRepository:
             )
         min_start, max_start = query.one()
         return min_start, max_start
+
+    def get_oldest_airing_start(
+        self,
+        provider_ids: list[str],
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+        _now: datetime | None = None,
+    ) -> datetime | None:
+        """Earliest ``start_time`` among programmes currently airing at ``now``.
+
+        "Currently airing" = ``start_time <= now < stop_time`` for the scoped,
+        playable sources. This is the Browse scrubber's DEFAULT left bound: it lets
+        the timeline reach back just far enough to show the BEGINNING of everything
+        that is on right now (a show 2 h into its run started before "now"), but no
+        further back by default. Scoping mirrors :meth:`get_guide_bounds` /
+        :meth:`get_schedule_forward` — ``provider_ids`` (feed side),
+        ``channel_db_id IS NOT NULL`` (playable only), and
+        ``excluded_channel_provider_ids`` (hidden-provider channel-side scoping).
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: Channel-side scoping — drop programmes
+                whose matched ChannelDB row belongs to a hidden provider.
+            _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+
+        Returns:
+            The min ``start_time`` (UTC-naive) of the currently-airing, playable,
+            scoped programmes, or ``None`` when nothing is airing right now.
+        """
+        if not provider_ids:
+            return None
+        now = _now or _now_utc()
+        query = self.session.query(func.min(EpgProgramDB.start_time)).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.channel_db_id.isnot(None),
+            EpgProgramDB.start_time <= now,
+            EpgProgramDB.stop_time > now,
+        )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        return query.scalar()
 
     def search_programs(
         self,

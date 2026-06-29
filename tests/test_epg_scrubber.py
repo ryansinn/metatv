@@ -166,7 +166,12 @@ def test_scrubber_increment_choices():
 
 
 def test_scrubber_bounds_window_and_clamps():
-    """left = max(now-window, guide_start) clamped to now; right = max(guide_end, now)."""
+    """Back-browse window extends left; result clamped to guide_start & now.
+
+    (With ``oldest_airing_start`` omitted the default left edge is ``now``; the
+    back-browse window then pulls it further back — see the dedicated test below for
+    the oldest-currently-airing default.)
+    """
     # Past data present, 24h window → left pulled to now-10h (guide_start dominates).
     left, right = scrubber_bounds(
         _NOW - timedelta(hours=10), _NOW + timedelta(hours=48), 24, _now=_NOW,
@@ -174,7 +179,7 @@ def test_scrubber_bounds_window_and_clamps():
     assert left == _NOW - timedelta(hours=10)
     assert right == _NOW + timedelta(hours=48)
 
-    # window=0 → strictly forward (left == now).
+    # window=0, nothing airing → left == now (no extra back-browse).
     left0, _ = scrubber_bounds(
         _NOW - timedelta(hours=10), _NOW + timedelta(hours=48), 0, _now=_NOW,
     )
@@ -188,6 +193,31 @@ def test_scrubber_bounds_window_and_clamps():
 
     # No data → collapse to a point at now.
     assert scrubber_bounds(None, None, 24, _now=_NOW) == (_NOW, _NOW)
+
+
+def test_scrubber_bounds_default_left_is_oldest_airing_then_extends():
+    """Default left edge = oldest currently-airing start; a non-zero back-browse
+    window reaches further into the past."""
+    min_start = _NOW - timedelta(hours=10)   # an already-ended row sits this far back
+    max_start = _NOW + timedelta(hours=48)
+    oldest_airing = _NOW - timedelta(hours=2)  # the oldest show on right now
+
+    # Default (window=0): left bound is exactly the oldest currently-airing start —
+    # you can scrub back to the start of everything on now, but no further.
+    left, _ = scrubber_bounds(min_start, max_start, 0, oldest_airing, _now=_NOW)
+    assert left == _NOW - timedelta(hours=2)
+
+    # Non-zero window (6 h) reaches further back than the oldest-airing default.
+    left6, _ = scrubber_bounds(min_start, max_start, 6, oldest_airing, _now=_NOW)
+    assert left6 == _NOW - timedelta(hours=6)
+
+    # The window can never reach before the guide's earliest real data.
+    left_far, _ = scrubber_bounds(min_start, max_start, 100, oldest_airing, _now=_NOW)
+    assert left_far == _NOW - timedelta(hours=10)
+
+    # Nothing airing (oldest_airing=None) + window=0 → left falls back to now.
+    left_none, _ = scrubber_bounds(min_start, max_start, 0, None, _now=_NOW)
+    assert left_none == _NOW
 
 
 def test_scrubber_label_day_context(monkeypatch):

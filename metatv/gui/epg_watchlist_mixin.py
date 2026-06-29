@@ -335,7 +335,10 @@ class _EpgWatchlistMixin:
             # scrubber, so lightweight test hosts are unaffected).
             if not payload.get("append", False) and "guide_bounds" in payload:
                 if hasattr(self, "_configure_scrubber"):
-                    self._configure_scrubber(payload.get("guide_bounds"))
+                    self._configure_scrubber(
+                        payload.get("guide_bounds"),
+                        payload.get("oldest_airing_start"),
+                    )
             self._render_browse(
                 payload["programs"],
                 payload.get("placeholder", False),
