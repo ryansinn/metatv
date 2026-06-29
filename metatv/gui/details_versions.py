@@ -13,6 +13,7 @@ from loguru import logger
 from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.flow_layout import enable_height_for_width
 
 # ---------------------------------------------------------------------------
 # Lookup tables
@@ -71,6 +72,7 @@ class _FlowLayout(QLayout):
         self._h_spacing = h_spacing
         self._v_spacing = v_spacing
         self._items: list[QLayoutItem] = []
+        enable_height_for_width(parent)
 
     def addItem(self, item: QLayoutItem) -> None:
         self._items.append(item)

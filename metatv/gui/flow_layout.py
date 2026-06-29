@@ -14,7 +14,27 @@ Usage:
 from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt
-from PyQt6.QtWidgets import QLayout, QSizePolicy, QWidgetItem
+from PyQt6.QtWidgets import QLayout, QSizePolicy, QWidget, QWidgetItem
+
+
+def enable_height_for_width(widget: "QWidget | None") -> None:
+    """Opt *widget*'s size policy into height-for-width so a wrapping flow layout
+    actually wraps when the widget is nested in a box layout.
+
+    A ``QBoxLayout`` only queries a child's ``heightForWidth`` (the value a flow
+    layout uses to grow taller and wrap to more rows) when the child's size policy
+    has the flag enabled — merely returning ``hasHeightForWidth() == True`` from the
+    layout is not enough.  Without this, a nested flow container lays its items out
+    in a single row that clips at the parent's right edge instead of wrapping.
+
+    Called from every flow-layout constructor so nested chip rows wrap for free; a
+    no-op (and harmless) for containers that are a ``QScrollArea``'s direct widget.
+    """
+    if widget is None:
+        return
+    sp = widget.sizePolicy()
+    sp.setHeightForWidth(True)
+    widget.setSizePolicy(sp)
 
 
 class FlowLayout(QLayout):
@@ -24,6 +44,7 @@ class FlowLayout(QLayout):
         super().__init__(parent)
         self._items: list[QWidgetItem] = []
         self.setSpacing(spacing)
+        enable_height_for_width(parent)
 
     # ── QLayout interface ──────────────────────────────────────────────
 
