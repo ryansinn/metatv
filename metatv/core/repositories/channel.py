@@ -19,6 +19,7 @@ from metatv.core.channel_name_utils import (
 from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 from metatv.core.content_identity import content_key_for
+from metatv.core.tag_decomposer import region_code_from_category
 
 
 # _GENRE_NORM and normalize_genre now live in metatv.core.filter_utils (a dependency-free
@@ -874,12 +875,26 @@ class ChannelRepository(_ChannelStatsMixin):
         separators: list[str] | None = None,
         progress_cb=None,
         is_cancelled=None,
+        config=None,
     ):
         """Update detected_prefix, detected_quality, and detected_region for all channels.
 
         - detected_prefix: raw separator-delimited prefix token (e.g. "EN", "4K")
         - detected_quality: quality token found anywhere in the name (suffix or quality-prefix)
         - detected_region: parenthetical lang/region qualifier at end of name (e.g. "(US)"→"US")
+
+        ``detected_region`` precedence (each step is **fill-empty-only** — a value
+        set by an earlier step is never overwritten by a later one):
+
+        1. **Name token** — bracket secondary / parenthetical lang-region suffix
+           parsed from the channel name (highest priority, unchanged behavior).
+        2. **Own provider-category code** — when the name yields no region, derive
+           it from ``channel.category`` (e.g. ``"|FR|"`` → ``"FR"``) via
+           :func:`~metatv.core.tag_decomposer.region_code_from_category` (the same
+           extraction that produces the region tag facet — single source of truth).
+        3. **content_key sibling** — a final cross-source pass copies a region onto
+           any still-empty row from a sibling sharing the same (non-NULL)
+           ``content_key``.  See :meth:`_propagate_region_from_siblings`.
 
         Args:
             provider_id: Only update channels for this provider, or None for all.
@@ -894,8 +909,17 @@ class ChannelRepository(_ChannelStatsMixin):
                 already-committed batches are durable but the task is not marked
                 complete (version not bumped by the manager).  Pass ``None``
                 (default) to run without cancellation support.
+            config: Optional live ``Config`` instance — supplies the filter groups
+                the category→region extraction consults.  Loaded lazily (default
+                ``Config()``) when ``None`` so existing callers are unaffected.
         """
         _BATCH = 2000
+
+        # The category→region fallback (step 2) needs the filter groups; load a
+        # default Config once when the caller didn't pass one.
+        if config is None:
+            from metatv.core.config import Config
+            config = Config()
 
         id_query = self.session.query(ChannelDB.id)
         if provider_id:
@@ -1000,6 +1024,13 @@ class ChannelRepository(_ChannelStatsMixin):
                 # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
                 region: str | None = bracket_as_region or parsed.lang or None
 
+                # Fill-empty fallback (step 2): when the NAME carries no region,
+                # derive it from the provider category (e.g. "|FR|" → "FR") via the
+                # shared tag_decomposer extraction. Never overwrites a name-derived
+                # region; only explicit region codes qualify (free text → None).
+                if not region and channel.category:
+                    region = region_code_from_category(channel.category, config=config)
+
                 new_title = parsed.bare_name or None
                 new_year  = parsed.year or None
 
@@ -1082,8 +1113,111 @@ class ChannelRepository(_ChannelStatsMixin):
             if progress_cb is not None:
                 progress_cb(min(batch_start + _BATCH, total), total)
 
-        logger.info(f"Updated parsed name fields for {updated} of {processed} channels")
+        # Step 3: cross-source sibling propagation — fill any still-empty
+        # detected_region from a row sharing the same content_key. Skipped after a
+        # cancellation (partial per-row state — don't propagate from it).
+        sib_filled = 0
+        if not (is_cancelled is not None and is_cancelled()):
+            sib_filled = self._propagate_region_from_siblings(provider_id)
+
+        logger.info(
+            f"Updated parsed name fields for {updated} of {processed} channels "
+            f"(+{sib_filled} regions filled from content_key siblings)"
+        )
         return updated
+
+    def _propagate_region_from_siblings(
+        self, provider_id: Optional[str] = None
+    ) -> int:
+        """Fill empty ``detected_region`` from a same-``content_key`` sibling.
+
+        Final fill-empty-only pass of :meth:`update_detected_prefixes`.  A row
+        whose name AND provider-category yielded no region inherits one from a
+        sibling sharing its (non-NULL) ``content_key`` — the cross-source content
+        identity (DR-0009).  Synthetic ``id:``-keyed singletons (NULL
+        ``content_key``) have no siblings and are skipped.
+
+        Winner selection when siblings disagree: the **most common** region code
+        across all siblings; ties broken by the **alphabetically-first** code — a
+        stable, deterministic order independent of row/scan order.
+
+        Never overwrites a row that already has a region.  Sibling regions are
+        read across **all** providers (content identity is source-independent);
+        when *provider_id* is given, only that provider's rows are filled.
+
+        Args:
+            provider_id: Restrict the rows that get filled to this provider, or
+                None to fill across the whole library.
+
+        Returns:
+            Number of rows that had ``detected_region`` written.
+        """
+        from collections import Counter, defaultdict
+
+        _BATCH = 2000
+
+        # NB: do NOT expunge_all() here — update_detected_prefixes intentionally
+        # leaves the last batch's ORM objects attached so callers can refresh/read
+        # them afterward.  The queries below use column projections and the fills
+        # use bulk UPDATEs, neither of which needs a clean identity map.
+
+        # 1. Winner map: content_key -> region. Built from a GROUP BY (one row per
+        #    distinct key+region) so memory is bounded by distinct keyed regions.
+        counters: dict[str, Counter] = defaultdict(Counter)
+        grouped = (
+            self.session.query(
+                ChannelDB.content_key,
+                ChannelDB.detected_region,
+                func.count().label("n"),
+            )
+            .filter(ChannelDB.content_key.isnot(None))
+            .filter(ChannelDB.detected_region.isnot(None))
+            .filter(ChannelDB.detected_region != "")
+            .group_by(ChannelDB.content_key, ChannelDB.detected_region)
+            .all()
+        )
+        for key, region, n in grouped:
+            counters[key][region] += n
+
+        winner: dict[str, str] = {}
+        for key, counter in counters.items():
+            # (-count, region): most common first, alphabetical tie-break.
+            winner[key] = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+        if not winner:
+            return 0
+
+        # 2. Fill empty rows whose content_key has a winner (scoped if asked).
+        empty_q = (
+            self.session.query(ChannelDB.id, ChannelDB.content_key)
+            .filter(ChannelDB.content_key.isnot(None))
+            .filter(
+                or_(
+                    ChannelDB.detected_region.is_(None),
+                    ChannelDB.detected_region == "",
+                )
+            )
+        )
+        if provider_id:
+            empty_q = empty_q.filter(ChannelDB.provider_id == provider_id)
+        empty_rows = empty_q.all()
+
+        filled = 0
+        for ch_id, key in empty_rows:
+            region = winner.get(key)
+            if not region:
+                continue
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == ch_id)
+                .values(detected_region=region, updated_at=datetime.now())
+            )
+            filled += 1
+            if filled % _BATCH == 0:
+                self.session.commit()
+
+        self.session.commit()
+        return filled
 
     def backfill_content_keys(
         self,

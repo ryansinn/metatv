@@ -172,6 +172,38 @@ def decompose(
     return _dedup(tags)
 
 
+def region_code_from_category(category: str | None, *, config) -> str | None:
+    """Return the explicit region code carried by a provider-category string.
+
+    This is the single source of truth for "what region does ``|FR|`` denote",
+    reused by ingestion (``update_detected_prefixes``) to fill an empty
+    ``detected_region`` from the provider category.  It runs the SAME
+    ``provider_category`` decomposition that produces the region tag facet
+    (:func:`decompose`) and returns the first ``region`` facet value, normalized
+    via :func:`~metatv.core.channel_name_utils.normalize_region_code`.
+
+    Only an explicit region/locale code yields a result: free-text category
+    words classify as ``genre``/``collection`` (never ``region``), so they
+    return ``None`` here — no region is ever invented from prose.
+
+    Args:
+        category: A provider category label, e.g. ``"|FR|"``, ``"USA | HD"``.
+        config:   Live ``Config`` instance (provides ``filter_*_groups``).
+
+    Returns:
+        A normalized region code (``"FR"``) or ``None`` when the category
+        carries no explicit region token.  Pure — no DB, no Qt.
+    """
+    if not category or not category.strip():
+        return None
+    for tag_type, tag_value, _conf in decompose(
+        "provider_category", category, config=config
+    ):
+        if tag_type == "region":
+            return normalize_region_code(tag_value)
+    return None
+
+
 def decompose_name_parse(
     *,
     detected_prefix: str | None,
