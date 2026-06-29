@@ -1724,3 +1724,31 @@ class Config:
 - 🔌 **Plugin system allows community extensions**
 - 🎯 **Graceful degradation if providers fail**
 - 🛠️ **Easy to add new data sources without core changes**
+
+## Poster sizing — the recurring trap, and the "couldn't see the render" lesson
+
+**The problem.** A VOD poster is fit inside a fixed-height box (`_POSTER_MIN_H`..`_POSTER_MAX_H`
+= 400..600). A portrait 2:3 poster only fills the card while the card width is ≤
+`_POSTER_MAX_H × aspect` ≈ 600 × 0.67 ≈ **402px**. Once the card is wider than that, the 600px
+height cap limits the poster's height and leaves it narrower than the card → **pillarbox side
+padding that grows with pane width**. A separate **rapid-navigation race** could also leave the
+poster scaled to a stale (pre-layout) size when paging quickly through a title's variants. The
+poster *image* was never the cause — Cowboy Bebop measured 1004×1498 = a clean 2:3.
+
+**How we got here (the expensive part).** This burned a long, costly debugging session because
+the work was driven by code + **offscreen** geometry measurements with **no view of the actual
+rendered output**. Offscreen probes "proved" the layout was fine (correct min widths) while the
+user was looking at a visibly-wrong poster, so the real symptom (pillarbox at wide widths; "too
+big" when filled) was repeatedly missed. The user's direct observations — "it's the poster",
+"a 2:3 poster can't pad", "it's too big" — were the accurate signal throughout.
+
+**Resolution.** Rather than keep re-engineering the scaler, the **default `details_pane_width`
+is set to 452** — the width the user dialed in, where a 2:3 poster fills the card cleanly
+(card column ≤ ~402). A proper width-independent fix (size the card to the poster, or fill-width
+with a sane height cap) is parked; see PRs #282 / #283 / #286 for the attempts and the
+measure-don't-guess method.
+
+**Lessons.** (1) When a visual bug is **width-dependent**, check the *default pane width* before
+re-engineering the renderer. (2) Offscreen measurement validates **geometry, not appearance** —
+trust the user's eyes over indirect metrics, and ask for a screenshot early instead of
+theorizing. (3) A cheap config lever can beat a "correct" but expensive code change.

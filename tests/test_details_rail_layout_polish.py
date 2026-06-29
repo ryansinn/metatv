@@ -221,7 +221,7 @@ def test_watched_badge_pinned_lower_right(qapp):
     """The two-state Watched badge must sit in the poster's LOWER-right corner."""
     poster, _ = _build(qapp)
     poster.set_mode(is_live=False)
-    poster.poster_label.resize(300, 450)
+    poster.poster_label.resize(300, 450)  # width applies; height is the fixed box
 
     poster.set_watched(True)          # solid badge → visible + repositioned
     poster._reposition_watched_badge()
@@ -229,13 +229,15 @@ def test_watched_badge_pinned_lower_right(qapp):
     margin = poster._BADGE_MARGIN
     bw = poster._watched_badge.width()
     bh = poster._watched_badge.height()
-    expected_x = 300 - bw - margin
-    expected_y = 450 - bh - margin
+    lw = poster.poster_label.width()
+    lh = poster.poster_label.height()
+    expected_x = lw - bw - margin
+    expected_y = lh - bh - margin
 
     assert poster._watched_badge.x() == expected_x, "badge must hug the right edge"
     assert poster._watched_badge.y() == expected_y, "badge must hug the BOTTOM edge"
     # Unambiguously in the lower half (regression guard vs the old top-right position).
-    assert poster._watched_badge.y() > 450 // 2, "badge must be in the poster's lower half"
+    assert poster._watched_badge.y() > lh // 2, "badge must be in the poster's lower half"
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +265,8 @@ def test_play_anchored_below_live_logo_footprint(qapp):
     poster.load_live_logo("http://logo/x.png")
 
     # #261 footprint preserved: the live logo fills the full poster box.
-    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
-    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_FIXED_H
+    assert poster.poster_label.maximumHeight() == poster._POSTER_FIXED_H
     # Play row shows and is anchored below the poster+rail block (outer column).
     assert not poster._primary_action_row.isHidden(), "Play row must be shown for live"
     assert poster._primary_action_row.parent() is poster

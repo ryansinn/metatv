@@ -171,46 +171,57 @@ def test_long_token_plot_does_not_force_content_width(qapp, tmp_path):
     )
 
 
-# A 2:3 poster fit inside the old fixed-height box (_POSTER_MAX_H=600) pillarboxed once
-# the card was wider than ~402px (600 * 0.67) — side padding that grew with pane width,
-# the "left padding won't reduce to zero" bug. VOD posters now FILL the card width.
-def test_poster_fills_card_width_no_pillarbox(qapp, tmp_path):
-    """A 2:3 poster fills the card width at a WIDE pane — zero side padding."""
-    pane = _full_pane(qapp, tmp_path)
-    pane.resize(500, 1600)
-    pane.show()
-    qapp.processEvents()
-    pane._poster._display_poster(QPixmap(1004, 1498))  # measured Cowboy Bebop aspect 0.670
-    qapp.processEvents()
-    qapp.processEvents()
+# The poster box is a HARD FIXED height so the Play row below never moves between titles,
+# and the poster is fit INSIDE it so its width can never exceed the card (hard right
+# boundary). Side padding is acceptable; overflow is not.
+from metatv.gui.details_sections import _PosterSection as _PS
 
-    lbl = pane._poster.poster_label
-    pm = lbl.pixmap()
-    assert pm is not None and not pm.isNull()
-    assert lbl.width() - pm.width() <= 1, (
-        f"poster must FILL the card width (label {lbl.width()} vs pixmap {pm.width()}) — "
-        "no pillarbox side padding"
+
+def test_poster_box_height_is_fixed_across_widths(qapp, tmp_path):
+    """The poster box stays a constant height at every pane width — so the Play/Watch
+    Later buttons below never move between titles."""
+    pane = _full_pane(qapp, tmp_path)
+    pane.show()
+    heights = []
+    for w in (320, 410, 500):
+        pane.resize(w, 1600)
+        qapp.processEvents()
+        pane._poster._display_poster(QPixmap(1004, 1498))  # measured Cowboy Bebop 2:3
+        qapp.processEvents()
+        qapp.processEvents()
+        heights.append(pane._poster.poster_label.height())
+    assert all(h == _PS._POSTER_FIXED_H for h in heights), (
+        f"poster box height must be fixed at {_PS._POSTER_FIXED_H} at every width, got {heights}"
     )
 
 
-def test_poster_refills_at_settled_width_after_resize(qapp, tmp_path):
-    """The rapid-nav race: a poster scaled at one width must re-fill at the settled width
-    after the pane changes (deferred re-scale + resize handler), never stay too wide."""
+def test_poster_never_exceeds_card_width(qapp, tmp_path):
+    """At any width the poster pixmap fits WITHIN the card — never overflows the right
+    edge (padding is fine, overflow is not)."""
     pane = _full_pane(qapp, tmp_path)
-    pane.resize(500, 1600)
     pane.show()
-    qapp.processEvents()
-    pane._poster._display_poster(QPixmap(1004, 1498))
-    qapp.processEvents()
-    qapp.processEvents()
+    for w in (320, 410, 500):
+        pane.resize(w, 1600)
+        qapp.processEvents()
+        pane._poster._display_poster(QPixmap(1004, 1498))
+        qapp.processEvents()
+        qapp.processEvents()
+        lbl = pane._poster.poster_label
+        pm = lbl.pixmap()
+        assert pm is not None and not pm.isNull()
+        assert pm.width() <= lbl.width() + 1, (
+            f"poster pixmap {pm.width()} must not exceed card width {lbl.width()} at pane {w}"
+        )
+        assert pm.height() <= _PS._POSTER_FIXED_H + 1, (
+            f"poster height {pm.height()} must fit the fixed box {_PS._POSTER_FIXED_H}"
+        )
 
-    # Shrink and immediately swap the poster before the event loop settles (rapid nav).
-    pane.resize(320, 1600)
-    pane._poster._display_poster(QPixmap(1004, 1498))
-    qapp.processEvents()
-    qapp.processEvents()
 
-    lbl = pane._poster.poster_label
-    pm = lbl.pixmap()
-    assert pm.width() <= 320, f"poster pixmap {pm.width()}px must not exceed the narrow pane"
-    assert lbl.width() - pm.width() <= 1, "poster must re-fill to the settled (narrow) width"
+def test_content_reserves_right_gutter_for_scrollbar(qapp, tmp_path):
+    """The content layout reserves a right gutter so nothing crosses the right edge / sits
+    under the scrollbar (a hard right boundary)."""
+    pane = _full_pane(qapp, tmp_path)
+    m = pane._content_layout.contentsMargins()
+    assert m.right() > m.left(), (
+        f"right margin {m.right()} must exceed left {m.left()} to clear the scrollbar"
+    )
