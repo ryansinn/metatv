@@ -394,6 +394,16 @@ def test_play_from_beginning_not_applies_when_no_progress():
     assert ACTIONS["play_from_beginning"].applies(ctx) is False
 
 
+def test_play_from_beginning_not_applies_when_mode_beginning():
+    """play_from_beginning is gated to resume mode (the mirror of resume_from): in
+    beginning mode the default Play already starts at zero, so the override would be
+    redundant and would render a second ▶ next to Play."""
+    from metatv.gui.channel_menu import ACTIONS
+    ctx = _make_ctx(media_type="movie", watch_progress=300, watch_completed=False,
+                    playback_resume_mode="beginning")
+    assert ACTIONS["play_from_beginning"].applies(ctx) is False
+
+
 def test_resume_from_applies_when_mode_beginning_and_resumable():
     """resume_from applies when mode='beginning' AND item is a resumable movie."""
     from metatv.gui.channel_menu import ACTIONS

@@ -235,7 +235,11 @@ ACTIONS: dict[str, ChannelAction] = {
             "Start playback from the beginning, ignoring the saved resume position.\n"
             "Your resume position is preserved — this is a one-time override."
         ),
-        applies=_is_resumable_vod,
+        # Only meaningful when the default Play WOULD resume (resume mode + resumable).
+        # The exact mirror of resume_from (beginning-mode only): in beginning mode the
+        # default Play already starts at zero, so this override would be redundant —
+        # and would render a second ▶ next to Play. Reuses the one shared predicate.
+        applies=_play_resumes_by_default,
     ),
     "resume_from": ChannelAction(
         id="resume_from",
