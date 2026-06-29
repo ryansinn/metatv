@@ -170,8 +170,8 @@ def test_load_live_logo_reveals_poster_and_uses_poster_footprint(qapp):
     assert poster._poster_url == "http://logo/x.png", "URL must route through the async slot"
     assert not poster._poster_frame.isHidden(), "load_live_logo must reveal the poster frame"
     # Same footprint as a VOD poster — NOT capped to a short strip.
-    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
-    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
+    assert poster.poster_label.maximumHeight() == poster._POSTER_FIXED_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_FIXED_H
     cache.get_image_async.assert_called_once()
 
 
@@ -244,13 +244,13 @@ def test_switch_live_logo_to_vod_keeps_tall_poster(qapp):
     poster.set_mode(is_live=True)
     poster.load_live_logo("http://logo/a.png")
     # Live logo already occupies the full poster footprint.
-    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
-    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
+    assert poster.poster_label.maximumHeight() == poster._POSTER_FIXED_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_FIXED_H
 
     poster.set_mode(is_live=False)   # back to VOD
     assert poster._is_live_logo is False
-    assert poster.poster_label.maximumHeight() == poster._POSTER_MAX_H
-    assert poster.poster_label.minimumHeight() == poster._POSTER_MIN_H
+    assert poster.poster_label.maximumHeight() == poster._POSTER_FIXED_H
+    assert poster.poster_label.minimumHeight() == poster._POSTER_FIXED_H
 
 
 # ---------------------------------------------------------------------------

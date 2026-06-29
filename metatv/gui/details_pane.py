@@ -245,7 +245,12 @@ class DetailsPaneWidget(QWidget):
 
         content = QWidget()
         self._content_layout = QVBoxLayout(content)
-        self._content_layout.setContentsMargins(10, 10, 10, 10)
+        # Reserve a hard right gutter for the vertical scrollbar so the poster / text can
+        # never slide under it or off the right edge (a hard right boundary).  On themes
+        # with an overlay scrollbar the content would otherwise extend the full viewport
+        # width and the scrollbar would paint over the last ~15px.
+        _sb = max(scroll.verticalScrollBar().sizeHint().width(), 14)
+        self._content_layout.setContentsMargins(10, 10, 10 + _sb, 10)
         self._content_layout.setSpacing(10)
 
         self._poster   = _PosterSection(self.config, self.image_cache)

@@ -171,11 +171,12 @@ class _PosterSection(QWidget):
     # _LOGO_UPSCALE_CEILING× their native size (then center) so they don't pixelate.
     _POSTER_MIN_H: int = 400
     _POSTER_MAX_H: int = 600
-    # VOD posters FILL the card width (height follows the image's aspect), so they need a
-    # taller ceiling than the logo box — otherwise a portrait 2:3 poster on a wide card
-    # gets height-capped at _POSTER_MAX_H and pillarboxes (the "side padding won't go to
-    # zero" bug).  Generous cap prevents a pathologically tall image from running away.
-    _POSTER_FILL_MAX_H: int = 1000
+    # The poster area is a HARD FIXED height so the Play/Resume row below it never moves
+    # between titles.  The poster is fit INSIDE this box (KeepAspectRatio, centred): its
+    # width can never exceed the card (a hard right boundary) and its height never exceeds
+    # the box — side padding is acceptable, overflow is not.  Tuned so a portrait 2:3
+    # poster fills the card at the default details width (~452) with negligible padding.
+    _POSTER_FIXED_H: int = 575
     _LOGO_UPSCALE_CEILING: float = 2.5
     _BADGE_SIZE: int = 26
     _BADGE_MARGIN: int = 8
@@ -256,8 +257,7 @@ class _PosterSection(QWidget):
 
         self.poster_label = _PosterLabel()
         self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.poster_label.setMinimumHeight(self._POSTER_MIN_H)
-        self.poster_label.setMaximumHeight(self._POSTER_MAX_H)
+        self.poster_label.setFixedHeight(self._POSTER_FIXED_H)  # hard height — buttons never move
         # The poster must SUBORDINATE to the pane width, never drive it.  A QLabel
         # holding a pixmap reports minimumSizeHint().width() == pixmap width with a
         # Preferred policy; inside the width-resizable, h-scroll-off details
@@ -494,9 +494,8 @@ class _PosterSection(QWidget):
             self._image_cache.get_image_async(url, self._provider_urls)
 
     def _restore_poster_metrics(self) -> None:
-        """Restore the tall VOD poster box height range."""
-        self.poster_label.setMinimumHeight(self._POSTER_MIN_H)
-        self.poster_label.setMaximumHeight(self._POSTER_MAX_H)
+        """Restore the hard fixed poster-box height (keeps the Play row from moving)."""
+        self.poster_label.setFixedHeight(self._POSTER_FIXED_H)
 
     def set_country_info(self, channel_name: str) -> None:
         """Extract and display category/country prefix from a channel name."""
@@ -610,24 +609,18 @@ class _PosterSection(QWidget):
             return
         self._full_pixmap = pixmap   # retain original for lightbox + resize re-fit
         self._is_live_logo = False
-        # A VOD poster FILLS the card width (height follows its aspect).  Lift the fixed
-        # box cap so a portrait 2:3 poster isn't height-capped into a pillarbox with side
-        # padding on a wide card.
-        self.poster_label.setMaximumHeight(self._POSTER_FILL_MAX_H)
         self._apply_scaled_poster()
-        # Re-fill after the layout settles.  During rapid navigation the label width can
-        # be stale when the poster loads, so a one-shot deferred pass re-scales at the
-        # final width — kills the "rapid pass → poster scaled too wide" race (consecutive
-        # variants can share a size, so no resize event fires to self-correct it).
+        # During rapid navigation the label width can be stale when the poster loads, so a
+        # one-shot deferred pass re-fits at the settled width.
         QTimer.singleShot(0, self._apply_scaled_poster)
 
     def _apply_scaled_poster(self) -> None:
-        """Scale the retained VOD poster to FILL the label's current width.
+        """Fit the retained VOD poster INSIDE the fixed-height box (KeepAspectRatio).
 
-        Width is the stable driver (the label ignores its pixmap's width hint, so its
-        width tracks the pane), so scaling to width — not to the box size — is both
-        race-free and pillarbox-free: the pixmap is exactly the card width, centred with
-        zero side padding, and the label height follows the image aspect.
+        The box height is hard-fixed (``_POSTER_FIXED_H``) so the Play/Resume row below it
+        never moves between titles.  The poster is fit within (card width, fixed height)
+        and centred, so its width can never exceed the card — a hard right boundary — while
+        its height never exceeds the box.  Side padding is acceptable; overflow is not.
         """
         if self._rescaling or self._is_live_logo:
             return
@@ -635,12 +628,14 @@ class _PosterSection(QWidget):
             return
         w = self.poster_label.width()
         if w <= 1:
-            return  # not laid out yet — the resize / deferred pass will re-fill
+            return  # not laid out yet — the resize / deferred pass will re-fit
         self._rescaling = True
         try:
             self.poster_label.setPixmap(
-                self._full_pixmap.scaledToWidth(
-                    w, Qt.TransformationMode.SmoothTransformation
+                self._full_pixmap.scaled(
+                    w, self._POSTER_FIXED_H,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
             )
         finally:
