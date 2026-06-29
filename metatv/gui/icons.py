@@ -39,12 +39,12 @@ partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT Q
 # Actions
 play_icon: str = "▶"
 play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
-open_ended_buffer_icon: str = "⏳"  # U+23F3 HOURGLASS NOT DONE — open-ended disk-backed buffer mode
+open_ended_buffer_icon: str = "∞"  # U+221E INFINITY — open-ended disk-backed buffer (monochrome, "buffer without end")
 play_from_beginning_icon: str = "⏮"  # U+23EE LAST TRACK BUTTON — force start from position 0
 resume_from_icon: str = "⏩"  # U+23E9 BLACK RIGHT-POINTING DOUBLE TRIANGLE — resume from saved position
 diagnose_icon: str = "∿"    # stream-diagnostics action (U+223F SINE WAVE — monochrome signal waveform)
 split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams toggle (one window per source)
-new_window_icon: str = "⧉"  # U+29C9 TWO JOINED SQUARES — open/replace a separate per-source window
+new_window_icon: str = "❐"  # U+2750 UPPER-RIGHT DROP-SHADOWED SQUARE — window-over-window (separate per-source window)
 close_icon: str = "×"
 delete_icon: str = "🗑"
 watch_later_icon: str = "👀"  # Watch Later quick-pick category
@@ -99,6 +99,7 @@ calendar_icon: str = "📅"
 discover_icon: str = "✨"
 preferences_icon: str = "🎯"
 queue_icon: str = "📋"
+category_icon: str = "▤"        # U+25A4 SQUARE WITH HORIZONTAL FILL — user category / shelf (distinct from the 📋 queue)
 events_icon: str = "📡"         # EPG Events tab (platform-event / scheduled feeds)
 
 # Discover zoom slider
@@ -280,34 +281,44 @@ _WATCH_ICON_CACHE: dict[tuple[str, bool], object] = {}  # (glyph, muted) -> QIco
 # ---------------------------------------------------------------------------
 # General glyph → QIcon helper (menu action icons)
 # ---------------------------------------------------------------------------
-# Renders any text glyph to a QIcon for use with QAction.setIcon().  Cached
-# by glyph string — construction is deferred to first use so the module can be
-# imported before a QApplication exists.
+# Renders any text glyph to a *monochrome* QIcon for use with QAction.setIcon().
+# Cached by (glyph, colour) — construction is deferred to first use so the module
+# can be imported before a QApplication exists.
 
-_GLYPH_ICON_CACHE: dict[str, object] = {}  # glyph -> QIcon
+_GLYPH_ICON_CACHE: dict[tuple[str, str], object] = {}  # (glyph, colour) -> QIcon
 
 
-def glyph_icon(glyph: str) -> object:
-    """Return a QIcon rendering *glyph* for use in QAction.setIcon().
+def glyph_icon(glyph: str, color: str | None = None) -> object:
+    """Return a QIcon rendering *glyph* monochrome in *color* for QAction.setIcon().
+
+    The glyph is painted and then recoloured via a ``SourceIn`` composite, so the
+    result is a single solid colour regardless of whether *glyph* is a plain text
+    symbol or a colour-emoji codepoint: line glyphs keep their stroke detail while
+    colour emoji collapse to a clean silhouette.  This is what lets the channel
+    context menu read as one monotone palette with the single orange resume accent
+    (the menu passes ``COLOR_PLAYBACK_IN_PROGRESS`` only for the resume affordance).
 
     MUST be called on the main thread — builds a QPixmap on first use.
-    The color is taken from the ``COLOR_TEXT`` design token.
 
     Args:
         glyph: Text glyph (emoji or symbol) to render.
+        color: A theme colour token (e.g. ``theme.COLOR_PLAYBACK_IN_PROGRESS``).
+            ``None`` → the muted/gray menu default (``theme.COLOR_MUTED``).
 
     Returns:
-        A cached ``QIcon`` instance.
+        A cached ``QIcon`` instance keyed by (glyph, resolved colour).
     """
-    if glyph in _GLYPH_ICON_CACHE:
-        return _GLYPH_ICON_CACHE[glyph]
-
     from metatv.gui import theme as _theme  # local import to avoid circular at load
+
+    color_str = color or _theme.COLOR_MUTED
+    cache_key = (glyph, color_str)
+    if cache_key in _GLYPH_ICON_CACHE:
+        return _GLYPH_ICON_CACHE[cache_key]
+
     from PyQt6.QtCore import QRect, Qt
     from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
     from PyQt6.QtWidgets import QApplication
 
-    color = QColor(_theme.COLOR_TEXT)
     size = 16
     screen = QApplication.primaryScreen()
     dpr = screen.devicePixelRatio() if screen is not None else 1.0
@@ -320,12 +331,17 @@ def glyph_icon(glyph: str) -> object:
     font = QFont()
     font.setPixelSize(int(_theme.FONT_LG.replace("px", "")))
     painter.setFont(font)
-    painter.setPen(color)
     painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, glyph)
+    # Recolour: keep the rendered glyph's alpha shape, replace its RGB with the
+    # target colour.  Collapses colour emoji to a single-colour silhouette so the
+    # menu stays monotone; the painter works in logical coords (DPR set), so fill
+    # the logical rect, not pixmap.rect() (the device rect).
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(QRect(0, 0, size, size), QColor(color_str))
     painter.end()
 
     icon = QIcon(pixmap)
-    _GLYPH_ICON_CACHE[glyph] = icon
+    _GLYPH_ICON_CACHE[cache_key] = icon
     return icon
 
 
