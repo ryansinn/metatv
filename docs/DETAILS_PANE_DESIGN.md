@@ -685,7 +685,7 @@ the canonical fixes (each learned the hard way):
 |---|---|---|
 | A **pixmap `QLabel`** (poster, live logo) with `setScaledContents(False)` | A QLabel with a pixmap reports `minimumSizeHint().width() == pixmap.width()`; default `Preferred` policy won't shrink below it | Horizontal size policy → `QSizePolicy.Policy.Ignored`, **and** rescale the retained original pixmap to the granted width on resize (`_PosterSection._rescale_current_image`). Entry 122. |
 | A **non-wrapping `QHBoxLayout`** of labels/badges (e.g. the media/IMDb/TMDb/rating row) | Its minimum width is the **sum** of all children | Use a wrapping `_FlowLayout` instead — its minimum width is the **widest single chip**. Entries 93/103. |
-| A **long single-line `QLabel`** (title, plot, cast names) | `sizeHint().width()` follows the text, no wrap | `setWordWrap(True)` and/or horizontal policy `Ignored` (see `title_label`). |
+| A **word-wrapped `QLabel`** (plot, tagline, cast, tech, …) containing a **long unbreakable token** — a scene-release name (`A.Very.Long.Name.1998.1080p.x265-GROUP`) or a URL | Word-wrap only breaks at **spaces**, so a no-space token sets `minimumSizeHint().width()` to the *whole token*. `setWordWrap(True)` does **not** prevent this — that is why only the variants whose plot/tagline carried such a token clipped. | Horizontal policy → `Ignored` via the shared `_no_width_force(label)` helper; Qt then breaks the token at a character boundary instead of widening the pane. Apply it at **every** `setWordWrap(True)` in the pane. Entry 123. |
 
 **Debugging recipe (do this instead of guessing — it's what finally cracked the
 multi-attempt "Cowboy Bebop genres clip" bug):**

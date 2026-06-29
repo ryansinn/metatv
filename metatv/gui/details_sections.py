@@ -20,6 +20,27 @@ from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_nam
 from metatv.metadata_providers.base import MetadataResult
 
 
+def _no_width_force(label: QLabel) -> None:
+    """Let a word-wrapped label wrap/break to the available width instead of forcing
+    the details column wider than the viewport.
+
+    A wrapping ``QLabel`` reports ``minimumSizeHint().width()`` equal to its longest
+    *unbreakable* word, because word-wrap only breaks at spaces.  A scene-release-style
+    token (e.g. ``A.Very.Long.Release.Name.1998.1080p.BluRay.x265-GROUP``) or a URL has
+    no spaces, so the label's minimum width becomes that whole token — and inside the
+    width-resizable, horizontal-scrollbar-off details ``QScrollArea`` that floors the
+    *entire* content column at that width, clipping every other section off the right
+    edge (see docs/DETAILS_PANE_DESIGN.md → "Width discipline").
+
+    Ignoring the horizontal hint (the same trick ``title_label`` uses) lets the layout
+    shrink the label to the pane width; Qt then breaks the long token at a character
+    boundary instead of widening the pane.
+    """
+    sp = label.sizePolicy()
+    sp.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+    label.setSizePolicy(sp)
+
+
 class _ClickableLabel(QLabel):
     """QLabel that copies its stored channel_id to clipboard on click."""
     clicked = pyqtSignal()
@@ -279,6 +300,7 @@ class _PosterSection(QWidget):
         self._country_info_lbl = QLabel()
         self._country_info_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_DISABLED}; font-style: italic;")
         self._country_info_lbl.setWordWrap(True)
+        _no_width_force(self._country_info_lbl)
         self._country_info_lbl.hide()
         live_layout.addWidget(self._country_info_lbl, 1)
 
@@ -711,6 +733,7 @@ class _MetadataSection(QWidget):
         self._tagline_lbl.setStyleSheet(
             f"color: {_theme.COLOR_MUTED}; font-style: italic; font-size: {_theme.FONT_LG};"
         )
+        _no_width_force(self._tagline_lbl)
         self._tagline_lbl.hide()
         layout.addWidget(self._tagline_lbl)
 
@@ -810,6 +833,7 @@ class _MetadataSection(QWidget):
         self.rec_reason_label = QLabel()
         self.rec_reason_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; font-style: italic;")
         self.rec_reason_label.setWordWrap(True)
+        _no_width_force(self.rec_reason_label)
         self.rec_reason_label.hide()
         layout.addWidget(self.rec_reason_label)
 
@@ -1078,6 +1102,7 @@ class _PlotSection(QWidget):
         self.plot_label.setWordWrap(True)
         self.plot_label.setTextFormat(Qt.TextFormat.PlainText)
         self.plot_label.setStyleSheet(_theme.DETAIL_TEXT)
+        _no_width_force(self.plot_label)
         layout.addWidget(self.plot_label)
 
         self.plot_loading = QLabel("Loading description...")
@@ -1154,6 +1179,7 @@ class _TechnicalSection(QWidget):
         self.tech_details_label.setWordWrap(True)
         self.tech_details_label.setTextFormat(Qt.TextFormat.RichText)
         self.tech_details_label.setStyleSheet(_theme.DETAIL_TEXT)
+        _no_width_force(self.tech_details_label)
         content_layout.addWidget(self.tech_details_label)
         layout.addWidget(self._content)
 
@@ -1250,6 +1276,7 @@ class _CastSection(QWidget):
         self._director_lbl.linkActivated.connect(
             lambda url: self.person_clicked.emit(url)
         )
+        _no_width_force(self._director_lbl)
         self._director_lbl.hide()
         content_layout.addWidget(self._director_lbl)
 
@@ -1261,6 +1288,7 @@ class _CastSection(QWidget):
         self.cast_label.linkActivated.connect(
             lambda url: self.person_clicked.emit(url)
         )
+        _no_width_force(self.cast_label)
         content_layout.addWidget(self.cast_label)
         layout.addWidget(self._content)
 
