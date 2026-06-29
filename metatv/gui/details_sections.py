@@ -155,11 +155,13 @@ class _PosterSection(QWidget):
     _BADGE_MARGIN: int = 8
 
     # Rail spacing (structural px).  G = the Monitor↔Hide gap; the top pair
-    # (Favorite↔Monitor) is G/2 and Hide↔Like is also G so Hide is the equidistant
-    # visual pivot.  The sentiment trio (Like/Not-Interested/Dislike) is a tight,
-    # equal cluster beneath it.
+    # (Favorite↔Monitor) is G/2.  The TOP group (Favorite · Monitor/Watchlist · Hide)
+    # stays tight, but Hide↔sentiment is a much LARGER gap (_RAIL_SENTIMENT_GAP) so the
+    # sentiment trio (Like/Not-Interested/Dislike) drops LOW — down near the Play/Resume
+    # row — instead of bunching under Hide.  The trio itself stays a tight, equal cluster.
     _RAIL_GAP: int = 20
     _RAIL_TRIO_GAP: int = 4
+    _RAIL_SENTIMENT_GAP: int = 80   # 4×G — pushes the sentiment trio down toward Play
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -200,10 +202,11 @@ class _PosterSection(QWidget):
         self._action_rail.setFixedWidth(48)
         self._action_rail_layout = QVBoxLayout(self._action_rail)
         # Right margin keeps the icons off the poster edge.  Top/bottom are 0 and the
-        # spacing is 0: set_action_buttons() centers the whole button group on the
-        # poster's vertical midline via a leading+trailing stretch, and lays out every
-        # inter-button gap explicitly (see _RAIL_GAP / _RAIL_TRIO_GAP) so Hide lands as
-        # the visual pivot — no implicit per-item spacing to fight that geometry.
+        # spacing is 0: set_action_buttons() brackets the button group with a
+        # leading+trailing stretch and lays out every inter-button gap explicitly (see
+        # _RAIL_GAP / _RAIL_TRIO_GAP / _RAIL_SENTIMENT_GAP).  The top group stays tight
+        # while the large Hide↔sentiment gap drops the trio low — no implicit per-item
+        # spacing to fight that geometry.
         self._action_rail_layout.setContentsMargins(0, 0, 6, 0)
         self._action_rail_layout.setSpacing(0)
         self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
@@ -356,10 +359,11 @@ class _PosterSection(QWidget):
         * **Secondary row** (under the primary row): the full-width labeled "Watch
           Later" (queue) button.
         * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
-          shares this slot) · hide · like · not-interested · dislike.  The whole group
-          is centered on the poster's vertical midline (leading + trailing stretch) with
-          Hide as the equidistant pivot (G above and below); the sentiment trio is a
-          tight cluster beneath it.
+          shares this slot) · hide · like · not-interested · dislike.  The group is
+          bracketed by a leading + trailing stretch; the TOP group (favorite ·
+          monitor/watchlist · hide) is tight, then a much LARGER Hide↔sentiment gap
+          drops the sentiment trio LOW (near the Play/Resume row), so the trio no longer
+          bunches under Hide.  The trio itself stays a tight cluster.
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -380,30 +384,32 @@ class _PosterSection(QWidget):
         # Rail: the infrequent icon-only set (queue is NOT here — it graduated to the
         # secondary row above).  Order top→bottom: favorite · Alert/Monitor (+Watchlist
         # in the same slot) · hide · like · not-interested · dislike.  Leading + trailing
-        # stretch center the group on the poster's vertical midline; the gaps are sized
-        # so Hide is the equidistant pivot (G above, G below), the top pair is tight
-        # (G/2), and the sentiment trio is a tight equal cluster.
+        # stretch bracket the group; the TOP group is tight (Favorite↔Monitor = G/2,
+        # Monitor/Watchlist↔Hide = G), then a much LARGER Hide↔sentiment gap
+        # (_RAIL_SENTIMENT_GAP ≫ G) drops the sentiment trio low — near the Play/Resume
+        # row — instead of bunching it under Hide.  The trio stays a tight equal cluster.
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
         gap = self._RAIL_GAP
         trio = self._RAIL_TRIO_GAP
+        sentiment_gap = self._RAIL_SENTIMENT_GAP
 
-        layout.addStretch()                 # leading stretch — center the group
+        layout.addStretch()                 # leading stretch — bracket the group
         layout.addWidget(favorite)
         layout.addSpacing(gap // 2)         # Favorite ↔ Monitor = G/2 (tight top pair)
         layout.addWidget(monitor)
         layout.addWidget(watchlist)         # Watchlist shares Monitor's slot (exclusive)
         layout.addSpacing(gap)              # Monitor/Watchlist ↔ Hide = G
         layout.addWidget(hide)
-        layout.addSpacing(gap)              # Hide ↔ Like = G (Hide is the pivot)
+        layout.addSpacing(sentiment_gap)    # Hide ↔ sentiment ≫ G — drops the trio LOW
         layout.addWidget(like)
         layout.addSpacing(trio)             # tight sentiment trio
         layout.addWidget(not_interested)
         layout.addSpacing(trio)
         layout.addWidget(dislike)
-        layout.addStretch()                 # trailing stretch — center the group
+        layout.addStretch()                 # trailing stretch — bracket the group
         # NOTE: the rail + primary/secondary rows are left hidden here — they're
         # revealed by set_mode() when a channel is shown, so action controls don't
         # appear in the empty/no-selection state.
