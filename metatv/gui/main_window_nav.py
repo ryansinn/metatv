@@ -12,6 +12,20 @@ from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 
+# ── QA deep-link target registry (single source of truth) ────────────────────
+# ``navigate_to("view:<name>")`` maps a view name → (switch-method, chip attr).
+# The chip attr is the ToggleChip to light up; ``None`` means the default list
+# view (``switch_to_list_view`` manages its own chips).  Views/chips that are
+# lazily created are guarded at call time, so an absent recipe build no-ops.
+_NAV_VIEW_TARGETS: dict[str, tuple[str, str | None]] = {
+    "browse": ("switch_to_list_view", None),
+    "list": ("switch_to_list_view", None),
+    "discover": ("switch_to_discover_view", "discover_chip"),
+    "recipe": ("switch_to_recipe_view", "recipe_chip"),
+    "epg": ("switch_to_epg_view", "epg_chip"),
+    "preferences": ("switch_to_preferences_view", "prefs_chip"),
+}
+
 
 class _NavMixin:
     """Mixin: view switching, chip activation, filter controls."""
@@ -182,6 +196,93 @@ class _NavMixin:
             self.switch_to_discover_view()
         else:
             self.switch_to_list_view()
+
+    # ── QA deep-link navigation seam ─────────────────────────────────────────
+
+    def navigate_to(self, target: str) -> bool:
+        """Jump the app to a QA deep-link *target* — the single nav chokepoint.
+
+        Called by the dev QA checklist's "Go ▸" buttons.  Targets are
+        ``"<kind>:<arg>"`` strings:
+
+        - ``"view:<name>"``    — browse | list | discover | recipe | epg |
+          preferences (see ``_NAV_VIEW_TARGETS``).
+        - ``"settings:<tab>"`` — open the Settings dialog, optionally on a tab
+          whose label contains ``<tab>`` (case-insensitive).
+        - ``"sample:<kind>"``  — find a representative channel (vod | live |
+          partial | series) and open Browse + its details.
+
+        Args:
+            target: The ``"<kind>:<arg>"`` deep-link string.
+
+        Returns:
+            True when navigation was dispatched; False for a malformed/unknown
+            target (logged, no-op).  ``sample:`` returns True once the async
+            lookup is dispatched — a no-match is handled in the result slot.
+        """
+        if not target or ":" not in target:
+            logger.warning("navigate_to: ignoring malformed target '{}'", target)
+            return False
+        kind, _, arg = target.partition(":")
+        kind = kind.strip().lower()
+        arg = arg.strip()
+        if kind == "view":
+            return self._navigate_to_view(arg)
+        if kind == "settings":
+            self.open_settings(tab=arg or None)
+            return True
+        if kind == "sample":
+            return self._navigate_to_sample(arg)
+        logger.warning("navigate_to: unknown target kind '{}'", kind)
+        return False
+
+    def _navigate_to_view(self, name: str) -> bool:
+        """Switch to the view named by a ``view:<name>`` deep-link.
+
+        Lights up the view's nav chip (when it has one) and deactivates the
+        others, then calls the registered ``switch_to_*`` method.  No-ops
+        gracefully when the view/chip isn't built in this session.
+        """
+        mapping = _NAV_VIEW_TARGETS.get(name.lower())
+        if mapping is None:
+            logger.warning("navigate_to: unknown view '{}'", name)
+            return False
+        method_name, chip_attr = mapping
+        switch = getattr(self, method_name, None)
+        if switch is None:
+            logger.warning("navigate_to: nav method {} missing", method_name)
+            return False
+        if chip_attr is not None:
+            chip = getattr(self, chip_attr, None)
+            if chip is None:
+                logger.warning("navigate_to: chip {} unavailable", chip_attr)
+                return False
+            chip.blockSignals(True)
+            chip.set_enabled(True)
+            chip.blockSignals(False)
+            self._deactivate_view_chips(chip)
+        switch()
+        return True
+
+    def _navigate_to_sample(self, kind: str) -> bool:
+        """Resolve a representative ``sample:<kind>`` channel and open it.
+
+        The channel lookup runs through the async seam (channels is a large
+        table); the result slot lands on Browse and opens the channel's details.
+        """
+        self._run_query(
+            lambda repos: repos.channels.get_sample_channel_id(kind),
+            self._on_sample_channel_resolved,
+        )
+        return True
+
+    def _on_sample_channel_resolved(self, channel_id: str | None) -> None:
+        """Main-thread slot: open the resolved sample channel in Browse + details."""
+        if not channel_id:
+            logger.info("navigate_to: no matching channel for sample deep-link")
+            return
+        self.switch_to_list_view()
+        self.show_channel_details_by_id(channel_id)
 
     # ── View/chip wiring ────────────────────────────────────────────────────
 

@@ -68,6 +68,44 @@ class ChannelRepository(_ChannelStatsMixin):
             watch_completed=bool(getattr(ch, "watch_completed", False)),
         )
 
+    def get_sample_channel_id(self, kind: str) -> Optional[str]:
+        """Return one representative channel id for a QA deep-link ``sample:<kind>``.
+
+        Backs the dev QA checklist's "Go ▸" deep-links: a content link can't
+        hardcode a per-user title, so the app finds a matching channel instead.
+        Returns a plain string id (safe to hand across the async seam), or
+        ``None`` when nothing matches.  Hidden channels are excluded so the
+        sample is something actually visible in Browse.
+
+        Args:
+            kind: One of ``"vod"`` / ``"movie"`` (a movie), ``"live"`` (a live
+                channel), ``"series"`` (a series), or ``"partial"`` (a
+                partially-watched, not-yet-completed item).
+
+        Returns:
+            A channel id, or ``None`` if no channel matches.
+        """
+        from metatv.core.models import MediaType
+
+        kind = (kind or "").strip().lower()
+        q = self.session.query(ChannelDB.id).filter(ChannelDB.is_hidden == False)  # noqa: E712
+        if kind in ("vod", "movie"):
+            q = q.filter(ChannelDB.media_type == MediaType.MOVIE)
+        elif kind == "live":
+            q = q.filter(ChannelDB.media_type == MediaType.LIVE)
+        elif kind == "series":
+            q = q.filter(ChannelDB.media_type == MediaType.SERIES)
+        elif kind == "partial":
+            q = q.filter(
+                ChannelDB.watch_progress > 0,
+                ChannelDB.watch_completed == False,  # noqa: E712
+            )
+        else:
+            logger.warning("get_sample_channel_id: unknown kind '{}'", kind)
+            return None
+        row = q.order_by(ChannelDB.id).first()
+        return row[0] if row else None
+
     def get_by_source_id(self, provider_id: str, source_id: str) -> Optional[ChannelDB]:
         """Get channel by provider and source ID"""
         return self.session.query(ChannelDB).filter_by(

@@ -1420,11 +1420,26 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Show filter management"""
         logger.info("Manage filters")
 
-    def open_settings(self):
-        """Open settings dialog"""
+    def open_settings(self, tab: str | None = None):
+        """Open settings dialog.
+
+        Args:
+            tab: Optional tab label substring (case-insensitive). When given and
+                matched, the dialog opens with that tab selected — used by QA
+                deep-links (``settings:<tab>``).  Unmatched/None opens the first
+                tab as before (backward-compatible).
+        """
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self)
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
+        if tab:
+            tabs = getattr(dialog, "_tabs", None)
+            if tabs is not None:
+                want = tab.strip().lower()
+                for i in range(tabs.count()):
+                    if want in tabs.tabText(i).lower():
+                        tabs.setCurrentIndex(i)
+                        break
         dialog.exec()
         self._apply_sidebar_visibility()
         # Re-sync the nav-bar Split toggle in case the user changed the setting

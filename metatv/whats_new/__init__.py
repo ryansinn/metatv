@@ -17,8 +17,39 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from dataclasses import dataclass
+from typing import Union
 
 from loguru import logger
+
+# A single QA test step.  Two backward-compatible shapes:
+#   - ``str``                    — plain step text, no deep-link (today's form).
+#   - ``(text, target)`` 2-tuple — step text plus a navigation TARGET the QA
+#                                  checklist renders a "Go ▸" button for.
+# ``target`` vocabulary (resolved by ``MainWindow.navigate_to`` — the single seam):
+#   - ``"view:<name>"``     browse | discover | recipe | epg | preferences
+#   - ``"settings:<tab>"``  open the Settings dialog (optionally on a named tab)
+#   - ``"sample:<kind>"``   vod | live | partial | series — the app finds a
+#                           representative channel and opens Browse + details on it.
+TestStep = Union[str, "tuple[str, str]"]
+
+
+def step_text(step: "TestStep") -> str:
+    """Return the human-readable text of a test step.
+
+    Accepts either a plain ``str`` step or a ``(text, target)`` 2-tuple — the
+    single accessor every renderer/digest uses so the str-or-tuple shape lives
+    in exactly one place.
+    """
+    if isinstance(step, tuple):
+        return step[0]
+    return step
+
+
+def step_target(step: "TestStep") -> str | None:
+    """Return a test step's navigation target, or ``None`` for a plain-text step."""
+    if isinstance(step, tuple) and len(step) >= 2:
+        return step[1]
+    return None
 
 
 @dataclass(frozen=True)
@@ -28,7 +59,10 @@ class WhatsNewEntry:
     date: str                # ISO "YYYY-MM-DD"
     title: str
     items: tuple[str, ...]   # user-facing bullet points (frozen dataclass → tuple, not list)
-    test_steps: tuple[str, ...] = ()  # dev-only manual QA steps; omit when not applicable
+    # dev-only manual QA steps; omit when not applicable.  Each step is EITHER a
+    # plain ``str`` OR a ``(text, target)`` 2-tuple (see ``TestStep`` above).  Read
+    # via ``step_text`` / ``step_target`` — never index a step directly.
+    test_steps: tuple[TestStep, ...] = ()
     addresses: tuple[str, ...] = ()
     # Optional: references to prior items this entry's PR fixes.
     # Format: "e{id}_s{idx}" for a specific test-step  (e.g. "e82_s4" = entry 82, step 4)

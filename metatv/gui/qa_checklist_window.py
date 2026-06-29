@@ -114,6 +114,7 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.whats_new import step_target, step_text
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -421,7 +422,7 @@ def _build_failures_digest(
             lines = [
                 f"### {entry.title} (entry {entry.id}, {pr_str})",
                 "",
-                f"- **Step {idx + 1}:** {step}",
+                f"- **Step {idx + 1}:** {step_text(step)}",
                 f"- **Status:** {addr_status}",
                 f"- tested on `{tested_sha}` · current `{current_sha or '?'}`{stale_marker}",
                 f"- **Note:** {note}",
@@ -1094,14 +1095,21 @@ class QAChecklistWindow(QWidget):
         self,
         entry,
         idx: int,
-        step: str,
+        step,
         *,
         parent_layout: QVBoxLayout | None = None,
     ) -> None:
-        """Render a single step's row: pass/fail buttons + label + fail comment."""
+        """Render a single step's row: pass/fail buttons + label + fail comment.
+
+        ``step`` is either plain text or a ``(text, target)`` tuple — read via
+        ``step_text`` / ``step_target``.  When a target is present a small
+        "Go ▸" button jumps the app to the view/content under test.
+        """
         layout = parent_layout if parent_layout is not None else self._body_layout
         state = self._step_state(entry.id, idx)
         rec = self._step_record(entry.id, idx)
+        text = step_text(step)
+        target = step_target(step)
 
         row = QWidget()
         row_layout = QHBoxLayout(row)
@@ -1131,7 +1139,7 @@ class QAChecklistWindow(QWidget):
         )
 
         step_color = _theme.COLOR_MUTED if state == "pass" else _theme.COLOR_TEXT_LOW
-        step_lbl = QLabel(step)
+        step_lbl = QLabel(text)
         step_lbl.setWordWrap(True)
         step_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {step_color};")
         step_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1139,6 +1147,15 @@ class QAChecklistWindow(QWidget):
         row_layout.addWidget(pass_btn, alignment=Qt.AlignmentFlag.AlignTop)
         row_layout.addWidget(fail_btn, alignment=Qt.AlignmentFlag.AlignTop)
         row_layout.addWidget(step_lbl, stretch=1)
+
+        # Deep-link "Go ▸" button — jumps the app to the view/content under test.
+        if target:
+            go_btn = QPushButton(f"Go {_icons.qa_goto_icon}")
+            go_btn.setToolTip(f"Jump the app to this step's target ({target})")
+            go_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            go_btn.setStyleSheet(_theme.QA_GOTO_BTN)
+            go_btn.clicked.connect(lambda _, t=target: self._navigate(t))
+            row_layout.addWidget(go_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
         # Stale "re-test" hint when this step's sha differs from current HEAD.
         if rec and self._current_sha and rec.get("sha") and rec["sha"] != self._current_sha:
@@ -1161,15 +1178,21 @@ class QAChecklistWindow(QWidget):
                 if addr_eid:
                     badge_parts.append(f"(entry #{addr_eid})")
                 badge_parts.append("— re-test")
-                badge_lbl = QLabel(" ".join(badge_parts))
-                badge_lbl.setToolTip(
+                # Clickable badge — jumps to the addressing entry in the checklist
+                # (no-ops gracefully when that entry isn't in the current list).
+                badge_btn = QPushButton(" ".join(badge_parts))
+                badge_btn.setToolTip(
                     "This failure was addressed in a later PR.\n"
-                    "Re-test and mark pass once confirmed."
+                    "Click to jump to the addressing entry; re-test and mark pass once confirmed."
                 )
-                badge_lbl.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
-                row_layout.addWidget(badge_lbl, alignment=Qt.AlignmentFlag.AlignTop)
+                badge_btn.setStyleSheet(_theme.QA_ADDRESSED_BADGE_BTN)
+                badge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                badge_btn.clicked.connect(
+                    lambda _, eid=addr_eid: self._jump_to_entry(eid)
+                )
+                row_layout.addWidget(badge_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
-                # Jump button — scroll to the addressing entry if it's visible.
+                # Companion ↑ jump button — scroll to the addressing entry if visible.
                 if addr_eid and addr_eid in self._ref_labels:
                     jump_btn = QPushButton(_icons.qa_jump_icon)
                     jump_btn.setToolTip(
@@ -2134,10 +2157,29 @@ class QAChecklistWindow(QWidget):
         return merged
 
     def _jump_to_entry(self, entry_id: int) -> None:
-        """Scroll the body so the header of *entry_id* is visible."""
+        """Scroll the body so the header of *entry_id* is visible.
+
+        No-ops when *entry_id* is ``None`` or not in the current list (the
+        addressing entry may have been purged/archived).
+        """
         lbl = self._ref_labels.get(entry_id)
         if lbl is not None:
             self._scroll.ensureWidgetVisible(lbl)
+
+    def _navigate(self, target: str) -> None:
+        """Route a step's deep-link *target* to the host MainWindow's seam.
+
+        The host (the parent window) owns the single ``navigate_to`` chokepoint;
+        the QA window only forwards.  No-ops gracefully when there is no host or
+        the host predates the seam (e.g. headless tests with a bare parent).
+        """
+        host = self.parent()
+        nav = getattr(host, "navigate_to", None)
+        if callable(nav):
+            logger.debug("QA checklist: navigate_to({})", target)
+            nav(target)
+        else:
+            logger.debug("QA checklist: no navigate_to host for target {}", target)
 
     def _on_mark_step_addressed(self, entry_id: int, step_idx: int) -> None:
         """Manually mark a failed step as addressed by a later PR.
