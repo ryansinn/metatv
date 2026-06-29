@@ -239,18 +239,35 @@ class _MetadataMixin:
             )
 
     def _on_prefix_unblock(self, prefix: str) -> None:
+        """Un-filter *prefix* across EVERY exclusion axis that can hide a version.
+
+        A version is flagged *filtered* when its ``detected_prefix`` is in
+        ``global_filter_excluded_categories`` **OR** ``global_filter_excluded_prefixes``
+        (see ``_is_filtered`` in ``_fetch_channel_versions``).  The unblock must clear
+        BOTH — clearing only the prefix axis silently no-ops when the token was excluded
+        via Content Categories (e.g. an FR locale filter), which was the
+        "Remove filter on FR content did nothing" bug: no removal, no refresh, no toast,
+        and the variant stayed in FILTERED VARIANTS across reopen.
+        """
+        removed = False
         if prefix in self.config.global_filter_excluded_prefixes:
             self.config.global_filter_excluded_prefixes.remove(prefix)
-            self.config.save()
-            self._update_filter_btn_state()
-            self.load_channels()
-            if self.details_pane.current_channel:
-                self._fetch_channel_versions(self.details_pane.current_channel.id)
-            self.notification_manager.show(
-                title=f"{prefix} channels visible again",
-                type="info",
-                auto_dismiss_ms=4000,
-            )
+            removed = True
+        if prefix in self.config.global_filter_excluded_categories:
+            self.config.global_filter_excluded_categories.remove(prefix)
+            removed = True
+        if not removed:
+            return
+        self.config.save()
+        self._update_filter_btn_state()
+        self.load_channels()
+        if self.details_pane.current_channel:
+            self._fetch_channel_versions(self.details_pane.current_channel.id)
+        self.notification_manager.show(
+            title=f"{prefix} content visible again",
+            type="info",
+            auto_dismiss_ms=4000,
+        )
 
     def _on_prefix_name_saved(self, prefix: str, name: str) -> None:
         if name:
