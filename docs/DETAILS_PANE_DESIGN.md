@@ -648,6 +648,60 @@ See [docs/METADATA_SYSTEM.md](METADATA_SYSTEM.md) for creating custom providers.
    - User reviews from TMDb/IMDb
    - Spoiler warnings
 
+### Width discipline — every section must subordinate to the pane width (recurring trap)
+
+**How the pane is structured** (and why that structure is a trap):
+
+```
+DetailsPaneWidget
+└─ QScrollArea( setWidgetResizable(True), HorizontalScrollBar = AlwaysOff )
+   └─ content QWidget
+      └─ QVBoxLayout
+         ├─ _PosterSection   (poster image / live logo + action rail)
+         ├─ _MetadataSection (title, media/badge row, genre chips)
+         ├─ _VersionSection  ("Also available as" chip rows)
+         ├─ _PlotSection / _CastSection / _TechnicalSection / _TagsSection / …
+         └─ EpgAgendaWidget
+```
+
+With `setWidgetResizable(True)` **and the horizontal scrollbar off**, the scroll area
+sizes the inner `content` widget to:
+
+> `content.width = max( viewport.width , max(child.minimumSizeHint().width) over all sections )`
+
+So the column is only as narrow as its **widest-minimum child**. If *any one* section
+reports a `minimumSizeHint().width()` larger than the viewport, the scroll area makes
+the whole content widget that wide — and because there's no horizontal scrollbar, every
+*other* section is silently laid out past the right edge and clips. The symptom always
+looks like "the chips/text in section X don't wrap," but the culprit is usually a
+*different* section forcing the width. **This is the trap: the visible victim is not the
+cause.**
+
+**The rule: no section may drive width.** Every section must be horizontally shrinkable
+down to the 300px pane minimum. The three ways a section accidentally forces width, and
+the canonical fixes (each learned the hard way):
+
+| Forcer | Why it floors the width | Fix |
+|---|---|---|
+| A **pixmap `QLabel`** (poster, live logo) with `setScaledContents(False)` | A QLabel with a pixmap reports `minimumSizeHint().width() == pixmap.width()`; default `Preferred` policy won't shrink below it | Horizontal size policy → `QSizePolicy.Policy.Ignored`, **and** rescale the retained original pixmap to the granted width on resize (`_PosterSection._rescale_current_image`). Entry 122. |
+| A **non-wrapping `QHBoxLayout`** of labels/badges (e.g. the media/IMDb/TMDb/rating row) | Its minimum width is the **sum** of all children | Use a wrapping `_FlowLayout` instead — its minimum width is the **widest single chip**. Entries 93/103. |
+| A **long single-line `QLabel`** (title, plot, cast names) | `sizeHint().width()` follows the text, no wrap | `setWordWrap(True)` and/or horizontal policy `Ignored` (see `title_label`). |
+
+**Debugging recipe (do this instead of guessing — it's what finally cracked the
+multi-attempt "Cowboy Bebop genres clip" bug):**
+1. Reproduce the over-wide content offscreen: build the **full** section composition
+   inside a real `QScrollArea(widgetResizable=True, HScroll=Off)` at a narrow width.
+2. Print `minimumSizeHint().width()` for **each** section. The one exceeding the
+   viewport is the forcer — it is frequently *not* the section whose contents visibly
+   clip.
+3. Fix the forcer with the matching pattern above; re-measure that
+   `content.width() == viewport.width()`.
+4. **Test at the full-composition level, never per-section in isolation.** Three earlier
+   fixes (entries 92/93/103) and their tests all passed while the bug persisted because
+   they only measured `_MetadataSection` alone — which was never the forcer. The poster
+   was. See `tests/test_details_poster_width.py` for the composition-level regression
+   that actually guards this.
+
 ### Loading States
 
 **Poster Loading**:
