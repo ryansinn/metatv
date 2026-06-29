@@ -105,6 +105,14 @@ def test_play_from_beginning_icon_is_neutral_not_resume(qapp):
     assert _icons.play_from_beginning_icon != _icons.resume_from_icon
 
 
+def test_play_from_beginning_uses_play_triangle_not_last_track(qapp):
+    """'Play from Beginning' shows the gray play triangle ▶ — the SAME clean glyph as
+    plain Play — not the ⏮ last-track button, which renders as a tofu/box in many
+    fonts (the bug: a "gray square" appeared instead of a play triangle when a resume
+    option was also present). Distinction from resume stays carried by colour."""
+    assert _icons.play_from_beginning_icon == _icons.play_icon == "▶"
+
+
 def test_resumable_play_is_orange_and_relabelled(qapp):
     """A resumable default Play (resume mode) → 'Play from M:SS' + orange icon."""
     ctx = _ctx(watch_progress=300, playback_resume_mode="resume")
@@ -142,22 +150,31 @@ def test_beginning_mode_play_gray_resume_from_orange(qapp):
 # 4. Icon uniqueness across a rendered menu
 # ---------------------------------------------------------------------------
 
-def _visible_glyphs(ctx: ChannelMenuContext) -> dict[str, str]:
-    """Map glyph → action id for every applicable action with an icon."""
-    seen: dict[str, str] = {}
+def _visible_glyphs(ctx: ChannelMenuContext) -> dict[tuple[str, str | None], str]:
+    """Map (glyph, colour) → action id for every applicable action with an icon.
+
+    Uniqueness is keyed on (glyph, colour), not glyph alone: a menu item ALSO carries
+    a text label, so two play-family actions may legitimately share the ▶ play
+    triangle when colour separates them — e.g. in resume mode the default Play is the
+    orange "Play from M:SS" while "Play from Beginning" is the gray ▶ override. What
+    must never happen is two actions identical in BOTH glyph and colour in one menu.
+    """
+    seen: dict[tuple[str, str | None], str] = {}
     for token in SURFACE_LAYOUTS[ctx.surface]:
         if token == "sep":
             continue
         action = ACTIONS[token]
         if not action.applies(ctx):
             continue
-        glyph, _color = _resolve_menu_icon(action, ctx)
+        glyph, color = _resolve_menu_icon(action, ctx)
         if not glyph:
             continue
-        assert glyph not in seen, (
-            f"icon {glyph!r} shared by '{token}' and '{seen[glyph]}' in the same menu"
+        key = (glyph, color)
+        assert key not in seen, (
+            f"icon {glyph!r} (colour {color!r}) shared by '{token}' and "
+            f"'{seen[key]}' in the same menu"
         )
-        seen[glyph] = token
+        seen[key] = token
     return seen
 
 
