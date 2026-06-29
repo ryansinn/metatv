@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
+from metatv.gui import cursor_affordance
 from metatv.gui.main_window import MainWindow
 from metatv.core.config import Config
 
@@ -41,6 +42,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("MetaTV")
     app.setOrganizationName("MetaTV")
+
+    # Pointing-hand cursor on hover for clickable controls (single app-level
+    # event filter; kept referenced on the app so it isn't garbage-collected).
+    app._cursor_affordance_filter = cursor_affordance.install(app)
 
     # Create and show main window
     window = MainWindow(config, config_recovered=recovered_from_backup)
