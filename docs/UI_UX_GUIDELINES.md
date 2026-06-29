@@ -241,6 +241,91 @@ concatenation, which keeps literal `{...}` Qt selectors readable), named by the 
   comparison script) — the test suite does **not** cover stylesheet values, so this is the only
   safety net against a silent visual regression.
 
+## Visual language — what the colors and glyphs *mean*
+
+The theme tokens (`metatv/gui/theme.py`) and the glyph table (`metatv/gui/icons.py`) are the
+single sources of truth for *appearance*; this section is the single source of truth for their
+**meaning**. Reach for a color or glyph because of what it *signifies*, not because it looks right —
+the meanings below are reserved, so don't overload them. (Rationale + the colorblind-accessibility
+"why": `docs/DESIGN_RATIONALE.md` → DR-0010.)
+
+### Semantic colors (reserved meanings)
+
+| Meaning | Token(s) | Where |
+|---|---|---|
+| **Orange — resume / in-progress** | `COLOR_ACCENT_ORANGE` (`#f0a040`); semantic alias `COLOR_PLAYBACK_IN_PROGRESS` | the filled Resume button (`DETAIL_RESUME_BTN`), the channel-list `▶` in-progress separator, and the resume affordance in the channel context menu |
+| **Green — affirmative / active-now / new** | `COLOR_OK` (`#4CAF50`); semantic alias `COLOR_PLAYBACK_WATCHED`; tints `OVERLAY_GREEN_15`/`OVERLAY_GREEN_40` | the channel-list `✓` watched separator, the currently-playing Play-button outline + live timer (`DETAIL_PLAY_BTN_PLAYING`), and new monitored-content matches |
+| **Gray / monotone — neutral / default** | `COLOR_MUTED` (`#888`); dimmed watched row `CHANNEL_ROW_WATCHED_FG` | every context-menu icon by default, the neutral `·` separator (no resume/watch state), from-beginning / non-accented actions, and completed rows (recede) |
+
+Orange and green are **reserved** — never use orange for a generic accent or green for a generic
+"success" decoration that isn't one of the meanings above. Note one deliberate exception: the poster
+corner watched badge (`POSTER_WATCHED_BADGE` / `POSTER_UNWATCHED_BADGE`) is intentionally *neutral*,
+not green (the Plex/Jellyfin overlay convention), so green stays exclusively the "active-now" cue
+there.
+
+### Color is never the sole signal (accessibility)
+
+Every color cue pairs with a **non-color** cue — a glyph/shape, text, or a count — because
+red↔green colorblindness makes a color-only signal unreliable. Color is reinforcement; the shape or
+text carries the meaning. Worked examples:
+
+- **In-progress** — orange `▶`: the play-triangle *shape* (`playback_in_progress_icon`) carries it;
+  orange (`COLOR_PLAYBACK_IN_PROGRESS`) is reinforcement.
+- **Watched** — green `✓`: the check *shape* (`watched_icon`) carries it; green
+  (`COLOR_PLAYBACK_WATCHED`) is reinforcement.
+- **Currently-playing** — green outline **plus** the live counting elapsed timer in the button label
+  (`DETAIL_PLAY_BTN_PLAYING`); the timer reads even without color vision.
+- **New monitored-content match** — green **plus** the `🚨` glyph (`alert_icon`) **plus** the match
+  count.
+
+### The glyph / row-badge family
+
+State is communicated by a small, fixed glyph vocabulary (all defined in `icons.py`), shown in a
+row's leading/separator slots so positions never shift:
+
+- `✓` watched (`watched_icon`) · orange `▶` in-progress (`playback_in_progress_icon`) · `·` neutral
+  (`playback_neutral_icon`) — the 3-state channel-list separator, composed in
+  `channel_list_model.py` (`_playback_indicator` / `_compose_parts`; glyph via
+  `icons.playback_state_glyph`, color via the `COLOR_PLAYBACK_*` tokens).
+- `★` / `☆` favorite (`favorite_icon` / `unfavorite_icon`) — the leading slot of the same channel
+  row (`_compose_parts`).
+- `🚨` new match (`alert_icon`) + count — live-register sidebar rows for VOD watch-for rules
+  (`sidebar/alerts.py`).
+- `🆕` new episodes (`new_episodes_icon`) + count — the New Episodes sidebar section
+  (`sidebar/new_episodes.py`).
+- `✨` discovery / freshly-surfaced content (`discover_icon`) — the Discover chip
+  (`main_window.py`) and the "Recommended for you" header (`preferences_view.py`).
+
+Add a new state glyph to `icons.py` first (never a literal in widget code), and prefer extending
+`playback_state_glyph` / the row composer over hand-painting a new badge slot.
+
+### Context menus are monotone, with a single accent
+
+Channel context menus read as **one monotone (gray) palette** — `icons.glyph_icon()` recolors every
+action glyph to `COLOR_MUTED` by default — with exactly one accent: the resume / default-resume
+action, painted orange (`COLOR_PLAYBACK_IN_PROGRESS`). This is wired in `channel_menu.py` via the
+per-action `icon_color` callback, which returns the orange token *only* for the resume affordance and
+`None` (→ gray) for everything else. Don't add a second menu-icon color.
+
+### Affordance rules (cross-cutting, already enforced)
+
+These pair with the visual language so every cue is also operable:
+
+- **Tooltips** — every clickable control / icon-only button has `setToolTip()` (firm rule).
+- **Pointing-hand cursor** — clickable controls get `Qt.CursorShape.PointingHandCursor` via the one
+  app-level event filter in `metatv/gui/cursor_affordance.py` (buttons auto-qualify; custom
+  clickable widgets opt in with `setProperty("clickable", True)`). One chokepoint — never set the
+  cursor per-widget.
+
+### The two firm token rules this section depends on
+
+This section documents the *meanings*; the **values** stay locked behind two CLAUDE.md rules:
+
+- **Glyphs only from `icons.py`** — never an emoji/symbol literal in widget code; add it there first.
+- **Color/font-size literals only in `theme.py` tokens** — never an inline hex/rgba or `font-size:
+  Npx` (see "Theming & style tokens" above). The semantic aliases (`COLOR_PLAYBACK_IN_PROGRESS`,
+  `COLOR_PLAYBACK_WATCHED`) exist precisely so these meanings have role-named homes.
+
 ## Future Enhancements
 
 ### Browse vs Search Modes
