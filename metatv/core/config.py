@@ -961,7 +961,13 @@ class Config(BaseModel):
     #   {"text": str,              # keyword / title to watch for
     #    "match_type": str,        # "movie" | "series" | "any"
     #    "created": str,           # ISO timestamp (used as stable id)
-    #    "alerted_ids": list[str]} # channel_db_ids already alerted (dedup)
+    #    "alerted_ids": list[str], # channel_db_ids already alerted (dedup / toast-once)
+    #    "viewed_ids": list[str]}  # SUBSET of alerted_ids the user has acknowledged.
+    # The per-match "viewed" flag is the single source of truth for the alert-
+    # visibility green across every surface: a channel is an UNVIEWED match iff it is
+    # in some rule's alerted_ids and NOT in that rule's viewed_ids.  Clearing it
+    # (per-item or bulk) turns the green off everywhere.  See
+    # ``_migrate_vod_alert_viewed`` for the one-time pre-feature seed.
     vod_watch_alerts: list = Field(default_factory=list)
 
     def add_monitored_series(self, entry: dict) -> None:
@@ -1027,6 +1033,13 @@ class Config(BaseModel):
         rule_id = rule.get("created", "")
         if rule_id and any(r.get("created") == rule_id for r in self.vod_watch_alerts):
             return
+        # Carry both tracking keys from creation so a freshly-added rule is never
+        # mistaken for a pre-feature rule by ``_migrate_vod_alert_viewed`` (which
+        # seeds only rules that LACK ``viewed_ids``).  New matches recorded later
+        # land in ``alerted_ids`` only → they read as unviewed (green).
+        rule = dict(rule)
+        rule.setdefault("alerted_ids", [])
+        rule.setdefault("viewed_ids", [])
         self.vod_watch_alerts = list(self.vod_watch_alerts) + [rule]
         self.save()
 
@@ -1060,6 +1073,110 @@ class Config(BaseModel):
             if r.get("created") == rule_created:
                 return list(r.get("alerted_ids") or [])
         return []
+
+    # ── Per-match "viewed" state — single source of truth for the alert green ──
+    # A channel is an UNVIEWED match iff it is in some rule's ``alerted_ids`` and not
+    # in that rule's ``viewed_ids``.  Every alert-visibility surface (sidebar badge,
+    # details Alert button, channel-list rows, Watch Queue line) reads this, so
+    # clearing a match turns the green off everywhere at once.
+
+    def get_unviewed_vod_match_ids(self) -> set[str]:
+        """Return the set of channel ids that are matched but not yet viewed.
+
+        Computed across every rule: ``⋃ alerted_ids − ⋃ viewed_ids``.
+        """
+        alerted: set[str] = set()
+        viewed: set[str] = set()
+        for r in self.vod_watch_alerts:
+            alerted.update(r.get("alerted_ids") or [])
+            viewed.update(r.get("viewed_ids") or [])
+        return alerted - viewed
+
+    def get_unviewed_vod_match_count(self) -> int:
+        """Number of distinct unviewed matched channels across all rules."""
+        return len(self.get_unviewed_vod_match_ids())
+
+    def is_vod_match_unviewed(self, channel_id: str) -> bool:
+        """True when *channel_id* is a matched-but-not-yet-viewed alert channel."""
+        return channel_id in self.get_unviewed_vod_match_ids()
+
+    def get_vod_rule_unviewed_count(self, rule_created: str) -> int:
+        """Number of unviewed matches for a single rule (sidebar per-rule badge)."""
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                alerted = set(r.get("alerted_ids") or [])
+                viewed = set(r.get("viewed_ids") or [])
+                return len(alerted - viewed)
+        return 0
+
+    def mark_vod_alert_match_viewed(self, channel_id: str) -> bool:
+        """Mark a single matched channel as viewed across every rule.
+
+        Args:
+            channel_id: The matched ChannelDB id to acknowledge.
+
+        Returns:
+            True if any rule changed (and the config was saved), else False.
+        """
+        changed = False
+        updated = []
+        for r in self.vod_watch_alerts:
+            alerted = r.get("alerted_ids") or []
+            viewed = list(r.get("viewed_ids") or [])
+            if channel_id in alerted and channel_id not in viewed:
+                merged = dict(r)
+                viewed.append(channel_id)
+                merged["viewed_ids"] = viewed
+                updated.append(merged)
+                changed = True
+            else:
+                updated.append(r)
+        if changed:
+            self.vod_watch_alerts = updated
+            self.save()
+        return changed
+
+    def mark_all_vod_alerts_viewed(self) -> int:
+        """Mark every matched channel as viewed (bulk "Clear Alerts").
+
+        Returns:
+            The count of distinct channels that were unviewed before the call
+            (i.e. how many alerts the bulk-clear acknowledged).
+        """
+        before = self.get_unviewed_vod_match_count()
+        if before == 0:
+            return 0
+        updated = []
+        for r in self.vod_watch_alerts:
+            merged = dict(r)
+            # viewed = every alerted id (preserve order, dedup).
+            merged["viewed_ids"] = list(dict.fromkeys(merged.get("alerted_ids") or []))
+            updated.append(merged)
+        self.vod_watch_alerts = updated
+        self.save()
+        return before
+
+    def _migrate_vod_alert_viewed(self) -> None:
+        """One-time per-rule seed: pre-feature rules treat existing matches as viewed.
+
+        A rule that LACKS the ``viewed_ids`` key predates the alert-visibility
+        feature; its ``alerted_ids`` were already toasted, so seed
+        ``viewed_ids = alerted_ids`` to avoid a flood of green on first upgrade.
+        Only matches recorded AFTER the upgrade (which append to ``alerted_ids``
+        only) then light up.  Idempotent — once the key exists the rule is skipped.
+        """
+        changed = False
+        updated = []
+        for r in self.vod_watch_alerts:
+            if "viewed_ids" not in r:
+                merged = dict(r)
+                merged["viewed_ids"] = list(merged.get("alerted_ids") or [])
+                updated.append(merged)
+                changed = True
+            else:
+                updated.append(r)
+        if changed:
+            self.vod_watch_alerts = updated
 
     # ── Computed views of the base lookup tables ─────────────────────────────
     # These are NOT stored in config.yaml — they're computed from the base
@@ -1151,6 +1268,9 @@ class Config(BaseModel):
         # so a real config is never clobbered; the old field is left intact for
         # back-compat but never written again.
         self._migrate_qa_step_results()
+        # Seed per-match "viewed" state on pre-feature VOD watch-alert rules so the
+        # alert-visibility green only lights up for matches found AFTER the upgrade.
+        self._migrate_vod_alert_viewed()
 
     def _migrate_qa_step_results(self) -> None:
         """Backfill ``qa_step_results`` from the legacy ``qa_checked_steps`` list shape.

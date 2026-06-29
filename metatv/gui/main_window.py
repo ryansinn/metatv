@@ -672,7 +672,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.vodRuleViewMatchesRequested.connect(self._on_vod_rule_view_matches)
             section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
             self.vod_watch_alert_manager.new_matches_found.connect(
-                lambda: self._refresh_vod_alerts_section()
+                self._refresh_alert_visibility
             )
             # Populate the rule list on startup (rules come from config, synchronous)
             QTimer.singleShot(0, self._refresh_vod_alerts_section)
@@ -717,6 +717,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
             section.clearQueueClicked.connect(self._clear_queue)
             section.clearWatchedClicked.connect(self._clear_watched_queue)
+            section.clearAlertsClicked.connect(self._clear_all_alerts)
+            section.newMatchesClicked.connect(self._on_queue_new_matches_clicked)
             section.searchRequested.connect(self.search_for_title)
             section.clearUnavailableClicked.connect(
                 lambda: self._clear_unavailable_queue(section)
@@ -818,6 +820,63 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         section = self.sidebar_sections.get("alerts")
         if section and hasattr(section, "refresh_vod_rules"):
             section.refresh_vod_rules()
+
+    def _refresh_alert_visibility(self) -> None:
+        """Single chokepoint: refresh every alert-visibility surface from config.
+
+        Called after a new match is found and after any clear (per-item or bulk) so
+        the green + 🚨 cue stays consistent everywhere: the Alerts sidebar badge +
+        rule rows, the Watch Queue pinned line, the channel-list rows, and the
+        details Alert button for the currently-shown title.
+        """
+        self._refresh_vod_alerts_section()
+        self._refresh_queue_section()
+        # Channel-list rows — repaint with the fresh unviewed set (no full reload).
+        model = getattr(self, "channel_model", None)
+        if model is not None and hasattr(model, "update_new_match_ids"):
+            model.update_new_match_ids(self.config.get_unviewed_vod_match_ids())
+        # Details pane — re-evaluate the Alert button for the shown title.
+        pane = getattr(self, "details_pane", None)
+        current = getattr(pane, "current_channel", None) if pane is not None else None
+        if current is not None and getattr(current, "id", None):
+            ab = getattr(pane, "_action_bar", None)
+            if ab is not None and hasattr(ab, "set_new_match"):
+                ab.set_new_match(self.config.is_vod_match_unviewed(current.id))
+
+    def _clear_vod_alert(self, channel_id: str) -> None:
+        """Acknowledge a single matched channel (per-item 'Clear alert')."""
+        if not channel_id:
+            return
+        if self.config.mark_vod_alert_match_viewed(channel_id):
+            self._refresh_alert_visibility()
+
+    def _clear_all_alerts(self) -> None:
+        """Bulk-acknowledge every new match (Watch Queue 'Clear Alerts' button)."""
+        cleared = self.config.mark_all_vod_alerts_viewed()
+        if cleared:
+            self._refresh_alert_visibility()
+            self.status_bar.showMessage(
+                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}"
+            )
+
+    def _on_queue_new_matches_clicked(self) -> None:
+        """Open the new matched content from the Watch Queue's pinned green line.
+
+        Reuses the watch-for "View matches" nav (``_on_vod_rule_view_matches``) for
+        the rule with the most unviewed matches, so the results list opens with the
+        new items flagged 🚨/green.  No-op if nothing is unviewed.
+        """
+        best_rule = None
+        best_count = 0
+        for rule in self.config.get_vod_watch_alerts():
+            n = self.config.get_vod_rule_unviewed_count(rule.get("created", ""))
+            if n > best_count:
+                best_count = n
+                best_rule = rule
+        if best_rule is not None:
+            self._on_vod_rule_view_matches(
+                best_rule.get("text", ""), best_rule.get("match_type", "any")
+            )
 
     def _on_add_watch_for(self) -> None:
         """Open the 'Watch for…' dialog; add rule to config + run a check on confirm."""

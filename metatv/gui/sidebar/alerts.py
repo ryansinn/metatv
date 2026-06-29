@@ -97,6 +97,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)
+
+        # Global "new matched content" glance — a GREEN 🚨 N badge, visible even when
+        # the section is collapsed.  Hidden when there are no unviewed matches.
+        self._new_match_badge = QLabel()
+        self._new_match_badge.setTextFormat(Qt.TextFormat.RichText)
+        self._new_match_badge.setStyleSheet(_theme.ALERT_NEW_MATCH_BADGE)
+        self._new_match_badge.hide()
+        hl.addWidget(self._new_match_badge)
+
         hl.addStretch()
 
         _btn_style = (
@@ -256,6 +265,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
         self._vod_list.clear()
 
+        # Global new-match glance badge (read of config; safe-guarded for stubs).
+        self.update_new_match_badge(
+            getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
+        )
+
         if not rules:
             self._vod_hdr_container.hide()
             self._vod_list.hide()
@@ -266,26 +280,39 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.gui import icons as _icons  # local import avoids circular at top
 
         type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
+        _unviewed_for = getattr(
+            self.config, "get_vod_rule_unviewed_count", lambda _c: 0
+        )
 
         for rule in rules:
             text = rule.get("text") or "?"
             match_type = rule.get("match_type", "any")
             alerted_ids = rule.get("alerted_ids") or []
             count = len(alerted_ids)
+            unviewed = _unviewed_for(rule.get("created", ""))
 
             type_icon = type_icons.get(match_type, "")
             type_suffix = f"  ({match_type})" if match_type != "any" else ""
             count_badge = f"  · {count}" if count > 0 else ""
-            label = f"{type_icon}{_icons.alert_icon} {text}{type_suffix}{count_badge}"
+            # An unviewed rule leads with a 🚨 marker + "N new" (the non-colour cue
+            # that pairs with the green foreground below — colourblind-safe).
+            new_badge = f"  🚨 {unviewed} new" if unviewed > 0 else ""
+            label = (
+                f"{type_icon}{_icons.alert_icon} {text}{type_suffix}"
+                f"{count_badge}{new_badge}"
+            )
 
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, rule.get("created", ""))
             count_tip = f"{count} match{'es' if count != 1 else ''} found" if count else "No matches yet"
+            new_tip = f"\n{unviewed} new (unviewed)" if unviewed > 0 else ""
             item.setToolTip(
-                f"Watching for: {text}\nType: {match_type}\n{count_tip}"
+                f"Watching for: {text}\nType: {match_type}\n{count_tip}{new_tip}"
             )
-            if count == 0:
-                from PyQt6.QtGui import QColor
+            from PyQt6.QtGui import QColor
+            if unviewed > 0:
+                item.setForeground(QColor(_theme.COLOR_OK))  # green — new matches
+            elif count == 0:
                 item.setForeground(QColor(_theme.COLOR_MUTED))
             self._vod_list.addItem(item)
 
@@ -294,6 +321,28 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_hdr_container.show()
         if not self._vod_collapsed:
             self._vod_list.show()
+
+    def update_new_match_badge(self, count: int) -> None:
+        """Show/hide the global GREEN 🚨 N badge in the Alerts header.
+
+        Args:
+            count: Number of unviewed watch-for matches across all rules.
+        """
+        try:
+            badge = self._new_match_badge
+        except (AttributeError, RuntimeError):
+            return  # header not built (e.g. __new__ test stub) — nothing to update
+        if badge is None:
+            return
+        if count > 0:
+            badge.setText(f"{_icons.new_match_icon} {count}")
+            badge.setToolTip(
+                f"{count} new matched item{'s' if count != 1 else ''} from your "
+                "watch-for alerts"
+            )
+            badge.show()
+        else:
+            badge.hide()
 
     def _on_vod_item_clicked(self, item: "QListWidgetItem") -> None:
         """Single-click on a rule row → populate the main list with matching content."""

@@ -340,6 +340,35 @@ DETAIL_RAIL_BTN_ALERT = (
     " border-color: " + COLOR_DIM + "; }"
 )
 
+# Alert/monitor rail button in the "new matched content" state — the reserved
+# OK/new-match GREEN, filled (a SHAPE change from the outline inactive state, so the
+# cue is never colour-alone), paired with the 🚨 siren glyph + tooltip.  Wins over
+# the red :checked alerting state when the shown title has UNVIEWED matched content.
+DETAIL_RAIL_BTN_NEW_MATCH = (
+    "QPushButton { border: 2px solid " + COLOR_OK + "; border-radius: 4px;"
+    " padding: 3px 1px; font-size: " + FONT_2XL + "; background: " + OVERLAY_GREEN_15 + ";"
+    " color: " + COLOR_OK + "; }"
+    "QPushButton:checked { background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + ";"
+    " border-color: " + COLOR_OK + "; }"
+    "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_OK + "; }"
+)
+
+# "New matched content" GREEN count badge — used in the Alerts sidebar header (global
+# glance) and on the Watch Queue's pinned new-matches line.  Always rendered next to
+# the 🚨 glyph + a number, so colour is reinforcement only (colourblind-safe).
+ALERT_NEW_MATCH_BADGE = "color: " + COLOR_OK + "; font-weight: bold;"
+
+# Watch Queue pinned "new matches from your alerts" line — a single clickable GREEN
+# row at the top of the queue.  GREEN fill + the 🚨 glyph + the count text = the
+# colourblind-safe pairing.
+QUEUE_NEW_MATCHES_LINE = (
+    "QPushButton { text-align: left; border: 1px solid " + COLOR_OK + ";"
+    " border-radius: 4px; padding: 4px 8px; font-weight: bold;"
+    " background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
+    "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + "; }"
+)
+
 # Details-pane PRIMARY action buttons — full-size, labeled (icon + text), shown in
 # a row directly below the poster (the most-used actions get the prominent slot).
 # Play is the SECONDARY/outline action (always starts from the beginning); Resume

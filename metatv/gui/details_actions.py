@@ -72,6 +72,10 @@ class _ActionBar(QWidget):
         self._suppressed: bool = False
         self._is_hidden: bool = False
         self._is_monitored: bool = False
+        # True when the shown title has UNVIEWED matched content (a VOD watch-for
+        # match the user hasn't acknowledged).  Paints the Alert button GREEN +
+        # filled, paired with the 🚨 glyph + tooltip (colourblind-safe).
+        self._has_new_match: bool = False
         self._current_epg_title: str = ""
         # "Currently playing" indicator state (green outline + live elapsed timer on
         # the Play button while the shown title is the one actively playing).
@@ -193,6 +197,17 @@ class _ActionBar(QWidget):
         self._is_monitored = is_monitored
         self._sync_monitor_button()
 
+    def set_new_match(self, has_unviewed_match: bool) -> None:
+        """Flag the Alert button GREEN when the shown title has unviewed matched content.
+
+        The green is the reserved OK/new-match colour, paired with the 🚨 glyph the
+        button already carries + a tooltip — never colour-alone.  Clearing the
+        match (per-item or bulk "Clear Alerts") and re-loading the title drops the
+        green (the user dismisses; nothing auto-acts).
+        """
+        self._has_new_match = has_unviewed_match
+        self._sync_monitor_button()
+
     def set_resume(self, can_resume: bool, position_s: int = 0) -> None:
         """Show the dominant Resume button (with its M:SS label) only when there's
         a saved position to resume from.
@@ -284,6 +299,7 @@ class _ActionBar(QWidget):
         self._suppressed = False
         self._is_hidden = False
         self._is_monitored = False
+        self._has_new_match = False
         self._current_epg_title = ""
         self.monitor_button.setVisible(False)
         self.resume_button.setVisible(False)
@@ -377,6 +393,16 @@ class _ActionBar(QWidget):
 
     def _sync_monitor_button(self) -> None:
         self.monitor_button.setChecked(self._is_monitored)
+        if self._has_new_match:
+            # New matched content available — GREEN + filled wins over the red
+            # alerting state.  🚨 glyph + tooltip carry the non-colour cue.
+            self.monitor_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_NEW_MATCH)
+            self.monitor_button.setToolTip(
+                "New matched content available — right-click the item in the list "
+                "to clear this alert (or use Clear Alerts in the Watch Queue)"
+            )
+            return
+        self.monitor_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_ALERT)
         self.monitor_button.setToolTip(
             "Stop new-episode alerts for this series" if self._is_monitored
             else "Alert me to new episodes of this series"

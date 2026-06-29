@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
@@ -25,7 +26,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
     clearQueueClicked             = pyqtSignal()
     clearWatchedClicked           = pyqtSignal()
+    clearAlertsClicked            = pyqtSignal()           # bulk-acknowledge all new matches
     clearUnavailableClicked       = pyqtSignal()           # request clear-unavailable
+    newMatchesClicked             = pyqtSignal()           # open the new matched content
     searchRequested               = pyqtSignal(str)        # search_title for recovery
     _data_ready                   = pyqtSignal(object)     # list[QueueEntry] | None
 
@@ -40,6 +43,16 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return "queue"
 
     def create_content(self):
+        # Pinned GREEN "new matches from your alerts" line — a single clickable row
+        # at the very top of the queue.  Hidden until there are unviewed matches;
+        # clicking opens the matched content (where it is flagged 🚨/green).
+        self._new_matches_btn = QPushButton()
+        self._new_matches_btn.setStyleSheet(_theme.QUEUE_NEW_MATCHES_LINE)
+        self._new_matches_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._new_matches_btn.clicked.connect(self.newMatchesClicked.emit)
+        self._new_matches_btn.hide()
+        self.content_layout.addWidget(self._new_matches_btn)
+
         self._list = QListWidget()
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.itemDoubleClicked.connect(self._on_double_click)
@@ -52,12 +65,49 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
         btn_row.addWidget(self._clear_watched_btn)
 
+        # Conditional "Clear Alerts" — shown only when unviewed matches exist.
+        self._clear_alerts_btn = QPushButton(f"{_icons.new_match_icon} Clear Alerts")
+        self._clear_alerts_btn.setToolTip(
+            "Acknowledge all new matched content — clears the alert green everywhere"
+        )
+        self._clear_alerts_btn.clicked.connect(self.clearAlertsClicked.emit)
+        self._clear_alerts_btn.hide()
+        btn_row.addWidget(self._clear_alerts_btn)
+
         self._clear_all_btn = QPushButton(f"{self.config.delete_icon} Clear All")
         self._clear_all_btn.clicked.connect(self.clearQueueClicked.emit)
         btn_row.addWidget(self._clear_all_btn)
         self.content_layout.addLayout(btn_row)
 
         self.set_empty(True)
+
+    def update_new_match_count(self, count: int) -> None:
+        """Show/hide the pinned green new-matches line + Clear Alerts button.
+
+        Args:
+            count: Number of unviewed watch-for matches across all rules.
+        """
+        try:
+            line = self._new_matches_btn
+            clear_btn = self._clear_alerts_btn
+        except (AttributeError, RuntimeError):
+            return  # content not built (e.g. __new__ test stub) — nothing to update
+        if count > 0:
+            if line is not None:
+                line.setText(
+                    f"{_icons.watchlist_on_icon} {count} new match"
+                    f"{'es' if count != 1 else ''} from your alerts  "
+                    f"{_icons.see_all_arrow_icon}"
+                )
+                line.setToolTip("Open the new matched content from your watch-for alerts")
+                line.show()
+            if clear_btn is not None:
+                clear_btn.show()
+        else:
+            if line is not None:
+                line.hide()
+            if clear_btn is not None:
+                clear_btn.hide()
 
     # --- BackgroundRefreshMixin hooks ---
     def _refresh_list(self) -> QListWidget:
@@ -74,6 +124,13 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _populate_rows(self, entries) -> None:
         """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
+        # The pinned new-matches line is independent of queue contents (it reflects
+        # config watch-for matches), so refresh it before the empty-list early-out.
+        # Guarded so partially-built __new__ test stubs (no config/widgets) don't trip.
+        try:
+            self.update_new_match_count(self.config.get_unviewed_vod_match_count())
+        except (AttributeError, RuntimeError):
+            pass
         self._has_unavailable = any(not e.available for e in entries) if entries else False
         self.set_empty(len(entries) == 0)
         if not entries:

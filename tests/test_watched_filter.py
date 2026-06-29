@@ -205,6 +205,7 @@ class TestModelTargetedUpdate:
             m._partial_threshold_pct = 10
             m._generation = 0
             m._id_to_index = {}
+            m._new_match_ids = set()
             # Group-by-type state (mirrors ChannelListModel.__init__); flat by default.
             m._grouped = False
             m._collapsed_sections = set()

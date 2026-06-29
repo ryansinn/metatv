@@ -87,6 +87,12 @@ preferred_version_icon: str = "🎯"
 # not 📡, which is live/provider/events, nor ⚠, which stays for warnings)
 new_episodes_icon: str = "🆕"   # "new episodes available" indicator
 alert_icon: str = "🚨"          # the alert affordance — Alerts section header + "alert me to new episodes"
+# "New monitored-content match" marker — the colourblind-safe non-colour cue that
+# ALWAYS pairs with the new-match GREEN across every surface (sidebar badge, details
+# Alert button, channel-list rows, Watch Queue line).  Deliberately the same siren
+# as ``alert_icon`` (it IS an alert) but kept DISTINCT in name/meaning from ✨
+# (``discover_icon`` — "new ingested content"); the two must never collide.
+new_match_icon: str = "🚨"
 manage_icon: str = "⚙"          # manage/organize affordance (e.g. Manage alerts)
 
 # Section / navigation labels
