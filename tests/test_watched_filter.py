@@ -205,6 +205,11 @@ class TestModelTargetedUpdate:
             m._partial_threshold_pct = 10
             m._generation = 0
             m._id_to_index = {}
+            # Group-by-type state (mirrors ChannelListModel.__init__); flat by default.
+            m._grouped = False
+            m._collapsed_sections = set()
+            m._buckets = {}
+            m._bucket_pos = {}
             yield m
 
     def test_update_watch_completed_sets_dto_fields(self, model):
