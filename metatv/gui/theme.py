@@ -344,13 +344,27 @@ DETAIL_RAIL_BTN_ALERT = (
 # a row directly below the poster (the most-used actions get the prominent slot).
 # Play is the SECONDARY/outline action (always starts from the beginning); Resume
 # is the DOMINANT filled-orange action (continue from the saved position).  Orange,
-# never green — green is reserved for a future "currently playing" indicator.
+# never green — green is reserved for the "currently playing" indicator
+# (DETAIL_PLAY_BTN_PLAYING below).
 DETAIL_PLAY_BTN = (
     "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
     " padding: 8px 12px; font-size: " + FONT_XL + "; font-weight: bold;"
     " background: transparent; color: " + COLOR_TEXT + "; }"
     "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT_HI + ";"
     " border-color: " + COLOR_DIM + "; }"
+)
+
+# Details-pane Play button in the "currently playing" state — a GREEN outline that
+# fires only while the title shown in the pane is the one actively playing.  Green
+# = "active / now" (the reserved semantic).  Colour is reinforcement only; the live
+# elapsed timer in the button label is the non-colour cue, so the state still reads
+# without colour vision.
+DETAIL_PLAY_BTN_PLAYING = (
+    "QPushButton { border: 2px solid " + COLOR_OK + "; border-radius: 4px;"
+    " padding: 7px 11px; font-size: " + FONT_XL + "; font-weight: bold;"
+    " background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
+    "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_OK + "; }"
 )
 DETAIL_RESUME_BTN = (
     "QPushButton { border: 1px solid " + COLOR_ACCENT_ORANGE + "; border-radius: 4px;"
