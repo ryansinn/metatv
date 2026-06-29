@@ -30,6 +30,7 @@ from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QMenu
 
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,12 @@ class ChannelAction:
         default_factory=lambda: (lambda c: True)
     )
     disabled_tooltip: str = ""
+    # Optional dynamic glyph: when set it overrides ``icon`` (e.g. favorite flips
+    # on ``is_favorite``).  Returns an icons.py glyph string ("" = no icon).
+    icon_fn: "Callable[[ChannelMenuContext], str] | None" = None
+    # Optional dynamic icon colour: returns a theme colour token, or None for the
+    # default muted/gray.  Only the resume affordance returns the orange accent.
+    icon_color: "Callable[[ChannelMenuContext], str | None] | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +165,34 @@ def _is_resumable_vod(c: ChannelMenuContext) -> bool:
     )
 
 
+def _play_resumes_by_default(c: ChannelMenuContext) -> bool:
+    """True when triggering the default Play would resume from the saved position.
+
+    This is the resume affordance the menu paints orange: a resumable VOD while
+    the resume-by-default mode is active.  In 'beginning' mode the default Play
+    starts from zero instead, so a separate orange ``resume_from`` action carries
+    the resume cue and Play stays neutral/gray.
+    """
+    return _is_resumable_vod(c) and c.playback_resume_mode != "beginning"
+
+
+def _play_label(c: ChannelMenuContext) -> str:
+    """Default Play label — 'Play from M:SS' when it would resume, else 'Play'."""
+    if _play_resumes_by_default(c):
+        return f"Play from {_fmt_seconds(c.watch_progress)}"
+    return "Play"
+
+
+def _play_color(c: ChannelMenuContext) -> str | None:
+    """Orange resume accent when Play would resume; otherwise the default gray."""
+    return _theme.COLOR_PLAYBACK_IN_PROGRESS if _play_resumes_by_default(c) else None
+
+
+def _resume_color(c: ChannelMenuContext) -> str:
+    """The explicit resume affordance is always the orange in-progress accent."""
+    return _theme.COLOR_PLAYBACK_IN_PROGRESS
+
+
 def _bulk_category_label(c: ChannelMenuContext) -> str:
     n = len(c.channel_ids)
     s = "s" if n != 1 else ""
@@ -168,8 +203,9 @@ ACTIONS: dict[str, ChannelAction] = {
     # ── Core ────────────────────────────────────────────────────────────────
     "play": ChannelAction(
         id="play",
-        label=lambda c: "Play",
+        label=_play_label,
         icon=_icons.play_icon,
+        icon_color=_play_color,
         tooltip="Play this channel",
         applies=lambda c: c.is_single and c.channel_found,
     ),
@@ -205,6 +241,7 @@ ACTIONS: dict[str, ChannelAction] = {
         id="resume_from",
         label=_resume_from_label,
         icon=_icons.resume_from_icon,
+        icon_color=_resume_color,
         tooltip=(
             "Resume from your saved position — overrides the 'Start from beginning' default\n"
             "for this one play."
@@ -217,7 +254,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "favorite": ChannelAction(
         id="favorite",
         label=_fav_label,
-        icon="",   # icon chosen dynamically in builder (fav_icon / unfavorite_icon)
+        icon_fn=_fav_icon,   # ★ / ☆ flips on is_favorite (resolved in _resolve_menu_icon)
         tooltip="Toggle this channel in your Favorites sidebar",
         applies=lambda c: c.is_single and c.channel_found,
     ),
@@ -302,7 +339,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "category": ChannelAction(
         id="category",
         label=_category_label,
-        icon=_icons.queue_icon,
+        icon=_icons.category_icon,
         tooltip=(
             "Assign this channel to a user-defined category.\n"
             "Categories appear as shelves in the Discover view."
@@ -381,7 +418,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "epg_assign_category": ChannelAction(
         id="epg_assign_category",
         label=lambda c: "Assign category…",
-        icon=_icons.queue_icon,
+        icon=_icons.category_icon,
         tooltip=(
             "Assign this channel to a user-defined EPG category.\n"
             "Categories appear as shelves in the On Now view."
@@ -446,7 +483,7 @@ ACTIONS: dict[str, ChannelAction] = {
     "bulk_category": ChannelAction(
         id="bulk_category",
         label=_bulk_category_label,
-        icon=_icons.queue_icon,
+        icon=_icons.category_icon,
         tooltip="Assign a user-defined category to the selected channels",
         applies=lambda c: c.is_multi,
     ),
@@ -615,6 +652,36 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
+# Icon resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_menu_icon(
+    action: ChannelAction, ctx: ChannelMenuContext
+) -> tuple[str, str | None]:
+    """Resolve the (glyph, colour-token) a menu action renders in *ctx*.
+
+    Single source of truth shared by :func:`build_channel_menu` and the icon
+    tests — so the menu and its assertions can never drift:
+
+    * glyph — ``action.icon_fn(ctx)`` when set (dynamic, e.g. favorite flips on
+      ``is_favorite``), else the static ``action.icon``.  ``""`` means no icon.
+    * colour — ``action.icon_color(ctx)`` when set, else ``None`` (the default
+      muted/gray).  Only the resume affordance returns the orange accent, keeping
+      the menu monotone with a single colour cue.
+
+    Args:
+        action: The registry action definition.
+        ctx: The menu context.
+
+    Returns:
+        ``(glyph, colour_token_or_None)``.
+    """
+    glyph = action.icon_fn(ctx) if action.icon_fn else action.icon
+    color = action.icon_color(ctx) if (glyph and action.icon_color) else None
+    return glyph, color
+
+
+# ---------------------------------------------------------------------------
 # Composer
 # ---------------------------------------------------------------------------
 
@@ -679,14 +746,13 @@ def build_channel_menu(
         act.setToolTip(tooltip_text)
 
         # Set icon via QAction.setIcon() so Qt reserves a uniform icon column.
-        # Frequent-action rows get a rendered glyph icon; admin/rare rows get
-        # no icon (the blank column on those rows signals a different tier).
-        # For "favorite" the icon flips on is_favorite — compute it dynamically.
-        if token == "favorite":
-            fav_glyph = _icons.unfavorite_icon if ctx.is_favorite else _icons.favorite_icon
-            act.setIcon(_icons.glyph_icon(fav_glyph))
-        elif action_def.icon:
-            act.setIcon(_icons.glyph_icon(action_def.icon))
+        # Frequent-action rows get a rendered glyph icon; admin/rare rows get no
+        # icon (the blank column signals a different tier).  glyph_icon renders
+        # monochrome in the resolved colour — gray for everything except the
+        # orange resume affordance — so the menu reads as one monotone palette.
+        glyph, glyph_color = _resolve_menu_icon(action_def, ctx)
+        if glyph:
+            act.setIcon(_icons.glyph_icon(glyph, glyph_color))
 
         if action_def.checkable:
             act.setCheckable(True)
