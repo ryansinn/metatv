@@ -432,6 +432,10 @@ EPG_STALE_NOTICE  = (
     "color: " + COLOR_WARN + "; font-size: " + FONT_MD + ";"
     " border: 1px solid " + COLOR_WARN + "; border-radius: 4px; padding: 6px 10px;"
 )
+# Browse timeline-scrubber current-position label (Phase 2).
+EPG_SCRUBBER_POS  = (
+    "color: " + COLOR_ACCENT_HOVER + "; font-size: " + FONT_LG + "; font-weight: bold;"
+)
 SECTION_ITEM      = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + "; padding: 4px 0;"
 SECTION_TITLE_SM  = "font-size: " + FONT_LG + "; font-weight: bold; padding-top: 4px;"
 

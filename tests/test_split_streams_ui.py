@@ -404,6 +404,9 @@ def _bare_split_dialog(qapp, split: bool = False):
         dlg._epg_interval_combo.addItem(label, value)
     dlg._epg_hide_older_spin = QSpinBox()
     dlg._epg_hide_older_spin.setRange(0, 168)
+    dlg._epg_scrubber_increment_combo = QComboBox()
+    for _mins in _epg.EPG_SCRUBBER_INCREMENTS:
+        dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
 
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()

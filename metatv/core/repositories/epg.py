@@ -279,6 +279,7 @@ class EpgRepository:
         after: tuple[datetime, int] | None = None,
         limit: int = 200,
         max_age: timedelta | None = None,
+        floor_to_now: bool = True,
         _now: datetime | None = None,
     ) -> list[EpgProgramDB]:
         """Forward-looking, chronological, keyset-paginated schedule.
@@ -311,18 +312,26 @@ class EpgRepository:
             after: Keyset cursor — the ``(start_time, id)`` of the last row from
                 the previous page. ``None`` starts at the first page.
             limit: Max rows returned (one page).
-            max_age: Left-bound guard ``start_time >= now - max_age``. In Phase-1
-                forward-only browsing this is dominated by the ``>= now`` floor, so
-                it is effectively inert; it is wired so the Phase-2 timeline
-                scrubber can reuse this method with a real left bound.
+            max_age: Left-bound guard ``start_time >= now - max_age``. With
+                ``floor_to_now`` True this is dominated by the ``>= now`` floor; with
+                it False (the Phase-2 scrubber seeking back) it becomes the real
+                hard left edge so the recent past is bounded, never unbounded.
+            floor_to_now: When True (default, Phase-1 forward browsing) a past anchor
+                is floored to ``now`` so already-aired programmes never surface. When
+                False (the Phase-2 scrubber seeking back to its left bound) the anchor
+                is honoured exactly — combine with ``max_age`` to bound how far back.
             _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
 
         Returns:
             Up to ``limit`` programmes ordered ascending by ``(start_time, id)``.
         """
         now = _now or _now_utc()
-        # Never the past: a requested anchor only moves the window FORWARD.
-        effective_anchor = anchor if (anchor is not None and anchor > now) else now
+        if floor_to_now:
+            # Never the past: a requested anchor only moves the window FORWARD.
+            effective_anchor = anchor if (anchor is not None and anchor > now) else now
+        else:
+            # Scrubber seek-back: honour the anchor as given (bounded by max_age).
+            effective_anchor = anchor if anchor is not None else now
 
         query = self.session.query(EpgProgramDB).filter(
             EpgProgramDB.provider_id.in_(provider_ids),
@@ -420,6 +429,49 @@ class EpgRepository:
             )
         spans = [(row.start_time, row.stop_time) for row in query.all()]
         return _contiguous_guide_end(spans, _now=now)
+
+    def get_guide_bounds(
+        self,
+        provider_ids: list[str],
+        excluded_channel_provider_ids: set[str] | list[str] | None = None,
+    ) -> tuple[datetime | None, datetime | None]:
+        """Earliest and latest programme start for the scoped, playable sources.
+
+        Sizes the Phase-2 timeline scrubber track: the control layer turns this raw
+        ``(min_start, max_start)`` into the track's left/right bounds via
+        :func:`epg_utils.scrubber_bounds` (engine returns data, control applies the
+        now-floor / hide-older window — DR-0007). One aggregate query, no row loads.
+
+        Scoping mirrors :meth:`get_schedule_forward` / :meth:`get_schedule` —
+        ``provider_ids`` (feed side), ``channel_db_id IS NOT NULL`` (playable only),
+        and ``excluded_channel_provider_ids`` (hidden-provider channel-side scoping).
+
+        Args:
+            provider_ids: Feed-provider IDs whose XMLTV supplies the programmes.
+            excluded_channel_provider_ids: Channel-side scoping — drop programmes
+                whose matched ChannelDB row belongs to a hidden provider.
+
+        Returns:
+            ``(min_start_time, max_start_time)`` UTC-naive, or ``(None, None)`` when
+            the scoped sources have no matched programmes.
+        """
+        if not provider_ids:
+            return None, None
+        query = self.session.query(
+            func.min(EpgProgramDB.start_time),
+            func.max(EpgProgramDB.start_time),
+        ).filter(
+            EpgProgramDB.provider_id.in_(provider_ids),
+            EpgProgramDB.channel_db_id.isnot(None),
+        )
+        if excluded_channel_provider_ids:
+            query = (
+                query
+                .join(ChannelDB, EpgProgramDB.channel_db_id == ChannelDB.id)
+                .filter(ChannelDB.provider_id.notin_(excluded_channel_provider_ids))
+            )
+        min_start, max_start = query.one()
+        return min_start, max_start
 
     def search_programs(
         self,

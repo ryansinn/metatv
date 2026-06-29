@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.config import Config
-from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
+from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.http_headers import stream_user_agent
 from metatv.gui import theme as _theme
 from metatv.gui.middle_click_actions import (
@@ -383,6 +383,15 @@ class SettingsDialog(QDialog):
         )
         epg_form.addRow("Hide EPG older than:", self._epg_hide_older_spin)
 
+        self._epg_scrubber_increment_combo = QComboBox()
+        for _mins in EPG_SCRUBBER_INCREMENTS:
+            self._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
+        self._epg_scrubber_increment_combo.setToolTip(
+            "Granularity of the Browse timeline scrubber. Dragging the handle snaps to "
+            "this interval (and each scroll step of the handle is one interval)."
+        )
+        epg_form.addRow("Scrubber snap:", self._epg_scrubber_increment_combo)
+
         layout.addWidget(epg_group)
 
         layout.addStretch()
@@ -552,6 +561,11 @@ class SettingsDialog(QDialog):
         self._epg_hide_older_spin.setValue(
             getattr(c, "epg_browse_hide_older_than_hours", 24)
         )
+        scrub_inc = getattr(c, "epg_scrubber_increment_minutes", 30)
+        scrub_idx = self._epg_scrubber_increment_combo.findData(scrub_inc)
+        if scrub_idx < 0:
+            scrub_idx = self._epg_scrubber_increment_combo.findData(30)
+        self._epg_scrubber_increment_combo.setCurrentIndex(max(scrub_idx, 0))
 
         # Metadata
         self._meta_enabled_check.setChecked(c.metadata_enabled)
@@ -626,6 +640,9 @@ class SettingsDialog(QDialog):
         if epg_val:
             c.epg_default_refresh_interval = epg_val
         c.epg_browse_hide_older_than_hours = self._epg_hide_older_spin.value()
+        scrub_inc_val = self._epg_scrubber_increment_combo.currentData()
+        if scrub_inc_val:
+            c.epg_scrubber_increment_minutes = scrub_inc_val
 
         # Metadata
         c.metadata_enabled = self._meta_enabled_check.isChecked()

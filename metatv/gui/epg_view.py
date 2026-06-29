@@ -435,6 +435,9 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # Re-resolve the Browse start anchors ("Now"/"Tonight"/…) against the current
         # clock so their labels and floored datetimes stay fresh across the session.
         self._refresh_browse_anchors()
+        # The Phase-2 timeline scrubber handle snaps back to NOW each time Browse is
+        # (re)opened; the next Browse configure consumes this flag.
+        self._scrubber_reset_to_now = True
 
         # Default to On Now (tab 3); stay on a watchlist tab only if patterns already exist
         if self.tab_bar.currentIndex() in (0, 1, 2) and not self.config.epg_watchlist_patterns:

@@ -292,6 +292,10 @@ def _make_browse_tab_host(qapp, config=None):
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None
     host._save_epg_sort = lambda *a: None
+    # Phase-2 scrubber signal targets connected during build.
+    host._on_anchor_selected = lambda *_: None
+    host._on_scrubber_value_changed = lambda *_: None
+    host._scrubber_seek = lambda *_: None
     host._build_browse_tab()
     return host
 
