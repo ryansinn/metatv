@@ -42,7 +42,7 @@ class _PosterLabel(QLabel):
 
     Also surfaces hover and resize events (``hover_changed`` / ``resized``) so an
     overlaid corner widget — the clickable Watched badge — can reveal itself on
-    poster hover and keep itself pinned to the top-right corner on layout changes.
+    poster hover and keep itself pinned to the lower-right corner on layout changes.
     """
 
     poster_clicked = pyqtSignal()
@@ -154,6 +154,13 @@ class _PosterSection(QWidget):
     _BADGE_SIZE: int = 26
     _BADGE_MARGIN: int = 8
 
+    # Rail spacing (structural px).  G = the Monitor↔Hide gap; the top pair
+    # (Favorite↔Monitor) is G/2 and Hide↔Like is also G so Hide is the equidistant
+    # visual pivot.  The sentiment trio (Like/Not-Interested/Dislike) is a tight,
+    # equal cluster beneath it.
+    _RAIL_GAP: int = 20
+    _RAIL_TRIO_GAP: int = 4
+
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
         self.config = config
@@ -176,12 +183,14 @@ class _PosterSection(QWidget):
         layout.setSpacing(0)
 
         # Action-rail + content wrapper.
-        # The left column (_action_rail) is a vertical icon-button rail holding ALL
-        # channel actions (favorite/play/queue/sentiment/alert/watchlist/hide); the
-        # right column (_content_col) shows the poster (VOD) or the live header
-        # (live).  Buttons are reparented into the rail via set_action_buttons()
-        # after both _PosterSection and _ActionBar have been constructed.  The rail
-        # is visible for ALL channel types — per-button visibility is _ActionBar's job.
+        # The left column (_action_rail) is a slim vertical icon rail holding the
+        # infrequent actions (favorite/Alert-Monitor/watchlist/hide/sentiment trio);
+        # the right column (_content_col) shows the poster (VOD) or the live header
+        # (live).  Play/Resume + Watch Later are NOT in the rail — they graduate to
+        # full-width rows in the OUTER column below this block (see end of _setup).
+        # Buttons are reparented in via set_action_buttons() after both _PosterSection
+        # and _ActionBar exist.  The rail is visible for ALL channel types — per-button
+        # visibility is _ActionBar's job.
         _poster_and_rail = QWidget()
         _par_layout = QHBoxLayout(_poster_and_rail)
         _par_layout.setContentsMargins(0, 0, 0, 0)
@@ -190,9 +199,13 @@ class _PosterSection(QWidget):
         self._action_rail = QWidget()
         self._action_rail.setFixedWidth(48)
         self._action_rail_layout = QVBoxLayout(self._action_rail)
-        # Small top margin so favorite sits just below the poster's top edge.
-        self._action_rail_layout.setContentsMargins(0, 8, 6, 4)
-        self._action_rail_layout.setSpacing(6)
+        # Right margin keeps the icons off the poster edge.  Top/bottom are 0 and the
+        # spacing is 0: set_action_buttons() centers the whole button group on the
+        # poster's vertical midline via a leading+trailing stretch, and lays out every
+        # inter-button gap explicitly (see _RAIL_GAP / _RAIL_TRIO_GAP) so Hide lands as
+        # the visual pivot — no implicit per-item spacing to fight that geometry.
+        self._action_rail_layout.setContentsMargins(0, 0, 6, 0)
+        self._action_rail_layout.setSpacing(0)
         self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
         self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
         _par_layout.addWidget(self._action_rail)
@@ -227,7 +240,7 @@ class _PosterSection(QWidget):
         pf_layout.addWidget(self.poster_label)
 
         # Watched badge — a clickable corner overlay on the poster (VOD only).
-        # Child of poster_label so it floats over the image; positioned top-right
+        # Child of poster_label so it floats over the image; positioned lower-right
         # and shown/hidden by _update_watched_badge() per watch + hover state.
         self._watched_badge = _WatchedBadge(_icons.watched_icon, self.poster_label)
         self._watched_badge.setFixedSize(self._BADGE_SIZE, self._BADGE_SIZE)
@@ -255,33 +268,38 @@ class _PosterSection(QWidget):
         self._live_header.hide()
         cc_layout.addWidget(self._live_header)
 
-        # Primary action row — full-size Play / Resume, directly below the poster
-        # (and below the live logo/header for live).  Buttons are reparented in by
-        # set_action_buttons(); both get equal stretch so they split 50/50 when
-        # both show, and Play takes the full width when Resume is hidden (Qt skips
-        # the hidden item's stretch).  Hidden until a channel is shown (set_mode).
+        cc_layout.addStretch()
+
+        _par_layout.addWidget(self._content_col, 1)
+        layout.addWidget(_poster_and_rail)
+
+        # Primary action row — full-size Play / Resume.  It lives in the OUTER column
+        # (below the poster+rail block), NOT inside _content_col, so it spans the full
+        # pane width and LEFT-ALIGNS with the title/metadata below — reclaiming the dead
+        # space under the rail rather than indenting under the poster's left edge.  The
+        # rail's last button is centered well above this row, so nothing sits to its
+        # left to collide with.  Buttons are reparented in by set_action_buttons(); both
+        # get equal stretch so they split 50/50 when both show, and Play takes the full
+        # width when Resume is hidden (Qt skips the hidden item's stretch).  Hidden until
+        # a channel is shown (set_mode).
         self._primary_action_row = QWidget()
         self._primary_row_layout = QHBoxLayout(self._primary_action_row)
         self._primary_row_layout.setContentsMargins(0, 6, 0, 0)
         self._primary_row_layout.setSpacing(6)
         self._primary_action_row.hide()
-        cc_layout.addWidget(self._primary_action_row)
+        layout.addWidget(self._primary_action_row)
 
         # Secondary action row — full-width "Watch Later" (queue), directly under the
-        # primary Play/Resume row.  Promoted out of the rail (it is the most-likely
-        # "not right now" follow-up).  The queue button is reparented in by
-        # set_action_buttons(); hidden until a channel is shown (set_mode).
+        # primary Play/Resume row and likewise full-width / title-aligned.  Promoted out
+        # of the rail (it is the most-likely "not right now" follow-up).  The queue
+        # button is reparented in by set_action_buttons(); hidden until a channel is
+        # shown (set_mode).
         self._secondary_action_row = QWidget()
         self._secondary_row_layout = QVBoxLayout(self._secondary_action_row)
         self._secondary_row_layout.setContentsMargins(0, 6, 0, 0)
         self._secondary_row_layout.setSpacing(0)
         self._secondary_action_row.hide()
-        cc_layout.addWidget(self._secondary_action_row)
-
-        cc_layout.addStretch()
-
-        _par_layout.addWidget(self._content_col, 1)
-        layout.addWidget(_poster_and_rail)
+        layout.addWidget(self._secondary_action_row)
 
     def set_mode(self, is_live: bool) -> None:
         # set_mode runs only when a channel is actually being shown (via
@@ -337,8 +355,11 @@ class _PosterSection(QWidget):
           is hidden).  Resume is the dominant one when present.
         * **Secondary row** (under the primary row): the full-width labeled "Watch
           Later" (queue) button.
-        * **Rail** (slim icon column, top→bottom): favorite · gap · sentiment trio ·
-          watchlist · gap · alert · stretch · hide.
+        * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
+          shares this slot) · hide · like · not-interested · dislike.  The whole group
+          is centered on the poster's vertical midline (leading + trailing stretch) with
+          Hide as the equidistant pivot (G above and below); the sentiment trio is a
+          tight cluster beneath it.
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -357,21 +378,32 @@ class _PosterSection(QWidget):
         srow.addWidget(queue)
 
         # Rail: the infrequent icon-only set (queue is NOT here — it graduated to the
-        # secondary row above).
+        # secondary row above).  Order top→bottom: favorite · Alert/Monitor (+Watchlist
+        # in the same slot) · hide · like · not-interested · dislike.  Leading + trailing
+        # stretch center the group on the poster's vertical midline; the gaps are sized
+        # so Hide is the equidistant pivot (G above, G below), the top pair is tight
+        # (G/2), and the sentiment trio is a tight equal cluster.
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
+        gap = self._RAIL_GAP
+        trio = self._RAIL_TRIO_GAP
+
+        layout.addStretch()                 # leading stretch — center the group
         layout.addWidget(favorite)
-        layout.addSpacing(16)
-        layout.addWidget(like)
-        layout.addWidget(not_interested)
-        layout.addWidget(dislike)
-        layout.addWidget(watchlist)
-        layout.addSpacing(20)
+        layout.addSpacing(gap // 2)         # Favorite ↔ Monitor = G/2 (tight top pair)
         layout.addWidget(monitor)
-        layout.addStretch()
+        layout.addWidget(watchlist)         # Watchlist shares Monitor's slot (exclusive)
+        layout.addSpacing(gap)              # Monitor/Watchlist ↔ Hide = G
         layout.addWidget(hide)
+        layout.addSpacing(gap)              # Hide ↔ Like = G (Hide is the pivot)
+        layout.addWidget(like)
+        layout.addSpacing(trio)             # tight sentiment trio
+        layout.addWidget(not_interested)
+        layout.addSpacing(trio)
+        layout.addWidget(dislike)
+        layout.addStretch()                 # trailing stretch — center the group
         # NOTE: the rail + primary/secondary rows are left hidden here — they're
         # revealed by set_mode() when a channel is shown, so action controls don't
         # appear in the empty/no-selection state.
@@ -518,9 +550,11 @@ class _PosterSection(QWidget):
             self._watched_badge.raise_()
 
     def _reposition_watched_badge(self) -> None:
-        """Pin the badge to the poster's top-right corner."""
+        """Pin the badge to the poster's LOWER-right corner (near the play zone, where
+        the eye lands after the poster)."""
         x = self.poster_label.width() - self._watched_badge.width() - self._BADGE_MARGIN
-        self._watched_badge.move(max(0, x), self._BADGE_MARGIN)
+        y = self.poster_label.height() - self._watched_badge.height() - self._BADGE_MARGIN
+        self._watched_badge.move(max(0, x), max(0, y))
 
     def _display_poster(self, pixmap: QPixmap) -> None:
         if pixmap and not pixmap.isNull():
