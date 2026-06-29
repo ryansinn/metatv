@@ -904,3 +904,16 @@ QA_ADDRESSED_BADGE = (
     "color: " + COLOR_OK + "; font-size: " + FONT_SM + "; font-weight: bold;"
     " padding-left: 4px;"
 )
+# Clickable variant of the addressed badge — jumps to the addressing entry.
+QA_ADDRESSED_BADGE_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_OK + ";"
+    " font-size: " + FONT_SM + "; font-weight: bold; padding-left: 4px; text-align: left; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; text-decoration: underline; }"
+)
+# "Go ▸" deep-link button — jumps the app to the view/content a test step targets.
+QA_GOTO_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_ACCENT_BLUE + "; background: transparent;"
+    " color: " + COLOR_ACCENT_BLUE + "; border-radius: 4px; padding: 0 8px;"
+    " font-size: " + FONT_SM + "; font-weight: bold; }"
+    "QPushButton:hover { background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_ACCENT_BLUE_2 + "; }"
+)
