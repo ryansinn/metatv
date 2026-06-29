@@ -106,6 +106,11 @@ class ChannelListModel(QAbstractListModel):
         self._get_media_type_icon: Optional[Callable[[str | None], str]] = None
         # Graduated-watch lower bound (int 0–100; default 10% = config default 0.10)
         self._partial_threshold_pct: int = 10
+        # Channel ids that are UNVIEWED watch-for matches — rendered with a 🚨 marker
+        # + green title (the colourblind-safe pairing).  Passed in from MainWindow on
+        # set_channels (read of config.get_unviewed_vod_match_ids); updated in place by
+        # update_new_match_ids() when a match is cleared/found so the green flips live.
+        self._new_match_ids: set[str] = set()
 
         # Generation guard: incremented on every set_channels(); page results
         # that were requested before the last reset carry an old generation and
@@ -382,6 +387,7 @@ class ChannelListModel(QAbstractListModel):
         unfavorite_icon: str = _icons.unfavorite_icon,
         get_media_type_icon: Optional[Callable[[str | None], str]] = None,
         partial_threshold_pct: int = 10,
+        new_match_ids: Optional[set[str]] = None,
     ) -> None:
         """Reset the model with a fresh first page of results.
 
@@ -424,6 +430,7 @@ class ChannelListModel(QAbstractListModel):
         self._unfavorite_icon = unfavorite_icon
         self._get_media_type_icon = get_media_type_icon
         self._partial_threshold_pct = partial_threshold_pct
+        self._new_match_ids = set(new_match_ids or ())
         self._rebuild_index()
         if self._grouped:
             self._rebuild_buckets()
@@ -717,14 +724,21 @@ class ChannelListModel(QAbstractListModel):
 
     def _compose_parts(
         self, channel: ChannelListDTO
-    ) -> tuple[str, str, str | None, str]:
-        """Compose the row as ``(left, indicator_glyph, indicator_colour, right)``.
+    ) -> tuple[str, str, str | None, str, bool]:
+        """Compose the row as ``(left, indicator_glyph, indicator_colour, right, new_match)``.
 
         Layout:
             ``{left}{indicator}{right}`` where ``left`` ends with the leading
             icons/tags ("{src}{media}{fav} {prefix_group}") and ``right`` begins
             with a space then the title and trailing badges.  The indicator is the
             fixed-position playback-state separator (replaces the old "·").
+
+        When the row is an UNVIEWED watch-for match a 🚨 marker (``new_match_icon``)
+        is prepended to the title in ``right`` — the colourblind-safe non-colour cue
+        that pairs with the green the HTML role applies.  ``new_match`` (the 5th
+        element) tells ``_compose_display_html`` to green the title.  Kept DISTINCT
+        from the playback ▶/✓ separator (it sits in the title text, not the
+        indicator slot) so the two never collide.
         """
         media_icon = (
             self._get_media_type_icon(channel.media_type)
@@ -747,8 +761,11 @@ class ChannelListModel(QAbstractListModel):
 
         glyph, colour = self._playback_indicator(channel)
 
+        new_match = channel.id in self._new_match_ids
+        match_marker = f"{_icons.new_match_icon} " if new_match else ""
+
         left = f"{src_badge}{media_icon}{fav_icon} {prefix_group}"
-        right = f" {bare}{quality_str}{year_str}"
+        right = f" {match_marker}{bare}{quality_str}{year_str}"
         if channel.category:
             right += f" [{channel.category}]"
         # Trailing rating glyph — only shown when the user has rated this channel.
@@ -756,7 +773,7 @@ class ChannelListModel(QAbstractListModel):
             right += f" {_icons.like_icon}"
         elif channel.user_rating == -1:
             right += f" {_icons.dislike_icon}"
-        return left, glyph, colour, right
+        return left, glyph, colour, right, new_match
 
     def _compose_display_text(self, channel: ChannelListDTO) -> str:
         """Compose the plain-text row (DisplayRole).
@@ -769,7 +786,7 @@ class ChannelListModel(QAbstractListModel):
         applied only in the HTML role (see ``_compose_display_html``); the plain
         text carries the SHAPE, which is what makes the indicator colourblind-safe.
         """
-        left, glyph, _colour, right = self._compose_parts(channel)
+        left, glyph, _colour, right, _new_match = self._compose_parts(channel)
         return f"{left}{glyph}{right}"
 
     def _compose_display_html(self, channel: ChannelListDTO) -> str:
@@ -778,14 +795,35 @@ class ChannelListModel(QAbstractListModel):
         Identical text to ``_compose_display_text`` but the playback-state glyph
         is wrapped in a colour ``<span>`` (Resume-orange for in-progress,
         watched-green for completed) so ``ChannelRowDelegate`` can paint it as
-        reinforcement.  All non-glyph text is HTML-escaped (titles can contain
-        ``&``/``<``/``>``).
+        reinforcement.  An unviewed watch-for match additionally greens its title
+        (``COLOR_OK``); the 🚨 marker already in ``right`` is the colourblind-safe
+        cue.  All non-glyph text is HTML-escaped (titles can contain ``&``/``<``/``>``).
         """
-        left, glyph, colour, right = self._compose_parts(channel)
+        left, glyph, colour, right, new_match = self._compose_parts(channel)
         glyph_html = _html.escape(glyph)
         if colour:
             glyph_html = f'<span style="color:{colour}">{glyph_html}</span>'
-        return f"{_html.escape(left)}{glyph_html}{_html.escape(right)}"
+        right_html = _html.escape(right)
+        if new_match:
+            right_html = f'<span style="color:{_theme.COLOR_OK}">{right_html}</span>'
+        return f"{_html.escape(left)}{glyph_html}{right_html}"
+
+    def update_new_match_ids(self, ids: set[str]) -> None:
+        """Replace the unviewed-match id set and repaint loaded rows.
+
+        Called on the main thread when a watch-for match is found or cleared so the
+        🚨 marker + green title flip live without a full reload.  Repaints every
+        loaded row (Qt only redraws the visible viewport, so this is cheap).
+        """
+        self._new_match_ids = set(ids or ())
+        n = self.rowCount()
+        if n > 0:
+            top = self.index(0)
+            bottom = self.index(n - 1)
+            self.dataChanged.emit(
+                top, bottom,
+                [Qt.ItemDataRole.DisplayRole, CHANNEL_HTML_ROLE],
+            )
 
     # ── Generation accessor (for append_page callers) ─────────────────────────
 

@@ -180,6 +180,12 @@ class DetailsPaneWidget(QWidget):
             _is_mon = bool(_check(channel.id))
         self._action_bar.set_monitorable(_is_series, _is_mon)
 
+        # Alert-visibility green: flag the Alert button when this title has UNVIEWED
+        # matched content (a VOD watch-for match the user hasn't acknowledged).
+        _unviewed = getattr(self.config, "is_vod_match_unviewed", None)
+        _has_match = bool(_unviewed(channel.id)) if callable(_unviewed) else False
+        self._action_bar.set_new_match(_has_match)
+
         # Resume button — movies with a saved, incomplete position only.
         _is_movie = getattr(channel, "media_type", None) == MediaType.MOVIE
         _progress = int(getattr(channel, "watch_progress", 0) or 0)

@@ -499,6 +499,8 @@ class TestWatchAlertsSectionVodRules:
         # need to validate list content.
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
+        # Alert-visibility header badge (set on the real widget in create_header).
+        section._new_match_badge = MagicMock()
         return section
 
     def test_no_rules_hides_sub_section(self, qapp):
@@ -586,6 +588,7 @@ class TestVodRuleInteractiveActions:
         section._vod_list = QListWidget()
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
+        section._new_match_badge = MagicMock()
         return section
 
     def test_single_click_resolves_correct_rule_text_and_type(self, qapp):

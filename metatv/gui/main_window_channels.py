@@ -543,6 +543,7 @@ class _ChannelListMixin:
             partial_threshold_pct=int(
                 getattr(self.config, "watch_partial_threshold", 0.10) * 100
             ),
+            new_match_ids=self.config.get_unviewed_vod_match_ids(),
         )
 
         # Stash the stats context so _refresh_channel_stats_label() can recompute
@@ -868,6 +869,8 @@ class _ChannelListMixin:
             ctx.is_watched = cid in self.config.epg_watchlist_channels
             _is_mon = getattr(self.config, "is_series_monitored", None)
             ctx.is_series_monitored = bool(_is_mon(cid)) if callable(_is_mon) else False
+            _unviewed = getattr(self.config, "is_vod_match_unviewed", None)
+            ctx.has_unviewed_match = bool(_unviewed(cid)) if callable(_unviewed) else False
         ctx.playback_resume_mode = getattr(self.config, "playback_resume_mode", "resume")
 
         surface = ctx.surface
@@ -949,6 +952,7 @@ class _ChannelListMixin:
                 if ctx.is_series_monitored
                 else (lambda: self._monitor_series(cid))
             ),
+            "clear_alert": lambda: self._clear_vod_alert(cid),
             "mark_watched": (
                 (lambda: self._mark_channel_unwatched(cid))
                 if ctx.is_vod_watched

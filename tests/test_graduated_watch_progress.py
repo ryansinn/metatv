@@ -281,6 +281,7 @@ def _build_model(partial_threshold_pct: int = 10):
     model._generation = 0
     model._id_to_index = {}
     model._partial_threshold_pct = partial_threshold_pct
+    model._new_match_ids = set()
     return model
 
 

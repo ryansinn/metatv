@@ -56,6 +56,7 @@ class ChannelMenuContext:
     is_watched: bool = False          # channel_id in config.epg_watchlist_channels
     is_vod_watched: bool = False      # channel.watch_completed (VOD manual-watched state)
     is_series_monitored: bool = False  # channel_id in config.monitored_series
+    has_unviewed_match: bool = False   # channel is an UNVIEWED VOD watch-for match
     has_unavailable: bool = False     # favorites/queue Clear-Unavailable enablement
     channel_name: str = ""
     user_category: str | None = None
@@ -294,6 +295,17 @@ ACTIONS: dict[str, ChannelAction] = {
             and not c.is_hidden
             and c.media_type == "series"
         ),
+    ),
+    # ── Alert visibility ─────────────────────────────────────────────────────
+    # Shown ONLY when the item is an unviewed watch-for match.  Acknowledges the
+    # match (flips viewed → green-off everywhere); does NOT remove from the queue
+    # or mark anything watched.  The user dismisses — nothing auto-acts.
+    "clear_alert": ChannelAction(
+        id="clear_alert",
+        label=lambda c: "Clear alert — I've seen this",
+        icon=_icons.new_match_icon,
+        tooltip="Acknowledge this new match — clears the alert highlight everywhere",
+        applies=lambda c: c.is_single and c.has_unviewed_match,
     ),
     # ── VOD mark watched ────────────────────────────────────────────────────
     "mark_watched": ChannelAction(
@@ -541,6 +553,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "monitor_series",
         "sep",
+        "clear_alert",
+        "sep",
         "watch", "track", "unhide", "hide",
         "sep",
         "category",
@@ -564,6 +578,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "monitor_series",
         "sep",
+        "clear_alert",
+        "sep",
         "remove_history", "hide",
     ],
     "favorites": [
@@ -575,6 +591,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "like", "dislike",
         "sep",
         "monitor_series",
+        "sep",
+        "clear_alert",
         "sep",
         "clear_unavailable",
     ],
@@ -590,6 +608,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "monitor_series",
         "sep",
+        "clear_alert",
+        "sep",
         "hide",
         "sep",
         "clear_unavailable",
@@ -604,6 +624,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "monitor_series",
         "sep",
+        "clear_alert",
+        "sep",
         "not_interested", "hide",
     ],
     "alerts": [
@@ -614,6 +636,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "like", "dislike",
         "sep",
         "watch",
+        "sep",
+        "clear_alert",
         "sep",
         "hide",
     ],
