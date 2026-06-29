@@ -650,3 +650,49 @@ instead of dedup-ing per surface.
   debuggable and degrades gracefully to the `id:` fallback.
 - *A global "show all variants" toggle* — splits the browse list and competes with the details variant
   view; collapse stays always-on (Q3).
+
+---
+
+### DR-0010 — A reserved visual language: color carries meaning, but never alone (color + shape/text)
+**Status:** Accepted (2026-06-28).
+**Ties to:** the two Governing Principles (single source of truth — `theme.py` for color values,
+`icons.py` for glyphs); PRODUCT_VISION (function over form — meaning is engineered, not decorative);
+DR-0006 (surface state honestly so the user can read it). **Rule to distill:** the meanings live in
+`docs/UI_UX_GUIDELINES.md` → "Visual language"; the firm value rules stay in CLAUDE.md → "Styles"
+(color/font-size only in `theme.py` tokens) and "Icons" (glyphs only from `icons.py`).
+
+**Problem.** The token rules already guaranteed *where* a color or glyph may be defined, but not
+*what it means*. Without a reserved palette of meanings, the same color drifts into unrelated roles
+across surfaces (orange as "resume" here, "generic accent" there), and a reader can't trust a cue.
+Worse, leaning on color alone fails a real slice of users: red↔green colorblindness makes a
+green-vs-red signal unreliable, so a color-only "watched vs in-progress vs playing" indicator is
+illegible to them — the cue silently disappears rather than degrading.
+
+**Decision — two locked conventions.**
+1. **Reserve color meanings.** Three semantic colors carry fixed meaning and are not overloaded:
+   **orange** (`COLOR_ACCENT_ORANGE` / `COLOR_PLAYBACK_IN_PROGRESS`) = resume / in-progress;
+   **green** (`COLOR_OK` / `COLOR_PLAYBACK_WATCHED`) = affirmative / active-now / new
+   (watched ✓, the currently-playing outline + timer, a new monitored match); **gray/monotone**
+   (`COLOR_MUTED`) = neutral / default. The semantic aliases exist so each meaning has a role-named
+   home, not a bare hex. Context menus formalize the scarcity rule: one monotone palette with a
+   *single* accent — orange, for the resume action only.
+2. **Color is never the sole signal.** Every color cue pairs with a non-color cue — a glyph *shape*,
+   text, or a count — and the shape/text carries the meaning while color reinforces. The play-triangle
+   `▶`, the check `✓`, the live elapsed timer on the currently-playing button, and the `🚨` + count on
+   a new match each read with color vision *removed*. This is accessibility designed in, not bolted on,
+   and it's why the channel-list separator is a *3-state glyph* (·/▶/✓), not three colors of a dot.
+
+**Why this is worth a rule (not just taste).** A reserved language compounds: once orange means
+"resume" everywhere, the Resume button, the row `▶`, and the menu's resume item teach each other, and a
+new surface inherits the meaning for free (the same single-source-of-truth payoff as the
+hex→token migration, applied to *semantics* rather than *values*). And the color+shape pairing converts
+an accessibility requirement into a design constraint that also makes the UI clearer for everyone
+(redundant cues read faster).
+
+**Rejected.**
+- *Color-only state indicators* — illegible under red-green colorblindness and lower-contrast displays;
+  the cue vanishes instead of degrading. Pair every color with a shape/text.
+- *An open accent palette ("use whatever color looks good")* — meanings drift per surface and a reader
+  can no longer trust a color; reserving three meanings is the constraint that keeps cues legible.
+- *Green for the poster watched badge* — deliberately kept neutral (Plex/Jellyfin overlay convention)
+  so green stays exclusively the "active-now" cue and the corner badge doesn't read as "playing".
