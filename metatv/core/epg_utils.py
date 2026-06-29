@@ -188,6 +188,130 @@ def browse_anchors(_now: datetime | None = None, tz=None) -> list[tuple[str, dat
     return anchors
 
 
+# ---------------------------------------------------------------------------
+# Timeline scrubber (Browse Phase 2) — single source of truth for the snap
+# granularity choices and the pure position↔time math + label formatting.
+# The slider's integer value is in *increment units*: value 0 = the track's
+# left bound, value v = left_bound + v * increment. Snapping is therefore
+# inherent (every integer value lands on an increment boundary); both the
+# drag-seek and the scroll→handle mapping round through these helpers so the
+# snap rule lives in exactly one place.
+# ---------------------------------------------------------------------------
+
+# Allowed scrubber snap granularities (minutes) — the Settings dropdown choices
+# and the default. Single source of truth shared by config validation tests and
+# the settings dialog.
+EPG_SCRUBBER_INCREMENTS: list[int] = [15, 30, 60]
+
+
+def scrubber_value_for(left_bound: datetime, dt: datetime,
+                       increment_minutes: int) -> int:
+    """Map a UTC-naive datetime to the nearest scrubber slider value (snapped).
+
+    The value is the count of ``increment_minutes`` steps from ``left_bound`` to
+    ``dt``, rounded to the nearest step — this is the snap chokepoint for both a
+    drag (time → value) and the scroll→handle sync (topmost-row time → value).
+
+    Args:
+        left_bound: The track's left edge (UTC-naive); slider value 0.
+        dt: The target datetime (UTC-naive) to convert.
+        increment_minutes: Snap granularity (one of :data:`EPG_SCRUBBER_INCREMENTS`).
+
+    Returns:
+        The (possibly clamped by the caller) integer slider value. May be negative
+        if ``dt`` precedes ``left_bound``; callers clamp to the slider range.
+    """
+    step = max(1, increment_minutes)
+    minutes = (dt - left_bound).total_seconds() / 60.0
+    return int(round(minutes / step))
+
+
+def scrubber_time_for(left_bound: datetime, value: int,
+                      increment_minutes: int) -> datetime:
+    """Map a scrubber slider value back to its (snapped) UTC-naive datetime.
+
+    Inverse of :func:`scrubber_value_for`. Because ``value`` is an integer count
+    of increments, the result always lands on the increment grid.
+
+    Args:
+        left_bound: The track's left edge (UTC-naive); slider value 0.
+        value: The integer slider value.
+        increment_minutes: Snap granularity (one of :data:`EPG_SCRUBBER_INCREMENTS`).
+
+    Returns:
+        ``left_bound + value * increment_minutes`` as a UTC-naive datetime.
+    """
+    step = max(1, increment_minutes)
+    return left_bound + timedelta(minutes=value * step)
+
+
+def scrubber_bounds(min_start: datetime | None, max_start: datetime | None,
+                    hide_older_hours: int, _now: datetime | None = None,
+                    ) -> tuple[datetime, datetime]:
+    """Compute the scrubber track's (left, right) bounds in UTC-naive time.
+
+    LEFT  = ``now - hide_older_hours`` clamped UP to the guide's earliest start
+            and clamped DOWN to ``now`` (so the default handle at "now" is always
+            within range). ``hide_older_hours == 0`` → left == now (forward-only).
+    RIGHT = the guide's latest start, clamped to be at least ``now`` (and at least
+            ``left``) so the track is always non-empty.
+
+    Args:
+        min_start: Earliest programme start for the scoped sources, or ``None``.
+        max_start: Latest programme start for the scoped sources, or ``None``.
+        hide_older_hours: Browse left-bound window (``epg_browse_hide_older_than_hours``).
+        _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+
+    Returns:
+        ``(left_bound, right_bound)`` UTC-naive datetimes with ``left <= right``.
+    """
+    now = _now or now_utc()
+    if min_start is None or max_start is None:
+        # No guide data for the scope → collapse to a point at "now" (the scrubber
+        # is disabled in this state anyway).
+        return now, now
+    right = max(max_start, now)
+    left = now - timedelta(hours=hide_older_hours) if hide_older_hours > 0 else now
+    left = max(left, min_start)
+    left = min(left, now)          # never start the track after "now"
+    if left > right:               # degenerate guide → collapse to a point at now
+        left = right = now
+    return left, right
+
+
+def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
+    """Format a UTC-naive scrubber position as a local day-context tick label.
+
+    Day boundaries become words — "Today"/"Tonight" (today, evening), "Tomorrow",
+    "Yesterday", a weekday name within the coming week, else "Mon Jul 6" — followed
+    by the local clock time (e.g. "Tomorrow 6:00 PM"). All conversion goes through
+    :func:`to_local` (never inline tz math).
+
+    Args:
+        dt: The scrubber position (UTC-naive).
+        _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+
+    Returns:
+        A short local label like "Tonight 9:30 PM" / "Wed 8:00 AM".
+    """
+    now = _now or now_utc()
+    local = to_local(dt)
+    local_now = to_local(now)
+    day_delta = (local.date() - local_now.date()).days
+    time_str = local.strftime("%-I:%M %p")
+    if day_delta == 0:
+        prefix = "Tonight" if local.hour >= 18 else "Today"
+    elif day_delta == 1:
+        prefix = "Tomorrow"
+    elif day_delta == -1:
+        prefix = "Yesterday"
+    elif 1 < day_delta < 7:
+        prefix = local.strftime("%A")
+    else:
+        prefix = local.strftime("%a %b %-d")
+    return f"{prefix} {time_str}"
+
+
 def fmt_time(dt: datetime) -> str:
     """UTC-naive EPG datetime → local time string like '5:30 PM'."""
     return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p").lstrip("0") or "12:00 AM"

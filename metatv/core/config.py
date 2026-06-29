@@ -819,8 +819,12 @@ class Config(BaseModel):
     # Browse-tab left bound: hide programmes that started more than this many hours
     # ago. The forward-looking Browse already floors to "now", so in Phase 1 this is
     # a guard; the Phase-2 timeline scrubber reuses it as the real left edge. 0 = no
-    # extra trim beyond the now-floor.
+    # extra trim beyond the now-floor (and the scrubber is strictly forward-only).
     epg_browse_hide_older_than_hours: int = 24
+    # Phase-2 timeline scrubber snap granularity (minutes). Dragging the handle snaps
+    # to this increment; the slider's integer steps are one increment each. One of
+    # epg_utils.EPG_SCRUBBER_INCREMENTS (15 / 30 / 60).
+    epg_scrubber_increment_minutes: int = 30
 
     # Details pane UI settings
     details_pane_visible: bool = False  # Show/hide details pane

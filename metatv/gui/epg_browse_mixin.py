@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSlider,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -64,10 +65,20 @@ from metatv.core.epg_utils import (
     fmt_time as _format_time,
     fmt_duration as _duration_str,
     to_local as _to_local,
+    now_utc as _now_utc,
+    scrubber_bounds as _scrubber_bounds,
+    scrubber_time_for as _scrubber_time_for,
+    scrubber_value_for as _scrubber_value_for,
+    scrubber_label as _scrubber_label,
 )
 
 # Forward-list page size — one keyset page fetched per scroll-to-bottom.
 _BROWSE_PAGE_SIZE = 200
+
+# Per-item role storing the programme's UTC-naive start_time datetime — read by the
+# scroll→handle sync to map the topmost visible row back to a scrubber position.
+# (_SORT/_PROGRESS/_REMAIN use UserRole +2/+3/+4 in epg_widgets; +5 is distinct.)
+_START_ROLE = int(Qt.ItemDataRole.UserRole) + 5
 
 
 class _EpgBrowseMixin:
@@ -89,6 +100,18 @@ class _EpgBrowseMixin:
         self._browse_exhausted: bool = True         # no more pages to fetch
         self._browse_loading: bool = False          # a fetch is in flight
         self._browse_gen: int = 0                   # reload generation (drops stale async pages)
+
+        # Timeline-scrubber (Phase 2) state. The slider value is in increment units;
+        # _scrubber_left/right are the track's UTC-naive bounds (sized from the scoped
+        # guide bounds on each fresh load). _scrubber_syncing guards the seek↔scroll
+        # feedback loop: any PROGRAMMATIC setValue (scroll-driven sync, combo jump,
+        # bounds reconfigure) sets it True so valueChanged never fires a seek back.
+        self._scrubber_left: "datetime | None" = None
+        self._scrubber_right: "datetime | None" = None
+        self._scrubber_increment: int = 30
+        self._scrubber_ready: bool = False          # bounds configured at least once
+        self._scrubber_syncing: bool = False        # True ⇒ a programmatic setValue
+        self._last_seek_value: int | None = None    # de-dup repeated seeks to same step
 
         # Search row with clear button
         search_row = QHBoxLayout()
@@ -116,7 +139,9 @@ class _EpgBrowseMixin:
             "The list runs chronologically and never shows the past."
         )
         self._refresh_browse_anchors()
-        self.anchor_combo.currentIndexChanged.connect(self._reload_browse)
+        # The anchor combo is now a set of quick-jumps that MOVE the scrubber handle
+        # (and seek there) — it stays as a fast way to leap to Now/Tonight/Tomorrow.
+        self.anchor_combo.currentIndexChanged.connect(self._on_anchor_selected)
 
         self.hide_filler_btn = QPushButton("Hide Filler ✓")
         self.hide_filler_btn.setCheckable(True)
@@ -129,6 +154,38 @@ class _EpgBrowseMixin:
         filter_row.addStretch()
         filter_row.addWidget(self.hide_filler_btn)
         layout.addLayout(filter_row)
+
+        # ── Timeline scrubber (Phase 2) ─────────────────────────────────────
+        # A horizontal handle across the guide's time range, two-way synced to the
+        # list: drag → seek the list to that time; scroll → the handle tracks the
+        # topmost visible programme. Snap granularity is config-driven (15/30/60).
+        scrubber_row = QHBoxLayout()
+        scrubber_row.setSpacing(8)
+        self._scrubber_left_label = QLabel("")
+        self._scrubber_left_label.setStyleSheet(_theme.LABEL_MUTED)
+        scrubber_row.addWidget(self._scrubber_left_label)
+
+        self._browse_scrubber = QSlider(Qt.Orientation.Horizontal)
+        self._browse_scrubber.setEnabled(False)  # enabled once bounds are known
+        self._browse_scrubber.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._browse_scrubber.setToolTip(
+            "Scrub the guide timeline — drag to seek the schedule to a point in time. "
+            "Scrolling the list moves the handle; dragging snaps to your chosen interval."
+        )
+        self._browse_scrubber.valueChanged.connect(self._on_scrubber_value_changed)
+        self._browse_scrubber.sliderReleased.connect(self._scrubber_seek)
+        scrubber_row.addWidget(self._browse_scrubber, 1)
+
+        self._scrubber_right_label = QLabel("")
+        self._scrubber_right_label.setStyleSheet(_theme.LABEL_MUTED)
+        scrubber_row.addWidget(self._scrubber_right_label)
+        layout.addLayout(scrubber_row)
+
+        # Current-handle position label (updates live while dragging).
+        self._scrubber_pos_label = QLabel("")
+        self._scrubber_pos_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scrubber_pos_label.setStyleSheet(_theme.EPG_SCRUBBER_POS)
+        layout.addWidget(self._scrubber_pos_label)
 
         # Programme tree: Time | Channel | Show | Duration
         self.browse_list = QTreeWidget()
@@ -217,7 +274,7 @@ class _EpgBrowseMixin:
             })
             return
 
-        anchor = self.anchor_combo.currentData()
+        anchor = self._scrubber_anchor()
         hide_filler = self.hide_filler_btn.isChecked()
         self._executor.submit(
             self._fetch_browse, provider_ids, anchor, search, hide_filler, None, False, gen
@@ -236,14 +293,22 @@ class _EpgBrowseMixin:
         self._browse_loading = True
         gen = getattr(self, "_browse_gen", 0)
         search = self.search_input.text().strip()
-        anchor = self.anchor_combo.currentData()
+        anchor = self._scrubber_anchor()
         hide_filler = self.hide_filler_btn.isChecked()
         self._executor.submit(
             self._fetch_browse, provider_ids, anchor, search, hide_filler, cursor, True, gen
         )
 
     def _on_browse_scroll(self, _value: int = 0) -> None:
-        """Trigger the next page when scrolled near the bottom of the results."""
+        """Trigger the next page when scrolled near the bottom; sync the scrubber.
+
+        Scroll → handle: the scrubber tracks the topmost visible programme's start
+        time (mapped through the snap helpers). This runs on every scroll, including
+        the scrollbar reset after a fresh load, and is feedback-loop safe — the
+        programmatic ``setValue`` is wrapped in the ``_scrubber_syncing`` guard so it
+        can never bounce back into a seek.
+        """
+        self._sync_scrubber_to_scroll()
         if getattr(self, "_browse_loading", False) or getattr(self, "_browse_exhausted", True):
             return
         sb = self.browse_list.verticalScrollBar()
@@ -254,6 +319,160 @@ class _EpgBrowseMixin:
         threshold = max(maximum - sb.pageStep() * 3 // 2, 0)
         if sb.value() >= threshold:
             self._load_more_browse()
+
+    # ── Timeline scrubber (Phase 2) ────────────────────────────────────────
+
+    def _scrubber_anchor(self):
+        """The anchor (UTC-naive) for the next fetch — the scrubber handle's time.
+
+        Falls back to the anchor combo's data before the scrubber has been sized
+        (first load) or in lightweight unit hosts without a scrubber, so the Phase-1
+        reload path stays valid.
+        """
+        scrubber = getattr(self, "_browse_scrubber", None)
+        if scrubber is None or not getattr(self, "_scrubber_ready", False):
+            return self.anchor_combo.currentData()
+        return _scrubber_time_for(
+            self._scrubber_left, scrubber.value(), self._scrubber_increment
+        )
+
+    def _configure_scrubber(self, guide_bounds) -> None:
+        """Size the scrubber track from the scoped guide bounds (main thread).
+
+        Called from the browse data-loaded dispatch on a fresh (non-append) page.
+        Re-reads the snap increment from config each time so a Settings change takes
+        effect on the next load. The current handle TIME is preserved across a
+        re-size (the track rarely changes), defaulting to "now" on first configure.
+        """
+        if getattr(self, "_browse_scrubber", None) is None:
+            return
+        min_start, max_start = guide_bounds or (None, None)
+        now = _now_utc()
+
+        # Resolve the handle's current TIME using the OLD bounds/increment BEFORE they
+        # are overwritten — so a re-size (or a Settings snap change) never yanks the
+        # handle. Defaults to NOW on first open / on view re-activation (reset flag).
+        reset = getattr(self, "_scrubber_reset_to_now", False)
+        keep = (
+            getattr(self, "_scrubber_ready", False)
+            and self._scrubber_left is not None
+            and not reset
+        )
+        prev_time = (
+            _scrubber_time_for(self._scrubber_left, self._browse_scrubber.value(),
+                               self._scrubber_increment)
+            if keep else now
+        )
+        self._scrubber_reset_to_now = False
+
+        self._scrubber_increment = (
+            getattr(self.config, "epg_scrubber_increment_minutes", 30) or 30
+        )
+        inc = self._scrubber_increment
+        left, right = _scrubber_bounds(
+            min_start, max_start,
+            getattr(self.config, "epg_browse_hide_older_than_hours", 0) or 0,
+            _now=now,
+        )
+
+        self._scrubber_left = left
+        self._scrubber_right = right
+        steps = max(1, _scrubber_value_for(left, right, inc))
+        value = min(max(_scrubber_value_for(left, prev_time, inc), 0), steps)
+
+        self._scrubber_syncing = True
+        self._browse_scrubber.setRange(0, steps)
+        self._browse_scrubber.setTickInterval(max(1, round(24 * 60 / inc)))  # day marks
+        self._browse_scrubber.setValue(value)
+        self._browse_scrubber.setEnabled(min_start is not None)
+        self._scrubber_syncing = False
+
+        self._scrubber_ready = True
+        self._last_seek_value = value
+        self._update_scrubber_labels()
+
+    def _set_scrubber_time(self, dt) -> None:
+        """Move the handle to a datetime PROGRAMMATICALLY (no seek), e.g. combo jump."""
+        if getattr(self, "_browse_scrubber", None) is None or not self._scrubber_ready:
+            return
+        value = _scrubber_value_for(self._scrubber_left, dt, self._scrubber_increment)
+        value = min(max(value, self._browse_scrubber.minimum()),
+                    self._browse_scrubber.maximum())
+        self._scrubber_syncing = True
+        self._browse_scrubber.setValue(value)
+        self._scrubber_syncing = False
+        self._last_seek_value = value
+        self._update_scrubber_labels()
+
+    def _on_anchor_selected(self) -> None:
+        """Anchor combo changed → jump the handle to that time, then seek there."""
+        anchor = self.anchor_combo.currentData()
+        if anchor is not None and getattr(self, "_scrubber_ready", False):
+            self._set_scrubber_time(anchor)
+        self._reload_browse()
+
+    def _on_scrubber_value_changed(self, _value: int = 0) -> None:
+        """Slider value changed — refresh the live label; seek unless it's a sync.
+
+        Mid-drag (``isSliderDown``) we only update the label and defer the seek to
+        ``sliderReleased``; a PROGRAMMATIC change (``_scrubber_syncing``) never seeks
+        — that is the feedback-loop guard for scroll-driven / combo / re-size moves.
+        Keyboard and page-click changes (not down, not syncing) seek immediately.
+        """
+        self._update_scrubber_labels()
+        if getattr(self, "_scrubber_syncing", False):
+            return
+        if self._browse_scrubber.isSliderDown():
+            return
+        self._scrubber_seek()
+
+    def _scrubber_seek(self) -> None:
+        """Reload the list anchored at the handle's (snapped) time. De-duped."""
+        if not getattr(self, "_scrubber_ready", False):
+            return
+        value = self._browse_scrubber.value()
+        if value == getattr(self, "_last_seek_value", None):
+            return
+        self._last_seek_value = value
+        self._reload_browse()
+
+    def _sync_scrubber_to_scroll(self) -> None:
+        """Move the handle to the topmost visible programme's time (no seek)."""
+        if not getattr(self, "_scrubber_ready", False):
+            return
+        scrubber = getattr(self, "_browse_scrubber", None)
+        if scrubber is None or self._scrubber_left is None:
+            return
+        item = self.browse_list.itemAt(2, 2)  # top-left of the viewport
+        if item is None:
+            return
+        start = item.data(0, _START_ROLE)
+        if start is None:
+            return
+        value = _scrubber_value_for(self._scrubber_left, start, self._scrubber_increment)
+        value = min(max(value, scrubber.minimum()), scrubber.maximum())
+        if value == scrubber.value():
+            return
+        self._scrubber_syncing = True
+        scrubber.setValue(value)
+        self._scrubber_syncing = False
+        # The list now reflects this position; record it so a release here is a no-op.
+        self._last_seek_value = value
+        self._update_scrubber_labels()
+
+    def _update_scrubber_labels(self) -> None:
+        """Refresh the live position label + the two end labels (local day-context)."""
+        if getattr(self, "_scrubber_pos_label", None) is None:
+            return
+        if not getattr(self, "_scrubber_ready", False) or self._scrubber_left is None:
+            return
+        now = _now_utc()
+        current = _scrubber_time_for(
+            self._scrubber_left, self._browse_scrubber.value(), self._scrubber_increment
+        )
+        self._scrubber_pos_label.setText(_scrubber_label(current, _now=now))
+        self._scrubber_left_label.setText(_scrubber_label(self._scrubber_left, _now=now))
+        self._scrubber_right_label.setText(_scrubber_label(self._scrubber_right, _now=now))
 
     def _fetch_browse(self, provider_ids: list[str], anchor, search: str,
                       hide_filler: bool, after, append: bool, gen: int) -> None:
@@ -271,8 +490,11 @@ class _EpgBrowseMixin:
             hours = getattr(self.config, "epg_browse_hide_older_than_hours", 0) or 0
             max_age = timedelta(hours=hours) if hours > 0 else None
 
-            # Forward-looking, chronological, keyset-paginated. The repo floors the
-            # anchor to "now" so the PAST never appears, and search narrows within.
+            # Chronological, keyset-paginated. With a configured "hide older than"
+            # window (max_age) the scrubber may seek BACK into the bounded recent past
+            # (floor_to_now=False); with hours==0 the list is strictly forward-only
+            # (floor_to_now=True) — the now-floor and the scrubber's left bound stay
+            # in lock-step. Search narrows within either.
             programs = repo.get_schedule_forward(
                 provider_ids=provider_ids,
                 anchor=anchor,
@@ -283,14 +505,22 @@ class _EpgBrowseMixin:
                 after=after,
                 limit=_BROWSE_PAGE_SIZE,
                 max_age=max_age,
+                floor_to_now=(max_age is None),
             )
 
             # Honest coverage for the empty-state (first page only): the LAST
             # CONTIGUOUS programme the scoped sources actually carry from now (stops
             # at the first hole) — NOT the inflated max stop_time anywhere.
             guide_end = None
+            guide_bounds = None
             if not append:
                 guide_end = repo.get_contiguous_guide_end(
+                    provider_ids,
+                    excluded_channel_provider_ids=excluded_ch_provider_ids,
+                )
+                # Scoped (min_start, max_start) → sizes the scrubber track. Computed
+                # on the first page only so a "load more" never resizes the track.
+                guide_bounds = repo.get_guide_bounds(
                     provider_ids,
                     excluded_channel_provider_ids=excluded_ch_provider_ids,
                 )
@@ -319,6 +549,7 @@ class _EpgBrowseMixin:
                 "tab": "browse",
                 "programs": programs,
                 "guide_end": guide_end,
+                "guide_bounds": guide_bounds,
                 "search": search,
                 "append": append,
                 "gen": gen,
@@ -370,6 +601,8 @@ class _EpgBrowseMixin:
             item = _EpgTreeItem([time_str, ch_name, title, dur])
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
+            # Raw UTC-naive start_time for the scroll→scrubber-handle mapping.
+            item.setData(0, _START_ROLE, prog.start_time)
 
             if any(pat in prog.title.lower() for pat in patterns):
                 for col in range(4):
