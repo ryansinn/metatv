@@ -102,3 +102,70 @@ def test_full_content_matches_narrow_viewport(qapp):
         f"content width {content.width()}px exceeds the {viewport_w}px viewport — the "
         "poster is still forcing the column wider than the pane (chips would clip)"
     )
+
+
+# A scene-release-style token with no spaces — a word-wrapped QLabel cannot break it at
+# a space, so without the Ignored-horizontal opt-in it sets minimumSizeHint().width() to
+# the whole token and floors the content column.  This is the SECOND forcer behind the
+# Cowboy Bebop bug: only the variants whose plot/tagline carried such a token overflowed.
+_LONG_TOKEN = "Cowboy.Bebop.1998.Complete.Series.1080p.BluRay.x265-EXAMPLEGROUP.PLUS.MORE"
+
+
+def _full_pane(qapp, tmp_path):
+    from metatv.core.image_cache import ImageCache
+    from metatv.gui.details_pane import DetailsPaneWidget
+
+    cfg = _make_config()
+    ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
+    pane = DetailsPaneWidget(cfg, ic, None)  # db=None → no EPG agenda
+    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._tech):
+        if hasattr(sec, "set_mode"):
+            sec.set_mode(False)
+    return pane
+
+
+def test_wrapping_labels_opt_out_of_width(qapp, tmp_path):
+    """Every word-wrapped text label in the details pane ignores its horizontal hint —
+    so a long unbreakable token can't floor the content column at the token width."""
+    pane = _full_pane(qapp, tmp_path)
+    labels = [
+        pane._plot.plot_label,
+        pane._meta._tagline_lbl,
+        pane._meta.rec_reason_label,
+        pane._cast.cast_label,
+        pane._cast._director_lbl,
+        pane._tech.tech_details_label,
+        pane._poster._country_info_lbl,
+    ]
+    for lbl in labels:
+        assert lbl.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored, (
+            f"{lbl.objectName() or lbl} must ignore its width hint so a long token "
+            "(scene-release name / URL) can't widen the pane"
+        )
+
+
+def test_long_token_plot_does_not_force_content_width(qapp, tmp_path):
+    """End-to-end repro of the 3-variants case: a plot/tagline with a long unbreakable
+    token, plus a wide hi-res poster, must NOT widen the content past a narrow viewport."""
+    pane = _full_pane(qapp, tmp_path)
+    pane._plot.plot_label.setText(_LONG_TOKEN)
+    pane._plot.plot_label.show()
+    pane._meta._tagline_lbl.setText(_LONG_TOKEN)
+    pane._meta._tagline_lbl.show()
+    pane._poster._display_poster(QPixmap(680, 1000))
+
+    pane.resize(300, 1800)
+    pane.show()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    content = pane._content_layout.parentWidget()
+    assert content.width() <= 301, (
+        f"content width {content.width()}px exceeds the 300px pane — a long-token "
+        "plot/tagline is still forcing the column wider than the viewport"
+    )
+    # And the token genuinely wraps to multiple lines rather than overflowing in one.
+    plot = pane._plot.plot_label
+    assert plot.heightForWidth(180) > plot.heightForWidth(2000), (
+        "the long token must break across lines when the pane is narrow"
+    )
