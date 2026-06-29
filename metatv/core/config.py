@@ -816,11 +816,12 @@ class Config(BaseModel):
     epg_filter_state: dict = Field(default_factory=dict)
     epg_events_view_mode: str = "timeline"   # "timeline" | "network" — Events tab sub-view toggle
     epg_events_network_filter: str = "All"   # network combo selection in Events tab
-    # Browse-tab left bound: hide programmes that started more than this many hours
-    # ago. The forward-looking Browse already floors to "now", so in Phase 1 this is
-    # a guard; the Phase-2 timeline scrubber reuses it as the real left edge. 0 = no
-    # extra trim beyond the now-floor (and the scrubber is strictly forward-only).
-    epg_browse_hide_older_than_hours: int = 24
+    # Browse-tab "Allow browsing back" window (hours). The Browse timeline's default
+    # left edge is the oldest CURRENTLY-AIRING show's start (so you see the beginning
+    # of everything on now). This setting extends the scrubber's left edge FURTHER
+    # into the past, letting you browse back that many hours. 0 (default) = no extra
+    # back-browse beyond the oldest currently-airing show.
+    epg_browse_hide_older_than_hours: int = 0
     # Phase-2 timeline scrubber snap granularity (minutes). Dragging the handle snaps
     # to this increment; the slider's integer steps are one increment each. One of
     # epg_utils.EPG_SCRUBBER_INCREMENTS (15 / 30 / 60).

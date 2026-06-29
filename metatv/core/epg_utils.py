@@ -246,20 +246,32 @@ def scrubber_time_for(left_bound: datetime, value: int,
 
 
 def scrubber_bounds(min_start: datetime | None, max_start: datetime | None,
-                    hide_older_hours: int, _now: datetime | None = None,
+                    hide_older_hours: int,
+                    oldest_airing_start: datetime | None = None,
+                    _now: datetime | None = None,
                     ) -> tuple[datetime, datetime]:
     """Compute the scrubber track's (left, right) bounds in UTC-naive time.
 
-    LEFT  = ``now - hide_older_hours`` clamped UP to the guide's earliest start
-            and clamped DOWN to ``now`` (so the default handle at "now" is always
-            within range). ``hide_older_hours == 0`` → left == now (forward-only).
+    LEFT  defaults to ``oldest_airing_start`` — the start of the oldest show that is
+          still on right now — so the track reaches back just far enough to show the
+          BEGINNING of everything currently airing, but no further by default. When
+          nothing is airing it falls back to ``now``. A non-zero ``hide_older_hours``
+          ("Allow browsing back") extends the left edge further into the past
+          (``now - hide_older_hours``). The result is clamped UP to the guide's
+          earliest start (never before real data) and DOWN to ``now`` (so the default
+          handle at "now" is always within range).
     RIGHT = the guide's latest start, clamped to be at least ``now`` (and at least
             ``left``) so the track is always non-empty.
 
     Args:
         min_start: Earliest programme start for the scoped sources, or ``None``.
         max_start: Latest programme start for the scoped sources, or ``None``.
-        hide_older_hours: Browse left-bound window (``epg_browse_hide_older_than_hours``).
+        hide_older_hours: "Allow browsing back" window
+            (``epg_browse_hide_older_than_hours``); ``0`` = no extra trim beyond the
+            oldest currently-airing show.
+        oldest_airing_start: Start of the oldest currently-airing show for the scope
+            (``EpgRepository.get_oldest_airing_start``); the DEFAULT left edge.
+            ``None`` ⇒ nothing airing ⇒ fall back to ``now``.
         _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
 
     Returns:
@@ -271,8 +283,12 @@ def scrubber_bounds(min_start: datetime | None, max_start: datetime | None,
         # is disabled in this state anyway).
         return now, now
     right = max(max_start, now)
-    left = now - timedelta(hours=hide_older_hours) if hide_older_hours > 0 else now
-    left = max(left, min_start)
+    # Default left = the oldest currently-airing show's start (fall back to now).
+    left = oldest_airing_start if oldest_airing_start is not None else now
+    # "Allow browsing back" extends the left edge further into the past from now.
+    if hide_older_hours > 0:
+        left = min(left, now - timedelta(hours=hide_older_hours))
+    left = max(left, min_start)    # never before the guide's earliest real data
     left = min(left, now)          # never start the track after "now"
     if left > right:               # degenerate guide → collapse to a point at now
         left = right = now

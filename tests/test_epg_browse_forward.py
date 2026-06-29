@@ -7,9 +7,12 @@ forward from the anchor, never shows the past, and pages in via keyset paginatio
 Two layers are pinned:
 
 1. Repository — ``EpgRepository.get_schedule_forward`` (real ``Database`` on a
-   ``tmp_path`` file, per the tests rule): never returns ``start_time < now``,
-   orders ascending, paginates across a page boundary, honours the max-age floor,
-   and respects ``excluded_channel_provider_ids`` + ``search_query``.
+   ``tmp_path`` file, per the tests rule): includes shows airing AT the anchor
+   (``stop_time > anchor`` — currently-airing + upcoming) while never returning an
+   already-ended show, orders ascending, paginates across a page boundary, honours
+   the max-age floor, and respects ``excluded_channel_provider_ids`` +
+   ``search_query``. ``get_oldest_airing_start`` returns the oldest currently-airing
+   start (the scrubber's default left bound).
 2. UI wiring — ``_EpgBrowseMixin``/``_EpgWatchlistMixin``: selecting an anchor
    fetches forward from that anchor (page 1), "load more" advances the keyset
    cursor, and a stale page (older reload generation) is dropped.
@@ -95,15 +98,21 @@ def _repo(db):
 # 1. Repository — get_schedule_forward
 # ===========================================================================
 
-def test_forward_never_returns_the_past(forward_db):
-    """(a) No programme with start_time < now is ever returned."""
+def test_forward_never_returns_an_already_ended_show(forward_db):
+    """(a) No ALREADY-ENDED programme (stop_time <= now) is ever returned.
+
+    The corrected inclusion test is ``stop_time > now`` (currently-airing +
+    upcoming), so the guarantee is "nothing that already ended" — NOT the old
+    "nothing that already started". ``forward_db`` carries no row straddling now,
+    so here every returned row also happens to start in the future.
+    """
     session = forward_db.get_session()
     try:
         progs = EpgRepository(session).get_schedule_forward(["p1"], _now=_NOW)
         assert progs, "expected upcoming programmes"
-        assert all(p.start_time >= _NOW for p in progs), "past programme leaked"
+        assert all(p.stop_time > _NOW for p in progs), "already-ended programme leaked"
         titles = {p.title for p in progs}
-        assert "Past Show" not in titles
+        assert "Past Show" not in titles  # stop_time <= now → excluded
         assert "Unmatched" not in titles  # channel_db_id IS NOT NULL filter
     finally:
         session.close()
@@ -213,16 +222,106 @@ def test_forward_floors_past_anchor_to_now(forward_db):
         session.close()
 
 
-def test_forward_future_anchor_skips_earlier_rows(forward_db):
-    """A future anchor starts the list at that point (earlier upcoming rows drop)."""
+def test_forward_future_anchor_includes_shows_airing_at_that_time(forward_db):
+    """A future anchor lists what is ON at that time + later (stop_time > anchor).
+
+    Corrected semantics: scrubbing to now+2h30m shows the show that is airing then
+    (Show 2 runs +2h→+3h, so it is on at +2h30m) plus everything after — NOT only
+    rows that START at/after the anchor. Hidden Match (+90m→+2h30m) ends exactly at
+    the anchor, so the strict ``stop_time > anchor`` test drops it.
+    """
     session = forward_db.get_session()
     try:
         repo = EpgRepository(session)
         progs = repo.get_schedule_forward(
             ["p1"], anchor=_NOW + timedelta(hours=2, minutes=30), _now=_NOW,
         )
-        # Only rows starting at/after now+2h30m: Big Match (+3h), Show 3 (+4h).
-        assert [p.title for p in progs] == ["Big Match", "Show 3"]
+        assert [p.title for p in progs] == ["Show 2", "Big Match", "Show 3"]
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Currently-airing inclusion — the core fix. A second file-backed DB carrying a
+# show that STRADDLES now (started in the past, still on) plus an already-ended
+# one, so the now-anchor must include the former and exclude the latter.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def airing_db(tmp_path):
+    db = Database(f"sqlite:///{tmp_path / 'epg_airing.db'}")
+    db.create_tables()
+    with db.session_scope() as s:
+        s.add(ProviderDB(id="p1", name="Visible", type="xtream", url="http://a",
+                         username="u", password="p", is_active=True))
+        s.add(ChannelDB(id="c1", source_id="s1", provider_id="p1", name="ESPN HD",
+                        detected_title="ESPN"))
+
+        def _prog(title, start, stop):
+            s.add(EpgProgramDB(
+                provider_id="p1", channel_epg_id="c1.epg", channel_db_id="c1",
+                channel_name="c1", title=title, description="",
+                start_time=start, stop_time=stop,
+            ))
+
+        # 4-hour film, 2 h into its run RIGHT NOW (oldest currently-airing).
+        _prog("On Air Movie", _NOW - timedelta(hours=2), _NOW + timedelta(hours=2))
+        # Short show on now (started 30m ago).
+        _prog("On Air Short", _NOW - timedelta(minutes=30), _NOW + timedelta(minutes=30))
+        # Already ended an hour ago — must NOT appear at the now anchor.
+        _prog("Just Ended", _NOW - timedelta(hours=3), _NOW - timedelta(hours=1))
+        # Upcoming.
+        _prog("Up Next", _NOW + timedelta(hours=1), _NOW + timedelta(hours=2))
+    return db
+
+
+def test_forward_includes_currently_airing_show(airing_db):
+    """A show with start_time < now AND stop_time > now IS returned at the now
+    anchor — the core fix. It surfaces with its real PAST start_time, mid-progress,
+    and (ascending order) sorts above the upcoming rows."""
+    session = airing_db.get_session()
+    try:
+        progs = EpgRepository(session).get_schedule_forward(["p1"], _now=_NOW)
+        titles = [p.title for p in progs]
+        assert titles == ["On Air Movie", "On Air Short", "Up Next"]
+        movie = progs[0]
+        assert movie.start_time < _NOW < movie.stop_time, "airing row keeps its past start"
+    finally:
+        session.close()
+
+
+def test_forward_excludes_already_ended_show(airing_db):
+    """A show that already ended (stop_time <= now) is NOT returned at the now
+    anchor, even though one returned alongside it started even earlier."""
+    session = airing_db.get_session()
+    try:
+        progs = EpgRepository(session).get_schedule_forward(["p1"], _now=_NOW)
+        assert "Just Ended" not in {p.title for p in progs}
+    finally:
+        session.close()
+
+
+def test_oldest_airing_start_returns_min_currently_airing_start(airing_db):
+    """The oldest-currently-airing helper returns the earliest start among shows
+    on right now (the 4-hour film's start), not the upcoming/ended rows'."""
+    session = airing_db.get_session()
+    try:
+        repo = EpgRepository(session)
+        assert repo.get_oldest_airing_start(["p1"], _now=_NOW) == _NOW - timedelta(hours=2)
+        # Empty scope → None (no error).
+        assert repo.get_oldest_airing_start([], _now=_NOW) is None
+    finally:
+        session.close()
+
+
+def test_oldest_airing_start_none_when_nothing_airing(airing_db):
+    """When nothing is currently airing, the helper returns None (scrubber bounds
+    then fall back to 'now')."""
+    session = airing_db.get_session()
+    try:
+        repo = EpgRepository(session)
+        # 6 h from now everything has ended and nothing new has started.
+        assert repo.get_oldest_airing_start(["p1"], _now=_NOW + timedelta(hours=6)) is None
     finally:
         session.close()
 
