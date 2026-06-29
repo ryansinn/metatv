@@ -83,6 +83,12 @@ class _ChannelListMixin:
             "hidden_mode": bool(getattr(self, '_hidden_mode', False)),
             "genre_filter": getattr(self, '_details_genre_filter', None),
             "person_filter": getattr(self, '_details_person_filter', None),
+            # Tag chip is a (facet_type, value) tuple → store as a list for YAML.
+            "tag_filter": (
+                list(self._details_tag_filter)
+                if getattr(self, '_details_tag_filter', None) else None
+            ),
+            "category_filter": getattr(self, '_details_category_filter', None),
         }
         self.config.last_search_state = state
         self.config.save()
@@ -108,17 +114,24 @@ class _ChannelListMixin:
         hidden_mode = bool(state.get("hidden_mode", False))
         genre_filter = state.get("genre_filter")
         person_filter = state.get("person_filter")
+        tag_filter = state.get("tag_filter")          # [facet_type, value] | None
+        category_filter = state.get("category_filter")  # curated category | None
 
-        any_non_trivial = query or provider_id or hidden_mode or genre_filter or person_filter
+        any_non_trivial = (
+            query or provider_id or hidden_mode or genre_filter or person_filter
+            or tag_filter or category_filter
+        )
         if not any_non_trivial:
             return False  # saved state is the empty default — nothing to restore
 
         logger.info(
-            "Restoring search state: query={!r} provider={} hidden={} genre={} person={}",
+            "Restoring search state: query={!r} provider={} hidden={} genre={} "
+            "person={} tag={} category={}",
             query, provider_id, hidden_mode, genre_filter, person_filter,
+            tag_filter, category_filter,
         )
 
-        # Restore context chips (genre / person)
+        # Restore context chips (genre / person / tag / collection — mutually exclusive)
         if genre_filter:
             self._details_genre_filter = genre_filter
             self._details_person_filter = None
@@ -131,6 +144,20 @@ class _ChannelListMixin:
             self._details_genre_filter = None
             if hasattr(self, '_context_filter_label'):
                 self._context_filter_label.setText(f"Cast/Crew: {person_filter}")
+            if hasattr(self, '_context_filter_chip'):
+                self._context_filter_chip.show()
+        elif tag_filter and len(tag_filter) == 2:
+            facet_type, value = tag_filter[0], tag_filter[1]
+            self._details_tag_filter = (facet_type, value)
+            if hasattr(self, '_context_filter_label'):
+                label = facet_type.replace("_", " ").title()
+                self._context_filter_label.setText(f"{label}: {value}")
+            if hasattr(self, '_context_filter_chip'):
+                self._context_filter_chip.show()
+        elif category_filter:
+            self._details_category_filter = category_filter
+            if hasattr(self, '_context_filter_label'):
+                self._context_filter_label.setText(f"Collection: {category_filter}")
             if hasattr(self, '_context_filter_chip'):
                 self._context_filter_chip.show()
 
@@ -272,6 +299,9 @@ class _ChannelListMixin:
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
             person_filter=self._details_person_filter,
+            # Details-pane tag/collection context chips (strict, mutually exclusive).
+            context_tag_filter=self._details_tag_filter,
+            context_category_filter=self._details_category_filter,
             page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
@@ -336,6 +366,8 @@ class _ChannelListMixin:
                 search_query=params.get('search_query'),
                 strict_genre_filter=params.get('strict_genre_filter'),
                 person_filter=params.get('person_filter'),
+                context_tag_filter=params.get('context_tag_filter'),
+                context_category_filter=params.get('context_category_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
                 exclude_watched=params.get('hide_watched', False),
@@ -1069,6 +1101,8 @@ class _ChannelListMixin:
                 search_query=query_params.get('search_query'),
                 strict_genre_filter=query_params.get('strict_genre_filter'),
                 person_filter=query_params.get('person_filter'),
+                context_tag_filter=query_params.get('context_tag_filter'),
+                context_category_filter=query_params.get('context_category_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=query_params.get('tag_includes'),
                 limit=page_size,

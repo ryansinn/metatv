@@ -1,7 +1,7 @@
 """Channel repository for data access"""
 
 import re
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, or_, update
@@ -98,6 +98,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 excluded_provider_ids: Optional[List[str]] = None,
                 tag_includes: Optional[Dict[str, Set[str]]] = None,
                 tag_excludes: Optional[Dict[str, Set[str]]] = None,
+                context_tag_filter: Optional[Tuple[str, str]] = None,
+                context_category_filter: Optional[str] = None,
                 exclude_watched: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
@@ -126,6 +128,15 @@ class ChannelRepository(_ChannelStatsMixin):
             tag_excludes: Faceted tag exclusion — same shape as tag_includes.  A channel
                 is rejected if it carries *any* matching tag.  Currently unused (reserved
                 for the tri-state slice).
+            context_tag_filter: Strict details-pane context filter — ``(facet_type, value)``.
+                Keeps only channels carrying that EXACT tag (no hierarchy rollup), via a
+                correlated EXISTS subquery.  Separate from ``tag_includes`` (the filter
+                panel owns that) so the context chip is mutually exclusive + ephemeral.
+                Used by the left-click-a-tag-chip path.
+            context_category_filter: Strict details-pane context filter on the curated
+                provider category (``ChannelDB.category == value``).  Used for COLLECTION
+                tag clicks so the result is the actual human-curated provider grouping,
+                not a re-derived query on the lossy 'collection' residual.
             exclude_watched: When True, exclude channels where ``watch_completed=True``.
                 Default False (show everything, filter is opt-in).
 
@@ -346,6 +357,35 @@ class ChannelRepository(_ChannelStatsMixin):
                     .correlate(ChannelDB)
                 )
                 query = query.filter(_exists(_subq))
+
+        # ── Context filter chip (details-pane tag click): strict, exact, one tag ──
+        # Separate from tag_includes (filter panel) so the chip is mutually exclusive
+        # and ephemeral.  Exact (type, value) match — no hierarchy rollup (v1).
+        if context_tag_filter:
+            from sqlalchemy import exists as _exists, select as _sa_select
+            from sqlalchemy.orm import aliased as _aliased
+            from metatv.core.database import ContentTagDB as _ContentTagDB, TagDB as _TagDB
+
+            _ctype, _cvalue = context_tag_filter
+            _ct = _aliased(_ContentTagDB, flat=True)
+            _t  = _aliased(_TagDB, flat=True)
+            _subq = (
+                _sa_select(_ct.channel_id)
+                .join(_t, _t.id == _ct.tag_id)
+                .where(
+                    _ct.channel_id == ChannelDB.id,
+                    _t.type == _ctype,
+                    _t.value == _cvalue,
+                )
+                .correlate(ChannelDB)
+            )
+            query = query.filter(_exists(_subq))
+
+        # ── Context filter chip (COLLECTION click): the curated provider category ──
+        # Group on the stored category (the human-curated grouping), NOT the lossy
+        # 'collection' residual facet.  The control layer resolves the category value.
+        if context_category_filter:
+            query = query.filter(ChannelDB.category == context_category_filter)
 
         # ── Watched filter: exclude channels the user has marked complete ──────
         # OFF by default (show everything). When ON, hides watch_completed=True rows.
