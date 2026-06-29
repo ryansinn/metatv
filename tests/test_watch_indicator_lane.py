@@ -1,10 +1,15 @@
-"""Behavioral tests for the watch-indicator icon lane (#27, 3b-2).
+"""Behavioral tests for the watch-indicator icons + DTO threading.
+
+NOTE: the channel-list far-left DecorationRole "icon lane" (#27, 3b-2) was RETIRED —
+the watch state now renders as a single 3-state separator glyph (·/▶/✓) IN the row
+text (see test_virtualized_channel_list.py §6). The ``icons.watch_icon*`` helpers
+below remain because the SERIES tree still uses them.
 
 Covers:
 1. icons.watch_icon() -- returns distinct QIcon objects for muted vs solid.
 2. icons.watch_icon_for_channel() -- None for no-glyph; muted for queue; solid otherwise.
-3. ChannelListModel.data(DecorationRole) -- icon for watched non-live; None for live / unwatched.
-4. No prepended glyph in DisplayRole text for watched channels.
+3. ChannelListModel.data(DecorationRole) -- always None now (icon lane retired).
+4. Watched ✓ now lives IN the DisplayRole text (graduated glyphs do not).
 5. last_played_via present on ChannelListDTO and EpisodeDTO.
 6. EpisodeRepository.get_episodes_dto_by_season threads last_played_via into EpisodeDTO.
 """
@@ -16,23 +21,6 @@ import uuid
 import pytest
 
 from metatv.core.repositories.dtos import ChannelListDTO, EpisodeDTO
-
-
-def _glyph_rgb(qicon):
-    """Dominant non-transparent RGB of an icon's glyph.
-
-    Robust to HiDPI ``devicePixelRatio`` scaling and to a checkmark's
-    transparent exact-centre (which broke the old fixed ``(7, 7)`` sampling).
-    """
-    from collections import Counter
-    img = qicon.pixmap(14, 14).toImage()
-    counts = Counter()
-    for y in range(img.height()):
-        for x in range(img.width()):
-            px = img.pixel(x, y)
-            if ((px >> 24) & 0xFF) > 64:  # alpha > 64 → a glyph pixel
-                counts[px & 0xFFFFFF] += 1  # RGB only
-    return counts.most_common(1)[0][0] if counts else None
 
 
 # ---------------------------------------------------------------------------
@@ -146,13 +134,12 @@ def test_watch_icon_for_channel_solid_when_none_provenance(qapp):
 
 
 # ---------------------------------------------------------------------------
-# 3. ChannelListModel.data(DecorationRole)
+# 3. ChannelListModel.data(DecorationRole) — icon lane retired (always None)
 # ---------------------------------------------------------------------------
 
-def test_decoration_role_returns_icon_for_watched_movie(qapp):
-    """A watch_completed=True movie row returns a QIcon for DecorationRole."""
+def test_decoration_role_returns_none_for_watched_movie(qapp):
+    """The far-left DecorationRole icon is gone — even a watched movie returns None."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
 
     model = _make_model(qapp, _make_dto(
         media_type="movie",
@@ -160,23 +147,21 @@ def test_decoration_role_returns_icon_for_watched_movie(qapp):
         watch_percent=100,
         last_played_via="manual",
     ))
-    icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
-    assert isinstance(icon, QIcon), "Expected QIcon for fully-watched movie"
+    assert model.index(0, 0).data(Qt.ItemDataRole.DecorationRole) is None
 
 
-def test_decoration_role_returns_icon_for_partially_watched(qapp):
-    """A partially-watched VOD row (above threshold) returns a QIcon."""
+def test_decoration_role_returns_none_for_partially_watched(qapp):
+    """A partially-watched VOD row also returns None (indicator moved into the text)."""
     from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QIcon
 
     model = _make_model(qapp, _make_dto(
         media_type="movie",
         watch_completed=False,
+        watch_progress=900,
         watch_percent=50,
         last_played_via="queue",
     ))
-    icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
-    assert isinstance(icon, QIcon)
+    assert model.index(0, 0).data(Qt.ItemDataRole.DecorationRole) is None
 
 
 def test_decoration_role_returns_none_for_unwatched_movie(qapp):
@@ -208,69 +193,12 @@ def test_decoration_role_returns_none_for_live_channel(qapp):
     assert icon is None, "Live channels must never show a watch indicator"
 
 
-def test_decoration_role_muted_icon_for_queue_watched(qapp):
-    """queue-watched row's DecorationRole icon uses the muted (gray) color.
-
-    Verifies that the center-pixel color of the icon matches the muted theme
-    token, not the solid foreground token.  Uses pixmap sampling because
-    PyQt6 wraps the cached C++ QIcon in a new Python object on each access,
-    so identity checks ('is') are unreliable.
-    """
-    from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
-
-    model = _make_model(qapp, _make_dto(
-        media_type="movie",
-        watch_completed=True,
-        watch_percent=100,
-        last_played_via="queue",
-    ))
-    icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
-    muted_ref = _icons.watch_icon(_icons.watched_icon, muted=True)
-    solid_ref = _icons.watch_icon(_icons.watched_icon, muted=False)
-    # Sample the glyph's dominant non-transparent colour (robust to HiDPI
-    # devicePixelRatio scaling and to a checkmark's transparent exact-centre).
-    assert _glyph_rgb(icon) == _glyph_rgb(muted_ref), (
-        "queue-watched icon glyph colour must match the muted colour"
-    )
-    assert _glyph_rgb(icon) != _glyph_rgb(solid_ref), (
-        "queue-watched icon must be visually distinct from the solid icon"
-    )
-
-
-def test_decoration_role_solid_icon_for_manual_watched(qapp):
-    """manual-watched row's DecorationRole icon uses the solid (bright) color.
-
-    Verifies that the center-pixel color of the icon matches the solid theme
-    token, not the muted one.  Uses pixmap sampling for the same reason as the
-    muted test above.
-    """
-    from PyQt6.QtCore import Qt
-    from metatv.gui import icons as _icons
-
-    model = _make_model(qapp, _make_dto(
-        media_type="movie",
-        watch_completed=True,
-        watch_percent=100,
-        last_played_via="manual",
-    ))
-    icon = model.index(0, 0).data(Qt.ItemDataRole.DecorationRole)
-    muted_ref = _icons.watch_icon(_icons.watched_icon, muted=True)
-    solid_ref = _icons.watch_icon(_icons.watched_icon, muted=False)
-    assert _glyph_rgb(icon) == _glyph_rgb(solid_ref), (
-        "manual-watched icon glyph colour must match the solid colour"
-    )
-    assert _glyph_rgb(icon) != _glyph_rgb(muted_ref), (
-        "manual-watched icon must be visually distinct from the muted icon"
-    )
-
-
 # ---------------------------------------------------------------------------
-# 4. No prepended glyph in DisplayRole text for watched channels
+# 4. Watch state in the DisplayRole text (✓ present; graduated glyphs absent)
 # ---------------------------------------------------------------------------
 
-def test_display_text_has_no_watch_glyph_for_watched(qapp):
-    """Watch glyphs must NOT appear in DisplayRole text -- they live in the icon lane."""
+def test_display_text_shows_check_for_watched_not_graduated(qapp):
+    """Watched row: ✓ IS in the text (the indicator); graduated glyphs are NOT."""
     from PyQt6.QtCore import Qt
     from metatv.gui import icons as _icons
 
@@ -282,15 +210,14 @@ def test_display_text_has_no_watch_glyph_for_watched(qapp):
         last_played_via="manual",
     ))
     text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.watched_icon in text, f"Expected ✓ in row text: {text!r}"
     for glyph in (
-        _icons.watched_icon,
         _icons.partial_watched_icon,
         _icons.partial_watched_q1_icon,
         _icons.partial_watched_q3_icon,
     ):
         assert glyph not in text, (
-            f"Glyph {glyph!r} found in DisplayRole text {text!r}; "
-            "it should be in the icon lane, not the text"
+            f"Graduated glyph {glyph!r} must not appear in the channel list: {text!r}"
         )
     assert "My Film" in text
 

@@ -406,6 +406,13 @@ CHANNEL_NAME_DIM      = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";
 #   QBrush(QColor(CHANNEL_ROW_WATCHED_FG))
 CHANNEL_ROW_WATCHED_FG: str = COLOR_MUTED
 
+# Channel-list playback-state indicator — colour applied by the row delegate to the
+# fixed "·"/▶/✓ separator glyph.  Shape carries the meaning; these are reinforcement
+# only.  IN_PROGRESS reuses the details Resume-button orange so "resumable" reads the
+# same everywhere; WATCHED is the standard success green.
+COLOR_PLAYBACK_IN_PROGRESS: str = COLOR_ACCENT_ORANGE   # ▶ resumable — matches DETAIL_RESUME_BTN
+COLOR_PLAYBACK_WATCHED: str = COLOR_OK                   # ✓ finished
+
 # Time labels
 TIME_LABEL          = "color: " + COLOR_DIM + "; font-size: " + FONT_MD + ";"
 TIME_LABEL_UPCOMING = "color: " + COLOR_DISABLED + "; font-size: " + FONT_MD + ";"

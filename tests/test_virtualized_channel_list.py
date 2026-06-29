@@ -698,3 +698,195 @@ def test_foreground_role_watched_brush_color_matches_theme_token(qapp):
         f"Dim brush color {brush.color().name()} does not match "
         f"CHANNEL_ROW_WATCHED_FG ({expected_color.name()})"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. Playback-state indicator — the fixed "·"/▶/✓ separator slot
+# ---------------------------------------------------------------------------
+#
+# The "·" between the leading icons/tags and the title is a single, fixed-position
+# 3-state playback indicator (the OLD far-left DecorationRole watched icon is gone):
+#   - not started → · (neutral)         - in progress → ▶ (orange)   - watched → ✓ (green)
+# Shape carries the meaning (colourblind-safe); the HTML role adds theme-token colour.
+
+
+def test_indicator_unstarted_movie_is_neutral_dot(qapp):
+    """An unstarted (watch_progress=0, not completed) movie shows the neutral · only."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    model = _set_model_with(
+        qapp, media_type="movie", detected_region="EN", detected_title="Matrix",
+        detected_quality=None, detected_year=None,
+        watch_progress=0, watch_completed=False,
+    )
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.playback_in_progress_icon not in text   # no ▶
+    assert _icons.watched_icon not in text                # no ✓
+    # Exactly one · — the indicator (no quality/year dots in this DTO)
+    assert text.count(_icons.playback_neutral_icon) == 1
+    # The indicator occupies the separator slot: after the [EN] tag, before the title.
+    assert text.index("[EN]") < text.index(_icons.playback_neutral_icon) < text.index("Matrix")
+
+
+def test_indicator_in_progress_movie_is_orange_play_triangle(qapp):
+    """watch_progress>0 & not completed → ▶ in the separator slot, no · / ✓."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    model = _set_model_with(
+        qapp, media_type="movie", detected_region="EN", detected_title="Matrix",
+        detected_quality=None, detected_year=None,
+        watch_progress=1800, watch_completed=False,
+    )
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.playback_in_progress_icon in text       # ▶
+    assert _icons.playback_neutral_icon not in text       # no neutral ·
+    assert _icons.watched_icon not in text                # no ✓
+    # ▶ sits in the separator slot between the [EN] tag and the title.
+    assert text.index("[EN]") < text.index(_icons.playback_in_progress_icon) < text.index("Matrix")
+
+
+def test_indicator_in_progress_html_uses_resume_orange_token(qapp):
+    """The HTML role wraps the ▶ glyph in the Resume-orange theme token."""
+    from metatv.gui import theme as _theme
+    from metatv.gui.channel_list_model import CHANNEL_HTML_ROLE
+
+    model = _set_model_with(
+        qapp, media_type="movie", detected_title="Matrix",
+        watch_progress=1800, watch_completed=False,
+    )
+    html = model.index(0, 0).data(CHANNEL_HTML_ROLE)
+    assert _theme.COLOR_PLAYBACK_IN_PROGRESS in html
+    assert _theme.COLOR_PLAYBACK_IN_PROGRESS == _theme.COLOR_ACCENT_ORANGE  # matches Resume btn
+
+
+def test_indicator_watched_movie_is_green_check_in_separator_slot(qapp):
+    """watch_completed → ✓ in the SAME separator slot; far-left DecorationRole gone."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+    from metatv.gui import theme as _theme
+    from metatv.gui.channel_list_model import CHANNEL_HTML_ROLE
+
+    model = _set_model_with(
+        qapp, media_type="movie", detected_region="EN", detected_title="Matrix",
+        detected_quality=None, detected_year=None,
+        watch_completed=True, watch_percent=100,
+    )
+    idx = model.index(0, 0)
+    text = idx.data(Qt.ItemDataRole.DisplayRole)
+    # ✓ in the separator slot, exactly once (not double-rendered), no · / ▶.
+    assert text.count(_icons.watched_icon) == 1
+    assert _icons.playback_neutral_icon not in text
+    assert _icons.playback_in_progress_icon not in text
+    assert text.index("[EN]") < text.index(_icons.watched_icon) < text.index("Matrix")
+    # The OLD far-left margin checkmark is gone: DecorationRole no longer renders an icon.
+    assert idx.data(Qt.ItemDataRole.DecorationRole) is None
+    # HTML role colours the ✓ with the watched-green token.
+    assert _theme.COLOR_PLAYBACK_WATCHED in idx.data(CHANNEL_HTML_ROLE)
+
+
+def test_decoration_role_none_for_all_states(qapp):
+    """No row state renders a DecorationRole icon anymore (indicator moved into text)."""
+    from PyQt6.QtCore import Qt
+
+    for overrides in (
+        dict(watch_progress=0, watch_completed=False),       # neutral
+        dict(watch_progress=900, watch_completed=False),     # in progress
+        dict(watch_completed=True, watch_percent=100),       # watched
+    ):
+        model = _set_model_with(qapp, media_type="movie", detected_title="X", **overrides)
+        assert model.index(0, 0).data(Qt.ItemDataRole.DecorationRole) is None
+
+
+def test_indicator_present_without_prefix_preserves_alignment(qapp):
+    """The indicator is present even with NO prefix/region tags (fixed slot, no shift)."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    neutral = _set_model_with(
+        qapp, media_type="movie", detected_prefix=None, detected_region=None,
+        detected_title="Solo", detected_quality=None, detected_year=None,
+        watch_progress=0, watch_completed=False,
+    )
+    in_progress = _set_model_with(
+        qapp, media_type="movie", detected_prefix=None, detected_region=None,
+        detected_title="Solo", detected_quality=None, detected_year=None,
+        watch_progress=600, watch_completed=False,
+    )
+    n_text = neutral.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    p_text = in_progress.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    # Both carry an indicator before the title — one glyph slot, regardless of tags.
+    assert n_text.index(_icons.playback_neutral_icon) < n_text.index("Solo")
+    assert p_text.index(_icons.playback_in_progress_icon) < p_text.index("Solo")
+
+
+def test_indicator_live_channel_is_always_neutral(qapp):
+    """Live channels never carry watch state → always the neutral dot (never ▶/✓)."""
+    from PyQt6.QtCore import Qt
+    from metatv.gui import icons as _icons
+
+    # Defensive: even a (spurious) progress value on a live row stays neutral.
+    model = _set_model_with(
+        qapp, media_type="live", detected_title="CNN",
+        detected_quality=None, detected_year=None,
+        watch_progress=500, watch_completed=True,
+    )
+    text = model.index(0, 0).data(Qt.ItemDataRole.DisplayRole)
+    assert _icons.playback_neutral_icon in text
+    assert _icons.playback_in_progress_icon not in text
+    assert _icons.watched_icon not in text
+
+
+def test_neutral_html_has_no_colour_span(qapp):
+    """An unstarted row's HTML carries no orange/green colour span (neutral)."""
+    from metatv.gui import theme as _theme
+    from metatv.gui.channel_list_model import CHANNEL_HTML_ROLE
+
+    model = _set_model_with(
+        qapp, media_type="movie", detected_title="Plain",
+        watch_progress=0, watch_completed=False,
+    )
+    html = model.index(0, 0).data(CHANNEL_HTML_ROLE)
+    assert _theme.COLOR_PLAYBACK_IN_PROGRESS not in html
+    assert _theme.COLOR_PLAYBACK_WATCHED not in html
+
+
+def test_delegate_paints_each_state_without_error(qapp):
+    """ChannelRowDelegate.paint renders every indicator state without raising.
+
+    Exercises the rich-text paint path (colour resolution, style.drawControl,
+    QTextDocument layout) at the delegate level for neutral / in-progress / watched.
+    """
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QPainter, QPixmap
+    from PyQt6.QtWidgets import QListView, QStyleOptionViewItem
+    from metatv.gui.channel_list_model import ChannelListModel
+    from metatv.gui.channel_list_delegate import ChannelRowDelegate
+
+    dtos = [
+        _make_dto(id="n", media_type="movie", detected_title="Neutral",
+                  watch_progress=0, watch_completed=False),
+        _make_dto(id="p", media_type="movie", detected_title="Progress",
+                  watch_progress=1200, watch_completed=False),
+        _make_dto(id="w", media_type="movie", detected_title="Watched",
+                  watch_completed=True, watch_percent=100),
+    ]
+    model = ChannelListModel()
+    model.set_channels(dtos, provider_icon_map={}, show_provider_icon=False,
+                       has_more=False, query_params={})
+    view = QListView()
+    view.setModel(model)
+    delegate = ChannelRowDelegate(view)
+
+    pixmap = QPixmap(400, 24)
+    painter = QPainter(pixmap)
+    try:
+        for row in range(model.rowCount()):
+            opt = QStyleOptionViewItem()
+            opt.rect = QRect(0, 0, 400, 24)
+            delegate.paint(painter, opt, model.index(row, 0))
+    finally:
+        painter.end()
+    # If we got here, all three states painted without raising.
+    assert model.rowCount() == 3

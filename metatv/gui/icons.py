@@ -26,6 +26,12 @@ dislike_icon: str = "👎"
 not_interested_icon: str = "🙅"
 curious_icon: str = "❓"
 watched_icon: str = "✓"
+# Channel-list playback-state separator — the fixed "·" slot between the leading
+# icons/tags and the title becomes a 3-state indicator (see playback_state_glyph).
+# SHAPE carries the meaning (dot vs play-triangle vs check); colour (applied by the
+# row delegate from theme tokens) is reinforcement only, so it is colourblind-safe.
+playback_neutral_icon: str = "·"        # U+00B7 MIDDLE DOT — not started (neutral separator)
+playback_in_progress_icon: str = "▶"    # U+25B6 BLACK RIGHT-POINTING TRIANGLE — in progress / resumable
 partial_watched_icon: str = "◐"      # U+25D0 CIRCLE WITH LEFT HALF BLACK — ~half watched (~37–62%)
 partial_watched_q1_icon: str = "◔"   # U+25D4 CIRCLE WITH UPPER RIGHT QUADRANT BLACK — ~quarter watched (<37%)
 partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT QUADRANT BLACK — ~three-quarter (62–99%)
@@ -228,6 +234,35 @@ def watch_progress_glyph(
     if watch_percent >= partial_threshold_pct:
         return partial_watched_q1_icon
     return ""
+
+
+def playback_state_glyph(watch_progress: int, watch_completed: bool) -> str:
+    """Map a row's playback state to the single 3-state separator glyph.
+
+    The channel-list "·" separator is a fixed-position playback indicator whose
+    three mutually-exclusive states are distinguished by SHAPE (colourblind-safe;
+    the row delegate adds colour as reinforcement only):
+
+        - ``watch_completed``                       → ✓  (``watched_icon``, green)
+        - ``watch_progress > 0`` and not completed  → ▶  (``playback_in_progress_icon``, orange)
+        - otherwise (not started)                   → ·  (``playback_neutral_icon``, neutral)
+
+    Unlike :func:`watch_progress_glyph`, this is a binary started/not-started
+    distinction (no graduated quarter/half thresholds) — the list answers "can I
+    resume this?", not "how far in am I?".
+
+    Args:
+        watch_progress: Resume position in seconds (0 = unwatched or completed).
+        watch_completed: Sticky completion flag.
+
+    Returns:
+        One of ``watched_icon`` / ``playback_in_progress_icon`` / ``playback_neutral_icon``.
+    """
+    if watch_completed:
+        return watched_icon
+    if watch_progress > 0:
+        return playback_in_progress_icon
+    return playback_neutral_icon
 
 
 # ---------------------------------------------------------------------------
