@@ -661,6 +661,15 @@ class _StreamingMixin:
             self.executor.submit(self._bg_mark_played, channel_id, _watch_key)
             self._start_watch_capture()
 
+            # Remember which channel each player window is showing so the live
+            # position poll (below) can light the details "currently playing"
+            # indicator when that title is the one open in the details pane.
+            # (``__dict__`` membership — not hasattr — so the slot stays callable on
+            # the bare-__new__ MainWindow the streaming tests construct.)
+            if "_playing_channels" not in self.__dict__:
+                self._playing_channels: dict[str, str] = {}
+            self._playing_channels[_watch_key] = channel_id
+
             # Update UI lists in real-time (main thread)
             self.load_history()
             self.load_favorites()
@@ -1097,9 +1106,15 @@ class _StreamingMixin:
         The probed key is always a *live* one (see ``_resolve_health_key``).
         """
         keys = self.player_manager.active_keys()
+        # Drop play-state entries for windows that have closed since the last tick.
+        if "_playing_channels" in self.__dict__:
+            self._playing_channels = {
+                k: v for k, v in self._playing_channels.items() if k in keys
+            }
         if not keys:
             # No live instance at all — hide and stop polling (restarts on play).
             self._playback_health_label.hide()
+            self._notify_details_playing(None, 0)
             self._playback_health_timer.stop()
             return
 
@@ -1144,7 +1159,8 @@ class _StreamingMixin:
         """
         try:
             props = self.player_manager.get_properties(
-                ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count"],
+                ["path", "demuxer-cache-duration", "cache-speed", "frame-drop-count",
+                 "time-pos"],
                 key=key,
             )
         except Exception as e:
@@ -1170,6 +1186,7 @@ class _StreamingMixin:
         # None (probe error) or no loaded file → idle / nothing playing.
         if not props or not props.get("path"):
             self._playback_health_label.hide()
+            self._notify_details_playing(None, 0)
             self._health_idle_ticks = getattr(self, "_health_idle_ticks", 0) + 1
             if self._health_idle_ticks >= 8:  # ~16s idle → stop polling
                 self._playback_health_timer.stop()
@@ -1188,6 +1205,12 @@ class _StreamingMixin:
             shown_key = getattr(
                 getattr(self.player_manager, "player", None), "_last_key", None
             )
+
+        # Surface the live play-state to the details pane: the channel this window is
+        # playing + its current position.  The pane lights its green Play indicator
+        # only when this channel is the one currently shown.
+        ch_id = self.__dict__.get("_playing_channels", {}).get(shown_key)
+        self._notify_details_playing(ch_id, props.get("time-pos") or 0)
 
         # Source glyph labels *which* stream the data refers to (shown whether one
         # or many windows are open). The [i/n] marker (multi only) adds count +
@@ -1213,6 +1236,22 @@ class _StreamingMixin:
 
         self._playback_health_label.setText(prefix + text)
         self._playback_health_label.show()
+
+    def _notify_details_playing(self, channel_id: str | None, position_seconds: float) -> None:
+        """Forward the live play-state to the details pane (main thread).
+
+        Thin guard around ``details_pane.set_playing`` so the playback-health poll
+        can light/clear the "currently playing" indicator without caring whether
+        the pane exists yet during early startup.
+
+        Args:
+            channel_id: The channel now playing in the polled window, or None when
+                nothing is playing (clears the indicator).
+            position_seconds: Current playback position in seconds.
+        """
+        pane = self.__dict__.get("details_pane")
+        if pane is not None:
+            pane.set_playing(channel_id, position_seconds)
 
     def _on_health_readout_clicked(self) -> None:
         """Main-thread slot: cycle the health readout to the next open player window.

@@ -1,4 +1,5 @@
 """Details pane — thin orchestrator that assembles section widgets."""
+import time
 from typing import Optional
 
 from loguru import logger
@@ -69,6 +70,12 @@ class DetailsPaneWidget(QWidget):
         self.current_metadata: MetadataResult | None = None
         self.provider_urls: list = []
         self._provider_map: dict = {}
+        # "Currently playing" indicator — last play-state report from the host's
+        # player-position poll; the green Play-button outline + live timer fire only
+        # while the shown channel matches _playing_channel_id.
+        self._playing_channel_id: str | None = None
+        self._playing_base_pos: float = 0.0
+        self._playing_base_ts: float = 0.0
 
         self._setup_ui()
         self._connect_sections()
@@ -96,6 +103,36 @@ class DetailsPaneWidget(QWidget):
 
     def set_recommendation_reason(self, reason: str | None) -> None:
         self._meta.set_recommendation_reason(reason)
+
+    def set_playing(self, channel_id: str | None, position_seconds: float = 0.0) -> None:
+        """Report which channel is actively playing, and its position.
+
+        Called from the host's player-position poll (the same mpv poll that drives
+        the nav-bar playback-health readout).  The green "currently playing"
+        indicator + live elapsed timer appear on the Play button only while
+        ``channel_id`` matches the title currently shown in the pane.  Pass
+        ``channel_id=None`` (or a different id) when playback stops or moves to
+        another title to clear the indicator.
+
+        Args:
+            channel_id: The channel id now playing, or None when nothing plays.
+            position_seconds: Current playback position in seconds.
+        """
+        self._playing_channel_id = channel_id
+        if channel_id is not None:
+            self._playing_base_pos = float(position_seconds or 0.0)
+            self._playing_base_ts = time.monotonic()
+        self._apply_playing_indicator()
+
+    def _apply_playing_indicator(self) -> None:
+        """Show the playing indicator iff the shown channel is the one playing."""
+        ch = self.current_channel
+        if (ch is not None and self._playing_channel_id is not None
+                and getattr(ch, "id", None) == self._playing_channel_id):
+            pos = self._playing_base_pos + (time.monotonic() - self._playing_base_ts)
+            self._action_bar.set_playing_active(pos)
+        else:
+            self._action_bar.clear_playing()
 
     def apply_action_state(self, state: ChannelActionState) -> None:
         """Called from main_window when the async DB load completes."""
@@ -173,6 +210,11 @@ class DetailsPaneWidget(QWidget):
         elif not is_live:
             self._plot.show_loading(_icons.loading_icon)
             self._poster.poster_label.setText(f"{_icons.loading_icon} Loading poster...")
+
+        # Re-evaluate the "currently playing" indicator for the new title: the
+        # action_bar.clear() above reset it; light it back up if this title is the
+        # one actively playing (the per-2s position poll keeps it fresh after).
+        self._apply_playing_indicator()
 
         # Async fetches
         self.action_state_requested.emit(channel.id)

@@ -1,11 +1,22 @@
 """Action bar and channel action state for the details pane."""
+import time
 from dataclasses import dataclass
 
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QTimer
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+
+
+def _fmt_elapsed(total_seconds: float) -> str:
+    """Format a playback position as ``M:SS`` (or ``H:MM:SS`` past an hour)."""
+    total = max(0, int(total_seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
 
 
 @dataclass
@@ -62,6 +73,12 @@ class _ActionBar(QWidget):
         self._is_hidden: bool = False
         self._is_monitored: bool = False
         self._current_epg_title: str = ""
+        # "Currently playing" indicator state (green outline + live elapsed timer on
+        # the Play button while the shown title is the one actively playing).
+        self._is_playing: bool = False
+        self._playing_base_pos: float = 0.0     # last reported playback position (s)
+        self._playing_base_ts: float = 0.0      # monotonic clock when that was reported
+        self._playing_timer: QTimer | None = None
         self._setup()
 
     def _mk(
@@ -192,6 +209,58 @@ class _ActionBar(QWidget):
             self.resume_button.setText(f"{_icons.resume_from_icon} Resume")
             self.resume_button.setToolTip("Resume from where you left off")
 
+    # ------------------------------------------------------------------ #
+    # "Currently playing" indicator (green outline + live elapsed timer)   #
+    # ------------------------------------------------------------------ #
+
+    def set_playing_active(self, position_seconds: float) -> None:
+        """Mark the Play button as the actively-playing title.
+
+        Paints the GREEN outline state and shows a live elapsed timer
+        (``▶ M:SS``) that ticks up once a second between position reports.  The
+        caller pushes a fresh ``position_seconds`` roughly every couple of seconds
+        (from the player position poll); the per-second QTimer interpolates in
+        between so the count never stalls.  Colour is reinforcement only — the
+        running timer is the non-colour cue.
+
+        Args:
+            position_seconds: The current playback position in seconds.
+        """
+        self._is_playing = True
+        self._playing_base_pos = float(position_seconds or 0.0)
+        self._playing_base_ts = time.monotonic()
+        self.play_button.setStyleSheet(_theme.DETAIL_PLAY_BTN_PLAYING)
+        if self._playing_timer is None:
+            self._playing_timer = QTimer(self)
+            self._playing_timer.setInterval(1000)
+            self._playing_timer.timeout.connect(self._playing_tick)
+        if not self._playing_timer.isActive():
+            self._playing_timer.start()
+        self._playing_tick()
+
+    def clear_playing(self) -> None:
+        """Revert the Play button to its normal (not-playing) appearance."""
+        if not self._is_playing:
+            return
+        self._is_playing = False
+        if self._playing_timer is not None:
+            self._playing_timer.stop()
+        self.play_button.setStyleSheet(_theme.DETAIL_PLAY_BTN)
+        self.play_button.setText(f"{self.config.play_icon} Play")
+        self.play_button.setToolTip("Play from the beginning")
+
+    def _current_playing_position(self) -> float:
+        """Interpolated playback position: last report + wall time since."""
+        return self._playing_base_pos + (time.monotonic() - self._playing_base_ts)
+
+    def _playing_tick(self) -> None:
+        """Per-second tick — refresh the Play button's live elapsed label."""
+        if not self._is_playing:
+            return
+        elapsed = _fmt_elapsed(self._current_playing_position())
+        self.play_button.setText(f"{_icons.play_icon} {elapsed}")
+        self.play_button.setToolTip(f"Now playing — {elapsed}")
+
     def update_favorite(self, is_favorite: bool) -> None:
         if is_favorite:
             self.favorite_button.setText(self.config.favorite_icon)
@@ -219,6 +288,7 @@ class _ActionBar(QWidget):
         self.monitor_button.setVisible(False)
         self.resume_button.setVisible(False)
         self.watchlist_button.setChecked(False)
+        self.clear_playing()
         self._sync_all()
 
     # ------------------------------------------------------------------ #
