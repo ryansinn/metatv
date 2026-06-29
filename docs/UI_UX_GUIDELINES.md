@@ -207,6 +207,28 @@ This rule is enforced by the source-scan test in `tests/test_clear_button_standa
 7. **Performance First**: Handle 100,000+ channels without lag
 8. **Clean Architecture**: Separate business logic from UI, avoid circular dependencies
 
+## Layout & widget sizing
+
+### Scrollable panels: no child may force the panel wider than its viewport
+
+Any panel built as a `QScrollArea(setWidgetResizable(True))` **with the horizontal
+scrollbar off** (the details pane, and any future vertical-scroll panel) sizes its inner
+content to `max(viewport.width, widest child minimumSizeHint().width)`. So a **single**
+child that reports a minimum width wider than the viewport silently widens the whole
+column, and — with no horizontal scrollbar — every *other* child clips off the right
+edge. The visible victim is usually **not** the cause.
+
+Common forcers and their fixes: a pixmap `QLabel` (reports `minimumSizeHint().width ==
+pixmap width` → use `QSizePolicy.Policy.Ignored` horizontal + rescale-on-resize); a
+non-wrapping `QHBoxLayout` of chips (min width = sum → use a wrapping flow layout, min
+width = widest single chip); a long single-line label (→ `setWordWrap(True)`).
+
+**Debug by measuring, not guessing:** print each child's `minimumSizeHint().width()`
+inside the real scroll-area config at a narrow width; fix the one that exceeds the
+viewport; **test at the full-composition level, not per-child** (per-child tests stay
+green while the bug persists). Full write-up incl. the multi-attempt "Cowboy Bebop
+genres clip" case: docs/DETAILS_PANE_DESIGN.md → "Width discipline".
+
 ## Theming & style tokens
 
 All Qt stylesheets are centralized in `metatv/gui/theme.py`, which is deliberately **two layers**.
