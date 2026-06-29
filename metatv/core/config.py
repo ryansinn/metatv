@@ -829,7 +829,9 @@ class Config(BaseModel):
 
     # Details pane UI settings
     details_pane_visible: bool = False  # Show/hide details pane
-    details_pane_width: int = 400  # Width of details pane in pixels
+    details_pane_width: int = 452  # Width of details pane in pixels (default tuned so a
+    # portrait 2:3 poster fills the card without pillarbox padding — see
+    # docs/DETAILS_PANE_DESIGN.md → "Poster sizing")
     details_pane_collapsed_sections: list = Field(default_factory=list)  # Which sections are collapsed
 
     # Version preference settings (used in "Other Versions" section of details pane)
