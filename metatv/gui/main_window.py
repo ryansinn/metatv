@@ -1485,7 +1485,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """Refresh channel list"""
         self.status_bar.showMessage("Refreshing channels...")
         logger.info("Refreshing channels")
-        self.load_providers()
+        # Route through the canonical refresh so the main channel list is actually
+        # reloaded (load_providers() alone only refreshes the sidebar sources +
+        # provider map, leaving the channel list stale).
+        self._refresh_provider_dependent_views()
 
     def show_operations(self):
         """Show operations panel"""
