@@ -159,7 +159,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def _add_entry_item(self, e) -> None:
         """Add a single queue entry to the list, dimming unavailable ones."""
         item = QListWidgetItem(
-            f"{self._media_icon(e.media_type)} {_fmt_channel_name(e.channel_name)}"
+            f"{self._media_icon(e.media_type)} "
+            f"{_fmt_channel_name(e.channel_name, detected_title=e.search_title, detected_region=e.detected_region, detected_quality=e.detected_quality, detected_year=e.detected_year)}"
         )
         item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
         item.setData(_ROLE_AVAILABLE, e.available)

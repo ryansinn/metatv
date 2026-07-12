@@ -562,6 +562,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 provider_id=pid,
                 available=(not hidden or pid not in hidden),
                 search_title=ch.detected_title or ch.name,
+                detected_region=ch.detected_region or "",
+                detected_quality=ch.detected_quality or "",
+                detected_year=ch.detected_year or "",
             ))
         return result
 

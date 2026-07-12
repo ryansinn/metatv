@@ -147,7 +147,10 @@ class RecommendedSection(CollapsibleSection):
             )
             liked_prefix = f"{self.config.like_icon} " if sc.already_liked else ""
             year = year_by_id.get(sc.channel_id, "")
-            item = QListWidgetItem(f"{liked_prefix}{media_icon} {_fmt_channel_name(sc.channel_name, year)}")
+            item = QListWidgetItem(
+                f"{liked_prefix}{media_icon} "
+                f"{_fmt_channel_name(sc.channel_name, year, detected_title=sc.detected_title, detected_region=sc.detected_region, detected_quality=sc.detected_quality, detected_year=sc.detected_year)}"
+            )
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)

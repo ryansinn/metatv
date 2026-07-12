@@ -149,6 +149,10 @@ class FavoriteDTO:
     provider_id: str | None = None     # None when channel is orphaned
     available: bool = True             # False when provider is inactive/expired
     search_title: str = ""             # detected_title or name — recovery search term
+    # Ingestion-computed display fields — read at render (never re-parse the name).
+    detected_region: str = ""
+    detected_quality: str = ""
+    detected_year: str = ""
 
 
 @dataclass(frozen=True)

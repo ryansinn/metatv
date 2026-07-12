@@ -104,6 +104,11 @@ class ScoredChannel:
     metadata_rating:   float | None = None  # TMDb/OMDb score (0–10)
     rec_shown_count:   int = 0       # total impression count (for tooltip + decay)
     variant_count:     int = 0       # how many source/language copies collapsed into this entry
+    # Ingestion-computed display fields — read at render (never re-parse the name).
+    detected_title:    str = ""
+    detected_region:   str = ""
+    detected_quality:  str = ""
+    detected_year:     str = ""
 
 
 def version_score(channel, config) -> int:
@@ -492,6 +497,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             already_liked=channel.id in liked_map,
             metadata_rating=meta.rating,
             rec_shown_count=getattr(channel, 'rec_shown_count', 0) or 0,
+            detected_title=channel.detected_title or channel.name,
+            detected_region=channel.detected_region or "",
+            detected_quality=channel.detected_quality or "",
+            detected_year=channel.detected_year or "",
         )
         explicit_vs = version_scorer(channel) if version_scorer is not None else 0
         impl_vs = _implicit_prefix.get(channel.detected_prefix or "", 0) / _max_impl

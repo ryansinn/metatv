@@ -24,6 +24,10 @@ class QueueEntry:
     provider_id:  str | None = None   # None when orphaned
     available:    bool = True         # False when provider is inactive/expired or orphaned
     search_title: str = ""            # detected_title or name — recovery search term
+    # Ingestion-computed display fields — read at render (never re-parse the name).
+    detected_region:  str = ""
+    detected_quality: str = ""
+    detected_year:    str = ""
 
 
 class WatchQueueRepository:
@@ -93,6 +97,9 @@ class WatchQueueRepository:
                 provider_id=pid,
                 available=available,
                 search_title=search_title,
+                detected_region=(ch.detected_region if ch else "") or "",
+                detected_quality=(ch.detected_quality if ch else "") or "",
+                detected_year=(ch.detected_year if ch else "") or "",
             ))
         return entries
 

@@ -23,6 +23,9 @@ ENTRY = WhatsNewEntry(
         "added as a genre.",
         "Titles from metadata are shown exactly as provided (no accidental trimming "
         "of a title that ends in a parenthetical or year).",
+        "Favorites, Watch Later, and Recommended sidebar rows now show the correct "
+        "region tag — read from stored data rather than re-derived from the name, so "
+        "a region that came from the source's category is no longer dropped.",
         "The Recipe and EPG views refresh when you toggle a source on or off.",
     ),
     test_steps=(
