@@ -132,7 +132,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
-    _episode_ready  = pyqtSignal(str, str, str, object)  # notif_id, url, title, queue_episodes
+    _episode_ready  = pyqtSignal(str, str, str, object, str)  # notif_id, url, title, queue_episodes, provider_id
     _episode_failed = pyqtSignal(str, str, str, str)     # notif_id, title, detail, stream_url
     # Context menu async fetch: (ChannelMenuContext, gx, gy)
     _ctx_data_ready = pyqtSignal(object, int, int)
