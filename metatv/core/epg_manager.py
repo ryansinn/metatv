@@ -18,7 +18,9 @@ from metatv.core.epg_utils import (
     epg_auto_delta,
     epg_is_stale,
     epg_interval_delta,
+    local_weekday,
     now_utc,
+    to_local,
 )
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
@@ -771,7 +773,11 @@ class EpgManager(QObject):
 
             end_str = ""
             if end:
-                end_str = f" · data through {end.strftime('%a %b %d %I:%M%p').replace(' 0', ' ')}"
+                # epg_data_end is UTC-naive — convert to local before display
+                # (per the EPG timezone rule) so the day/time isn't off by the
+                # local offset (or a whole day near midnight).
+                local_end = f"{local_weekday(end)} {to_local(end).strftime('%b %d %I:%M%p')}"
+                end_str = f" · data through {local_end.replace(' 0', ' ')}"
 
             return f"Updated {age_str}{end_str}"
         finally:
