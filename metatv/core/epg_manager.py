@@ -94,7 +94,7 @@ class EpgManager(QObject):
         self.db = db
         self.config = config
         self.notifications = notifications  # NotificationManager or None
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="epg")
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
         self._notification_timer: QTimer | None = None
         self._scheduler_timer: QTimer | None = None
