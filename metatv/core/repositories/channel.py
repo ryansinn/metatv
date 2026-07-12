@@ -822,19 +822,30 @@ class ChannelRepository(_ChannelStatsMixin):
         return [cat[0] for cat in query.all() if cat[0]]
     
     def bulk_create_or_update(self, channels: List[ChannelDB]):
-        """Bulk create or update channels"""
+        """Bulk create or update channels.
+
+        On update, only provider-catalog columns are copied from the incoming row —
+        user/derived fields (is_favorite, last_played, play_count, watch_progress,
+        watch_completed, detected_*, content_key, tag_fingerprint, is_hidden,
+        user_category, …) are preserved, exactly like the primary provider-refresh
+        upsert path.
+        """
+        # Reuse the single catalog-column allowlist that the provider-refresh upsert
+        # uses (imported lazily so this core repo keeps no load-time UI dependency).
+        # Copying only these guards user/derived fields from being clobbered.
+        from metatv.core.provider_loader import _CATALOG_UPDATE_COLS
+
         for channel in channels:
             existing = self.get_by_id(channel.id)
             if existing:
-                # Update existing
-                for key, value in channel.__dict__.items():
-                    if not key.startswith('_'):
-                        setattr(existing, key, value)
+                # Update existing — catalog columns only, never user/derived fields.
+                for key in _CATALOG_UPDATE_COLS:
+                    setattr(existing, key, getattr(channel, key))
                 existing.updated_at = datetime.now()
             else:
                 # Create new
                 self.session.add(channel)
-        
+
         self.session.commit()
         logger.info(f"Bulk created/updated {len(channels)} channels")
     
