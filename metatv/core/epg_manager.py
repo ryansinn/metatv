@@ -837,7 +837,7 @@ class EpgManager(QObject):
             from metatv.core.repositories.epg import EpgRepository
             repo = EpgRepository(session)
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
-            provider_ids = [p.id for p in providers if getattr(p, "epg_url", "")]
+            provider_ids = [p.id for p in providers if self.effective_epg_url(p)]
 
             if not provider_ids:
                 return
