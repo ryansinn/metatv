@@ -396,6 +396,16 @@ class TestGenreDecompose:
         tags = decompose("genre", "SomeFutureGenre", config=cfg)
         assert tags == [("genre", "SomeFutureGenre", CONF_DENOTED)]
 
+    def test_placeholder_genre_dropped(self, cfg):
+        """Placeholder junk is dropped (never enters the genre facet), while a
+        genuine unknown genre still passes through — the ING-2 narrow fix."""
+        assert decompose("genre", "N/A", config=cfg) == []      # split → 'N','A' (junk)
+        assert decompose("genre", "Unknown", config=cfg) == []
+        # A real (if unrecognized) genre is still captured generously:
+        assert decompose("genre", "SomeFutureGenre", config=cfg) == [
+            ("genre", "SomeFutureGenre", CONF_DENOTED)
+        ]
+
     def test_empty_genre(self, cfg):
         assert decompose("genre", "", config=cfg) == []
 

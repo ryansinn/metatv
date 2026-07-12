@@ -91,6 +91,7 @@ from metatv.core.channel_name_utils import (
 from metatv.core.filter_utils import (
     DEFAULT_PREFIX_SEPARATORS,
     categorize_prefix,
+    normalize_genre,
     recognized_genre,
 )
 
@@ -442,14 +443,31 @@ def _decompose_compound(raw: str, config) -> list[tuple[str, str, float]]:
     return tags
 
 
+_GENRE_PLACEHOLDERS: frozenset[str] = frozenset(
+    {"na", "n/a", "n.a.", "unknown", "none", "null", "undefined", "tba", "tbd", "-", "—", "?"}
+)
+
+
+def _is_genre_placeholder(leaf: str) -> bool:
+    """True for junk that must never enter the genre facet.
+
+    Covers explicit placeholder labels (``"N/A"``, ``"Unknown"``) and the
+    single-character fragments left when a placeholder is split on ``/`` (``"N/A"``
+    → ``"N"``, ``"A"``).  A genuine but unrecognized genre (``"SomeFutureGenre"``)
+    is NOT a placeholder — it passes through, per the capture-generously rule.
+    """
+    low = leaf.strip().lower()
+    return len(low) < 2 or low in _GENRE_PLACEHOLDERS
+
+
 def _decompose_genre(raw: str) -> list[tuple[str, str, float]]:
     """Decompose a genre string (possibly comma- or slash-delimited).
 
-    Each leaf is resolved via :func:`~metatv.core.filter_utils.recognized_genre`,
-    the strict allowlist predicate — only leaves that map to a known canonical
-    genre become genre tags. Empty / whitespace / unrecognized leaves are dropped
-    so placeholder junk (``"N/A"`` → ``N``, ``A``; ``"Unknown"``) never enters the
-    genre facet.
+    Each leaf is normalized via :func:`~metatv.core.filter_utils.normalize_genre`
+    (canonicalizes known genres, e.g. ``"Drame"`` → ``"Drama"``, and passes a
+    genuine unrecognized genre through unchanged — capture generously).  Only
+    placeholder junk (``"N/A"`` → ``N``, ``A``; ``"Unknown"``) is dropped, via
+    :func:`_is_genre_placeholder`.
 
     Examples::
 
@@ -457,17 +475,16 @@ def _decompose_genre(raw: str) -> list[tuple[str, str, float]]:
         "Drame"          → [(genre,Drama,0.9)]
         "Drama/Comedy"   → [(genre,Drama,0.9),(genre,Comedy,0.9)]
         "Action, Crime"  → [(genre,Action,0.9),(genre,Crime,0.9)]
+        "SomeFutureGenre"→ [(genre,SomeFutureGenre,0.9)]
         "N/A"            → []
         "Unknown"        → []
     """
     tags: list[tuple[str, str, float]] = []
     for leaf in re.split(r"[,/]", raw):
         leaf = leaf.strip()
-        if not leaf:
+        if not leaf or _is_genre_placeholder(leaf):
             continue
-        canon = recognized_genre(leaf)
-        if canon:
-            tags.append(("genre", canon, CONF_DENOTED))
+        tags.append(("genre", normalize_genre(leaf), CONF_DENOTED))
     return tags
 
 
@@ -475,24 +492,19 @@ def _decompose_epg(raw: str) -> list[tuple[str, str, float]]:
     """Decompose an EPG programme category/genre string.
 
     EPG categories can be genre-like (``"Drama"``, ``"Sport"``) or
-    content-type-like (``"News"``, ``"Movies"``).  We emit ``genre`` only for
-    values that :func:`~metatv.core.filter_utils.recognized_genre` accepts;
-    unknown strings are dropped (not mis-typed as collection — EPG labels are too
-    noisy for that).
+    content-type-like (``"News"``, ``"Movies"``).  Each leaf is normalized via
+    :func:`~metatv.core.filter_utils.normalize_genre` (canonicalizes known genres,
+    passes a genuine unknown through — capture generously); only placeholder junk
+    (``"N/A"``, ``"Unknown"``) is dropped via :func:`_is_genre_placeholder`.
 
     This is intentionally minimal / best-effort as the spec requires.
     """
     tags: list[tuple[str, str, float]] = []
     for leaf in re.split(r"[,/]", raw):
         leaf = leaf.strip()
-        if not leaf:
+        if not leaf or _is_genre_placeholder(leaf):
             continue
-        # Strict allowlist: recognized_genre() returns None for anything that is
-        # not a known canonical genre, so placeholder labels ("N/A", "Unknown")
-        # never leak into the genre facet.
-        canon = recognized_genre(leaf)
-        if canon:
-            tags.append(("genre", canon, CONF_DENOTED))
+        tags.append(("genre", normalize_genre(leaf), CONF_DENOTED))
     return tags
 
 
