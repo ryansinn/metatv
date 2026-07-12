@@ -1397,10 +1397,19 @@ def parse_channel_name(name: str) -> ParsedChannel:
     lang = _bracket_origin
     lm = _LANG_QUALIFIER_RE.search(bare)
     if lm:
-        candidate = normalize_region_code(lm.group(1))
-        if candidate != region:
-            lang = candidate
-        bare = bare[: lm.start()].strip()
+        token = lm.group(1).strip().upper()
+        if token in QUALITY_TOKENS:
+            # Quality token in parenthetical form: "(SD)", "(UHD)", "(FHD)", "(HQ)".
+            # Guard exactly as the bracket path (_classify_bracket) does — a quality
+            # marker must never be misclassified as a lang/region qualifier and then
+            # stored as detected_region (which also silently dropped the quality).
+            quality.append(token)
+            bare = bare[: lm.start()].strip()
+        else:
+            candidate = normalize_region_code(lm.group(1))
+            if candidate != region:
+                lang = candidate
+            bare = bare[: lm.start()].strip()
 
     # 5. Strip year from end
     year = ""
