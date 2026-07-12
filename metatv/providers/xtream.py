@@ -103,7 +103,9 @@ class XtreamAPI:
                 status = user_info.get("status", "")
                 auth = user_info.get("auth", 0)
 
-                if not auth:
+                # Servers may return auth as the *string* "0"/"false", which is
+                # truthy — normalize before deciding, else a rejected login passes.
+                if str(auth).strip().lower() in ("", "0", "false", "none"):
                     error_msg = "Authentication failed — check username and password"
                     if provider_url:
                         await ConnectionTracker.record_failure(provider_url, error_msg)
