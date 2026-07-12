@@ -509,6 +509,16 @@ class _MetadataMixin:
         """Update details pane with metadata (called on main thread via signal)."""
         try:
             logger.debug(f"_update_details_with_metadata called for {channel.name}")
+            # Guard against a stale metadata fetch: if the pane has since moved to
+            # a different channel, dropping this update prevents a slow fetch for
+            # channel A from flipping the pane back from B to A (mirrors the
+            # current-channel guard in _on_versions_loaded).
+            cur = self.details_pane.current_channel
+            if not (cur and cur.id == channel.id):
+                logger.debug(
+                    f"Ignoring stale metadata for superseded channel {channel.name}"
+                )
+                return
             logger.debug(f"Metadata has plot: {bool(metadata.plot)}, cast: {len(metadata.cast) if metadata.cast else 0}")
             self.details_pane.show_channel(channel, metadata=metadata)
             logger.debug(f"Details pane updated with metadata for {channel.name}")
