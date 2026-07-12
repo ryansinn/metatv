@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from metatv.core.database import WatchQueueDB, ChannelDB
@@ -129,13 +130,16 @@ class WatchQueueRepository:
         """Append channel_id to the end of the queue. No-op if already queued."""
         if self.is_queued(channel_id):
             return
-        max_pos = self.session.query(WatchQueueDB).count()
+        # Assign a position strictly greater than any existing row so a prior
+        # non-tail remove() (which does not reindex) can never leave two rows
+        # sharing a position and making order_by(position) unstable.
+        max_pos = self.session.query(func.max(WatchQueueDB.position)).scalar()
         self.session.add(WatchQueueDB(
             channel_id=channel_id,
             channel_name=channel_name,
             media_type=media_type,
             source_id=source_id,
-            position=max_pos,
+            position=(max_pos + 1) if max_pos is not None else 0,
         ))
 
     def remove(self, channel_id: str) -> None:
