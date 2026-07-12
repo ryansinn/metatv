@@ -190,7 +190,7 @@ class XtreamAPI:
         try:
             async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     return data if isinstance(data, list) else []
                 logger.error(f"Failed to get categories ({action}): HTTP {response.status}")
                 return []
@@ -226,7 +226,7 @@ class XtreamAPI:
             logger.debug(f"Fetching series info from: {url}")
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     logger.debug(f"Series info response type: {type(data)}")
                     if isinstance(data, dict):
                         logger.debug(f"Series info keys: {data.keys()}")
@@ -247,7 +247,7 @@ class XtreamAPI:
         try:
             async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     return data if isinstance(data, list) else []
                 logger.error(f"Failed to get streams ({action}): HTTP {response.status}")
                 return []
