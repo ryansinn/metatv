@@ -573,6 +573,11 @@ class EpgManager(QObject):
             if prov_id in hidden_ids:
                 continue  # never attach guide data to a disabled/expired source
             norm = normalize_channel_name(name)
+            if not norm:
+                # Placeholder/separator names ('HD', blanks) normalize to "" and
+                # would all collide on the same key (last-writer-wins), attaching a
+                # guide to an unrelated channel. Never key the fuzzy pool on "".
+                continue
             if prov_id == provider_id:
                 same_provider[norm] = cid
             else:
