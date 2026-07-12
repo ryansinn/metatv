@@ -1709,20 +1709,47 @@ class ChannelRepository(_ChannelStatsMixin):
             counts["epg_by_provider"] += n
             self.session.commit()
 
-        # Step 4 — SeasonDB / EpisodeDB whose provider_id is in the removed set
-        # (these belong to the provider even if series_id wasn't in the doomed batch
-        # e.g. engaged series channels whose seasons/episodes should still be pruned).
+        # Step 4 — orphaned SeasonDB / EpisodeDB whose provider_id is in the removed
+        # set but whose series channel is NOT one of the KEPT (engaged) channels.
+        # After Step 2 the only ChannelDB rows still present for these providers are
+        # the engaged (favorited/played/queued) series we deliberately preserve, so a
+        # season/episode whose series_id still resolves to an existing channel belongs
+        # to a kept series — leave it intact so per-episode resume/watched history
+        # survives a provider delete (history is sacrosanct).  Only truly orphaned
+        # catalog rows (series channel already gone) are pruned, and even those are
+        # spared when the episode itself still carries user watch-state.
         for pid_start in range(0, len(provider_ids), pid_batch_size):
             pid_batch = provider_ids[pid_start : pid_start + pid_batch_size]
+
+            # Series channels that survived Step 2 for this batch == the engaged/kept
+            # series whose seasons & episodes must be preserved.
+            kept_series_subq = (
+                self.session.query(ChannelDB.id)
+                .filter(ChannelDB.provider_id.in_(pid_batch))
+            )
+
             n = (
                 self.session.query(EpisodeDB)
                 .filter(EpisodeDB.provider_id.in_(pid_batch))
+                .filter(~EpisodeDB.series_id.in_(kept_series_subq))
+                # Floor: never delete an episode carrying user watch-state, even if
+                # its series channel is already gone (pre-fix orphans).
+                .filter(
+                    ~or_(
+                        EpisodeDB.is_watched == True,       # noqa: E712
+                        EpisodeDB.watch_completed == True,  # noqa: E712
+                        EpisodeDB.watch_progress > 0,
+                        EpisodeDB.last_played.isnot(None),
+                        EpisodeDB.play_count > 0,
+                    )
+                )
                 .delete(synchronize_session=False)
             )
             counts["episodes"] += n
             n = (
                 self.session.query(SeasonDB)
                 .filter(SeasonDB.provider_id.in_(pid_batch))
+                .filter(~SeasonDB.series_id.in_(kept_series_subq))
                 .delete(synchronize_session=False)
             )
             counts["seasons"] += n
