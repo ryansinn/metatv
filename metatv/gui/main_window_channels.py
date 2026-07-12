@@ -1097,7 +1097,19 @@ class _ChannelListMixin:
             lambda result: self._on_channel_page_loaded(result, generation),
             # No token_ref: we want ALL page results (older pages are guarded by
             # the generation int, not by a supersede token).
+            on_error=self._on_channel_page_error,
         )
+
+    def _on_channel_page_error(self, exc: Exception) -> None:
+        """Main-thread: clear the model's in-flight flag after a failed page fetch.
+
+        Without this, a worker exception leaves ``_fetching`` True forever (the
+        error branch of ``_run_query`` never reaches ``_on_channel_page_loaded``),
+        so ``canFetchMore()`` returns False and pagination stalls permanently.
+        Clearing the flag lets a later scroll retry.
+        """
+        logger.warning("Channel page fetch failed; clearing fetch flag to allow retry: %s", exc)
+        self.channel_model.mark_fetch_failed()
 
     @staticmethod
     def _query_channels_page(repos, query_params: dict, offset: int, page_size: int):
