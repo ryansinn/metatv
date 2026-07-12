@@ -348,6 +348,18 @@ class _ProviderMixin:
             self.discover_view.reload()
         if hasattr(self, "preferences_view"):
             self.preferences_view.refresh()
+        # Recipe shelves are source-scoped too: reload so a source toggle does not
+        # leave hidden-source cards on the shelves (mirrors the global-filter reload
+        # path). reload() self-guards before the view has ever been activated.
+        if "recipe_view" in self.__dict__:
+            self.recipe_view.reload()
+        # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
+        # state. Re-resolve provider ids + reload live only when EPG is on screen;
+        # a hidden EPG view re-resolves its scope on its next on_activate().
+        epg_view = self.__dict__.get("epg_view")
+        if epg_view is not None and epg_view.isVisible():
+            epg_view._load_provider_ids()
+            epg_view._reload_all()
 
     def edit_provider(self):
         """Legacy hook — no longer used (edit triggers from sidebar widget)."""
