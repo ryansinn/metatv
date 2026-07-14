@@ -933,12 +933,14 @@ class Config(BaseModel):
     qa_addressed: dict = Field(default_factory=dict)
 
     # Source refresh behaviour
-    # When True (default), "Refresh All" enqueues every source including ones the
-    # user has toggled OFF (is_active=False).  Set to False to skip inactive sources
-    # and only refresh sources that are currently enabled.
-    # Per-source refresh (the individual source refresh button) is never affected
-    # by this setting — that's always a deliberate user action and always works.
-    refresh_all_includes_inactive: bool = True
+    # When False (default), "Refresh All" skips sources the user has toggled OFF
+    # (is_active=False) — everywhere else an inactive source is treated as hidden
+    # (get_hidden_provider_ids scopes it out of Browse/Discover/Recipe/EPG), so
+    # Refresh All spending connection budget on it was the surprising exception.
+    # Set to True to also refresh disabled sources (keeps their cache warm for
+    # when re-enabled).  Per-source refresh (the individual source refresh button)
+    # is never affected by this setting — that's always a deliberate user action.
+    refresh_all_includes_inactive: bool = False
 
     # Series monitor — user-opted series tracked for new episode arrivals.
     # Each entry is a plain dict:
