@@ -23,6 +23,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     itemDoubleClicked             = pyqtSignal(str)        # channel_id
     itemSelected                  = pyqtSignal(str)        # channel_id
+    channelMiddleClicked          = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
     clearQueueClicked             = pyqtSignal()
     clearWatchedClicked           = pyqtSignal()
@@ -58,6 +59,11 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._list.itemDoubleClicked.connect(self._on_double_click)
         self._list.currentItemChanged.connect(self._on_selection_changed)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
+        # Middle-click plays the user-configured action (same seam as the channel
+        # list) via the shared QListWidget helper — no per-section handler copy.
+        from metatv.gui.list_middle_click import install_list_middle_click
+        self._list_mc = install_list_middle_click(self._list)
+        self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         self.content_layout.addWidget(self._list)
 
         btn_row = QHBoxLayout()

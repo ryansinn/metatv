@@ -1062,20 +1062,34 @@ class _ChannelListMixin:
         self.channel_model.set_section_collapsed(section, now_collapsed)
 
     def _on_channel_middle_clicked(self, index) -> None:
-        """Middle-click plays the user-configured action for the clicked row.
+        """Middle-click on a channel-list row → the user-configured play action.
 
-        The action is chosen in Settings → Interaction and persisted to
-        ``config.middle_click_action``; this looks the key up in the shared
-        ``MIDDLE_CLICK_ACTIONS`` registry and dispatches to the mapped per-play
-        path (e.g. resume from saved position, or play with endless buffer) —
-        no parallel play path, no hardcoded behaviour.
+        Resolves the row's channel id and hands it to the shared
+        :meth:`_dispatch_middle_click` seam, so the channel list and every other
+        movie surface (Discover cards, sidebar sections, Recipe / Preferences
+        result lists) route a middle-click through exactly one place.
         """
         from PyQt6.QtCore import Qt
+        self._dispatch_middle_click(index.data(Qt.ItemDataRole.UserRole))
+
+    def _dispatch_middle_click(self, channel_id: str) -> None:
+        """Play *channel_id* via the user-configured middle-click action.
+
+        The single chokepoint for the middle-click gesture across every movie
+        surface.  The action is chosen in Settings → Interaction and persisted to
+        ``config.middle_click_action``; this looks the key up in the shared
+        ``MIDDLE_CLICK_ACTIONS`` registry and dispatches to the mapped per-play
+        path (e.g. resume from saved position, or play with endless buffer) — no
+        parallel play path, no hardcoded behaviour.
+
+        Args:
+            channel_id: The channel id under the middle-click.  A falsy value
+                (e.g. a click on empty space or a non-channel row) is ignored.
+        """
         from metatv.gui.middle_click_actions import (
             DEFAULT_MIDDLE_CLICK_ACTION,
             middle_click_action,
         )
-        channel_id = index.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
         key = getattr(self.config, "middle_click_action", DEFAULT_MIDDLE_CLICK_ACTION)

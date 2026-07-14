@@ -49,8 +49,8 @@ class _Shelf(QWidget):
         self._scroll_area: QScrollArea | None = None
         self._inner_layout = None   # set by _build_ui
         self._inner_widget = None   # set by _build_ui
-        # List of (on_clicked, on_double_clicked, on_context_menu) tuples so
-        # set_cards() can wire late-added card widgets to the same slots.
+        # List of (on_clicked, on_double_clicked, on_context_menu, on_middle_click)
+        # tuples so set_cards() can wire late-added card widgets to the same slots.
         self._pending_wires: list[tuple] = []
 
         self._build_ui(title, cards, image_cache, config)
@@ -341,11 +341,12 @@ class _Shelf(QWidget):
 
         # Wire the new card widgets to any already-connected slots.
         for slot in self._pending_wires:
-            on_clicked, on_double_clicked, on_context_menu = slot
+            on_clicked, on_double_clicked, on_context_menu, on_middle_click = slot
             for w in self._cards_widgets[-len(cards):]:
                 w.clicked.connect(on_clicked)
                 w.doubleClicked.connect(on_double_clicked)
                 w.contextMenuRequested.connect(on_context_menu)
+                w.middleClicked.connect(on_middle_click)
 
         # Keep the scroll-area height in sync with the (possibly re-zoomed) cards.
         if self._scroll_area is not None:
@@ -355,9 +356,12 @@ class _Shelf(QWidget):
         if not self._collapsed:
             QTimer.singleShot(120, self._load_visible)
 
-    def wire(self, on_clicked, on_double_clicked, on_context_menu) -> None:
-        self._pending_wires.append((on_clicked, on_double_clicked, on_context_menu))
+    def wire(self, on_clicked, on_double_clicked, on_context_menu, on_middle_click) -> None:
+        self._pending_wires.append(
+            (on_clicked, on_double_clicked, on_context_menu, on_middle_click)
+        )
         for w in self._cards_widgets:
             w.clicked.connect(on_clicked)
             w.doubleClicked.connect(on_double_clicked)
             w.contextMenuRequested.connect(on_context_menu)
+            w.middleClicked.connect(on_middle_click)

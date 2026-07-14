@@ -397,7 +397,7 @@ class TestZoomSlider:
         n = 3
         cards = [_make_card(i) for i in range(n)]
         shelf = _Shelf("Drama", "genre:Drama", cards, view._image_cache, cfg, collapsed=False)
-        shelf.wire(MagicMock(), MagicMock(), MagicMock())
+        shelf.wire(MagicMock(), MagicMock(), MagicMock(), MagicMock())
         view._shelf_widgets["genre:Drama"] = shelf
         view._shelf_zones["genre:Drama"] = _ZONE_EXPANDED
         view._shelf_data_cache["genre:Drama"] = cards
