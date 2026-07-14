@@ -108,6 +108,8 @@ OVERLAY_08 = "rgba(255,255,255,0.08)"
 OVERLAY_10 = "rgba(255,255,255,0.10)"
 OVERLAY_15 = "rgba(255,255,255,0.15)"
 OVERLAY_18 = "rgba(255,255,255,0.18)"
+OVERLAY_40 = "rgba(255,255,255,0.40)"   # frosted-light fill — poster rail button (rest)
+OVERLAY_55 = "rgba(255,255,255,0.55)"   # frosted-light fill — poster rail button (hover/on)
 OVERLAY_POPUP = "rgba(40,40,50,0.97)"   # opaque popup surface (icon palette)
 # Blue (COLOR_ACCENT_BLUE) tints
 OVERLAY_BLUE_10 = "rgba(68,136,255,0.1)"
@@ -320,11 +322,11 @@ RATING_BTN = (
 # all rail buttons read uniformly as distinct interactive targets.
 DETAIL_RAIL_BTN = (
     "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
-    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: transparent;"
+    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_40 + ";"
     " color: " + COLOR_DIM + "; }"
-    "QPushButton:checked { background: " + OVERLAY_18 + "; color: " + COLOR_TEXT_HI + ";"
+    "QPushButton:checked { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT_HI + ";"
     " border-color: " + COLOR_DIM + "; }"
-    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + ";"
+    "QPushButton:hover { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT + ";"
     " border-color: " + COLOR_DIM + "; }"
 )
 
@@ -332,11 +334,11 @@ DETAIL_RAIL_BTN = (
 # (:checked, "alerting") glows red so the siren clearly turns on.
 DETAIL_RAIL_BTN_ALERT = (
     "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
-    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: transparent;"
+    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_40 + ";"
     " color: " + COLOR_DIM + "; }"
     "QPushButton:checked { background: " + OVERLAY_ERR + "; color: " + COLOR_TEXT_HI + ";"
     " border-color: " + COLOR_ERR + "; }"
-    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_TEXT + ";"
+    "QPushButton:hover { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT + ";"
     " border-color: " + COLOR_DIM + "; }"
 )
 
