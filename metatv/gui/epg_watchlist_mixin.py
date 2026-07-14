@@ -71,7 +71,6 @@ from metatv.core.epg_utils import (
     remaining_str as _remaining_str,
     is_local_today as _is_local_today,
     local_weekday as _local_weekday,
-    to_local as _to_local,
 )
 from metatv.gui.badge_utils import (
     make_audio_chip,
@@ -1006,8 +1005,10 @@ class _EpgWatchlistMixin:
             return
 
         for title, start_time in rows:
-            local_dt = _to_local(start_time)
-            time_str = _format_time(local_dt)
+            # start_time is UTC-naive; _format_time localizes internally (like the
+            # _up_row sibling path). Pre-converting to local first double-shifts and
+            # skews the displayed time by the UTC offset for non-UTC users.
+            time_str = _format_time(start_time)
             row_lbl = QLabel(f"{time_str}  ·  {title}")
             row_lbl.setStyleSheet(_theme.DISCOVER_REC_MATCH_ROW)
             sub_layout.addWidget(row_lbl)

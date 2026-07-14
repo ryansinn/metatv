@@ -1209,8 +1209,21 @@ class _StreamingMixin:
         # Surface the live play-state to the details pane: the channel this window is
         # playing + its current position.  The pane lights its green Play indicator
         # only when this channel is the one currently shown.
-        ch_id = self.__dict__.get("_playing_channels", {}).get(shown_key)
-        self._notify_details_playing(ch_id, props.get("time-pos") or 0)
+        playing_map = self.__dict__.get("_playing_channels", {})
+        ch_id = playing_map.get(shown_key)
+        pane = self.__dict__.get("details_pane")
+        shown_ch = getattr(pane, "current_channel", None) if pane is not None else None
+        shown_id = getattr(shown_ch, "id", None)
+        if (shown_id is not None and shown_id != ch_id
+                and shown_id in playing_map.values()):
+            # The shown title is still playing in a DIFFERENT Split-Streams window
+            # than the one just polled.  Forwarding this window's channel would make
+            # set_playing clear the shown title's indicator; instead leave the pane's
+            # self-advancing "currently playing" timer untouched so it stays lit.
+            # (Only clear the shown title when it plays in NO open window.)
+            pass
+        else:
+            self._notify_details_playing(ch_id, props.get("time-pos") or 0)
 
         # Source glyph labels *which* stream the data refers to (shown whether one
         # or many windows are open). The [i/n] marker (multi only) adds count +

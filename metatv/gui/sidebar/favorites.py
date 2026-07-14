@@ -108,7 +108,8 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _add_item(self, dto) -> None:
         item = QListWidgetItem(
-            f"{self._media_icon(dto.media_type)} {_fmt_channel_name(dto.name)}"
+            f"{self._media_icon(dto.media_type)} "
+            f"{_fmt_channel_name(dto.name, detected_title=dto.search_title, detected_region=dto.detected_region, detected_quality=dto.detected_quality, detected_year=dto.detected_year)}"
         )
         item.setData(Qt.ItemDataRole.UserRole, dto.id)
         item.setData(_ROLE_AVAILABLE, dto.available)

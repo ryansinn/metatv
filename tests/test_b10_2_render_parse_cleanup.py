@@ -198,7 +198,19 @@ class TestLoadBasicStoredFields:
         assert section._name_year_lbl.isHidden(), "Year label must be hidden when no year"
 
     def test_parse_channel_name_not_called_in_load_basic(self, qapp):
-        """parse_channel_name must NOT be called during load_basic rendering."""
+        """load_basic must render from stored detected_* fields, never re-parse.
+
+        details_sections must not even import parse_channel_name (render-time
+        parsing is a B10-2 violation — the module now reads the stored detected_*
+        fields).  This is a stronger guard than mocking the call: it fails the
+        moment the import is reintroduced.
+        """
+        import metatv.gui.details_sections as ds
+        assert not hasattr(ds, "parse_channel_name"), (
+            "details_sections must not import parse_channel_name — render must read "
+            "stored detected_* fields, not parse at render time (B10-2)"
+        )
+
         section = self._make_section(qapp)
         channel = _fake_channel(
             name="ES | Peliculas HD (2024)",
@@ -207,14 +219,9 @@ class TestLoadBasicStoredFields:
             detected_quality="HD",
             detected_year="2024",
         )
+        section.load_basic(channel)
 
-        with patch(
-            "metatv.gui.details_sections.parse_channel_name",
-            side_effect=AssertionError("parse_channel_name called at render time — B10-2 violation"),
-        ):
-            section.load_basic(channel)  # must not raise
-
-        # Also assert the stored fields were used (regression guard)
+        # The stored fields were used (regression guard)
         assert section.title_label.text() == "Peliculas"
         assert section._prefix_chip.text() == "ES"
         assert section._quality_chip.text() == "HD"

@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS, parse_channel_name,
+    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -1029,12 +1029,12 @@ class _MetadataSection(QWidget):
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
         if metadata.title:
-            parsed = parse_channel_name(metadata.title)
-            clean = parsed.bare_name if parsed.bare_name else metadata.title
-            self.title_label.setText(clean)
-            if parsed.year and not self._name_year_lbl.isVisible():
-                self._name_year_lbl.setText(parsed.year)
-                self._name_year_lbl.show()
+            # Display the metadata title verbatim — never re-parse it at render
+            # (ingestion-only rule, CLAUDE.md; see load_basic). Stripping via
+            # parse_channel_name() can also mangle a legit title ending in a
+            # parenthetical or (YYYY). The year label is sourced from the stored
+            # metadata.year field below.
+            self.title_label.setText(metadata.title)
 
         if metadata.tagline:
             self._tagline_lbl.setText(metadata.tagline)

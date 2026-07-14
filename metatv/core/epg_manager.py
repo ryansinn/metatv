@@ -18,7 +18,9 @@ from metatv.core.epg_utils import (
     epg_auto_delta,
     epg_is_stale,
     epg_interval_delta,
+    local_weekday,
     now_utc,
+    to_local,
 )
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
@@ -94,7 +96,7 @@ class EpgManager(QObject):
         self.db = db
         self.config = config
         self.notifications = notifications  # NotificationManager or None
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="epg")
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="epg")
         self._notified_this_session: set[int] = set()  # programme IDs already toasted
         self._notification_timer: QTimer | None = None
         self._scheduler_timer: QTimer | None = None
@@ -603,6 +605,11 @@ class EpgManager(QObject):
             if prov_id in hidden_ids:
                 continue  # never attach guide data to a disabled/expired source
             norm = normalize_channel_name(name)
+            if not norm:
+                # Placeholder/separator names ('HD', blanks) normalize to "" and
+                # would all collide on the same key (last-writer-wins), attaching a
+                # guide to an unrelated channel. Never key the fuzzy pool on "".
+                continue
             if prov_id == provider_id:
                 same_provider[norm] = cid
             else:
@@ -796,7 +803,11 @@ class EpgManager(QObject):
 
             end_str = ""
             if end:
-                end_str = f" · data through {end.strftime('%a %b %d %I:%M%p').replace(' 0', ' ')}"
+                # epg_data_end is UTC-naive — convert to local before display
+                # (per the EPG timezone rule) so the day/time isn't off by the
+                # local offset (or a whole day near midnight).
+                local_end = f"{local_weekday(end)} {to_local(end).strftime('%b %d %I:%M%p')}"
+                end_str = f" · data through {local_end.replace(' 0', ' ')}"
 
             return f"Updated {age_str}{end_str}"
         finally:
@@ -856,7 +867,7 @@ class EpgManager(QObject):
             from metatv.core.repositories.epg import EpgRepository
             repo = EpgRepository(session)
             providers = session.query(ProviderDB).filter_by(is_active=True).all()
-            provider_ids = [p.id for p in providers if getattr(p, "epg_url", "")]
+            provider_ids = [p.id for p in providers if self.effective_epg_url(p)]
 
             if not provider_ids:
                 return

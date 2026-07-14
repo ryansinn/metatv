@@ -425,13 +425,30 @@ class _ChannelListMixin:
         # watched — used to show "N watched hidden" in the stats label.
         watched_hidden_count = 0
         if not hidden_only and params.get('hide_watched', False):
+            # Forward the SAME filter axes get_all() received above, so the
+            # "N hidden because watched" count matches the visible set exactly
+            # (DB-3 — count_watched_matching routes through _apply_channel_filters).
             watched_hidden_count = repos.channels.count_watched_matching(
                 provider_id=params['provider_id'],
-                media_types=params.get('media_types'),
-                excluded_provider_ids=providers_to_exclude or None,
-                search_query=params.get('search_query'),
-                adult_mode=params.get('adult_mode', 'all'),
+                media_types=params['media_types'],
+                language_prefixes=params.get('language_prefixes'),
+                region_prefixes=params.get('region_prefixes'),
+                quality_prefixes=params.get('quality_prefixes'),
+                platform_prefixes=params.get('platform_prefixes'),
+                genre_filters=params.get('genre_filters'),
+                invert_prefix_filters=params['invert_prefix_filters'],
+                include_untagged=params['include_untagged'],
+                include_untagged_quality=params.get('include_untagged_quality', True),
+                adult_mode=params['adult_mode'],
                 force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
+                search_query=params.get('search_query'),
+                strict_genre_filter=params.get('strict_genre_filter'),
+                person_filter=params.get('person_filter'),
+                context_tag_filter=params.get('context_tag_filter'),
+                context_category_filter=params.get('context_category_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
             )
 
@@ -1097,7 +1114,19 @@ class _ChannelListMixin:
             lambda result: self._on_channel_page_loaded(result, generation),
             # No token_ref: we want ALL page results (older pages are guarded by
             # the generation int, not by a supersede token).
+            on_error=self._on_channel_page_error,
         )
+
+    def _on_channel_page_error(self, exc: Exception) -> None:
+        """Main-thread: clear the model's in-flight flag after a failed page fetch.
+
+        Without this, a worker exception leaves ``_fetching`` True forever (the
+        error branch of ``_run_query`` never reaches ``_on_channel_page_loaded``),
+        so ``canFetchMore()`` returns False and pagination stalls permanently.
+        Clearing the flag lets a later scroll retry.
+        """
+        logger.warning("Channel page fetch failed; clearing fetch flag to allow retry: %s", exc)
+        self.channel_model.mark_fetch_failed()
 
     @staticmethod
     def _query_channels_page(repos, query_params: dict, offset: int, page_size: int):
