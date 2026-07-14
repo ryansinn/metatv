@@ -188,12 +188,21 @@ class EpgManager(QObject):
            it is ``"default"`` / blank, in which case use the global config default
            (``config.epg_default_refresh_interval``).
         5. ``every_open`` → True.
-        6. ``when_stale`` → True only if guide has fully expired.
+        6. ``when_stale`` → True when the guide has fully expired, EXCEPT for a
+           feed that is stale at source (see below), which is throttled to the
+           auto delta so it doesn't re-fetch every launch.
         7. ``auto`` → delta = half the guide depth, clamped to [6 h, 7 d], then same
            expiry-floor check as time-based intervals.
-        8. Time interval → True if elapsed since last fetch ≥ delta **OR** guide
-           has fully expired (expiry floor — time intervals must never leave an
+        8. Time interval → True if elapsed since last fetch ≥ delta **OR** the
+           expiry floor fires (guide ran out — time intervals must never leave an
            empty "On Now").
+
+        Expiry floor & stale-at-source: the floor forces an immediate re-fetch when
+        the guide has run out, but is SUPPRESSED when the guide was already expired
+        at fetch time (``epg_data_end < epg_last_fetched``) — a feed lagging real
+        time re-serves the same stale guide, so the floor would re-fetch on every
+        launch forever. Such feeds fall back to the interval throttle. (Sibling of
+        the TREX unmatched-guide convergence fix, #285.)
         """
         if not self.effective_epg_url(provider):
             return False
@@ -213,20 +222,40 @@ class EpgManager(QObject):
             effective = per_source
 
         data_end = getattr(provider, "epg_data_end", None)
+        data_start = getattr(provider, "epg_data_start", None)
         guide_expired = epg_is_stale(data_end)  # True if data_end < now_utc()
+
+        # A guide that was ALREADY expired when we last fetched it (data_end <
+        # last_fetched) means the FEED itself lags real time — it serves programme
+        # data ending in the past. Re-fetching pulls the same stale guide, so
+        # honouring the "expiry floor" (refresh-now-because-the-guide-ran-out) would
+        # re-fetch on EVERY launch and never converge. That is the BiggyJuke loop —
+        # a sibling of the TREX unmatched-guide loop fixed in #285. When the feed is
+        # stale at source we suppress the expiry floor and let the normal interval
+        # throttle govern, so a genuinely-recovering feed is still re-checked
+        # periodically (every auto delta, min 6 h) rather than hammered every launch.
+        # A guide that was valid at fetch time but has since run out (data_end >=
+        # last_fetched) is the legitimate case the floor exists for — it stays.
+        guide_stale_at_source = data_end is not None and data_end < last_fetched
+        expiry_floor = guide_expired and not guide_stale_at_source
 
         if effective == "every_open":
             return True
 
         if effective == "when_stale":
+            # Refresh when the guide runs out — but a stale-at-source feed is
+            # *permanently* stale, so throttle it to the auto delta instead of
+            # re-fetching on every launch.
+            if guide_stale_at_source:
+                return now_utc() - last_fetched >= epg_auto_delta(data_start, data_end)
             return guide_expired
 
         if effective == "auto":
             # Self-tuning: half the guide depth, clamped to [6 h, 7 d].
-            # Expiry floor still applies: refresh immediately when guide ran out.
-            if guide_expired:
+            # Expiry floor refreshes immediately when the guide ran out (unless the
+            # feed is stale at source — see above, where the throttle governs).
+            if expiry_floor:
                 return True
-            data_start = getattr(provider, "epg_data_start", None)
             delta = epg_auto_delta(data_start, data_end)
             return now_utc() - last_fetched >= delta
 
@@ -237,8 +266,9 @@ class EpgManager(QObject):
             logger.warning(f"EPG: unknown epg_refresh_interval {effective!r} for {provider.id}; treating as every_open")
             return True
 
-        # Expiry floor: refresh immediately if guide ran out, even within the interval
-        if guide_expired:
+        # Expiry floor: refresh immediately if the guide ran out mid-interval
+        # (unless the feed is stale at source — the interval throttle governs there).
+        if expiry_floor:
             return True
 
         return now_utc() - last_fetched >= delta
