@@ -20,6 +20,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
 
     favoriteClicked         = pyqtSignal(str)   # channel_id (double-click, available only)
     itemSelected            = pyqtSignal(str)   # channel_id (single-click)
+    channelMiddleClicked    = pyqtSignal(str)   # channel_id — configured middle-click play
     searchRequested         = pyqtSignal(str)   # search_title — double-click on unavailable
     clearUnavailableClicked = pyqtSignal()      # request clear-unavailable
     _data_ready             = pyqtSignal(object)  # list[FavoriteDTO] | None
@@ -50,6 +51,11 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         self.favorites_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.favorites_list.itemDoubleClicked.connect(self.on_favorite_clicked)
         self.favorites_list.currentItemChanged.connect(self.on_favorite_selected)
+        # Middle-click plays the user-configured action (same seam as the channel
+        # list) via the shared QListWidget helper — no per-section handler copy.
+        from metatv.gui.list_middle_click import install_list_middle_click
+        self._list_mc = install_list_middle_click(self.favorites_list)
+        self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         self.content_layout.addWidget(self.favorites_list)
 
     # --- BackgroundRefreshMixin hooks ---

@@ -143,6 +143,7 @@ class _RecRow(QWidget):
 
     dislikeClicked       = pyqtSignal(str)        # channel_id
     notInterestedClicked = pyqtSignal(str)        # channel_id
+    middleClicked        = pyqtSignal(str)        # channel_id — configured middle-click play
     contextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     _BTN_STYLE = (
@@ -188,6 +189,16 @@ class _RecRow(QWidget):
         self.contextMenuRequested.emit(self.channel_id, event.globalPos().x(), event.globalPos().y())
         event.accept()
 
+    def mousePressEvent(self, event) -> None:
+        # Middle-click on a recommendation row plays the user-configured action.
+        # Non-left button presses on the child buttons (Dislike / Not Interested)
+        # bubble up to here, so a middle-click anywhere on the row is caught.
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.middleClicked.emit(self.channel_id)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
 
 class PreferencesView(QWidget):
     _pref_data_ready = pyqtSignal(object, object)  # (AttributeWeights, list[ScoredChannel])
@@ -197,6 +208,7 @@ class PreferencesView(QWidget):
     channelSelected             = pyqtSignal(str)       # channel_id — single-click → details pane
     ratingRequested             = pyqtSignal(str, int)  # channel_id, ±1
     notInterestedRequested      = pyqtSignal(str)       # channel_id — hide from recommendations
+    channelMiddleClicked        = pyqtSignal(str)       # channel_id — configured middle-click play
     channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     def __init__(self, db: Database, config: Config, parent=None):
@@ -620,6 +632,7 @@ class PreferencesView(QWidget):
             row.notInterestedClicked.connect(
                 lambda cid=sc.channel_id: self.notInterestedRequested.emit(cid)
             )
+            row.middleClicked.connect(self.channelMiddleClicked)
             row.contextMenuRequested.connect(
                 lambda cid, gx, gy, vc=sc.variant_count: self._on_row_context_menu(cid, gx, gy, vc)
             )

@@ -354,7 +354,7 @@ class TestDoubleClickEmitsBehavior:
 
         played: list[str] = []
         selected: list[str] = []
-        shelf.wire(selected.append, played.append, lambda *_: None)
+        shelf.wire(selected.append, played.append, lambda *_: None, lambda *_: None)
 
         # Trigger a double-click on the first card widget.
         card_w = shelf._cards_widgets[0]
@@ -388,7 +388,7 @@ class TestDoubleClickEmitsBehavior:
         shelf = _Shelf("Lazy", "genre:Lazy", [], image_cache, cfg, collapsed=True)
 
         played: list[str] = []
-        shelf.wire(lambda _: None, played.append, lambda *_: None)
+        shelf.wire(lambda _: None, played.append, lambda *_: None, lambda *_: None)
 
         card_data = ContentCard(
             channel_id="ch-lazy-1",

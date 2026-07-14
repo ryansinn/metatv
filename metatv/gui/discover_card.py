@@ -101,6 +101,7 @@ class _ContentCard(QWidget):
 
     clicked              = pyqtSignal(str)          # channel_id
     doubleClicked        = pyqtSignal(str)
+    middleClicked        = pyqtSignal(str)          # channel_id — configured middle-click play
     contextMenuRequested = pyqtSignal(str, int, int)
 
     def __init__(self, card: ContentCard, image_cache: "ImageCache",
@@ -322,6 +323,8 @@ class _ContentCard(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._card.channel_id)
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            self.middleClicked.emit(self._card.channel_id)
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:

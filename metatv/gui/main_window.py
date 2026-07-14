@@ -693,6 +693,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = FavoritesSection(self.config, self.db, self)
             section.favoriteClicked.connect(self.play_favorite_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
+            section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.searchRequested.connect(self.search_for_title)
             section.clearUnavailableClicked.connect(
                 lambda: self._clear_unavailable_favorites(section)
@@ -707,6 +708,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = RecommendedSection(self.config, self.db, self)
             section.itemSelected.connect(self._on_rec_sidebar_selected)
             section.itemDoubleClicked.connect(self.play_channel_by_id)
+            section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
             return section
 
@@ -714,6 +716,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = WatchQueueSection(self.config, self.db, self)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.itemDoubleClicked.connect(self.play_queue_item_id)
+            section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
             section.clearQueueClicked.connect(self._clear_queue)
             section.clearWatchedClicked.connect(self._clear_watched_queue)
@@ -1312,6 +1315,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.preferences_view.channelSelected.connect(self.show_channel_details_by_id)
         self.preferences_view.ratingRequested.connect(self._toggle_rating)
         self.preferences_view.notInterestedRequested.connect(self._not_interested)
+        self.preferences_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.preferences_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.preferences_view.setVisible(False)
         self._list_layout.addWidget(self.preferences_view)
@@ -1320,6 +1324,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.discover_view = DiscoverView(self.db, self.config, self.image_cache, self)
         self.discover_view.playRequested.connect(self.play_channel_by_id)
         self.discover_view.channelSelected.connect(self.show_channel_details_by_id)
+        self.discover_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.discover_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
         self.discover_view.setVisible(False)
         self._list_layout.addWidget(self.discover_view)
@@ -1332,6 +1337,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # DiscoverView) so provider_id threading + the canonical play path are reused.
         self.recipe_view.channelSelected.connect(self.show_channel_details_by_id)
         self.recipe_view.playRequested.connect(self.play_channel_by_id)
+        self.recipe_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         # Route right-click on Now-Plating / Show-All cards through the unified
         # channel menu (same seam as DiscoverView and Recommendations).
         self.recipe_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
