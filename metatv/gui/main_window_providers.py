@@ -588,16 +588,17 @@ class _ProviderMixin:
     def refresh_all_providers(self) -> None:
         """Enqueue providers for serial refresh via the queue manager.
 
-        When ``config.refresh_all_includes_inactive`` is True (default) all
-        providers are enqueued, matching the historical behaviour.  When False,
+        When ``config.refresh_all_includes_inactive`` is False (default),
         providers with ``is_active=False`` are silently skipped — the user has
-        toggled them off and doesn't want to pay the refresh cost for them.
+        toggled them off and doesn't want to pay the refresh cost for them (and
+        they're already scoped out of every content view).  Set it True to also
+        enqueue disabled sources, matching the historical behaviour.
 
         Note: this setting never affects per-source refresh (the individual
         refresh button) — that is always a deliberate user action and always
         works regardless of ``is_active``.
         """
-        skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", True)
+        skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", False)
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)

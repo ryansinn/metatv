@@ -2,10 +2,11 @@
 
 Four concrete regressions guarded here:
 
-1. With ``refresh_all_includes_inactive=False``, ``refresh_all_providers()``
-   enqueues ONLY active providers — an inactive one is skipped.
-2. With ``refresh_all_includes_inactive=True`` (default), ALL providers are
-   enqueued regardless of is_active.
+1. With ``refresh_all_includes_inactive=False`` (default),
+   ``refresh_all_providers()`` enqueues ONLY active providers — an inactive one
+   is skipped.
+2. With ``refresh_all_includes_inactive=True``, ALL providers are enqueued
+   regardless of is_active.
 3. ``refresh_all_includes_inactive`` round-trips through Config save/load.
 4. The settings checkbox reads and writes the config field correctly.
 """
@@ -98,7 +99,7 @@ def test_refresh_all_skips_inactive_when_setting_is_false():
 
 
 def test_refresh_all_includes_inactive_when_setting_is_true():
-    """With refresh_all_includes_inactive=True (default), ALL providers are enqueued."""
+    """With refresh_all_includes_inactive=True, ALL providers are enqueued."""
     cfg = MagicMock()
     cfg.refresh_all_includes_inactive = True
 
@@ -113,8 +114,9 @@ def test_refresh_all_includes_inactive_when_setting_is_true():
     assert "p-inactive" in enqueued_ids, "Inactive provider MUST be enqueued when setting is True"
 
 
-def test_refresh_all_default_behaviour_includes_inactive():
-    """If the config attribute is missing (legacy), default True means all providers enqueued."""
+def test_refresh_all_default_behaviour_skips_inactive():
+    """If the config attribute is missing, the getattr fallback (False, matching the
+    Config class default) means inactive sources are skipped."""
     # Simulate a config object that doesn't have the field (getattr fallback)
     cfg = object()  # has no refresh_all_includes_inactive attribute
 
@@ -125,8 +127,9 @@ def test_refresh_all_default_behaviour_includes_inactive():
     win.refresh_all_providers()
 
     enqueued_ids = [pid for pid, _ in win._enqueued]
-    assert "p-inactive" in enqueued_ids, (
-        "Absent attribute must default to True (include inactive) for backward compat"
+    assert "p-active" in enqueued_ids, "Active provider must still be enqueued"
+    assert "p-inactive" not in enqueued_ids, (
+        "Absent attribute must default to False (skip inactive) — the new default"
     )
 
 
