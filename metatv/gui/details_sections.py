@@ -297,10 +297,10 @@ class _PosterSection(QWidget):
         self._action_rail.setObjectName("posterActionRail")
         self._action_rail.setFixedWidth(self._RAIL_W)
         self._action_rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # A subtle dark scrim keeps the rail legible over bright posters; the individual
+        # Dark-gray gutter panel (not pitch black) beside the poster; the individual
         # button fills (DETAIL_RAIL_BTN, ~40% light) read as frosted chips on top of it.
         self._action_rail.setStyleSheet(
-            f"#posterActionRail {{ background-color: {_theme.OVERLAY_BLACK_55};"
+            f"#posterActionRail {{ background-color: {_theme.COLOR_BG_CARD};"
             f" border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}"
         )
         self._action_rail_layout = QVBoxLayout(self._action_rail)
