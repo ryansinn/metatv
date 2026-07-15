@@ -193,7 +193,7 @@ class _PosterSection(QWidget):
     _RAIL_GAP: int = 20
     _RAIL_TRIO_GAP: int = 4
     _RAIL_SENTIMENT_GAP: int = 80   # 4×G — pushes the sentiment trio down toward Play
-    _RAIL_W: int = 48   # the slim icon rail floats over the poster's LEFT edge (overlay)
+    _RAIL_W: int = 48   # slim icon rail in the left gutter; poster content is inset by this
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -236,7 +236,11 @@ class _PosterSection(QWidget):
         # background spans the full content width (no longer shrunk by a rail column).
         self._poster_frame = QWidget()
         pf_layout = QVBoxLayout(self._poster_frame)
-        pf_layout.setContentsMargins(0, 0, 0, 0)
+        # Inset the poster content by the rail width so the poster image (and its gray
+        # card) starts to the RIGHT of the action rail — the rail sits in the left gutter
+        # BESIDE the poster, no longer overlaying the poster art.  _rescale_current_image
+        # subtracts the same _RAIL_W from the label's max-width so the right gutter holds.
+        pf_layout.setContentsMargins(self._RAIL_W, 0, 0, 0)
 
         self.poster_label = _PosterLabel()
         # Left-aligned (not centered): a pillarboxed portrait poster hugs the box's LEFT
@@ -300,7 +304,8 @@ class _PosterSection(QWidget):
             f" border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}"
         )
         self._action_rail_layout = QVBoxLayout(self._action_rail)
-        self._action_rail_layout.setContentsMargins(0, 0, 12, 0)
+        # Symmetric margins so the fixed-size buttons center horizontally in the rail.
+        self._action_rail_layout.setContentsMargins(0, 0, 0, 0)
         self._action_rail_layout.setSpacing(0)
         self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
         self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
@@ -731,7 +736,9 @@ class _PosterSection(QWidget):
         """
         frame_w = self._poster_frame.width()
         if frame_w > 1:
-            self.poster_label.setMaximumWidth(frame_w - self._POSTER_GUTTER)
+            # The poster content is inset by _RAIL_W (rail sits in the left gutter), so the
+            # label's usable width — and its right-boundary cap — is frame minus the rail.
+            self.poster_label.setMaximumWidth(frame_w - self._RAIL_W - self._POSTER_GUTTER)
         if self._is_live_logo:
             self._apply_scaled_logo()
         else:
