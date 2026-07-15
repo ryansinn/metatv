@@ -2,7 +2,7 @@
 
 import asyncio
 from typing import List, Dict, Optional, Any, Tuple
-from urllib.parse import urljoin
+from urllib.parse import quote
 import aiohttp
 from loguru import logger
 
@@ -53,8 +53,9 @@ class XtreamAPI:
         }
         base_params.update(params)
         
-        # Build query string
-        query_parts = [f"{k}={v}" for k, v in base_params.items() if v is not None]
+        # Build query string. Percent-escape every value so credentials or params
+        # containing reserved characters (& # + = space) don't corrupt the URL.
+        query_parts = [f"{k}={quote(str(v), safe='')}" for k, v in base_params.items() if v is not None]
         query_string = "&".join(query_parts)
         
         return f"{self.base_url}/player_api.php?action={action}&{query_string}"
@@ -77,7 +78,11 @@ class XtreamAPI:
 
         try:
             # Step 1: hit the auth endpoint — gives us account status + server info
-            auth_url = f"{self.base_url}/player_api.php?username={self.username}&password={self.password}"
+            auth_url = (
+                f"{self.base_url}/player_api.php"
+                f"?username={quote(str(self.username), safe='')}"
+                f"&password={quote(str(self.password), safe='')}"
+            )
             async with self.session.get(auth_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 response_time_ms = int((time() - start_time) * 1000)
 
@@ -98,7 +103,9 @@ class XtreamAPI:
                 status = user_info.get("status", "")
                 auth = user_info.get("auth", 0)
 
-                if not auth:
+                # Servers may return auth as the *string* "0"/"false", which is
+                # truthy — normalize before deciding, else a rejected login passes.
+                if str(auth).strip().lower() in ("", "0", "false", "none"):
                     error_msg = "Authentication failed — check username and password"
                     if provider_url:
                         await ConnectionTracker.record_failure(provider_url, error_msg)
@@ -141,7 +148,11 @@ class XtreamAPI:
     async def get_server_info(self) -> Optional[Dict[str, Any]]:
         """Get server information"""
         try:
-            url = f"{self.base_url}/player_api.php?username={self.username}&password={self.password}"
+            url = (
+                f"{self.base_url}/player_api.php"
+                f"?username={quote(str(self.username), safe='')}"
+                f"&password={quote(str(self.password), safe='')}"
+            )
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
                     return await response.json(content_type=None)
@@ -190,7 +201,7 @@ class XtreamAPI:
         try:
             async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     return data if isinstance(data, list) else []
                 logger.error(f"Failed to get categories ({action}): HTTP {response.status}")
                 return []
@@ -226,7 +237,7 @@ class XtreamAPI:
             logger.debug(f"Fetching series info from: {url}")
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     logger.debug(f"Series info response type: {type(data)}")
                     if isinstance(data, dict):
                         logger.debug(f"Series info keys: {data.keys()}")
@@ -247,7 +258,7 @@ class XtreamAPI:
         try:
             async with self.session.get(url, timeout=_CONTENT_READ_TIMEOUT) as response:
                 if response.status == 200:
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     return data if isinstance(data, list) else []
                 logger.error(f"Failed to get streams ({action}): HTTP {response.status}")
                 return []
@@ -267,16 +278,20 @@ class XtreamAPI:
         ``get_*_categories``). When omitted, falls back to any inline name.
         """
         
-        # Generate stream URL
+        # Generate stream URL. Percent-escape the credential + id path segments so
+        # reserved characters in the username/password/id don't corrupt the path.
         stream_id = raw_data.get('stream_id') or raw_data.get('series_id')
         extension = raw_data.get('container_extension', 'ts')
-        
+        user_seg = quote(str(self.username), safe='')
+        pass_seg = quote(str(self.password), safe='')
+        id_seg = quote(str(stream_id), safe='')
+
         if media_type == MediaType.LIVE:
-            stream_url = f"{self.base_url}/live/{self.username}/{self.password}/{stream_id}.{extension}"
+            stream_url = f"{self.base_url}/live/{user_seg}/{pass_seg}/{id_seg}.{extension}"
         elif media_type == MediaType.MOVIE:
-            stream_url = f"{self.base_url}/movie/{self.username}/{self.password}/{stream_id}.{extension}"
+            stream_url = f"{self.base_url}/movie/{user_seg}/{pass_seg}/{id_seg}.{extension}"
         else:
-            stream_url = f"{self.base_url}/series/{self.username}/{self.password}/{stream_id}.{extension}"
+            stream_url = f"{self.base_url}/series/{user_seg}/{pass_seg}/{id_seg}.{extension}"
         
         # Determine quality
         name = raw_data.get('name', '')

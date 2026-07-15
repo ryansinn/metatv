@@ -348,6 +348,18 @@ class _ProviderMixin:
             self.discover_view.reload()
         if hasattr(self, "preferences_view"):
             self.preferences_view.refresh()
+        # Recipe shelves are source-scoped too: reload so a source toggle does not
+        # leave hidden-source cards on the shelves (mirrors the global-filter reload
+        # path). reload() self-guards before the view has ever been activated.
+        if "recipe_view" in self.__dict__:
+            self.recipe_view.reload()
+        # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
+        # state. Re-resolve provider ids + reload live only when EPG is on screen;
+        # a hidden EPG view re-resolves its scope on its next on_activate().
+        epg_view = self.__dict__.get("epg_view")
+        if epg_view is not None and epg_view.isVisible():
+            epg_view._load_provider_ids()
+            epg_view._reload_all()
 
     def edit_provider(self):
         """Legacy hook — no longer used (edit triggers from sidebar widget)."""
@@ -588,16 +600,17 @@ class _ProviderMixin:
     def refresh_all_providers(self) -> None:
         """Enqueue providers for serial refresh via the queue manager.
 
-        When ``config.refresh_all_includes_inactive`` is True (default) all
-        providers are enqueued, matching the historical behaviour.  When False,
+        When ``config.refresh_all_includes_inactive`` is False (default),
         providers with ``is_active=False`` are silently skipped — the user has
-        toggled them off and doesn't want to pay the refresh cost for them.
+        toggled them off and doesn't want to pay the refresh cost for them (and
+        they're already scoped out of every content view).  Set it True to also
+        enqueue disabled sources, matching the historical behaviour.
 
         Note: this setting never affects per-source refresh (the individual
         refresh button) — that is always a deliberate user action and always
         works regardless of ``is_active``.
         """
-        skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", True)
+        skip_inactive = not getattr(self.config, "refresh_all_includes_inactive", False)
         session = self.db.get_session()
         try:
             repos = RepositoryFactory(session)

@@ -190,7 +190,81 @@ class ChannelRepository(_ChannelStatsMixin):
             Tag facets are AND across facets, OR within each facet.
         """
         query = self.session.query(ChannelDB)
+        query = self._apply_channel_filters(
+            query,
+            provider_id=provider_id,
+            media_type=media_type,
+            media_types=media_types,
+            language_prefixes=language_prefixes,
+            region_prefixes=region_prefixes,
+            quality_prefixes=quality_prefixes,
+            platform_prefixes=platform_prefixes,
+            genre_filters=genre_filters,
+            include_hidden=include_hidden,
+            hidden_only=hidden_only,
+            invert_prefix_filters=invert_prefix_filters,
+            include_untagged=include_untagged,
+            include_untagged_quality=include_untagged_quality,
+            adult_mode=adult_mode,
+            force_adult_provider_ids=force_adult_provider_ids,
+            source_categories=source_categories,
+            include_uncategorized_content_types=include_uncategorized_content_types,
+            search_query=search_query,
+            strict_genre_filter=strict_genre_filter,
+            person_filter=person_filter,
+            excluded_provider_ids=excluded_provider_ids,
+            tag_includes=tag_includes,
+            context_tag_filter=context_tag_filter,
+            context_category_filter=context_category_filter,
+            exclude_watched=exclude_watched,
+        )
 
+        query = query.order_by(ChannelDB.name)
+
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            return query.limit(limit).all()
+        return query.all()
+
+    def _apply_channel_filters(
+        self,
+        query,
+        *,
+        provider_id=None,
+        media_type: Optional[str] = None,
+        media_types: Optional[List[str]] = None,
+        language_prefixes: Optional[List[str]] = None,
+        region_prefixes: Optional[List[str]] = None,
+        quality_prefixes: Optional[List[str]] = None,
+        platform_prefixes: Optional[List[str]] = None,
+        genre_filters: Optional[List[str]] = None,
+        include_hidden: bool = False,
+        hidden_only: bool = False,
+        invert_prefix_filters: bool = False,
+        include_untagged: bool = True,
+        include_untagged_quality: bool = True,
+        adult_mode: str = "all",
+        force_adult_provider_ids: Optional[List[str]] = None,
+        source_categories: Optional[List[str]] = None,
+        include_uncategorized_content_types: bool = True,
+        search_query: Optional[str] = None,
+        strict_genre_filter: Optional[str] = None,
+        person_filter: Optional[str] = None,
+        excluded_provider_ids: Optional[List[str]] = None,
+        tag_includes: Optional[Dict[str, Set[str]]] = None,
+        context_tag_filter: Optional[Tuple[str, str]] = None,
+        context_category_filter: Optional[str] = None,
+        exclude_watched: bool = False,
+    ):
+        """Apply the shared channel-list WHERE predicates to ``query``.
+
+        Single source of truth for the channel-list filter clauses so the visible
+        set (:meth:`get_all`) and any derived count (:meth:`count_watched_matching`)
+        apply the SAME predicates and never drift.  Applies everything except
+        ORDER BY / LIMIT / OFFSET and the watched-only constraint — callers add
+        those.  See :meth:`get_all` for per-argument semantics.
+        """
         if isinstance(provider_id, list):
             if provider_id:
                 query = query.filter(ChannelDB.provider_id.in_(provider_id))
@@ -437,14 +511,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 )
             )
 
-        query = query.order_by(ChannelDB.name)
+        return query
 
-        if offset is not None:
-            query = query.offset(offset)
-        if limit is not None:
-            return query.limit(limit).all()
-        return query.all()
-    
     def _apply_adult_filter(self, q, adult_mode: str,
                             force_adult_provider_ids: Optional[List[str]] = None):
         """Apply adult content filter to a query. No-op when adult_mode == 'all'."""
@@ -494,6 +562,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 provider_id=pid,
                 available=(not hidden or pid not in hidden),
                 search_title=ch.detected_title or ch.name,
+                detected_region=ch.detected_region or "",
+                detected_quality=ch.detected_quality or "",
+                detected_year=ch.detected_year or "",
             ))
         return result
 
@@ -754,19 +825,30 @@ class ChannelRepository(_ChannelStatsMixin):
         return [cat[0] for cat in query.all() if cat[0]]
     
     def bulk_create_or_update(self, channels: List[ChannelDB]):
-        """Bulk create or update channels"""
+        """Bulk create or update channels.
+
+        On update, only provider-catalog columns are copied from the incoming row —
+        user/derived fields (is_favorite, last_played, play_count, watch_progress,
+        watch_completed, detected_*, content_key, tag_fingerprint, is_hidden,
+        user_category, …) are preserved, exactly like the primary provider-refresh
+        upsert path.
+        """
+        # Reuse the single catalog-column allowlist that the provider-refresh upsert
+        # uses (imported lazily so this core repo keeps no load-time UI dependency).
+        # Copying only these guards user/derived fields from being clobbered.
+        from metatv.core.provider_loader import _CATALOG_UPDATE_COLS
+
         for channel in channels:
             existing = self.get_by_id(channel.id)
             if existing:
-                # Update existing
-                for key, value in channel.__dict__.items():
-                    if not key.startswith('_'):
-                        setattr(existing, key, value)
+                # Update existing — catalog columns only, never user/derived fields.
+                for key in _CATALOG_UPDATE_COLS:
+                    setattr(existing, key, getattr(channel, key))
                 existing.updated_at = datetime.now()
             else:
                 # Create new
                 self.session.add(channel)
-        
+
         self.session.commit()
         logger.info(f"Bulk created/updated {len(channels)} channels")
     
@@ -801,13 +883,38 @@ class ChannelRepository(_ChannelStatsMixin):
         adult_mode: str = "all",
         force_adult_provider_ids: Optional[List[str]] = None,
         tag_includes: Optional[Dict[str, Set[str]]] = None,
+        # DB-3 — the remaining get_all() filter axes.  These default to inactive so
+        # existing callers keep compiling; when the caller forwards the same filters
+        # it passed to get_all(), the count matches the visible set (no over-count).
+        media_type: Optional[str] = None,
+        language_prefixes: Optional[List[str]] = None,
+        region_prefixes: Optional[List[str]] = None,
+        quality_prefixes: Optional[List[str]] = None,
+        platform_prefixes: Optional[List[str]] = None,
+        genre_filters: Optional[List[str]] = None,
+        invert_prefix_filters: bool = False,
+        include_untagged: bool = True,
+        include_untagged_quality: bool = True,
+        source_categories: Optional[List[str]] = None,
+        include_uncategorized_content_types: bool = True,
+        strict_genre_filter: Optional[str] = None,
+        person_filter: Optional[str] = None,
+        context_tag_filter: Optional[Tuple[str, str]] = None,
+        context_category_filter: Optional[str] = None,
     ) -> int:
-        """Count channels with ``watch_completed=True`` matching the given base filters.
+        """Count visible channels with ``watch_completed=True`` matching the filters.
 
         Used to compute the "N hidden because watched" metric shown in the stats
-        label when the "Hide watched" axis is ON.  Applies the same provider /
-        media-type / adult / search / tag-includes constraints as :meth:`get_all`
-        but always adds ``watch_completed == True`` and omits pagination.
+        label when the "Hide watched" axis is ON.  Routes through the shared
+        :meth:`_apply_channel_filters` chokepoint so it applies the SAME predicates
+        as :meth:`get_all` (identity / quality / source-category / genre / context /
+        …), then adds ``watch_completed == True`` and omits pagination — so the count
+        matches the visible set exactly instead of over-counting when those axes are
+        active.
+
+        Note:
+            The caller must forward the same filter arguments it passed to
+            ``get_all``; any argument left at its default is treated as inactive.
 
         Args:
             provider_id: Same as ``get_all`` — str, list, or None.
@@ -817,54 +924,42 @@ class ChannelRepository(_ChannelStatsMixin):
             adult_mode: Adult content mode ("all", "hide", "only").
             force_adult_provider_ids: Provider IDs to treat as adult.
             tag_includes: Tier-1 tag-facet constraints (same as get_all).
+            (remaining args): The other ``get_all`` filter axes — see that method.
 
         Returns:
-            Count of matching channels with ``watch_completed=True``.
+            Count of matching visible channels with ``watch_completed=True``.
         """
-        query = self.session.query(ChannelDB).filter_by(is_hidden=False)
+        query = self.session.query(ChannelDB)
+        query = self._apply_channel_filters(
+            query,
+            provider_id=provider_id,
+            media_type=media_type,
+            media_types=media_types,
+            language_prefixes=language_prefixes,
+            region_prefixes=region_prefixes,
+            quality_prefixes=quality_prefixes,
+            platform_prefixes=platform_prefixes,
+            genre_filters=genre_filters,
+            include_hidden=False,
+            hidden_only=False,
+            invert_prefix_filters=invert_prefix_filters,
+            include_untagged=include_untagged,
+            include_untagged_quality=include_untagged_quality,
+            adult_mode=adult_mode,
+            force_adult_provider_ids=force_adult_provider_ids,
+            source_categories=source_categories,
+            include_uncategorized_content_types=include_uncategorized_content_types,
+            search_query=search_query,
+            strict_genre_filter=strict_genre_filter,
+            person_filter=person_filter,
+            excluded_provider_ids=excluded_provider_ids,
+            tag_includes=tag_includes,
+            context_tag_filter=context_tag_filter,
+            context_category_filter=context_category_filter,
+        )
 
-        if isinstance(provider_id, list):
-            if provider_id:
-                query = query.filter(ChannelDB.provider_id.in_(provider_id))
-        elif provider_id:
-            query = query.filter_by(provider_id=provider_id)
-
-        if excluded_provider_ids:
-            query = query.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
-
-        if media_types:
-            query = query.filter(ChannelDB.media_type.in_(media_types))
-
-        # Apply adult filter
-        query = self._apply_adult_filter(query, adult_mode, force_adult_provider_ids)
-
-        if search_query:
-            query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
-
-        # Tag-facet constraints (same EXISTS-subquery pattern as get_all)
-        if tag_includes:
-            from sqlalchemy import exists as _exists, select as _sa_select
-            from sqlalchemy.orm import aliased as _aliased
-            from metatv.core.database import ContentTagDB as _ContentTagDB, TagDB as _TagDB
-
-            for _ftype, _allowed in tag_includes.items():
-                if not _allowed:
-                    continue
-                _ct = _aliased(_ContentTagDB, flat=True)
-                _t  = _aliased(_TagDB, flat=True)
-                _subq = (
-                    _sa_select(_ct.channel_id)
-                    .join(_t, _t.id == _ct.tag_id)
-                    .where(
-                        _ct.channel_id == ChannelDB.id,
-                        _t.type == _ftype,
-                        _t.value.in_(list(_allowed)),
-                    )
-                    .correlate(ChannelDB)
-                )
-                query = query.filter(_exists(_subq))
-
-        # Watched-only constraint — the whole point of this method
+        # Watched-only constraint — the whole point of this method.  (exclude_watched
+        # is intentionally left at its default so this NARROWS to the watched rows.)
         query = query.filter(ChannelDB.watch_completed == True)  # noqa: E712
 
         return query.count()
@@ -1709,20 +1804,47 @@ class ChannelRepository(_ChannelStatsMixin):
             counts["epg_by_provider"] += n
             self.session.commit()
 
-        # Step 4 — SeasonDB / EpisodeDB whose provider_id is in the removed set
-        # (these belong to the provider even if series_id wasn't in the doomed batch
-        # e.g. engaged series channels whose seasons/episodes should still be pruned).
+        # Step 4 — orphaned SeasonDB / EpisodeDB whose provider_id is in the removed
+        # set but whose series channel is NOT one of the KEPT (engaged) channels.
+        # After Step 2 the only ChannelDB rows still present for these providers are
+        # the engaged (favorited/played/queued) series we deliberately preserve, so a
+        # season/episode whose series_id still resolves to an existing channel belongs
+        # to a kept series — leave it intact so per-episode resume/watched history
+        # survives a provider delete (history is sacrosanct).  Only truly orphaned
+        # catalog rows (series channel already gone) are pruned, and even those are
+        # spared when the episode itself still carries user watch-state.
         for pid_start in range(0, len(provider_ids), pid_batch_size):
             pid_batch = provider_ids[pid_start : pid_start + pid_batch_size]
+
+            # Series channels that survived Step 2 for this batch == the engaged/kept
+            # series whose seasons & episodes must be preserved.
+            kept_series_subq = (
+                self.session.query(ChannelDB.id)
+                .filter(ChannelDB.provider_id.in_(pid_batch))
+            )
+
             n = (
                 self.session.query(EpisodeDB)
                 .filter(EpisodeDB.provider_id.in_(pid_batch))
+                .filter(~EpisodeDB.series_id.in_(kept_series_subq))
+                # Floor: never delete an episode carrying user watch-state, even if
+                # its series channel is already gone (pre-fix orphans).
+                .filter(
+                    ~or_(
+                        EpisodeDB.is_watched == True,       # noqa: E712
+                        EpisodeDB.watch_completed == True,  # noqa: E712
+                        EpisodeDB.watch_progress > 0,
+                        EpisodeDB.last_played.isnot(None),
+                        EpisodeDB.play_count > 0,
+                    )
+                )
                 .delete(synchronize_session=False)
             )
             counts["episodes"] += n
             n = (
                 self.session.query(SeasonDB)
                 .filter(SeasonDB.provider_id.in_(pid_batch))
+                .filter(~SeasonDB.series_id.in_(kept_series_subq))
                 .delete(synchronize_session=False)
             )
             counts["seasons"] += n

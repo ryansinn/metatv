@@ -36,12 +36,44 @@ class _ClickableHeader(QWidget):
         super().mousePressEvent(event)
 
 
-def _fmt_channel_name(name: str, fallback_year: str = "") -> str:
-    """Format a raw channel name for text-only lists: 'bare_name · year [REGION] [QUALITY]'.
+def _fmt_channel_name(
+    name: str,
+    fallback_year: str = "",
+    *,
+    detected_title: str | None = None,
+    detected_year: str | None = None,
+    detected_region: str | None = None,
+    detected_quality: str | None = None,
+) -> str:
+    """Format a channel name for text-only lists: 'title · year [REGION] [QUALITY]'.
 
     Title first, year as immediate qualifier, tags at the right margin.
-    fallback_year is used when no year is embedded in the channel name itself (e.g. from MetadataDB).
+    ``fallback_year`` is used when no year is available (e.g. from MetadataDB).
+
+    When the caller supplies ingestion-computed ``detected_*`` fields (the sidebar
+    DTO callers), they are used verbatim — render code must NOT re-parse the name
+    (compute-at-ingestion rule).  Re-parsing at render disagrees with the stored
+    value whenever ``detected_region`` was filled from the provider category or a
+    sibling channel rather than the name, so the sidebar would drop a [REGION] tag
+    every other view shows.  Callers with only a raw string (e.g. a live EPG
+    programme title in Alerts) omit the fields and fall back to parse_channel_name.
     """
+    if detected_title is not None:
+        # Stored mode — read the ingestion-computed fields, never parse at render.
+        parts = [detected_title or name]
+        year = detected_year or fallback_year
+        if year:
+            parts.append(f"· {year}")
+        tags = []
+        if detected_region:
+            tags.append(f"[{detected_region}]")
+        if detected_quality:
+            tags.append(f"[{detected_quality}]")
+        if tags:
+            parts.append(" ".join(tags))
+        return " ".join(parts)
+
+    # Fallback for a raw name with no stored fields (e.g. a live EPG title).
     p = parse_channel_name(name)
     parts = [p.bare_name or name]
 

@@ -716,6 +716,7 @@ class _NowPlatingStrip(QWidget):
 
     cardClicked       = pyqtSignal(str)        # channel_id
     cardDoubleClicked = pyqtSignal(str)        # channel_id
+    cardMiddleClicked = pyqtSignal(str)        # channel_id — configured middle-click play
     cardContextMenu   = pyqtSignal(str, int, int)  # channel_id, gx, gy
     showAllRequested  = pyqtSignal()           # "Show all →" → full-results browse page
 
@@ -772,6 +773,7 @@ class _NowPlatingStrip(QWidget):
             w = _ContentCard(card, self._image_cache, self._config, self._grid_container)
             w.clicked.connect(self.cardClicked)
             w.doubleClicked.connect(self.cardDoubleClicked)
+            w.middleClicked.connect(self.cardMiddleClicked)
             w.contextMenuRequested.connect(self.cardContextMenu)
             self._flow.add(w)
             w.show()
@@ -894,6 +896,7 @@ class RecipeView(QWidget):
 
     channelSelected              = pyqtSignal(str)        # channel_id — select → details pane
     playRequested                = pyqtSignal(str)        # channel_id — play (host-delegated)
+    channelMiddleClicked         = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested  = pyqtSignal(str, int, int)  # channel_id, gx, gy
 
     def __init__(
@@ -1112,6 +1115,7 @@ class RecipeView(QWidget):
         self._now_plating = _NowPlatingStrip(self._image_cache, self._config)
         self._now_plating.cardClicked.connect(self.channelSelected)
         self._now_plating.cardDoubleClicked.connect(self.playRequested)
+        self._now_plating.cardMiddleClicked.connect(self.channelMiddleClicked)
         self._now_plating.cardContextMenu.connect(self.channelContextMenuRequested)
         self._now_plating.showAllRequested.connect(self._on_show_all)
         center_layout.addWidget(self._now_plating, stretch=1)
@@ -1140,6 +1144,7 @@ class RecipeView(QWidget):
         self._browse.backRequested.connect(self._on_browse_back)
         self._browse.cardClicked.connect(self.channelSelected)
         self._browse.cardDoubleClicked.connect(self.playRequested)
+        self._browse.cardMiddleClicked.connect(self.channelMiddleClicked)
         self._browse.cardContextMenu.connect(self.channelContextMenuRequested)
         # Lazy DB pagination: each near-bottom scroll asks for the next page.
         self._browse.loadMoreRequested.connect(self._load_more_see_all)

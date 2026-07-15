@@ -594,14 +594,18 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "like", "dislike",
         "sep",
+        "mark_watched",
+        "sep",
         "monitor_series",
         "sep",
         "clear_alert",
         "sep",
+        "category",
+        "sep",
         "clear_unavailable",
     ],
     "queue": [
-        "play", "play_new_window",
+        "play", "play_new_window", "play_open_ended_buffer",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
@@ -614,23 +618,31 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_alert",
         "sep",
-        "hide",
+        "category", "hide",
         "sep",
         "clear_unavailable",
     ],
+    # Shared by every Discover-family movie surface: Discover shelves + Discover
+    # browse, sidebar Recommended, Recipe "Now Plating", and the Preferences
+    # dashboard.  This is the FULL standard movie menu — the same standard block
+    # as "channel"; per-action `applies=` predicates hide the ones that don't fit
+    # (e.g. mark_watched/category/monitor_series on a non-VOD, not_interested only
+    # when it can be suppressed).
     "recommended": [
-        "play", "play_new_window",
+        "play", "play_new_window", "play_open_ended_buffer",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
         "sep",
         "like", "dislike",
         "sep",
+        "mark_watched",
+        "sep",
         "monitor_series",
         "sep",
         "clear_alert",
         "sep",
-        "not_interested", "hide",
+        "not_interested", "category", "hide",
     ],
     "alerts": [
         "play", "play_new_window",

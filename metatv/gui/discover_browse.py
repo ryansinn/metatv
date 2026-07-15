@@ -41,6 +41,7 @@ class _BrowseView(QWidget):
     backRequested     = pyqtSignal()
     cardClicked       = pyqtSignal(str)
     cardDoubleClicked = pyqtSignal(str)
+    cardMiddleClicked = pyqtSignal(str)   # channel_id — configured middle-click play
     cardContextMenu   = pyqtSignal(str, int, int)
     # Emitted when the user scrolls near the bottom AND every known card has been
     # rendered AND the caller has flagged that more pages remain (set_has_more).
@@ -132,6 +133,11 @@ class _BrowseView(QWidget):
         self._list_widget.currentItemChanged.connect(self._on_list_select)
         self._list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list_widget.customContextMenuRequested.connect(self._on_list_context_menu)
+        # Middle-click on a list row plays the configured action — same reusable
+        # helper the sidebar sections use, so the grid card and the list row agree.
+        from metatv.gui.list_middle_click import install_list_middle_click
+        self._list_mc = install_list_middle_click(self._list_widget)
+        self._list_mc.middleClicked.connect(self.cardMiddleClicked)
         # The LIST view scrolls independently of the grid; wire it to the same
         # near-bottom check so paging (loadMoreRequested) works in list mode too.
         self._list_widget.verticalScrollBar().valueChanged.connect(
@@ -243,6 +249,7 @@ class _BrowseView(QWidget):
                              parent=self._grid_container)
             w.clicked.connect(self.cardClicked)
             w.doubleClicked.connect(self.cardDoubleClicked)
+            w.middleClicked.connect(self.cardMiddleClicked)
             w.contextMenuRequested.connect(self.cardContextMenu)
             self._flow.add(w)
             w.show()

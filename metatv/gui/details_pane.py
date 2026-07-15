@@ -7,7 +7,7 @@ from loguru import logger
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.database import Database
@@ -242,15 +242,21 @@ class DetailsPaneWidget(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll = scroll
 
         content = QWidget()
+        self._content = content
         self._content_layout = QVBoxLayout(content)
         # Reserve a hard right gutter for the vertical scrollbar so the poster / text can
         # never slide under it or off the right edge (a hard right boundary).  On themes
         # with an overlay scrollbar the content would otherwise extend the full viewport
         # width and the scrollbar would paint over the last ~15px.
         _sb = max(scroll.verticalScrollBar().sizeHint().width(), 14)
-        self._content_layout.setContentsMargins(10, 10, 10 + _sb, 10)
+        # Right gutter ≈ half what it was: the container-width authority (see
+        # _sync_content_width) already keeps content off the scrollbar, so the old full
+        # 10+scrollbar reservation read as a too-wide right gap.  Halve it for a tighter,
+        # more symmetric inset while still clearing an overlay scrollbar.
+        self._content_layout.setContentsMargins(10, 10, (10 + _sb) // 2, 10)
         self._content_layout.setSpacing(10)
 
         self._poster   = _PosterSection(self.config, self.image_cache)
@@ -301,6 +307,14 @@ class DetailsPaneWidget(QWidget):
 
         self._content_layout.addStretch()
         scroll.setWidget(content)
+        # Container is the width authority: cap the content widget to the viewport so no
+        # child section can ever floor the column wider than the pane (h-scroll is off, so
+        # an over-wide child would clip every section's right edge).  Responsive children
+        # (wrapping labels, flow layouts) reflow within; nothing can push past the
+        # container.  This is the structural guarantee that replaces per-label width
+        # opt-outs (the recurring "content clips off the right edge" trap).
+        scroll.viewport().installEventFilter(self)
+        self._sync_content_width()
         main_layout.addWidget(scroll)
 
         # Resizable width range — NOT a fixed width.  setFixedWidth() pins
@@ -310,6 +324,17 @@ class DetailsPaneWidget(QWidget):
         # drags persist through the debounced layout save.
         self.setMinimumWidth(300)
         self.setMaximumWidth(500)
+
+    def _sync_content_width(self) -> None:
+        """Pin the content widget's max width to the viewport — the container ceiling."""
+        if hasattr(self, "_content") and hasattr(self, "_scroll"):
+            self._content.setMaximumWidth(self._scroll.viewport().width())
+
+    def eventFilter(self, obj, event):
+        """Keep the content width pinned to the viewport on every viewport resize."""
+        if obj is self._scroll.viewport() and event.type() == QEvent.Type.Resize:
+            self._sync_content_width()
+        return super().eventFilter(obj, event)
 
     def _connect_sections(self) -> None:
         """Wire internal section signals to public DetailsPaneWidget signals."""

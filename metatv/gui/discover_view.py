@@ -71,6 +71,7 @@ class DiscoverView(QWidget):
     playRequested               = pyqtSignal(str)
     channelSelected             = pyqtSignal(str)
     channelContextMenuRequested = pyqtSignal(str, int, int)
+    channelMiddleClicked        = pyqtSignal(str)   # channel_id — configured middle-click play
 
     def __init__(self, db: Database, config: Config,
                  image_cache: "ImageCache", parent=None) -> None:
@@ -217,6 +218,7 @@ class DiscoverView(QWidget):
         self._browse_view.cardClicked.connect(self.channelSelected)
         self._browse_view.cardDoubleClicked.connect(self.playRequested)
         self._browse_view.cardContextMenu.connect(self.channelContextMenuRequested)
+        self._browse_view.cardMiddleClicked.connect(self.channelMiddleClicked)
         self._stack.addWidget(self._browse_view)
 
         vl.addWidget(self._stack)
@@ -710,7 +712,7 @@ class DiscoverView(QWidget):
         shelf.expandRequested.connect(self._on_expand_requested)
         shelf.hideRequested.connect(self._on_hide_requested)
         shelf.wire(self.channelSelected, self.playRequested,
-                   self.channelContextMenuRequested)
+                   self.channelContextMenuRequested, self.channelMiddleClicked)
 
         self._shelf_widgets[data.shelf_key] = shelf
         self._shelf_zones[data.shelf_key] = zone

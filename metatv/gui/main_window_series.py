@@ -657,12 +657,13 @@ class _SeriesMixin:
                 self._episode_failed.emit(notif_id, title, detail, stream_url)
                 return
 
-            self._episode_ready.emit(notif_id, stream_url, title, queue_episodes)
+            # Carry provider_id in the signal payload so each launch threads its
+            # own source key — a shared attr would be clobbered by an overlapping
+            # launch and play/track the episode under the wrong mpv key.
+            self._episode_ready.emit(notif_id, stream_url, title, queue_episodes, provider_id)
 
         future = self.executor.submit(_preflight)
         future.add_done_callback(_on_preflight_done)
-        # Stash the provider_id so _do_launch_episode can thread it to player_manager.play()
-        self._pending_episode_provider_id = provider_id
 
     def _on_episode_stream_unavailable(self, notif_id: str, title: str, detail: str, stream_url: str = "") -> None:
         from PyQt6.QtWidgets import QApplication
@@ -689,16 +690,16 @@ class _SeriesMixin:
             # Use stream_url as a stable ID for the retry entry
             self.stream_retry_manager.add_failure(stream_url, title, stream_url, detail)
 
-    def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes) -> None:
+    def _do_launch_episode(self, notif_id, stream_url, title, queue_episodes, provider_id="") -> None:
         """Actually launch mpv after a successful preflight check (called on main thread).
 
-        Threads the provider_id stashed by launch_player_for_episode to
-        player_manager.play() so Split-Streams keying works correctly.
+        Threads the provider_id carried in the _episode_ready signal payload to
+        player_manager.play() so Split-Streams keying works correctly — each
+        launch carries its own value, so an overlapping launch can't clobber it.
         Also passes per-item titles to the queue so the mpv window title updates
         as each episode starts — not just for the first one.
         """
         self.notification_manager.dismiss(notif_id)
-        provider_id = self.__dict__.get("_pending_episode_provider_id", "")
         logger.info(f"Playing first episode: {title}")
         if self.player_manager.play(stream_url, title, provider_id=provider_id):
             # Begin polling mpv for the live playback-health readout (the episode

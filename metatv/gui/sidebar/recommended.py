@@ -9,12 +9,18 @@ from loguru import logger
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
+# Sentinel emitted by _bg_refresh when the background load raises, so
+# _on_rec_data_ready can render a visible error row instead of leaving the
+# section stuck on the "Loading recommendations…" placeholder forever.
+_REC_LOAD_ERROR = object()
+
 
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
 
     itemSelected              = pyqtSignal(str, str)  # channel_id, reason
     itemDoubleClicked         = pyqtSignal(str)        # channel_id
+    channelMiddleClicked      = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
     _rec_data_ready           = pyqtSignal(object)     # list[ScoredCandidate] | None
 
@@ -50,6 +56,11 @@ class RecommendedSection(CollapsibleSection):
         self._list.itemDoubleClicked.connect(self._on_double_click)
         self._list.currentItemChanged.connect(self._on_selection_changed)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
+        # Middle-click plays the user-configured action (same seam as the channel
+        # list) via the shared QListWidget helper — no per-section handler copy.
+        from metatv.gui.list_middle_click import install_list_middle_click
+        self._list_mc = install_list_middle_click(self._list)
+        self._list_mc.middleClicked.connect(self.channelMiddleClicked)
         self.content_layout.addWidget(self._list)
         self.set_empty(True)
 
@@ -105,6 +116,10 @@ class RecommendedSection(CollapsibleSection):
                         year_by_id[row.id] = row.release_date[:4]
         except Exception:
             logger.exception("RecommendedSection bg refresh error")
+            # Emit an error sentinel (mirrors the no-weights path, which emits None)
+            # so _on_rec_data_ready replaces the loading row with a visible error
+            # instead of hanging on "Loading recommendations…" forever.
+            self._rec_data_ready.emit(_REC_LOAD_ERROR)
             return
         finally:
             session.close()
@@ -112,6 +127,11 @@ class RecommendedSection(CollapsibleSection):
 
     def _on_rec_data_ready(self, data) -> None:
         self._list.clear()
+        # A transient background failure must be visible, not look like an empty
+        # result — render a distinct error row (keeps the section expanded).
+        if data is _REC_LOAD_ERROR:
+            self.show_load_error(self._list, "Couldn't load recommendations")
+            return
         # data is (recs, year_by_id) tuple from _bg_refresh, or None for "no weights"
         if data is None:
             item = QListWidgetItem("Rate movies/series to get recommendations")
@@ -133,7 +153,10 @@ class RecommendedSection(CollapsibleSection):
             )
             liked_prefix = f"{self.config.like_icon} " if sc.already_liked else ""
             year = year_by_id.get(sc.channel_id, "")
-            item = QListWidgetItem(f"{liked_prefix}{media_icon} {_fmt_channel_name(sc.channel_name, year)}")
+            item = QListWidgetItem(
+                f"{liked_prefix}{media_icon} "
+                f"{_fmt_channel_name(sc.channel_name, year, detected_title=sc.detected_title, detected_region=sc.detected_region, detected_quality=sc.detected_quality, detected_year=sc.detected_year)}"
+            )
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)

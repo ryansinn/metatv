@@ -5,14 +5,14 @@ import re
 from loguru import logger
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
     QSizePolicy, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS, parse_channel_name,
+    normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -169,14 +169,18 @@ class _PosterSection(QWidget):
     # and centered on the poster-card background, so a logo no longer renders as a
     # tiny strip with a big void beneath it.  Small/low-res logos upscale only up to
     # _LOGO_UPSCALE_CEILING× their native size (then center) so they don't pixelate.
+    _POSTER_GUTTER: int = 4   # right inset on the poster card — protects a hard right gutter
     _POSTER_MIN_H: int = 400
     _POSTER_MAX_H: int = 600
     # The poster area is a HARD FIXED height so the Play/Resume row below it never moves
-    # between titles.  The poster is fit INSIDE this box (KeepAspectRatio, centred): its
+    # between titles.  The poster is fit INSIDE this box (KeepAspectRatio) and LEFT-aligned
+    # (see poster_label's alignment) so the slim action rail, which floats over the box's
+    # left edge, always overlays the poster itself rather than the gray card margin.  Its
     # width can never exceed the card (a hard right boundary) and its height never exceeds
-    # the box — side padding is acceptable, overflow is not.  Tuned so a portrait 2:3
-    # poster fills the card at the default details width (~452) with negligible padding.
-    _POSTER_FIXED_H: int = 575
+    # the box; a portrait 2:3 poster fits to the box height and leaves side padding on the
+    # RIGHT — padding is acceptable, overflow is not.  0.75× the former fill-the-card height:
+    # a deliberately shorter poster so the details pane isn't poster-dominated.
+    _POSTER_FIXED_H: int = int(575 * 0.75)
     _LOGO_UPSCALE_CEILING: float = 2.5
     _BADGE_SIZE: int = 26
     _BADGE_MARGIN: int = 8
@@ -189,6 +193,7 @@ class _PosterSection(QWidget):
     _RAIL_GAP: int = 20
     _RAIL_TRIO_GAP: int = 4
     _RAIL_SENTIMENT_GAP: int = 80   # 4×G — pushes the sentiment trio down toward Play
+    _RAIL_W: int = 48   # the slim icon rail floats over the poster's LEFT edge (overlay)
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -213,50 +218,33 @@ class _PosterSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Action-rail + content wrapper.
-        # The left column (_action_rail) is a slim vertical icon rail holding the
-        # infrequent actions (favorite/Alert-Monitor/watchlist/hide/sentiment trio);
-        # the right column (_content_col) shows the poster (VOD) or the live header
-        # (live).  Play/Resume + Watch Later are NOT in the rail — they graduate to
-        # full-width rows in the OUTER column below this block (see end of _setup).
-        # Buttons are reparented in via set_action_buttons() after both _PosterSection
-        # and _ActionBar exist.  The rail is visible for ALL channel types — per-button
-        # visibility is _ActionBar's job.
-        _poster_and_rail = QWidget()
-        _par_layout = QHBoxLayout(_poster_and_rail)
-        _par_layout.setContentsMargins(0, 0, 0, 0)
-        _par_layout.setSpacing(0)
-
-        self._action_rail = QWidget()
-        self._action_rail.setFixedWidth(48)
-        self._action_rail_layout = QVBoxLayout(self._action_rail)
-        # Right margin keeps the icons off the poster edge.  Top/bottom are 0 and the
-        # spacing is 0: set_action_buttons() brackets the button group with a
-        # leading+trailing stretch and lays out every inter-button gap explicitly (see
-        # _RAIL_GAP / _RAIL_TRIO_GAP / _RAIL_SENTIMENT_GAP).  The top group stays tight
-        # while the large Hide↔sentiment gap drops the trio low — no implicit per-item
-        # spacing to fight that geometry.
-        self._action_rail_layout.setContentsMargins(0, 0, 6, 0)
-        self._action_rail_layout.setSpacing(0)
-        self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
-        self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
-        _par_layout.addWidget(self._action_rail)
-
-        # Content column — poster (VOD) above, live header (live) below; one shows
-        # at a time (set_mode).  Trailing stretch keeps the live header top-aligned
-        # next to the taller rail without stretching its single row.
+        # Poster area: a full-width gray card with the slim action rail FLOATING over its
+        # LEFT edge.  Previously the rail was a side-by-side COLUMN that shrank the gray
+        # card by its own 48px (so the card never reached the pane width); now the card
+        # (poster_frame/poster_label) fills the full content width and the rail OVERLAYS
+        # the card's left edge via a QGridLayout cell overlap — both occupy cell (0,0) and
+        # the rail is left-aligned, so it no longer claims a column.  The poster (VOD) /
+        # logo (live) is centred in the full-width card; the live header (live) shows in
+        # row 1 beneath it.  Play/Resume + Watch Later are NOT in the rail — they graduate
+        # to full-width rows in the OUTER column below this block (see end of _setup).
         self._content_col = QWidget()
-        cc_layout = QVBoxLayout(self._content_col)
+        cc_layout = QGridLayout(self._content_col)
         cc_layout.setContentsMargins(0, 0, 0, 0)
         cc_layout.setSpacing(0)
 
-        # Poster label (VOD)
+        # Poster label (VOD) — the gray card.  Fills grid cell (0, 0) so its gray
+        # background spans the full content width (no longer shrunk by a rail column).
         self._poster_frame = QWidget()
         pf_layout = QVBoxLayout(self._poster_frame)
         pf_layout.setContentsMargins(0, 0, 0, 0)
 
         self.poster_label = _PosterLabel()
-        self.poster_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Left-aligned (not centered): a pillarboxed portrait poster hugs the box's LEFT
+        # edge so the action rail floating over that edge always overlays the poster itself,
+        # never the gray card margin; the side padding falls entirely on the RIGHT.
+        self.poster_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         self.poster_label.setFixedHeight(self._POSTER_FIXED_H)  # hard height — buttons never move
         # The poster must SUBORDINATE to the pane width, never drive it.  A QLabel
         # holding a pixmap reports minimumSizeHint().width() == pixmap width with a
@@ -292,11 +280,34 @@ class _PosterSection(QWidget):
         self._watched_badge.hover_changed.connect(self._on_badge_hover)
         self._watched_badge.hide()
 
-        cc_layout.addWidget(self._poster_frame)
+        # Action rail — floats over the card's LEFT edge (same grid cell, left-aligned).
+        # A subtle scrim keeps the icons legible over bright posters.  Top/bottom margins
+        # are 0 and spacing is 0: set_action_buttons() brackets the button group with a
+        # leading+trailing stretch and lays out every inter-button gap explicitly (see
+        # _RAIL_GAP / _RAIL_TRIO_GAP / _RAIL_SENTIMENT_GAP).  The top group stays tight
+        # while the large Hide↔sentiment gap drops the trio low — no implicit per-item
+        # spacing to fight that geometry.  Visible for ALL channel types — per-button
+        # visibility is _ActionBar's job.  Buttons are reparented in via
+        # set_action_buttons() after both _PosterSection and _ActionBar exist.
+        self._action_rail = QWidget()
+        self._action_rail.setObjectName("posterActionRail")
+        self._action_rail.setFixedWidth(self._RAIL_W)
+        self._action_rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # A subtle dark scrim keeps the rail legible over bright posters; the individual
+        # button fills (DETAIL_RAIL_BTN, ~40% light) read as frosted chips on top of it.
+        self._action_rail.setStyleSheet(
+            f"#posterActionRail {{ background-color: {_theme.OVERLAY_BLACK_55};"
+            f" border-top-left-radius: 8px; border-bottom-left-radius: 8px; }}"
+        )
+        self._action_rail_layout = QVBoxLayout(self._action_rail)
+        self._action_rail_layout.setContentsMargins(0, 0, 12, 0)
+        self._action_rail_layout.setSpacing(0)
+        self._action_rail_layout.addStretch()   # placeholder until set_action_buttons()
+        self._action_rail.hide()   # stays hidden until a channel is shown (set_mode)
 
         # Live header: country info text.  The channel LOGO (when present) is shown
-        # in the poster area above (load_live_logo); the header carries the
-        # category/country line beneath it.
+        # in the poster card above (load_live_logo); the header carries the
+        # category/country line beneath it (grid row 1).
         self._live_header = QWidget()
         live_layout = QHBoxLayout(self._live_header)
         live_layout.setContentsMargins(0, 4, 0, 4)
@@ -310,12 +321,18 @@ class _PosterSection(QWidget):
         live_layout.addWidget(self._country_info_lbl, 1)
 
         self._live_header.hide()
-        cc_layout.addWidget(self._live_header)
 
-        cc_layout.addStretch()
+        # Assemble: the poster card fills cell (0,0); the rail OVERLAYS its left edge in
+        # the SAME cell (left-aligned, so it doesn't claim a column); the live header sits
+        # beneath it (row 1); a trailing stretch row keeps the block top-aligned.  The
+        # rail is added AFTER the card so it paints on top of the poster's left edge.
+        cc_layout.addWidget(self._poster_frame, 0, 0)
+        cc_layout.addWidget(self._action_rail, 0, 0, Qt.AlignmentFlag.AlignLeft)
+        cc_layout.addWidget(self._live_header, 1, 0)
+        cc_layout.setRowStretch(2, 1)
+        self._action_rail.raise_()   # keep the rail above the poster's left edge
 
-        _par_layout.addWidget(self._content_col, 1)
-        layout.addWidget(_poster_and_rail)
+        layout.addWidget(self._content_col)
 
         # Primary action row — full-size Play / Resume.  It lives in the OUTER column
         # (below the poster+rail block), NOT inside _content_col, so it spans the full
@@ -597,10 +614,26 @@ class _PosterSection(QWidget):
             self._watched_badge.raise_()
 
     def _reposition_watched_badge(self) -> None:
-        """Pin the badge to the poster's LOWER-right corner (near the play zone, where
-        the eye lands after the poster)."""
-        x = self.poster_label.width() - self._watched_badge.width() - self._BADGE_MARGIN
-        y = self.poster_label.height() - self._watched_badge.height() - self._BADGE_MARGIN
+        """Pin the badge to the *rendered poster's* lower-right corner (near the play zone,
+        where the eye lands after the poster).
+
+        The poster is left-aligned + v-centered and usually narrower than the card (a
+        pillarboxed portrait fits to height), so the visible image ends well left of the
+        card's right edge.  Anchor to the pixmap's actual rect — its right edge is
+        ``pixmap.width()`` (left-aligned at x=0) and its bottom is v-centered — so the badge
+        lands ON the poster, not out in the gray margin.  Falls back to the label bounds when
+        no pixmap is set (e.g. the "No poster available" placeholder).
+        """
+        lbl = self.poster_label
+        pix = lbl.pixmap()
+        if pix is not None and not pix.isNull():
+            right = pix.width()
+            bottom = (lbl.height() + pix.height()) // 2
+        else:
+            right = lbl.width()
+            bottom = lbl.height()
+        x = right - self._watched_badge.width() - self._BADGE_MARGIN
+        y = bottom - self._watched_badge.height() - self._BADGE_MARGIN
         self._watched_badge.move(max(0, x), max(0, y))
 
     def _display_poster(self, pixmap: QPixmap) -> None:
@@ -626,14 +659,15 @@ class _PosterSection(QWidget):
             return
         if not self._full_pixmap or self._full_pixmap.isNull():
             return
-        w = self.poster_label.width()
+        w = min(self.poster_label.width(), self.poster_label.maximumWidth())
         if w <= 1:
             return  # not laid out yet — the resize / deferred pass will re-fit
         self._rescaling = True
         try:
             self.poster_label.setPixmap(
                 self._full_pixmap.scaled(
-                    w, self._POSTER_FIXED_H,
+                    w,
+                    self._POSTER_FIXED_H,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
@@ -666,6 +700,7 @@ class _PosterSection(QWidget):
         pix = self._logo_src
         avail_w = self.poster_label.width() or (self.minimumWidth() or 300)
         avail_h = self.poster_label.height() or self._POSTER_MIN_H
+        avail_w = max(1, avail_w - self._POSTER_GUTTER)   # mirror the poster right gutter
         # Upscale ceiling: a tiny logo grows to at most ceiling× native, then centers.
         ceil_w = int(pix.width() * self._LOGO_UPSCALE_CEILING)
         ceil_h = int(pix.height() * self._LOGO_UPSCALE_CEILING)
@@ -683,9 +718,20 @@ class _PosterSection(QWidget):
     def _rescale_current_image(self) -> None:
         """Re-fit the current image to the poster label's size on resize.
 
-        Dispatches to the right scaler — a VOD poster fills the width; a live logo fits
-        the box.  Both are self-guarded against the setPixmap→relayout→resize loop.
+        Dispatches to the right scaler — a VOD poster fits the fixed-height box; a live
+        logo fits the box too.  Both are self-guarded against the setPixmap→relayout→resize
+        loop.
+
+        The width cap is the boundary enforcement: a portrait poster under KeepAspectRatio
+        fits to WIDTH first, so if the width handed to ``scaled()`` exceeds the poster's
+        natural width Qt fits to height instead and the pixmap bleeds past the right edge.
+        Capping the label's maximumWidth to (frame − gutter) makes the layout enforce the
+        ceiling BEFORE the pixmap is drawn, so ``scaled()`` hits that ceiling and reduces
+        height rather than overflowing — and it protects a hard right gutter.
         """
+        frame_w = self._poster_frame.width()
+        if frame_w > 1:
+            self.poster_label.setMaximumWidth(frame_w - self._POSTER_GUTTER)
         if self._is_live_logo:
             self._apply_scaled_logo()
         else:
@@ -983,12 +1029,12 @@ class _MetadataSection(QWidget):
     def load_metadata(self, metadata: MetadataResult) -> None:
         """Tier-2/3 display: enrich with metadata fields."""
         if metadata.title:
-            parsed = parse_channel_name(metadata.title)
-            clean = parsed.bare_name if parsed.bare_name else metadata.title
-            self.title_label.setText(clean)
-            if parsed.year and not self._name_year_lbl.isVisible():
-                self._name_year_lbl.setText(parsed.year)
-                self._name_year_lbl.show()
+            # Display the metadata title verbatim — never re-parse it at render
+            # (ingestion-only rule, CLAUDE.md; see load_basic). Stripping via
+            # parse_channel_name() can also mangle a legit title ending in a
+            # parenthetical or (YYYY). The year label is sourced from the stored
+            # metadata.year field below.
+            self.title_label.setText(metadata.title)
 
         if metadata.tagline:
             self._tagline_lbl.setText(metadata.tagline)

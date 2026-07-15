@@ -552,7 +552,7 @@ class SettingsDialog(QDialog):
         # Sources
         self._refresh_all_inactive_check.blockSignals(True)
         self._refresh_all_inactive_check.setChecked(
-            getattr(c, "refresh_all_includes_inactive", True)
+            getattr(c, "refresh_all_includes_inactive", False)
         )
         self._refresh_all_inactive_check.blockSignals(False)
 
