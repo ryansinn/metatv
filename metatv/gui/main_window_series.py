@@ -439,6 +439,57 @@ class _SeriesMixin:
             episode = data["data"]
             self.play_episode(episode)
 
+    def _on_series_tree_selection(self, item, previous=None):
+        """Single-click / keyboard selection in the series tree → fill the details pane.
+
+        Episode rows show episode details (series poster/plot as fallback); season or
+        header/gap rows revert the pane to the series' own details.  Rows without a
+        ``dict`` UserRole (the season-gap note) never crash — they fall through to the
+        revert branch.  Double-click still plays (``play_series_item``); this only
+        ADDS single-click-to-details.
+
+        Args:
+            item: The now-current ``QTreeWidgetItem`` (or ``None`` when cleared).
+            previous: The previously-current item (unused; ``currentItemChanged`` arg).
+        """
+        series = getattr(self, "current_series", None)
+        if item is None or series is None:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        item_type = data.get("type") if isinstance(data, dict) else None
+
+        if item_type == "episode":
+            # Pass the CLEANED title (same as the tree row shows) so the byline never
+            # reads the raw "Series - SxxExx -" form next to a clean tree row.
+            episode = data["data"]
+            self.details_pane.show_episode(
+                episode, series, self._episode_display_title(episode)
+            )
+            return
+
+        # Season, header/gap, or anything else → show the series root details, but
+        # only if the pane has drifted (episode mode or a different channel) so we
+        # don't redundantly re-render + re-fetch when it already shows the series.
+        pane = self.details_pane
+        already_series = (
+            getattr(pane, "current_episode", None) is None
+            and pane.current_channel is not None
+            and getattr(pane.current_channel, "id", None) == getattr(series, "id", None)
+        )
+        if not already_series:
+            pane.show_channel(series)
+
+    def _on_details_play_episode(self) -> None:
+        """Play the episode currently shown in the details pane (its Play Episode button).
+
+        Reads the DTO the pane stored in :attr:`DetailsPaneWidget.current_episode`
+        and routes it through the existing :meth:`play_episode` chokepoint.  No-op
+        when nothing is stored (defensive — the button only shows in episode mode).
+        """
+        episode = getattr(self.details_pane, "current_episode", None)
+        if episode is not None:
+            self.play_episode(episode)
+
     def play_episode(self, episode, queue_season: bool | None = None):
         """Play an episode and optionally queue subsequent episodes.
 

@@ -469,6 +469,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # governed by config.playback_resume_mode.  Routing play_requested through the
         # from-beginning path decouples the button from that setting.
         self.details_pane.play_requested.connect(self.play_channel_from_beginning_by_id)
+        self.details_pane.play_episode_requested.connect(self._on_details_play_episode)
         self.details_pane.resume_requested.connect(self.play_channel_resume_by_id)
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
@@ -1352,6 +1353,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.series_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
         self.series_tree.itemDoubleClicked.connect(self.play_series_item)
+        # Single-click / keyboard selection fills the details pane (episode → episode
+        # details; season/root → series details).  Connected ONCE here at creation, not
+        # per switch_to_series_view, so it never double-fires.  Double-click still plays.
+        self.series_tree.currentItemChanged.connect(self._on_series_tree_selection)
         self.series_tree.setVisible(False)
         _theme.apply_list_selection(self.series_tree)
         self._list_layout.addWidget(self.series_tree)

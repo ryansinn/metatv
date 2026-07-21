@@ -530,6 +530,9 @@ LABEL_MUTED  = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + ";"
 LIST_TITLE   = "font-weight: bold; font-size: " + FONT_XL + ";"
 FIELD_LABEL  = "font-weight: 600;"
 DETAIL_TITLE = "font-size: " + FONT_3XL + "; font-weight: bold;"
+# Episode byline — the episode title shown under the series title in episode mode.
+# Subordinate to the series title (smaller than DETAIL_TITLE) but still emphasized.
+DETAIL_EPISODE_BYLINE = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
 DETAIL_TEXT  = "color: " + COLOR_LIGHTGRAY + ";"
 META_DIM     = "color: " + COLOR_GRAY + ";"
 LOADING_TEXT = "color: " + COLOR_GRAY + "; font-style: italic;"
