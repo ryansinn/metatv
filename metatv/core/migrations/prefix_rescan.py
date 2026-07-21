@@ -25,7 +25,12 @@ if TYPE_CHECKING:
 #   2 — consolidated: covers all parsing improvements previously tracked by
 #       _PREFIX_PARSE_VERSION=1..6 in main_window_nav.py, migrated to
 #       MigrationManager framework.
-CURRENT_PREFIX_SCAN_VERSION = 2
+#   3 — code-interpretation alignment (#138): "PUNJABI" now aliases to "PB"
+#       (was "PA", which is Panama/Spanish).  Existing generated rows stored
+#       Punjabi channels with detected_prefix "PA"; re-run update_detected_prefixes
+#       so they become "PB".  Runs BEFORE TagBackfill (registration order) so the
+#       re-tag reads the corrected detected_prefix.
+CURRENT_PREFIX_SCAN_VERSION = 3
 
 # The compound-prefix parse version that the old nav-mixin tracked separately.
 # We persist this into config.prefix_parse_version on completion so existing
