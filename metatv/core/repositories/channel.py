@@ -139,6 +139,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 tag_excludes: Optional[Dict[str, Set[str]]] = None,
                 context_tag_filter: Optional[Tuple[str, str]] = None,
                 context_category_filter: Optional[str] = None,
+                channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
@@ -216,6 +217,7 @@ class ChannelRepository(_ChannelStatsMixin):
             tag_includes=tag_includes,
             context_tag_filter=context_tag_filter,
             context_category_filter=context_category_filter,
+            channel_ids=channel_ids,
             exclude_watched=exclude_watched,
         )
 
@@ -255,6 +257,7 @@ class ChannelRepository(_ChannelStatsMixin):
         tag_includes: Optional[Dict[str, Set[str]]] = None,
         context_tag_filter: Optional[Tuple[str, str]] = None,
         context_category_filter: Optional[str] = None,
+        channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
@@ -499,6 +502,13 @@ class ChannelRepository(_ChannelStatsMixin):
         # 'collection' residual facet.  The control layer resolves the category value.
         if context_category_filter:
             query = query.filter(ChannelDB.category == context_category_filter)
+
+        # ── Strict id-set filter (alert "show matches"): only these exact channels.
+        # The stored ``alerted_ids`` for a watch-for rule — the normal visibility /
+        # provider-scoping predicates above still apply, so an id on a hidden source
+        # falls out and reads as "hidden by filters" downstream.
+        if channel_ids is not None:
+            query = query.filter(ChannelDB.id.in_(list(channel_ids)))
 
         # ── Watched filter: exclude channels the user has marked complete ──────
         # OFF by default (show everything). When ON, hides watch_completed=True rows.
@@ -873,6 +883,40 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter_by(media_type=media_type)
 
         return query.count()
+
+    def filter_available_ids(
+        self,
+        ids: Set[str],
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> Set[str]:
+        """Return the subset of *ids* whose channel is currently AVAILABLE.
+
+        Single re-validation chokepoint for stored match ids (e.g. a watch-for
+        rule's ``alerted_ids``, which can reference channels whose source was
+        later disabled/expired).  Available = the channel exists, its provider is
+        NOT in ``excluded_provider_ids`` (disabled/expired sources —
+        ``ProviderRepository.get_hidden_provider_ids``, a top-level gate), and the
+        channel itself is not user-hidden.  One bounded ``IN`` query — *ids* is a
+        small stored set (dozens–hundreds).
+
+        Args:
+            ids: Stored channel ids to re-validate.
+            excluded_provider_ids: Hidden (inactive ∪ expired) provider ids to gate out.
+
+        Returns:
+            The subset of *ids* that are currently available (never any id whose
+            source is hidden or whose channel is hidden).
+        """
+        if not ids:
+            return set()
+        query = (
+            self.session.query(ChannelDB.id)
+            .filter(ChannelDB.id.in_(list(ids)))
+            .filter(ChannelDB.is_hidden.isnot(True))
+        )
+        if excluded_provider_ids:
+            query = query.filter(~ChannelDB.provider_id.in_(list(excluded_provider_ids)))
+        return {row[0] for row in query.all()}
 
     def count_watched_matching(
         self,

@@ -73,6 +73,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)
+        _theme.apply_list_selection(self.history_list)
         self.content_layout.addWidget(self.history_list)
 
         self.clear_btn = QPushButton(f"{self.config.delete_icon} Clear History")

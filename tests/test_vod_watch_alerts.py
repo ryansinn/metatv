@@ -40,6 +40,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _row_label_texts(row) -> list[str]:
+    """Return the text of every QLabel in a _VodAlertRow (icon / name / count)."""
+    from PyQt6.QtWidgets import QLabel
+    return [w.text() for w in row.findChildren(QLabel)]
+
+
 class _FakeConfig:
     """In-memory Config stub implementing the vod_watch_alerts helpers."""
 
@@ -476,6 +482,163 @@ class TestVodWatchAlertManagerWorker:
 
 
 # ===========================================================================
+# Part 3.5: Repository strict id-set filter (alert "show matches")
+# ===========================================================================
+
+class TestChannelIdFilter:
+    """get_all(channel_ids=...) constrains the visible set to a stored id-set."""
+
+    def test_returns_only_requested_ids(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        db = _make_file_backed_db(tmp_path)
+        with db.session_scope() as s:
+            _make_provider(s)
+            for cid, nm in [("c1", "Dune"), ("c2", "Arrival"), ("c3", "Odyssey")]:
+                _make_channel(s, channel_id=cid, name=nm, detected_title=nm)
+        with db.session_scope(commit=False) as s:
+            repo = RepositoryFactory(s).channels
+            got = repo.get_all(channel_ids={"c1", "c3"})
+            assert sorted(c.id for c in got) == ["c1", "c3"]
+            # No filter → all rows; empty set → nothing (never "all").
+            assert len(repo.get_all()) == 3
+            assert repo.get_all(channel_ids=set()) == []
+
+
+def _seed_alert_channels(db):
+    """pA (active): c1 movie, c3 series; pB (disabled): c2 movie."""
+    from metatv.core.database import ProviderDB, ChannelDB
+    with db.session_scope() as s:
+        s.add(ProviderDB(id="pA", name="Active", type="xtream", url="http://a",
+                         urls='[{"url":"http://a","primary":true}]',
+                         username="u", password="p", is_active=True))
+        s.add(ProviderDB(id="pB", name="Disabled", type="xtream", url="http://b",
+                         urls='[{"url":"http://b","primary":true}]',
+                         username="u", password="p", is_active=False))
+        s.add(ChannelDB(id="c1", provider_id="pA", source_id="c1",
+                        name="Dune", media_type="movie", is_hidden=False))
+        s.add(ChannelDB(id="c2", provider_id="pB", source_id="c2",
+                        name="Dune (disabled source)", media_type="movie", is_hidden=False))
+        s.add(ChannelDB(id="c3", provider_id="pA", source_id="c3",
+                        name="Dune (series)", media_type="series", is_hidden=False))
+
+
+class TestIdFilterRevealAll:
+    """Gold-bar reveal relaxes SOFT filters only — never the disabled-source gate."""
+
+    def test_reveal_keeps_provider_gate_but_relaxes_soft(self, qapp, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.gui.main_window import MainWindow
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        # c2 lives on the DISABLED source; it must stay hidden in BOTH views.
+        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
+                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
+                    source_categories=None, page_size=1000, hide_watched=False,
+                    context_id_filter={"c1", "c2", "c3"})
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
+            # Default: only c1 (c2 disabled-source, c3 media-type filtered).
+            dtos, _dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))
+            assert sorted(d.id for d in dtos) == ["c1"]
+
+            # Reveal: soft filters relaxed → c3 comes back, but c2 (disabled source)
+            # stays gone — provider-scoping is NEVER relaxed.
+            adtos, _ap = MainWindow._query_channels(repos, dict(base, id_filter_show_all=True))
+            revealed = sorted(d.id for d in adtos)
+            assert "c2" not in revealed, "disabled-source match must NOT be revealed"
+            assert revealed == ["c1", "c3"]
+
+    def test_reveal_clears_bar_for_available_set(self, qapp, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.gui.main_window import MainWindow
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        # In real use the caller feeds only the AVAILABLE subset ({c1, c3}) — c2 is
+        # already gated out.  Default hides c3 (media-type); reveal shows both → bar clears.
+        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
+                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
+                    source_categories=None, page_size=1000, hide_watched=False,
+                    context_id_filter={"c1", "c3"})
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
+            dtos, dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))
+            assert sorted(d.id for d in dtos) == ["c1"]
+            assert dp['total_channels'] == 2
+            assert dp['filtered_out_count'] == 1, "c3 media-filtered → gold bar shows"
+
+            adtos, ap = MainWindow._query_channels(repos, dict(base, id_filter_show_all=True))
+            assert sorted(d.id for d in adtos) == ["c1", "c3"]
+            assert ap['total_channels'] == 2
+            assert ap['filtered_out_count'] == 0, "reveal shows the available set → bar clears"
+
+
+class TestFilterAvailableIds:
+    """ChannelRepository.filter_available_ids — the re-validation chokepoint."""
+
+    def test_gates_out_disabled_source_and_hidden(self, tmp_path):
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        with db.session_scope() as s:
+            # A user-hidden channel on the ACTIVE source — also unavailable.
+            s.add(ChannelDB(id="c4", provider_id="pA", source_id="c4",
+                            name="Dune (hidden)", media_type="movie", is_hidden=True))
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
+            excluded = set(repos.providers.get_hidden_provider_ids())
+            assert "pB" in excluded  # disabled provider is a hidden provider
+            avail = repos.channels.filter_available_ids({"c1", "c2", "c3", "c4"}, excluded)
+            assert avail == {"c1", "c3"}, "c2 disabled-source, c4 user-hidden → both gated out"
+            assert repos.channels.filter_available_ids(set(), excluded) == set()
+
+
+class TestComputeAlertAvailability:
+    """compute_alert_availability derives every count from the AVAILABLE subset only."""
+
+    def test_counts_reflect_available_matches(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.vod_alert_availability import compute_alert_availability
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)  # pA active: c1, c3 ; pB disabled: c2
+        cfg = _FakeConfig()
+        # r1: c1 (available) + c2 (disabled source), both unviewed.
+        cfg.add_vod_watch_alert({"text": "Dune", "match_type": "movie", "created": "r1",
+                                 "alerted_ids": ["c1", "c2"], "viewed_ids": []})
+        # r2: only c2 (disabled) → 0 available, NOT firing.
+        cfg.add_vod_watch_alert({"text": "Ghost", "match_type": "movie", "created": "r2",
+                                 "alerted_ids": ["c2"], "viewed_ids": []})
+
+        with db.session_scope(commit=False) as s:
+            avail = compute_alert_availability(cfg, RepositoryFactory(s))
+
+        assert avail.available_ids == frozenset({"c1"})
+        assert avail.per_rule_total["r1"] == 1 and avail.per_rule_unviewed["r1"] == 1
+        assert avail.per_rule_total["r2"] == 0 and avail.per_rule_unviewed["r2"] == 0
+        assert avail.firing_rules == 1, "r2's only match is on a disabled source → not firing"
+        assert avail.unviewed_total == 1
+
+    def test_all_on_disabled_source_reports_zero(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.vod_alert_availability import compute_alert_availability
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert({"text": "Ghost", "match_type": "movie", "created": "r1",
+                                 "alerted_ids": ["c2"], "viewed_ids": []})  # c2 = disabled
+        with db.session_scope(commit=False) as s:
+            avail = compute_alert_availability(cfg, RepositoryFactory(s))
+        assert avail.firing_rules == 0
+        assert avail.unviewed_total == 0
+        assert avail.per_rule_total["r1"] == 0
+
+
+# ===========================================================================
 # Part 4: WatchAlertsSection.refresh_vod_rules rendering
 # ===========================================================================
 
@@ -499,8 +662,6 @@ class TestWatchAlertsSectionVodRules:
         # need to validate list content.
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
-        # Alert-visibility header badge (set on the real widget in create_header).
-        section._new_match_badge = MagicMock()
         return section
 
     def test_no_rules_hides_sub_section(self, qapp):
@@ -521,8 +682,10 @@ class TestWatchAlertsSectionVodRules:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
         assert section._vod_list.count() == 1, "One rule must render one list item"
-        item_text = section._vod_list.item(0).text()
-        assert "Dune" in item_text
+        row = section._vod_list.itemWidget(section._vod_list.item(0))
+        assert row is not None, "Rule must render as a custom _VodAlertRow widget"
+        texts = _row_label_texts(row)
+        assert any("Dune" in t for t in texts), f"Rule name must appear in row: {texts!r}"
 
     def test_match_count_shown_when_nonzero(self, qapp):
         cfg = _FakeConfig()
@@ -535,8 +698,9 @@ class TestWatchAlertsSectionVodRules:
         })
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
-        item_text = section._vod_list.item(0).text()
-        assert "3" in item_text, f"Match count 3 must appear in row text: {item_text!r}"
+        row = section._vod_list.itemWidget(section._vod_list.item(0))
+        texts = _row_label_texts(row)
+        assert any("3" in t for t in texts), f"Match count 3 must appear in row: {texts!r}"
 
     def test_multiple_rules_render_multiple_items(self, qapp):
         cfg = _FakeConfig()
@@ -588,18 +752,15 @@ class TestVodRuleInteractiveActions:
         section._vod_list = QListWidget()
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
-        section._new_match_badge = MagicMock()
         return section
 
-    def test_single_click_resolves_correct_rule_text_and_type(self, qapp):
-        """_on_vod_item_clicked looks up the right (text, match_type) for the clicked item.
+    def test_single_click_emits_rule_created_for_stored_matches(self, qapp):
+        """_on_vod_item_clicked emits the rule's created id via vodRuleShowMatchesRequested.
 
-        We test this by patching vodRuleViewMatchesRequested.emit and verifying the
-        arguments that would have been emitted.  Using __new__ means the Qt signal
-        hasn't been constructed, so we replace .emit with a MagicMock to capture args.
+        The click now carries the rule id (not a keyword) so the host shows the
+        rule's STORED matched ids.  Using __new__ means the Qt signal isn't
+        constructed, so we replace .emit with a MagicMock to capture the argument.
         """
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QListWidgetItem
         cfg = _FakeConfig()
         created = _now_iso()
         cfg.add_vod_watch_alert({
@@ -612,33 +773,32 @@ class TestVodRuleInteractiveActions:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
 
-        # Patch the signal's emit (the section was built via __new__ so no Qt init)
-        section.vodRuleViewMatchesRequested = MagicMock()
+        section.vodRuleShowMatchesRequested = MagicMock()
 
         item = section._vod_list.item(0)
         assert item is not None
         section._on_vod_item_clicked(item)
 
-        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Severance", "series")
+        section.vodRuleShowMatchesRequested.emit.assert_called_once_with(created)
 
     def test_single_click_any_type(self, qapp):
-        """Left-click resolves match_type='any' for an any-typed rule."""
-        from PyQt6.QtCore import Qt
+        """Left-click still routes by rule id for an any-typed rule."""
         cfg = _FakeConfig()
+        created = _now_iso()
         cfg.add_vod_watch_alert({
             "text": "Dune",
             "match_type": "any",
-            "created": _now_iso(),
+            "created": created,
             "alerted_ids": [],
         })
 
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
-        section.vodRuleViewMatchesRequested = MagicMock()
+        section.vodRuleShowMatchesRequested = MagicMock()
 
         section._on_vod_item_clicked(section._vod_list.item(0))
 
-        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Dune", "any")
+        section.vodRuleShowMatchesRequested.emit.assert_called_once_with(created)
 
     def test_remove_signal_carries_rule_created(self, qapp):
         """vodRuleRemoveRequested emitted via _rule_info_for_created lookup (tested indirectly).

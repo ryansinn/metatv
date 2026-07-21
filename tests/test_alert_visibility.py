@@ -223,33 +223,37 @@ class TestClearAlertMenuAction:
 class TestSidebarAndQueueGlance:
 
     def test_alerts_header_badge_shows_count(self, qapp):
-        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtWidgets import QLabel, QPushButton
         from metatv.gui.sidebar.alerts import WatchAlertsSection
         section = WatchAlertsSection.__new__(WatchAlertsSection)
-        section._new_match_badge = QLabel()
+        section.title = "Alerts"
+        section.title_label = QLabel()
+        section._clear_all_btn = QPushButton()
+        section._clear_all_btn.hide()
 
+        # Active: green dot + green "Alerts (3)" title; "Clear all" shows.
         section.update_new_match_badge(3)
-        assert not section._new_match_badge.isHidden()
-        assert "3" in section._new_match_badge.text()
-        assert _icons.new_match_icon in section._new_match_badge.text()
+        assert "(3)" in section.title_label.text()
+        assert _theme.COLOR_OK in section.title_label.text()
+        assert not section._clear_all_btn.isHidden()
 
+        # Quiet: no count suffix, gray dot, no green; "Clear all" hides.
         section.update_new_match_badge(0)
-        assert section._new_match_badge.isHidden()
+        assert "(3)" not in section.title_label.text()
+        assert _theme.COLOR_MUTED in section.title_label.text()
+        assert _theme.COLOR_OK not in section.title_label.text()
+        assert section._clear_all_btn.isHidden()
 
     def test_queue_line_shows_and_hides(self, qapp):
         from PyQt6.QtWidgets import QPushButton
         from metatv.gui.sidebar.queue import WatchQueueSection
         section = WatchQueueSection.__new__(WatchQueueSection)
         section._new_matches_btn = QPushButton()
-        section._clear_alerts_btn = QPushButton()
         section._new_matches_btn.hide()
-        section._clear_alerts_btn.hide()
 
         section.update_new_match_count(2)
         assert not section._new_matches_btn.isHidden()
-        assert not section._clear_alerts_btn.isHidden()
         assert "2" in section._new_matches_btn.text()
 
         section.update_new_match_count(0)
         assert section._new_matches_btn.isHidden()
-        assert section._clear_alerts_btn.isHidden()

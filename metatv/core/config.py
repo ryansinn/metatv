@@ -1105,6 +1105,18 @@ class Config(BaseModel):
         """True when *channel_id* is a matched-but-not-yet-viewed alert channel."""
         return channel_id in self.get_unviewed_vod_match_ids()
 
+    def get_rules_with_new_matches_count(self) -> int:
+        """Number of watch-for RULES that currently have >=1 unviewed match.
+
+        Distinct from :meth:`get_unviewed_vod_match_count` (which counts matched
+        *items*): this counts firing *alerts* for the header glance, so a single
+        rule with 73 new items still reads as one firing alert.
+        """
+        return sum(
+            1 for r in self.vod_watch_alerts
+            if self.get_vod_rule_unviewed_count(r.get("created", "")) > 0
+        )
+
     def get_vod_rule_unviewed_count(self, rule_created: str) -> int:
         """Number of unviewed matches for a single rule (sidebar per-rule badge)."""
         for r in self.vod_watch_alerts:
@@ -1160,6 +1172,36 @@ class Config(BaseModel):
         self.vod_watch_alerts = updated
         self.save()
         return before
+
+    def mark_vod_rule_viewed(self, rule_created: str) -> int:
+        """Acknowledge every match for a single rule (per-rule "Clear this alert").
+
+        Sets the matching rule's ``viewed_ids`` to all of its ``alerted_ids``
+        (order-preserving dedup) and saves; other rules are left untouched.
+
+        Args:
+            rule_created: The ``created`` id of the rule to acknowledge.
+
+        Returns:
+            The number of channels that were unviewed for this rule before the
+            call (how many alerts this clear acknowledged); 0 when the rule is
+            unknown or already fully viewed (no save in that case).
+        """
+        cleared = self.get_vod_rule_unviewed_count(rule_created)
+        if cleared == 0:
+            return 0
+        updated = []
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                merged = dict(r)
+                # viewed = every alerted id (preserve order, dedup).
+                merged["viewed_ids"] = list(dict.fromkeys(merged.get("alerted_ids") or []))
+                updated.append(merged)
+            else:
+                updated.append(r)
+        self.vod_watch_alerts = updated
+        self.save()
+        return cleared
 
     def _migrate_vod_alert_viewed(self) -> None:
         """One-time per-rule seed: pre-feature rules treat existing matches as viewed.

@@ -425,6 +425,7 @@ class _NavMixin:
         self._details_person_filter = None
         self._details_tag_filter = None
         self._details_category_filter = None
+        self._details_id_filter = None
 
     def _on_genre_filter_requested(self, genre: str) -> None:
         """Strict SQL genre filter from details-pane chip click."""

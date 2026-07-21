@@ -16,6 +16,97 @@ from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
 
+def _alerts_title_html(title: str, count: int) -> str:
+    """Rich-text for the Alerts header: a recolorable status dot + title + count.
+
+    A single state-driven label replaces the old dual-glyph (siren title + green
+    badge).  The dot is a plain glyph that honours CSS ``color`` so its colour is
+    the state cue (paired with the count text, so it is colourblind-safe):
+
+        - Quiet (count == 0): gray dot, default-text title, no suffix.
+        - Active (count > 0): green dot, green title, " (N)" suffix.
+
+    Args:
+        title: The section title (always "Alerts").
+        count: Number of unviewed watch-for matches across all rules.
+
+    Returns:
+        An HTML string for :meth:`QLabel.setText` (rich-text format).
+    """
+    if count > 0:
+        dot_color = _theme.COLOR_OK
+        title_color = _theme.COLOR_OK
+        suffix = f" ({count})"
+    else:
+        dot_color = _theme.COLOR_MUTED
+        title_color = _theme.COLOR_TEXT
+        suffix = ""
+    return (
+        f'<span style="color:{dot_color}">{_icons.status_dot_icon}</span> '
+        f'<b><span style="color:{title_color}">{title}{suffix}</span></b>'
+    )
+
+
+def _vod_count_label(unviewed: int, count: int) -> str:
+    """Right-aligned count text for a watch-for rule row.
+
+    The green tint on the count (and the header dot) already conveys "new", so the
+    word is dropped from the text:
+
+        - unviewed > 0:             "{unviewed} of {count}"  (e.g. "5 of 20")
+        - unviewed == 0, count > 0: "· {count}"
+        - count == 0:               ""
+
+    Args:
+        unviewed: Unviewed match count for this rule.
+        count: Total match count for this rule.
+
+    Returns:
+        The count label text (possibly empty).
+    """
+    if unviewed > 0:
+        return f"{unviewed} of {count}"
+    if count > 0:
+        return f"· {count}"
+    return ""
+
+
+class _VodAlertRow(QWidget):
+    """Watch-for rule row: [type icon]  [name (legible)]  [right-aligned count].
+
+    Mirrors :class:`_AlertRow` — a custom widget set via ``setItemWidget`` so the
+    row reads cleanly (breathing room right of the type icon, no whole-row green
+    tint).  Transparent for mouse events so the host ``QListWidget`` keeps
+    receiving clicks / double-clicks / context-menu requests on the item.
+    """
+
+    def __init__(self, type_icon: str, text: str, count_text: str,
+                 count_style: str, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 1, 4, 1)
+        layout.setSpacing(6)  # breathing room to the right of the type icon
+
+        icon_lbl = QLabel(type_icon)
+        layout.addWidget(icon_lbl)
+
+        name_lbl = QLabel(text)
+        name_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — never tinted
+        layout.addWidget(name_lbl, 1)
+
+        count_lbl = QLabel(count_text)
+        count_lbl.setStyleSheet(count_style)
+        count_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(count_lbl)
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # The item (not this widget) owns click/double-click/context-menu, so let
+        # events pass through to the QListWidget viewport.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+
 class _AlertRow(QWidget):
     """Channel row widget for Watch Alerts: name + right-aligned time + hover play button."""
 
@@ -77,8 +168,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
     manageWatchForClicked = pyqtSignal()     # "Manage…" link → open manage dialog
     vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
-    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → search in list
+    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → keyword search (dialog fallback)
+    vodRuleShowMatchesRequested = pyqtSignal(str)  # rule_created → show the rule's STORED matched ids
     vodRuleRemoveRequested = pyqtSignal(str)  # rule_created → remove rule + refresh
+    vodRuleClearAlertRequested = pyqtSignal(str)  # rule_created → ack just this rule's matches
+    clearAllAlertsClicked = pyqtSignal()     # header "Clear all" → ack every new match
     _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
 
     def __init__(self, config, db, parent=None):
@@ -92,21 +186,25 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def create_header(self):
         header = self._build_clickable_header()
         hl = header.layout()
-        self.title_label = QLabel(
-            f'<span style="color:{_theme.COLOR_WARN}">{self.icon}</span> <b>{self.title}</b>'
-        )
+        # A single state-driven label: a recolorable status dot + "Alerts" + an
+        # optional " (N)" count.  Replaces the old warn-siren title + separate
+        # green badge — the dot's colour IS the glance (gray = quiet, green = new),
+        # visible even when the section is collapsed.  Updated by update_new_match_badge.
+        self.title_label = QLabel(_alerts_title_html(self.title, 0))
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)
 
-        # Global "new matched content" glance — a GREEN 🚨 N badge, visible even when
-        # the section is collapsed.  Hidden when there are no unviewed matches.
-        self._new_match_badge = QLabel()
-        self._new_match_badge.setTextFormat(Qt.TextFormat.RichText)
-        self._new_match_badge.setStyleSheet(_theme.ALERT_NEW_MATCH_BADGE)
-        self._new_match_badge.hide()
-        hl.addWidget(self._new_match_badge)
-
         hl.addStretch()
+
+        # "Clear all" — acknowledge every new match; shown only when N > 0.
+        self._clear_all_btn = QPushButton("Clear all")
+        self._clear_all_btn.setFlat(True)
+        self._clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_all_btn.setToolTip("Acknowledge all new matches")
+        self._clear_all_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        self._clear_all_btn.clicked.connect(self.clearAllAlertsClicked.emit)
+        self._clear_all_btn.hide()
+        hl.addWidget(self._clear_all_btn)
 
         _btn_style = (
             "QPushButton {{ font-size: {fs}; border: 1px solid {c};"
@@ -138,6 +236,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
+        _theme.apply_list_selection(self.alerts_tree)
         self.content_layout.addWidget(self.alerts_tree)
 
         # ── VOD Watch-For sub-section ──────────────────────────────────────
@@ -163,11 +262,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_manage_btn.setFlat(True)
         self._vod_manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._vod_manage_btn.setToolTip("View and remove watch-for rules")
-        self._vod_manage_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
-            f" border: none; padding: 0 2px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
-        )
+        self._vod_manage_btn.setStyleSheet(_theme.LINK_BTN_SM)
         self._vod_manage_btn.clicked.connect(self.manageWatchForClicked.emit)
         vod_hdr_row.addWidget(self._vod_manage_btn)
 
@@ -180,6 +275,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._vod_list.setMaximumHeight(150)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.apply_list_selection(self._vod_list)
         self._vod_list.setCursor(Qt.CursorShape.PointingHandCursor)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
@@ -228,6 +324,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._retry_list.setMaximumHeight(120)
         self._retry_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.apply_list_selection(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
@@ -244,7 +341,36 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def _update_vod_toggle_label(self, count: int) -> None:
         arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
         label = f"Watching for  ({count})" if count else "Watching for"
+        # Surface firing alerts on the toggle itself (plain text — the header dot
+        # carries the colour): "Watching for (3)  ·  2 new".  Uses the AVAILABLE
+        # firing count stashed by the last refresh (falls back to raw config).
+        firing = getattr(self, "_firing_count", None)
+        if firing is None:
+            firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+        if firing > 0:
+            label += f"  ·  {firing} new"
         self._vod_toggle.setText(f"{arrow}  {label}")
+
+    def _compute_alert_availability(self):
+        """Re-validate stored matches against live source state (one bounded query).
+
+        Returns an :class:`AlertAvailability`, or ``None`` when no DB is wired (test
+        stubs / early init) so callers fall back to the raw config counts.
+        """
+        # Read the instance dict directly: getattr() on a __new__'d QObject stub
+        # (tests) whose C++ super-init never ran raises RuntimeError instead of
+        # returning the default, so a plain getattr(self, "db", None) would crash.
+        db = self.__dict__.get("db")
+        if db is None:
+            return None
+        try:
+            from metatv.core.repositories import RepositoryFactory
+            from metatv.core.vod_alert_availability import compute_alert_availability
+            with db.session_scope(commit=False) as session:
+                return compute_alert_availability(self.config, RepositoryFactory(session))
+        except Exception:  # noqa: BLE001
+            logger.exception("Alert availability re-validation failed; using raw counts")
+            return None
 
     def _toggle_vod_watching(self) -> None:
         self._vod_collapsed = not self._vod_collapsed
@@ -265,18 +391,27 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
         self._vod_list.clear()
 
-        # Global new-match glance badge (read of config; safe-guarded for stubs).
-        self.update_new_match_badge(
-            getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
-        )
+        # Re-validate every count against LIVE source state (once, one bounded query):
+        # matches on disabled/expired sources never count or show — anywhere.  When no
+        # DB is wired (test stubs) avail is None → fall back to the raw config counts.
+        avail = self._compute_alert_availability()
+
+        # Header glance = number of ALERTS (rules) currently firing (AVAILABLE-only),
+        # NOT the total matched-item count.  The item count feeds only the tooltip.
+        if avail is not None:
+            _rules_firing = avail.firing_rules
+            _new_items = avail.unviewed_total
+        else:
+            _rules_firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+            _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
+        self._firing_count = _rules_firing  # read by _update_vod_toggle_label
+        self.update_new_match_badge(_rules_firing, _new_items)
 
         if not rules:
             self._vod_hdr_container.hide()
             self._vod_list.hide()
             return
 
-        # Build a channel-id → rule mapping for match count display.
-        # We query alerted_ids from config (already stored) — no DB needed here.
         from metatv.gui import icons as _icons  # local import avoids circular at top
 
         type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
@@ -287,34 +422,36 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         for rule in rules:
             text = rule.get("text") or "?"
             match_type = rule.get("match_type", "any")
-            alerted_ids = rule.get("alerted_ids") or []
-            count = len(alerted_ids)
-            unviewed = _unviewed_for(rule.get("created", ""))
+            created = rule.get("created", "")
+            # Counts reflect AVAILABLE matches only (raw config counts as fallback).
+            if avail is not None:
+                count = avail.per_rule_total.get(created, 0)
+                unviewed = avail.per_rule_unviewed.get(created, 0)
+            else:
+                count = len(rule.get("alerted_ids") or [])
+                unviewed = _unviewed_for(created)
 
+            # The far-left type icon already conveys the type, so the leading
+            # second 🚨 and the "  (type)" suffix are dropped.  Only the count is
+            # tinted green (unviewed) — the name stays fully legible.
             type_icon = type_icons.get(match_type, "")
-            type_suffix = f"  ({match_type})" if match_type != "any" else ""
-            count_badge = f"  · {count}" if count > 0 else ""
-            # An unviewed rule leads with a 🚨 marker + "N new" (the non-colour cue
-            # that pairs with the green foreground below — colourblind-safe).
-            new_badge = f"  🚨 {unviewed} new" if unviewed > 0 else ""
-            label = (
-                f"{type_icon}{_icons.alert_icon} {text}{type_suffix}"
-                f"{count_badge}{new_badge}"
+            count_text = _vod_count_label(unviewed, count)
+            count_style = (
+                _theme.VOD_ALERT_COUNT_NEW if unviewed > 0
+                else _theme.VOD_ALERT_COUNT_IDLE
             )
 
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, rule.get("created", ""))
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, created)
             count_tip = f"{count} match{'es' if count != 1 else ''} found" if count else "No matches yet"
             new_tip = f"\n{unviewed} new (unviewed)" if unviewed > 0 else ""
             item.setToolTip(
                 f"Watching for: {text}\nType: {match_type}\n{count_tip}{new_tip}"
             )
-            from PyQt6.QtGui import QColor
-            if unviewed > 0:
-                item.setForeground(QColor(_theme.COLOR_OK))  # green — new matches
-            elif count == 0:
-                item.setForeground(QColor(_theme.COLOR_MUTED))
             self._vod_list.addItem(item)
+            row = _VodAlertRow(type_icon, text, count_text, count_style)
+            item.setSizeHint(row.sizeHint())
+            self._vod_list.setItemWidget(item, row)
 
         count = self._vod_list.count()
         self._update_vod_toggle_label(count)
@@ -322,34 +459,43 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not self._vod_collapsed:
             self._vod_list.show()
 
-    def update_new_match_badge(self, count: int) -> None:
-        """Show/hide the global GREEN 🚨 N badge in the Alerts header.
+    def update_new_match_badge(self, count: int, item_count: int | None = None) -> None:
+        """Recompute the Alerts header dot/title/count + Clear-all visibility.
+
+        The header is one state-driven label: gray dot + plain title when quiet,
+        green dot + green "Alerts (N)" when alerts are firing.  N is the number of
+        RULES with new matches (a firing-alerts glance), not the total matched-item
+        count.  The "Clear all" link shows only while N > 0.
 
         Args:
-            count: Number of unviewed watch-for matches across all rules.
+            count: Number of watch-for RULES currently firing (header glance).
+            item_count: Total unviewed matched items — shown only in the tooltip to
+                clarify both numbers.  Defaults to ``count`` when omitted.
         """
         try:
-            badge = self._new_match_badge
+            self.title_label.setText(_alerts_title_html(self.title, count))
+            if count > 0:
+                items = count if item_count is None else item_count
+                verb = "have" if count != 1 else "has"
+                self.title_label.setToolTip(
+                    f"{count} alert{'s' if count != 1 else ''} {verb} new matches "
+                    f"({items} new item{'s' if items != 1 else ''})"
+                )
+            else:
+                self.title_label.setToolTip("")
+            self._clear_all_btn.setVisible(count > 0)
         except (AttributeError, RuntimeError):
             return  # header not built (e.g. __new__ test stub) — nothing to update
-        if badge is None:
-            return
-        if count > 0:
-            badge.setText(f"{_icons.new_match_icon} {count}")
-            badge.setToolTip(
-                f"{count} new matched item{'s' if count != 1 else ''} from your "
-                "watch-for alerts"
-            )
-            badge.show()
-        else:
-            badge.hide()
 
     def _on_vod_item_clicked(self, item: "QListWidgetItem") -> None:
-        """Single-click on a rule row → populate the main list with matching content."""
+        """Single-click on a rule row → show that rule's STORED matched channels.
+
+        Carries the rule id (not a keyword) so the host shows the exact stored
+        ``alerted_ids`` — a fresh keyword search is lossy.
+        """
         rule_created = item.data(Qt.ItemDataRole.UserRole)
-        rule_text, match_type = self._rule_info_for_created(rule_created)
-        if rule_text:
-            self.vodRuleViewMatchesRequested.emit(rule_text, match_type)
+        if rule_created:
+            self.vodRuleShowMatchesRequested.emit(rule_created)
 
     def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
         """Double-clicking a rule row opens the manage dialog."""
@@ -362,15 +508,25 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not item:
             return
         rule_created = item.data(Qt.ItemDataRole.UserRole)
-        rule_text, match_type = self._rule_info_for_created(rule_created)
+        unviewed = getattr(
+            self.config, "get_vod_rule_unviewed_count", lambda _c: 0
+        )(rule_created)
 
         menu = QMenu(self._vod_list)
-        if rule_text:
+        # When this rule has new (unviewed) matches, offer a per-rule acknowledge
+        # near the top — clears just this alert's green, not every rule's.
+        if unviewed > 0:
+            clear_action = menu.addAction(f"{_icons.new_match_icon}  Clear this alert")
+            clear_action.setToolTip("Acknowledge just this alert's new matches")
+            clear_action.triggered.connect(
+                lambda _=False, rc=rule_created: self.vodRuleClearAlertRequested.emit(rc)
+            )
+            menu.addSeparator()
+        if rule_created:
             view_action = menu.addAction(f"{_icons.search_icon}  View matches")
-            view_action.setToolTip(f"Show all content matching '{rule_text}' in the main list")
+            view_action.setToolTip("Show this alert's matched content in the main list")
             view_action.triggered.connect(
-                lambda _=False, t=rule_text, mt=match_type:
-                    self.vodRuleViewMatchesRequested.emit(t, mt)
+                lambda _=False, rc=rule_created: self.vodRuleShowMatchesRequested.emit(rc)
             )
             menu.addSeparator()
 
