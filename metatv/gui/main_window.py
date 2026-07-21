@@ -1275,6 +1275,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list.selectionModel().currentChanged.connect(
             self.on_channel_selection_changed
         )
+        _theme.apply_list_selection(self.channels_list)
         self._list_layout.addWidget(self.channels_list)
 
         # Series tree view (hidden by default)
@@ -1292,6 +1293,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.series_tree.customContextMenuRequested.connect(self.show_series_context_menu)
         self.series_tree.itemDoubleClicked.connect(self.play_series_item)
         self.series_tree.setVisible(False)
+        _theme.apply_list_selection(self.series_tree)
         self._list_layout.addWidget(self.series_tree)
 
         # EPG manager + view (hidden by default)

@@ -235,6 +235,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
+        _theme.apply_list_selection(self.alerts_tree)
         self.content_layout.addWidget(self.alerts_tree)
 
         # ── VOD Watch-For sub-section ──────────────────────────────────────
@@ -273,6 +274,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._vod_list.setMaximumHeight(150)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.apply_list_selection(self._vod_list)
         self._vod_list.setCursor(Qt.CursorShape.PointingHandCursor)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
@@ -321,6 +323,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self._retry_list.setMaximumHeight(120)
         self._retry_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
+        _theme.apply_list_selection(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)

@@ -63,6 +63,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         from metatv.gui.list_middle_click import install_list_middle_click
         self._list_mc = install_list_middle_click(self._list)
         self._list_mc.middleClicked.connect(self.channelMiddleClicked)
+        _theme.apply_list_selection(self._list)
         self.content_layout.addWidget(self._list)
 
         btn_row = QHBoxLayout()

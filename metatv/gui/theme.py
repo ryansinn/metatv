@@ -193,6 +193,11 @@ COLOR_RECIPE_MUTED_2   = "#5b626f"   # tertiary / very dim text
 # Recipe builder overlays
 OVERLAY_RECIPE_SELECTED  = "rgba(245,183,61,0.08)"   # amber tint — selected facet row
 
+# Subtle item-view selection tint — accent blue at low alpha reads as "mostly-black
+# + a hint of accent" over the dark row, so coloured foregrounds (new-match green,
+# count text) stay readable instead of vanishing into a saturated highlight fill.
+OVERLAY_SELECTION        = "rgba(68,136,255,0.16)"   # #4488ff (COLOR_ACCENT_BLUE) @ 16%
+
 # Hyperlink color — used for clickable QLabel rich-text links (e.g. PR# in QA checklist).
 # Intentionally reuses the same blue as other interactive link elements in the app.
 COLOR_LINK = COLOR_ACCENT_BLUE
@@ -360,6 +365,28 @@ DETAIL_RAIL_BTN_NEW_MATCH = (
 # glance) and on the Watch Queue's pinned new-matches line.  Always rendered next to
 # the 🚨 glyph + a number, so colour is reinforcement only (colourblind-safe).
 ALERT_NEW_MATCH_BADGE = "color: " + COLOR_OK + "; font-weight: bold;"
+
+# Shared subtle selection style for coloured-text item views — a soft translucent
+# tint + a left accent bar, and deliberately NO foreground override (so green stays
+# green and readable).  Applied per-widget via apply_list_selection() (one chokepoint)
+# to the lists/trees that show coloured rows; leaves widgets with their own selection
+# style (filter_panel, pantry OVERLAY_RECIPE_SELECTED) untouched.
+LIST_SELECTION_QSS = (
+    "QAbstractItemView::item:selected { background: " + OVERLAY_SELECTION + ";"
+    " border-left: 2px solid " + COLOR_ACCENT_BLUE + "; }"
+)
+
+
+def apply_list_selection(view) -> None:
+    """Apply :data:`LIST_SELECTION_QSS` to an item view without clobbering its
+    existing stylesheet (appends the rule).  Duck-typed on ``styleSheet`` /
+    ``setStyleSheet`` so this module needs no Qt import.
+
+    Args:
+        view: A ``QAbstractItemView`` (QListWidget / QListView / QTreeWidget).
+    """
+    existing = view.styleSheet()
+    view.setStyleSheet((existing + LIST_SELECTION_QSS) if existing else LIST_SELECTION_QSS)
 
 # Small flat text link (Alerts "Clear all", VOD "Manage…") — blue, hover lighter.
 LINK_BTN_SM = (
