@@ -211,6 +211,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # to open the filter bar and change settings. Cleared on next filter change.
         self._bypass_tier1_filters: bool = False
         self._currently_bypassing: bool = False  # set after load completes, read by filter_channels
+        # When True, the Python-side Global Exclusions (excluded prefixes / user
+        # categories) are skipped for one load — so the user can see exactly what
+        # their exclusions are hiding for THIS view without disabling the global
+        # setting. View-scoped: cleared on the next search / filter change.
+        self._bypass_global_exclusions: bool = False
+        self._currently_bypassing_exclusions: bool = False  # set after load, read by filter_channels
 
         # Details-pane context filters — set when user clicks a genre/person/tag chip.
         # At most one is active at a time; all are cleared by the chip's dismiss button.
@@ -1271,26 +1277,51 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._list_layout.addWidget(self._channel_banner)
 
-        # Banner strip for the "N filtered — click to show" actionable button.
-        # A QPushButton rather than a label so it is keyboard-focusable and
-        # respects the theme's pointer cursor.  Hidden by default.
-        self._channel_filter_btn = QPushButton()
-        self._channel_filter_btn.setVisible(False)
-        self._channel_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._channel_filter_btn.setStyleSheet(
+        # Filter-transparency bar: up to two clickable "N hidden by <layer> — show"
+        # segments, one per filter layer (Global Exclusions / search filters).  Each
+        # segment is a QPushButton (keyboard-focusable, theme pointer cursor); the
+        # bar shows only the segments whose hidden-count is > 0.  Reveals are
+        # view-scoped — clicking never changes the user's stored settings.  Hidden by
+        # default; _ChannelListMixin shows/hides it via _show_channel_filter_breakdown.
+        from PyQt6.QtWidgets import QWidget as _QWidget, QHBoxLayout as _QHBoxLayout
+        self._channel_filter_bar = _QWidget()
+        self._channel_filter_bar.setVisible(False)
+        _cfb_layout = _QHBoxLayout(self._channel_filter_bar)
+        _cfb_layout.setContentsMargins(0, 0, 0, 0)
+        _cfb_layout.setSpacing(6)
+        _seg_style = (
             f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
             f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
             f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
             f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
             f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
         )
+        # Segment 1 — Global Exclusions layer.
+        self._channel_exclusion_btn = QPushButton()
+        self._channel_exclusion_btn.setVisible(False)
+        self._channel_exclusion_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._channel_exclusion_btn.setStyleSheet(_seg_style)
+        self._channel_exclusion_btn.setToolTip(
+            "Your Global Exclusions are hiding these results (their region / category "
+            "is excluded).\nClick to temporarily show them for this view only.\n"
+            "Your Global Exclusions are not changed; searching or changing filters restores the view."
+        )
+        self._channel_exclusion_btn.clicked.connect(self._show_exclusion_hidden)
+        _cfb_layout.addWidget(self._channel_exclusion_btn)
+        # Segment 2 — search / Tier-1 filter layer.
+        self._channel_filter_btn = QPushButton()
+        self._channel_filter_btn.setVisible(False)
+        self._channel_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._channel_filter_btn.setStyleSheet(_seg_style)
         self._channel_filter_btn.setToolTip(
             "Your current Category / Quality / Platform filters are hiding these results.\n"
             "Click to temporarily show them. Filters are not changed.\n"
             "Changing filters or searching again restores normal filtered view."
         )
         self._channel_filter_btn.clicked.connect(self._show_filtered_results)
-        self._list_layout.addWidget(self._channel_filter_btn)
+        _cfb_layout.addWidget(self._channel_filter_btn)
+        _cfb_layout.addStretch(1)
+        self._list_layout.addWidget(self._channel_filter_bar)
 
         # Virtualized channel list — ChannelListView (QListView + middle_clicked)
         # backed by ChannelListModel

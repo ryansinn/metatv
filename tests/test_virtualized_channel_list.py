@@ -489,8 +489,8 @@ def test_multi_select_context_menu_routes_to_show_multi_select(qapp):
 # ---------------------------------------------------------------------------
 
 def _make_banner_host(qapp):
-    """Stub host for banner/filter-button behavior in _on_channels_loaded."""
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
+    """Stub host for the per-layer filter-transparency bar in _on_channels_loaded."""
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
 
@@ -499,70 +499,113 @@ def _make_banner_host(qapp):
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
     win._channel_banner = QLabel()
+    # Filter-transparency bar: two independent (unparented) segment buttons so
+    # isVisible() reflects each segment's own flag in the headless env.
+    win._channel_filter_bar = QWidget()
+    win._channel_exclusion_btn = QPushButton()
     win._channel_filter_btn = QPushButton()
     win.all_channels = []
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
     win._search_page_size = 1000
     win._currently_bypassing = False
+    win._currently_bypassing_exclusions = False
     win._clear_provider_busy = MagicMock()
     win.favorite_icon = "★"
     win.unfavorite_icon = "☆"
     win.get_media_type_icon = lambda _: ""
     win._show_filtered_results = MagicMock()
-    # Wire the button to the stub so we can confirm it's connected
+    win._show_exclusion_hidden = MagicMock()
+    # Wire the segments to the stubs so we can confirm they're connected.
     win._channel_filter_btn.clicked.connect(win._show_filtered_results)
+    win._channel_exclusion_btn.clicked.connect(win._show_exclusion_hidden)
     return win
 
 
-def test_zero_results_with_filtered_shows_button(qapp):
-    """When channels=[] and filtered_out_count>0, the filter button becomes visible."""
+def test_zero_results_search_hidden_shows_search_segment(qapp):
+    """channels=[] and hidden_by_search>0 → the 🔎 search segment becomes visible."""
     host = _make_banner_host(qapp)
     params = {
         "total_channels": 5,
         "hidden_only": False,
-        "filtered_out_count": 5,
+        "hidden_by_search": 5,
+        "hidden_by_exclusions": 0,
         "bypassing_tier1": False,
     }
     host._on_channels_loaded(([], params))
 
-    # Filter button visible, info banner hidden
     assert host._channel_filter_btn.isVisible()
+    assert not host._channel_exclusion_btn.isVisible()
     assert not host._channel_banner.isVisible()
-    # Button text mentions the count
     assert "5" in host._channel_filter_btn.text()
-    assert "filtered" in host._channel_filter_btn.text().lower()
+    assert "search filters" in host._channel_filter_btn.text().lower()
 
 
-def test_zero_results_no_filtered_hides_button(qapp):
-    """When channels=[] and filtered_out_count=0, neither banner nor button is visible."""
+def test_zero_results_exclusion_hidden_shows_exclusion_segment(qapp):
+    """channels=[] and hidden_by_exclusions>0 → the 🔒 exclusions segment becomes visible."""
+    host = _make_banner_host(qapp)
+    params = {
+        "total_channels": 4,
+        "hidden_only": False,
+        "hidden_by_search": 0,
+        "hidden_by_exclusions": 4,
+        "bypassing_tier1": False,
+    }
+    host._on_channels_loaded(([], params))
+
+    assert host._channel_exclusion_btn.isVisible()
+    assert not host._channel_filter_btn.isVisible()
+    assert "4" in host._channel_exclusion_btn.text()
+    assert "global exclusions" in host._channel_exclusion_btn.text().lower()
+
+
+def test_zero_results_no_filtered_hides_bar(qapp):
+    """When channels=[] and nothing is hidden, no segment and no banner is visible."""
     host = _make_banner_host(qapp)
     params = {
         "total_channels": 0,
         "hidden_only": False,
-        "filtered_out_count": 0,
+        "hidden_by_search": 0,
+        "hidden_by_exclusions": 0,
         "bypassing_tier1": False,
     }
     host._on_channels_loaded(([], params))
 
     assert not host._channel_filter_btn.isVisible()
+    assert not host._channel_exclusion_btn.isVisible()
     assert not host._channel_banner.isVisible()
 
 
-def test_filter_button_click_calls_show_filtered_results(qapp):
-    """Clicking the filter button must call _show_filtered_results."""
+def test_search_segment_click_calls_show_filtered_results(qapp):
+    """Clicking the 🔎 segment reveals the search/Tier-1 layer."""
     host = _make_banner_host(qapp)
     params = {
         "total_channels": 3,
         "hidden_only": False,
-        "filtered_out_count": 3,
+        "hidden_by_search": 3,
+        "hidden_by_exclusions": 0,
         "bypassing_tier1": False,
     }
     host._on_channels_loaded(([], params))
 
-    # The button is visible and wired via _channel_filter_btn.clicked → _show_filtered_results
     host._channel_filter_btn.click()
     host._show_filtered_results.assert_called_once()
+
+
+def test_exclusion_segment_click_calls_show_exclusion_hidden(qapp):
+    """Clicking the 🔒 segment reveals the Global Exclusions layer."""
+    host = _make_banner_host(qapp)
+    params = {
+        "total_channels": 3,
+        "hidden_only": False,
+        "hidden_by_search": 0,
+        "hidden_by_exclusions": 3,
+        "bypassing_tier1": False,
+    }
+    host._on_channels_loaded(([], params))
+
+    host._channel_exclusion_btn.click()
+    host._show_exclusion_hidden.assert_called_once()
 
 
 def test_bypass_banner_shown_when_bypassing(qapp):
@@ -578,7 +621,7 @@ def test_bypass_banner_shown_when_bypassing(qapp):
     host.filter_channels()
 
     assert host._channel_banner.isVisible()
-    assert not host._channel_filter_btn.isVisible()
+    assert not host._channel_filter_bar.isVisible()
     # Banner text mentions filters suspended
     assert "suspended" in host._channel_banner.text().lower()
 
