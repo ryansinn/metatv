@@ -38,6 +38,7 @@ partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT Q
 
 # Actions
 play_icon: str = "▶"
+browse_icon: str = "🗂"  # U+1F5C2 CARD INDEX DIVIDERS — series primary button: open seasons/episodes
 play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")
 open_ended_buffer_icon: str = "∞"  # U+221E INFINITY — open-ended disk-backed buffer (monochrome, "buffer without end")
 play_from_beginning_icon: str = "▶"  # U+25B6 play triangle — force start from position 0; gray, distinct from the orange ⏩ resume affordance by COLOUR (⏮ U+23EE rendered as a tofu/box in many fonts)

@@ -77,6 +77,12 @@ class _ActionBar(QWidget):
         # filled, paired with the 🚨 glyph + tooltip (colourblind-safe).
         self._has_new_match: bool = False
         self._current_epg_title: str = ""
+        # Primary-button label mode.  "play" → "▶ Play" (movie/live — the "currently
+        # playing" indicator may apply); "browse" → "🗂 Browse" (a series root, which
+        # never plays directly, only drills in); "episode" → "▶ Play Episode" (an
+        # episode selected in the series tree).  set_primary_mode() owns the label so
+        # the playing indicator can never clobber a Browse / Play-Episode caption.
+        self._primary_mode: str = "play"
         # "Currently playing" indicator state (green outline + live elapsed timer on
         # the Play button while the shown title is the one actively playing).
         self._is_playing: bool = False
@@ -225,6 +231,59 @@ class _ActionBar(QWidget):
             self.resume_button.setToolTip("Resume from where you left off")
 
     # ------------------------------------------------------------------ #
+    # Primary-button label mode (Play / Browse / Play Episode)             #
+    # ------------------------------------------------------------------ #
+
+    def set_primary_mode(self, mode: str) -> None:
+        """Set what the primary button says: ``"play"`` / ``"browse"`` / ``"episode"``.
+
+        * ``"play"`` (movie/live) → ``▶ Play`` — the "currently playing" indicator
+          may light this button.
+        * ``"browse"`` (series root) → ``🗂 Browse`` — clicking drills into
+          seasons/episodes; a series never plays directly, so the indicator is
+          suppressed.
+        * ``"episode"`` (episode selected in the tree) → ``▶ Play Episode``.
+
+        Switching to a non-play mode stops any live playing indicator first, so its
+        per-second tick can't overwrite the new caption.
+        """
+        self._primary_mode = mode
+        if mode != "play":
+            self.clear_playing()
+        self._apply_primary_label()
+
+    def _apply_primary_label(self) -> None:
+        """Stamp the primary button's text + tooltip for the current ``_primary_mode``."""
+        if self._primary_mode == "browse":
+            self.play_button.setText(f"{_icons.browse_icon} Browse")
+            self.play_button.setToolTip("Browse seasons & episodes")
+        elif self._primary_mode == "episode":
+            self.play_button.setText(f"{_icons.play_icon} Play Episode")
+            self.play_button.setToolTip("Play this episode")
+        else:
+            self.play_button.setText(f"{self.config.play_icon} Play")
+            self.play_button.setToolTip("Play from the beginning")
+
+    def enter_episode_mode(self) -> None:
+        """Configure the action bar for an episode selected in the series tree.
+
+        The primary button becomes ``▶ Play Episode``; the movie-only affordances
+        (Resume, Watch Later) are hidden because they don't apply to a single
+        episode.  ``exit_episode_mode`` (called from show_channel) restores them.
+        """
+        self.set_primary_mode("episode")
+        self.resume_button.hide()
+        self.queue_button.hide()
+
+    def exit_episode_mode(self) -> None:
+        """Undo :meth:`enter_episode_mode`'s button-hiding (label handled by caller).
+
+        Restores the Watch Later button; Resume visibility is re-derived by the
+        subsequent ``set_resume`` call in ``show_channel``.
+        """
+        self.queue_button.setVisible(True)
+
+    # ------------------------------------------------------------------ #
     # "Currently playing" indicator (green outline + live elapsed timer)   #
     # ------------------------------------------------------------------ #
 
@@ -241,6 +300,11 @@ class _ActionBar(QWidget):
         Args:
             position_seconds: The current playback position in seconds.
         """
+        if self._primary_mode != "play":
+            # A series-root (Browse) or episode-detail primary button is never the
+            # actively-playing movie/live title — don't paint the green indicator (or
+            # start the per-second tick) over its Browse / Play-Episode caption.
+            return
         self._is_playing = True
         self._playing_base_pos = float(position_seconds or 0.0)
         self._playing_base_ts = time.monotonic()

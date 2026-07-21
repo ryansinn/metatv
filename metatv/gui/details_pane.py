@@ -5,7 +5,7 @@ from typing import Optional
 from loguru import logger
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QFrame,
+    QWidget, QVBoxLayout, QScrollArea, QFrame, QLabel,
 )
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QPixmap
@@ -18,10 +18,11 @@ from metatv.metadata_providers.base import MetadataResult
 # Section widgets
 from metatv.gui.details_sections import (
     _PosterSection, _MetadataSection, _PlotSection, _TechnicalSection, _CastSection,
-    _TagsSection,
+    _TagsSection, _no_width_force,
 )
 from metatv.gui.details_actions import ChannelActionState, _ActionBar
 from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
 from metatv.gui.details_similar import _SimilarSection
 
@@ -60,6 +61,7 @@ class DetailsPaneWidget(QWidget):
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
+    play_episode_requested     = pyqtSignal()           # play the episode shown in the pane (read current_episode)
 
     def __init__(self, config, image_cache, db: Database | None = None, parent=None):
         super().__init__(parent)
@@ -68,6 +70,12 @@ class DetailsPaneWidget(QWidget):
         self._db = db
         self.current_channel = None
         self.current_metadata: MetadataResult | None = None
+        # Episode-detail mode: when an episode is selected in the series tree the pane
+        # keeps the SERIES as current_channel but overlays episode-specific bits (byline,
+        # plot/poster fallback, "Play Episode" button).  current_episode holds the DTO the
+        # host reads on play_episode_requested; _in_episode_mode routes the Play click.
+        self.current_episode = None
+        self._in_episode_mode: bool = False
         self.provider_urls: list = []
         self._provider_map: dict = {}
         # "Currently playing" indicator — last play-state report from the host's
@@ -170,10 +178,23 @@ class DetailsPaneWidget(QWidget):
             self._versions.clear()
             self._similar.clear()
 
+        # Reset episode-detail mode — show_channel always renders a whole channel
+        # (series root / movie / live), never a single episode.  Drop the byline,
+        # forget any stored episode, and un-hide the movie-only affordances the
+        # episode view had hidden.
+        self._in_episode_mode = False
+        self.current_episode = None
+        self._byline.hide()
+        self._action_bar.exit_episode_mode()
+
         # Tier 1: instant display from channel attributes
         self._meta.load_basic(channel, self._provider_map)
         self._action_bar.update_favorite(channel.is_favorite)
         _is_series = getattr(channel, "media_type", None) == MediaType.SERIES
+        # Primary button caption: a SERIES root drills in (🗂 Browse); movies/live
+        # play (▶ Play).  The click behaviour is unchanged — play_requested still
+        # fires; the host's series branch drills in.
+        self._action_bar.set_primary_mode("browse" if _is_series else "play")
         _is_mon = False
         _check = getattr(self.config, "is_series_monitored", None)
         if _is_series and callable(_check):
@@ -229,6 +250,65 @@ class DetailsPaneWidget(QWidget):
         if not is_live and getattr(channel, "detected_prefix", None):
             self.similar_titles_requested.emit(channel.id)
 
+    def show_episode(self, episode, series_channel) -> None:
+        """Display a single episode, reusing the parent series' details as fallback.
+
+        The SERIES stays the pane's ``current_channel`` — its title, rail actions,
+        versions and tags remain the series'.  Only the episode-specific surface
+        changes: a wrapping byline carrying the episode title, the episode plot (or
+        the series plot when the DTO has none), the episode image (or the series
+        poster when the DTO has none), and a ``▶ Play Episode`` primary button.  No
+        heavy metadata is fetched synchronously — whatever the series is already
+        showing is the fallback.
+
+        Clicking Play Episode fires the bare ``play_episode_requested`` signal; the
+        host reads :attr:`current_episode`.  Selecting a season / the series root
+        reverts the pane via :meth:`show_channel`.
+
+        Args:
+            episode: The :class:`~metatv.core.repositories.dtos.EpisodeDTO` to show.
+            series_channel: The parent series channel (the mixin's ``current_series``).
+        """
+        if series_channel is None or episode is None:
+            return
+
+        # Establish the series context if the pane isn't already showing this series
+        # — its title / rail / poster / plot are the fallback surface for the episode.
+        # When the user is paging through episodes of the already-shown series this is
+        # a no-op, so we don't clear + re-fetch on every episode click (race-free).
+        cur = self.current_channel
+        if cur is None or getattr(cur, "id", None) != getattr(series_channel, "id", None):
+            self.show_channel(series_channel)
+
+        self.current_episode = episode
+        self._in_episode_mode = True
+
+        # Byline — the episode title (never overwrite the series title above it).
+        ep_title = (
+            getattr(episode, "title", None)
+            or f"Episode {getattr(episode, 'episode_num', '?')}"
+        )
+        self._byline.setText(ep_title)
+        self._byline.setToolTip(ep_title)
+        self._byline.show()
+
+        # Plot — episode plot if the DTO carries one, else keep the series plot.
+        ep_plot = getattr(episode, "plot", None)
+        if ep_plot:
+            self._plot.load(ep_plot)
+
+        # Poster — episode image if the DTO carries one, else keep the series poster.
+        ep_image = (
+            getattr(episode, "image_url", None)
+            or getattr(episode, "poster_url", None)
+            or getattr(episode, "image", None)
+        )
+        if ep_image:
+            self._poster.load_poster(ep_image, self.provider_urls)
+
+        # Primary button → "Play Episode"; hide movie-only Resume + Watch Later.
+        self._action_bar.enter_episode_mode()
+
     # ------------------------------------------------------------------ #
     # Internal                                                             #
     # ------------------------------------------------------------------ #
@@ -261,6 +341,16 @@ class DetailsPaneWidget(QWidget):
 
         self._poster   = _PosterSection(self.config, self.image_cache)
         self._meta     = _MetadataSection(self.config)
+        # Episode byline — the episode title, shown just under the title/meta area only
+        # in episode mode (normally hidden).  MUST word-wrap AND opt out of driving the
+        # column width (via _no_width_force) so a long/odd episode title can never widen
+        # the pane or clip content off the right edge (docs/DETAILS_PANE_DESIGN.md →
+        # "Width discipline").
+        self._byline = QLabel()
+        self._byline.setWordWrap(True)
+        self._byline.setStyleSheet(_theme.DETAIL_EPISODE_BYLINE)
+        _no_width_force(self._byline)
+        self._byline.hide()
         self._versions = _VersionSection(self.config)
         self._action_bar = _ActionBar(self.config)
         self._plot     = _PlotSection()
@@ -278,7 +368,7 @@ class DetailsPaneWidget(QWidget):
         # the logical owner of the action buttons, which are reparented into the
         # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._versions,
+            self._poster, self._meta, self._byline, self._versions,
             self._plot, self._cast, self._tech, self._tags, self._similar,
         ):
             self._content_layout.addWidget(widget)
@@ -464,6 +554,12 @@ class DetailsPaneWidget(QWidget):
     # ------------------------------------------------------------------ #
 
     def _on_play(self) -> None:
+        # In episode mode the primary button plays the selected episode, not the
+        # series channel — emit the bare episode signal (host reads current_episode).
+        if self._in_episode_mode:
+            if self.current_episode is not None:
+                self.play_episode_requested.emit()
+            return
         if self.current_channel:
             self.play_requested.emit(self.current_channel.id)
 
