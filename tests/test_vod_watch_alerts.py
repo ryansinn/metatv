@@ -482,6 +482,29 @@ class TestVodWatchAlertManagerWorker:
 
 
 # ===========================================================================
+# Part 3.5: Repository strict id-set filter (alert "show matches")
+# ===========================================================================
+
+class TestChannelIdFilter:
+    """get_all(channel_ids=...) constrains the visible set to a stored id-set."""
+
+    def test_returns_only_requested_ids(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        db = _make_file_backed_db(tmp_path)
+        with db.session_scope() as s:
+            _make_provider(s)
+            for cid, nm in [("c1", "Dune"), ("c2", "Arrival"), ("c3", "Odyssey")]:
+                _make_channel(s, channel_id=cid, name=nm, detected_title=nm)
+        with db.session_scope(commit=False) as s:
+            repo = RepositoryFactory(s).channels
+            got = repo.get_all(channel_ids={"c1", "c3"})
+            assert sorted(c.id for c in got) == ["c1", "c3"]
+            # No filter → all rows; empty set → nothing (never "all").
+            assert len(repo.get_all()) == 3
+            assert repo.get_all(channel_ids=set()) == []
+
+
+# ===========================================================================
 # Part 4: WatchAlertsSection.refresh_vod_rules rendering
 # ===========================================================================
 
@@ -597,15 +620,13 @@ class TestVodRuleInteractiveActions:
         section._update_vod_toggle_label = MagicMock()
         return section
 
-    def test_single_click_resolves_correct_rule_text_and_type(self, qapp):
-        """_on_vod_item_clicked looks up the right (text, match_type) for the clicked item.
+    def test_single_click_emits_rule_created_for_stored_matches(self, qapp):
+        """_on_vod_item_clicked emits the rule's created id via vodRuleShowMatchesRequested.
 
-        We test this by patching vodRuleViewMatchesRequested.emit and verifying the
-        arguments that would have been emitted.  Using __new__ means the Qt signal
-        hasn't been constructed, so we replace .emit with a MagicMock to capture args.
+        The click now carries the rule id (not a keyword) so the host shows the
+        rule's STORED matched ids.  Using __new__ means the Qt signal isn't
+        constructed, so we replace .emit with a MagicMock to capture the argument.
         """
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QListWidgetItem
         cfg = _FakeConfig()
         created = _now_iso()
         cfg.add_vod_watch_alert({
@@ -618,33 +639,32 @@ class TestVodRuleInteractiveActions:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
 
-        # Patch the signal's emit (the section was built via __new__ so no Qt init)
-        section.vodRuleViewMatchesRequested = MagicMock()
+        section.vodRuleShowMatchesRequested = MagicMock()
 
         item = section._vod_list.item(0)
         assert item is not None
         section._on_vod_item_clicked(item)
 
-        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Severance", "series")
+        section.vodRuleShowMatchesRequested.emit.assert_called_once_with(created)
 
     def test_single_click_any_type(self, qapp):
-        """Left-click resolves match_type='any' for an any-typed rule."""
-        from PyQt6.QtCore import Qt
+        """Left-click still routes by rule id for an any-typed rule."""
         cfg = _FakeConfig()
+        created = _now_iso()
         cfg.add_vod_watch_alert({
             "text": "Dune",
             "match_type": "any",
-            "created": _now_iso(),
+            "created": created,
             "alerted_ids": [],
         })
 
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
-        section.vodRuleViewMatchesRequested = MagicMock()
+        section.vodRuleShowMatchesRequested = MagicMock()
 
         section._on_vod_item_clicked(section._vod_list.item(0))
 
-        section.vodRuleViewMatchesRequested.emit.assert_called_once_with("Dune", "any")
+        section.vodRuleShowMatchesRequested.emit.assert_called_once_with(created)
 
     def test_remove_signal_carries_rule_created(self, qapp):
         """vodRuleRemoveRequested emitted via _rule_info_for_created lookup (tested indirectly).

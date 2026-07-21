@@ -146,3 +146,57 @@ class TestAlertsTitleHtml:
         html = _alerts_title_html("Alerts", 3)
         assert "Alerts (3)" in html
         assert _theme.COLOR_OK in html         # green dot + green title
+
+
+class TestShowMatchesHandler:
+    """MainWindow._on_vod_rule_show_matches routes to a rule's STORED alerted_ids."""
+
+    def _stub(self, cfg, **extra):
+        import types
+        from unittest.mock import MagicMock
+        base = dict(
+            config=cfg,
+            _details_id_filter=None,
+            _reset_context_filters=MagicMock(),
+            _resolve_vod_rule=MagicMock(return_value=("Odyssey", "movie")),
+            _context_filter_label=MagicMock(),
+            _context_filter_chip=MagicMock(),
+            search_input=MagicMock(),
+            _set_search_text_silently=MagicMock(),
+            switch_to_list_view=MagicMock(),
+            load_channels=MagicMock(),
+        )
+        base.update(extra)
+        return types.SimpleNamespace(**base)
+
+    def test_sets_id_filter_to_alerted_ids_and_loads(self, tmp_path, qapp):
+        from metatv.gui.main_window import MainWindow
+        cfg = _make_config(tmp_path)
+        cfg.add_vod_watch_alert({"text": "Odyssey", "match_type": "movie", "created": "r1"})
+        cfg.record_vod_alert_match("r1", "chA")
+        cfg.record_vod_alert_match("r1", "chB")
+
+        stub = self._stub(cfg)
+        MainWindow._on_vod_rule_show_matches(stub, "r1")
+
+        # The exact stored matched ids are handed to the load path — not a keyword.
+        assert stub._details_id_filter == set(cfg.get_vod_alert_matches("r1")) == {"chA", "chB"}
+        stub._reset_context_filters.assert_called_once()
+        stub.load_channels.assert_called_once()
+
+    def test_falls_back_to_keyword_when_no_stored_matches(self, tmp_path, qapp):
+        from unittest.mock import MagicMock
+        from metatv.gui.main_window import MainWindow
+        cfg = _make_config(tmp_path)
+        cfg.add_vod_watch_alert({"text": "Dune", "match_type": "movie", "created": "r1"})
+        # No matches recorded → keyword fallback, id-filter left unset.
+        stub = self._stub(
+            cfg,
+            _resolve_vod_rule=MagicMock(return_value=("Dune", "movie")),
+            _on_vod_rule_view_matches=MagicMock(),
+        )
+        MainWindow._on_vod_rule_show_matches(stub, "r1")
+
+        stub._on_vod_rule_view_matches.assert_called_once_with("Dune", "movie")
+        assert stub._details_id_filter is None
+        stub.load_channels.assert_not_called()

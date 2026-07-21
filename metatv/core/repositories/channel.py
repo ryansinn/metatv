@@ -139,6 +139,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 tag_excludes: Optional[Dict[str, Set[str]]] = None,
                 context_tag_filter: Optional[Tuple[str, str]] = None,
                 context_category_filter: Optional[str] = None,
+                channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
@@ -216,6 +217,7 @@ class ChannelRepository(_ChannelStatsMixin):
             tag_includes=tag_includes,
             context_tag_filter=context_tag_filter,
             context_category_filter=context_category_filter,
+            channel_ids=channel_ids,
             exclude_watched=exclude_watched,
         )
 
@@ -255,6 +257,7 @@ class ChannelRepository(_ChannelStatsMixin):
         tag_includes: Optional[Dict[str, Set[str]]] = None,
         context_tag_filter: Optional[Tuple[str, str]] = None,
         context_category_filter: Optional[str] = None,
+        channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
@@ -499,6 +502,13 @@ class ChannelRepository(_ChannelStatsMixin):
         # 'collection' residual facet.  The control layer resolves the category value.
         if context_category_filter:
             query = query.filter(ChannelDB.category == context_category_filter)
+
+        # ── Strict id-set filter (alert "show matches"): only these exact channels.
+        # The stored ``alerted_ids`` for a watch-for rule — the normal visibility /
+        # provider-scoping predicates above still apply, so an id on a hidden source
+        # falls out and reads as "hidden by filters" downstream.
+        if channel_ids is not None:
+            query = query.filter(ChannelDB.id.in_(list(channel_ids)))
 
         # ── Watched filter: exclude channels the user has marked complete ──────
         # OFF by default (show everything). When ON, hides watch_completed=True rows.

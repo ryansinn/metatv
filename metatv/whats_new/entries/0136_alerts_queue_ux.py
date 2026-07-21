@@ -17,6 +17,16 @@ ENTRY = WhatsNewEntry(
         "— acknowledging just that one rule.",
         "The Watch Queue footer shows only \"Clear Watched\"; the destructive "
         "\"Clear All\" moved into a compact ⋯ overflow menu.",
+        "Selected rows are readable again: lists with coloured text (new-match "
+        "green, the count, green channel rows) now use a soft translucent highlight "
+        "with a left accent bar instead of a solid blue fill that hid the text.",
+        "The Alerts header count is the number of alerts firing (e.g. \"Alerts "
+        "(2)\"), not the total matched-item count; the \"Watching for\" toggle also "
+        "shows \" · N new\", and the header tooltip spells out both numbers.",
+        "Clicking a \"Watching for\" rule now shows that alert's actual matched "
+        "titles (its stored matches) instead of a fresh keyword search — so a rule "
+        "that matched 17 titles shows 17, never a mismatched or empty result, with "
+        "the normal \"N filtered — click to show\" bar when filters hide some.",
     ),
     test_steps=(
         "Open the Alerts section with no new matches: the header dot is gray, the "
@@ -31,5 +41,15 @@ ENTRY = WhatsNewEntry(
         "header dot returns to gray.",
         "Open the Watch Queue footer: only \"Clear Watched\" is visible next to a "
         "⋯ button; clicking ⋯ opens a menu whose single \"Clear All\" empties the queue.",
+        "Select a green new-match row in the channel list (and a \"Watching for\" "
+        "row): the selection is an obvious soft tint with a left accent bar and the "
+        "coloured text stays readable — not a saturated blue block that hides it.",
+        "With 2 of 3 rules having new matches, the Alerts header reads \"Alerts "
+        "(2)\" (not the item total), the toggle reads \"Watching for (3) · 2 new\", "
+        "and hovering the header shows \"2 alerts have new matches (N new items)\".",
+        "Click a \"Watching for\" rule that matched several titles: the channel "
+        "list shows exactly those matched titles (\"Showing K of M\"); if active "
+        "filters exclude some, the gold \"N filtered — click to show\" bar appears; "
+        "typing in search or changing a filter clears the alert view.",
     ),
 )

@@ -220,6 +220,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._details_tag_filter: tuple[str, str] | None = None
         # Collection-chip context filter: the curated provider category (ChannelDB.category).
         self._details_category_filter: str | None = None
+        # Alert "show matches" id-filter: the stored matched channel ids of a watch-for
+        # rule.  Ephemeral (cleared on any normal search/filter change), not persisted.
+        self._details_id_filter: set[str] | None = None
 
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
@@ -670,6 +673,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.manageWatchForClicked.connect(self._open_vod_alerts_dialog)
             section.vodAlertClicked.connect(self.show_channel_details_by_id)
             section.vodRuleViewMatchesRequested.connect(self._on_vod_rule_view_matches)
+            section.vodRuleShowMatchesRequested.connect(self._on_vod_rule_show_matches)
             section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
             section.clearAllAlertsClicked.connect(self._clear_all_alerts)
             section.vodRuleClearAlertRequested.connect(self._clear_vod_rule_alert)
@@ -875,9 +879,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     def _on_queue_new_matches_clicked(self) -> None:
         """Open the new matched content from the Watch Queue's pinned green line.
 
-        Reuses the watch-for "View matches" nav (``_on_vod_rule_view_matches``) for
-        the rule with the most unviewed matches, so the results list opens with the
-        new items flagged 🚨/green.  No-op if nothing is unviewed.
+        Shows the STORED matched ids (via ``_on_vod_rule_show_matches``) for the rule
+        with the most unviewed matches, so the results list opens with the new items
+        flagged 🚨/green.  No-op if nothing is unviewed.
         """
         best_rule = None
         best_count = 0
@@ -887,9 +891,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 best_count = n
                 best_rule = rule
         if best_rule is not None:
-            self._on_vod_rule_view_matches(
-                best_rule.get("text", ""), best_rule.get("match_type", "any")
-            )
+            self._on_vod_rule_show_matches(best_rule.get("created", ""))
 
     def _on_add_watch_for(self) -> None:
         """Open the 'Watch for…' dialog; add rule to config + run a check on confirm."""
@@ -926,6 +928,44 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self._set_search_text_silently(text)
 
         self._save_search_state()
+        self.switch_to_list_view()
+        self.load_channels()
+
+    def _resolve_vod_rule(self, rule_created: str) -> tuple[str, str]:
+        """Return ``(text, match_type)`` for a watch-for rule id, or ``('', 'any')``."""
+        for r in self.config.get_vod_watch_alerts():
+            if r.get("created") == rule_created:
+                return r.get("text", ""), r.get("match_type", "any")
+        return "", "any"
+
+    def _on_vod_rule_show_matches(self, rule_created: str) -> None:
+        """Show a watch-for rule's STORED matched channels (not a fresh keyword search).
+
+        A keyword search is lossy — it returns a different set (or zero) than the
+        matches the alert actually recorded.  The rule already stores the exact
+        matched channel ids in ``alerted_ids``; show those via a strict "only these
+        ids" filter so any active filters that exclude some surface the normal
+        hidden-by-filters gold bar.  Falls back to the keyword path only when a rule
+        has no stored matches (e.g. a legacy rule).
+        """
+        ids = self.config.get_vod_alert_matches(rule_created)
+        if not ids:
+            text, match_type = self._resolve_vod_rule(rule_created)
+            if text:
+                self._on_vod_rule_view_matches(text, match_type)
+            return
+        # Replace any active context chip with the strict id-set.
+        self._reset_context_filters()
+        self._details_id_filter = set(ids)
+        text, _mt = self._resolve_vod_rule(rule_created)
+        if hasattr(self, "_context_filter_label"):
+            self._context_filter_label.setText(f"Alert: {text or 'matches'} ({len(ids)})")
+        if hasattr(self, "_context_filter_chip"):
+            self._context_filter_chip.show()
+        # Clear any search text so the stored id-set isn't narrowed by a stale keyword
+        # (silent → does not re-clear the id-filter we just set).
+        if hasattr(self, "search_input"):
+            self._set_search_text_silently("")
         self.switch_to_list_view()
         self.load_channels()
 

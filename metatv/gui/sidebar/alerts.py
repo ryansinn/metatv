@@ -168,7 +168,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
     manageWatchForClicked = pyqtSignal()     # "Manage…" link → open manage dialog
     vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
-    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → search in list
+    vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → keyword search (dialog fallback)
+    vodRuleShowMatchesRequested = pyqtSignal(str)  # rule_created → show the rule's STORED matched ids
     vodRuleRemoveRequested = pyqtSignal(str)  # rule_created → remove rule + refresh
     vodRuleClearAlertRequested = pyqtSignal(str)  # rule_created → ack just this rule's matches
     clearAllAlertsClicked = pyqtSignal()     # header "Clear all" → ack every new match
@@ -451,11 +452,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             return  # header not built (e.g. __new__ test stub) — nothing to update
 
     def _on_vod_item_clicked(self, item: "QListWidgetItem") -> None:
-        """Single-click on a rule row → populate the main list with matching content."""
+        """Single-click on a rule row → show that rule's STORED matched channels.
+
+        Carries the rule id (not a keyword) so the host shows the exact stored
+        ``alerted_ids`` — a fresh keyword search is lossy.
+        """
         rule_created = item.data(Qt.ItemDataRole.UserRole)
-        rule_text, match_type = self._rule_info_for_created(rule_created)
-        if rule_text:
-            self.vodRuleViewMatchesRequested.emit(rule_text, match_type)
+        if rule_created:
+            self.vodRuleShowMatchesRequested.emit(rule_created)
 
     def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
         """Double-clicking a rule row opens the manage dialog."""
@@ -468,7 +472,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not item:
             return
         rule_created = item.data(Qt.ItemDataRole.UserRole)
-        rule_text, match_type = self._rule_info_for_created(rule_created)
         unviewed = getattr(
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
         )(rule_created)
@@ -483,12 +486,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                 lambda _=False, rc=rule_created: self.vodRuleClearAlertRequested.emit(rc)
             )
             menu.addSeparator()
-        if rule_text:
+        if rule_created:
             view_action = menu.addAction(f"{_icons.search_icon}  View matches")
-            view_action.setToolTip(f"Show all content matching '{rule_text}' in the main list")
+            view_action.setToolTip("Show this alert's matched content in the main list")
             view_action.triggered.connect(
-                lambda _=False, t=rule_text, mt=match_type:
-                    self.vodRuleViewMatchesRequested.emit(t, mt)
+                lambda _=False, rc=rule_created: self.vodRuleShowMatchesRequested.emit(rc)
             )
             menu.addSeparator()
 
