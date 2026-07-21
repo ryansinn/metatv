@@ -459,7 +459,12 @@ class _SeriesMixin:
         item_type = data.get("type") if isinstance(data, dict) else None
 
         if item_type == "episode":
-            self.details_pane.show_episode(data["data"], series)
+            # Pass the CLEANED title (same as the tree row shows) so the byline never
+            # reads the raw "Series - SxxExx -" form next to a clean tree row.
+            episode = data["data"]
+            self.details_pane.show_episode(
+                episode, series, self._episode_display_title(episode)
+            )
             return
 
         # Season, header/gap, or anything else → show the series root details, but

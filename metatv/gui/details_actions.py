@@ -83,6 +83,10 @@ class _ActionBar(QWidget):
         # episode selected in the series tree).  set_primary_mode() owns the label so
         # the playing indicator can never clobber a Browse / Play-Episode caption.
         self._primary_mode: str = "play"
+        # Episode coordinate (e.g. "S04E05") shown in the "Play Episode: …" caption —
+        # set by enter_episode_mode(), cleared by exit_episode_mode() so a later
+        # Browse / Play caption never carries a stale code.
+        self._episode_code: str = ""
         # "Currently playing" indicator state (green outline + live elapsed timer on
         # the Play button while the shown title is the one actively playing).
         self._is_playing: bool = False
@@ -258,19 +262,32 @@ class _ActionBar(QWidget):
             self.play_button.setText(f"{_icons.browse_icon} Browse")
             self.play_button.setToolTip("Browse seasons & episodes")
         elif self._primary_mode == "episode":
-            self.play_button.setText(f"{_icons.play_icon} Play Episode")
-            self.play_button.setToolTip("Play this episode")
+            code = self._episode_code
+            self.play_button.setText(
+                f"{_icons.play_icon} Play Episode: {code}" if code
+                else f"{_icons.play_icon} Play Episode"
+            )
+            self.play_button.setToolTip(
+                f"Play this episode ({code})" if code else "Play this episode"
+            )
         else:
             self.play_button.setText(f"{self.config.play_icon} Play")
             self.play_button.setToolTip("Play from the beginning")
 
-    def enter_episode_mode(self) -> None:
+    def enter_episode_mode(self, episode_code: str = "") -> None:
         """Configure the action bar for an episode selected in the series tree.
 
-        The primary button becomes ``▶ Play Episode``; the movie-only affordances
+        The primary button becomes ``▶ Play Episode: S##E##`` (or plain
+        ``▶ Play Episode`` when no coordinate is known); the movie-only affordances
         (Resume, Watch Later) are hidden because they don't apply to a single
         episode.  ``exit_episode_mode`` (called from show_channel) restores them.
+
+        Args:
+            episode_code: The episode coordinate to show in the caption, e.g.
+                ``"S04E05"`` (or ``"E05"`` when the season is unknown).  Empty
+                string → the plain ``Play Episode`` caption.
         """
+        self._episode_code = episode_code
         self.set_primary_mode("episode")
         self.resume_button.hide()
         self.queue_button.hide()
@@ -278,9 +295,12 @@ class _ActionBar(QWidget):
     def exit_episode_mode(self) -> None:
         """Undo :meth:`enter_episode_mode`'s button-hiding (label handled by caller).
 
-        Restores the Watch Later button; Resume visibility is re-derived by the
-        subsequent ``set_resume`` call in ``show_channel``.
+        Restores the Watch Later button and clears the stored episode code so a
+        later Browse / Play caption never carries a stale coordinate; Resume
+        visibility is re-derived by the subsequent ``set_resume`` call in
+        ``show_channel``.
         """
+        self._episode_code = ""
         self.queue_button.setVisible(True)
 
     # ------------------------------------------------------------------ #

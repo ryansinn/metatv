@@ -129,25 +129,47 @@ def test_playing_indicator_does_not_override_browse(qapp):
 # 2. show_episode
 # ---------------------------------------------------------------------------
 
-def test_show_episode_sets_byline_and_play_episode_button(qapp):
-    """show_episode shows the episode title in the byline + a 'Play Episode' button,
+def test_show_episode_uses_clean_display_title_and_play_episode_button(qapp):
+    """show_episode shows the CLEANED episode title (the display_title the tree row
+    shows, not the raw DTO title) in the byline + a 'Play Episode: S##E##' button,
     stores the DTO, and leaves the series title untouched."""
     pane = _make_details_pane(qapp)
     series = _fake_channel("series", name="Cowboy Bebop")
     pane.show_channel(series)
 
-    ep = _episode("Asteroid Blues")
-    pane.show_episode(ep, series)
+    # Raw DTO title carries the ugly "Series - SxxExx -" prefix; the tree cleans it.
+    ep = _episode("Cowboy Bebop - S01E01 - Asteroid Blues")
+    pane.show_episode(ep, series, "Asteroid Blues")
 
-    assert pane._byline.text() == "Asteroid Blues", "byline must carry the episode title"
+    assert pane._byline.text() == "Asteroid Blues", (
+        "byline must use the passed CLEAN display_title, not the raw DTO title"
+    )
     assert not pane._byline.isHidden(), "byline must be visible in episode mode"
     assert pane._meta.title_label.text() == "Cowboy Bebop", (
         "the series title must NOT be overwritten by the episode title"
     )
-    assert pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode"
+    assert pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode: S01E01"
     assert "this episode" in pane._action_bar.play_button.toolTip().lower()
     assert pane.current_episode is ep, "the episode DTO must be stored on the pane"
     assert pane._in_episode_mode is True
+
+
+def test_play_episode_button_shows_episode_code(qapp):
+    """The primary caption carries the S##E## coordinate; plain 'Play Episode' when
+    the DTO has no season/episode numbers."""
+    pane = _make_details_pane(qapp)
+    series = _fake_channel("series")
+
+    pane.show_episode(_episode("Jupiter Jazz Part 1", season_num=4, episode_num=5), series)
+    assert (
+        pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode: S04E05"
+    ), f"caption must carry the coordinate; got {pane._action_bar.play_button.text()!r}"
+
+    # No numbers → plain caption, no trailing code.
+    pane.show_episode(_episode("Bonus", season_num=0, episode_num=0), series)
+    assert pane._action_bar.play_button.text() == f"{_icons.play_icon} Play Episode", (
+        "with no season/episode numbers the caption must be the plain 'Play Episode'"
+    )
 
 
 def test_show_episode_establishes_series_context_when_pane_empty(qapp):
@@ -220,6 +242,9 @@ def test_reverting_to_series_clears_episode_mode(qapp):
     assert pane.current_episode is None
     assert pane._byline.isHidden(), "byline must hide when reverting to series details"
     assert pane._action_bar.play_button.text() == f"{_icons.browse_icon} Browse"
+    assert pane._action_bar._episode_code == "", (
+        "reverting must clear the stored episode code so a later caption is not stale"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +259,12 @@ def test_host_tree_selection_routes_episode_and_season(qapp):
     host = _SeriesMixin.__new__(_SeriesMixin)
     series = SimpleNamespace(id="series-1", name="Show")
     host.current_series = series
+    # The handler passes the CLEANED title through _episode_display_title.
+    host._episode_display_title = lambda ep: f"clean::{ep.title}"
 
     recorded: list = []
     host.details_pane = SimpleNamespace(
-        show_episode=lambda ep, s: recorded.append(("episode", ep, s)),
+        show_episode=lambda ep, s, dt: recorded.append(("episode", ep, s, dt)),
         show_channel=lambda s: recorded.append(("channel", s)),
         current_episode=object(),   # "drifted" so a season click reverts
         current_channel=None,
@@ -247,7 +274,9 @@ def test_host_tree_selection_routes_episode_and_season(qapp):
     ep_item = MagicMock()
     ep_item.data.return_value = {"type": "episode", "data": ep}
     host._on_series_tree_selection(ep_item)
-    assert recorded[-1] == ("episode", ep, series)
+    assert recorded[-1] == ("episode", ep, series, "clean::Sympathy for the Devil"), (
+        "episode selection must forward the cleaned display title"
+    )
 
     season_item = MagicMock()
     season_item.data.return_value = {"type": "season", "data": SimpleNamespace()}

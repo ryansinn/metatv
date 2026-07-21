@@ -250,16 +250,16 @@ class DetailsPaneWidget(QWidget):
         if not is_live and getattr(channel, "detected_prefix", None):
             self.similar_titles_requested.emit(channel.id)
 
-    def show_episode(self, episode, series_channel) -> None:
+    def show_episode(self, episode, series_channel, display_title=None) -> None:
         """Display a single episode, reusing the parent series' details as fallback.
 
         The SERIES stays the pane's ``current_channel`` — its title, rail actions,
         versions and tags remain the series'.  Only the episode-specific surface
         changes: a wrapping byline carrying the episode title, the episode plot (or
         the series plot when the DTO has none), the episode image (or the series
-        poster when the DTO has none), and a ``▶ Play Episode`` primary button.  No
-        heavy metadata is fetched synchronously — whatever the series is already
-        showing is the fallback.
+        poster when the DTO has none), and a ``▶ Play Episode: S##E##`` primary
+        button.  No heavy metadata is fetched synchronously — whatever the series is
+        already showing is the fallback.
 
         Clicking Play Episode fires the bare ``play_episode_requested`` signal; the
         host reads :attr:`current_episode`.  Selecting a season / the series root
@@ -268,6 +268,9 @@ class DetailsPaneWidget(QWidget):
         Args:
             episode: The :class:`~metatv.core.repositories.dtos.EpisodeDTO` to show.
             series_channel: The parent series channel (the mixin's ``current_series``).
+            display_title: The CLEANED episode title (what the series tree shows —
+                ``series - SxxExx -`` prefixes stripped).  When ``None`` the byline
+                falls back to the DTO's raw ``title`` (then ``Episode <n>``).
         """
         if series_channel is None or episode is None:
             return
@@ -283,9 +286,12 @@ class DetailsPaneWidget(QWidget):
         self.current_episode = episode
         self._in_episode_mode = True
 
-        # Byline — the episode title (never overwrite the series title above it).
+        # Byline — the cleaned episode title (matches the tree row); fall back to the
+        # DTO's raw title when the host didn't pass one.  Never overwrite the series
+        # title above it.
         ep_title = (
-            getattr(episode, "title", None)
+            display_title
+            or getattr(episode, "title", None)
             or f"Episode {getattr(episode, 'episode_num', '?')}"
         )
         self._byline.setText(ep_title)
@@ -306,8 +312,13 @@ class DetailsPaneWidget(QWidget):
         if ep_image:
             self._poster.load_poster(ep_image, self.provider_urls)
 
-        # Primary button → "Play Episode"; hide movie-only Resume + Watch Later.
-        self._action_bar.enter_episode_mode()
+        # Episode coordinate for the button caption — derived defensively from the DTO.
+        s = getattr(episode, "season_num", None)
+        e = getattr(episode, "episode_num", None)
+        code = f"S{s:02d}E{e:02d}" if (s and e) else (f"E{e:02d}" if e else "")
+
+        # Primary button → "Play Episode: S##E##"; hide movie-only Resume + Watch Later.
+        self._action_bar.enter_episode_mode(code)
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #
