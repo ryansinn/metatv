@@ -44,7 +44,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     # "English" = all English content (backward-compatible aggregate).
     # Sub-groups allow narrowing to a specific English-speaking region.
     "English":            ["EN", "UK", "US", "AU", "CA", "NZ", "IE", "GB", "ENG", "ENGLISH",
-                           "ZA", "ZM", "ZW", "NG", "AUS", "NA", "BS"],
+                           "ZA", "ZM", "ZW", "NG", "AUS", "NA"],  # BS = Serbian/Croatian (Bosnia), not English — moved out
     "English (North America)":  ["US", "CA"],           # US + Canada only
     "English (UK / Ireland)":   ["UK", "IE", "GB"],     # British & Irish
     "English (Oceania)":        ["AU", "AUS", "NZ"],    # Australian / NZ
@@ -65,7 +65,8 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Greek":            ["GR", "CY"],
     "Hebrew":           ["IL", "ISR", "IS"],  # IS = Israeli provider prefix (YES ONE, YES 12 etc.)
     "Hungarian":        ["HU"],
-    "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
+    "Indian":           ["IN", "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU",
+                         # NB: Punjabi = "PB" (below).  "PA" is Panama (Spanish) — NOT Punjabi.
                          "OR", "BHO",                        # Odia, Bhojpuri (normalized codes)
                          "YP",                               # YP confirmed Indian news channels (AAJTAK, Republic Bharat, India TV)
                          # Full language names & alternate abbreviations confirmed from channel data:
@@ -113,7 +114,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
     "Slovak":           ["SK"],
     # ── Spanish locale sub-groups ─────────────────────────────────────────────
     # "Spanish" = all Spanish-speaking regions (aggregate).
-    "Spanish":          ["ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY",
+    "Spanish":          ["ES", "MX", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY",  # AR = Arabic (Argentina is ARG); PA = Panama (kept — Spanish)
                          "ARG", "COL", "VEN", "URY", "DOM",
                          "LAT", "LATIN", "MXC",
                          "URUGUAY", "COLOMBIA", "CHILE", "CHL",
@@ -124,7 +125,7 @@ BASE_PREFIX_GROUPS: dict[str, list[str]] = {
                          "VIX"],   # TelevisaUnivision streaming — Spanish-language Mexican/Latin content
     "Spanish (Spain)":  ["ES", "ESP"],                                  # Spain
     "Spanish (Mexico)": ["MX", "MEX", "MXC", "VIX"],                  # Mexico — VIX is Televisa/TelevisaUnivision
-    "Spanish (South America)": ["AR", "ARG", "BO", "CL", "CHL", "CO", "COL",
+    "Spanish (South America)": ["ARG", "BO", "CL", "CHL", "CO", "COL",  # AR = Arabic — use ARG for Argentina
                                  "EC", "PE", "PY", "PAR", "UY", "URY", "VE", "VEN",
                                  "ARGENTINA", "COLOMBIA", "CHILE", "URUGUAY", "VENEZUELA", "VZ"],
     "Spanish (Central America)": ["GT", "GTM", "SV", "HN", "HND", "NI", "CR", "PA",
@@ -242,10 +243,10 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
         "HN", "HND",    # Honduras
         "NI",           # Nicaragua
         "CR",           # Costa Rica
-        "PA",           # Panama (2-letter also = Punjabi, but geographic context wins here)
+        "PA",           # Panama (Spanish) — Punjabi is now "PB"
     ],
     "South America": [
-        "AR", "ARG",    # Argentina
+        "ARG",          # Argentina (AR = Arabic, not Argentina)
         "BO",           # Bolivia
         "BR", "BRA",    # Brazil
         "CL", "CHL",    # Chile
@@ -261,7 +262,7 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
     "Latin America": [
         # Aggregate: South America + Central America + Caribbean (excl. Brazil for language purity)
         # Use this when you want all Spanish/Portuguese-speaking Americas at once.
-        "AR", "ARG", "BO", "BR", "BRA", "CL", "CHL", "CO", "COL",
+        "ARG", "BO", "BR", "BRA", "CL", "CHL", "CO", "COL",   # AR = Arabic — use ARG for Argentina
         "EC", "ECU", "PY", "PAR", "PE", "UY", "URY", "VE", "VEN",
         "MX", "MEX", "GT", "GTM", "SV", "HN", "HND", "NI", "CR",
         "PA",   # Panama
@@ -436,7 +437,7 @@ BASE_REGIONAL_GROUPS: dict[str, list[str]] = {
         "MV",           # Maldives
         "AF", "AFG",    # Afghanistan
         # Indian language codes (South Asia lingua franca group):
-        "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PA",
+        "HI", "TA", "TE", "ML", "KN", "BN", "MR", "GU", "PB",   # PB = Punjabi (PA = Panama, not South Asia)
         "OR", "BHO", "IND",
         # Abbreviated forms:
         "TEL", "TAM", "KAN", "MAL", "GUJ", "PUN",

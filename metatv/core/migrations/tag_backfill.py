@@ -102,7 +102,16 @@ def _set_backfill_active(active: bool) -> None:
 #       CONTENT_DESCRIPTOR_GROUPS and BASE_PLATFORM_GROUPS).  Existing
 #       source="generated" tags with value "Sport" (singular) must be
 #       regenerated as "Sports" to eliminate the split facet.
-CURRENT_TAG_BACKFILL_VERSION = 5
+#   6 — code-interpretation alignment (#138): AR removed from Spanish/South-
+#       America/Latin-America groups (AR = Arabic, not Argentina); BS removed
+#       from English (BS = Serbian/Croatian); "PA" removed from the Indian
+#       language group (PA = Panama/Spanish) while Punjabi moved to "PB".
+#       Existing generated tags misclassified Panama channels as language:Indian
+#       and Punjabi channels under "PA"; a full re-tag re-derives the correct
+#       language/region facets.  Runs AFTER prefix_rescan (v3) so detected_prefix
+#       already reflects the PUNJABI→PB alias.  Deletes only source="generated"
+#       tags per channel — user-curated tags are untouched.
+CURRENT_TAG_BACKFILL_VERSION = 6
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for

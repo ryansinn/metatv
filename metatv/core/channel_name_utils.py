@@ -859,7 +859,7 @@ _ALIAS_MAP: dict[str, str] = {
     "KANNADA": "KN",
     "MALAYALAM": "ML",
     "GUJARATI": "GU",
-    "PUNJABI": "PA",
+    "PUNJABI": "PB",   # PB (not PA): PA is Panama (Spanish); Punjabi must not collapse onto it
     "MARATHI": "MR",
     "BENGALI": "BN", "BANGALI": "BN",       # BANGALI = common provider variant
     "ODIA": "OR",
@@ -884,7 +884,9 @@ REGION_FULL_NAMES: dict[str, str] = {
     "CZ": "Czech Republic", "GR": "Greece", "TR": "Turkey", "RU": "Russia",
     "UA": "Ukraine", "BR": "Brazil", "MX": "Mexico", "CA": "Canada",
     "AU": "Australia", "NZ": "New Zealand", "JP": "Japan", "KR": "South Korea",
-    "CN": "China", "IN": "India", "AR": "Argentina", "CL": "Chile",
+    # NB: no "AR" entry — AR is the Arabic language code (see CODE_FACETS), NOT Argentina.
+    # Argentina is "ARG" (below).  Displaying AR as "Argentina" was the mislabel bug (#138).
+    "CN": "China", "IN": "India", "CL": "Chile",
     "CO": "Colombia", "PE": "Peru", "VE": "Venezuela", "IR": "Iran",
     "SA": "Saudi Arabia", "AE": "UAE", "EG": "Egypt", "MA": "Morocco",
     "IL": "Israel", "ZA": "South Africa", "ZW": "Zimbabwe", "KE": "Kenya",
@@ -925,7 +927,7 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Language codes (used as channel prefixes on some providers)
     "EN": "English", "HI": "Hindi", "TA": "Tamil", "TE": "Telugu",
     "ML": "Malayalam", "KN": "Kannada", "BN": "Bengali", "MR": "Marathi",
-    "GU": "Gujarati", "PA": "Punjabi", "FA": "Farsi / Persian", "KU": "Kurdish",
+    "GU": "Gujarati", "PB": "Punjabi", "PA": "Panama", "FA": "Farsi / Persian", "KU": "Kurdish",
     "OR": "Odia", "BHO": "Bhojpuri",
     # Regional streaming platforms
     "ASTRO": "Astro (Malaysia)",
