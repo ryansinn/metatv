@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def _make_config(tmp_path: Path):
     """Real Config backed by an isolated on-disk config dir."""
@@ -60,6 +62,53 @@ class TestMarkVodRuleViewed:
     def test_unknown_rule_returns_zero(self, tmp_path):
         cfg = _make_config(tmp_path)
         assert cfg.mark_vod_rule_viewed("does-not-exist") == 0
+
+
+class TestRulesWithNewMatchesCount:
+    """Config.get_rules_with_new_matches_count — the header 'firing alerts' glance."""
+
+    def test_counts_rules_not_items(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        for rid in ("r1", "r2", "r3"):
+            cfg.add_vod_watch_alert({"text": rid, "match_type": "movie", "created": rid})
+        # r1 fires with 2 items, r2 fires with 1, r3 has none.
+        cfg.record_vod_alert_match("r1", "a")
+        cfg.record_vod_alert_match("r1", "b")
+        cfg.record_vod_alert_match("r2", "c")
+        # 2 rules firing even though there are 3 matched items total.
+        assert cfg.get_rules_with_new_matches_count() == 2
+        assert cfg.get_unviewed_vod_match_count() == 3
+
+    def test_zero_when_none_firing(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        cfg.add_vod_watch_alert({"text": "r1", "match_type": "movie", "created": "r1"})
+        cfg.record_vod_alert_match("r1", "a")
+        cfg.mark_vod_rule_viewed("r1")  # acknowledged → no longer firing
+        assert cfg.get_rules_with_new_matches_count() == 0
+
+
+class TestHeaderShowsRuleCount:
+    """The Alerts header label reflects the firing-rule count, not item totals."""
+
+    def test_header_label_shows_rule_count(self, qapp):
+        from PyQt6.QtWidgets import QLabel, QPushButton
+        from metatv.gui.sidebar.alerts import WatchAlertsSection
+        section = WatchAlertsSection.__new__(WatchAlertsSection)
+        section.title = "Alerts"
+        section.title_label = QLabel()
+        section._clear_all_btn = QPushButton()
+        # 2 firing alerts, 73 matched items → header shows "(2)", tooltip clarifies both.
+        section.update_new_match_badge(2, 73)
+        assert "Alerts (2)" in section.title_label.text()
+        assert "73" not in section.title_label.text()  # item total never in the header
+        assert "73" in section.title_label.toolTip()
+        assert "2 alerts" in section.title_label.toolTip()
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    from PyQt6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
 
 
 class TestVodCountLabel:

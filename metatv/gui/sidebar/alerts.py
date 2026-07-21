@@ -340,6 +340,11 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def _update_vod_toggle_label(self, count: int) -> None:
         arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
         label = f"Watching for  ({count})" if count else "Watching for"
+        # Surface firing alerts on the toggle itself (plain text — the header dot
+        # carries the colour): "Watching for (3)  ·  2 new".
+        firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+        if firing > 0:
+            label += f"  ·  {firing} new"
         self._vod_toggle.setText(f"{arrow}  {label}")
 
     def _toggle_vod_watching(self) -> None:
@@ -361,10 +366,12 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
         self._vod_list.clear()
 
-        # Global new-match glance badge (read of config; safe-guarded for stubs).
-        self.update_new_match_badge(
-            getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
-        )
+        # Header glance = number of ALERTS (rules) currently firing, NOT the total
+        # matched-item count — a rule with many new items is still ONE firing alert.
+        # The item count feeds only the tooltip (safe-guarded for __new__ stubs).
+        _rules_firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+        _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
+        self.update_new_match_badge(_rules_firing, _new_items)
 
         if not rules:
             self._vod_hdr_container.hide()
@@ -415,19 +422,30 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not self._vod_collapsed:
             self._vod_list.show()
 
-    def update_new_match_badge(self, count: int) -> None:
+    def update_new_match_badge(self, count: int, item_count: int | None = None) -> None:
         """Recompute the Alerts header dot/title/count + Clear-all visibility.
 
-        The header is one state-driven label now (no separate badge): gray dot +
-        plain title when quiet, green dot + green "Alerts (N)" when there are new
-        matches.  The "Clear all" link shows only while N > 0.  Signature is
-        unchanged so external callers keep working.
+        The header is one state-driven label: gray dot + plain title when quiet,
+        green dot + green "Alerts (N)" when alerts are firing.  N is the number of
+        RULES with new matches (a firing-alerts glance), not the total matched-item
+        count.  The "Clear all" link shows only while N > 0.
 
         Args:
-            count: Number of unviewed watch-for matches across all rules.
+            count: Number of watch-for RULES currently firing (header glance).
+            item_count: Total unviewed matched items — shown only in the tooltip to
+                clarify both numbers.  Defaults to ``count`` when omitted.
         """
         try:
             self.title_label.setText(_alerts_title_html(self.title, count))
+            if count > 0:
+                items = count if item_count is None else item_count
+                verb = "have" if count != 1 else "has"
+                self.title_label.setToolTip(
+                    f"{count} alert{'s' if count != 1 else ''} {verb} new matches "
+                    f"({items} new item{'s' if items != 1 else ''})"
+                )
+            else:
+                self.title_label.setToolTip("")
             self._clear_all_btn.setVisible(count > 0)
         except (AttributeError, RuntimeError):
             return  # header not built (e.g. __new__ test stub) — nothing to update

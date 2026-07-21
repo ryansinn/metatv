@@ -1105,6 +1105,18 @@ class Config(BaseModel):
         """True when *channel_id* is a matched-but-not-yet-viewed alert channel."""
         return channel_id in self.get_unviewed_vod_match_ids()
 
+    def get_rules_with_new_matches_count(self) -> int:
+        """Number of watch-for RULES that currently have >=1 unviewed match.
+
+        Distinct from :meth:`get_unviewed_vod_match_count` (which counts matched
+        *items*): this counts firing *alerts* for the header glance, so a single
+        rule with 73 new items still reads as one firing alert.
+        """
+        return sum(
+            1 for r in self.vod_watch_alerts
+            if self.get_vod_rule_unviewed_count(r.get("created", "")) > 0
+        )
+
     def get_vod_rule_unviewed_count(self, rule_created: str) -> int:
         """Number of unviewed matches for a single rule (sidebar per-rule badge)."""
         for r in self.vod_watch_alerts:
