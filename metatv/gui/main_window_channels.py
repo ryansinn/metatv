@@ -71,6 +71,7 @@ class _ChannelListMixin:
         if getattr(self, "_details_id_filter", None) is None:
             return False
         self._details_id_filter = None
+        self._id_filter_show_all = False  # never leak the reveal into normal browsing
         if hasattr(self, "_context_filter_chip"):
             self._context_filter_chip.hide()
         return True
@@ -323,6 +324,9 @@ class _ChannelListMixin:
             context_category_filter=self._details_category_filter,
             # Alert "show matches": strict set of stored matched channel ids (ephemeral).
             context_id_filter=self._details_id_filter,
+            # Gold-bar "reveal all matches": return the FULL matched set, relaxing the
+            # visibility filters (provider-scoping/media-type/exclusions/hide-watched).
+            id_filter_show_all=self._id_filter_show_all,
             page_size=self._search_page_size,
             show_provider_icon=show_provider_icon,
             provider_icon_map=provider_icon_map,
@@ -359,12 +363,30 @@ class _ChannelListMixin:
         # Canonical provider scoping: hide inactive + expired sources (see
         # ProviderRepository.get_hidden_provider_ids — single source of truth).
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
+        # Alert "reveal all matches": a curated matched set is a record/engaged view
+        # (DR-0007 exempts it from active-source scoping), so when the user clicks the
+        # gold bar we return the ENTIRE stored id-set with the visibility filters that
+        # were hiding matches RELAXED — provider-scoping, media-type, adult, hidden,
+        # hide-watched, tag-includes, and the Python-side exclusions below.
+        _id_filter = params.get('context_id_filter')
+        id_filter_show_all = bool(_id_filter) and bool(params.get('id_filter_show_all'))
         if hidden_only:
             channels = repos.channels.get_hidden_channels(
                 excluded_user_categories=params.get('excluded_user_categories'),
                 search_query=params.get('search_query'),
                 provider_id=params['provider_id'],
                 excluded_provider_ids=providers_to_exclude or None,
+            )
+        elif id_filter_show_all:
+            channels = repos.channels.get_all(
+                channel_ids=_id_filter,
+                media_types=None,
+                adult_mode='all',
+                include_hidden=True,
+                exclude_watched=False,
+                tag_includes=None,
+                excluded_provider_ids=None,
+                limit=_page_size,
             )
         else:
             channels = repos.channels.get_all(
@@ -404,15 +426,17 @@ class _ChannelListMixin:
         has_adult = bool(force_adult_ids) or repos.session.query(ChannelDB).filter(
             ChannelDB.is_adult == True
         ).limit(1).count() > 0
-        if not hidden_only:
-            excluded_prefixes = params.get('excluded_prefixes', set())
+        # Always defined (used by the tier-1 filtered-out recount below); the
+        # show-all reveal skips APPLYING them so hidden matches aren't re-excluded.
+        excluded_prefixes = params.get('excluded_prefixes', set())
+        excluded_user_cats = params.get('excluded_user_categories', set())
+        if not hidden_only and not id_filter_show_all:
             if excluded_prefixes:
                 channels = [
                     c for c in channels
                     if c.detected_prefix not in excluded_prefixes
                     and c.detected_region not in excluded_prefixes
                 ]
-            excluded_user_cats = params.get('excluded_user_categories', set())
             if excluded_user_cats:
                 channels = [
                     c for c in channels
@@ -771,11 +795,24 @@ class _ChannelListMixin:
             QTimer.singleShot(500, self.discover_view.reload)
 
     def _show_filtered_results(self) -> None:
-        """Temporarily bypass Tier 1 filters to show what's being hidden.
+        """Reveal what the filters are hiding — clicked on the gold "N filtered" bar.
 
-        Called when the user clicks the "N results filtered" button in the zero-results
-        state. Filters are not changed — next search or filter change restores normal view.
+        Two modes:
+        - Alert "show matches" (id-filter active): reveal the ENTIRE stored matched
+          set with the visibility filters relaxed.  The matches are held back by
+          provider-scoping / media-type / exclusions / hide-watched — none of which
+          the tier-1 bypass touches — and a curated matched set is a record/engaged
+          view (DR-0007 exempts it from active-source scoping), so showing all of it
+          on demand is correct.
+        - Otherwise: the original behaviour — temporarily bypass the Tier 1 tag
+          filters to show what they hide.
+
+        Filters are not changed — the next search or filter change restores the view.
         """
+        if getattr(self, "_details_id_filter", None) is not None:
+            self._id_filter_show_all = True
+            self.load_channels()
+            return
         self._bypass_tier1_filters = True
         self.load_channels()
 
@@ -1197,6 +1234,8 @@ class _ChannelListMixin:
         hidden_only = query_params.get('hidden_only', False)
         force_adult_ids = query_params.get('force_adult_ids', [])
         providers_to_exclude = repos.providers.get_hidden_provider_ids()
+        _id_filter = query_params.get('context_id_filter')
+        id_filter_show_all = bool(_id_filter) and bool(query_params.get('id_filter_show_all'))
 
         if hidden_only:
             # get_hidden_channels does not support offset/limit — use get_all
@@ -1208,6 +1247,20 @@ class _ChannelListMixin:
                 search_query=query_params.get('search_query'),
                 excluded_provider_ids=providers_to_exclude or None,
                 adult_mode='all',
+                limit=page_size,
+                offset=offset,
+            )
+        elif id_filter_show_all:
+            # Same relaxed reveal as page 1 (visibility filters off) so paging the
+            # full matched set stays consistent.
+            rows = repos.channels.get_all(
+                channel_ids=_id_filter,
+                media_types=None,
+                adult_mode='all',
+                include_hidden=True,
+                exclude_watched=False,
+                tag_includes=None,
+                excluded_provider_ids=None,
                 limit=page_size,
                 offset=offset,
             )

@@ -272,6 +272,7 @@ def _make_load_channels_host(qapp):
     win._details_tag_filter = None
     win._details_category_filter = None
     win._details_id_filter = None
+    win._id_filter_show_all = False
     win._search_page_size = 1000
     win._hidden_mode = False
     win._load_channels_token = [0]

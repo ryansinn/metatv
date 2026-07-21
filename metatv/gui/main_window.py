@@ -223,6 +223,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Alert "show matches" id-filter: the stored matched channel ids of a watch-for
         # rule.  Ephemeral (cleared on any normal search/filter change), not persisted.
         self._details_id_filter: set[str] | None = None
+        # When True (set by the gold-bar click in id-filter mode), reveal the ENTIRE
+        # matched set with visibility filters relaxed (record/engaged view, DR-0007).
+        self._id_filter_show_all: bool = False
 
         # Debounce timer for search input → avoids a DB query per keystroke
         self._search_debounce = QTimer(self)
@@ -957,6 +960,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Replace any active context chip with the strict id-set.
         self._reset_context_filters()
         self._details_id_filter = set(ids)
+        self._id_filter_show_all = False  # fresh rule → default (scoped) view; never leak
         text, _mt = self._resolve_vod_rule(rule_created)
         if hasattr(self, "_context_filter_label"):
             self._context_filter_label.setText(f"Alert: {text or 'matches'} ({len(ids)})")

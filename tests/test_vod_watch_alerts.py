@@ -504,6 +504,50 @@ class TestChannelIdFilter:
             assert repo.get_all(channel_ids=set()) == []
 
 
+class TestIdFilterRevealAll:
+    """Gold-bar reveal: id_filter_show_all relaxes visibility filters to show ALL matches."""
+
+    def test_reveal_returns_full_matched_set(self, qapp, tmp_path):
+        from metatv.core.database import ProviderDB, ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.gui.main_window import MainWindow
+
+        db = _make_file_backed_db(tmp_path)
+        with db.session_scope() as s:
+            s.add(ProviderDB(id="pA", name="Active", type="xtream", url="http://a",
+                             urls='[{"url":"http://a","primary":true}]',
+                             username="u", password="p", is_active=True))
+            s.add(ProviderDB(id="pB", name="Disabled", type="xtream", url="http://b",
+                             urls='[{"url":"http://b","primary":true}]',
+                             username="u", password="p", is_active=False))
+            s.add(ChannelDB(id="c1", provider_id="pA", source_id="c1",
+                            name="Dune", media_type="movie", is_hidden=False))
+            s.add(ChannelDB(id="c2", provider_id="pB", source_id="c2",
+                            name="Dune (disabled source)", media_type="movie", is_hidden=False))
+            s.add(ChannelDB(id="c3", provider_id="pA", source_id="c3",
+                            name="Dune (series)", media_type="series", is_hidden=False))
+
+        id_set = {"c1", "c2", "c3"}
+        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
+                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
+                    source_categories=None, page_size=1000, hide_watched=False,
+                    context_id_filter=id_set)
+
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
+            # Default (scoped) view: c2 held back by the disabled source, c3 by media-type.
+            dtos, dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))
+            assert sorted(d.id for d in dtos) == ["c1"]
+            assert dp['total_channels'] == 3
+            assert dp['filtered_out_count'] == 2, "some matches hidden → gold bar shows"
+
+            # Reveal all: the ENTIRE matched set, filters relaxed → bar clears (0 hidden).
+            adtos, ap = MainWindow._query_channels(repos, dict(base, id_filter_show_all=True))
+            assert sorted(d.id for d in adtos) == ["c1", "c2", "c3"]
+            assert ap['total_channels'] == 3
+            assert ap['filtered_out_count'] == 0, "reveal shows all → gold bar clears"
+
+
 # ===========================================================================
 # Part 4: WatchAlertsSection.refresh_vod_rules rendering
 # ===========================================================================
