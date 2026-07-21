@@ -40,6 +40,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _row_label_texts(row) -> list[str]:
+    """Return the text of every QLabel in a _VodAlertRow (icon / name / count)."""
+    from PyQt6.QtWidgets import QLabel
+    return [w.text() for w in row.findChildren(QLabel)]
+
+
 class _FakeConfig:
     """In-memory Config stub implementing the vod_watch_alerts helpers."""
 
@@ -499,8 +505,6 @@ class TestWatchAlertsSectionVodRules:
         # need to validate list content.
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
-        # Alert-visibility header badge (set on the real widget in create_header).
-        section._new_match_badge = MagicMock()
         return section
 
     def test_no_rules_hides_sub_section(self, qapp):
@@ -521,8 +525,10 @@ class TestWatchAlertsSectionVodRules:
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
         assert section._vod_list.count() == 1, "One rule must render one list item"
-        item_text = section._vod_list.item(0).text()
-        assert "Dune" in item_text
+        row = section._vod_list.itemWidget(section._vod_list.item(0))
+        assert row is not None, "Rule must render as a custom _VodAlertRow widget"
+        texts = _row_label_texts(row)
+        assert any("Dune" in t for t in texts), f"Rule name must appear in row: {texts!r}"
 
     def test_match_count_shown_when_nonzero(self, qapp):
         cfg = _FakeConfig()
@@ -535,8 +541,9 @@ class TestWatchAlertsSectionVodRules:
         })
         section = self._make_section(cfg, qapp)
         section.refresh_vod_rules()
-        item_text = section._vod_list.item(0).text()
-        assert "3" in item_text, f"Match count 3 must appear in row text: {item_text!r}"
+        row = section._vod_list.itemWidget(section._vod_list.item(0))
+        texts = _row_label_texts(row)
+        assert any("3" in t for t in texts), f"Match count 3 must appear in row: {texts!r}"
 
     def test_multiple_rules_render_multiple_items(self, qapp):
         cfg = _FakeConfig()
@@ -588,7 +595,6 @@ class TestVodRuleInteractiveActions:
         section._vod_list = QListWidget()
         section._vod_hdr_container = MagicMock()
         section._update_vod_toggle_label = MagicMock()
-        section._new_match_badge = MagicMock()
         return section
 
     def test_single_click_resolves_correct_rule_text_and_type(self, qapp):

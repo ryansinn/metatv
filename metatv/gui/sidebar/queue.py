@@ -25,9 +25,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     itemSelected                  = pyqtSignal(str)        # channel_id
     channelMiddleClicked          = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
-    clearQueueClicked             = pyqtSignal()
+    clearQueueClicked             = pyqtSignal()           # demoted to the ⋯ overflow menu
     clearWatchedClicked           = pyqtSignal()
-    clearAlertsClicked            = pyqtSignal()           # bulk-acknowledge all new matches
     clearUnavailableClicked       = pyqtSignal()           # request clear-unavailable
     newMatchesClicked             = pyqtSignal()           # open the new matched content
     searchRequested               = pyqtSignal(str)        # search_title for recovery
@@ -71,49 +70,56 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
         btn_row.addWidget(self._clear_watched_btn)
 
-        # Conditional "Clear Alerts" — shown only when unviewed matches exist.
-        self._clear_alerts_btn = QPushButton(f"{_icons.new_match_icon} Clear Alerts")
-        self._clear_alerts_btn.setToolTip(
-            "Acknowledge all new matched content — clears the alert green everywhere"
+        # "Clear All" is demoted from an always-visible button into a compact ⋯
+        # overflow menu — the destructive bulk action is one step removed.
+        from PyQt6.QtWidgets import QMenu
+        self._overflow_btn = QPushButton(_icons.overflow_icon)
+        self._overflow_btn.setFlat(True)
+        self._overflow_btn.setFixedWidth(28)  # structural
+        self._overflow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._overflow_btn.setToolTip("More…")
+        self._overflow_menu = QMenu(self._overflow_btn)
+        clear_all_action = self._overflow_menu.addAction(
+            f"{self.config.delete_icon} Clear All"
         )
-        self._clear_alerts_btn.clicked.connect(self.clearAlertsClicked.emit)
-        self._clear_alerts_btn.hide()
-        btn_row.addWidget(self._clear_alerts_btn)
-
-        self._clear_all_btn = QPushButton(f"{self.config.delete_icon} Clear All")
-        self._clear_all_btn.clicked.connect(self.clearQueueClicked.emit)
-        btn_row.addWidget(self._clear_all_btn)
+        clear_all_action.setToolTip("Remove everything from the queue")
+        clear_all_action.triggered.connect(self.clearQueueClicked.emit)
+        self._overflow_btn.clicked.connect(self._show_overflow_menu)
+        btn_row.addWidget(self._overflow_btn)
         self.content_layout.addLayout(btn_row)
 
         self.set_empty(True)
 
+    def _show_overflow_menu(self) -> None:
+        """Pop the ⋯ overflow menu just below the button."""
+        below = self._overflow_btn.rect().bottomLeft()
+        self._overflow_menu.exec(self._overflow_btn.mapToGlobal(below))
+
     def update_new_match_count(self, count: int) -> None:
-        """Show/hide the pinned green new-matches line + Clear Alerts button.
+        """Show/hide the pinned green new-matches banner.
+
+        The bulk "Clear Alerts" action now lives in the Alerts header, so this
+        only drives the pinned banner (unchanged behavior).
 
         Args:
             count: Number of unviewed watch-for matches across all rules.
         """
         try:
             line = self._new_matches_btn
-            clear_btn = self._clear_alerts_btn
         except (AttributeError, RuntimeError):
             return  # content not built (e.g. __new__ test stub) — nothing to update
+        if line is None:
+            return
         if count > 0:
-            if line is not None:
-                line.setText(
-                    f"{_icons.watchlist_on_icon} {count} new match"
-                    f"{'es' if count != 1 else ''} from your alerts  "
-                    f"{_icons.see_all_arrow_icon}"
-                )
-                line.setToolTip("Open the new matched content from your watch-for alerts")
-                line.show()
-            if clear_btn is not None:
-                clear_btn.show()
+            line.setText(
+                f"{_icons.watchlist_on_icon} {count} new match"
+                f"{'es' if count != 1 else ''} from your alerts  "
+                f"{_icons.see_all_arrow_icon}"
+            )
+            line.setToolTip("Open the new matched content from your watch-for alerts")
+            line.show()
         else:
-            if line is not None:
-                line.hide()
-            if clear_btn is not None:
-                clear_btn.hide()
+            line.hide()
 
     # --- BackgroundRefreshMixin hooks ---
     def _refresh_list(self) -> QListWidget:

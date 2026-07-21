@@ -1,0 +1,99 @@
+"""Behavioral tests for the Alerts/Queue UX cleanup (feat/alerts-queue-ux).
+
+Covers:
+- ``Config.mark_vod_rule_viewed``: acknowledges just one rule's matches, returns
+  the cleared count, and leaves other rules unviewed (real Config on tmp_path).
+- ``alerts._vod_count_label``: the "N of M" / "· M" / "" count-text formatter.
+- ``alerts._alerts_title_html``: recolorable header dot + title + count states.
+
+The formatter/HTML helpers are pure functions, so they are exercised directly
+without any Qt widget construction.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def _make_config(tmp_path: Path):
+    """Real Config backed by an isolated on-disk config dir."""
+    from metatv.core.config import Config
+    return Config(config_dir=tmp_path / "cfg")
+
+
+class TestMarkVodRuleViewed:
+    """Config.mark_vod_rule_viewed — per-rule 'Clear this alert'."""
+
+    def _two_rules_with_matches(self, cfg):
+        cfg.add_vod_watch_alert({"text": "Dune", "match_type": "movie", "created": "rule-1"})
+        cfg.add_vod_watch_alert({"text": "Arrival", "match_type": "movie", "created": "rule-2"})
+        cfg.record_vod_alert_match("rule-1", "chA")
+        cfg.record_vod_alert_match("rule-1", "chB")
+        cfg.record_vod_alert_match("rule-1", "chA")  # duplicate — must not double-count
+        cfg.record_vod_alert_match("rule-2", "chC")
+
+    def test_marks_only_target_rule_and_returns_cleared_count(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        self._two_rules_with_matches(cfg)
+        assert cfg.get_vod_rule_unviewed_count("rule-1") == 2
+        assert cfg.get_vod_rule_unviewed_count("rule-2") == 1
+
+        cleared = cfg.mark_vod_rule_viewed("rule-1")
+        assert cleared == 2, "returns the count of newly-acknowledged channels"
+
+        # rule-1: viewed_ids == its alerted_ids (order-preserving dedup); now clear.
+        r1 = next(r for r in cfg.get_vod_watch_alerts() if r["created"] == "rule-1")
+        assert r1["viewed_ids"] == ["chA", "chB"]
+        assert cfg.get_vod_rule_unviewed_count("rule-1") == 0
+
+        # rule-2 is untouched — still unviewed.
+        assert cfg.get_vod_rule_unviewed_count("rule-2") == 1
+        r2 = next(r for r in cfg.get_vod_watch_alerts() if r["created"] == "rule-2")
+        assert list(r2.get("viewed_ids") or []) == []
+
+    def test_already_fully_viewed_returns_zero(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        self._two_rules_with_matches(cfg)
+        cfg.mark_vod_rule_viewed("rule-1")
+        assert cfg.mark_vod_rule_viewed("rule-1") == 0
+
+    def test_unknown_rule_returns_zero(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        assert cfg.mark_vod_rule_viewed("does-not-exist") == 0
+
+
+class TestVodCountLabel:
+    """alerts._vod_count_label — the right-aligned count text."""
+
+    def test_unviewed_reads_n_of_m(self):
+        from metatv.gui.sidebar.alerts import _vod_count_label
+        assert _vod_count_label(5, 20) == "5 of 20"
+        assert _vod_count_label(17, 17) == "17 of 17"
+
+    def test_all_viewed_reads_dot_total(self):
+        from metatv.gui.sidebar.alerts import _vod_count_label
+        assert _vod_count_label(0, 31) == "· 31"
+
+    def test_no_matches_is_empty(self):
+        from metatv.gui.sidebar.alerts import _vod_count_label
+        assert _vod_count_label(0, 0) == ""
+
+
+class TestAlertsTitleHtml:
+    """alerts._alerts_title_html — recolorable header dot + title + count."""
+
+    def test_quiet_state_gray_dot_no_count(self):
+        from metatv.gui import theme as _theme
+        from metatv.gui.sidebar.alerts import _alerts_title_html
+        html = _alerts_title_html("Alerts", 0)
+        assert "Alerts" in html
+        assert "(" not in html                 # no count suffix
+        assert _theme.COLOR_MUTED in html      # gray dot
+        assert _theme.COLOR_OK not in html     # nothing green
+
+    def test_active_state_green_dot_and_count(self):
+        from metatv.gui import theme as _theme
+        from metatv.gui.sidebar.alerts import _alerts_title_html
+        html = _alerts_title_html("Alerts", 3)
+        assert "Alerts (3)" in html
+        assert _theme.COLOR_OK in html         # green dot + green title

@@ -671,6 +671,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.vodAlertClicked.connect(self.show_channel_details_by_id)
             section.vodRuleViewMatchesRequested.connect(self._on_vod_rule_view_matches)
             section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
+            section.clearAllAlertsClicked.connect(self._clear_all_alerts)
+            section.vodRuleClearAlertRequested.connect(self._clear_vod_rule_alert)
             self.vod_watch_alert_manager.new_matches_found.connect(
                 self._refresh_alert_visibility
             )
@@ -720,7 +722,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
             section.clearQueueClicked.connect(self._clear_queue)
             section.clearWatchedClicked.connect(self._clear_watched_queue)
-            section.clearAlertsClicked.connect(self._clear_all_alerts)
             section.newMatchesClicked.connect(self._on_queue_new_matches_clicked)
             section.searchRequested.connect(self.search_for_title)
             section.clearUnavailableClicked.connect(
@@ -854,8 +855,17 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self._refresh_alert_visibility()
 
     def _clear_all_alerts(self) -> None:
-        """Bulk-acknowledge every new match (Watch Queue 'Clear Alerts' button)."""
+        """Bulk-acknowledge every new match (Alerts header 'Clear all')."""
         cleared = self.config.mark_all_vod_alerts_viewed()
+        if cleared:
+            self._refresh_alert_visibility()
+            self.status_bar.showMessage(
+                f"Cleared {cleared} new-match alert{'s' if cleared != 1 else ''}"
+            )
+
+    def _clear_vod_rule_alert(self, rule_created: str) -> None:
+        """Acknowledge just one rule's matches (Alerts row 'Clear this alert')."""
+        cleared = self.config.mark_vod_rule_viewed(rule_created)
         if cleared:
             self._refresh_alert_visibility()
             self.status_bar.showMessage(

@@ -236,7 +236,7 @@ def _make_section(cls, extra_kwargs=None, qapp=None):
     # Unconditionally stub every signal that create_header implementations may call.
     # Setting instance attributes here shadows the class-level pyqtSignal descriptors,
     # which is fine — we only need .emit() to not error during the test.
-    for sig_name in ("addWatchForClicked", "addProviderClicked", "refreshAllClicked"):
+    for sig_name in ("addWatchForClicked", "clearAllAlertsClicked", "addProviderClicked", "refreshAllClicked"):
         stub = MagicMock()
         stub.emit = MagicMock()
         object.__setattr__(section, sig_name, stub)

@@ -1161,6 +1161,36 @@ class Config(BaseModel):
         self.save()
         return before
 
+    def mark_vod_rule_viewed(self, rule_created: str) -> int:
+        """Acknowledge every match for a single rule (per-rule "Clear this alert").
+
+        Sets the matching rule's ``viewed_ids`` to all of its ``alerted_ids``
+        (order-preserving dedup) and saves; other rules are left untouched.
+
+        Args:
+            rule_created: The ``created`` id of the rule to acknowledge.
+
+        Returns:
+            The number of channels that were unviewed for this rule before the
+            call (how many alerts this clear acknowledged); 0 when the rule is
+            unknown or already fully viewed (no save in that case).
+        """
+        cleared = self.get_vod_rule_unviewed_count(rule_created)
+        if cleared == 0:
+            return 0
+        updated = []
+        for r in self.vod_watch_alerts:
+            if r.get("created") == rule_created:
+                merged = dict(r)
+                # viewed = every alerted id (preserve order, dedup).
+                merged["viewed_ids"] = list(dict.fromkeys(merged.get("alerted_ids") or []))
+                updated.append(merged)
+            else:
+                updated.append(r)
+        self.vod_watch_alerts = updated
+        self.save()
+        return cleared
+
     def _migrate_vod_alert_viewed(self) -> None:
         """One-time per-rule seed: pre-feature rules treat existing matches as viewed.
 

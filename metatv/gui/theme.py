@@ -361,6 +361,19 @@ DETAIL_RAIL_BTN_NEW_MATCH = (
 # the 🚨 glyph + a number, so colour is reinforcement only (colourblind-safe).
 ALERT_NEW_MATCH_BADGE = "color: " + COLOR_OK + "; font-weight: bold;"
 
+# Small flat text link (Alerts "Clear all", VOD "Manage…") — blue, hover lighter.
+LINK_BTN_SM = (
+    "QPushButton { border: none; color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_SM + "; padding: 0 2px; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
+)
+
+# VOD watch-for rule row (Alerts sidebar) — legible name + right-aligned count.
+# The name stays COLOR_TEXT (never tinted); the count goes green only when there
+# are unviewed matches, muted otherwise.  Colour-only (font-size inherits the list).
+VOD_ALERT_NAME       = "color: " + COLOR_TEXT + ";"
+VOD_ALERT_COUNT_NEW  = "color: " + COLOR_OK + ";"
+VOD_ALERT_COUNT_IDLE = "color: " + COLOR_MUTED + ";"
+
 # Watch Queue pinned "new matches from your alerts" line — a single clickable GREEN
 # row at the top of the queue.  GREEN fill + the 🚨 glyph + the count text = the
 # colourblind-safe pairing.
