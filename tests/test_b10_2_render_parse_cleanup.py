@@ -140,7 +140,7 @@ class TestLoadBasicStoredFields:
         section.load_basic(channel)
 
         assert not section._prefix_chip.isHidden(), "Prefix chip must be visible for 'EN'"
-        assert section._prefix_chip.text() == "EN"
+        assert section._prefix_chip.text() == "English (EN)"  # name + code (#139)
 
     def test_prefix_chip_hidden_when_no_prefix(self, qapp):
         """Prefix chip must be hidden when both detected_prefix and detected_region are None."""
@@ -223,7 +223,7 @@ class TestLoadBasicStoredFields:
 
         # The stored fields were used (regression guard)
         assert section.title_label.text() == "Peliculas"
-        assert section._prefix_chip.text() == "ES"
+        assert section._prefix_chip.text() == "Spain (ES)"  # region name + code (#139)
         assert section._quality_chip.text() == "HD"
         assert section._name_year_lbl.text() == "2024"
 
@@ -240,7 +240,7 @@ class TestLoadBasicStoredFields:
         section.load_basic(channel)
 
         assert not section._prefix_chip.isHidden(), "Prefix chip must be visible for detected_region"
-        assert section._prefix_chip.text() == "US"
+        assert section._prefix_chip.text() == "United States (US)"  # name + code (#139)
 
 
 # ---------------------------------------------------------------------------

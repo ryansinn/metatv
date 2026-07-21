@@ -10,7 +10,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 
 from loguru import logger
 
-from metatv.core.channel_name_utils import normalize_region_code, REGION_FULL_NAMES
+from metatv.core.channel_name_utils import (
+    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import enable_height_for_width
@@ -29,7 +31,16 @@ def resolve_category_name(prefix: str, config=None) -> str:
         if prefix in overrides:
             return overrides[prefix]
     code = normalize_region_code(prefix)
-    return REGION_FULL_NAMES.get(code, REGION_FULL_NAMES.get(prefix, ""))
+    # Region name if it's a place; else the language name (a language code like AR
+    # resolves to "Arabic", NOT the region "Argentina"); else "" so the caller falls
+    # back to the raw code.  Single source of truth for a code's human-readable name.
+    return (
+        REGION_FULL_NAMES.get(code)
+        or REGION_FULL_NAMES.get(prefix)
+        or AUDIO_LANG_WORD_MAP.get(code)
+        or AUDIO_LANG_WORD_MAP.get(prefix)
+        or ""
+    )
 
 
 # ---------------------------------------------------------------------------

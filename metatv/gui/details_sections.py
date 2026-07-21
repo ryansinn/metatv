@@ -529,7 +529,9 @@ class _PosterSection(QWidget):
         raw = m.group(1)
         delimiter = "★" if m.group(2) == "★" else "|"
         code = normalize_region_code(raw)
-        full = REGION_FULL_NAMES.get(code, "")
+        # Canonical human name (region OR language — e.g. AR → Arabic, a language, not
+        # "Argentina") via the single shared resolver also used by the version chips.
+        full = resolve_category_name(raw, self.config)
         text = (
             f"Category: {full} ({code})  ·  via {delimiter} prefix"
             if full
@@ -950,9 +952,11 @@ class _MetadataSection(QWidget):
             or ""
         )
         if prefix and prefix.upper() not in QUALITY_TOKENS:
-            tip = resolve_category_name(prefix, self.config) or prefix
-            self._prefix_chip.setText(prefix)
-            self._prefix_chip.setToolTip(tip)
+            name = resolve_category_name(prefix, self.config)
+            # Show the human name + code (e.g. "Arabic (AR)") — a language/region is
+            # never rendered as a bare, ambiguous code.  Raw code only when unresolved.
+            self._prefix_chip.setText(f"{name} ({prefix})" if name else prefix)
+            self._prefix_chip.setToolTip(name or prefix)
             self._prefix_chip.show()
         else:
             self._prefix_chip.hide()
