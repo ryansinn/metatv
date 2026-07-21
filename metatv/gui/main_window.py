@@ -958,37 +958,26 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             return repos.channels.filter_available_ids(ids, excluded)
 
     def _on_vod_rule_show_matches(self, rule_created: str) -> None:
-        """Show a watch-for rule's STORED matched channels (not a fresh keyword search).
+        """Show a watch-for rule's matches as a live, editable keyword search.
 
-        A keyword search is lossy — it returns a different set (or zero) than the
-        matches the alert actually recorded.  The rule stores the exact matched ids
-        in ``alerted_ids``; show the currently-AVAILABLE subset (matches on
-        disabled/expired sources are gated out) via a strict "only these ids" filter,
-        so active filters that hide some surface the normal gold bar.  Falls back to
-        the keyword path only when a rule has no currently-available matches.
+        The alert seeds the search box with the rule's keyword and runs a NORMAL
+        live search — a transparent, editable view whose visible search config is
+        what produces the results (mirror-not-cage), not an opaque frozen id-set.
+        Global exclusions apply and are surfaced via the gold bar; the user can
+        widen/narrow from there.
+
+        The stored-id path (``_details_id_filter`` / the ``channel_ids`` query
+        branch / the "show all" reveal, added in #293) is retained but no longer
+        driven from here — kept dormant rather than deleted.
         """
-        raw_ids = self.config.get_vod_alert_matches(rule_created)
-        ids = self._filter_available_ids(set(raw_ids)) if raw_ids else set()
-        if not ids:
-            text, match_type = self._resolve_vod_rule(rule_created)
-            if text:
-                self._on_vod_rule_view_matches(text, match_type)
+        text, match_type = self._resolve_vod_rule(rule_created)
+        if not text:
             return
-        # Replace any active context chip with the strict (available) id-set.
-        self._reset_context_filters()
-        self._details_id_filter = set(ids)
-        self._id_filter_show_all = False  # fresh rule → default (scoped) view; never leak
-        text, _mt = self._resolve_vod_rule(rule_created)
-        if hasattr(self, "_context_filter_label"):
-            self._context_filter_label.setText(f"Alert: {text or 'matches'} ({len(ids)})")
-        if hasattr(self, "_context_filter_chip"):
-            self._context_filter_chip.show()
-        # Clear any search text so the stored id-set isn't narrowed by a stale keyword
-        # (silent → does not re-clear the id-filter we just set).
-        if hasattr(self, "search_input"):
-            self._set_search_text_silently("")
-        self.switch_to_list_view()
-        self.load_channels()
+        # Drop any dormant alert id-filter/chip left from a prior click so the
+        # keyword search isn't silently constrained by a stale id-set.
+        if hasattr(self, "_clear_id_filter"):
+            self._clear_id_filter()
+        self._on_vod_rule_view_matches(text, match_type)
 
     def _on_vod_rule_remove(self, rule_created: str) -> None:
         """Remove a VOD watch-for rule from config and refresh the section."""
