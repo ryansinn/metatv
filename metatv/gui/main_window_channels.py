@@ -378,6 +378,9 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
             )
         elif id_filter_show_all:
+            # Relax only the SOFT filters — provider-scoping stays applied: content on
+            # disabled/expired sources (get_hidden_provider_ids) is a top-level gate and
+            # is NEVER revealed by "show all".  To view it, re-enable the source.
             channels = repos.channels.get_all(
                 channel_ids=_id_filter,
                 media_types=None,
@@ -385,7 +388,7 @@ class _ChannelListMixin:
                 include_hidden=True,
                 exclude_watched=False,
                 tag_includes=None,
-                excluded_provider_ids=None,
+                excluded_provider_ids=providers_to_exclude or None,
                 limit=_page_size,
             )
         else:
@@ -1251,8 +1254,8 @@ class _ChannelListMixin:
                 offset=offset,
             )
         elif id_filter_show_all:
-            # Same relaxed reveal as page 1 (visibility filters off) so paging the
-            # full matched set stays consistent.
+            # Same relaxed reveal as page 1 (SOFT filters off), but provider-scoping
+            # stays applied — disabled/expired-source content is never revealed.
             rows = repos.channels.get_all(
                 channel_ids=_id_filter,
                 media_types=None,
@@ -1260,7 +1263,7 @@ class _ChannelListMixin:
                 include_hidden=True,
                 exclude_watched=False,
                 tag_includes=None,
-                excluded_provider_ids=None,
+                excluded_provider_ids=providers_to_exclude or None,
                 limit=page_size,
                 offset=offset,
             )

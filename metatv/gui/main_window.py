@@ -941,23 +941,39 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 return r.get("text", ""), r.get("match_type", "any")
         return "", "any"
 
+    def _filter_available_ids(self, ids: set[str]) -> set[str]:
+        """Re-validate stored match ids against LIVE source state (one bounded query).
+
+        Disabled/expired sources (``get_hidden_provider_ids``) and user-hidden
+        channels are a top-level gate — their content is never shown or counted, so
+        a stored match on such a source is dropped here before it reaches the list.
+        """
+        if not ids:
+            return set()
+        from metatv.core.repositories import RepositoryFactory
+        with self.db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            excluded = set(repos.providers.get_hidden_provider_ids())
+            return repos.channels.filter_available_ids(ids, excluded)
+
     def _on_vod_rule_show_matches(self, rule_created: str) -> None:
         """Show a watch-for rule's STORED matched channels (not a fresh keyword search).
 
         A keyword search is lossy — it returns a different set (or zero) than the
-        matches the alert actually recorded.  The rule already stores the exact
-        matched channel ids in ``alerted_ids``; show those via a strict "only these
-        ids" filter so any active filters that exclude some surface the normal
-        hidden-by-filters gold bar.  Falls back to the keyword path only when a rule
-        has no stored matches (e.g. a legacy rule).
+        matches the alert actually recorded.  The rule stores the exact matched ids
+        in ``alerted_ids``; show the currently-AVAILABLE subset (matches on
+        disabled/expired sources are gated out) via a strict "only these ids" filter,
+        so active filters that hide some surface the normal gold bar.  Falls back to
+        the keyword path only when a rule has no currently-available matches.
         """
-        ids = self.config.get_vod_alert_matches(rule_created)
+        raw_ids = self.config.get_vod_alert_matches(rule_created)
+        ids = self._filter_available_ids(set(raw_ids)) if raw_ids else set()
         if not ids:
             text, match_type = self._resolve_vod_rule(rule_created)
             if text:
                 self._on_vod_rule_view_matches(text, match_type)
             return
-        # Replace any active context chip with the strict id-set.
+        # Replace any active context chip with the strict (available) id-set.
         self._reset_context_filters()
         self._details_id_filter = set(ids)
         self._id_filter_show_all = False  # fresh rule → default (scoped) view; never leak

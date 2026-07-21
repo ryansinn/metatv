@@ -342,11 +342,35 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
         label = f"Watching for  ({count})" if count else "Watching for"
         # Surface firing alerts on the toggle itself (plain text — the header dot
-        # carries the colour): "Watching for (3)  ·  2 new".
-        firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+        # carries the colour): "Watching for (3)  ·  2 new".  Uses the AVAILABLE
+        # firing count stashed by the last refresh (falls back to raw config).
+        firing = getattr(self, "_firing_count", None)
+        if firing is None:
+            firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
         if firing > 0:
             label += f"  ·  {firing} new"
         self._vod_toggle.setText(f"{arrow}  {label}")
+
+    def _compute_alert_availability(self):
+        """Re-validate stored matches against live source state (one bounded query).
+
+        Returns an :class:`AlertAvailability`, or ``None`` when no DB is wired (test
+        stubs / early init) so callers fall back to the raw config counts.
+        """
+        # Read the instance dict directly: getattr() on a __new__'d QObject stub
+        # (tests) whose C++ super-init never ran raises RuntimeError instead of
+        # returning the default, so a plain getattr(self, "db", None) would crash.
+        db = self.__dict__.get("db")
+        if db is None:
+            return None
+        try:
+            from metatv.core.repositories import RepositoryFactory
+            from metatv.core.vod_alert_availability import compute_alert_availability
+            with db.session_scope(commit=False) as session:
+                return compute_alert_availability(self.config, RepositoryFactory(session))
+        except Exception:  # noqa: BLE001
+            logger.exception("Alert availability re-validation failed; using raw counts")
+            return None
 
     def _toggle_vod_watching(self) -> None:
         self._vod_collapsed = not self._vod_collapsed
@@ -367,11 +391,20 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
         self._vod_list.clear()
 
-        # Header glance = number of ALERTS (rules) currently firing, NOT the total
-        # matched-item count — a rule with many new items is still ONE firing alert.
-        # The item count feeds only the tooltip (safe-guarded for __new__ stubs).
-        _rules_firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
-        _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
+        # Re-validate every count against LIVE source state (once, one bounded query):
+        # matches on disabled/expired sources never count or show — anywhere.  When no
+        # DB is wired (test stubs) avail is None → fall back to the raw config counts.
+        avail = self._compute_alert_availability()
+
+        # Header glance = number of ALERTS (rules) currently firing (AVAILABLE-only),
+        # NOT the total matched-item count.  The item count feeds only the tooltip.
+        if avail is not None:
+            _rules_firing = avail.firing_rules
+            _new_items = avail.unviewed_total
+        else:
+            _rules_firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
+            _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
+        self._firing_count = _rules_firing  # read by _update_vod_toggle_label
         self.update_new_match_badge(_rules_firing, _new_items)
 
         if not rules:
@@ -379,8 +412,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._vod_list.hide()
             return
 
-        # Build a channel-id → rule mapping for match count display.
-        # We query alerted_ids from config (already stored) — no DB needed here.
         from metatv.gui import icons as _icons  # local import avoids circular at top
 
         type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
@@ -391,9 +422,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         for rule in rules:
             text = rule.get("text") or "?"
             match_type = rule.get("match_type", "any")
-            alerted_ids = rule.get("alerted_ids") or []
-            count = len(alerted_ids)
-            unviewed = _unviewed_for(rule.get("created", ""))
+            created = rule.get("created", "")
+            # Counts reflect AVAILABLE matches only (raw config counts as fallback).
+            if avail is not None:
+                count = avail.per_rule_total.get(created, 0)
+                unviewed = avail.per_rule_unviewed.get(created, 0)
+            else:
+                count = len(rule.get("alerted_ids") or [])
+                unviewed = _unviewed_for(created)
 
             # The far-left type icon already conveys the type, so the leading
             # second 🚨 and the "  (type)" suffix are dropped.  Only the count is
@@ -406,7 +442,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             )
 
             item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, rule.get("created", ""))
+            item.setData(Qt.ItemDataRole.UserRole, created)
             count_tip = f"{count} match{'es' if count != 1 else ''} found" if count else "No matches yet"
             new_tip = f"\n{unviewed} new (unviewed)" if unviewed > 0 else ""
             item.setToolTip(

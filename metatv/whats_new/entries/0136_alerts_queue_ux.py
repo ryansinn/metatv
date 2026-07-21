@@ -51,8 +51,12 @@ ENTRY = WhatsNewEntry(
         "list shows exactly those matched titles (\"Showing K of M\"); if active "
         "filters exclude some, the gold \"N filtered — click to show\" bar appears; "
         "typing in search or changing a filter clears the alert view.",
-        "In alert-matches mode with some matches on a disabled/expired source, the "
-        "gold bar shows the hidden count; clicking it reveals ALL the matches "
-        "(including the ones on the disabled source) and the bar clears.",
+        "In alert-matches mode with some matches soft-hidden (media-type / "
+        "exclusions / hide-watched), the gold bar shows the hidden count; clicking "
+        "it reveals those matches and the bar clears.",
+        "Content from disabled/expired sources never appears in alert matches or the "
+        "count — not even via 'show all'; the per-rule \"N of M\", the header "
+        "\"Alerts (N)\", and the Watch Queue banner all reflect only currently-"
+        "available matches (re-enable the source to see its content).",
     ),
 )

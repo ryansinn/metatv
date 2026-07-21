@@ -884,6 +884,40 @@ class ChannelRepository(_ChannelStatsMixin):
 
         return query.count()
 
+    def filter_available_ids(
+        self,
+        ids: Set[str],
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> Set[str]:
+        """Return the subset of *ids* whose channel is currently AVAILABLE.
+
+        Single re-validation chokepoint for stored match ids (e.g. a watch-for
+        rule's ``alerted_ids``, which can reference channels whose source was
+        later disabled/expired).  Available = the channel exists, its provider is
+        NOT in ``excluded_provider_ids`` (disabled/expired sources —
+        ``ProviderRepository.get_hidden_provider_ids``, a top-level gate), and the
+        channel itself is not user-hidden.  One bounded ``IN`` query — *ids* is a
+        small stored set (dozens–hundreds).
+
+        Args:
+            ids: Stored channel ids to re-validate.
+            excluded_provider_ids: Hidden (inactive ∪ expired) provider ids to gate out.
+
+        Returns:
+            The subset of *ids* that are currently available (never any id whose
+            source is hidden or whose channel is hidden).
+        """
+        if not ids:
+            return set()
+        query = (
+            self.session.query(ChannelDB.id)
+            .filter(ChannelDB.id.in_(list(ids)))
+            .filter(ChannelDB.is_hidden.isnot(True))
+        )
+        if excluded_provider_ids:
+            query = query.filter(~ChannelDB.provider_id.in_(list(excluded_provider_ids)))
+        return {row[0] for row in query.all()}
+
     def count_watched_matching(
         self,
         provider_id=None,

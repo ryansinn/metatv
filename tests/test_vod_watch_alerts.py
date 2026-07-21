@@ -504,48 +504,138 @@ class TestChannelIdFilter:
             assert repo.get_all(channel_ids=set()) == []
 
 
-class TestIdFilterRevealAll:
-    """Gold-bar reveal: id_filter_show_all relaxes visibility filters to show ALL matches."""
+def _seed_alert_channels(db):
+    """pA (active): c1 movie, c3 series; pB (disabled): c2 movie."""
+    from metatv.core.database import ProviderDB, ChannelDB
+    with db.session_scope() as s:
+        s.add(ProviderDB(id="pA", name="Active", type="xtream", url="http://a",
+                         urls='[{"url":"http://a","primary":true}]',
+                         username="u", password="p", is_active=True))
+        s.add(ProviderDB(id="pB", name="Disabled", type="xtream", url="http://b",
+                         urls='[{"url":"http://b","primary":true}]',
+                         username="u", password="p", is_active=False))
+        s.add(ChannelDB(id="c1", provider_id="pA", source_id="c1",
+                        name="Dune", media_type="movie", is_hidden=False))
+        s.add(ChannelDB(id="c2", provider_id="pB", source_id="c2",
+                        name="Dune (disabled source)", media_type="movie", is_hidden=False))
+        s.add(ChannelDB(id="c3", provider_id="pA", source_id="c3",
+                        name="Dune (series)", media_type="series", is_hidden=False))
 
-    def test_reveal_returns_full_matched_set(self, qapp, tmp_path):
-        from metatv.core.database import ProviderDB, ChannelDB
+
+class TestIdFilterRevealAll:
+    """Gold-bar reveal relaxes SOFT filters only — never the disabled-source gate."""
+
+    def test_reveal_keeps_provider_gate_but_relaxes_soft(self, qapp, tmp_path):
         from metatv.core.repositories import RepositoryFactory
         from metatv.gui.main_window import MainWindow
 
         db = _make_file_backed_db(tmp_path)
-        with db.session_scope() as s:
-            s.add(ProviderDB(id="pA", name="Active", type="xtream", url="http://a",
-                             urls='[{"url":"http://a","primary":true}]',
-                             username="u", password="p", is_active=True))
-            s.add(ProviderDB(id="pB", name="Disabled", type="xtream", url="http://b",
-                             urls='[{"url":"http://b","primary":true}]',
-                             username="u", password="p", is_active=False))
-            s.add(ChannelDB(id="c1", provider_id="pA", source_id="c1",
-                            name="Dune", media_type="movie", is_hidden=False))
-            s.add(ChannelDB(id="c2", provider_id="pB", source_id="c2",
-                            name="Dune (disabled source)", media_type="movie", is_hidden=False))
-            s.add(ChannelDB(id="c3", provider_id="pA", source_id="c3",
-                            name="Dune (series)", media_type="series", is_hidden=False))
-
-        id_set = {"c1", "c2", "c3"}
+        _seed_alert_channels(db)
+        # c2 lives on the DISABLED source; it must stay hidden in BOTH views.
         base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
                     invert_prefix_filters=False, include_untagged=True, adult_mode="all",
                     source_categories=None, page_size=1000, hide_watched=False,
-                    context_id_filter=id_set)
-
+                    context_id_filter={"c1", "c2", "c3"})
         with db.session_scope(commit=False) as s:
             repos = RepositoryFactory(s)
-            # Default (scoped) view: c2 held back by the disabled source, c3 by media-type.
+            # Default: only c1 (c2 disabled-source, c3 media-type filtered).
+            dtos, _dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))
+            assert sorted(d.id for d in dtos) == ["c1"]
+
+            # Reveal: soft filters relaxed → c3 comes back, but c2 (disabled source)
+            # stays gone — provider-scoping is NEVER relaxed.
+            adtos, _ap = MainWindow._query_channels(repos, dict(base, id_filter_show_all=True))
+            revealed = sorted(d.id for d in adtos)
+            assert "c2" not in revealed, "disabled-source match must NOT be revealed"
+            assert revealed == ["c1", "c3"]
+
+    def test_reveal_clears_bar_for_available_set(self, qapp, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.gui.main_window import MainWindow
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        # In real use the caller feeds only the AVAILABLE subset ({c1, c3}) — c2 is
+        # already gated out.  Default hides c3 (media-type); reveal shows both → bar clears.
+        base = dict(provider_id=None, media_types=["movie"], force_adult_ids=None,
+                    invert_prefix_filters=False, include_untagged=True, adult_mode="all",
+                    source_categories=None, page_size=1000, hide_watched=False,
+                    context_id_filter={"c1", "c3"})
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
             dtos, dp = MainWindow._query_channels(repos, dict(base, id_filter_show_all=False))
             assert sorted(d.id for d in dtos) == ["c1"]
-            assert dp['total_channels'] == 3
-            assert dp['filtered_out_count'] == 2, "some matches hidden → gold bar shows"
+            assert dp['total_channels'] == 2
+            assert dp['filtered_out_count'] == 1, "c3 media-filtered → gold bar shows"
 
-            # Reveal all: the ENTIRE matched set, filters relaxed → bar clears (0 hidden).
             adtos, ap = MainWindow._query_channels(repos, dict(base, id_filter_show_all=True))
-            assert sorted(d.id for d in adtos) == ["c1", "c2", "c3"]
-            assert ap['total_channels'] == 3
-            assert ap['filtered_out_count'] == 0, "reveal shows all → gold bar clears"
+            assert sorted(d.id for d in adtos) == ["c1", "c3"]
+            assert ap['total_channels'] == 2
+            assert ap['filtered_out_count'] == 0, "reveal shows the available set → bar clears"
+
+
+class TestFilterAvailableIds:
+    """ChannelRepository.filter_available_ids — the re-validation chokepoint."""
+
+    def test_gates_out_disabled_source_and_hidden(self, tmp_path):
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        with db.session_scope() as s:
+            # A user-hidden channel on the ACTIVE source — also unavailable.
+            s.add(ChannelDB(id="c4", provider_id="pA", source_id="c4",
+                            name="Dune (hidden)", media_type="movie", is_hidden=True))
+        with db.session_scope(commit=False) as s:
+            repos = RepositoryFactory(s)
+            excluded = set(repos.providers.get_hidden_provider_ids())
+            assert "pB" in excluded  # disabled provider is a hidden provider
+            avail = repos.channels.filter_available_ids({"c1", "c2", "c3", "c4"}, excluded)
+            assert avail == {"c1", "c3"}, "c2 disabled-source, c4 user-hidden → both gated out"
+            assert repos.channels.filter_available_ids(set(), excluded) == set()
+
+
+class TestComputeAlertAvailability:
+    """compute_alert_availability derives every count from the AVAILABLE subset only."""
+
+    def test_counts_reflect_available_matches(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.vod_alert_availability import compute_alert_availability
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)  # pA active: c1, c3 ; pB disabled: c2
+        cfg = _FakeConfig()
+        # r1: c1 (available) + c2 (disabled source), both unviewed.
+        cfg.add_vod_watch_alert({"text": "Dune", "match_type": "movie", "created": "r1",
+                                 "alerted_ids": ["c1", "c2"], "viewed_ids": []})
+        # r2: only c2 (disabled) → 0 available, NOT firing.
+        cfg.add_vod_watch_alert({"text": "Ghost", "match_type": "movie", "created": "r2",
+                                 "alerted_ids": ["c2"], "viewed_ids": []})
+
+        with db.session_scope(commit=False) as s:
+            avail = compute_alert_availability(cfg, RepositoryFactory(s))
+
+        assert avail.available_ids == frozenset({"c1"})
+        assert avail.per_rule_total["r1"] == 1 and avail.per_rule_unviewed["r1"] == 1
+        assert avail.per_rule_total["r2"] == 0 and avail.per_rule_unviewed["r2"] == 0
+        assert avail.firing_rules == 1, "r2's only match is on a disabled source → not firing"
+        assert avail.unviewed_total == 1
+
+    def test_all_on_disabled_source_reports_zero(self, tmp_path):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.vod_alert_availability import compute_alert_availability
+
+        db = _make_file_backed_db(tmp_path)
+        _seed_alert_channels(db)
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert({"text": "Ghost", "match_type": "movie", "created": "r1",
+                                 "alerted_ids": ["c2"], "viewed_ids": []})  # c2 = disabled
+        with db.session_scope(commit=False) as s:
+            avail = compute_alert_availability(cfg, RepositoryFactory(s))
+        assert avail.firing_rules == 0
+        assert avail.unviewed_total == 0
+        assert avail.per_rule_total["r1"] == 0
 
 
 # ===========================================================================

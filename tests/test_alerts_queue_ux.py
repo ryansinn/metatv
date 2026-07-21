@@ -157,6 +157,10 @@ class TestShowMatchesHandler:
         base = dict(
             config=cfg,
             _details_id_filter=None,
+            # Pass-through availability filter (all stored ids treated as available);
+            # the real hidden-source gating is covered by filter_available_ids +
+            # the reveal tests. This test verifies routing to the stored id-set.
+            _filter_available_ids=lambda ids: set(ids),
             _reset_context_filters=MagicMock(),
             _resolve_vod_rule=MagicMock(return_value=("Odyssey", "movie")),
             _context_filter_label=MagicMock(),

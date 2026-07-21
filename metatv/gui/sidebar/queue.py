@@ -130,18 +130,32 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return "Couldn't load watch queue"
 
     def _load_rows(self):
+        from metatv.core.vod_alert_availability import compute_alert_availability
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             hidden = set(repos.providers.get_hidden_provider_ids())
-            return repos.queue.get_all(hidden_provider_ids=hidden)
+            entries = repos.queue.get_all(hidden_provider_ids=hidden)
+            # Re-validate the pinned banner's count against live source state (same
+            # session): matches on disabled/expired sources must not count here either.
+            try:
+                self._available_unviewed = compute_alert_availability(
+                    self.config, repos
+                ).unviewed_total
+            except Exception:  # noqa: BLE001
+                self._available_unviewed = None  # fall back to raw config count
+            return entries
 
     def _populate_rows(self, entries) -> None:
         """Main-thread slot: populate the queue list from QueueEntry plain dataclasses."""
         # The pinned new-matches line is independent of queue contents (it reflects
         # config watch-for matches), so refresh it before the empty-list early-out.
-        # Guarded so partially-built __new__ test stubs (no config/widgets) don't trip.
+        # Uses the AVAILABLE unviewed count (re-validated in _load_rows), not the raw
+        # config total.  Guarded so partially-built __new__ test stubs don't trip.
         try:
-            self.update_new_match_count(self.config.get_unviewed_vod_match_count())
+            count = getattr(self, "_available_unviewed", None)
+            if count is None:
+                count = self.config.get_unviewed_vod_match_count()
+            self.update_new_match_count(count)
         except (AttributeError, RuntimeError):
             pass
         self._has_unavailable = any(not e.available for e in entries) if entries else False
