@@ -111,7 +111,16 @@ def _set_backfill_active(active: bool) -> None:
 #       language/region facets.  Runs AFTER prefix_rescan (v3) so detected_prefix
 #       already reflects the PUNJABI→PB alias.  Deletes only source="generated"
 #       tags per channel — user-curated tags are untouched.
-CURRENT_TAG_BACKFILL_VERSION = 6
+#   7 — TV-genre fold (#143): _GENRE_NORM in filter_utils now folds the whole
+#       fragmented "TV" family (TV program, TV programme, TV Series, Television
+#       series, Program Tv, the provider typos TV proramme/PROGRAME, and the
+#       bare program/programme) into ONE canonical "TV Show" — TMDB has no
+#       single "TV" genre so providers split it into ~15 near-duplicate labels.
+#       Existing source="generated" tags holding the old un-normalized values
+#       must be regenerated so the filter panel shows one "TV Show" entry with
+#       the summed count instead of the fragmented facets.  Deletes only
+#       source="generated" tags per channel — user-curated tags are untouched.
+CURRENT_TAG_BACKFILL_VERSION = 7
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
