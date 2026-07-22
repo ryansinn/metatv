@@ -31,6 +31,34 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 
 
+def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set) -> list:
+    """Drop channels hidden by the Python-side Global Exclusions.
+
+    Single chokepoint for the exclusion filtering applied after ``get_all`` (used
+    by both ``_query_channels`` and its pagination sibling, and by the
+    ``hidden_by_search`` recount so the diff compares like with like). A channel is
+    excluded when its detected prefix OR region is in ``excluded_prefixes``, or when
+    its user category is in ``excluded_user_cats``.
+
+    Args:
+        channels: The candidate ChannelDB rows.
+        excluded_prefixes: Prefix/region codes the user has globally excluded.
+        excluded_user_cats: User categories the user has globally excluded.
+
+    Returns:
+        The surviving channels (a new list; the input is not mutated).
+    """
+    if excluded_prefixes:
+        channels = [
+            c for c in channels
+            if c.detected_prefix not in excluded_prefixes
+            and c.detected_region not in excluded_prefixes
+        ]
+    if excluded_user_cats:
+        channels = [c for c in channels if c.user_category not in excluded_user_cats]
+    return channels
+
+
 class _ChannelListMixin:
     """Channel-list load, filter pipeline, and context-menu glue methods mixed into :class:`MainWindow`."""
 
@@ -53,6 +81,7 @@ class _ChannelListMixin:
         if getattr(self, "_suppress_search_handler", False):
             return  # programmatic restore — caller issues the load; skip debounce/save
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
+        self._bypass_global_exclusions = False  # …including the exclusions reveal
         self._clear_id_filter()             # a new search drops the ephemeral alert id-filter
         self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
@@ -68,6 +97,7 @@ class _ChannelListMixin:
         Returns:
             True if an id-filter was active and cleared, else False.
         """
+        self._bypass_global_exclusions = False  # any id-filter change drops the exclusions reveal
         if getattr(self, "_details_id_filter", None) is None:
             return False
         self._details_id_filter = None
@@ -316,6 +346,10 @@ class _ChannelListMixin:
             source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
             excluded_prefixes=_global_excluded_prefixes,
             excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
+            # View-scoped reveal: skip the Python-side Global Exclusions for this one
+            # load so the user can see exactly what those exclusions hide (mirror-not-
+            # cage). Never mutates the stored settings; reset on next search/filter change.
+            bypass_global_exclusions=self._bypass_global_exclusions,
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
             person_filter=self._details_person_filter,
@@ -429,46 +463,63 @@ class _ChannelListMixin:
         has_adult = bool(force_adult_ids) or repos.session.query(ChannelDB).filter(
             ChannelDB.is_adult == True
         ).limit(1).count() > 0
-        # Always defined (used by the tier-1 filtered-out recount below); the
-        # show-all reveal skips APPLYING them so hidden matches aren't re-excluded.
+        # Always defined (used by the recounts below); the show-all reveal skips
+        # APPLYING them so hidden matches aren't re-excluded.
         excluded_prefixes = params.get('excluded_prefixes', set())
         excluded_user_cats = params.get('excluded_user_categories', set())
-        if not hidden_only and not id_filter_show_all:
-            if excluded_prefixes:
-                channels = [
-                    c for c in channels
-                    if c.detected_prefix not in excluded_prefixes
-                    and c.detected_region not in excluded_prefixes
-                ]
-            if excluded_user_cats:
-                channels = [
-                    c for c in channels
-                    if c.user_category not in excluded_user_cats
-                ]
 
-        # When zero results + Tier 1 filters active, count what exists without
-        # those filters so we can tell the user "X results are filtered out".
+        # ── Filter layer 1 — Global Exclusions (Python-side) ───────────────────────
+        # Capture a before/after count so the gold bar can report exactly how many
+        # results THIS layer hides for THIS view.  Skipped entirely when the user has
+        # revealed the layer (bypass_global_exclusions) — so revealed content is not
+        # re-excluded and the reported count correctly reads 0.  The count is accurate
+        # for the small alert/search result sets; for a huge corpus it is capped at the
+        # page (same acceptable compromise as the existing counts).
+        bypass_exclusions = bool(params.get('bypass_global_exclusions'))
+        exclusions_applied = not hidden_only and not id_filter_show_all and not bypass_exclusions
+        hidden_by_exclusions = 0
+        if exclusions_applied:
+            _before_excl = len(channels)
+            channels = _apply_python_exclusions(channels, excluded_prefixes, excluded_user_cats)
+            hidden_by_exclusions = _before_excl - len(channels)
+
+        # ── Filter layer 2 — search / Tier-1 tag filters ───────────────────────────
+        # Whenever a tag facet filter is active, re-fetch the SAME query WITHOUT
+        # tag_includes (every other axis + the Global Exclusions held equal) and diff:
+        # hidden_by_search is exactly what the Tier-1 filters remove.  Computed only
+        # when tag_includes is truthy (perf: one extra bounded query).  Also serves as
+        # the zero-results "N filtered" figure for backward compatibility.
         filtered_out_count = 0
-        # tag_includes is the active filter path (Slice B); legacy prefix lists are now always None.
+        hidden_by_search = 0
         tier1_active = bool(params.get('tag_includes'))
-        if not hidden_only and len(channels) == 0 and tier1_active:
+        if not hidden_only and not id_filter_show_all and tier1_active:
             unfiltered = repos.channels.get_all(
                 provider_id=params['provider_id'],
-                media_types=params.get('media_types'),
-                adult_mode=params.get('adult_mode', 'all'),
+                media_types=params['media_types'],
+                genre_filters=params.get('genre_filters'),
+                invert_prefix_filters=params.get('invert_prefix_filters', False),
+                include_untagged=params.get('include_untagged', True),
+                include_untagged_quality=params.get('include_untagged_quality', True),
+                adult_mode=params['adult_mode'],
                 force_adult_provider_ids=force_adult_ids or None,
-                source_categories=params.get('source_categories'),
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
                 search_query=params.get('search_query'),
+                strict_genre_filter=params.get('strict_genre_filter'),
+                person_filter=params.get('person_filter'),
+                context_tag_filter=params.get('context_tag_filter'),
+                context_category_filter=params.get('context_category_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
+                exclude_watched=params.get('hide_watched', False),
+                tag_includes=None,  # the axis being measured
                 limit=_page_size,
             )
-            # Apply global exclusions to the unfiltered set too
-            if excluded_prefixes:
-                unfiltered = [
-                    c for c in unfiltered
-                    if c.detected_prefix not in excluded_prefixes
-                    and c.detected_region not in excluded_prefixes
-                ]
-            filtered_out_count = len(unfiltered)
+            # Mirror the exclusion filtering applied to `channels` so the diff isolates
+            # ONLY the tag filters (never the exclusion layer counted separately above).
+            if exclusions_applied:
+                unfiltered = _apply_python_exclusions(unfiltered, excluded_prefixes, excluded_user_cats)
+            hidden_by_search = max(0, len(unfiltered) - len(channels))
+            filtered_out_count = hidden_by_search
 
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
@@ -515,6 +566,9 @@ class _ChannelListMixin:
         params['total_channels']    = total
         params['has_adult']         = has_adult
         params['filtered_out_count'] = filtered_out_count
+        # Per-layer transparency counts read by _show_channel_filter_breakdown.
+        params['hidden_by_exclusions'] = hidden_by_exclusions
+        params['hidden_by_search']     = hidden_by_search
         params['id_filter_active']  = id_filter_active
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
@@ -550,6 +604,16 @@ class _ChannelListMixin:
         provider_icon_map  = params.get('provider_icon_map', {})
         given_provider_id  = params.get('given_provider_id')
 
+        # Track bypass state so filter_channels() can show the right suspend banner.
+        # Set BEFORE the zero-results return so a bypass that still yields nothing is
+        # reflected correctly.
+        self._currently_bypassing = params.get('bypassing_tier1', False)
+        self._currently_bypassing_exclusions = params.get('bypass_global_exclusions', False)
+
+        # Per-layer transparency counts (0 for a layer that is bypassed/revealed).
+        hidden_excl   = params.get('hidden_by_exclusions', 0)
+        hidden_search = params.get('hidden_by_search', 0)
+
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
         if not channels:
@@ -557,23 +621,31 @@ class _ChannelListMixin:
             if params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
-            else:
-                filtered_out = params.get('filtered_out_count', 0)
-                if filtered_out > 0:
-                    # Results exist but are hidden by Tier 1 filters — show the
-                    # actionable button in the banner area.
-                    self._show_channel_filter_button(filtered_out)
+            elif params.get('id_filter_active'):
+                # Dormant alert id-filter: single "N filtered — show" segment.
+                id_hidden = params.get('filtered_out_count', 0)
+                if id_hidden > 0:
+                    self._show_channel_filter_breakdown(0, id_hidden)
                     self.status_bar.showMessage(
-                        f"No results — {filtered_out:,} match{'es' if filtered_out == 1 else ''} hidden by current filters"
+                        f"No results — {id_hidden:,} match{'es' if id_hidden == 1 else ''} hidden by current filters"
                     )
-                    self.stats_label.setText(f"0 shown · {filtered_out:,} filtered")
+                    self.stats_label.setText(f"0 shown · {id_hidden:,} filtered")
                 else:
                     self.status_bar.showMessage("No channels match — try a different search or check filter settings")
                     self.stats_label.setText(f"Showing 0 of {total_channels:,}")
+            elif hidden_excl or hidden_search:
+                # Results exist but are hidden by one or both filter layers — show the
+                # per-layer breakdown so the user can reveal each independently.
+                self._show_channel_filter_breakdown(hidden_excl, hidden_search)
+                total_hidden = hidden_excl + hidden_search
+                self.status_bar.showMessage(
+                    f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
+                )
+                self.stats_label.setText(f"0 shown · {total_hidden:,} filtered")
+            else:
+                self.status_bar.showMessage("No channels match — try a different search or check filter settings")
+                self.stats_label.setText(f"Showing 0 of {total_channels:,}")
             return
-
-        # Track bypass state so filter_channels() can show the banner
-        self._currently_bypassing = params.get('bypassing_tier1', False)
 
         # Build legacy all_channels cache (still used by toggle_favorite / the
         # favorites cache update in _apply_favorite_toggle path).
@@ -644,13 +716,19 @@ class _ChannelListMixin:
 
         self.filter_channels()
 
-        # Alert id-filter: surface the SAME "N filtered — click to show" gold bar
-        # even with a non-empty result (partial exclusion), since filter_channels()
-        # hides banners when not bypassing.  Reuses _show_channel_filter_button.
-        if params.get('id_filter_active') and not getattr(self, '_currently_bypassing', False):
-            id_hidden = params.get('filtered_out_count', 0)
-            if id_hidden > 0:
-                self._show_channel_filter_button(id_hidden)
+        # Surface the per-layer transparency bar even with a non-empty result set
+        # (partial exclusion): filter_channels() may have shown a suspend banner and
+        # hidden the bar, so re-render it here as the last step.  The counts already
+        # read 0 for any layer the user revealed, so only still-hidden layers show —
+        # and the exclusions segment can appear alongside the Tier-1 suspend banner.
+        if params.get('id_filter_active'):
+            # Dormant alert id-filter: single segment, unless it was revealed.
+            if not getattr(self, '_currently_bypassing', False):
+                id_hidden = params.get('filtered_out_count', 0)
+                if id_hidden > 0:
+                    self._show_channel_filter_breakdown(0, id_hidden)
+        elif hidden_excl or hidden_search:
+            self._show_channel_filter_breakdown(hidden_excl, hidden_search)
 
     def _refresh_channel_stats_label(self) -> None:
         """Set the stats label from the current loaded row count.
@@ -704,6 +782,12 @@ class _ChannelListMixin:
                 f"{_icons.watch_alerts_icon}  Showing results from filtered categories — "
                 "filters suspended. Change search or filters to restore."
             )
+        elif getattr(self, '_currently_bypassing_exclusions', False):
+            self._show_channel_banner(
+                f"{_icons.global_exclusion_icon}  Showing content your Global Exclusions "
+                "normally hide — exclusions suspended for this view. "
+                "Change search or filters to restore."
+            )
         else:
             self._hide_channel_banners()
 
@@ -722,27 +806,54 @@ class _ChannelListMixin:
             return
         self._channel_banner.setText(text)
         self._channel_banner.setVisible(True)
-        if hasattr(self, '_channel_filter_btn'):
-            self._channel_filter_btn.setVisible(False)
+        if hasattr(self, '_channel_filter_bar'):
+            self._channel_filter_bar.setVisible(False)
 
-    def _show_channel_filter_button(self, filtered_out: int) -> None:
-        """Show the actionable 'N filtered — click to show' button in the banner area."""
-        if not hasattr(self, '_channel_filter_btn'):
+    def _show_channel_filter_breakdown(
+        self, hidden_by_exclusions: int = 0, hidden_by_search: int = 0
+    ) -> None:
+        """Render the per-layer filter-transparency bar (up to two clickable segments).
+
+        Each segment appears only when its hidden-count is > 0 and links to a
+        view-scoped reveal that never changes the user's stored settings:
+
+        * 🔒 Global Exclusions  → :meth:`_show_exclusion_hidden`
+        * 🔎 search / Tier-1     → :meth:`_show_filtered_results`
+
+        Coexists with the suspend banner (``_channel_banner``): after revealing one
+        layer its count is 0, so only the still-hidden layer's segment remains.
+
+        Args:
+            hidden_by_exclusions: Results this view dropped via Global Exclusions.
+            hidden_by_search: Results this view dropped via search / Tier-1 filters.
+        """
+        from metatv.gui import icons as _icons
+        if not hasattr(self, '_channel_filter_bar'):
             return
-        label = (
-            f"{filtered_out:,} result{'s' if filtered_out != 1 else ''} filtered  —  click to show"
-        )
-        self._channel_filter_btn.setText(label)
-        self._channel_filter_btn.setVisible(True)
-        if hasattr(self, '_channel_banner'):
-            self._channel_banner.setVisible(False)
+        show_excl = hidden_by_exclusions > 0
+        show_search = hidden_by_search > 0
+        if hasattr(self, '_channel_exclusion_btn'):
+            if show_excl:
+                self._channel_exclusion_btn.setText(
+                    f"{_icons.global_exclusion_icon} {hidden_by_exclusions:,} hidden by "
+                    f"Global Exclusions  —  show"
+                )
+            self._channel_exclusion_btn.setVisible(show_excl)
+        if hasattr(self, '_channel_filter_btn'):
+            if show_search:
+                self._channel_filter_btn.setText(
+                    f"{_icons.search_filter_icon} {hidden_by_search:,} hidden by "
+                    f"search filters  —  show"
+                )
+            self._channel_filter_btn.setVisible(show_search)
+        self._channel_filter_bar.setVisible(show_excl or show_search)
 
     def _hide_channel_banners(self) -> None:
-        """Hide both the info banner and the filter button."""
+        """Hide the info banner and the filter-transparency bar."""
         if hasattr(self, '_channel_banner'):
             self._channel_banner.setVisible(False)
-        if hasattr(self, '_channel_filter_btn'):
-            self._channel_filter_btn.setVisible(False)
+        if hasattr(self, '_channel_filter_bar'):
+            self._channel_filter_bar.setVisible(False)
 
     def get_enabled_media_types(self) -> list:
         """Get list of enabled media types from the filter panel."""
@@ -817,6 +928,16 @@ class _ChannelListMixin:
             self.load_channels()
             return
         self._bypass_tier1_filters = True
+        self.load_channels()
+
+    def _show_exclusion_hidden(self) -> None:
+        """Reveal what the Global Exclusions are hiding — clicked on the 🔒 segment.
+
+        View-scoped: sets the one-load ``_bypass_global_exclusions`` flag and reloads,
+        so the excluded content surfaces in THIS view only.  The user's stored Global
+        Exclusions are never changed — the next search or filter change restores them.
+        """
+        self._bypass_global_exclusions = True
         self.load_channels()
 
     def on_filter_changed(self):
@@ -1302,17 +1423,17 @@ class _ChannelListMixin:
         raw_count = len(rows)
         has_more = raw_count >= page_size
 
-        # Apply global exclusions (same as _query_channels)
-        excluded_prefixes = query_params.get('excluded_prefixes', set())
-        excluded_user_cats = query_params.get('excluded_user_categories', set())
-        if excluded_prefixes:
-            rows = [
-                c for c in rows
-                if c.detected_prefix not in excluded_prefixes
-                and c.detected_region not in excluded_prefixes
-            ]
-        if excluded_user_cats and not hidden_only:
-            rows = [c for c in rows if c.user_category not in excluded_user_cats]
+        # Apply Global Exclusions (same layer + chokepoint as _query_channels).  Skipped
+        # when the user has revealed a layer for this view — the exclusions-reveal bypass
+        # or the id-filter show-all reveal — so paged rows match page 1's revealed set
+        # (hidden_only page 1 never applies them either, so page N mustn't).
+        bypass_exclusions = bool(query_params.get('bypass_global_exclusions'))
+        if not hidden_only and not id_filter_show_all and not bypass_exclusions:
+            rows = _apply_python_exclusions(
+                rows,
+                query_params.get('excluded_prefixes', set()),
+                query_params.get('excluded_user_categories', set()),
+            )
 
         ratings_map = repos.ratings.get_all_map()
         dtos = [ChannelListDTO.from_orm(c, user_rating=ratings_map.get(c.id, 0)) for c in rows]

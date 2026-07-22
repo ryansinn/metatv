@@ -124,7 +124,7 @@ def test_channel_list_dto_is_frozen():
 
 def _make_render_host(qapp):
     """Real MainWindow via __new__ with the minimal widgets the render loop touches."""
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
 
@@ -135,11 +135,14 @@ def _make_render_host(qapp):
     win.channels_list.setModel(win.channel_model)
     # Banner widgets (stubbed)
     win._channel_banner = QLabel()
+    win._channel_filter_bar = QWidget()
+    win._channel_exclusion_btn = QPushButton()
     win._channel_filter_btn = QPushButton()
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
     win._search_page_size = 1000
     win._currently_bypassing = False
+    win._currently_bypassing_exclusions = False
     win._clear_provider_busy = MagicMock()
 
     # Icon presentation constants the render loop reads.

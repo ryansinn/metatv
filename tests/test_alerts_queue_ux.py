@@ -149,7 +149,9 @@ class TestAlertsTitleHtml:
 
 
 class TestShowMatchesHandler:
-    """MainWindow._on_vod_rule_show_matches routes to a rule's STORED alerted_ids."""
+    """MainWindow._on_vod_rule_show_matches seeds a live, editable keyword search
+    (B1) — a transparent view whose visible config produces the results — rather
+    than the opaque stored-id filter. The #293 id-filter path is left dormant."""
 
     def _stub(self, cfg, **extra):
         import types
@@ -173,20 +175,24 @@ class TestShowMatchesHandler:
         base.update(extra)
         return types.SimpleNamespace(**base)
 
-    def test_sets_id_filter_to_alerted_ids_and_loads(self, tmp_path, qapp):
+    def test_seeds_live_keyword_search_not_id_filter(self, tmp_path, qapp):
+        from unittest.mock import MagicMock
         from metatv.gui.main_window import MainWindow
         cfg = _make_config(tmp_path)
         cfg.add_vod_watch_alert({"text": "Odyssey", "match_type": "movie", "created": "r1"})
         cfg.record_vod_alert_match("r1", "chA")
         cfg.record_vod_alert_match("r1", "chB")
 
-        stub = self._stub(cfg)
+        stub = self._stub(
+            cfg, _on_vod_rule_view_matches=MagicMock(), _clear_id_filter=MagicMock()
+        )
         MainWindow._on_vod_rule_show_matches(stub, "r1")
 
-        # The exact stored matched ids are handed to the load path — not a keyword.
-        assert stub._details_id_filter == set(cfg.get_vod_alert_matches("r1")) == {"chA", "chB"}
-        stub._reset_context_filters.assert_called_once()
-        stub.load_channels.assert_called_once()
+        # B1: the alert seeds a live, editable keyword search (the rule's text + type),
+        # NOT an opaque frozen id-set.  The id-filter is left dormant (never set).
+        stub._on_vod_rule_view_matches.assert_called_once_with("Odyssey", "movie")
+        assert stub._details_id_filter is None
+        stub._clear_id_filter.assert_called_once()
 
     def test_falls_back_to_keyword_when_no_stored_matches(self, tmp_path, qapp):
         from unittest.mock import MagicMock

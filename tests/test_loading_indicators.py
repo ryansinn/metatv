@@ -241,7 +241,7 @@ def test_preferences_render_overwrites_loading_header_no_ratings(qapp):
 # ---------------------------------------------------------------------------
 
 def _make_load_channels_host(qapp):
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
     from PyQt6.QtCore import Qt
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
@@ -253,7 +253,9 @@ def _make_load_channels_host(qapp):
     win.channels_list.setModel(win.channel_model)
     # Banner widgets (created in setup_ui; stub them for the test)
     win._channel_banner = QLabel()
+    win._channel_filter_bar = QWidget()
     win._channel_filter_btn = QPushButton()
+    win._bypass_global_exclusions = False
     win.all_channels = ["stale"]
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
@@ -317,7 +319,7 @@ def test_load_channels_shows_loading_placeholder(qapp, monkeypatch):
 
 
 def test_channels_load_error_clears_loading_placeholder(qapp):
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton
+    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
 
@@ -326,6 +328,7 @@ def test_channels_load_error_clears_loading_placeholder(qapp):
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
     win._channel_banner = QLabel()
+    win._channel_filter_bar = QWidget()
     win._channel_filter_btn = QPushButton()
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
