@@ -805,6 +805,15 @@ class Config(BaseModel):
     # than named groups. Applied in addition to global_filter_excluded_content_types.
     global_filter_excluded_source_categories: list = Field(default_factory=list)
 
+    # Content-provenance exclusions — ``content_type`` TAG values to hide (slugs,
+    # e.g. ["ai_generated", "ai_voiceover"]). Empty = hide nothing. Distinct from the
+    # source-category groups above: those key off the provider's category header
+    # (source_category), while these match a channel's stored ``content_type`` tag
+    # (a NOT-EXISTS over content_tags). Driven by the "Content Provenance" section of
+    # the Exclusions dialog. Opt-out: a new content_type value is visible until
+    # explicitly excluded.
+    global_filter_excluded_tag_content_types: list = Field(default_factory=list)
+
     # User-defined categories that are globally excluded (added via "Add to Global Exclusions"
     # in the CategoryPickerDialog when creating or editing a user category).
     # Channels with user_category matching any of these names are hidden everywhere.

@@ -252,6 +252,14 @@ class _EpgOnNowMixin:
             from metatv.core.repositories import RepositoryFactory
             repos = RepositoryFactory(session)
             excluded_ch_provider_ids = set(repos.providers.get_hidden_provider_ids())
+            # Content-provenance Global Exclusion (paused-aware): resolve the excluded
+            # content_type slugs to a channel-id set so On-Now drops AI content just
+            # like the channel list.  Off-thread here; membership-checked in the render.
+            from metatv.core.filter_utils import excluded_tag_content_types
+            _ct_slugs = excluded_tag_content_types(self.config)
+            self._on_now_excluded_ct_ids = (
+                repos.tags.channel_ids_for_content_types(_ct_slugs) if _ct_slugs else set()
+            )
             repo = repos.epg
             filler = self.config.epg_filler_patterns if hide_filler else []
             dismissed = self._dismissed_ids()
@@ -349,6 +357,10 @@ class _EpgOnNowMixin:
                 continue
             region = self._channel_region_map.get(prog.channel_db_id or "", "")
             if is_channel_excluded(category, region, global_excluded):
+                continue
+            # Content-provenance layer (P1-6 sibling): drop channels carrying a
+            # globally-excluded content_type tag (AI Generated / AI Voiceover).
+            if prog.channel_db_id and prog.channel_db_id in self._on_now_excluded_ct_ids:
                 continue
 
             if category:

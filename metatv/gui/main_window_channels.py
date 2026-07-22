@@ -32,7 +32,8 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 
 
-def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set) -> list:
+def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set,
+                             excluded_channel_ids: set | None = None) -> list:
     """Drop channels hidden by the Python-side Global Exclusions.
 
     The batch Python twin of the canonical Global-Exclusion predicate — routes
@@ -40,13 +41,21 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     (the single source of truth for "language wins over region"; see its
     docstring). Used by both ``_query_channels`` and its pagination sibling, and
     by the ``hidden_by_search`` recount so the diff compares like with like.
-    A channel is also excluded when its user category is in ``excluded_user_cats``.
+    A channel is also excluded when its user category is in ``excluded_user_cats``,
+    or when its id is in ``excluded_channel_ids`` (the content-provenance layer —
+    channels carrying a globally-excluded ``content_type`` tag, pre-resolved via
+    ``TagRepository.channel_ids_for_content_types`` because the fetched rows carry
+    no tags; the Python-side twin of
+    ``filter_utils.tag_content_type_exclusion_criterion``).
 
     Args:
         channels: The candidate ChannelDB rows.
         excluded_prefixes: Prefix/region codes the user has globally excluded
             (build via ``filter_utils.global_exclusion_set``).
         excluded_user_cats: User categories the user has globally excluded.
+        excluded_channel_ids: Channel ids carrying a globally-excluded
+            ``content_type`` tag (resolved off-thread; ``None``/empty → no
+            content-type layer).
 
     Returns:
         The surviving channels (a new list; the input is not mutated).
@@ -58,6 +67,8 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
         ]
     if excluded_user_cats:
         channels = [c for c in channels if c.user_category not in excluded_user_cats]
+    if excluded_channel_ids:
+        channels = [c for c in channels if c.id not in excluded_channel_ids]
     return channels
 
 
@@ -313,11 +324,15 @@ class _ChannelListMixin:
             for p in all_providers:
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
-        from metatv.core.filter_utils import global_exclusion_set
+        from metatv.core.filter_utils import global_exclusion_set, excluded_tag_content_types
         _filter_paused = self.config.global_filter_paused
         # Canonical builder (paused-aware): union of the category blacklist
         # (group→leaf-expanded) and the explicit "Block [PREFIX]" set.
         _global_excluded_prefixes = global_exclusion_set(self.config)
+        # Content-provenance layer (paused-aware slugs): the worker resolves these
+        # to an excluded channel-id set so the Python exclusion pass drops channels
+        # carrying an excluded content_type tag (e.g. AI Generated / AI Voiceover).
+        _excluded_ct_slugs = excluded_tag_content_types(self.config)
         _search_text = (self.search_input.text().strip()
                         if hasattr(self, 'search_input') else "")
         # _bypass_tier1_filters: set when user clicks "Show filtered results" in the
@@ -346,6 +361,8 @@ class _ChannelListMixin:
             source_categories=None if _filter_paused else get_active_content_type_filter(self.config),
             excluded_prefixes=_global_excluded_prefixes,
             excluded_user_categories=set() if _filter_paused else set(self.config.global_filter_excluded_user_categories),
+            # content_type tag slugs to hide (paused-aware); worker resolves the id-set.
+            excluded_tag_content_types=_excluded_ct_slugs,
             # View-scoped reveal: skip the Python-side Global Exclusions for this one
             # load so the user can see exactly what those exclusions hide (mirror-not-
             # cage). Never mutates the stored settings; reset on next search/filter change.
@@ -467,6 +484,15 @@ class _ChannelListMixin:
         # APPLYING them so hidden matches aren't re-excluded.
         excluded_prefixes = params.get('excluded_prefixes', set())
         excluded_user_cats = params.get('excluded_user_categories', set())
+        # Content-provenance layer: resolve the excluded content_type slugs to a
+        # channel-id set (bounded, indexed — safe off the UI thread).  Folded into
+        # the same _apply_python_exclusions pass so it counts into hidden_by_exclusions
+        # and is revealed by the exclusions-bypass exactly like the prefix layer.
+        _excl_ct_slugs = params.get('excluded_tag_content_types') or set()
+        excluded_ct_ids = (
+            repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
+            if _excl_ct_slugs else set()
+        )
 
         # ── Filter layer 1 — Global Exclusions (Python-side) ───────────────────────
         # Capture a before/after count so the gold bar can report exactly how many
@@ -480,7 +506,9 @@ class _ChannelListMixin:
         hidden_by_exclusions = 0
         if exclusions_applied:
             _before_excl = len(channels)
-            channels = _apply_python_exclusions(channels, excluded_prefixes, excluded_user_cats)
+            channels = _apply_python_exclusions(
+                channels, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+            )
             hidden_by_exclusions = _before_excl - len(channels)
 
         # ── Filter layer 2 — search / Tier-1 tag filters ───────────────────────────
@@ -517,7 +545,9 @@ class _ChannelListMixin:
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
             # ONLY the tag filters (never the exclusion layer counted separately above).
             if exclusions_applied:
-                unfiltered = _apply_python_exclusions(unfiltered, excluded_prefixes, excluded_user_cats)
+                unfiltered = _apply_python_exclusions(
+                    unfiltered, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                )
             hidden_by_search = max(0, len(unfiltered) - len(channels))
             filtered_out_count = hidden_by_search
 
@@ -1429,10 +1459,16 @@ class _ChannelListMixin:
         # (hidden_only page 1 never applies them either, so page N mustn't).
         bypass_exclusions = bool(query_params.get('bypass_global_exclusions'))
         if not hidden_only and not id_filter_show_all and not bypass_exclusions:
+            _excl_ct_slugs = query_params.get('excluded_tag_content_types') or set()
+            _excl_ct_ids = (
+                repos.tags.channel_ids_for_content_types(_excl_ct_slugs)
+                if _excl_ct_slugs else set()
+            )
             rows = _apply_python_exclusions(
                 rows,
                 query_params.get('excluded_prefixes', set()),
                 query_params.get('excluded_user_categories', set()),
+                _excl_ct_ids,
             )
 
         ratings_map = repos.ratings.get_all_map()

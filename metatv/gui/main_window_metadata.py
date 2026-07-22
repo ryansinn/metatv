@@ -85,17 +85,29 @@ class _MetadataMixin:
                 queue_ids = repos.queue.get_queued_ids()
                 provider_names = {p.id: p.name for p in session.query(ProviderDB).all()}
                 hidden_provider_ids = set(repos.providers.get_hidden_provider_ids())
-                from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
+                from metatv.core.filter_utils import (
+                    global_exclusion_set, is_channel_excluded, excluded_tag_content_types,
+                )
                 _filter_paused = self.config.global_filter_paused
                 # Canonical Global-Exclusion set (paused-aware, group→leaf-expanded).
                 all_excluded = global_exclusion_set(self.config)
                 blocked_prefixes = set() if _filter_paused else set(self.config.global_filter_excluded_prefixes)
+                # Content-provenance layer (paused-aware): channel-id set carrying a
+                # globally-excluded content_type tag (AI Generated / AI Voiceover).  A
+                # matching variant is greyed out here too, matching the channel list.
+                _ct_slugs = excluded_tag_content_types(self.config)
+                excluded_ct_ids = (
+                    repos.tags.channel_ids_for_content_types(_ct_slugs) if _ct_slugs else set()
+                )
 
                 def _is_filtered(ch: ChannelDB) -> bool:
                     # Shared predicate: prefix wins, region is the no-prefix fallback —
                     # so a prefix-less variant filed under an excluded region is greyed
-                    # out here too, matching the channel list exactly (P1-6).
-                    return is_channel_excluded(ch.detected_prefix, ch.detected_region, all_excluded)
+                    # out here too, matching the channel list exactly (P1-6).  The
+                    # content_type layer (id-set membership) greys out AI variants too.
+                    if is_channel_excluded(ch.detected_prefix, ch.detected_region, all_excluded):
+                        return True
+                    return ch.id in excluded_ct_ids
 
                 def _is_hidden_category(ch: ChannelDB) -> bool:
                     return bool(ch.detected_prefix and ch.detected_prefix in blocked_prefixes)

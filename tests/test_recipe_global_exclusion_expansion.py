@@ -128,7 +128,7 @@ def test_global_exclusion_sets_contains_group_leaf(tmp_path):
     cfg = _checked_group_config(tmp_path, _ARABIC_LEAVES)
     view = _recipe_view_with_config(cfg)
 
-    excluded_prefixes, excluded_categories = view._global_exclusion_sets()
+    excluded_prefixes, excluded_categories, _excluded_ct = view._global_exclusion_sets()
 
     assert _LEAF_PREFIX in excluded_prefixes, (
         "A leaf prefix of the checked Arabic group must be excluded — the bug "
@@ -150,7 +150,7 @@ def test_engine_drops_channel_for_checked_group(tmp_path, file_db):
     cid = _add_arabic_channel(file_db)
     cfg = _checked_group_config(tmp_path, _ARABIC_LEAVES)
     view = _recipe_view_with_config(cfg)
-    excluded_prefixes, excluded_categories = view._global_exclusion_sets()
+    excluded_prefixes, excluded_categories, _excluded_ct = view._global_exclusion_sets()
 
     with file_db.session_scope(commit=False) as session:
         repos = RepositoryFactory(session)
@@ -206,7 +206,7 @@ def test_paused_returns_empty_sets_channel_reappears(tmp_path, file_db):
     cfg.global_filter_paused = True
     view = _recipe_view_with_config(cfg)
 
-    excluded_prefixes, excluded_categories = view._global_exclusion_sets()
+    excluded_prefixes, excluded_categories, _excluded_ct = view._global_exclusion_sets()
     assert excluded_prefixes == set()
     assert excluded_categories == set()
 
@@ -255,7 +255,7 @@ def test_global_exclusion_sets_delegates_to_filter_utils(tmp_path, monkeypatch):
     monkeypatch.setattr(fu, "get_active_category_filter", _spy_category)
     monkeypatch.setattr(fu, "get_excluded_prefixes", _spy_prefixes)
 
-    excluded_prefixes, _ = view._global_exclusion_sets()
+    excluded_prefixes, _, _ = view._global_exclusion_sets()
 
     assert called["category"], "_global_exclusion_sets must call get_active_category_filter"
     assert called["prefixes"], "_global_exclusion_sets must call get_excluded_prefixes"

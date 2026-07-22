@@ -371,6 +371,7 @@ class _NavMixin:
             or bool(self.config.global_filter_excluded_prefixes)
             or bool(getattr(self.config, "global_filter_excluded_user_categories", []))
             or bool(getattr(self.config, "global_filter_excluded_source_categories", []))
+            or bool(getattr(self.config, "global_filter_excluded_tag_content_types", []))
             or not getattr(self.config, "global_filter_include_uncategorized", True)
         )
         self._filter_chip.set_filter_state(active, self.config.global_filter_paused)

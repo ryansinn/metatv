@@ -1653,7 +1653,15 @@ class _TagsSection(QWidget):
             _icons.tag_source_given_icon if tag.source_given
             else _icons.tag_inferred_icon
         )
-        label = f"{prov_icon} {tag.value}"
+        # content_type values are stored slugs (e.g. "ai_generated"); render the
+        # friendly label via the single display chokepoint.  The click identity
+        # (tag.value) below is unchanged — display only.
+        if tag.facet_type == "content_type":
+            from metatv.core.channel_name_utils import content_type_display
+            display_value = content_type_display(tag.value)
+        else:
+            display_value = tag.value
+        label = f"{prov_icon} {display_value}"
 
         chip = QPushButton(label)
         chip.setFlat(True)
@@ -1693,7 +1701,7 @@ class _TagsSection(QWidget):
                 "Click: filter to this tag  ·  Right-click: Discover this tag"
             )
         chip.setToolTip(
-            f"{tag.facet_type}: {tag.value}\n"
+            f"{tag.facet_type}: {display_value}\n"
             f"Provenance: {prov_label}\n"
             f"Feeder(s): {feeder_str}\n"
             f"Confidence: {conf_pct}%{conf_note}\n"

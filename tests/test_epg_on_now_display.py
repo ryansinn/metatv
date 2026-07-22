@@ -107,6 +107,7 @@ def _make_render_host(config=None) -> SimpleNamespace:
     host._channel_prefix_map = {}
     host._channel_title_map = {}
     host._channel_region_map = {}   # read by the render loop's global-exclusion fallback
+    host._on_now_excluded_ct_ids = set()  # content-provenance drop set (resolved in _fetch_on_now)
 
     # Bind the real method
     host._render_on_now = lambda progs: EpgView._render_on_now(host, progs)

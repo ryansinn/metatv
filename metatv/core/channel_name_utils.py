@@ -1002,6 +1002,49 @@ AI_GENERATED_VALUE: str = "ai_generated"
 AI_VOICEOVER_VALUE: str = "ai_voiceover"
 
 
+# ── content_type value → display name (single source of truth) ──────────────── #
+# The ``content_type`` facet stores snake_case slugs as the queried/stored identity
+# (``ppv``, ``live_event``, ``sports``, ``ai_generated``, ``ai_voiceover``).  Those
+# slugs are NOT presentation-ready, so every surface that shows a content_type VALUE
+# (details-pane Tags chips, the recipe/tag-cloud pantry, the Global Exclusions
+# "Content Provenance" section) routes the slug through :func:`content_type_display`
+# for its English label.  The slug remains the identity everywhere — display only.
+#
+# This is the value-display sibling of the details pane's ``_FACET_LABELS`` (which
+# names the facet TYPES, e.g. ``content_type`` → "Content Type"); it lives here
+# because ``channel_name_utils.py`` is the lookup-table home (CLAUDE.md) and the
+# slugs originate here (``AI_GENERATED_VALUE`` / ``AI_VOICEOVER_VALUE``).
+CONTENT_TYPE_DISPLAY_NAMES: dict[str, str] = {
+    "ppv":            "PPV",
+    "live_event":     "Live Event",
+    "sports":         "Sports",
+    AI_GENERATED_VALUE: "AI Generated",
+    AI_VOICEOVER_VALUE: "AI Voiceover",
+}
+
+
+def content_type_display(value: str) -> str:
+    """Return the English display name for a ``content_type`` tag *value*.
+
+    The single chokepoint that turns a stored ``content_type`` slug into a
+    human-readable label.  Known slugs map via :data:`CONTENT_TYPE_DISPLAY_NAMES`
+    (``"ai_generated"`` → ``"AI Generated"``); an unknown slug degrades
+    gracefully to a Title-Cased, underscore-stripped form so a future value never
+    renders as a raw ``snake_case`` token even before it is added to the map.
+
+    Args:
+        value: A stored ``content_type`` tag value (e.g. ``"ai_voiceover"``).
+
+    Returns:
+        The display name (e.g. ``"AI Voiceover"``).  Never mutates identity —
+        callers keep the original slug for queries/state.
+    """
+    known = CONTENT_TYPE_DISPLAY_NAMES.get(value)
+    if known is not None:
+        return known
+    return value.replace("_", " ").title()
+
+
 class AiProvenance(NamedTuple):
     """Result of :func:`detect_ai_provenance`.
 
