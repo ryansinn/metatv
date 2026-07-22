@@ -343,6 +343,14 @@ class _ProviderMixin:
         self._refresh_recommended_section()
         # Main channel list / search results — also rebuilds provider_icon_map
         self.load_channels()
+        # Filter-panel facet counts: a mutation may have added/removed facet values.
+        # Re-run the tag-facet stats load (off-thread) so the panel reflects the new
+        # corpus; on refresh/import this is what re-invokes FilterPanel.update_data,
+        # which applies the opt-out model to newly-seen values and fires the
+        # new-values popup. (initialize_filter_stats no-ops safely before the panel
+        # exists.)
+        if hasattr(self, "filter_panel"):
+            self.initialize_filter_stats()
         # Center overlay views — lazily constructed, refresh only if present
         if hasattr(self, "discover_view"):
             self.discover_view.reload()
@@ -480,17 +488,23 @@ class _ProviderMixin:
             self.refreshing_providers.discard(provider_id)
 
         if success:
-            # Prefix stats were computed in the worker thread — just apply them.
+            # Prefix stats were computed in the worker thread — keep the unmapped
+            # list for the "Uncategorized" workflow.  NOTE: we no longer feed these
+            # prefix stats to FilterPanel.update_data() — that expected the legacy
+            # {language_groups: …} shape while update_data() now takes the tag-facet
+            # shape ({facet_type: {value: count}}), so the call silently EMPTIED
+            # every facet section.  The filter panel now refreshes through the
+            # canonical _refresh_provider_dependent_views() → initialize_filter_stats()
+            # path (tag model), which also applies the opt-out / new-values logic.
             stats = getattr(thread, "prefix_stats", None) if thread is not None else None
             if stats:
                 self._filter_unmapped_prefixes = stats.get("unmapped_prefixes", [])
-                if hasattr(self, "filter_panel"):
-                    self.filter_panel.update_data(stats)
                 logger.info(
                     f"Filter stats: {stats['channels_with_prefix']:,} channels have prefixes"
                 )
 
-            # Refresh every view derived from provider/channel data (canonical)
+            # Refresh every view derived from provider/channel data (canonical).
+            # This re-runs initialize_filter_stats() → FilterPanel.update_data().
             self._refresh_provider_dependent_views()
             # Re-check any failed streams now that content is fresh
             if hasattr(self, "stream_retry_manager"):

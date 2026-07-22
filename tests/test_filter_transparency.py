@@ -154,6 +154,33 @@ class TestHiddenByExclusions:
         assert out["hidden_by_exclusions"] == 2, "the 2 AR matches are counted as exclusion-hidden"
         assert out["hidden_by_search"] == 0, "no Tier-1 filter active"
 
+    def test_language_prefix_survives_region_exclusion(self, session):
+        """Prefix-wins: an un-excluded language prefix (EN) keeps a channel even
+        when its region tag is excluded — excluding IN never hides an English
+        movie merely filed under an Indian category. A prefix-LESS channel still
+        falls back to the region check and is hidden."""
+        repos = RepositoryFactory(session)
+        # English movies whose region tag is the excluded 'IN' — must SURVIVE.
+        for i in range(3):
+            _ch(session, f"Neighborhood Watch EN {i}",
+                detected_prefix="EN", detected_region="IN")
+        # No prefix to speak for it + excluded region → hidden by the region fallback.
+        _ch(session, "Neighborhood Watch noprefix",
+            detected_prefix=None, detected_region="IN")
+        # Prefix itself excluded → hidden regardless of region.
+        _ch(session, "Neighborhood Watch AR",
+            detected_prefix="AR", detected_region="AR")
+        session.commit()
+
+        params = _params(search_query="Neighborhood Watch",
+                         excluded_prefixes={"IN", "AR"})
+        dtos, out = _ChannelListMixin._query_channels(repos, params)
+
+        assert sorted(d.detected_prefix for d in dtos) == ["EN", "EN", "EN"], \
+            "the 3 EN matches survive despite region IN being excluded"
+        assert out["hidden_by_exclusions"] == 2, \
+            "the no-prefix/IN row and the AR-prefix row are the exclusion-hidden ones"
+
     def test_counts_results_dropped_by_user_category_exclusion(self, session):
         """User-category exclusion is counted in the same layer."""
         repos = RepositoryFactory(session)

@@ -54,9 +54,30 @@ def _make_config(
     filter_included_platforms: list[str] | None = None,
     filter_included_genres: list[str] | None = None,
     filter_untagged_selected: list[str] | None = None,
+    baseline_established: bool = True,
 ) -> SimpleNamespace:
-    """Minimal config for FilterPanel — no save(), no filesystem."""
+    """Minimal config for FilterPanel — no save(), no filesystem.
+
+    These persistence tests exercise the *steady state* — the 2nd-and-later app
+    launch, where the opt-out baseline has already been recorded so a saved subset
+    is honoured (a value absent from the saved list is a deliberate deselection,
+    not a new value).  That baseline is the ``filter_known_*`` sets, pre-seeded here
+    to the full set of values ``_make_stats`` supplies.  The one-time *first-run*
+    baseline (``filter_known_* is None`` → include everything, un-hiding prior
+    deselections) is covered separately in ``test_filter_opt_out.py``; pass
+    ``baseline_established=False`` to exercise it here.
+    """
+    _known = (lambda vals: vals if baseline_established else None)
     cfg = SimpleNamespace(
+        filter_known_languages=_known(["EN", "FR"]),
+        filter_known_regions=_known(["US", "CA"]),
+        filter_known_qualities=_known(["HD", "SD"]),
+        filter_known_platforms=_known(["Netflix"]),
+        filter_known_genres=_known(["Action", "Drama", "Comedy"]),
+        filter_known_categories=_known([]),
+        filter_known_subtitles=_known([]),
+        filter_known_dubs=_known([]),
+        filter_known_formats=_known([]),
         # Icons (used by _Section / _GroupRow)
         info_icon="ℹ",
         expand_icon="▶",
@@ -253,7 +274,8 @@ def test_live_refresh_preserves_in_memory_quality(qapp):
 
 def test_genre_fresh_install_selects_all(qapp):
     """When no genre selection is persisted (None), update_data must select all genres."""
-    cfg = _make_config(filter_included_genres=None)  # never configured = None
+    # Genuine fresh install: no opt-out baseline recorded yet (filter_known_* None).
+    cfg = _make_config(filter_included_genres=None, baseline_established=False)
     panel = _build_panel(qapp, cfg)
 
     panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5, "Comedy": 3}))

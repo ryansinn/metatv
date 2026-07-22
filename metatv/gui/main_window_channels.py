@@ -36,9 +36,16 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
 
     Single chokepoint for the exclusion filtering applied after ``get_all`` (used
     by both ``_query_channels`` and its pagination sibling, and by the
-    ``hidden_by_search`` recount so the diff compares like with like). A channel is
-    excluded when its detected prefix OR region is in ``excluded_prefixes``, or when
-    its user category is in ``excluded_user_cats``.
+    ``hidden_by_search`` recount so the diff compares like with like).
+
+    Language wins over region. The Global Exclusions dialog lets the user hide
+    **prefix** codes (grouped under language headings that are "a visual hint, not
+    a truth"), so the detected **prefix** is the primary signal: a channel with an
+    explicit, un-excluded prefix (e.g. ``EN``) is kept even when its region tag is
+    excluded. That way excluding ``IN``/``DE`` never hides an English movie merely
+    filed under an Indian/German category — the language the user did NOT exclude
+    speaks for it. The region only decides when the channel has no prefix at all.
+    A channel is also excluded when its user category is in ``excluded_user_cats``.
 
     Args:
         channels: The candidate ChannelDB rows.
@@ -51,8 +58,9 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     if excluded_prefixes:
         channels = [
             c for c in channels
-            if c.detected_prefix not in excluded_prefixes
-            and c.detected_region not in excluded_prefixes
+            if (c.detected_prefix not in excluded_prefixes
+                if c.detected_prefix
+                else c.detected_region not in excluded_prefixes)
         ]
     if excluded_user_cats:
         channels = [c for c in channels if c.user_category not in excluded_user_cats]
