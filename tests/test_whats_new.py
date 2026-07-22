@@ -226,6 +226,155 @@ def test_whats_new_dialog_empty_list(qapp):
 
 
 # ---------------------------------------------------------------------------
+# 2a-2. Entry-item clipping fix — expand-to-content, single outer scroller
+#
+# Regression coverage for the clipping bug where a card's word-wrapped title
+# and bullet QLabels were laid out using Qt's naive (too-wide-assumed)
+# sizeHint instead of the label's real heightForWidth at its *actual* render
+# width, so the box given to the label was shorter than the wrapped text
+# needed — clipping the tail — while the scroll area still stretched the
+# empty remainder to fill the viewport. See ``no_width_force`` in
+# metatv/gui/qt_size_utils.py (applied in
+# WhatsNewDialog._build_entry_card) for the full root-cause.
+# ---------------------------------------------------------------------------
+
+from PyQt6.QtWidgets import QLabel, QScrollArea, QWIDGETSIZE_MAX
+
+
+def _long_bullet_entry() -> WhatsNewEntry:
+    """Synthetic entry mirroring the real long-bullet entry (the migration-
+    toast row-height fix) that first exposed the clipping bug in the owner's
+    screenshot — multi-sentence bullets long enough to need several wrapped
+    lines at the dialog's default width."""
+    return WhatsNewEntry(
+        id=999999,
+        version="0.10.0",
+        date="2026-07-22",
+        title="Migration toast no longer clips a second progress row",
+        items=(
+            "The \"Migration in progress\" toast now grows to fit every running "
+            "migration. Previously the panel kept its one-row height even when a "
+            "second migration started — both rows got squeezed into that height, "
+            "with the labels clipped to about half their text and the second "
+            "row's bar squeezed against the frame edge. This first became visible "
+            "when two migrations ran back-to-back on launch (detected_title_reparse "
+            "v5 + tag_backfill v8), but the underlying sizing bug was pre-existing "
+            "and would have hit any future multi-migration launch.",
+            "The panel now measures its own content directly instead of trusting "
+            "a nested layout's size hint, so it reliably grows one full row per "
+            "concurrent migration (and stays put once tasks are running — the "
+            "one-row case already worked correctly).",
+        ),
+    )
+
+
+def _settle(app, cycles: int = 15) -> None:
+    """Pump the event loop so pending resize/layout passes converge."""
+    for _ in range(cycles):
+        app.processEvents()
+
+
+def _item_wrap_labels(dlg) -> list[QLabel]:
+    """Return every word-wrapped ``QLabel`` (title + bullets) in the currently
+    shown card — the widgets the clipping bug hit."""
+    card = dlg._card_layout.itemAt(0).widget()
+    layout = card.layout()
+    labels = []
+    for i in range(layout.count()):
+        w = layout.itemAt(i).widget()
+        if isinstance(w, QLabel) and w.wordWrap():
+            labels.append(w)
+    return labels
+
+
+def test_long_entry_body_not_clipped(qapp):
+    """Every wrapped item widget's actual height must be >= its own
+    heightForWidth at the width it was actually given — never less, which is
+    exactly what clipping looked like (the layout gave the label a shorter
+    box than the wrapped text needs at that width)."""
+    entry = _long_bullet_entry()
+    dlg = WhatsNewDialog([entry])
+    dlg.resize(540, 300)  # smaller than the full content needs — forces real scrolling
+    dlg.show()
+    _settle(qapp)
+
+    labels = _item_wrap_labels(dlg)
+    assert len(labels) == 3, "Expected title + 2 word-wrapped bullet QLabels"
+    for label in labels:
+        needed = label.heightForWidth(label.width())
+        assert label.height() >= needed, (
+            f"Label clipped: height={label.height()} needed={needed} "
+            f"text={label.text()[:60]!r}"
+        )
+
+
+def test_no_per_item_scroll_area_or_capped_height(qapp):
+    """No item widget may carry its own QScrollArea or a capped maximumHeight
+    — the outer dialog scroll area is the only scrollable surface, and every
+    item must be free to grow to whatever height its content needs."""
+    entry = _long_bullet_entry()
+    dlg = WhatsNewDialog([entry])
+    dlg.show()
+    _settle(qapp)
+
+    labels = _item_wrap_labels(dlg)
+    assert labels
+    for label in labels:
+        assert label.maximumHeight() == QWIDGETSIZE_MAX, (
+            f"Item label has a capped maximumHeight={label.maximumHeight()}"
+        )
+        assert label.findChildren(QScrollArea) == [], "Item widget has a nested scroll area"
+
+
+def test_outer_scroll_area_is_the_only_vertical_scroller(qapp):
+    """Exactly one QScrollArea exists in the whole dialog, and it never shows
+    a horizontal scrollbar — the single scrollable surface for every entry's
+    full content, with no horizontal scrolling anywhere."""
+    entries = [_long_bullet_entry()]
+    dlg = WhatsNewDialog(entries)
+    dlg.resize(540, 260)
+    dlg.show()
+    _settle(qapp)
+
+    scroll_areas = dlg.findChildren(QScrollArea)
+    assert len(scroll_areas) == 1, (
+        f"Expected exactly one QScrollArea (the outer dialog body), found {len(scroll_areas)}"
+    )
+    from PyQt6.QtCore import Qt as _Qt
+
+    scroll = scroll_areas[0]
+    assert scroll.horizontalScrollBarPolicy() == _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert scroll.horizontalScrollBar().maximum() == 0, "Horizontal scrolling appeared"
+
+
+def test_real_whats_new_entries_render_without_clipping(qapp):
+    """Every real WHATS_NEW entry (not just the synthetic long-bullet one)
+    renders without clipping as the carousel steps through all of them —
+    the fix must hold for actual shipped changelog content, not just the
+    synthetic repro."""
+    entries = sorted(WHATS_NEW, key=lambda e: e.id, reverse=True)
+    if not entries:
+        pytest.skip("No WHATS_NEW entries to check")
+    dlg = WhatsNewDialog(entries)
+    dlg.resize(540, 260)  # small enough that at least some entries must scroll
+    dlg.show()
+    _settle(qapp)
+
+    for _ in range(len(entries)):
+        for label in _item_wrap_labels(dlg):
+            needed = label.heightForWidth(label.width())
+            assert label.height() >= needed, (
+                f"Clipped at entry idx={dlg._index} (id={entries[dlg._index].id}): "
+                f"height={label.height()} needed={needed}"
+            )
+        if dlg._btn_older.isEnabled():
+            dlg._go_older()
+            _settle(qapp, cycles=8)
+        else:
+            break
+
+
+# ---------------------------------------------------------------------------
 # 2b. Carousel behavioral tests
 # ---------------------------------------------------------------------------
 

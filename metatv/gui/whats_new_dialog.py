@@ -29,6 +29,7 @@ from loguru import logger
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.whats_new import WhatsNewEntry
 
 
@@ -207,7 +208,18 @@ class WhatsNewDialog(QDialog):
         self._card_layout.addStretch()
 
     def _build_entry_card(self, entry: WhatsNewEntry) -> QWidget:
-        """Build a single entry card widget."""
+        """Build a single entry card widget.
+
+        Every word-wrapped label runs through ``_no_width_force`` — without it,
+        Qt's box-layout heightForWidth support pre-computes the wrapped height
+        using the label's own wide, unconstrained preferred width instead of
+        the narrower width it actually renders at once squeezed into the
+        scroll area's viewport, under-computing the height and clipping the
+        text's tail (the entry-clipping bug this fixes). See
+        ``metatv/gui/qt_size_utils.py`` for the full root-cause writeup —
+        it's the same trap as docs/DETAILS_PANE_DESIGN.md → "Width
+        discipline", hitting the height axis here instead of width.
+        """
         card = QWidget()
         card.setStyleSheet(_theme.WHATS_NEW_CARD)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -220,6 +232,7 @@ class WhatsNewDialog(QDialog):
         title_label = QLabel(entry.title)
         title_label.setStyleSheet(_theme.WHATS_NEW_TITLE)
         title_label.setWordWrap(True)
+        _no_width_force(title_label)
         layout.addWidget(title_label)
 
         # Version + date meta line
@@ -227,11 +240,12 @@ class WhatsNewDialog(QDialog):
         meta_label.setStyleSheet(_theme.WHATS_NEW_META)
         layout.addWidget(meta_label)
 
-        # Bullet items
+        # Bullet items — each fully expands to its wrapped-text height, no cap.
         for item_text in entry.items:
             item_label = QLabel(f"{_icons.bullet_icon}  {item_text}")
             item_label.setStyleSheet(_theme.WHATS_NEW_ITEM)
             item_label.setWordWrap(True)
+            _no_width_force(item_label)
             layout.addWidget(item_label)
 
         return card
