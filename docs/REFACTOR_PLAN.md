@@ -145,7 +145,8 @@ copy-pasted in **at least 6 places**:
 - **Accept:** no per-call executor remains; selecting many channels does not grow the thread
   count; metadata still loads.
 
-### P1-6 — One shared Global-Exclusion predicate across all surfaces
+### P1-6 — One shared Global-Exclusion predicate across all surfaces  ✅ DONE
+- **Resolution:** `filter_utils.is_channel_excluded` / `channel_exclusion_criterion` / `global_exclusion_set` are the one chokepoint; all four surfaces (channel list, details "Other Versions", EPG On-Now, facet/recipe/tag counts) route through them. Behaviour changes shipped: metadata + EPG On-Now hide prefix-less region-excluded rows; tag/recipe counts reveal language-tagged rows filed under excluded regions. See `docs/FILTERING_DESIGN.md` → Tier-2 "Unified predicate".
 - **Where:** three surfaces interpret the same `global_filter_excluded_categories` set differently:
   - `metatv/gui/main_window_channels.py` `_apply_python_exclusions` — **prefix-wins + region-fallback**
     (an un-excluded language prefix keeps the channel; region only decides when there is no prefix). *(current, correct rule — shipped #298)*

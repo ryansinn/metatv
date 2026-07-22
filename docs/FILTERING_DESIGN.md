@@ -79,7 +79,13 @@ Once content is in a curated collection, it is permanently accessible regardless
 
 **Matching rule — language wins over region.** The blacklist stores prefix/category codes (grouped under language headings that are "a visual hint, not a truth"). A channel is hidden when its **detected prefix** is in the excluded set; when a channel has **no prefix**, its **detected region** is checked instead (fallback). An explicit, un-excluded prefix (e.g. `EN`) therefore keeps the channel even when its region tag is excluded — so excluding `IN`/`DE` never hides an English movie merely filed under an Indian/German category. This can only reveal content, never hide more. Chokepoint: `_apply_python_exclusions` (`metatv/gui/main_window_channels.py`); test: `tests/test_filter_transparency.py::test_language_prefix_survives_region_exclusion`.
 
-> **Open inconsistency (follow-up).** Three surfaces interpret the same exclusion set differently: the channel list uses prefix-wins + region-fallback (above); Recommendations/metadata (`_is_filtered` in `main_window_metadata.py`) matches **prefix-only** (no region at all → would show ~37k prefix-less region-excluded rows the list hides); EPG On-Now builds its own hidden-prefix set. A future change should unify all three behind one shared predicate (the channel-list rule) so every surface agrees exactly.
+**Unified predicate (P1-6).** All surfaces now interpret the exclusion set through one chokepoint in `metatv/core/filter_utils.py`:
+
+- `is_channel_excluded(detected_prefix, detected_region, excluded)` — THE canonical Python predicate (prefix-wins + region-fallback, above).
+- `channel_exclusion_criterion(excluded, channel_cls)` — its SQLAlchemy KEEP twin, for `.filter(...)`.
+- `global_exclusion_set(config)` — the paused-aware builder of the `excluded` set (category blacklist ∪ "Block [PREFIX]" codes).
+
+Surfaces routing through them: the **channel list** (`_apply_python_exclusions`, the batch Python twin, in `main_window_channels.py`); **details "Other Versions"** (`_is_filtered` in `main_window_metadata.py` — now region-aware, so a prefix-less variant filed under an excluded region is greyed out, matching the list); **EPG On-Now** (`epg_on_now_mixin.py` — the global layer uses the predicate with region fallback, while the EPG-specific `epg_hidden_prefixes` stays a separate prefix-only layer); and **facet/recipe/tag counts** (`_scope_to_visible_channels` in `repositories/tag.py`, via the SQL twin — counts now stop over-hiding language-tagged content filed under an excluded region). These four are the ONLY implementations of the rule and must never fork.
 
 #### Exclusions chip behavior (bottom nav bar)
 

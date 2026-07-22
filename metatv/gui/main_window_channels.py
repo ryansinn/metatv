@@ -27,6 +27,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from loguru import logger
 
+from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
 
@@ -34,22 +35,17 @@ from metatv.gui import theme as _theme
 def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_user_cats: set) -> list:
     """Drop channels hidden by the Python-side Global Exclusions.
 
-    Single chokepoint for the exclusion filtering applied after ``get_all`` (used
-    by both ``_query_channels`` and its pagination sibling, and by the
-    ``hidden_by_search`` recount so the diff compares like with like).
-
-    Language wins over region. The Global Exclusions dialog lets the user hide
-    **prefix** codes (grouped under language headings that are "a visual hint, not
-    a truth"), so the detected **prefix** is the primary signal: a channel with an
-    explicit, un-excluded prefix (e.g. ``EN``) is kept even when its region tag is
-    excluded. That way excluding ``IN``/``DE`` never hides an English movie merely
-    filed under an Indian/German category — the language the user did NOT exclude
-    speaks for it. The region only decides when the channel has no prefix at all.
+    The batch Python twin of the canonical Global-Exclusion predicate — routes
+    each candidate row through :func:`~metatv.core.filter_utils.is_channel_excluded`
+    (the single source of truth for "language wins over region"; see its
+    docstring). Used by both ``_query_channels`` and its pagination sibling, and
+    by the ``hidden_by_search`` recount so the diff compares like with like.
     A channel is also excluded when its user category is in ``excluded_user_cats``.
 
     Args:
         channels: The candidate ChannelDB rows.
-        excluded_prefixes: Prefix/region codes the user has globally excluded.
+        excluded_prefixes: Prefix/region codes the user has globally excluded
+            (build via ``filter_utils.global_exclusion_set``).
         excluded_user_cats: User categories the user has globally excluded.
 
     Returns:
@@ -58,9 +54,7 @@ def _apply_python_exclusions(channels: list, excluded_prefixes: set, excluded_us
     if excluded_prefixes:
         channels = [
             c for c in channels
-            if (c.detected_prefix not in excluded_prefixes
-                if c.detected_prefix
-                else c.detected_region not in excluded_prefixes)
+            if not is_channel_excluded(c.detected_prefix, c.detected_region, excluded_prefixes)
         ]
     if excluded_user_cats:
         channels = [c for c in channels if c.user_category not in excluded_user_cats]
@@ -319,13 +313,11 @@ class _ChannelListMixin:
             for p in all_providers:
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
-        from metatv.core.filter_utils import get_excluded_prefixes, get_active_category_filter
+        from metatv.core.filter_utils import global_exclusion_set
         _filter_paused = self.config.global_filter_paused
-        if _filter_paused:
-            _global_excluded_prefixes: set = set()
-        else:
-            _cat_excluded, _ = get_active_category_filter(self.config)
-            _global_excluded_prefixes = set(_cat_excluded or []) | get_excluded_prefixes(self.config)
+        # Canonical builder (paused-aware): union of the category blacklist
+        # (group→leaf-expanded) and the explicit "Block [PREFIX]" set.
+        _global_excluded_prefixes = global_exclusion_set(self.config)
         _search_text = (self.search_input.text().strip()
                         if hasattr(self, 'search_input') else "")
         # _bypass_tier1_filters: set when user clicks "Show filtered results" in the

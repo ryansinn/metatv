@@ -56,6 +56,7 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import REGION_FULL_NAMES
 from metatv.core.database import ChannelDB, EpgProgramDB
+from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
     remaining_str as _remaining_str,
@@ -297,31 +298,30 @@ class _EpgOnNowMixin:
             session.close()
 
     @staticmethod
-    def _on_now_hidden_prefixes(config) -> set[str]:
-        """Prefixes/categories hidden from the On Now grid.
+    def _on_now_hidden_prefixes(config) -> tuple[set[str], set[str]]:
+        """The two On-Now exclusion layers, kept separate by matching semantics.
 
-        EPG-specific ``epg_hidden_prefixes`` plus the global content exclusions —
-        the union of ``global_filter_excluded_categories`` AND
-        ``global_filter_excluded_prefixes``, the latter gated by
-        ``global_filter_paused``. Mirrors the main channel list's ``_is_filtered``
-        (main_window_metadata.py) so On Now and the list agree.
+        Returns ``(epg_hidden, global_excluded)``:
+
+        - **epg_hidden** — the EPG-specific ``epg_hidden_prefixes`` layer, a
+          *prefix-only* membership set (never region), and NOT gated by
+          ``global_filter_paused``.
+        - **global_excluded** — the user's Global Exclusions, built by the
+          canonical :func:`~metatv.core.filter_utils.global_exclusion_set`
+          (paused-aware, group→leaf-expanded). The render loop feeds this to
+          :func:`~metatv.core.filter_utils.is_channel_excluded` so the same
+          "prefix wins, region is the no-prefix fallback" rule the channel list
+          uses applies here too (P1-6) — hence the two sets cannot be merged
+          into one prefix-membership set anymore.
         """
-        paused = getattr(config, 'global_filter_paused', False)
-        global_excluded = (
-            set()
-            if paused
-            else (
-                set(config.global_filter_excluded_categories or [])
-                | set(config.global_filter_excluded_prefixes or [])
-            )
-        )
-        return set(config.epg_hidden_prefixes or []) | global_excluded
+        epg_hidden = set(config.epg_hidden_prefixes or [])
+        return epg_hidden, global_exclusion_set(config)
 
     def _render_on_now(self, programs: list[EpgProgramDB]) -> None:
         self.on_now_list.setSortingEnabled(False)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
-        hidden_prefixes = self._on_now_hidden_prefixes(self.config)
+        epg_hidden, global_excluded = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
 
@@ -341,7 +341,14 @@ class _EpgOnNowMixin:
                 category = self._channel_prefix_map.get(prog.channel_db_id or "", "")
                 bare_name = self._channel_title_map.get(prog.channel_db_id or "", ch_name)
 
-            if category in hidden_prefixes:
+            # Two exclusion layers with different semantics (P1-6): the EPG-specific
+            # layer is prefix-only; the global layer applies the shared predicate
+            # (prefix wins, region is the no-prefix fallback) so a prefix-less
+            # channel from an excluded region is hidden here just like the list.
+            if category in epg_hidden:
+                continue
+            region = self._channel_region_map.get(prog.channel_db_id or "", "")
+            if is_channel_excluded(category, region, global_excluded):
                 continue
 
             if category:

@@ -262,6 +262,144 @@ def get_active_content_type_filter(config) -> list[str] | None:
     return raw_labels if raw_labels else None
 
 
+# ---------------------------------------------------------------------------
+# Global-Exclusion predicate — the single chokepoint (P1-6)
+# ---------------------------------------------------------------------------
+#
+# THE rule ("language wins over region", shipped #298): a channel is excluded
+# iff its ``detected_prefix`` is in the excluded set; a channel with NO prefix
+# falls back to its ``detected_region``.  ``is_channel_excluded`` (Python),
+# ``channel_exclusion_criterion`` (SQLAlchemy KEEP clause) and
+# ``global_exclusion_set`` (the set builder) below — together with the batch
+# twin ``main_window_channels._apply_python_exclusions`` — are the ONLY
+# implementations of this rule.  Every surface (channel list, details "Other
+# Versions", EPG On-Now, facet/recipe/tag counts) routes through one of them;
+# never fork a parallel prefix/region check (single source of truth, CLAUDE.md).
+
+
+def is_channel_excluded(
+    detected_prefix: str | None,
+    detected_region: str | None,
+    excluded: set[str],
+) -> bool:
+    """Return True when a channel is hidden by the Global Exclusions.
+
+    THE canonical Global-Exclusion predicate ("language wins over region",
+    shipped #298).  The channel's ``detected_prefix`` is the primary signal — a
+    channel with an explicit, un-excluded prefix (e.g. ``EN``) is kept even when
+    its region tag is in *excluded* (excluding ``IN``/``DE`` never hides an
+    English movie merely filed under an Indian/German category).  Only when the
+    channel has **no prefix** (``None`` or ``""`` — treated alike, Python
+    truthiness) does the ``detected_region`` decide (the fallback).  An empty
+    *excluded* set never hides anything.
+
+    Args:
+        detected_prefix: The channel's stored ``detected_prefix`` (``None``/``""``
+            when the name carried no prefix).
+        detected_region: The channel's stored ``detected_region`` — the fallback,
+            consulted only when there is no prefix.
+        excluded: The prefix/region codes the user has globally excluded (build
+            it with :func:`global_exclusion_set`).
+
+    Returns:
+        ``True`` when the channel should be hidden, ``False`` otherwise.
+
+    See Also:
+        :func:`global_exclusion_set`: builds *excluded* from ``Config``.
+        :func:`channel_exclusion_criterion`: the SQLAlchemy KEEP twin.
+        ``main_window_channels._apply_python_exclusions``: the batch Python twin.
+    """
+    if not excluded:
+        return False
+    if detected_prefix:
+        return detected_prefix in excluded
+    return bool(detected_region) and detected_region in excluded
+
+
+def global_exclusion_set(config) -> set[str]:
+    """Return the user's active Global-Exclusion prefix/region codes.
+
+    The single builder of the *excluded* set that :func:`is_channel_excluded`
+    (and its SQL/ORM twin) consume.  Empty when Global Exclusions are paused
+    (``global_filter_paused``); otherwise the union of
+
+    - the category blacklist expanded to leaf prefix codes via
+      :func:`get_active_category_filter` (**not** ``config.
+      global_filter_excluded_categories`` read raw — that skips the group→leaf
+      expansion, so checked groups would exclude nothing; see
+      ``recipe_view._global_exclusion_sets`` for why this routing matters), and
+    - the explicit "Block [PREFIX]" codes via :func:`get_excluded_prefixes`.
+
+    Args:
+        config: The application ``Config`` (read on the main thread; the engine
+            layers receive the resolved set, never ``Config`` — DR-0007).
+
+    Returns:
+        The prefix/region codes to exclude — empty when paused or nothing set.
+
+    See Also:
+        :func:`is_channel_excluded`: the predicate that consumes this set.
+    """
+    if getattr(config, "global_filter_paused", False):
+        return set()
+    cat_excluded, _ = get_active_category_filter(config)
+    return set(cat_excluded or []) | get_excluded_prefixes(config)
+
+
+def channel_exclusion_criterion(excluded: set[str], channel_cls):
+    """Return the SQLAlchemy KEEP criterion for the Global-Exclusion rule.
+
+    The SQL twin of :func:`is_channel_excluded`: a boolean clause usable in
+    ``query.filter(...)`` that keeps exactly the rows for which
+    :func:`is_channel_excluded` returns ``False``.  Route every faceted/aggregate
+    query through this instead of hand-rolling a prefix/region ``or_`` (single
+    chokepoint).
+
+    Keep-condition (De Morgan of the predicate, with ``""`` treated like ``NULL``
+    to match Python truthiness):
+
+    - Row HAS a prefix (``detected_prefix`` not NULL/``''``): keep iff
+      ``detected_prefix NOT IN excluded``.
+    - Row has NO prefix: keep iff ``detected_region`` is NULL/``''`` OR
+      ``NOT IN excluded``.
+
+    The ``or_(col IS NULL, col == '', col NOT IN (...))`` shape sidesteps the SQL
+    NULL trap (``NULL NOT IN (...)`` evaluates to NULL, which would drop the row).
+
+    Args:
+        excluded: The prefix/region codes to exclude (see
+            :func:`global_exclusion_set`).  Empty → a tautology (keeps all rows).
+        channel_cls: The ``ChannelDB`` class (or an aliased equivalent) carrying
+            ``detected_prefix`` / ``detected_region`` columns.
+
+    Returns:
+        A SQLAlchemy boolean clause for ``.filter(...)`` — ``true()`` when
+        *excluded* is empty.
+
+    See Also:
+        :func:`is_channel_excluded`: the Python predicate this mirrors.
+
+    Note:
+        SQLAlchemy is imported inside the function so this module stays
+        dependency-light.
+    """
+    from sqlalchemy import and_, or_, true
+
+    if not excluded:
+        return true()
+    values = list(excluded)
+    prefix = channel_cls.detected_prefix
+    region = channel_cls.detected_region
+    has_prefix = and_(prefix.isnot(None), prefix != "")
+    no_prefix = or_(prefix.is_(None), prefix == "")
+    # HAS prefix → judged by prefix alone (language wins over region).
+    # NO prefix  → region fallback (NULL/'' region is never a match).
+    return or_(
+        and_(has_prefix, prefix.notin_(values)),
+        and_(no_prefix, or_(region.is_(None), region == "", region.notin_(values))),
+    )
+
+
 def matches_filter(
     channel_detected_prefix: Optional[str],
     channel_media_type: str,
