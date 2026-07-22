@@ -116,6 +116,8 @@ Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it a
 
 On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: tests (`pytest tests/ -x -q`) → commit everything → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.
 
+Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite PR gate with a GREEN/RED verdict, `prune_merged.sh` = safe merged-worktree/branch cleanup.
+
 ## Migration Status
 
 These legacy forms coexist with the rules above — new code follows the rule, don't extend the debt: `config.<name>_icon` → `icons.*`; `get_session()`+`try/finally` → `session_scope()`; inline `font-size: Npx` → `FONT_*`; `session.expunge` → DTO.
