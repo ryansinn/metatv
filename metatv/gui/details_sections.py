@@ -18,28 +18,8 @@ from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
+from metatv.gui.qt_size_utils import no_width_force as _no_width_force
 from metatv.metadata_providers.base import MetadataResult
-
-
-def _no_width_force(label: QLabel) -> None:
-    """Let a word-wrapped label wrap/break to the available width instead of forcing
-    the details column wider than the viewport.
-
-    A wrapping ``QLabel`` reports ``minimumSizeHint().width()`` equal to its longest
-    *unbreakable* word, because word-wrap only breaks at spaces.  A scene-release-style
-    token (e.g. ``A.Very.Long.Release.Name.1998.1080p.BluRay.x265-GROUP``) or a URL has
-    no spaces, so the label's minimum width becomes that whole token — and inside the
-    width-resizable, horizontal-scrollbar-off details ``QScrollArea`` that floors the
-    *entire* content column at that width, clipping every other section off the right
-    edge (see docs/DETAILS_PANE_DESIGN.md → "Width discipline").
-
-    Ignoring the horizontal hint (the same trick ``title_label`` uses) lets the layout
-    shrink the label to the pane width; Qt then breaks the long token at a character
-    boundary instead of widening the pane.
-    """
-    sp = label.sizePolicy()
-    sp.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
-    label.setSizePolicy(sp)
 
 
 class _ClickableLabel(QLabel):
