@@ -171,15 +171,15 @@ class MigrationProgressWidget(QFrame):
         self._outer.setSpacing(4)
 
         # Header row
-        header = QLabel(f"{_icons.notification_progress_icon}  Migration in progress")
-        _font = header.font()
+        self._header = QLabel(f"{_icons.notification_progress_icon}  Migration in progress")
+        _font = self._header.font()
         _font.setBold(True)
-        header.setFont(_font)
-        header.setStyleSheet(
+        self._header.setFont(_font)
+        self._header.setStyleSheet(
             f"color: {_theme.COLOR_TEXT_HI}; font-size: {_theme.FONT_MD};"
         )
-        header.setToolTip("Background data migration running — please do not quit")
-        self._outer.addWidget(header)
+        self._header.setToolTip("Background data migration running — please do not quit")
+        self._outer.addWidget(self._header)
 
         # Task rows are added dynamically in on_task_started
         self._rows_container = QVBoxLayout()
@@ -198,7 +198,6 @@ class MigrationProgressWidget(QFrame):
         self._rows_container.addWidget(row)
         self._hide_timer.stop()
         self.show()
-        self.adjustSize()
         self.reposition()
 
     def on_task_progress(self, task_id: str, done: int, total: int) -> None:
@@ -219,13 +218,50 @@ class MigrationProgressWidget(QFrame):
         logger.debug("MigrationProgressWidget: all_finished — scheduling hide")
         self._hide_timer.start()
 
+    # ── Sizing (grow-to-content on row add) ──────────────────────────────────
+
+    def _content_height(self) -> int:
+        """Compute the full content height directly from each row's own sizeHint.
+
+        Qt's cached ``sizeHint()`` for the nested ``_rows_container`` layout
+        (a plain ``QVBoxLayout`` added via ``addLayout``, not a widget's own
+        top-level layout) does not reliably refresh the moment a row is
+        added to an already-visible panel — it can still report the
+        pre-addition height until an unrelated later layout pass happens to
+        flush it. Relying on ``adjustSize()``/``sizeHint()`` right after
+        ``addWidget()`` (the previous behavior) therefore under-measured a
+        second (or later) row: the panel kept its one-row height and every
+        extra row got squeezed into it with clipped labels. Each
+        ``_TaskRow``'s own ``sizeHint()`` is accurate immediately (it isn't
+        behind that nested-layout cache), so summing those directly
+        sidesteps the staleness instead of waiting for it to settle.
+
+        Returns:
+            The pixel height the frame needs to show every row uncut.
+        """
+        margins = self._outer.contentsMargins()
+        height = margins.top() + margins.bottom() + self._header.sizeHint().height()
+        rows = list(self._rows.values())
+        if rows:
+            height += self._outer.spacing()  # gap between header and rows_container
+            height += sum(row.sizeHint().height() for row in rows)
+            height += self._rows_container.spacing() * (len(rows) - 1)
+        return height
+
+    def _resize_to_content(self) -> None:
+        """Grow the frame to fit the header plus every task row at full height."""
+        self.adjustSize()  # settles width against the min/max width constraints
+        target_height = self._content_height()
+        if target_height != self.height():
+            self.resize(self.width(), target_height)
+
     # ── Positioning (mirrors NotificationWidget.reposition) ─────────────────
 
     def reposition(self) -> None:
-        """Reposition in the bottom-right corner of the parent widget."""
+        """Resize to content, then reposition in the parent's bottom-right corner."""
         if self.parent():
             parent_rect = self.parent().rect()
-            self.adjustSize()
+            self._resize_to_content()
             # Sit just above the bottom edge, same 20 px margin as notifications.
             # If a NotificationWidget is also showing, they may overlap — that is
             # acceptable given migrations are infrequent.  A future enhancement
