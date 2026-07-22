@@ -78,7 +78,6 @@ class _MoodBar(QWidget):
             btn = QPushButton(icon)
             btn.setFixedSize(36, 28)
             btn.setFlat(True)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
             btn.clicked.connect(lambda _, m=mood: self._select(m))
             self._buttons[mood] = btn
@@ -181,7 +180,6 @@ class CategoryPickerDialog(QDialog):
         for label, name, mood, exclude, bg, fg in _quick_picks:
             btn = QPushButton(label)
             btn.setFlat(True)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 f"QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {fg}44;"
                 f" border-radius: 10px; padding: 3px 10px; font-size: {_theme.FONT_MD}; }}"

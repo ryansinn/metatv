@@ -1188,7 +1188,6 @@ class QAChecklistWindow(QWidget):
                     "Click to jump to the addressing entry; re-test and mark pass once confirmed."
                 )
                 badge_btn.setStyleSheet(_theme.QA_ADDRESSED_BADGE_BTN)
-                badge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 badge_btn.clicked.connect(
                     lambda _, eid=addr_eid: self._jump_to_entry(eid)
                 )

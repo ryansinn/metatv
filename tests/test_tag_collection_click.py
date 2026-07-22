@@ -146,11 +146,16 @@ class TestTagsSectionInteractivity:
         assert captured == [("collection", "Wow Action")]
 
     def test_chip_has_pointing_hand_cursor(self, qapp):
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import QEvent, Qt
+        from metatv.gui.cursor_affordance import PointingHandFilter
 
         sec = self._section()
         sec.load([ChannelTagDTO("genre", "Drama", True, 0.9, ("provider_category",))])
         chip = _collect_chips(sec)[0]
+
+        # Chips are QPushButtons — the app-level affordance filter (not a
+        # per-widget setCursor call) applies the hand on hover; simulate that.
+        PointingHandFilter().eventFilter(chip, QEvent(QEvent.Type.Enter))
         assert chip.cursor().shape() == Qt.CursorShape.PointingHandCursor
 
     def test_chip_tooltip_mentions_actions(self, qapp):

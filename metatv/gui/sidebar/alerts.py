@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor
 from loguru import logger
 
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
@@ -138,7 +139,7 @@ class _AlertRow(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
 
     def mousePressEvent(self, event):
         # row_clicked fires only when clicking outside the play button area
@@ -199,7 +200,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         # "Clear all" — acknowledge every new match; shown only when N > 0.
         self._clear_all_btn = QPushButton("Clear all")
         self._clear_all_btn.setFlat(True)
-        self._clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._clear_all_btn.setToolTip("Acknowledge all new matches")
         self._clear_all_btn.setStyleSheet(_theme.LINK_BTN_SM)
         self._clear_all_btn.clicked.connect(self.clearAllAlertsClicked.emit)
@@ -260,7 +260,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._vod_manage_btn = QPushButton("Manage…")
         self._vod_manage_btn.setFlat(True)
-        self._vod_manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._vod_manage_btn.setToolTip("View and remove watch-for rules")
         self._vod_manage_btn.setStyleSheet(_theme.LINK_BTN_SM)
         self._vod_manage_btn.clicked.connect(self.manageWatchForClicked.emit)
@@ -276,7 +275,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setMaximumHeight(150)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._vod_list)
-        self._vod_list.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self._vod_list)
         self._vod_list.itemClicked.connect(self._on_vod_item_clicked)
         self._vod_list.itemDoubleClicked.connect(self._on_vod_item_double_clicked)
         self._vod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

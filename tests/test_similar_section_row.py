@@ -73,8 +73,9 @@ def test_queue_button_click_toggles_back_off(qapp):
 
 def test_row_buttons_have_pointing_hand_cursor(qapp):
     """Every clickable button in the row shows the pointing-hand cursor."""
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import QEvent, Qt
     from PyQt6.QtWidgets import QPushButton
+    from metatv.gui.cursor_affordance import PointingHandFilter
 
     s = _section(qapp)
     v = _version(detected_prefix="EN")  # include the prefix chip too
@@ -83,7 +84,11 @@ def test_row_buttons_have_pointing_hand_cursor(qapp):
 
     btns = row.findChildren(QPushButton)
     assert btns, "row should contain buttons"
+    filt = PointingHandFilter()
     for b in btns:
+        # Buttons no longer setCursor() themselves — the single app-level
+        # affordance filter applies the hand on hover; simulate that here.
+        filt.eventFilter(b, QEvent(QEvent.Type.Enter))
         assert b.cursor().shape() == Qt.CursorShape.PointingHandCursor, (
             f"button {b.text()!r} must show the pointing-hand cursor"
         )

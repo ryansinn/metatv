@@ -27,6 +27,7 @@ from metatv.core.database import Database, ProviderDB
 from metatv.core.models import Provider, ProviderURL
 from metatv.core.provider_probe import ProbeResult, ProbeStatus, probe_all_urls
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget
@@ -261,7 +262,7 @@ class _CopyableLabel(QLabel):
         super().__init__(parent)
         self._full_text = ""
         self.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED};")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
 
     def set_url(self, url: str) -> None:

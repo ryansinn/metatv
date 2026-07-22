@@ -134,7 +134,6 @@ class DiscoverView(QWidget):
 
         manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         manage_btn.setFlat(True)
-        manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         manage_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
@@ -179,7 +178,6 @@ class DiscoverView(QWidget):
 
         self._more_btn = QPushButton("▶  More Categories")
         self._more_btn.setFixedHeight(36)
-        self._more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._more_btn.setStyleSheet(
             "QPushButton {"
             f"  background: {_theme.OVERLAY_08};"

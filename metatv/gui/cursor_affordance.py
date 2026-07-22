@@ -14,12 +14,25 @@ What counts as clickable
   the filter chips and the rail/action buttons), **except** ``QCheckBox`` and
   ``QRadioButton`` (their box/circle is the affordance, a hand would mislead).
 * Any widget that opts in with the dynamic property ``clickable=True``. Custom
-  clickable ``QLabel``s (poster, cast/genre links, collapse carets) can opt in
-  later with a single ``label.setProperty("clickable", True)`` at their own
-  construction site — no change here is needed to support them.
+  clickable ``QLabel``/``QWidget``s (poster, chips, collapse carets, clickable
+  rows) opt in with :func:`set_clickable` at their own construction site — no
+  change here is needed to support them.
 
 Always excluded: disabled widgets (``isEnabled() == False``) — a disabled
 control offers nothing to click, so it keeps the default cursor.
+
+Adding a new clickable widget
+------------------------------
+A plain ``QPushButton``/``QToolButton`` (any ``QAbstractButton``) needs nothing
+— it qualifies automatically. Every other hand-rolled clickable (a ``QLabel``
+with a ``mousePressEvent`` override, a clickable row ``QWidget``, a caret) must
+call :func:`set_clickable` once at construction (and again on any state change
+that flips its clickability, e.g. a poster that only becomes clickable once an
+image loads). Never call ``setCursor(Qt.CursorShape.PointingHandCursor)``
+directly — that hand-rolls a parallel path around this chokepoint and won't
+pick up the disabled-widget handling above. Checkboxes and radio buttons are
+excluded by convention (the box/circle is already the affordance) — don't
+route them through :func:`set_clickable`.
 """
 
 from __future__ import annotations
@@ -74,6 +87,35 @@ class PointingHandFilter(QObject):
                     # may later be disabled; clear so it doesn't keep the hand.
                     obj.unsetCursor()
         return False  # never swallow the event
+
+
+def set_clickable(widget: QWidget, clickable: bool = True) -> None:
+    """Opt a non-button widget into (or out of) the pointing-hand affordance.
+
+    Sets the ``clickable`` dynamic property the installed filter checks on
+    hover (see :data:`CLICKABLE_PROPERTY`). Because the filter only reacts to
+    ``Enter`` events, this also applies or clears the cursor immediately, so a
+    widget whose clickability changes while the pointer is already over it
+    (e.g. a poster becoming clickable the instant its image finishes loading)
+    updates without waiting for the next hover.
+
+    This is the one call every hand-rolled clickable widget (a custom
+    ``QLabel``/``QWidget`` with its own ``mousePressEvent`` or ``clicked``
+    signal) should use instead of a direct
+    ``setCursor(Qt.CursorShape.PointingHandCursor)`` — buttons never need it,
+    they qualify for free via :func:`_is_clickable`.
+
+    Args:
+        widget: The widget to mark clickable (or not).
+        clickable: Whether *widget* is currently clickable. Defaults to
+            ``True`` for the common "always clickable" case; pass a live
+            boolean for widgets whose clickability toggles at runtime.
+    """
+    widget.setProperty(CLICKABLE_PROPERTY, clickable)
+    if clickable and widget.isEnabled():
+        widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    else:
+        widget.unsetCursor()
 
 
 def install(app: QApplication) -> PointingHandFilter:

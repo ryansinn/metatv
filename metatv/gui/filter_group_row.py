@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -82,7 +83,7 @@ class _ItemRow(QWidget):
                  indent: int = 0, parent=None):
         super().__init__(parent)
         self._key = key
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8 + indent, 2, 8, 2)
         layout.setSpacing(6)
@@ -309,7 +310,7 @@ class _Section(QWidget):
             f"border-left: 3px solid {accent}; }}"
         )
         header.setFixedHeight(30)
-        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(header)
         header.mousePressEvent = lambda _e: self._toggle_collapse()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(6, 0, 6, 0)
@@ -437,7 +438,6 @@ class _Section(QWidget):
                 f"{_icons.show_all_icon} Show all ({total})"
             )
             self._show_all_btn.setStyleSheet(_theme.FILTER_SHOW_ALL_BTN)
-            self._show_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._show_all_btn.setToolTip(
                 f"Show all {total} values — {overflow_count} more below the top {_SHOW_ALL_TOP_N}"
             )

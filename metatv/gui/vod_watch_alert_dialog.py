@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -229,7 +230,7 @@ class ManageVodAlertsDialog(QDialog):
         type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
 
         row = QWidget()
-        row.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(row)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(4, 2, 4, 2)
         hl.setSpacing(6)
@@ -257,7 +258,6 @@ class ManageVodAlertsDialog(QDialog):
 
         view_btn = QPushButton(f"{_icons.search_icon} View")
         view_btn.setFlat(True)
-        view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         view_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"
             f" border: none; padding: 1px 6px; }}"
@@ -271,7 +271,6 @@ class ManageVodAlertsDialog(QDialog):
 
         remove_btn = QPushButton(f"{_icons.close_icon} Remove")
         remove_btn.setFlat(True)
-        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2};"
             f" padding: 1px 6px; border: none; }}"

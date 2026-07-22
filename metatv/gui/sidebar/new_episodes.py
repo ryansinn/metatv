@@ -46,7 +46,6 @@ class NewEpisodesSection(CollapsibleSection):
         # Always-visible entry to the see-all / stop-alerts dialog.
         self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage alerts…")
         self._manage_btn.setFlat(True)
-        self._manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._manage_btn.setToolTip("See every series you're alerting on and stop any of them")
         self._manage_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE};"

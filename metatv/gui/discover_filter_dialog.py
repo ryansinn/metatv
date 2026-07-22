@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
@@ -78,7 +77,6 @@ class _ShelfRow(QWidget):
         btn = QPushButton(label)
         btn.setFixedHeight(22)
         btn.setFlat(True)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
             f"QPushButton {{ background: {_theme.COLOR_LINE}; border: 1px solid {_theme.COLOR_FAINT}; "
             f"border-radius: 3px; color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_SM}; padding: 1px 6px; }}"

@@ -740,7 +740,6 @@ class PreferencesView(QWidget):
 
         change_btn = QPushButton("Change your mind?")
         change_btn.setFlat(True)
-        change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         change_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; text-decoration: underline; border: none; "
             f"background: transparent; padding: 0; font-size: {_theme.FONT_MD}; }}"

@@ -24,6 +24,7 @@ from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 
 
@@ -143,7 +144,7 @@ class _GroupSection(QWidget):
 
         # ── Header row (always created) ───────────────────────────────────────
         header = QWidget()
-        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(header)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(6)
@@ -329,7 +330,7 @@ class _ContentTypeSection(QWidget):
 
         # ── Header ────────────────────────────────────────────────────────────
         header = QWidget()
-        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(header)
         hl = QHBoxLayout(header)
         hl.setContentsMargins(0, 2, 0, 2)
         hl.setSpacing(6)
@@ -592,7 +593,6 @@ class GlobalFilterDialog(QDialog):
 
         self._rescan_btn = QPushButton("Re-scan Prefixes")
         self._rescan_btn.setFlat(True)
-        self._rescan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._rescan_btn.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED_2};")
         self._rescan_btn.setToolTip(
             "Re-detect prefix codes for all channels using the current separator settings.\n"
@@ -603,7 +603,6 @@ class GlobalFilterDialog(QDialog):
 
         reset_btn = QPushButton("Reset Category Overrides")
         reset_btn.setFlat(True)
-        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         reset_btn.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ERR_MUTED};")
         reset_btn.setToolTip(
             "Clear all your custom category assignments and restore built-in defaults.\n"

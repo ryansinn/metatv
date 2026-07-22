@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W, card_metrics
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -79,7 +80,6 @@ class _Shelf(QWidget):
 
         self._see_all_btn = QPushButton("See all →")
         self._see_all_btn.setFlat(True)
-        self._see_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._see_all_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
@@ -90,7 +90,6 @@ class _Shelf(QWidget):
         self._pin_btn = QPushButton(config.pin_icon)
         self._pin_btn.setFixedSize(24, 22)
         self._pin_btn.setFlat(True)
-        self._pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pin_btn.setStyleSheet(btn_ss)
         self._pin_btn.clicked.connect(self._on_pin_clicked)
         header.addWidget(self._pin_btn)
@@ -98,7 +97,6 @@ class _Shelf(QWidget):
         self._hide_btn = QPushButton(config.hide_icon)
         self._hide_btn.setFixedSize(24, 22)
         self._hide_btn.setFlat(True)
-        self._hide_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hide_btn.setStyleSheet(btn_ss)
         self._hide_btn.clicked.connect(lambda: self.hideRequested.emit(self._shelf_key))
         self._hide_btn.setToolTip("Hide this shelf")
@@ -110,7 +108,6 @@ class _Shelf(QWidget):
         self._collapse_btn = QPushButton(config.collapse_icon)
         self._collapse_btn.setFixedSize(24, 22)
         self._collapse_btn.setFlat(True)
-        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._collapse_btn.setStyleSheet(btn_ss)
         self._collapse_btn.clicked.connect(self._on_collapse_clicked)
         header.addWidget(self._collapse_btn)
@@ -191,7 +188,7 @@ class _Shelf(QWidget):
             )
             self._pin_btn.setVisible(False)
             self._hide_btn.setVisible(False)
-            self._title_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+            cursor_affordance.set_clickable(self._title_lbl, True)
             self.setStyleSheet("")
         else:
             self._collapse_btn.setText(self._config.collapse_icon)
@@ -203,7 +200,7 @@ class _Shelf(QWidget):
             )
             self._pin_btn.setVisible(True)
             self._hide_btn.setVisible(True)
-            self._title_lbl.setCursor(Qt.CursorShape.ArrowCursor)
+            cursor_affordance.set_clickable(self._title_lbl, False)
             # Clear any collapsed-row hover background left over from expanding
             # while hovered — leaveEvent's clear is guarded by _collapsed, which
             # is already False by the time the mouse leaves, so it would stick.
