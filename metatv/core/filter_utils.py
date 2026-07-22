@@ -446,6 +446,26 @@ _GENRE_NORM: dict[str, str] = {
     "talk show":                "Talk Show",
     "talk":                     "Talk Show",
     "variety":                  "Talk Show",
+    # Generic "TV" content type — TMDB has no single "TV" genre, so providers
+    # fragment it into a dozen near-duplicate labels (TV program, TV programme,
+    # TV series, Television series, Program Tv, …) plus typos (TV proramme,
+    # PROGRAME).  Fold the whole family into one canonical "TV Show" so the
+    # filter panel shows a single entry with the summed count instead of ~15
+    # near-duplicates.  Distinct, already-canonical genres (Talk Show, Game
+    # Show, Reality Show, Music Show, TV Movie, Drama series) and the ambiguous
+    # bare "Show" are deliberately NOT folded here.
+    "tv program":                       "TV Show",
+    "tv programme":                     "TV Show",
+    "tv proramme":                      "TV Show",   # provider typo
+    "tv programe":                      "TV Show",   # provider typo
+    "tv show":                          "TV Show",
+    "tv series":                        "TV Show",
+    "tv series television program":     "TV Show",
+    "television series":                "TV Show",
+    "program tv":                       "TV Show",
+    "program":                          "TV Show",
+    "programme":                        "TV Show",
+    "programe":                         "TV Show",   # provider typo
     # Arabic script variants (Arabic .lower() is a no-op so keys match directly)
     "دراما":                    "Drama",
     "ﺩﺭاﻣﺎ":                    "Drama",    # Arabic presentation-form variant
