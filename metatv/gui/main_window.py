@@ -47,6 +47,7 @@ from metatv.gui.sidebar_sections import (
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.filter_bar import ToggleChip, FilterChip
@@ -113,7 +114,7 @@ class _ClickableNavLabel(QLabel):
 
     def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
@@ -638,7 +639,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
         settings_btn.setFlat(True)
-        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.setToolTip("Open application settings (Ctrl+,)")
         settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         settings_btn.clicked.connect(self.open_settings)
@@ -1053,7 +1053,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Diagnose action — far-left, mirrors the Exclusions chip on the right
         self._diagnose_btn = QPushButton(_icons.diagnose_icon)
         self._diagnose_btn.setFlat(True)
-        self._diagnose_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._diagnose_btn.setToolTip(
             "Diagnose stream quality of the selected channel — "
             "is buffering your provider or your connection?"
@@ -1068,7 +1067,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._split_toggle_btn.setChecked(
             getattr(self.config, "split_streams_by_source", False)
         )
-        self._split_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._split_toggle_btn.setStyleSheet(_theme.NAV_TOGGLE_BTN)
         self._split_toggle_btn.setToolTip(
             "Split streams — keep one player window per source.\n"
@@ -1251,7 +1249,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         _hb_layout.addStretch()
         self._manage_cats_btn = QPushButton("📁 Manage Categories")
         self._manage_cats_btn.setFlat(True)
-        self._manage_cats_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._manage_cats_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
             f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
@@ -1300,7 +1297,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Segment 1 — Global Exclusions layer.
         self._channel_exclusion_btn = QPushButton()
         self._channel_exclusion_btn.setVisible(False)
-        self._channel_exclusion_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._channel_exclusion_btn.setStyleSheet(_seg_style)
         self._channel_exclusion_btn.setToolTip(
             "Your Global Exclusions are hiding these results (their region / category "
@@ -1312,7 +1308,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Segment 2 — search / Tier-1 filter layer.
         self._channel_filter_btn = QPushButton()
         self._channel_filter_btn.setVisible(False)
-        self._channel_filter_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._channel_filter_btn.setStyleSheet(_seg_style)
         self._channel_filter_btn.setToolTip(
             "Your current Category / Quality / Platform filters are hiding these results.\n"

@@ -187,7 +187,6 @@ class _FacetRowButton(QPushButton):
 
         # Build label: "■ Genre    512"
         self._refresh_label()
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._apply_style()
 
     # ── public ────────────────────────────────────────────────────────────
@@ -632,7 +631,6 @@ class _ChipRow(QWidget):
             chip = QPushButton(f"{icon} {v}")
             chip.setStyleSheet(style)
             chip.setToolTip(f"Click to remove '{v}' from the recipe")
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             # color override for include chips — use facet color
             if state == "include":
                 chip.setStyleSheet(
@@ -834,7 +832,6 @@ class _NowPlatingStrip(QWidget):
         # at least one match (toggled in load_results).
         self._show_all_btn = QPushButton(f"Show all {_icons.see_all_arrow_icon}")
         self._show_all_btn.setFlat(True)
-        self._show_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._show_all_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none;"
             f" font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"

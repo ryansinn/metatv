@@ -130,7 +130,6 @@ class MonitoredSeriesDialog(QDialog):
 
         stop_btn = QPushButton(f"{_icons.close_icon} Stop alerts")
         stop_btn.setFlat(True)
-        stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         stop_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2};"
             f" padding: 1px 6px; border: none; }}"

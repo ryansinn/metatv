@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 
 from loguru import logger
-from PyQt6.QtCore import QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QRect, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -215,7 +215,6 @@ class _TagButton(QPushButton):
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
             f" border-color: {_theme.COLOR_DIM}; background: {_theme.OVERLAY_05}; }}"
         )
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(f"{value} — {count:,} channels")
         self.adjustSize()
 
@@ -425,7 +424,6 @@ class WeightedTagCloud(QWidget):
         # "+N more" cap button (hidden until needed)
         self._more_btn = QPushButton("")
         self._more_btn.setStyleSheet(_theme.CLOUD_MORE_BTN)
-        self._more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._more_btn.cloud_visible = False   # track logical visibility
         self._more_btn.hide()
         self._more_btn.clicked.connect(self._on_expand_more)

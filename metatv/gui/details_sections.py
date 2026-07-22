@@ -14,6 +14,7 @@ from PyQt6.QtGui import QPixmap
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
 )
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
@@ -48,7 +49,7 @@ class _ClickableLabel(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.channel_id = None
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
 
     def mousePressEvent(self, event):
         if self.channel_id and event.button() == Qt.MouseButton.LeftButton:
@@ -91,10 +92,7 @@ class _PosterLabel(QLabel):
         self._update_cursor()
 
     def _update_cursor(self) -> None:
-        if self._has_pixmap:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        else:
-            self.unsetCursor()
+        cursor_affordance.set_clickable(self, self._has_pixmap)
 
     def mousePressEvent(self, event) -> None:
         if self._has_pixmap and event.button() == Qt.MouseButton.LeftButton:
@@ -279,7 +277,6 @@ class _PosterSection(QWidget):
         # and shown/hidden by _update_watched_badge() per watch + hover state.
         self._watched_badge = _WatchedBadge(_icons.watched_icon, self.poster_label)
         self._watched_badge.setFixedSize(self._BADGE_SIZE, self._BADGE_SIZE)
-        self._watched_badge.setCursor(Qt.CursorShape.PointingHandCursor)
         self._watched_badge.clicked.connect(self._on_watched_badge_clicked)
         self._watched_badge.hover_changed.connect(self._on_badge_hover)
         self._watched_badge.hide()
@@ -1661,7 +1658,6 @@ class _TagsSection(QWidget):
         chip = QPushButton(label)
         chip.setFlat(True)
         chip.setFixedHeight(22)
-        chip.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Provenance style: source-given = solid border; inferred = dashed border.
         # Low-confidence = extra dimming on top of provenance style.

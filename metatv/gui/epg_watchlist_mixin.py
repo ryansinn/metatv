@@ -78,6 +78,7 @@ from metatv.gui.badge_utils import (
     make_region_chip,
     make_year_chip,
 )
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 from metatv.gui.epg_widgets import _DismissedDialog, _parse_iso
@@ -541,7 +542,7 @@ class _EpgWatchlistMixin:
             year = self._channel_year_map.get(cid, "")
 
             row_w = QWidget()
-            row_w.setCursor(Qt.CursorShape.PointingHandCursor)
+            cursor_affordance.set_clickable(row_w)
             row_w.mousePressEvent = lambda e, c=prog.channel_db_id: self._emit_channel_selected(c)
             row = QHBoxLayout(row_w)
             row.setContentsMargins(16, 0, 4, 0)
@@ -710,7 +711,7 @@ class _EpgWatchlistMixin:
                     time_str = f"{_local_weekday(prog.start_time)} {_format_time(prog.start_time)}"
 
             row_w = QWidget()
-            row_w.setCursor(Qt.CursorShape.PointingHandCursor)
+            cursor_affordance.set_clickable(row_w)
             row_w.mousePressEvent = lambda e, c=prog.channel_db_id: self._emit_channel_selected(c)
             row = QHBoxLayout(row_w)
             row.setContentsMargins(16, 0, 4, 0)
@@ -887,7 +888,7 @@ class _EpgWatchlistMixin:
 
         # Clicking the header row body → details pane
         # (QPushButtons consume their own clicks, so buttons remain independent.)
-        header_w.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(header_w)
         header_w.mousePressEvent = lambda e, cid=channel_db_id: self._emit_channel_selected(cid)
 
         display_quality = self._channel_quality_map.get(channel_db_id, "")
@@ -916,7 +917,7 @@ class _EpgWatchlistMixin:
 
         count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
         count_lbl.setStyleSheet(_theme.DISCOVER_REC_COUNT)
-        count_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(count_lbl)
         layout.addWidget(count_lbl)
         layout.addStretch()
 

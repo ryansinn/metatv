@@ -125,7 +125,6 @@ class _SimilarSection(QWidget):
         play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
-        play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_ICON_BTN}")
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
@@ -152,7 +151,6 @@ class _SimilarSection(QWidget):
             full_name = resolve_category_name(prefix, self.config) or prefix
             chip = QPushButton(prefix)
             chip.setFixedHeight(18)
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             chip.setStyleSheet(_theme.CATEGORY_CHIP_SM)
             chip.setToolTip(full_name)
             chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
@@ -166,7 +164,6 @@ class _SimilarSection(QWidget):
         # 4. Name button — takes remaining space, shrinkable; right-click → lightbox preview
         name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
-        name_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         name_btn.setStyleSheet(
             f"QPushButton {{ text-align: left; color: {_theme.COLOR_TEXT};"
@@ -223,7 +220,6 @@ class _SimilarSection(QWidget):
         fav_btn = QPushButton(_icons.favorite_icon)
         fav_btn.setFixedSize(22, 20)
         fav_btn.setFlat(True)
-        fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_ICON_BTN}")
         fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
@@ -235,7 +231,6 @@ class _SimilarSection(QWidget):
         queue_btn = QPushButton(q_icon)
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
-        queue_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_ICON_BTN}")
         queue_btn.setToolTip("Remove from Queue" if v.in_queue else "Add to Queue")
 

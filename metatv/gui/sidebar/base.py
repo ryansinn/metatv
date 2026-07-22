@@ -8,6 +8,7 @@ from PyQt6.QtGui import QMouseEvent
 from loguru import logger
 
 from metatv.core.channel_name_utils import parse_channel_name
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 
 # Minimum height when a section is expanded: header (~26px) + room for ≥2 rows.
@@ -28,7 +29,7 @@ class _ClickableHeader(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
         self.setStyleSheet(_theme.HEADER_TINT)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]

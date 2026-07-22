@@ -48,7 +48,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         # clicking opens the matched content (where it is flagged 🚨/green).
         self._new_matches_btn = QPushButton()
         self._new_matches_btn.setStyleSheet(_theme.QUEUE_NEW_MATCHES_LINE)
-        self._new_matches_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._new_matches_btn.clicked.connect(self.newMatchesClicked.emit)
         self._new_matches_btn.hide()
         self.content_layout.addWidget(self._new_matches_btn)
@@ -77,7 +76,6 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._overflow_btn = QPushButton(_icons.overflow_icon)
         self._overflow_btn.setFlat(True)
         self._overflow_btn.setFixedWidth(28)  # structural
-        self._overflow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._overflow_btn.setToolTip("More…")
         self._overflow_menu = QMenu(self._overflow_btn)
         clear_all_action = self._overflow_menu.addAction(

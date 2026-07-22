@@ -58,7 +58,6 @@ class _CategorySection(QWidget):
         self._expand_btn = QPushButton(config.expand_icon)
         self._expand_btn.setFixedSize(20, 20)
         self._expand_btn.setFlat(True)
-        self._expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expand_btn.setToolTip("Expand / collapse")
         self._expand_btn.clicked.connect(self._toggle)
         hl.addWidget(self._expand_btn)
@@ -147,7 +146,6 @@ class _CategorySection(QWidget):
 
         move_btn = QPushButton("Change Category")
         move_btn.setFlat(True)
-        move_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         move_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; }}"
@@ -158,7 +156,6 @@ class _CategorySection(QWidget):
 
         remove_btn = QPushButton(f"{self._config.close_icon} Remove")
         remove_btn.setFlat(True)
-        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         remove_btn.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2}; padding: 1px 6px; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"

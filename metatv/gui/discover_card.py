@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
+from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 
@@ -118,7 +119,7 @@ class _ContentCard(QWidget):
         z = max(_ZOOM_MIN, min(_ZOOM_MAX, config.discover_zoom))
 
         self.setFixedSize(cw, ch)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        cursor_affordance.set_clickable(self)
 
         vl = QVBoxLayout(self)
         vl.setContentsMargins(0, 0, 0, 0)

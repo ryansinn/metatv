@@ -93,7 +93,6 @@ class ProviderItemWidget(QWidget):
         self._epg_btn = QPushButton(_icons.epg_indicator_icon)
         self._epg_btn.setFixedSize(16, 20)
         self._epg_btn.setFlat(True)
-        self._epg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._epg_btn.clicked.connect(lambda: self.epgRefreshClicked.emit(self.provider_id))
         layout.addWidget(self._epg_btn)
         self.set_epg_state(epg_state, epg_tooltip)
