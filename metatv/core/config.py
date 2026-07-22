@@ -625,7 +625,12 @@ class Config(BaseModel):
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
     sidebar_section_sizes: list = Field(default_factory=list)  # Heights of sidebar sections in pixels
-    
+
+    # Recipe view splitter geometry (two-column layout).  Empty → view defaults.
+    recipe_main_splitter_sizes: list = Field(default_factory=list)     # [col1, col2] widths
+    recipe_col1_splitter_sizes: list = Field(default_factory=list)     # [pantry, recipe-rail] heights
+    recipe_content_splitter_sizes: list = Field(default_factory=list)  # [tag-cloud, now-plating] heights
+
     # Performance
     chunk_size: int = 1000  # Channels to process at once
     concurrent_requests: int = 5
