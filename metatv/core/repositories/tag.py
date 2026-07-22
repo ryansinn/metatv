@@ -530,18 +530,22 @@ class TagRepository:
         result engine, leaking hidden-source channels into recipe YIELDS).
         Tracked for cross-repo unification as task #59.
 
-        **Global-exclusion semantics** (replicated from the main channel list —
-        ``main_window_channels.py`` ``_query_channels_page``): a channel is
-        dropped when its ``detected_prefix`` OR its ``detected_region`` is in
-        *excluded_prefixes*, or its ``user_category`` is in
-        *excluded_categories*.  This is a pure caller-supplied scope: the engine
-        never reads ``Config`` (DR-0007 — the control layer resolves the sets
-        and passes them in).
+        **Global-exclusion semantics** — the SQL twin of the canonical predicate
+        (``filter_utils.is_channel_excluded``, "language wins over region"): a
+        channel is dropped when its ``detected_prefix`` is in *excluded_prefixes*,
+        or — only when it has NO prefix — when its ``detected_region`` is; an
+        un-excluded language prefix keeps the row despite an excluded region tag.
+        The keep-condition is produced by ``filter_utils.channel_exclusion_criterion``
+        so this surface never forks a parallel prefix/region rule (single
+        chokepoint).  ``user_category`` in *excluded_categories* is a separate
+        drop.  This is a pure caller-supplied scope: the engine never reads
+        ``Config`` (DR-0007 — the control layer resolves the sets and passes them in).
 
         **NULL trap:** ``col NOT IN (...)`` evaluates to NULL (false) when
-        ``col IS NULL``, which would wrongly drop untagged channels (no prefix /
-        region / category).  Each filter is therefore expressed as
-        ``or_(col.is_(None), col.notin_(values))`` so a NULL column is kept.
+        ``col IS NULL``, which would wrongly drop untagged channels.  The
+        criterion helper handles this for the prefix/region pair; the
+        ``user_category`` filter uses the same ``or_(col.is_(None), col.notin_)``
+        shape so a NULL category is kept.
 
         Args:
             query: The SQLAlchemy query to scope.
@@ -552,11 +556,11 @@ class TagRepository:
                 empty list still applies the is_hidden / ``##`` scope; ``None``
                 also applies it — callers that want *no* scoping simply don't
                 call this helper.
-            excluded_prefixes: Global-exclusion prefix codes (the union of
+            excluded_prefixes: Global-exclusion prefix/region codes (the union of
                 ``global_filter_excluded_categories`` and
-                ``global_filter_excluded_prefixes``) matched against BOTH
-                ``detected_prefix`` and ``detected_region``.  ``None``/empty →
-                no prefix scope.
+                ``global_filter_excluded_prefixes``), matched by the canonical
+                predicate (prefix wins, region is the no-prefix fallback).
+                ``None``/empty → no prefix scope.
             excluded_categories: Global-exclusion user-category labels
                 (``global_filter_excluded_user_categories``) matched against
                 ``user_category``.  ``None``/empty → no category scope.
@@ -565,6 +569,7 @@ class TagRepository:
             The query with the visibility join + filters applied.
         """
         from metatv.core.database import ChannelDB
+        from metatv.core.filter_utils import channel_exclusion_criterion
         from sqlalchemy import or_
 
         query = query.join(ChannelDB, ChannelDB.id == channel_id_col).filter(
@@ -574,17 +579,9 @@ class TagRepository:
         if excluded_provider_ids:
             query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
         if excluded_prefixes:
-            _pref = list(excluded_prefixes)
-            # detected_prefix and detected_region are independent signals — a
-            # channel is banished if EITHER is in the excluded set (matches the
-            # main list's `prefix not in … and region not in …` keep-condition).
-            # or_(is None, notin) keeps NULL columns (the NULL trap above).
-            query = query.filter(
-                or_(ChannelDB.detected_prefix.is_(None),
-                    ChannelDB.detected_prefix.notin_(_pref)),
-                or_(ChannelDB.detected_region.is_(None),
-                    ChannelDB.detected_region.notin_(_pref)),
-            )
+            # SQL twin of is_channel_excluded — keeps rows the canonical predicate
+            # would NOT exclude (language wins over region).
+            query = query.filter(channel_exclusion_criterion(set(excluded_prefixes), ChannelDB))
         if excluded_categories:
             _cats = list(excluded_categories)
             query = query.filter(
