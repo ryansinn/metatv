@@ -165,13 +165,15 @@ def _normalize_remote_url(raw: str) -> str:
 
 
 def _repo_dir() -> str:
-    """Return the repository root directory inferred from this module's path.
+    """Return the repository root of the running checkout.
 
-    Resolves ``metatv/gui/qa_checklist_window.py`` → repo root (three parents
-    up).  Used as the cwd for git invocations so the sha/PR lookups work
-    regardless of the process's actual working directory.
+    Delegates to the single source of truth in :mod:`metatv.core.build_info` so
+    the "run git in the running checkout" resolver has one home. Used as the cwd
+    for git invocations so the sha/PR lookups work regardless of the process's
+    actual working directory.
     """
-    return str(Path(__file__).resolve().parents[2])
+    from metatv.core.build_info import repo_dir
+    return str(repo_dir())
 
 
 def _resolve_head_sha() -> str:
