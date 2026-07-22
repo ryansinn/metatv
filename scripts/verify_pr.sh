@@ -2,8 +2,10 @@
 # verify_pr.sh — a project-agnostic PR QA gate as one command.
 #
 # Resolves PR #<N>, (re)creates the SAME <main-repo>-pr-<N> sibling worktree
-# convention run.sh uses (so a paired launcher can reuse the checkout), runs
-# the project's FULL test suite against it, and prints an unmissable GREEN/RED
+# convention run.sh uses (so a paired launcher can reuse the checkout), merges
+# origin/<base> into it to test the MERGE RESULT (what will actually land, not
+# the stale branch tip — a conflict is RED before any test runs), runs the
+# project's FULL test suite against that tree, and prints an unmissable GREEN/RED
 # verdict. Exit code is 0 iff GREEN.
 #
 # PORTABLE: nothing project-specific is hardcoded. Configuration resolves as
@@ -29,8 +31,10 @@
 # any other runner uses its exit code (0 = GREEN). Either way GREEN is claimed
 # only after the command has run to completion.
 #
-# Guards two real past incidents: a non-OPEN PR exits 2 (merged/closed work is
-# never "verified"); a missing/unparseable summary is RED, never GREEN.
+# Guards three real past incidents: a non-OPEN PR exits 2 (merged/closed work is
+# never "verified"); a missing/unparseable summary is RED, never GREEN; and a
+# branch that no longer merges cleanly into origin/<base> is RED (needs rebase),
+# so the gate tests what will land rather than a stale tip.
 #
 # _main_repo / resolve_py mirror run.sh (generic for any linked-worktree repo).
 
@@ -186,6 +190,46 @@ cleanup_worktree() {
         echo "verify_pr.sh: kept $wt (uncommitted changes) — remove with: git -C \"$main\" worktree remove --force \"$wt\""
     fi
 }
+
+# ── verify the MERGE RESULT, not the stale branch tip ─────────────────────────
+# Parallel PRs branched from older main can pass on their own tip yet conflict
+# with newer main. Merge origin/<base> into the (detached) worktree and test the
+# result — a conflict is RED before any test runs. The merge commit is throwaway:
+# the next run's `reset --hard origin/<branch>` (or worktree removal) discards it.
+if git -C "$wt" rev-parse --verify -q "origin/$base_branch" >/dev/null; then
+    behind="$(git -C "$wt" rev-list --count "HEAD..origin/$base_branch" 2>/dev/null || echo 0)"
+    echo
+    echo "── merge check vs origin/$base_branch ──"
+    mergelog="$(mktemp "${TMPDIR:-/tmp}/verify_pr.${PR}.merge.XXXXXX.log")"
+    if git -C "$wt" -c user.email=verify@local -c user.name=verify-pr \
+            merge --no-edit "origin/$base_branch" >"$mergelog" 2>&1; then
+        rm -f "$mergelog"
+        if [ "$behind" -gt 0 ]; then
+            echo "merged $behind commit(s) from origin/$base_branch before testing"
+        else
+            echo "up to date with origin/$base_branch"
+        fi
+    else
+        conflicts="$(git -C "$wt" diff --name-only --diff-filter=U 2>/dev/null)"
+        git -C "$wt" merge --abort 2>/dev/null || true
+        echo "MERGE CONFLICT with origin/$base_branch — cannot test the merged tree:"
+        if [ -n "$conflicts" ]; then
+            printf '%s\n' "$conflicts" | sed 's/^/  /'
+        else
+            echo "  (merge failed; git output:)"
+            sed 's/^/  /' "$mergelog"
+        fi
+        rm -f "$mergelog"
+        echo
+        cleanup_worktree
+        echo
+        echo "VERDICT: RED — merge conflict with origin/$base_branch, needs rebase"
+        exit 1
+    fi
+else
+    echo
+    echo "── merge check skipped: origin/$base_branch not found (testing branch tip as-is) ──"
+fi
 
 if [ -z "${TEST_CMD:-}" ]; then
     if ! TEST_CMD="$(detect_test_cmd "$wt")"; then

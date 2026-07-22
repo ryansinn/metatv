@@ -4,17 +4,23 @@
 # Scope: worktrees under <main>/.claude/worktrees/, sibling <main>-pr-* PR
 # worktrees, and local branches that have no worktree.
 #
-# A worktree/branch is PRUNABLE when any of:
-#   • its tip is an ancestor of the trunk (git merge-base --is-ancestor), or
-#   • gh reports a MERGED PR for its branch (catches squash-merges whose tip
-#     never becomes an ancestor), or
-#   • for a <main>-pr-<N> worktree: PR #N's state is MERGED or CLOSED.
+# Prunable rules (a LIVE worktree is treated conservatively — a freshly created
+# agent branch has no commits of its own, so its tip is trivially an ancestor of
+# the trunk; ancestry alone must NOT read as "merged" for it, or an agent between
+# `worktree add` and its first commit could be removed mid-task):
+#   • ATTACHED worktree → prunable ONLY on merged/closed-PR evidence: gh reports
+#     a MERGED PR for its branch (catches squash-merges), or a <main>-pr-<N>
+#     worktree whose PR is MERGED/CLOSED. Tip-is-ancestor alone → KEPT (no unique
+#     commits — possibly active agent).
+#   • Local BRANCH with no worktree → prunable when its tip is an ancestor of the
+#     trunk (orphaned bookkeeping) or gh reports a MERGED PR (squash-merge).
 #
-# NEVER pruned: the trunk, the current worktree, PROTECTED patterns, and any
-# branch with commits not in the trunk and no merged/closed PR — those are
-# reported as "KEPT (unmerged)". A worktree with uncommitted changes is SKIPPED
-# with a warning, except when its only change is an untracked venv/ (per-worktree
-# venv noise), which is force-removed. --force overrides the dirty check.
+# NEVER pruned: the trunk, the current worktree, PROTECTED patterns, a worktree
+# whose branch has no merged/closed PR, and any branch with commits not in the
+# trunk — reported as "KEPT (unmerged)" / "KEPT (no unique commits …)". A worktree
+# with uncommitted changes is SKIPPED with a warning, except when its only change
+# is an untracked venv/ (per-worktree venv noise), which is force-removed.
+# --force overrides the dirty check.
 #
 # PORTABLE: nothing project-specific is hardcoded. Configuration resolves as
 #   (a) a repo-root `.devscripts.conf` (plain KEY=VALUE bash, sourced if present)
@@ -192,6 +198,7 @@ delete_branch() {  # name (confirmed prunable → -D is safe)
 # ── result trackers ───────────────────────────────────────────────────────────
 removed=()
 kept_unmerged=()
+kept_active=()       # attached worktrees with no unique commits (possibly live)
 kept_protected=()
 skipped_dirty=()
 
@@ -215,8 +222,9 @@ process_worktree() {
     if [ -n "$pr_n" ]; then label="$wt_path (PR #$pr_n)"
     elif [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ]; then label="$wt_path [$wt_branch]"; fi
 
-    # ── prunable? ──
-    local prunable=0 reason=""
+    # ── prunable? (a worktree is ATTACHED by definition — only merged/closed-PR
+    #    evidence may prune it; ancestry alone is NOT proof, see header) ──
+    local prunable=0 reason="" keep_kind="unmerged"
     if [ -n "$pr_n" ]; then
         local st; st="$(pr_state "$pr_n")"
         case "$st" in
@@ -227,18 +235,25 @@ process_worktree() {
     else
         local tip="$wt_head"
         [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ] && tip="$wt_branch"
-        if is_ancestor "$tip"; then
-            prunable=1; reason="merged (ancestor of $BASE_REF)"
-        elif [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ] && branch_has_merged_pr "$wt_branch"; then
-            prunable=1; reason="squash-merged PR"
+        if [ "$wt_detached" = 0 ] && [ -n "$wt_branch" ] && branch_has_merged_pr "$wt_branch"; then
+            prunable=1; reason="merged PR"
+        elif is_ancestor "$tip"; then
+            # Tip is an ancestor but the branch has no unique commits — could be a
+            # brand-new agent branch. Do NOT prune on this alone.
+            keep_kind="no_unique"; reason="no unique commits — possibly active agent"
         else
             reason="unmerged"
         fi
     fi
 
     if [ "$prunable" != 1 ]; then
-        echo "KEPT (unmerged): $label — $reason"
-        kept_unmerged+=( "$label" )
+        if [ "$keep_kind" = "no_unique" ]; then
+            echo "KEPT (no unique commits — possibly active agent): $label"
+            kept_active+=( "$label" )
+        else
+            echo "KEPT (unmerged): $label — $reason"
+            kept_unmerged+=( "$label" )
+        fi
         return 0
     fi
 
@@ -340,6 +355,9 @@ echo "── summary${dry_summary_tag} ──"
 print_bucket "removed       " ${removed[@]+"${removed[@]}"}
 print_bucket "kept-unmerged " ${kept_unmerged[@]+"${kept_unmerged[@]}"}
 print_bucket "skipped-dirty " ${skipped_dirty[@]+"${skipped_dirty[@]}"}
+if [ "${#kept_active[@]}" -gt 0 ]; then
+    print_bucket "kept-active   " "${kept_active[@]}"
+fi
 if [ "${#kept_protected[@]}" -gt 0 ]; then
     print_bucket "kept-protected" "${kept_protected[@]}"
 fi
