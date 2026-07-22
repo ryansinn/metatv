@@ -223,9 +223,14 @@ tail -n 15 "$log"
 verdict="RED"
 reason=""
 if [ "$runner" = "pytest" ]; then
-    # The final pytest banner is the last `===...===` line. Count-anchored
-    # patterns ("N failed" / "N error") avoid false hits on words like "xfailed".
-    summary_line="$(grep -E '^=+.*=+$' "$log" | tail -n1)"
+    # Find pytest's final results line by its shape — "<counts> ... in <time>s"
+    # — NOT by the `===` banner, which is absent when output is captured to a
+    # non-TTY (the line prints bare). First filter to lines carrying a duration,
+    # then to those with a result keyword; the last is the summary. Count-anchored
+    # checks below ("N failed"/"N error") avoid false hits on words like "xfailed".
+    summary_line="$(grep -iE ' in [0-9][0-9.]*s' "$log" \
+        | grep -iE '(passed|failed|error|no tests ran|skipped|xfailed|xpassed)' \
+        | tail -n1)"
     if [ -z "$summary_line" ]; then
         reason="no pytest summary line found (exit $status)"
     elif printf '%s' "$summary_line" | grep -qiE '[0-9]+ (failed|error)'; then

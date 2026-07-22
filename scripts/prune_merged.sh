@@ -75,8 +75,15 @@ _main_repo() { dirname "$(git -C "$1" rev-parse --path-format=absolute --git-com
 main="$(_main_repo "$SCRIPT_DIR")"
 [ -n "$main" ] || { echo "prune_merged.sh: not inside a git repo." >&2; exit 1; }
 
+# Current worktree(s) to protect: where the script lives + where it's invoked.
+current_wt="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+script_wt="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+
 # ── load config: repo-root .devscripts.conf → auto-detect → defaults ──────────
-conf="$main/.devscripts.conf"
+# Sourced from the checkout the script runs from (its conf is versioned with it),
+# falling back to the main worktree; removals/branch ops still target $main.
+repo_root="${script_wt:-${current_wt:-$main}}"
+conf="$repo_root/.devscripts.conf"
 if [ -f "$conf" ]; then
     echo "prune_merged.sh: sourcing $conf"
     # shellcheck source=/dev/null
@@ -99,10 +106,6 @@ else
     [ -n "$base_branch" ] || base_branch="main"
 fi
 BASE_REF="origin/$base_branch"
-
-# Current worktree(s) to protect: where the script lives + where it's invoked.
-current_wt="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
-script_wt="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 
 echo "prune_merged.sh: main=$main  trunk=$BASE_REF  protected=[${PROTECTED[*]}]${DRY:+  (dry-run)}"
 echo
