@@ -145,6 +145,22 @@ class _BrowseView(QWidget):
 
         vl.addWidget(self._stack)
 
+    def set_back_label(self, text: str, tooltip: str | None = None) -> None:
+        """Override the Back link's label + tooltip.
+
+        Discover keeps the default ``"← Back"`` (returns to the shelf list); the
+        recipe view relabels it (e.g. ``"✦ Build recipe"``) because the same link
+        returns to the recipe *builder* there. Only the label/tooltip change — the
+        emitted :attr:`backRequested` signal and its wiring are untouched.
+
+        Args:
+            text: New button label.
+            tooltip: Optional tooltip; unchanged when ``None``.
+        """
+        self._back_btn.setText(text)
+        if tooltip is not None:
+            self._back_btn.setToolTip(tooltip)
+
     def load(self, title: str, cards: list[ContentCard], *, preserve_filter: bool = False) -> None:
         """Replace the browse contents with *cards* (the fresh page-1 / replace path).
 
