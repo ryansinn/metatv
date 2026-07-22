@@ -67,6 +67,17 @@ for arg in "$@"; do
     esac
 done
 
+# Display labels are driven by the SAME truth as the behavior gates
+# (`[ "$DRY" = 1 ]`). Do NOT use `${DRY:+…}`: DRY is "0"/"1", and the ":+"
+# form expands on any non-empty value — so "0" would falsely print "dry-run".
+if [ "$DRY" = 1 ]; then
+    dry_tag="  (dry-run)"
+    dry_summary_tag=" (dry-run — nothing changed)"
+else
+    dry_tag=""
+    dry_summary_tag=""
+fi
+
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Absolute path of the main worktree for any checkout dir (mirrors run.sh).
@@ -107,7 +118,7 @@ else
 fi
 BASE_REF="origin/$base_branch"
 
-echo "prune_merged.sh: main=$main  trunk=$BASE_REF  protected=[${PROTECTED[*]}]${DRY:+  (dry-run)}"
+echo "prune_merged.sh: main=$main  trunk=$BASE_REF  protected=[${PROTECTED[*]}]${dry_tag}"
 echo
 
 # ── sync origin so merge state is current (read-only; nothing removed here) ───
@@ -156,7 +167,9 @@ worktree_dirty_state() {  # path → clean | venv_only | dirty
     local p="$1" st non_venv
     st="$(git -C "$p" status --porcelain 2>/dev/null)"
     [ -z "$st" ] && { echo clean; return; }
-    non_venv="$(printf '%s\n' "$st" | grep -vE '^\?\? venv/$' || true)"
+    # git status --porcelain reports an untracked dir as `?? venv` (no trailing
+    # slash) here, though some gits/configs print `?? venv/` — accept both.
+    non_venv="$(printf '%s\n' "$st" | grep -vE '^\?\? venv/?$' || true)"
     if [ -z "$non_venv" ]; then echo venv_only; else echo dirty; fi
 }
 
@@ -323,7 +336,7 @@ print_bucket() {  # label, items...
 }
 
 echo
-echo "── summary${DRY:+ (dry-run — nothing changed)} ──"
+echo "── summary${dry_summary_tag} ──"
 print_bucket "removed       " ${removed[@]+"${removed[@]}"}
 print_bucket "kept-unmerged " ${kept_unmerged[@]+"${kept_unmerged[@]}"}
 print_bucket "skipped-dirty " ${skipped_dirty[@]+"${skipped_dirty[@]}"}
