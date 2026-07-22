@@ -46,6 +46,9 @@ In the guessing zone, bias to recall: capture the facet a feeder denotes (high c
 ### Icons — always from `metatv/gui/icons.py`
 Every icon/emoji/symbol comes from `icons.py`, never a literal in widget code; add a new icon there first, never glyphs to `Config`. Collapse/expand uses `icons.expand_icon`/`icons.collapse_icon` (not the list-ordering arrows). Detail (collapsible nesting pattern): docs/CRITICAL_RULES.md#icons.
 
+### Cursors — never `setCursor` directly; route through `metatv/gui/cursor_affordance.py`
+Every clickable widget's pointing-hand cursor comes from `cursor_affordance.py` (`set_clickable()`; buttons qualify automatically; checkboxes/radio buttons excluded by convention) — a drift-guard test fails the suite on any other `PointingHandCursor` reference.
+
 ### Logging — always loguru
 `from loguru import logger`; never `import logging`.
 

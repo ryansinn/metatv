@@ -10,6 +10,8 @@ than its shape.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtWidgets import (
@@ -233,3 +235,55 @@ def test_real_app_checkbox_subclass_excluded(qapp):
     _send_enter(filt, box)
 
     assert box.cursor().shape() != Qt.CursorShape.PointingHandCursor
+
+
+# ---------------------------------------------------------------------------
+# Drift guard — PointingHandCursor must never be hand-rolled outside this module
+# ---------------------------------------------------------------------------
+#
+# #271 built the chokepoint but explicitly deferred sweeping existing call
+# sites; nothing then stopped LATER PRs (#277, #293, #297) from adding new
+# hand-rolled setCursor(Qt.CursorShape.PointingHandCursor) calls that bypass
+# it entirely (a disabled widget with a hand-rolled call never clears the
+# cursor — the app-level filter's disabled-widget handling never runs for
+# it). This test closes that hole for good: any future occurrence of the
+# literal anywhere under metatv/ outside cursor_affordance.py itself fails
+# the suite immediately, pointing at set_clickable().
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_METATV_ROOT = _REPO_ROOT / "metatv"
+_CHOKEPOINT_REL = "metatv/gui/cursor_affordance.py"
+
+
+def test_pointing_hand_cursor_only_in_chokepoint() -> None:
+    """``PointingHandCursor`` must appear nowhere under metatv/ except the chokepoint.
+
+    A hand-rolled ``widget.setCursor(Qt.CursorShape.PointingHandCursor)`` bypasses
+    the app-level ``PointingHandFilter`` entirely — it never gets the disabled-
+    widget handling, and doesn't need to exist at all for a plain
+    ``QAbstractButton`` (those qualify automatically). If this test fires:
+    remove the direct ``setCursor`` call, and if the widget is not a button, call
+    ``cursor_affordance.set_clickable(widget)`` instead.
+    """
+    violations: list[tuple[str, int, str]] = []
+    for path in _METATV_ROOT.rglob("*.py"):
+        rel = str(path.relative_to(_REPO_ROOT))
+        if rel == _CHOKEPOINT_REL:
+            continue
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            if "PointingHandCursor" in line:
+                violations.append((rel, lineno, line.strip()))
+
+    if not violations:
+        return
+
+    report = "\n".join(
+        f"  {rel}:{lineno}  →  {snippet}" for rel, lineno, snippet in violations
+    )
+    pytest.fail(
+        f"Found {len(violations)} hand-rolled PointingHandCursor reference(s) "
+        "outside metatv/gui/cursor_affordance.py. Remove the direct setCursor() "
+        "call — buttons qualify automatically; non-button widgets must call "
+        f"cursor_affordance.set_clickable(widget) instead:\n{report}"
+    )
