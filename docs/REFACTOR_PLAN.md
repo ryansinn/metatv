@@ -145,6 +145,20 @@ copy-pasted in **at least 6 places**:
 - **Accept:** no per-call executor remains; selecting many channels does not grow the thread
   count; metadata still loads.
 
+### P1-6 — One shared Global-Exclusion predicate across all surfaces
+- **Where:** three surfaces interpret the same `global_filter_excluded_categories` set differently:
+  - `metatv/gui/main_window_channels.py` `_apply_python_exclusions` — **prefix-wins + region-fallback**
+    (an un-excluded language prefix keeps the channel; region only decides when there is no prefix). *(current, correct rule — shipped #298)*
+  - `metatv/gui/main_window_metadata.py` `_is_filtered` — **prefix-only**, no region at all (would show
+    ~37k prefix-less region-excluded rows the channel list hides).
+  - `metatv/gui/epg_on_now_mixin.py` `_on_now_hidden_prefixes` — builds its own hidden-prefix set.
+- **Fix:** extract ONE predicate `is_channel_excluded(detected_prefix, detected_region, excluded)` (channel-list
+  rule) into a dependency-free helper (e.g. `core/filter_utils.py`) and route all three surfaces through it, so
+  search, Discovery/Recommendations, and EPG On-Now agree exactly (single-chokepoint; user's "everything should
+  interpret the same way"). Detail: `docs/FILTERING_DESIGN.md` → Tier-2 "Open inconsistency".
+- **Accept:** a search-hidden channel is hidden identically in Recommendations + EPG On-Now; one predicate, no
+  parallel region/prefix logic. **Awaiting user go on the canonical rule (a behavior change to metadata/EPG).**
+
 ---
 
 ## Priority 2 — Inline stylesheets → `theme.py`

@@ -77,6 +77,10 @@ Once content is in a curated collection, it is permanently accessible regardless
 
 **Does not affect**: Other Versions panel in the details pane — excluded versions always appear there, grayed out.
 
+**Matching rule — language wins over region.** The blacklist stores prefix/category codes (grouped under language headings that are "a visual hint, not a truth"). A channel is hidden when its **detected prefix** is in the excluded set; when a channel has **no prefix**, its **detected region** is checked instead (fallback). An explicit, un-excluded prefix (e.g. `EN`) therefore keeps the channel even when its region tag is excluded — so excluding `IN`/`DE` never hides an English movie merely filed under an Indian/German category. This can only reveal content, never hide more. Chokepoint: `_apply_python_exclusions` (`metatv/gui/main_window_channels.py`); test: `tests/test_filter_transparency.py::test_language_prefix_survives_region_exclusion`.
+
+> **Open inconsistency (follow-up).** Three surfaces interpret the same exclusion set differently: the channel list uses prefix-wins + region-fallback (above); Recommendations/metadata (`_is_filtered` in `main_window_metadata.py`) matches **prefix-only** (no region at all → would show ~37k prefix-less region-excluded rows the list hides); EPG On-Now builds its own hidden-prefix set. A future change should unify all three behind one shared predicate (the channel-list rule) so every surface agrees exactly.
+
 #### Exclusions chip behavior (bottom nav bar)
 
 The **Exclusions** chip is a three-state widget with a simple left-click / right-click contract:
