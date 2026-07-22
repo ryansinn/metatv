@@ -25,6 +25,7 @@ import requests
 from urllib.parse import urlparse, urlunparse
 from datetime import datetime
 
+from metatv.core.build_info import window_title
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
 from metatv.gui.main_window_streaming import _StreamingMixin, _looks_like_text
@@ -430,7 +431,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     
     def setup_ui(self):
         """Set up the user interface"""
-        self.setWindowTitle("MetaTV - IPTV Stream Organizer")
+        self.setWindowTitle(window_title())
 
         # Restore saved geometry, or fall back to a sensible default
         restored = False
