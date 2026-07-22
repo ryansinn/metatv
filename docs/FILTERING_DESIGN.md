@@ -8,6 +8,17 @@ We cannot know in advance what prefix groups, providers, or content categories w
 
 The correct mental model: **everything is shown unless the user explicitly hides it.** Tier 1 filters narrow a view temporarily. Tier 2 Global Exclusions permanently suppress content from browsing. Neither is a hard block — excluded content always remains discoverable through direct navigation.
 
+### New facet values are included by default (opt-out enforcement)
+
+The Tier-1 "Includes" panel stores a per-facet *selection* (`filter_included_<facet>`). Restoring that selection naïvely — checking only the saved values — is secretly **opt-IN**: when a source refresh surfaces a facet value that didn't exist at the user's last save (a new region code, a new platform), it isn't in the saved selection, so it gets unchecked and the content is silently hidden. The app cannot tell "the user deselected this" from "this never existed before."
+
+The fix is a second per-facet field, `filter_known_<facet>` (one per dynamic facet, mirroring `filter_included_<facet>`), that records **every value the app has already shown the user**. On each `FilterPanel.update_data`:
+
+- **First run for a facet** (`filter_known_<facet> is None`): establish the baseline — INCLUDE every value currently present (a one-time un-hide of anything a stale saved selection was hiding) and record `known = present`. Silent; no popup.
+- **Thereafter**: `new = present − known`; the effective selection is `saved ∪ new` (new values stay CHECKED); `known` grows to `known ∪ present` and never shrinks. A value in `known` but not in `saved` was genuinely deselected → stays unchecked.
+
+When a refresh/import surfaces new values, a **New Filter Values** popup (`new_facet_values_dialog.py`) lists them grouped by facet — all checked by default; unchecking one on confirm excludes it. The baseline (first-run) un-hide never shows the popup. Chokepoint: `FilterPanel._restore_facet_opt_out` (`gui/filter_panel.py`); the facet ↔ config-key mapping is `_known_section_attrs()`. Wiring: source refresh routes through `_refresh_provider_dependent_views() → initialize_filter_stats() → update_data()`.
+
 ---
 
 ## Excluded Content Remains Discoverable
@@ -315,6 +326,7 @@ Locale sub-groups and country-level region filters only work when providers use 
 | Tier 1 "Uncategorized" section (unmapped prefix codes, identification workflow) | ✅ |
 | Tier 1 "Unknown" section (no_prefix + no_quality catchall) | ✅ |
 | Tier 1 All / Clear buttons (reset everything / start from scratch) | ✅ |
+| Tier 1 opt-out: new/unseen facet values included by default (`filter_known_*` + new-values popup) | ✅ |
 | Info (ℹ) buttons on all section headers with click/hover tooltips | ✅ |
 | RAW quality tier in detection + filter | ✅ |
 | Platform split: individual brand groups (NF, PRIME, Disney+, VIX, EAR, etc.) | ✅ |

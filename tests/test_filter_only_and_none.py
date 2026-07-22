@@ -35,9 +35,27 @@ def _make_config(
     filter_included_platforms=None,
     filter_included_genres=None,
     filter_untagged_selected=None,
+    baseline_established=True,
 ) -> SimpleNamespace:
-    """Minimal config for FilterPanel — no save(), no filesystem."""
+    """Minimal config for FilterPanel — no save(), no filesystem.
+
+    ``filter_known_*`` (the opt-out baseline) defaults to the full set of values
+    ``_make_stats`` supplies, i.e. the steady state where the sentinel semantics
+    ([] = none, None = all, [..] = subset) apply on restore.  The one-time
+    first-run baseline (``filter_known_* is None`` → include everything) is covered
+    by ``test_filter_opt_out.py``; pass ``baseline_established=False`` for it.
+    """
+    _known = (lambda vals: vals if baseline_established else None)
     cfg = SimpleNamespace(
+        filter_known_languages=_known(["EN", "FR", "DE"]),
+        filter_known_regions=_known(["US", "CA", "GB"]),
+        filter_known_qualities=_known(["HD", "SD"]),
+        filter_known_platforms=_known(["Netflix", "Disney+"]),
+        filter_known_genres=_known(["Action", "Drama", "Comedy"]),
+        filter_known_categories=_known([]),
+        filter_known_subtitles=_known([]),
+        filter_known_dubs=_known([]),
+        filter_known_formats=_known([]),
         info_icon="ℹ",
         expand_icon="▶",
         collapse_icon="▼",
@@ -275,7 +293,8 @@ class TestNonePersistenceSentinel:
 
     def test_never_configured_none_restores_as_all(self, qapp):
         """None in config (never configured) → restore → all selected (default)."""
-        cfg = _make_config(filter_included_qualities=None)  # never configured
+        # Fresh install: no opt-out baseline recorded (filter_known_* None).
+        cfg = _make_config(filter_included_qualities=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
 
@@ -285,7 +304,7 @@ class TestNonePersistenceSentinel:
 
     def test_never_configured_none_language_restores_as_all(self, qapp):
         """None language → all languages selected on restore."""
-        cfg = _make_config(filter_included_languages=None)
+        cfg = _make_config(filter_included_languages=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats())
 
@@ -295,7 +314,7 @@ class TestNonePersistenceSentinel:
 
     def test_never_configured_none_genre_restores_as_all(self, qapp):
         """None genre config → all genres selected (fresh-install / never configured)."""
-        cfg = _make_config(filter_included_genres=None)
+        cfg = _make_config(filter_included_genres=None, baseline_established=False)
         panel = _build_panel(qapp, cfg)
         panel.update_data(_make_stats(genre_counts={"Action": 10, "Drama": 5}))
 

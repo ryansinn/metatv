@@ -42,6 +42,20 @@ class FilterPanel(QWidget):
                      "quality", "category", "genre", "subtitle", "dub",
                      "format", "untagged"]
 
+    # Human-facing facet titles for the new-values opt-out popup.  Iteration order
+    # also drives the popup's section order.
+    _FACET_TITLES = {
+        "language": "Language",
+        "region":   "Region",
+        "platform": "Platform",
+        "quality":  "Quality",
+        "category": "Category",
+        "genre":    "Genre",
+        "subtitle": "Subtitle Language",
+        "dub":      "Dub Language",
+        "format":   "Audio Format",
+    }
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -308,44 +322,44 @@ class FilterPanel(QWidget):
         returned by the tag-facet stats query.  Recognised facet types:
         ``language``, ``region``, ``platform``, ``quality``, ``genre``.
 
-        On first call (startup), the in-memory ``prev`` selections are all empty
-        because the items don't exist yet when ``restore_state()`` runs at init.
-        In that case we fall back to the persisted config selections so that saved
-        filter choices survive a restart.  On subsequent calls (e.g. after a source
-        refresh) we preserve the user's current in-memory selection instead.
+        Restore follows the **opt-out model** (docs/FILTERING_DESIGN.md): each facet
+        goes through :meth:`_restore_facet_opt_out`, keyed off a persisted
+        ``filter_known_*`` set that distinguishes a NEW/unseen value (default
+        INCLUDED) from one the user deliberately deselected (stays excluded).  On the
+        feature's first run for a facet (``filter_known_* is None``) the baseline
+        INCLUDES every present value — a one-time un-hide of any content a stale
+        saved selection was hiding — and records the baseline.
 
-        After the first call completes, emits ``filter_changed`` so that
+        The very first call (startup) emits ``filter_changed`` so
         ``MainWindow.on_filter_changed`` re-runs ``load_channels()`` with the
-        now-restored dynamic filters applied.  Subsequent calls (source refresh)
-        do NOT emit — the list is already reflecting the live in-memory selection.
+        restored filters.  A later call (source refresh/import) does not blindly
+        re-emit, but if it surfaced NEW facet values it shows the opt-out popup
+        (:meth:`_show_new_values_popup`) and reloads once the user decides.
         """
         # Capture whether this is the first call BEFORE any state is modified.
         was_first = not self._stats_loaded
 
-        # Build the startup fallback: config_attr → persisted set of keys.
-        # Uses the same (config_attr, section) mapping as restore_state() so there
-        # is exactly one place that knows the attr names.
-        # None means "never configured" → leave section at all-selected default.
-        # [] means "explicitly none" → restore to none-selected.
-        _persisted_raw: dict[object, list | None] = {
-            sec: getattr(self.config, attr, None)
-            for attr, sec in self._persisted_section_attrs()
+        # (included_attr, known_attr) per section — single source of truth for the
+        # opt-out restore below; see _known_section_attrs().
+        _attr_map = {
+            sec: (inc_attr, known_attr)
+            for inc_attr, known_attr, sec in self._known_section_attrs()
         }
+        # Newly-seen facet values collected across sections → drives the opt-out
+        # popup after a source refresh (section_key → set of new values).
+        new_by_facet: dict[str, set[str]] = {}
 
         def _restore(sec: object, prev: set[str]) -> None:
-            """Apply selection: in-memory prev if present, else persisted startup value.
+            """Opt-out restore for one dynamic facet section.
 
-            Sentinel semantics for the persisted value:
-              None → never configured; skip (leave section at all-selected default).
-              []   → explicitly none; call restore_selection(set()) → uncheck all.
-              [..] → restore those specific keys.
+            New/unseen values default INCLUDED; genuinely deselected values (known
+            but not in the saved/live selection) stay unchecked.  ``prev`` is the
+            in-memory selection captured *before* the section's items were rebuilt.
+            Full contract: :meth:`_restore_facet_opt_out`.
             """
-            if prev:
-                sec.restore_selection(prev)
-            else:
-                saved = _persisted_raw.get(sec)
-                if saved is not None:
-                    sec.restore_selection(set(saved))
+            inc_attr, known_attr = _attr_map[sec]
+            self._restore_facet_opt_out(
+                sec, inc_attr, known_attr, set(prev), was_first, new_by_facet)
 
         # ── Media — static items (no change needed)
 
@@ -425,15 +439,7 @@ class FilterPanel(QWidget):
         )
         prev_category = set(self._category_sec.get_selected_keys())
         self._category_sec.set_flat_items(category_items)
-        if prev_category:
-            self._category_sec.restore_selection(prev_category)
-        else:
-            persisted_category = _persisted_raw.get(self._category_sec)
-            if persisted_category is not None:
-                self._category_sec.restore_selection(set(persisted_category))
-            else:
-                # Fresh install / no saved selection (None): show everything
-                self._category_sec.select_all()
+        _restore(self._category_sec, prev_category)
 
         # ── Genre — tag values are canonical genre names (e.g. "Drama")
         genre_values: dict[str, int] = tag_counts.get('genre', {})
@@ -443,16 +449,7 @@ class FilterPanel(QWidget):
         )
         prev_genre = set(self._genre_sec.get_selected_keys())
         self._genre_sec.set_flat_items(genre_items)
-        if prev_genre:
-            self._genre_sec.restore_selection(prev_genre)
-        else:
-            persisted_genre = _persisted_raw.get(self._genre_sec)
-            if persisted_genre is not None:
-                # Startup: apply saved genre selection ([] = none, [..] = subset)
-                self._genre_sec.restore_selection(set(persisted_genre))
-            else:
-                # Fresh install / no saved selection (None): show everything
-                self._genre_sec.select_all()
+        _restore(self._genre_sec, prev_genre)
 
         # ── Subtitle language
         subtitle_values: dict[str, int] = tag_counts.get('subtitle', {})
@@ -509,6 +506,12 @@ class FilterPanel(QWidget):
         # Dynamic sections are now populated — safe for save_state() to persist them.
         self._stats_loaded = True
 
+        # Persist the opt-out baseline / accumulated known sets and the restored
+        # selections.  _restore_facet_opt_out() set config.filter_known_* in memory;
+        # save_state() writes filter_included_* (guarded by _stats_loaded) and calls
+        # config.save(), which flushes the known sets to disk too.
+        self.save_state()
+
         logger.debug(
             f"FilterPanel updated (tag model): {len(lang_items)} languages, "
             f"{len(region_data)} region groups, {len(plat_items)} platforms, "
@@ -521,11 +524,13 @@ class FilterPanel(QWidget):
         # sections were populated (restore_search_state fires load_channels while
         # Language/Region/etc. are still empty).  Emit filter_changed now so the
         # main-window handler re-runs load_channels with the restored filters.
-        # Subsequent calls (source refresh) must NOT re-emit — the list already
-        # reflects the live in-memory selection and a spurious reload would discard
-        # any context-filter chip the user had active.
+        # A subsequent call (source refresh/import) does NOT blindly re-emit — but
+        # if it surfaced NEW facet values (already included by default), offer the
+        # opt-out popup and reload once the user has decided.
         if was_first:
             self.filter_changed.emit()
+        elif new_by_facet:
+            self._show_new_values_popup(new_by_facet)
 
     def get_filter_state(self) -> dict:
         """Return resolved filter state for main_window.load_channels().
@@ -762,23 +767,124 @@ class FilterPanel(QWidget):
                 self._genre_sec, self._subtitle_sec, self._dub_sec,
                 self._format_sec, self._untagged_sec]
 
+    def _known_section_attrs(self) -> list[tuple[str, str, object]]:
+        """Return (included_attr, known_attr, section) triples for the 9 dynamic facets.
+
+        Single source of truth for the config-key ↔ section mapping used by the
+        opt-out restore in :meth:`update_data`.  ``_persisted_section_attrs`` is
+        derived from this so the two mappings never drift.
+        """
+        return [
+            ('filter_included_languages',  'filter_known_languages',  self._lang_sec),
+            ('filter_included_regions',    'filter_known_regions',    self._region_sec),
+            ('filter_included_qualities',  'filter_known_qualities',  self._quality_sec),
+            ('filter_included_platforms',  'filter_known_platforms',  self._platform_sec),
+            ('filter_included_categories', 'filter_known_categories', self._category_sec),
+            ('filter_included_genres',     'filter_known_genres',     self._genre_sec),
+            ('filter_included_subtitles',  'filter_known_subtitles',  self._subtitle_sec),
+            ('filter_included_dubs',       'filter_known_dubs',       self._dub_sec),
+            ('filter_included_formats',    'filter_known_formats',    self._format_sec),
+        ]
+
     def _persisted_section_attrs(self) -> list[tuple[str, object]]:
         """Return (config_attr_name, section) pairs for all dynamic sections.
 
         Single source of truth for the config-key → section mapping, shared by
-        ``restore_state`` (startup) and ``update_data`` (startup fallback path).
+        ``restore_state`` (startup) and ``update_data``.  Derived from
+        ``_known_section_attrs`` so the include-attr mapping has one definition.
         """
-        return [
-            ('filter_included_languages',  self._lang_sec),
-            ('filter_included_regions',    self._region_sec),
-            ('filter_included_qualities',  self._quality_sec),
-            ('filter_included_platforms',  self._platform_sec),
-            ('filter_included_categories', self._category_sec),
-            ('filter_included_genres',     self._genre_sec),
-            ('filter_included_subtitles',  self._subtitle_sec),
-            ('filter_included_dubs',       self._dub_sec),
-            ('filter_included_formats',    self._format_sec),
-        ]
+        return [(inc_attr, sec) for inc_attr, _known_attr, sec in self._known_section_attrs()]
+
+    def _section_by_key(self, section_key: str):
+        """Return the _Section whose key matches, or None."""
+        for sec in self._all_sections():
+            if sec.section_key() == section_key:
+                return sec
+        return None
+
+    def _restore_facet_opt_out(self, sec, included_attr: str, known_attr: str,
+                               prev: set[str], was_first: bool,
+                               new_out: dict[str, set[str]]) -> None:
+        """Restore one facet's selection under the opt-out model.
+
+        ``current`` = every value currently present/renderable in the section
+        (``sec.get_all_keys()``).  ``known`` = the accumulated set of values already
+        surfaced to the user (``config.<known_attr>``).
+
+        * ``known`` is None → the opt-out baseline has never run for this facet:
+          INCLUDE every present value (un-hide the user's currently-hidden content,
+          overriding any prior Tier-1 deselection) and record the baseline.  No
+          popup — the un-hide is silent.
+        * otherwise → ``new = current − known``.  The effective selection is
+          ``base ∪ new`` where ``base`` is the live in-memory selection (``prev``)
+          or, when empty, the persisted ``included_attr`` (None persisted → all
+          present).  New values stay CHECKED (opt-out); a value in ``known`` but not
+          in ``base`` was genuinely deselected and stays unchecked.  ``known`` grows
+          to ``known ∪ current`` and never shrinks, so a value that disappears and
+          later reappears is not re-flagged as new.
+
+        Newly-seen values are recorded in ``new_out[section_key]`` for the popup,
+        but only on non-first calls (``was_first`` False — i.e. a source refresh).
+        """
+        current = set(sec.get_all_keys())
+        known_raw = getattr(self.config, known_attr, None)
+
+        if known_raw is None:
+            # Feature's first run for this facet → establish the opt-out baseline.
+            sec.restore_selection(current)
+            setattr(self.config, known_attr, sorted(current))
+            return
+
+        known = set(known_raw)
+        new = current - known
+        if prev:
+            base = set(prev)
+        else:
+            saved = getattr(self.config, included_attr, None)
+            base = set(saved) if saved is not None else set(current)
+        sec.restore_selection(base | new)
+        setattr(self.config, known_attr, sorted(known | current))
+        if new and not was_first:
+            new_out[sec.section_key()] = new
+
+    def _show_new_values_popup(self, new_by_facet: dict[str, set[str]]) -> None:
+        """Show the opt-out popup for newly-seen facet values, then apply + reload.
+
+        Every new value is already CHECKED (included).  On confirm, unchecked values
+        are removed from their section's selection (excluded); on cancel, all stay
+        included.  Either way the channel list is reloaded so it reflects the final
+        selection and the newly-surfaced content.
+        """
+        from PyQt6.QtWidgets import QDialog
+
+        from metatv.gui.new_facet_values_dialog import NewFacetValuesDialog
+
+        labels: dict[str, dict[str, str]] = {}
+        if 'region' in new_by_facet:
+            labels['region'] = {
+                code: self._region_label(code) for code in new_by_facet['region']
+            }
+        dlg = NewFacetValuesDialog(
+            new_by_facet, self._FACET_TITLES, labels, parent=self.window())
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            excluded = dlg.excluded()
+            if excluded:
+                self._apply_new_value_exclusions(excluded)
+        self.save_state()
+        self.filter_changed.emit()
+
+    def _apply_new_value_exclusions(self, excluded: dict[str, set[str]]) -> None:
+        """Uncheck the given values in each section (opt them out of the filter)."""
+        self._restoring = True
+        try:
+            for section_key, values in excluded.items():
+                sec = self._section_by_key(section_key)
+                if sec is None:
+                    continue
+                remaining = set(sec.get_selected_keys()) - set(values)
+                sec.restore_selection(remaining)
+        finally:
+            self._restoring = False
 
     def _add_divider(self):
         line = QFrame()

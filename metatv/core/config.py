@@ -714,6 +714,25 @@ class Config(BaseModel):
     filter_included_subtitles: Optional[list] = None
     filter_included_dubs: Optional[list] = None
     filter_included_formats: Optional[list] = None
+    # Opt-out "known values" tracking — one per dynamic facet, mirroring the
+    # filter_included_* fields above.  This is what lets the app distinguish a
+    # NEW/unseen facet value from one the user deliberately deselected (see
+    # docs/FILTERING_DESIGN.md — the opt-out model).
+    #   None    = the opt-out feature has never established a baseline for this
+    #             facet → the first update_data() call INCLUDES every present value
+    #             (un-hides everything) and records the baseline here.
+    #   [items] = the accumulated set of facet values already surfaced to the user.
+    #             A value present in the data but NOT in this set is NEW → included
+    #             by default and offered for opt-out via the new-values popup.
+    filter_known_languages: Optional[list] = None
+    filter_known_regions: Optional[list] = None
+    filter_known_qualities: Optional[list] = None
+    filter_known_platforms: Optional[list] = None
+    filter_known_categories: Optional[list] = None
+    filter_known_genres: Optional[list] = None
+    filter_known_subtitles: Optional[list] = None
+    filter_known_dubs: Optional[list] = None
+    filter_known_formats: Optional[list] = None
     # Schema version for the filter_included_* None-sentinel.  0 (or absent) = a
     # pre-sentinel config whose [] means "never configured" → migrate [] to None
     # ONCE in model_post_init.  >=1 = written by the sentinel-aware save, where []
