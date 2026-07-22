@@ -120,7 +120,15 @@ def _set_backfill_active(active: bool) -> None:
 #       must be regenerated so the filter panel shows one "TV Show" entry with
 #       the summed count instead of the fragmented facets.  Deletes only
 #       source="generated" tags per channel — user-curated tags are untouched.
-CURRENT_TAG_BACKFILL_VERSION = 7
+#   8 — AI-provenance markers: a trailing "(AI Generated)" (AI-generated content)
+#       or "(AI)" (AI voiceover/dub) suffix now emits a content_type: tag
+#       (content_type:ai_generated / content_type:ai_voiceover) via a new
+#       name-based feeder (decompose_ai_provenance).  Full re-tag required so
+#       existing rows gain the excludable facet.  Runs AFTER
+#       detected_title_reparse (which strips the "(AI)" marker from the display
+#       title and keeps the "(AI Generated)" marker for content-key distinctness).
+#       Deletes only source="generated" tags per channel — user tags untouched.
+CURRENT_TAG_BACKFILL_VERSION = 8
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
@@ -294,9 +302,12 @@ class TagBackfillTask:
             # channels that have none.  media_type is required for content-descriptor
             # facet routing (category: live vs genre: movie/series).
             # detected_audio is required for the audio_annotation feeder (feeder 5).
+            # name is required for the AI-provenance feeder (decompose_ai_provenance
+            # reads the trailing "(AI Generated)" / "(AI)" marker off the raw name).
             rows = (
                 session.query(
                     ChannelDB.id,
+                    ChannelDB.name,
                     ChannelDB.category,
                     ChannelDB.source_category,
                     ChannelDB.detected_prefix,
@@ -318,6 +329,7 @@ class TagBackfillTask:
             for row in rows:
                 (
                     channel_id,
+                    name,
                     category,
                     source_category,
                     detected_prefix,
@@ -331,6 +343,7 @@ class TagBackfillTask:
 
                 all_tags = _collect_tags(
                     config=config,
+                    name=name,
                     category=category,
                     source_category=source_category,
                     detected_prefix=detected_prefix,
@@ -370,6 +383,7 @@ def _collect_tags(
     raw_data: dict | None,
     media_type: str | None = None,
     detected_audio: dict | None = None,
+    name: str | None = None,
 ) -> list[tuple[str, str, str]]:
     """Run all feeders and return a merged ``(type, value, feeder)`` list.
 
@@ -399,6 +413,9 @@ def _collect_tags(
         detected_audio:   ``ChannelDB.detected_audio`` dict (audio_annotation feeder).
                           When present, adds ``language:``, ``subtitle:``, ``dub:``,
                           and ``format:`` tags (tasks #82/#24).
+        name:             ``ChannelDB.name`` (ai_provenance feeder).  When a trailing
+                          ``(AI Generated)`` / ``(AI)`` marker is present, adds a
+                          ``content_type:`` tag (``ai_generated`` / ``ai_voiceover``).
 
     Returns:
         List of ``(type, value, feeder)`` tuples ready for
@@ -406,6 +423,7 @@ def _collect_tags(
     """
     from metatv.core.tag_decomposer import (
         decompose,
+        decompose_ai_provenance,
         decompose_audio,
         decompose_name_parse,
         remap_content_descriptor_facets,
@@ -454,6 +472,13 @@ def _collect_tags(
     if detected_audio:
         for tag_type, tag_value, _conf in decompose_audio(detected_audio):
             feeder_map[(tag_type, tag_value)].add("audio_annotation")
+
+    # Feeder 6: ai_provenance (trailing "(AI Generated)" / "(AI)" name marker).
+    # Emits a content_type: tag (ai_generated / ai_voiceover) so users can exclude
+    # AI-generated content and/or AI voiceovers via the tag-facet query path.
+    if name:
+        for tag_type, tag_value, _conf in decompose_ai_provenance(name):
+            feeder_map[(tag_type, tag_value)].add("name_ai_marker")
 
     # Re-facet content-descriptor groups by media_type.
     # Groups like "Sports", "Adult", "Kids" are placed in language/platform config

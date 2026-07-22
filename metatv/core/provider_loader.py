@@ -664,6 +664,7 @@ class ProviderLoadThread(QThread):
 
                         all_tags = _collect_tags(
                             config=config,
+                            name=name,
                             category=category,
                             source_category=source_category,
                             detected_prefix=detected_prefix,

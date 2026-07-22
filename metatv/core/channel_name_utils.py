@@ -960,6 +960,108 @@ CONF_DENOTED: float = 0.9
 CONF_STRONG_PRIOR: float = 0.3
 CONF_WEAK_PRIOR: float = 0.15
 
+# ── AI-provenance markers (single source of truth) ───────────────────────────── #
+# Some providers stamp a trailing parenthetical marker onto a channel name to flag
+# how it was produced.  Two DISTINCT user-facing concepts (a user may tolerate an
+# AI dub but not AI-generated content), so two distinct content_type facet values:
+#
+#   • "(AI Generated)"  — the CONTENT itself is AI-generated (fabricated music-video
+#     "collaborations" like "[MV] Lady Gaga - Born To Win - ft. Sia & The Weeknd
+#     (AI Generated)").  → value "ai_generated".
+#   • "(AI)"            — an AI-generated VOICEOVER / dub, not AI content (Polish VOD
+#     like "PL - Bugonia (2025) Lektor (AI)"; "Lektor" = Polish voice-over narration).
+#     → value "ai_voiceover".
+#
+# Both are matched ONLY as a TRAILING marker (end of name, optional surrounding
+# whitespace), case-insensitively.  A mid-title parenthetical or a bare "AI" without
+# parens never matches — the anchoring ($) and the required parens guard against
+# false positives like "AI Superstars" or "Terminator (AI Uprising)".
+
+# Trailing "(AI Generated)" and the defensive spellings "(AI-Generated)" /
+# "(A.I. Generated)".  The token right after "(" must be AI / A.I. (not e.g.
+# "(Fully AI Generated)"), and "GENERATED" must be the closing word.
+_AI_GENERATED_SUFFIX_RE = re.compile(
+    r"\s*\(\s*A\.?\s*I\.?[\s\-]+GENERATED\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+# Trailing bare "(AI)" marker (AI-generated voiceover/dub).  Matches ONLY the exact
+# parenthetical — "(AIR)", "(AI Uprising)", "(A.I.)" and mid-title "(AI)" do not match.
+_AI_MARKER_SUFFIX_RE = re.compile(
+    r"\s*\(\s*AI\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+# "Lektor" (Polish voice-over narration) sitting immediately before the "(AI)" marker
+# is a strong denotation that the "(AI)" flags an AI dub → high confidence.
+_LEKTOR_TRAILING_RE = re.compile(r"\blektor\b\s*$", re.IGNORECASE)
+
+# Canonical content_type facet values for the two AI-provenance flavors.  Snake_case
+# to match the existing content_type value family (e.g. "live_event", "ppv").
+AI_GENERATED_VALUE: str = "ai_generated"
+AI_VOICEOVER_VALUE: str = "ai_voiceover"
+
+
+class AiProvenance(NamedTuple):
+    """Result of :func:`detect_ai_provenance`.
+
+    Attributes:
+        value:        The content_type facet value — ``"ai_generated"`` (AI content)
+                      or ``"ai_voiceover"`` (AI dub).
+        confidence:   DR-0006 base confidence.  ``CONF_DENOTED`` for the explicit
+                      ``(AI Generated)`` marker and for ``(AI)`` preceded by
+                      ``Lektor``; ``CONF_STRONG_PRIOR`` for a bare ``(AI)`` with no
+                      Lektor context (still the voiceover value, just ranked lower).
+        cleaned_name: *name* with the recognized trailing marker removed (trailing
+                      whitespace stripped).  Only the recognized marker is removed —
+                      no generic paren-stripping.
+    """
+
+    value: str
+    confidence: float
+    cleaned_name: str
+
+
+def detect_ai_provenance(name: str) -> Optional[AiProvenance]:
+    """Detect a trailing AI-provenance marker on a channel name.
+
+    Recognizes ONLY end-of-name markers (optional surrounding whitespace),
+    case-insensitively.  ``(AI Generated)`` (and the defensive spellings
+    ``(AI-Generated)`` / ``(A.I. Generated)``) denotes AI-generated *content*;
+    a bare ``(AI)`` denotes an AI-generated *voiceover/dub*.  A mid-title
+    parenthetical or a bare ``AI`` without parens never matches.
+
+    Confidence follows DR-0006 (capture generously, label honestly): the marker
+    always lands as a tag — confidence is a ranking/prune-priority signal, never a
+    suppression gate.  The content marker and a Lektor-anchored ``(AI)`` are
+    ``CONF_DENOTED``; a bare ``(AI)`` with no Lektor context is the same voiceover
+    value at ``CONF_STRONG_PRIOR`` (the observed corpus is all Polish lektor VOD, so
+    ``(AI)`` denotes an AI dub there, but a bare ``(AI)`` elsewhere is a guess).
+
+    Args:
+        name: A raw channel name or an already-parsed title.
+
+    Returns:
+        An :class:`AiProvenance` when a trailing marker is present, else ``None``.
+        Pure — no DB, no Qt.
+    """
+    if not name:
+        return None
+
+    gm = _AI_GENERATED_SUFFIX_RE.search(name)
+    if gm:
+        return AiProvenance(AI_GENERATED_VALUE, CONF_DENOTED, name[: gm.start()].rstrip())
+
+    vm = _AI_MARKER_SUFFIX_RE.search(name)
+    if vm:
+        cleaned = name[: vm.start()].rstrip()
+        lektor = bool(_LEKTOR_TRAILING_RE.search(cleaned))
+        conf = CONF_DENOTED if lektor else CONF_STRONG_PRIOR
+        return AiProvenance(AI_VOICEOVER_VALUE, conf, cleaned)
+
+    return None
+
+
 # ── Content-descriptor groups (single source of truth for the `category:` facet) ── #
 # These group names appear in BASE_PREFIX_GROUPS or BASE_PLATFORM_GROUPS for
 # display-grouping purposes, but they are NOT locales or platforms.  They denote

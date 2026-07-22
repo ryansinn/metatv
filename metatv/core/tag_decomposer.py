@@ -52,7 +52,8 @@ Tag types (fixed namespaces)
 - ``quality``      — quality group name from config (e.g. ``"HD"``)
 - ``genre``        — canonical English genre (e.g. ``"Drama"``)
 - ``collection``   — cleaned residual label from header / provider-category
-- ``content_type`` — special-content type (``"ppv"``, ``"live_event"``, ``"sports"``)
+- ``content_type`` — special-content / provenance type (``"ppv"``, ``"live_event"``,
+                     ``"sports"``, ``"ai_generated"``, ``"ai_voiceover"``)
 - ``decade``       — decade string (e.g. ``"1990s"``)
 
 Classifier reuse map
@@ -86,6 +87,7 @@ from metatv.core.channel_name_utils import (
     PLATFORM_CODES,
     QUALITY_TOKENS,
     REGION_FULL_NAMES,
+    detect_ai_provenance,
     normalize_region_code,
 )
 from metatv.core.filter_utils import (
@@ -315,6 +317,36 @@ def decompose_audio(detected_audio: dict | None) -> list[tuple[str, str, float]]
         tags.append(("format", form, conf))
 
     return _dedup(tags)
+
+
+def decompose_ai_provenance(name: str) -> list[tuple[str, str, float]]:
+    """Return the ``content_type`` AI-provenance tag for a channel *name*, if any.
+
+    Runs the single-source-of-truth recognizer
+    (:func:`~metatv.core.channel_name_utils.detect_ai_provenance`) over the raw
+    channel name and promotes a trailing AI marker to a ``content_type`` facet tag:
+
+    - ``(AI Generated)`` → ``("content_type", "ai_generated", CONF_DENOTED)`` — the
+      content itself is AI-generated.
+    - ``(AI)``           → ``("content_type", "ai_voiceover", conf)`` — an AI dub /
+      voiceover.  ``conf`` is ``CONF_DENOTED`` when ``Lektor`` precedes the marker,
+      else ``CONF_STRONG_PRIOR`` (still emitted — confidence never suppresses; the
+      tag always lands per DR-0006).
+
+    Args:
+        name: The raw ``ChannelDB.name`` (the marker is a trailing suffix, so a
+            prefix like ``[MV]`` or ``PL -`` does not affect detection).
+
+    Returns:
+        A single-element ``(type, value, confidence)`` list, or ``[]`` when the
+        name carries no trailing AI marker.  Pure — no DB, no Qt.
+    """
+    if not name:
+        return []
+    prov = detect_ai_provenance(name)
+    if prov is None:
+        return []
+    return [("content_type", prov.value, prov.confidence)]
 
 
 def remap_content_descriptor_facets(

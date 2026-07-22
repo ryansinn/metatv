@@ -64,7 +64,13 @@ if TYPE_CHECKING:
 #   4 — detected_audio capture: sub/dub/multi parentheticals now populate
 #       ChannelDB.detected_audio (form, audio, dub, sub language lists) at the same
 #       update_detected_prefixes pass. Full re-run needed to back-fill all rows.
-CURRENT_VERSION: int = 4
+#   5 — AI-provenance markers: a trailing "(AI)" voiceover marker is now stripped
+#       from detected_title (clean display; collapses onto the base production),
+#       while a trailing "(AI Generated)" content marker is deliberately KEPT in
+#       detected_title so its content_key stays distinct from any real same-title
+#       work.  Full re-run re-parses all rows and recomputes content_key in the
+#       same update_detected_prefixes pass (no separate backfill needed).
+CURRENT_VERSION: int = 5
 
 
 class DetectedTitleReparseTask:
