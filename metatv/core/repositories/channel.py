@@ -14,7 +14,8 @@ from metatv.core.database import (
 from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
-    _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE,
+    _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
+    AI_VOICEOVER_VALUE,
 )
 from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
@@ -1163,6 +1164,19 @@ class ChannelRepository(_ChannelStatsMixin):
                 # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
                 region: str | None = bracket_as_region or parsed.lang or None
 
+                # AI-provenance marker (single source of truth: detect_ai_provenance).
+                # A trailing "(AI)" voiceover marker is TWO uppercase letters, so
+                # parse_channel_name reads it as a bogus lang/region qualifier ("AI",
+                # which is also the ISO code for Anguilla) and leaks it into region.
+                # Clear it here — the marker is an AI dub, not a locale — so the
+                # category/sibling fallbacks below can still fill a real region and no
+                # bogus region facet is ever produced.  The content_type:ai_voiceover
+                # tag carries the real signal.
+                _ai_raw = detect_ai_provenance(channel.name)
+                if (_ai_raw is not None and _ai_raw.value == AI_VOICEOVER_VALUE
+                        and region and region.upper() == "AI"):
+                    region = None
+
                 # Fill-empty fallback (step 2): when the NAME carries no region,
                 # derive it from the provider category (e.g. "|FR|" → "FR") via the
                 # shared tag_decomposer extraction. Never overwrites a name-derived
@@ -1184,6 +1198,21 @@ class ChannelRepository(_ChannelStatsMixin):
                     )
                     if _strip_m:
                         new_title = _strip_m.group(1).strip()
+
+                # AI VOICEOVER title cleanup (safety net).  parse_channel_name almost
+                # always strips a trailing "(AI)" already (it reads the two letters as
+                # a lang qualifier), but if any voiceover marker survives into the
+                # title, strip it here so the display title is clean and collapses onto
+                # the base production — the content_type:ai_voiceover tag preserves the
+                # distinction.  An "(AI Generated)" content marker is DELIBERATELY LEFT
+                # in new_title: it flows into content_key below so a fabricated work
+                # never shares a content_key with a real same-title production (keeping
+                # content_key_for a single, consistent read of the stored detected_title
+                # — no new identity machinery).  Only the recognized marker is touched.
+                if new_title:
+                    _ai_title = detect_ai_provenance(new_title)
+                    if _ai_title is not None and _ai_title.value == AI_VOICEOVER_VALUE:
+                        new_title = _ai_title.cleaned_name or None
 
                 # Compute detected_audio from parsed audio fields.
                 # Store None when there is no audio annotation so the column is cheap
