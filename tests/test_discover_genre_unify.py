@@ -94,9 +94,10 @@ def test_primary_genre_canonicalizes():
     compound = type("Ch", (), {"raw_data": {"genre": "Drame / Action"}})()
     assert _primary_genre(compound) == "Drama"
 
-    # An unknown genre passes through unchanged.
-    unknown = type("Ch", (), {"raw_data": {"genre": "Telenovela"}})()
-    assert _primary_genre(unknown) == "Telenovela"
+    # An unknown genre passes through unchanged.  (NB: "Telenovela" is no longer
+    # unknown — #153 folds it into "Soap Opera" — so use a genuinely-unknown label.)
+    unknown = type("Ch", (), {"raw_data": {"genre": "SomeFutureGenre"}})()
+    assert _primary_genre(unknown) == "SomeFutureGenre"
 
 
 def test_pure_and_compound_genres_stay_distinct():

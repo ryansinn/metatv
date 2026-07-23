@@ -65,19 +65,30 @@ def test_tv_show_in_known_genres():
 
 @pytest.mark.parametrize("raw,expected", [
     ("Talk Show", "Talk Show"),
-    ("Game Show", "Game Show"),      # not in _GENRE_NORM → passes through unchanged
-    ("Reality Show", "Reality Show"),
+    ("Game Show", "Game Show"),      # #153 added "game show"→Game Show; still "Game Show"
     ("Music Show", "Music Show"),
     ("TV Movie", "TV Movie"),
-    ("Drama series", "Drama series"),
     ("Show", "Show"),                # ambiguous bare "Show" — never folded
 ])
 def test_distinct_genres_not_merged(raw, expected):
     """Genres outside the TV-program/series family must survive unchanged —
-    proving the fold did not over-merge."""
+    proving the fold did not over-merge into 'TV Show'."""
     assert normalize_genre(raw) == expected, (
         f"normalize_genre({raw!r}) must stay {expected!r} (not folded into "
         f"'TV Show'), got {normalize_genre(raw)!r}"
+    )
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Reality Show", "Reality"),     # #153: 'Show' is noise-suffix → Reality
+    ("Drama series", "Drama"),       # #153: 'series' is noise-suffix → Drama
+])
+def test_153_noise_suffix_folds(raw, expected):
+    """#153 folds noise-suffixed variants into their base genre (this used to be
+    asserted the other way in #143, before the owner-approved consolidation)."""
+    assert normalize_genre(raw) == expected, (
+        f"normalize_genre({raw!r}) must fold to {expected!r} (#153), "
+        f"got {normalize_genre(raw)!r}"
     )
 
 

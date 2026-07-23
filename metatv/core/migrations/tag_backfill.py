@@ -128,7 +128,20 @@ def _set_backfill_active(active: bool) -> None:
 #       detected_title_reparse (which strips the "(AI)" marker from the display
 #       title and keeps the "(AI Generated)" marker for content-key distinctness).
 #       Deletes only source="generated" tags per channel — user tags untouched.
-CURRENT_TAG_BACKFILL_VERSION = 8
+#   9 — genre consolidation (#153): _GENRE_NORM in filter_utils gained 118 new
+#       folds (129 chart rows) collapsing ~500 raw genre spellings into ~40
+#       canonical genres, PLUS 10 new canonicals (Adult, Politics, Biography,
+#       Game Show, Anime, Music Show, TV Movie, and the Drama-led compounds
+#       Drama & Comedy / Drama & Crime / Drama & Romance), PLUS 6 corrections:
+#       "Soap" → "Soap Opera" (rename), "biografi" → Biography (was History),
+#       "tävling" → Game Show (was Reality), "children & family" → Family (was
+#       Kids), and removal of the "variety" / "underhållning" / Persian
+#       "اجتماعی" concept-guess mappings (now kept raw).  A full re-tag rewrites
+#       existing source="generated" genre tags so, e.g., a stored "Soap" tag
+#       becomes "Soap Opera" and a "Dram" tag becomes "Drama".  Deletes only
+#       source="generated" tags per channel — user-curated tags are untouched.
+#       Auditable mapping: docs/GENRE_MAPPING.md.
+CURRENT_TAG_BACKFILL_VERSION = 9
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
