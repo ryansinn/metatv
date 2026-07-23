@@ -643,7 +643,7 @@ _GENRE_NORM: dict[str, str] = {
     "famiglia":                 "Family",
     "familia":                  "Family",
     "children":                 "Kids",
-    "children & family":        "Kids",
+    "children & family":        "Family",             # #153: compound → Family ("Family implies children")
     "kinder":                   "Kids",
     "jeunesse":                 "Kids",
     # Reality variants
@@ -683,10 +683,10 @@ _GENRE_NORM: dict[str, str] = {
     # News / Current affairs
     "news":                     "News",
     "actualité":                "News",
-    # Talk / Variety
+    # Talk
     "talk show":                "Talk Show",
     "talk":                     "Talk Show",
-    "variety":                  "Talk Show",
+    # NOTE(#153): "variety" mapping removed — Variety ≠ Talk Show; kept raw.
     # Generic "TV" content type — TMDB has no single "TV" genre, so providers
     # fragment it into a dozen near-duplicate labels (TV program, TV programme,
     # TV series, Television series, Program Tv, …) plus typos (TV proramme,
@@ -730,7 +730,7 @@ _GENRE_NORM: dict[str, str] = {
     "عائلي":                    "Family",                # Family
     "حرب وسياسة":               "War & Politics",        # War & Politics
     "واقع":                     "Reality",               # Reality
-    "أوبرا صابونية":            "Soap",                  # Soap opera
+    "أوبرا صابونية":            "Soap Opera",            # Soap opera (#153: canonical renamed)
     "غربي":                     "Western",               # Western
     "كوميدي":                   "Comedy",                # Comedy (masculine form)
     "ﺗﺸﻮﻳﻖ ﻭﺇﺛﺎﺭﺓ":             "Thriller",              # Suspense & Excitement (presentation forms)
@@ -775,9 +775,9 @@ _GENRE_NORM: dict[str, str] = {
     "musik":                    "Music",                 # Music
     "skräck":                   "Horror",                # Horror/Fright
     "romantik":                 "Romance",               # Romance
-    "underhållning":            "Talk Show",             # Entertainment/Variety
-    "tävling":                  "Reality",               # Competition/Game Show
-    "biografi":                 "History",               # Biography
+    # NOTE(#153): "underhållning" (SV entertainment) mapping removed — kept raw.
+    "tävling":                  "Game Show",             # Competition/quiz → Game Show (#153 correction)
+    "biografi":                 "Biography",             # Biography (#153: was mis-mapped to History)
     # Danish / Norwegian
     "virkelighed":              "Reality",               # Reality (Danish)
     "kriminalitet":             "Crime",                 # Criminality (shared)
@@ -870,7 +870,7 @@ _GENRE_NORM: dict[str, str] = {
     "خانوادگی":                 "Family",                # Family
     "تاریخی":                   "History",               # Historical
     "عاشقانه":                  "Romance",               # Romantic
-    "اجتماعی":                  "Drama",                 # Social drama (closest canonical)
+    # NOTE(#153): Persian "اجتماعی" (social) mapping removed — concept-guess, kept raw.
     "انیمیشن":                  "Animation",             # Animation
     "ماورایی":                  "Fantasy",               # Supernatural/Fantasy
     # Case-insensitive English variants (ALLCAPS from some providers)
@@ -883,6 +883,172 @@ _GENRE_NORM: dict[str, str] = {
     "horror":                   "Horror",
     "kids":                     "Kids",
     "western":                  "Western",
+
+    # =====================================================================
+    # Genre consolidation #153 (owner-approved, 2026-07-22).  129 chart folds
+    # + 6 corrections (above) + 10 new canonicals.  Auditable chart:
+    # docs/GENRE_MAPPING.md — every fold row there is machine-verified against
+    # this table by tests/test_genre_mapping_parity.py (doc↔code cannot drift).
+    # Keys are lowercased (normalize_genre lowercases before lookup); Arabic
+    # presentation-form / other scripts are a .lower() no-op so their exact
+    # bytes are the key.  Stored tag values are canonical DISPLAY-name strings
+    # (the #143/#299 convention); the chart's slugs are documented for future
+    # i18n but intentionally NOT implemented here.
+    # =====================================================================
+    # --- Drama ---
+    'dram':                           'Drama',
+    'deama':                          'Drama',
+    'drma':                           'Drama',
+    'drama series':                   'Drama',
+    'ﺓدراما':                         'Drama',
+    # --- Comedy ---
+    'humor':                          'Comedy',
+    # --- Crime ---
+    'ﺟﺮﻳﻤﺔ':                          'Crime',
+    'brottslighet':                   'Crime',
+    'kriminalistika':                 'Crime',
+    # --- Documentary ---
+    'docu':                           'Documentary',
+    'ducomantary':                    'Documentary',
+    'ducomentaire':                   'Documentary',
+    'documeantary':                   'Documentary',
+    'documemtary':                    'Documentary',
+    'document':                       'Documentary',
+    'documentaryk':                   'Documentary',
+    'ﻭﺛﺎﺋﻘﻲ':                         'Documentary',
+    'dokument':                       'Documentary',
+    'dokumentarno':                   'Documentary',
+    'documentarni':                   'Documentary',
+    'dokumentarna serija':            'Documentary',
+    'dokumentalizowany':              'Documentary',
+    'belgeseli':                      'Documentary',
+    # --- Sci-Fi & Fantasy ---
+    'naučna fantastika i fantazija':  'Sci-Fi & Fantasy',
+    'επ. φαντασία - φαντασίας':       'Sci-Fi & Fantasy',
+    # --- Mystery ---
+    'mystery':                        'Mystery',
+    # --- Thriller ---
+    'thrille':                        'Thriller',
+    'thriler':                        'Thriller',
+    'ﺗﺸﻮﻳﻖ':                          'Thriller',
+    'اثارة':                          'Thriller',
+    # --- Animation ---
+    'كرتون':                          'Animation',
+    'كارتون':                         'Animation',
+    'kreskówka':                      'Animation',
+    'cartone':                        'Animation',
+    # --- Romance ---
+    'rpmance':                        'Romance',
+    'liebesfilm':                     'Romance',
+    'ﺭﻭﻣﺎﻧﺴﻲ':                        'Romance',
+    'رومنسية':                        'Romance',
+    # --- Action ---
+    'actio':                          'Action',
+    'acción':                         'Action',
+    # --- Kids ---
+    'dla dzieci':                     'Kids',
+    # --- Family ---
+    'family':                         'Family',
+    'famely':                         'Family',
+    # --- Reality ---
+    'reality-tv':                     'Reality',
+    'realety':                        'Reality',
+    'reality show':                   'Reality',
+    'reality-show':                   'Reality',
+    'realityseries':                  'Reality',
+    'telereality':                    'Reality',
+    'gerçeklik':                      'Reality',
+    # --- Sports ---
+    'sportowy':                       'Sports',
+    # --- Adventure ---
+    'adventur':                       'Adventure',
+    # --- War & Politics ---
+    'krig och politik':               'War & Politics',
+    # --- Western ---
+    'faroeste':                       'Western',
+    # --- Science Fiction ---
+    'خيال علمي':                      'Science Fiction',
+    # --- Fantasy ---
+    'فانتازيا':                       'Fantasy',
+    'fantasía':                       'Fantasy',
+    'fantasi':                        'Fantasy',
+    # --- History ---
+    'histoey':                        'History',
+    'hostory':                        'History',
+    'تاريخ':                          'History',
+    'historie':                       'History',
+    'istorija':                       'History',
+    # --- Music ---
+    'موسيقي':                         'Music',
+    'piosenki':                       'Music',
+    'موسيقى':                         'Music',
+    # --- Soap Opera ---
+    'såpa':                           'Soap Opera',
+    'telenowela':                     'Soap Opera',
+    'telenovela':                     'Soap Opera',
+    'soap':                           'Soap Opera',
+    # --- TV Show ---
+    'serial':                         'TV Show',
+    'mini serial':                    'TV Show',
+    'برنامج':                         'TV Show',
+    'برنامج تلفزيوني':                'TV Show',
+    'سریال':                          'TV Show',
+    'سريال':                          'TV Show',
+    'برامج تليفزيوني':                'TV Show',
+    'série-tv':                       'TV Show',
+    'serie-tv':                       'TV Show',
+    'برنامه':                         'TV Show',
+    # --- Talk Show ---
+    'talk-show':                      'Talk Show',
+    'tv talk show':                   'Talk Show',
+    'حوار':                           'Talk Show',
+    'تاک شو':                         'Talk Show',
+    # --- War ---
+    'krig':                           'War',
+    'ﺣﺮﺏ':                            'War',
+    # --- News ---
+    'أخبار':                          'News',
+    # --- Drama & Comedy ---
+    'دراما .كوميديا':                 'Drama & Comedy',
+    'دراما كوميديا':                  'Drama & Comedy',
+    'دراما كوميدي':                   'Drama & Comedy',
+    'كوميدي ﺩﺭاﻣﺎ':                   'Drama & Comedy',
+    'ﻛﻮﻣﻴﺪﻱ ﺩﺭاﻣﺎ':                   'Drama & Comedy',
+    # --- Politics ---
+    'politik':                        'Politics',
+    'polityczny':                     'Politics',
+    'politicki':                      'Politics',
+    # --- Biography ---
+    'biography':                      'Biography',
+    'ﺳﻴﺮﺓ ﺫاﺗﻴﺔ':                     'Biography',
+    'biograficzny':                   'Biography',
+    'سيرة ذاتية':                     'Biography',
+    'سيرة':                           'Biography',
+    'biografija':                     'Biography',
+    # --- Game Show ---
+    'game show':                      'Game Show',
+    'gameshow':                       'Game Show',
+    'game-show':                      'Game Show',
+    'teleturniej':                    'Game Show',
+    # --- Drama & Romance ---
+    'drama - romance':                'Drama & Romance',
+    'drama romance':                  'Drama & Romance',
+    'دراما ﺭﻭﻣﺎﻧﺴﻲ':                  'Drama & Romance',
+    'romance drama':                  'Drama & Romance',
+    'ﺭﻭﻣﺎﻧﺴﻲ .دراما':                 'Drama & Romance',
+    # --- Drama & Crime ---
+    'crime. drama':                   'Drama & Crime',
+    'brottsdrama':                    'Drama & Crime',
+    'kriminalistička drama':          'Drama & Crime',
+    # --- Anime ---
+    'amine':                          'Anime',
+    'إنمي':                           'Anime',
+    # --- Adult ---
+    'adult':                          'Adult',
+    # --- Music Show ---
+    'music show':                     'Music Show',
+    # --- TV Movie ---
+    'tv movie':                       'TV Movie',
 }
 
 
