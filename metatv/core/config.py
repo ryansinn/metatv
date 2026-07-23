@@ -630,6 +630,9 @@ class Config(BaseModel):
     recipe_main_splitter_sizes: list = Field(default_factory=list)     # [col1, col2] widths
     recipe_col1_splitter_sizes: list = Field(default_factory=list)     # [pantry, recipe-rail] heights
     recipe_content_splitter_sizes: list = Field(default_factory=list)  # [tag-cloud, now-plating] heights
+    # Saved recipes — list of dicts {name, includes, excludes, rating_range};
+    # serialized via core.recipe_state.serialize_recipe (rating_range backward-compat).
+    recipe_saved: list = Field(default_factory=list)
 
     # Performance
     chunk_size: int = 1000  # Channels to process at once

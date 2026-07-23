@@ -1132,7 +1132,7 @@ class _RailSpy:
     def __init__(self):
         self.calls: list[tuple] = []   # (includes_snapshot, excludes_snapshot, total)
 
-    def update_recipe(self, includes, excludes, match_count):
+    def update_recipe(self, includes, excludes, match_count, rating_range=None):
         # Deep-copy so later mutations don't change the recorded snapshot.
         self.calls.append(
             (
@@ -1146,9 +1146,14 @@ class _RailSpy:
     class _Btn:
         def clicked(self):
             pass
+
+        def setEnabled(self, _enabled):
+            # The view toggles save_btn enabled state on every rail render.
+            pass
         clicked = type("_Sig", (), {"connect": lambda s, f: None})()
 
     clear_btn = _Btn()
+    save_btn = _Btn()   # view toggles save_btn.setEnabled() on every rail render
     ingredient_remove_requested = type(
         "_Sig", (), {"connect": lambda s, f: None}
     )()

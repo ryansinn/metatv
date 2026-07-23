@@ -27,8 +27,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from metatv.core.recipe_state import rating_range_is_full
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.rating_range_slider import RatingRangeSlider, format_rating_range
 
 if TYPE_CHECKING:
     from metatv.core.repositories.dtos import FacetSummaryDTO
@@ -221,8 +223,11 @@ class _PantrySidebar(QWidget):
     owner runs the cross-facet tag search off-thread and fills the center cloud.
     """
 
-    facet_selected = pyqtSignal(str)   # facet_type string
-    search_changed = pyqtSignal(str)   # debounced search text (stripped)
+    facet_selected = pyqtSignal(str)          # facet_type string
+    search_changed = pyqtSignal(str)          # debounced search text (stripped)
+    rating_range_changed = pyqtSignal(float, float)  # (min, max) from the slider
+    saved_recipe_selected = pyqtSignal(str)   # saved-recipe name → load into builder
+    saved_recipe_deleted = pyqtSignal(str)    # saved-recipe name → remove
 
     # Debounce window for the search box: rapid keystrokes coalesce into one
     # cross-facet DB query while the box stays responsive.
@@ -234,6 +239,7 @@ class _PantrySidebar(QWidget):
         self.setStyleSheet(_theme.RECIPE_PANTRY_BG)
         self._facet_buttons: list[_FacetRowButton] = []
         self._selected_facet: str | None = None
+        self._saved_rows: list[QWidget] = []
 
         # Restartable single-shot timer — coalesces keystrokes into one emit.
         self._search_debounce = QTimer(self)
@@ -324,19 +330,47 @@ class _PantrySidebar(QWidget):
         line.setStyleSheet(_theme.SEPARATOR_H)
         outer.addWidget(line)
 
-        # "SAVED RECIPES" stub header
+        # ── RATING ingredient (the first non-tag ingredient) ──
+        rating_hdr_row = QHBoxLayout()
+        rating_hdr_row.setContentsMargins(0, 0, 0, 0)
+        rating_hdr_row.setSpacing(4)
+        rating_hdr = QLabel("RATING")
+        rating_hdr.setStyleSheet(_theme.RECIPE_RATING_HDR)
+        rating_hdr_row.addWidget(rating_hdr)
+        rating_hdr_row.addStretch()
+        self._rating_readout = QLabel(format_rating_range(
+            RatingRangeSlider.MIN, RatingRangeSlider.MAX))
+        self._rating_readout.setStyleSheet(_theme.RECIPE_RATING_READOUT)
+        self._rating_readout.setToolTip(
+            "Rating band for results (0–10). A minimum of 0 includes unrated content."
+        )
+        rating_hdr_row.addWidget(self._rating_readout)
+        outer.addLayout(rating_hdr_row)
+
+        self._rating_slider = RatingRangeSlider()
+        self._rating_slider.rangeChanged.connect(self._on_rating_slider_changed)
+        outer.addWidget(self._rating_slider)
+
+        # Divider
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.HLine)
+        line2.setStyleSheet(_theme.SEPARATOR_H)
+        outer.addWidget(line2)
+
+        # "SAVED RECIPES" header + dynamic list (populated via load_saved_recipes)
         saved_hdr = QLabel("SAVED RECIPES")
         saved_hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
         outer.addWidget(saved_hdr)
 
-        # Stub placeholder — slice 4 will populate this
-        saved_stub = QLabel("No saved recipes yet")
-        saved_stub.setStyleSheet(
-            f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            " padding: 4px 8px;"
-        )
-        saved_stub.setToolTip("Saving recipes will be available in a future update")
-        outer.addWidget(saved_stub)  # slice 4 TODO
+        self._saved_empty = QLabel("No saved recipes yet")
+        self._saved_empty.setStyleSheet(_theme.RECIPE_SAVED_EMPTY)
+        self._saved_empty.setToolTip("Build a recipe, then use Save Recipe to keep it here")
+        outer.addWidget(self._saved_empty)
+
+        self._saved_layout = QVBoxLayout()
+        self._saved_layout.setContentsMargins(0, 0, 0, 0)
+        self._saved_layout.setSpacing(1)
+        outer.addLayout(self._saved_layout)
 
         outer.addStretch()
 
@@ -383,6 +417,80 @@ class _PantrySidebar(QWidget):
         """Clear the pantry search box (restores the selected-facet cloud)."""
         self._filter_box.clear()
 
+    # ── Rating ingredient ─────────────────────────────────────────────────
+
+    def set_rating_range(self, lo: float, hi: float) -> None:
+        """Restore the rating slider + readout to ``(lo, hi)`` WITHOUT emitting.
+
+        Used for silent state restoration (loading a saved recipe / clearing the
+        recipe), so setting the slider never re-fires the query.
+        """
+        self._rating_slider.set_values(lo, hi, emit=False)
+        self._rating_readout.setText(format_rating_range(lo, hi))
+
+    def _on_rating_slider_changed(self, lo: float, hi: float) -> None:
+        """Slider moved → refresh the readout and forward the change to the host."""
+        self._rating_readout.setText(format_rating_range(lo, hi))
+        self.rating_range_changed.emit(lo, hi)
+
+    # ── Saved recipes ─────────────────────────────────────────────────────
+
+    def load_saved_recipes(self, recipes: list[dict]) -> None:
+        """Populate the SAVED RECIPES list from persisted recipe dicts.
+
+        Each row loads the recipe on click (``saved_recipe_selected``) and
+        carries a compact "×" to remove it (``saved_recipe_deleted``).  The
+        empty-state line shows only when there are no saved recipes.
+
+        Args:
+            recipes: The stored recipe dicts (each with a ``name`` key) from
+                ``Config.recipe_saved``.
+        """
+        _clear_layout(self._saved_layout)
+        self._saved_rows = []
+        self._saved_empty.setVisible(not recipes)
+        for rec in recipes:
+            name = str(rec.get("name") or "Untitled recipe")
+            row = _SavedRecipeRow(name)
+            row.load_requested.connect(self.saved_recipe_selected)
+            row.delete_requested.connect(self.saved_recipe_deleted)
+            self._saved_layout.addWidget(row)
+            self._saved_rows.append(row)
+
+
+# ---------------------------------------------------------------------------
+# Saved-recipe row
+# ---------------------------------------------------------------------------
+
+class _SavedRecipeRow(QWidget):
+    """One saved-recipe row: a click-to-load name button + a "×" delete button.
+
+    Both children are ``QPushButton``s, so the pointing-hand affordance is
+    automatic (per the app-wide cursor rule — buttons qualify for free).
+    """
+
+    load_requested = pyqtSignal(str)     # recipe name
+    delete_requested = pyqtSignal(str)   # recipe name
+
+    def __init__(self, name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._name = name
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._load_btn = QPushButton(f"{_icons.recipe_icon} {name}")
+        self._load_btn.setStyleSheet(_theme.RECIPE_SAVED_ROW)
+        self._load_btn.setToolTip(f"Load “{name}” into the recipe builder")
+        self._load_btn.clicked.connect(lambda: self.load_requested.emit(self._name))
+        layout.addWidget(self._load_btn, stretch=1)
+
+        self._delete_btn = QPushButton(_icons.recipe_clear_icon)
+        self._delete_btn.setStyleSheet(_theme.RECIPE_SAVED_DELETE)
+        self._delete_btn.setToolTip(f"Delete “{name}”")
+        self._delete_btn.clicked.connect(lambda: self.delete_requested.emit(self._name))
+        layout.addWidget(self._delete_btn)
+
 
 # ---------------------------------------------------------------------------
 # Recipe rail (right column)
@@ -400,7 +508,10 @@ class _RecipeRail(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(328)
+        # Slimmer than the pre-redesign 328: with "× Clear" moved into the title
+        # row and Save alone at content width, the button row no longer drives
+        # the card's minimum width, so column 1 can be narrower (Deliverable A).
+        self.setFixedWidth(272)
         self.setStyleSheet(_theme.RECIPE_RAIL_BG)
         self._build_ui()
 
@@ -411,6 +522,7 @@ class _RecipeRail(QWidget):
         includes: dict[str, set[str]],
         excludes: dict[str, set[str]],
         match_count: int | None,
+        rating_range: tuple[float, float] | None = None,
     ) -> None:
         """Re-render the recipe rail with the current recipe state.
 
@@ -419,9 +531,21 @@ class _RecipeRail(QWidget):
             excludes: facet_type → set of excluded values.
             match_count: Number of matching channels for the YIELDS display, or
                 ``None`` when the count is still pending (shows "counting…").
+            rating_range: Active ``(min, max)`` rating band, or ``None`` when no
+                rating filter is set.  A bounded band renders a "RATING" menu
+                line among the ingredient roles (e.g. "≥ 7.0" / "6.0 – 8.0").
         """
-        # Update editorial name
+        # Update editorial name.  A rating-only recipe (no tags) would otherwise
+        # read "Your recipe is empty" beside a live RATING line — name it for the
+        # band instead so the card stays coherent.
         name = _generate_recipe_name(includes, excludes)
+        if (
+            not includes
+            and not excludes
+            and rating_range is not None
+            and not rating_range_is_full(rating_range)
+        ):
+            name = f"Rated {format_rating_range(rating_range[0], rating_range[1])}"
         self._name_lbl.setText(name)
 
         # Clear ingredient area
@@ -447,6 +571,20 @@ class _RecipeRail(QWidget):
                 row = _ChipRow(ftype, list(vals), "include", self)
                 row.remove_clicked.connect(self._on_remove)
                 self._ingredients_layout.addWidget(row)
+
+        # RATING menu line — the first non-tag ingredient.  Shown only when a
+        # bound bites (a full 0–10 span is "no filter" and stays hidden).
+        if rating_range is not None and not rating_range_is_full(rating_range):
+            has_ingredients = True
+            rating_lbl = QLabel("RATING")
+            rating_lbl.setStyleSheet(_theme.RECIPE_ROLE_LABEL)
+            self._ingredients_layout.addWidget(rating_lbl)
+            value_lbl = QLabel(
+                f"{_icons.rating_star_icon} "
+                f"{format_rating_range(rating_range[0], rating_range[1])}"
+            )
+            value_lbl.setStyleSheet(_theme.RECIPE_RATING_LINE)
+            self._ingredients_layout.addWidget(value_lbl)
 
         # Render excludes under OMIT
         exclude_vals: list[tuple[str, str]] = [
@@ -498,10 +636,22 @@ class _RecipeRail(QWidget):
         outer.setContentsMargins(12, 12, 12, 8)
         outer.setSpacing(6)
 
-        # "TONIGHT'S RECIPE" header
+        # Title row: "TONIGHT'S RECIPE" header + a compact, right-aligned
+        # "× Clear" (Deliverable A — moved out of the footer so the button row
+        # no longer drives the card's minimum width).
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(4)
         rail_hdr = QLabel("TONIGHT'S RECIPE")
         rail_hdr.setStyleSheet(_theme.RECIPE_RAIL_HDR)
-        outer.addWidget(rail_hdr)
+        title_row.addWidget(rail_hdr)
+        title_row.addStretch()
+
+        self.clear_btn = QPushButton(f"{_icons.recipe_clear_icon} Clear")
+        self.clear_btn.setStyleSheet(_theme.RECIPE_CARD_CLEAR)
+        self.clear_btn.setToolTip("Remove all ingredients from the recipe")
+        title_row.addWidget(self.clear_btn)
+        outer.addLayout(title_row)
 
         # Editorial recipe name
         self._name_lbl = QLabel("Your recipe is empty")
@@ -543,20 +693,18 @@ class _RecipeRail(QWidget):
 
         scroll.setWidget(inner)
 
-        # Action buttons (Save stub + Clear)
+        # Footer: Save Recipe stands ALONE at content width (Deliverable A) — a
+        # trailing stretch keeps it left-aligned and unstretched, so the footer's
+        # minimum width is just this one button's, not a two-button row's.
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
         self.save_btn = QPushButton(f"{_icons.recipe_save_icon} Save Recipe")
-        self.save_btn.setEnabled(False)   # slice 4 TODO
+        self.save_btn.setEnabled(False)   # enabled by the host once a recipe has ingredients
         self.save_btn.setStyleSheet(_theme.RECIPE_SAVE_BTN)
-        self.save_btn.setToolTip("Save this recipe for quick access — coming in a future update")
+        self.save_btn.setToolTip("Save this recipe for quick access")
         btn_row.addWidget(self.save_btn)
-
-        self.clear_btn = QPushButton(f"{_icons.recipe_clear_icon} Clear")
-        self.clear_btn.setStyleSheet(_theme.RECIPE_CLEAR_BTN)
-        self.clear_btn.setToolTip("Remove all ingredients from the recipe")
-        btn_row.addWidget(self.clear_btn)
+        btn_row.addStretch()
 
         wrapper = QVBoxLayout(self)
         wrapper.setContentsMargins(0, 0, 0, 0)

@@ -916,6 +916,55 @@ RECIPE_NOW_PLATING_HDR = (
     " letter-spacing: 2px; padding: 4px 0 2px 0;"
 )
 
+# Rating-range ingredient (custom dual-handle slider in the pantry) ------------
+# Painted colors reference existing tokens (never hex literals) — the slider's
+# paintEvent builds QColor(...) from these.
+COLOR_RECIPE_SLIDER_TRACK  = COLOR_BORDER          # inactive track
+COLOR_RECIPE_SLIDER_ACTIVE = COLOR_ACCENT_BLUE     # selected band + handle ring
+COLOR_RECIPE_SLIDER_HANDLE = COLOR_RECIPE_TEXT     # handle fill
+
+# "RATING" section header in the pantry (reuses the pantry-header role).
+RECIPE_RATING_HDR = RECIPE_PANTRY_HDR
+
+# Live rating readout ("Any" / "≥ 7.0" / "6.0 – 8.0") beside the RATING header.
+RECIPE_RATING_READOUT = (
+    "font-size: " + FONT_MD + "; font-weight: 600; color: " + COLOR_ACCENT_BLUE + ";"
+    " padding: 6px 4px 4px 4px;"
+)
+
+# The "RATING" menu-line value in the recipe card (★ ≥ 7.0).
+RECIPE_RATING_LINE = (
+    "font-size: " + FONT_MD + "; font-weight: 600; color: " + COLOR_ACCENT_BLUE + ";"
+    " padding: 2px 0;"
+)
+
+# "No saved recipes yet" empty-state line in the pantry.
+RECIPE_SAVED_EMPTY = (
+    "color: " + COLOR_RECIPE_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 4px 8px;"
+)
+
+# A saved-recipe row in the pantry — idle + hover (mirrors the facet-row role).
+RECIPE_SAVED_ROW = (
+    "QPushButton { border: none; background: transparent;"
+    " color: " + COLOR_RECIPE_TEXT + "; font-size: " + FONT_MD + ";"
+    " text-align: left; padding: 4px 8px; border-radius: 4px; }"
+    "QPushButton:hover { background: " + OVERLAY_05 + "; }"
+)
+
+# The compact "×" delete affordance on a saved-recipe row.
+RECIPE_SAVED_DELETE = (
+    "QPushButton { border: none; background: transparent;"
+    " color: " + COLOR_RECIPE_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_WARN + "; }"
+)
+
+# Compact "× Clear" in the recipe-card title row (quiet secondary action).
+RECIPE_CARD_CLEAR = (
+    "QPushButton { border: none; background: transparent;"
+    " color: " + COLOR_RECIPE_MUTED + "; font-size: " + FONT_SM + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_2 + "; }"
+)
+
 # Save recipe button — present but disabled for slice 4
 RECIPE_SAVE_BTN = (
     "QPushButton { background: " + COLOR_BTN_SAVE + "; color: " + COLOR_TEXT_HI + ";"
