@@ -49,6 +49,23 @@ from metatv.core.database import ContentTagDB, TagDB
 _FEEDER_DENOMINATOR: int = 3
 
 # ---------------------------------------------------------------------------
+# Rating axis — the recipe's first non-tag ingredient
+# ---------------------------------------------------------------------------
+# The rating shown on Discover / Now-Plating cards comes from
+# ``ChannelDB.raw_data["rating"]`` (see ``discovery_engine._raw_rating`` /
+# ``_to_card``): a channel is *display-rated* only when that value parses to a
+# float strictly between 0 and 10.  Anything else — a missing key, 0, a
+# non-numeric string, or >= 10 — renders as UNRATED (no star).  The recipe's
+# rating-range ingredient filters on this SAME field at the SAME layer.  The
+# scale endpoints + full-range test live in ``core.recipe_state`` (one source of
+# truth, shared with the slider widget).
+from metatv.core.recipe_state import (  # noqa: E402
+    RATING_SCALE_MAX as _RATING_MAX,
+    RATING_SCALE_MIN as _RATING_MIN,
+    rating_range_is_full as _rating_range_is_full,
+)
+
+# ---------------------------------------------------------------------------
 # Process-level tag-id cache
 # ---------------------------------------------------------------------------
 # Tags are append-only (nothing deletes or renames TagDB rows), so caching
@@ -917,6 +934,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        rating_range: Optional[Tuple[float, float]] = None,
     ):
         """Return the set of channel ids that match all include facets and no exclude facets.
 
@@ -966,6 +984,13 @@ class TagRepository:
                 *excluded_provider_ids* is not ``None`` (i.e. when the caller has
                 opted into the visible-channel scope).  Caller-supplied — the
                 engine never reads Config.
+            rating_range: Optional ``(min, max)`` on the 0–10 rating scale,
+                filtered against ``ChannelDB.raw_data["rating"]`` (the same field
+                that drives the card star).  **NULL semantics:** a floor of 0
+                (``min <= 0``) keeps unrated content (missing / 0 / non-numeric /
+                >= 10 ratings); any ``min > 0`` requires a genuine rating in the
+                band and therefore drops unrated content.  A full-span range
+                (``min <= 0 and max >= 10``) and ``None`` add no filter at all.
 
         Returns:
             An unexecuted SQLAlchemy query selecting ``DISTINCT channel_id`` for
@@ -1105,6 +1130,48 @@ class TagRepository:
             )
             query = query.filter(~exists(excl_subq))
 
+        # --- rating axis: correlated EXISTS on ChannelDB.raw_data["rating"] ---
+        #
+        # EXISTS (
+        #   SELECT 1 FROM channels AS ch_r
+        #   WHERE ch_r.id = outer.channel_id AND <rating band>
+        # )
+        #
+        # Skipped entirely for a full-span (or None) range — no extra scan.
+        if not _rating_range_is_full(rating_range):
+            from metatv.core.database import ChannelDB
+            from sqlalchemy import (
+                and_ as _and,
+                cast as _cast,
+                Float as _Float,
+                func as _func,
+                or_ as _or,
+            )
+
+            lo, hi = rating_range  # type: ignore[misc]  # guarded non-full above
+            ch_r = aliased(ChannelDB, flat=True)
+            # SQLite json_extract → NULL when the "rating" key is absent;
+            # CAST(... AS REAL) parses a numeric string ("7.5" → 7.5) and yields
+            # 0.0 for a non-numeric one — mirroring discovery_engine._raw_rating.
+            rating_num = _cast(_func.json_extract(ch_r.raw_data, "$.rating"), _Float)
+            # Display-rated iff 0 < r < 10 (matches the card-star predicate).
+            is_rated = _and(rating_num > 0, rating_num < 10)
+            if lo > _RATING_MIN:
+                # A real floor → require a genuine rating within [lo, hi].
+                # Unrated content is dropped (its rating can't satisfy >= lo).
+                band = _and(is_rated, rating_num >= lo, rating_num <= hi)
+            else:
+                # Full-left floor (min == 0) → INCLUDE unrated content
+                # (NULL / <= 0 / >= 10) PLUS any genuine rating <= the ceiling.
+                unrated = _or(rating_num.is_(None), rating_num <= 0, rating_num >= 10)
+                band = _or(unrated, _and(is_rated, rating_num <= hi))
+            rating_subq = (
+                sa_select(ch_r.id)
+                .where(ch_r.id == outer.channel_id, band)
+                .correlate(outer)
+            )
+            query = query.filter(exists(rating_subq))
+
         return query
 
     def get_channel_ids_by_tag_facets(
@@ -1117,13 +1184,15 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        rating_range: Optional[Tuple[float, float]] = None,
     ) -> set[str]:
         """Return the set of channel ids matching the faceted constraints.
 
         Standard faceted search (OR within a facet, AND across facets, NOT for
         excludes).  See :meth:`_faceted_channel_id_query` for the full semantics
         and the meaning of *base_channel_ids* / *excluded_provider_ids* /
-        *excluded_prefixes* / *excluded_categories*.
+        *excluded_prefixes* / *excluded_categories* / *rating_range* (incl. its
+        NULL/unrated semantics).
 
         Note: this materialises *every* matching id.  For a count or a small
         preview use :meth:`count_channels_by_tag_facets` /
@@ -1136,6 +1205,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            rating_range=rating_range,
         )
         return {row.channel_id for row in query.all()}
 
@@ -1149,6 +1219,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        rating_range: Optional[Tuple[float, float]] = None,
         collapse_variants: bool = False,
     ) -> int:
         """Count channels matching the faceted constraints — entirely in SQL.
@@ -1175,6 +1246,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            rating_range=rating_range,
         )
         if collapse_variants:
             # COUNT(DISTINCT group_key) — one per collapsed production.
@@ -1204,6 +1276,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        rating_range: Optional[Tuple[float, float]] = None,
         limit: int = 20,
     ) -> list[str]:
         """Return up to *limit* channel display names matching the constraints.
@@ -1221,6 +1294,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            rating_range=rating_range,
         )
         ids = [row.channel_id for row in query.limit(limit).all()]
         if not ids:
@@ -1364,6 +1438,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        rating_range: Optional[Tuple[float, float]] = None,
         limit: int = 24,
         offset: int = 0,
         name_filter: Optional[str] = None,
@@ -1397,8 +1472,9 @@ class TagRepository:
 
         Args:
             includes / excludes / base_channel_ids / excluded_provider_ids /
-            excluded_prefixes / excluded_categories: see
-                :meth:`_faceted_channel_id_query`.
+            excluded_prefixes / excluded_categories / rating_range: see
+                :meth:`_faceted_channel_id_query` (rating_range carries the
+                unrated/NULL semantics).
             limit: Max cards to return (default 24 — the results-shelf cap).
             offset: Number of leading matches to skip (for paged "Show all").
             name_filter: Optional substring to match against
@@ -1430,6 +1506,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            rating_range=rating_range,
         ).subquery()
 
         if collapse_variants:

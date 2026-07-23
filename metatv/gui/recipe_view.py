@@ -53,8 +53,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from metatv.core.recipe_state import (
+    DEFAULT_RATING_RANGE as _DEFAULT_RATING_RANGE,
+    deserialize_recipe as _deserialize_recipe,
+    rating_range_is_full as _rating_range_is_full,
+    serialize_recipe as _serialize_recipe,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.rating_range_slider import format_rating_range as _format_rating_range
 from metatv.gui.recipe_browse_mixin import _RecipeBrowseMixin
 from metatv.gui.weighted_tag_cloud import WeightedTagCloud
 
@@ -136,6 +143,9 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # Recipe state
         self._recipe_includes: dict[str, set[str]] = {}
         self._recipe_excludes: dict[str, set[str]] = {}
+        # Rating-range ingredient — the first non-tag criterion.  Full 0–10 span
+        # = no filter (see core.recipe_state).  Threaded into every faceted read.
+        self._rating_range: tuple[float, float] = tuple(_DEFAULT_RATING_RANGE)
         self._selected_facet: str | None = None
         self._tag_counts: list[TagCountDTO] = []
         self._active: bool = False
@@ -190,6 +200,10 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # page from a previous visit.
         self._stack.setCurrentIndex(0)
         logger.debug("RecipeView: activated")
+        # Restore the rating slider to the current recipe state, and refresh the
+        # Saved Recipes list (config may have changed while we were away).
+        self._pantry.set_rating_range(*self._rating_range)
+        self._load_saved_recipes()
         self._load_pantry()
 
     def on_deactivate(self) -> None:
@@ -265,6 +279,9 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # Replace any in-progress recipe with just this one ingredient.
         self._recipe_includes = {facet_type: {value}}
         self._recipe_excludes = {}
+        # A seeded entry replaces the whole recipe → reset the rating band too.
+        self._rating_range = tuple(_DEFAULT_RATING_RANGE)
+        self._pantry.set_rating_range(*self._rating_range)
         self._selected_facet = facet_type
         # Drop any cross-facet pantry search so the seeded facet's cloud shows.
         self._search_query = ""
@@ -275,7 +292,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._pantry.preselect_facet(facet_type)
         self._stage_hdr.setText(_facet_display(facet_type))
         # Render the rail instantly (so the builder is ready behind the browse page).
-        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
+        self._render_rail(None)
         # Reset the teaser so the initial browse title shows a clean "0 matches"
         # instead of a stale count from a previous recipe.
         self._now_plating.load_results([], 0)
@@ -290,11 +307,15 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
     def clear_recipe(self) -> None:
         """Remove all ingredients and refresh the view.
 
-        Also clears the Pantry filter text box so the full facet list is restored.
+        Resets the rating band to the full span (no filter) and clears the Pantry
+        filter text box so the full facet list is restored.
         """
         self._recipe_includes.clear()
         self._recipe_excludes.clear()
-        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, 0)
+        # Reset the rating ingredient too (silent slider restore — no re-query).
+        self._rating_range = tuple(_DEFAULT_RATING_RANGE)
+        self._pantry.set_rating_range(*self._rating_range)
+        self._render_rail(0)
         self._now_plating.load_results([], 0)
         # Clear pantry filter so the full facet list is visible after a recipe reset.
         self._pantry.clear_filter()
@@ -339,10 +360,14 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._pantry = _PantrySidebar()
         self._pantry.facet_selected.connect(self._on_facet_selected)
         self._pantry.search_changed.connect(self._on_search_changed)
+        self._pantry.rating_range_changed.connect(self._on_rating_range_changed)
+        self._pantry.saved_recipe_selected.connect(self._on_saved_recipe_selected)
+        self._pantry.saved_recipe_deleted.connect(self._on_saved_recipe_deleted)
         self._col1_splitter.addWidget(self._pantry)
 
         self._rail = _RecipeRail()
         self._rail.clear_btn.clicked.connect(self.clear_recipe)
+        self._rail.save_btn.clicked.connect(self._on_save_recipe)
         self._rail.ingredient_remove_requested.connect(self._on_ingredient_remove)
         self._col1_splitter.addWidget(self._rail)
 
@@ -637,6 +662,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
         excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        rating_range = self._rating_range_arg()
         cap = self._RESULTS_CARD_CAP
 
         def _query(repos):
@@ -655,6 +681,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                rating_range=rating_range,
                 collapse_variants=True,
             )
             if total == 0:
@@ -666,6 +693,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                rating_range=rating_range,
                 limit=cap,
                 collapse_variants=True,
             )
@@ -685,7 +713,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         cards, total = payload
         self._now_plating.load_results(cards, total)
         # Update rail with current recipe + count
-        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, total)
+        self._render_rail(total)
         # If the "Show all" browse page is showing, the recipe (or Global
         # Exclusions) just changed underneath it — re-seed it from this fresh
         # teaser so the full-page pagination reflects the new recipe.  Doing this
@@ -748,7 +776,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
         # Re-render rail immediately (pure in-memory — no DB wait), then fire the
         # debounced results load so rapid clicks coalesce.
-        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
+        self._render_rail(None)
         self._results_debounce.start()
 
     def _on_tag_clicked(self, value: str) -> None:
@@ -859,13 +887,132 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
             self._recipe_excludes.pop(facet_type, None)
 
         # Render rail + cloud immediately; debounce the expensive DB count.
-        self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
+        self._render_rail(None)
         # Re-render whichever cloud is showing so the removed tag loses its mark.
         if self._search_query:
             self._render_search_cloud(self._search_results)
         else:
             self._rebuild_cloud()
         self._results_debounce.start()
+
+    # ── Rating ingredient + rail render chokepoint ────────────────────────
+
+    def _rating_range_arg(self) -> tuple[float, float] | None:
+        """Return the active rating band, or ``None`` when it imposes no filter.
+
+        The single resolver both the rail menu line and every faceted query use:
+        a full 0–10 span becomes ``None`` so no rating EXISTS is added and no
+        "RATING" line renders.
+        """
+        return None if _rating_range_is_full(self._rating_range) else tuple(self._rating_range)
+
+    def _render_rail(self, match_count: int | None) -> None:
+        """Re-render the recipe card (rail) with current state + the rating band.
+
+        Single chokepoint for rail updates so the RATING menu line and the
+        Save-button enabled state always reflect the live recipe.
+        """
+        self._rail.update_recipe(
+            self._recipe_includes,
+            self._recipe_excludes,
+            match_count,
+            rating_range=self._rating_range_arg(),
+        )
+        has_recipe = bool(self._recipe_includes or self._recipe_excludes) or (
+            self._rating_range_arg() is not None
+        )
+        self._rail.save_btn.setEnabled(has_recipe)
+
+    def _on_rating_range_changed(self, lo: float, hi: float) -> None:
+        """Rating slider moved → update the band, rail, and (debounced) results."""
+        self._rating_range = (lo, hi)
+        # Instant rail feedback (RATING line + Save enabled); coalesce the count.
+        self._render_rail(None)
+        self._results_debounce.start()
+
+    # ── Saved recipes ─────────────────────────────────────────────────────
+
+    def _load_saved_recipes(self) -> None:
+        """Refresh the pantry's Saved Recipes list from Config."""
+        self._pantry.load_saved_recipes(list(getattr(self._config, "recipe_saved", []) or []))
+
+    def _saved_recipe_name(self) -> str:
+        """Build a display name for the current recipe (rating-only aware)."""
+        if self._recipe_includes or self._recipe_excludes:
+            return _generate_recipe_name(self._recipe_includes, self._recipe_excludes)
+        # Rating-only recipe → name from the band.
+        return f"Rated {_format_rating_range(self._rating_range[0], self._rating_range[1])}"
+
+    def _on_save_recipe(self) -> None:
+        """Persist the current recipe (incl. the rating band) to Config."""
+        if not (self._recipe_includes or self._recipe_excludes) and self._rating_range_arg() is None:
+            return  # nothing to save
+        payload = _serialize_recipe(
+            self._recipe_includes,
+            self._recipe_excludes,
+            self._rating_range_arg(),
+            name=self._saved_recipe_name(),
+        )
+        saved = list(getattr(self._config, "recipe_saved", []) or [])
+        saved.append(payload)
+        self._config.recipe_saved = saved
+        try:
+            self._config.save()
+        except Exception as e:  # never let a config write crash the UI
+            logger.warning("RecipeView: could not save recipe: {}", e)
+        logger.debug("RecipeView: saved recipe {!r}", payload.get("name"))
+        self._load_saved_recipes()
+
+    def _apply_recipe_state(
+        self,
+        includes: dict[str, set[str]],
+        excludes: dict[str, set[str]],
+        rating_range: tuple[float, float],
+    ) -> None:
+        """Load a full recipe state into the builder (used by saved-recipe load).
+
+        Replaces the in-progress recipe, restores the rating slider silently, and
+        re-renders the rail + cloud + results through the existing chokepoints.
+        """
+        self._recipe_includes = {k: set(v) for k, v in includes.items() if v}
+        self._recipe_excludes = {k: set(v) for k, v in excludes.items() if v}
+        self._rating_range = tuple(rating_range)
+        self._pantry.set_rating_range(*self._rating_range)
+        # Drop any cross-facet search so the selected-facet cloud shows.
+        self._search_query = ""
+        self._search_results = []
+        self._pantry.clear_filter()
+        self._pantry.clear_match_counts()
+        self._render_rail(None)
+        # Re-mark the currently-showing cloud so loaded ingredients read as active.
+        if self._selected_facet is not None:
+            self._rebuild_cloud()
+        self._load_results()
+
+    def _on_saved_recipe_selected(self, name: str) -> None:
+        """A saved-recipe row was clicked → load it into the builder."""
+        for rec in (getattr(self._config, "recipe_saved", []) or []):
+            if str(rec.get("name")) == name:
+                includes, excludes, rating_range = _deserialize_recipe(rec)
+                self._apply_recipe_state(includes, excludes, rating_range)
+                # Content-first entries may be on the browse page — land on the
+                # builder so the freshly-loaded recipe is visible.
+                self._stack.setCurrentIndex(0)
+                return
+
+    def _on_saved_recipe_deleted(self, name: str) -> None:
+        """A saved-recipe row's × was clicked → remove it from Config."""
+        saved = list(getattr(self._config, "recipe_saved", []) or [])
+        for i, rec in enumerate(saved):
+            if str(rec.get("name")) == name:
+                del saved[i]
+                break
+        self._config.recipe_saved = saved
+        try:
+            self._config.save()
+        except Exception as e:  # never let a config write crash the UI
+            logger.warning("RecipeView: could not delete saved recipe: {}", e)
+        self._load_saved_recipes()
 
     # ── Accessors (for tests) ─────────────────────────────────────────────
 
@@ -883,3 +1030,8 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
     def selected_facet(self) -> str | None:
         """Currently selected facet type (read-only for tests)."""
         return self._selected_facet
+
+    @property
+    def rating_range(self) -> tuple[float, float]:
+        """Current rating band ``(min, max)`` (read-only for tests)."""
+        return self._rating_range

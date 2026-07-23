@@ -113,6 +113,7 @@ class _RecipeBrowseMixin:
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
         excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        rating_range = self._rating_range_arg()
         limit = self._SEE_ALL_PAGE
 
         def _query(repos):
@@ -124,6 +125,7 @@ class _RecipeBrowseMixin:
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                rating_range=rating_range,
                 limit=limit,
                 offset=0,
                 name_filter=name_filter,
@@ -182,6 +184,7 @@ class _RecipeBrowseMixin:
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
         excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        rating_range = self._rating_range_arg()
         limit = self._SEE_ALL_PAGE
         offset = self._see_all_offset
         # Thread the current filter text (if any) into the DB query so lazy pages
@@ -197,6 +200,7 @@ class _RecipeBrowseMixin:
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                rating_range=rating_range,
                 limit=limit,
                 offset=offset,
                 name_filter=name_filter,
