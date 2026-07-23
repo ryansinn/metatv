@@ -478,7 +478,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
     # ── Data loading ──────────────────────────────────────────────────────
 
-    def _global_exclusion_sets(self) -> tuple[set[str], set[str]]:
+    def _global_exclusion_sets(self) -> tuple[set[str], set[str], set[str]]:
         """Resolve the user's Global Exclusions for the faceted queries.
 
         The control layer (DR-0007): we read ``Config`` here on the main thread
@@ -504,32 +504,39 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         come back empty (everything reappears) — same as the main list.
 
         Returns:
-            ``(excluded_prefixes, excluded_categories)`` — two ``set[str]``,
-            both empty when global filtering is paused.
+            ``(excluded_prefixes, excluded_categories, excluded_content_types)`` —
+            three ``set[str]``, all empty when global filtering is paused.  The
+            third is the content-provenance layer (``content_type`` tag values,
+            e.g. ``ai_generated``) resolved by
+            :func:`~metatv.core.filter_utils.excluded_tag_content_types`, so the
+            recipe pantry/cloud/YIELDS drop globally-excluded AI content too.
         """
         from metatv.core.filter_utils import (
             get_active_category_filter,
             get_excluded_prefixes,
+            excluded_tag_content_types,
         )
 
         cfg = self._config
         if getattr(cfg, "global_filter_paused", False):
-            return set(), set()
+            return set(), set(), set()
         _cat_excluded, _ = get_active_category_filter(cfg)
         excluded_prefixes: set[str] = set(_cat_excluded or []) | get_excluded_prefixes(cfg)
         excluded_categories: set[str] = set(
             getattr(cfg, "global_filter_excluded_user_categories", []) or []
         )
-        return excluded_prefixes, excluded_categories
+        excluded_content_types: set[str] = excluded_tag_content_types(cfg)
+        return excluded_prefixes, excluded_categories, excluded_content_types
 
     def _load_pantry(self) -> None:
         """Load facet summaries from the DB (off-thread)."""
-        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.get_facet_summary(
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
             ),
             self._on_pantry_loaded,
             token_ref=self._pantry_token,
@@ -551,13 +558,14 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
     def _load_cloud(self, facet_type: str) -> None:
         """Load tag counts for the selected facet (off-thread)."""
-        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.get_tag_counts_for_facet(
                 facet_type,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
             ),
             self._on_cloud_loaded,
             token_ref=self._cloud_token,
@@ -599,7 +607,15 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
                 state = "none"
             items.append((dto.value, dto.channel_count, state))
 
-        self._cloud.set_tags(items, facet_color=color, facet_name=display)
+        # content_type values are stored slugs — show friendly labels (identity
+        # stays the slug for click/recipe state) via the single display chokepoint.
+        display_map: dict[str, str] | None = None
+        if facet == "content_type":
+            from metatv.core.channel_name_utils import content_type_display
+            display_map = {v: content_type_display(v) for v, _c, _s in items}
+
+        self._cloud.set_tags(items, facet_color=color, facet_name=display,
+                             display_map=display_map)
 
     # Result-grid card cap — a gridful of cards.  The bounded preview never
     # materialises the full set: a broad facet costs one SQL COUNT for YIELDS
@@ -620,7 +636,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # Snapshot recipe state for the lambda (closed over)
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
-        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
         cap = self._RESULTS_CARD_CAP
 
         def _query(repos):
@@ -638,6 +654,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
                 excluded_provider_ids=hidden,
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
                 collapse_variants=True,
             )
             if total == 0:
@@ -648,6 +665,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
                 excluded_provider_ids=hidden,
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
                 limit=cap,
                 collapse_variants=True,
             )
@@ -772,13 +790,14 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
     def _load_search(self, query: str) -> None:
         """Run the cross-facet tag search off-thread via the async seam."""
-        excl_prefixes, excl_categories = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.search_tag_values_across_facets(
                 query,
                 excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
+                excluded_tag_content_types=excl_content_types,
             ),
             self._on_search_loaded,
             token_ref=self._search_token,
@@ -803,7 +822,9 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
     def _render_search_cloud(self, results: list) -> None:
         """Render *results* (cross-facet matches) into the cloud, colored by facet."""
+        from metatv.core.channel_name_utils import content_type_display
         items: list[tuple[str, int, str, str, str]] = []
+        display_map: dict[str, str] = {}
         for dto in results:
             ftype = dto.facet_type
             if dto.value in self._recipe_includes.get(ftype, set()):
@@ -815,7 +836,13 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
             items.append(
                 (dto.value, dto.channel_count, state, _facet_color(ftype), ftype)
             )
-        self._cloud.set_multi_facet_tags(items, facet_name=f'"{self._search_query}"')
+            # content_type slugs get a friendly label; identity stays the slug.
+            if ftype == "content_type":
+                display_map[dto.value] = content_type_display(dto.value)
+        self._cloud.set_multi_facet_tags(
+            items, facet_name=f'"{self._search_query}"',
+            display_map=display_map or None,
+        )
 
     def _on_search_error(self, exc: Exception) -> None:
         logger.error("RecipeView: tag search failed: {}", exc)

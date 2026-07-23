@@ -48,6 +48,35 @@ def _load_source_category_counts(db: Database) -> list[tuple[str, int]]:
         session.close()
 
 
+def _load_tag_content_type_counts(db: Database, values: list[str]) -> dict[str, int]:
+    """Return ``{content_type_value: distinct_channel_count}`` for *values*.
+
+    Counts channels carrying each ``content_type`` tag (any source — generated or
+    user) among *values*.  A tiny, tag_id-indexed lookup (never a full channels
+    scan), so it loads synchronously in the dialog exactly like the sibling
+    prefix / source-category counts.  Values absent from the result carry 0.
+    """
+    from sqlalchemy import func
+    from metatv.core.database import ContentTagDB, TagDB
+    if not values:
+        return {}
+    session = db.get_session()
+    try:
+        rows = (
+            session.query(
+                TagDB.value,
+                func.count(func.distinct(ContentTagDB.channel_id)),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .filter(TagDB.type == "content_type", TagDB.value.in_(values))
+            .group_by(TagDB.value)
+            .all()
+        )
+        return {value: count for value, count in rows}
+    finally:
+        session.close()
+
+
 def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None = None) -> list[tuple[str, int]]:
     """Return [(prefix, count)] for all prefixes in the DB, sorted alphabetically."""
     from sqlalchemy import func
@@ -500,6 +529,8 @@ class GlobalFilterDialog(QDialog):
         self._platform_header_widgets: list[QWidget] = []
         # User-defined category rows: list of (category_name, checkbox, row_widget)
         self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
+        # Content-provenance rows: list of (content_type_slug, checkbox, row_widget)
+        self._content_provenance_rows: list[tuple[str, QCheckBox, QWidget]] = []
 
         self.setWindowTitle("Exclusions")
         self.setMinimumSize(420, 540)
@@ -757,6 +788,7 @@ class GlobalFilterDialog(QDialog):
             self._sections.append(other_section)
 
         self._populate_content_types()
+        self._populate_content_provenance()
         self._populate_user_categories()
 
     def _populate_user_categories(self) -> None:
@@ -906,6 +938,87 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.addWidget(self._content_type_other_section)
             self._content_type_header_widgets.append(self._content_type_other_section)
 
+    def _populate_content_provenance(self) -> None:
+        """Build the 'Content Provenance' section — ``content_type`` TAG exclusions.
+
+        A distinct mechanism from Content Types above.  Content Types key off the
+        provider's category HEADER (``source_category``); these rows match a
+        channel's stored ``content_type`` TAG (a NOT-EXISTS over ``content_tags``),
+        so a "Sports" here would mean something different from a "Sports" category
+        group — hence the deliberate separation (never merge the two lists).
+
+        Scope for now: the two AI-provenance values (``ai_generated`` /
+        ``ai_voiceover``).  The section iterates a list, so more ``content_type``
+        values can be surfaced later without a structural change.  A value is shown
+        when it has channels OR is already excluded (so an active exclusion is never
+        hidden); when none qualify the section is omitted entirely.
+        """
+        from metatv.core.channel_name_utils import (
+            AI_GENERATED_VALUE, AI_VOICEOVER_VALUE, content_type_display,
+        )
+
+        provenance_values = [AI_GENERATED_VALUE, AI_VOICEOVER_VALUE]
+        counts = _load_tag_content_type_counts(self._db, provenance_values)
+        excluded = set(getattr(self._config, "global_filter_excluded_tag_content_types", []))
+        visible = [
+            v for v in provenance_values
+            if counts.get(v, 0) > 0 or v in excluded
+        ]
+        if not visible:
+            return
+
+        # ── Separator ──────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(_theme.SEP_DARK)
+        self._inner_vl.addWidget(sep)
+        self._content_type_header_widgets.append(sep)
+
+        hdr_row = QHBoxLayout()
+        hdr = QLabel("Content Provenance")
+        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        hdr_row.addWidget(hdr)
+
+        info_lbl = QLabel("ⓘ")
+        info_lbl.setStyleSheet(_theme.INFO_LABEL)
+        info_lbl.setToolTip(
+            "How the content was produced, detected from a trailing marker on the\n"
+            "channel/title name:\n"
+            "  • \"(AI Generated)\" name suffix  →  AI Generated (the content itself)\n"
+            "  • \"(AI)\" / Lektor (AI) suffix   →  AI Voiceover (an AI dub/narration)\n"
+            "Check a type to hide all channels carrying that content_type tag —\n"
+            "everywhere (search, Discovery, Recommendations, EPG)."
+        )
+        hdr_row.addWidget(info_lbl)
+        hdr_row.addStretch()
+        hdr_row.addWidget(self._make_select_links(
+            "Content Provenance", self._select_content_provenance
+        ))
+        hdr_w = QWidget()
+        hdr_w.setLayout(hdr_row)
+        self._inner_vl.addWidget(hdr_w)
+        self._content_type_header_widgets.append(hdr_w)
+
+        for value in visible:
+            count = counts.get(value, 0)
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(2, 2, 2, 2)
+            rl.setSpacing(8)
+
+            cb = QCheckBox(content_type_display(value))
+            cb.setChecked(value in excluded)
+            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+            rl.addWidget(cb)
+
+            count_lbl = QLabel(f"({count:,} channels)")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            rl.addWidget(count_lbl)
+            rl.addStretch()
+
+            self._inner_vl.addWidget(row)
+            self._content_provenance_rows.append((value, cb, row))
+
     def _clear_groups(self) -> None:
         """Remove all group widgets (before a re-populate)."""
         for section in self._sections:
@@ -922,6 +1035,11 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.removeWidget(row)
             row.deleteLater()
         self._content_type_rows.clear()
+
+        for _slug, _cb, row in self._content_provenance_rows:
+            self._inner_vl.removeWidget(row)
+            row.deleteLater()
+        self._content_provenance_rows.clear()
 
         if self._content_type_other_section is not None:
             self._content_type_other_section = None  # already in header_widgets, will be deleted below
@@ -970,6 +1088,7 @@ class GlobalFilterDialog(QDialog):
         """Master select/deselect — every type at once (the bottom shortcut)."""
         self._select_sections(self._sections, checked)
         self._select_content_types(checked)
+        self._select_content_provenance(checked)
         self._select_user_categories(checked)
 
     def _select_sections(self, sections: list["_GroupSection"], checked: bool) -> None:
@@ -982,6 +1101,10 @@ class GlobalFilterDialog(QDialog):
             cb.setChecked(checked)
         if self._content_type_other_section:
             self._content_type_other_section.set_all(checked)
+
+    def _select_content_provenance(self, checked: bool) -> None:
+        for _slug, cb, _row in self._content_provenance_rows:
+            cb.setChecked(checked)
 
     def _select_user_categories(self, checked: bool) -> None:
         for _name, cb, _row in self._user_category_rows:
@@ -1028,6 +1151,11 @@ class GlobalFilterDialog(QDialog):
         # User-defined category exclusions
         self._config.global_filter_excluded_user_categories = [
             name for name, cb, _row in self._user_category_rows if cb.isChecked()
+        ]
+
+        # Content-provenance (content_type tag) exclusions — stored as slugs.
+        self._config.global_filter_excluded_tag_content_types = [
+            slug for slug, cb, _row in self._content_provenance_rows if cb.isChecked()
         ]
 
         self._config.save()

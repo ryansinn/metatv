@@ -181,11 +181,15 @@ class _TagButton(QPushButton):
         facet_color: str,
         facet_type: str = "",
         parent: QWidget | None = None,
+        display: str | None = None,
     ) -> None:
         super().__init__(parent)
-        self._value = value
+        self._value = value               # stored identity — emitted on click, never remapped
         self._facet_type = facet_type     # "" in single-facet mode; set in cross-facet search
         self.cloud_visible: bool = True   # logical visibility within the cloud
+        # Display label may differ from identity (e.g. content_type slug
+        # "ai_generated" → "AI Generated"); identity stays the queried value.
+        label_value = display if display is not None else value
 
         # Build label: [mark] value countfmt
         mark = ""
@@ -195,7 +199,7 @@ class _TagButton(QPushButton):
             mark = _icons.tag_exclude_icon + " "
 
         count_str = _fmt_count(count)
-        label = f"{mark}{value} {count_str}"
+        label = f"{mark}{label_value} {count_str}"
         self.setText(label)
 
         # State-specific color for the mark character only isn't trivially
@@ -215,7 +219,7 @@ class _TagButton(QPushButton):
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI};"
             f" border-color: {_theme.COLOR_DIM}; background: {_theme.OVERLAY_05}; }}"
         )
-        self.setToolTip(f"{value} — {count:,} channels")
+        self.setToolTip(f"{label_value} — {count:,} channels")
         self.adjustSize()
 
     def value(self) -> str:
@@ -295,6 +299,9 @@ class WeightedTagCloud(QWidget):
         # emit tag_clicked); in cross-facet search each item carries its own
         # facet color + facet_type (so clicks emit tag_clicked_facet).
         self._all_items: list[tuple[str, int, str, str, str]] = []
+        # Optional value → display-label override (identity is unchanged; label only).
+        # Used for content_type slugs (e.g. "ai_generated" → "AI Generated").
+        self._display_map: dict[str, str] = {}
         self._facet_color: str = _theme.COLOR_TEXT
         self._facet_name: str = ""
         self._cap_expanded: bool = False
@@ -311,6 +318,7 @@ class WeightedTagCloud(QWidget):
         items: list[tuple[str, int, str]],
         facet_color: str,
         facet_name: str = "",
+        display_map: dict[str, str] | None = None,
     ) -> None:
         """Populate the cloud with a new set of tag items.
 
@@ -322,10 +330,16 @@ class WeightedTagCloud(QWidget):
                          ``state == "none"`` tags.
             facet_name:  Optional facet label shown in the header (e.g.
                          ``"Genre"``).  Falls back to ``""`` when omitted.
+            display_map: Optional ``{value: display_label}`` override so a stored
+                         slug renders a friendly label (content_type
+                         ``"ai_generated"`` → ``"AI Generated"``) while the click
+                         identity stays the original value.  ``None`` → labels are
+                         the values verbatim.
         """
         # Normalise to the internal 5-tuple shape: every tag shares the one
         # facet color and carries no facet_type (so clicks emit tag_clicked).
         self._all_items = [(v, c, s, facet_color, "") for (v, c, s) in items]
+        self._display_map = display_map or {}
         self._facet_color = facet_color
         self._facet_name = facet_name
         self._cap_expanded = False   # reset on new data
@@ -337,6 +351,7 @@ class WeightedTagCloud(QWidget):
         self,
         items: list[tuple[str, int, str, str, str]],
         facet_name: str = "",
+        display_map: dict[str, str] | None = None,
     ) -> None:
         """Populate the cloud with cross-facet matches, each colored by its facet.
 
@@ -356,6 +371,7 @@ class WeightedTagCloud(QWidget):
             facet_name: Optional label shown in the header (e.g. the search term).
         """
         self._all_items = list(items)
+        self._display_map = display_map or {}
         self._facet_color = _theme.COLOR_TEXT   # per-item colors override this
         self._facet_name = facet_name
         self._cap_expanded = False   # reset on new data
@@ -487,7 +503,8 @@ class WeightedTagCloud(QWidget):
 
         for value, count, state, color, facet_type in items:
             token = _count_to_font_token(count, min_count, max_count)
-            btn = _TagButton(value, count, state, token, color, facet_type=facet_type)
+            btn = _TagButton(value, count, state, token, color, facet_type=facet_type,
+                             display=self._display_map.get(value))
             btn.clicked.connect(self._make_click_handler(value, facet_type))
             self._body.flow().add(btn)
             self._tag_buttons.append(btn)

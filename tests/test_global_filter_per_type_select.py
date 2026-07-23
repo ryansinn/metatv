@@ -98,20 +98,34 @@ def test_select_user_categories_is_scoped():
     cb2.setChecked.assert_called_once_with(False)
 
 
+def test_select_content_provenance_is_scoped():
+    """_select_content_provenance toggles only the content-provenance rows."""
+    dlg = _dlg()
+    cb1, cb2 = MagicMock(), MagicMock()
+    dlg._content_provenance_rows = [("ai_generated", cb1, None), ("ai_voiceover", cb2, None)]
+
+    dlg._select_content_provenance(True)
+    cb1.setChecked.assert_called_once_with(True)
+    cb2.setChecked.assert_called_once_with(True)
+
+
 def test_master_select_all_covers_every_type():
-    """The bottom master toggle still hits sections + content types + user cats."""
+    """The bottom master toggle still hits sections + content types + provenance + user cats."""
     dlg = _dlg()
     secs = [_FakeSection()]
     dlg._sections = secs
     ct_cb = MagicMock()
     dlg._content_type_rows = [("Sports", ct_cb, None)]
     dlg._content_type_other_section = None
+    prov_cb = MagicMock()
+    dlg._content_provenance_rows = [("ai_generated", prov_cb, None)]
     uc_cb = MagicMock()
     dlg._user_category_rows = [("Faves", uc_cb, None)]
 
     dlg._select_all(True)
     assert secs[0].value is True
     ct_cb.setChecked.assert_called_once_with(True)
+    prov_cb.setChecked.assert_called_once_with(True)  # master now covers content provenance
     uc_cb.setChecked.assert_called_once_with(True)  # master now covers user cats too
 
 
