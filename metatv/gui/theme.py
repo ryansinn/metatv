@@ -388,10 +388,35 @@ def apply_list_selection(view) -> None:
     existing = view.styleSheet()
     view.setStyleSheet((existing + LIST_SELECTION_QSS) if existing else LIST_SELECTION_QSS)
 
-# Small flat text link (Alerts "Clear all", VOD "Manage…") — blue, hover lighter.
+# Small flat text link (Alerts "Clear all"/"Manage") — blue, hover lighter.
 LINK_BTN_SM = (
     "QPushButton { border: none; color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_SM + "; padding: 0 2px; }"
     "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
+)
+
+# Collapsible SUB-section header toggle inside a sidebar section (Watch Alerts:
+# EPG / Movies & Series / Stream Monitoring).  Muted bold left-aligned text with an
+# expand/collapse arrow; brightens on hover.  Shared so the three sub-headers stay
+# visually identical (one role constant, never copy-pasted per sub-section).
+SIDEBAR_SUBSECTION_TOGGLE = (
+    "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_MD + "; font-weight: bold;"
+    " border: none; text-align: left; padding: 0 2px; }"
+    "QPushButton:hover { color: " + COLOR_DIM + "; }"
+)
+
+# Sub-section header inside a management dialog (Manage Watch Alerts: "keyword
+# rules" / "monitored series").  Bold, muted, sits above each grouped list.
+DIALOG_SUBHEADER = (
+    "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD
+    + "; font-weight: bold; padding-top: 6px;"
+)
+
+# Flat red "danger" text button inside a management dialog (Manage Watch Alerts:
+# rule "Remove" / series "Stop alerts").  Shared so both destructive links match.
+DIALOG_DANGER_LINK = (
+    "QPushButton { font-size: " + FONT_SM + "; color: " + COLOR_ERR_2 + ";"
+    " padding: 1px 6px; border: none; }"
+    "QPushButton:hover { color: " + COLOR_RED_BRIGHT + "; }"
 )
 
 # VOD watch-for rule row (Alerts sidebar) — legible name + right-aligned count.

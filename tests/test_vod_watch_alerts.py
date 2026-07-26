@@ -89,6 +89,11 @@ class _FakeConfig:
                 return list(r.get("alerted_ids") or [])
         return []
 
+    def get_monitored_series(self) -> list:
+        # The Manage dialog now lists monitored series too; these VOD tests never
+        # monitor any, so an empty list keeps the keyword-rule assertions unchanged.
+        return []
+
     # Stubs for get_hidden_provider_ids (needed by the manager's worker)
     # delegated via repos; not actually called on Config directly.
 

@@ -16,6 +16,12 @@ from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 
+# Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
+# rule_created id for keyword-rule rows (existing click/menu code reads it); the
+# extra roles tag the item kind and, for series rows, the series channel id.
+_ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "series_divider" | "series"
+_ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
+
 
 def _alerts_title_html(title: str, count: int) -> str:
     """Rich-text for the Alerts header: a recolorable status dot + title + count.
@@ -28,7 +34,7 @@ def _alerts_title_html(title: str, count: int) -> str:
         - Active (count > 0): green dot, green title, " (N)" suffix.
 
     Args:
-        title: The section title (always "Alerts").
+        title: The section title (always "Watch Alerts").
         count: Number of unviewed watch-for matches across all rules.
 
     Returns:
@@ -167,18 +173,22 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     retryContextMenuRequested = pyqtSignal(str, str, int, int)  # entry_id, channel_id, x, y
     # VOD watch-for signals
     addWatchForClicked = pyqtSignal()        # "+" button → open "Watch for…" dialog
-    manageWatchForClicked = pyqtSignal()     # "Manage…" link → open manage dialog
+    manageWatchForClicked = pyqtSignal()     # header "Manage" → open shared manage dialog
     vodAlertClicked = pyqtSignal(str)        # channel_db_id — play matched content
     vodRuleViewMatchesRequested = pyqtSignal(str, str)  # text, match_type → keyword search (dialog fallback)
     vodRuleShowMatchesRequested = pyqtSignal(str)  # rule_created → show the rule's STORED matched ids
     vodRuleRemoveRequested = pyqtSignal(str)  # rule_created → remove rule + refresh
     vodRuleClearAlertRequested = pyqtSignal(str)  # rule_created → ack just this rule's matches
     clearAllAlertsClicked = pyqtSignal()     # header "Clear all" → ack every new match
+    # Monitored-series signals (folded in from the retired New Episodes section)
+    seriesClicked = pyqtSignal(str)          # series_channel_id → open series details
+    seriesMarkSeenRequested = pyqtSignal(str)  # series_channel_id → clear unseen count
+    seriesStopRequested = pyqtSignal(str)    # series_channel_id → stop monitoring
     _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
 
     def __init__(self, config, db, parent=None):
         self.db = db
-        super().__init__("Alerts", _icons.alert_icon, config, parent)
+        super().__init__("Watch Alerts", _icons.alert_icon, config, parent)
         self._init_background_refresh()
 
     def get_section_id(self):
@@ -187,7 +197,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     def create_header(self):
         header = self._build_clickable_header()
         hl = header.layout()
-        # A single state-driven label: a recolorable status dot + "Alerts" + an
+        # A single state-driven label: a recolorable status dot + "Watch Alerts" + an
         # optional " (N)" count.  Replaces the old warn-siren title + separate
         # green badge — the dot's colour IS the glance (gray = quiet, green = new),
         # visible even when the section is collapsed.  Updated by update_new_match_badge.
@@ -205,6 +215,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clear_all_btn.clicked.connect(self.clearAllAlertsClicked.emit)
         self._clear_all_btn.hide()
         hl.addWidget(self._clear_all_btn)
+
+        # "Manage" — always reachable, even when every sub-section below is empty.
+        # Opens the shared manage dialog (keyword rules + monitored series).  This
+        # is the whole point of the consolidation: management can no longer hide
+        # inside a collapsible/hideable body.
+        self._manage_btn = QPushButton("Manage")
+        self._manage_btn.setFlat(True)
+        self._manage_btn.setToolTip(
+            "Manage watch alerts — keyword rules and monitored series"
+        )
+        self._manage_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        self._manage_btn.clicked.connect(self.manageWatchForClicked.emit)
+        hl.addWidget(self._manage_btn)
 
         _btn_style = (
             "QPushButton {{ font-size: {fs}; border: 1px solid {c};"
@@ -227,6 +250,35 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def create_content(self):
         from PyQt6.QtWidgets import QHeaderView
+
+        # ── EPG sub-section ────────────────────────────────────────────────
+        # Live/upcoming programmes from the EPG watchlist.  Given its own labelled +
+        # collapsible sub-header so it sits parallel with the other sub-sections
+        # (it previously floated label-less at the top — the inconsistency the
+        # consolidation fixes).  Hidden entirely when nothing is airing now/soon.
+        self._epg_collapsed = False
+        self._epg_has_rows = False
+
+        epg_hdr_row = QHBoxLayout()
+        epg_hdr_row.setContentsMargins(0, 4, 0, 2)
+        epg_hdr_row.setSpacing(4)
+
+        self._epg_toggle = QPushButton()
+        self._epg_toggle.setFlat(True)
+        self._epg_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._epg_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
+        self._epg_toggle.setToolTip(
+            "Live TV programs and events from your watchlist, airing now or soon."
+        )
+        self._epg_toggle.clicked.connect(self._toggle_epg)
+        epg_hdr_row.addWidget(self._epg_toggle)
+        epg_hdr_row.addStretch()
+
+        self._epg_hdr_container = QWidget()
+        self._epg_hdr_container.setLayout(epg_hdr_row)
+        self._epg_hdr_container.hide()
+        self.content_layout.addWidget(self._epg_hdr_container)
+
         self.alerts_tree = QTreeWidget()
         self.alerts_tree.setHeaderHidden(True)
         self.alerts_tree.setColumnCount(1)
@@ -237,10 +289,17 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
         _theme.apply_list_selection(self.alerts_tree)
+        self.alerts_tree.hide()
         self.content_layout.addWidget(self.alerts_tree)
 
-        # ── VOD Watch-For sub-section ──────────────────────────────────────
+        self._update_epg_toggle_label(0)
+        # ── end EPG sub-section ────────────────────────────────────────────
+
+        # ── Movies & Series sub-section ────────────────────────────────────
+        # Keyword watch-for rules PLUS monitored series (folded in from the retired
+        # New Episodes section).  Management is the header "Manage" button now.
         self._vod_collapsed = False
+        self._series_collapsed = False  # the "──── Series ────" divider toggle
 
         vod_hdr_row = QHBoxLayout()
         vod_hdr_row.setContentsMargins(0, 4, 0, 2)
@@ -249,21 +308,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_toggle = QPushButton()
         self._vod_toggle.setFlat(True)
         self._vod_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._vod_toggle.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;"
-            " border: none; text-align: left; padding: 0 2px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_DIM}; }}"
-        )
+        self._vod_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
         self._vod_toggle.clicked.connect(self._toggle_vod_watching)
         vod_hdr_row.addWidget(self._vod_toggle)
         vod_hdr_row.addStretch()
-
-        self._vod_manage_btn = QPushButton("Manage…")
-        self._vod_manage_btn.setFlat(True)
-        self._vod_manage_btn.setToolTip("View and remove watch-for rules")
-        self._vod_manage_btn.setStyleSheet(_theme.LINK_BTN_SM)
-        self._vod_manage_btn.clicked.connect(self.manageWatchForClicked.emit)
-        vod_hdr_row.addWidget(self._vod_manage_btn)
 
         self._vod_hdr_container = QWidget()
         self._vod_hdr_container.setLayout(vod_hdr_row)
@@ -272,7 +320,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._vod_list = QListWidget()
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self._vod_list.setMaximumHeight(150)
+        self._vod_list.setMaximumHeight(200)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._vod_list)
         cursor_affordance.set_clickable(self._vod_list)
@@ -284,7 +332,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._vod_list)
 
         self._update_vod_toggle_label(0)
-        # ── end VOD Watch-For sub-section ─────────────────────────────────
+        # ── end Movies & Series sub-section ────────────────────────────────
 
         # Stream Monitoring collapsible sub-section
         self._retry_collapsed = False
@@ -296,11 +344,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_toggle = QPushButton()
         self._retry_toggle.setFlat(True)
         self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._retry_toggle.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; font-weight: bold;"
-            " border: none; text-align: left; padding: 0 2px; }"
-            f"QPushButton:hover {{ color: {_theme.COLOR_DIM}; }}"
-        )
+        self._retry_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
         self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
         retry_hdr_row.addWidget(self._retry_toggle)
 
@@ -334,21 +378,76 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.set_empty(True)
 
     # ------------------------------------------------------------------
-    # VOD Watch-For helpers
+    # Overall empty-state
+    # ------------------------------------------------------------------
+
+    def _recompute_empty(self) -> None:
+        """Set the section's empty state from ALL sub-sections' current contents.
+
+        The section shows a tidy header-only line when every sub-section is empty;
+        it auto-expands when any of EPG / Movies & Series / Stream Monitoring gains
+        rows.  Guarded so ``__new__`` test stubs (no full constructor) skip it.
+        """
+        if "_retry_list" not in self.__dict__:
+            return
+        epg = self.__dict__.get("_epg_has_rows", False)
+        has_rows = epg or self._vod_list.count() > 0 or self._retry_list.count() > 0
+        self.set_empty(not has_rows)
+
+    # ------------------------------------------------------------------
+    # EPG sub-section helpers
+    # ------------------------------------------------------------------
+
+    def _update_epg_toggle_label(self, count: int) -> None:
+        arrow = self.config.expand_icon if self._epg_collapsed else self.config.collapse_icon
+        label = f"EPG  ({count})" if count else "EPG"
+        self._epg_toggle.setText(f"{arrow}  {label}")
+
+    def _toggle_epg(self) -> None:
+        self._epg_collapsed = not self._epg_collapsed
+        self.alerts_tree.setVisible(not self._epg_collapsed and self._epg_has_rows)
+        self._update_epg_toggle_label(self.alerts_tree.topLevelItemCount())
+
+    # ------------------------------------------------------------------
+    # Movies & Series helpers
     # ------------------------------------------------------------------
 
     def _update_vod_toggle_label(self, count: int) -> None:
         arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
-        label = f"Watching for  ({count})" if count else "Watching for"
+        label = f"Movies & Series  ({count})" if count else "Movies & Series"
         # Surface firing alerts on the toggle itself (plain text — the header dot
-        # carries the colour): "Watching for (3)  ·  2 new".  Uses the AVAILABLE
-        # firing count stashed by the last refresh (falls back to raw config).
+        # carries the colour): "Movies & Series (5)  ·  3 new".  Combines firing
+        # keyword rules (AVAILABLE-only, stashed by the last refresh) with the
+        # number of monitored series that have unseen new episodes.
         firing = getattr(self, "_firing_count", None)
         if firing is None:
             firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
-        if firing > 0:
-            label += f"  ·  {firing} new"
+        new_total = firing + getattr(self, "_series_new_count", 0)
+        if new_total > 0:
+            label += f"  ·  {new_total} new"
         self._vod_toggle.setText(f"{arrow}  {label}")
+
+    def _series_display_entries(self) -> list[dict]:
+        """Monitored-series rows for render: cleaned title + unseen count, sorted.
+
+        New-episode series (``unseen_new > 0``) are pinned to the top, then idle
+        ones — each group sorted A–Z by the CLEANED display title.  The cleaned
+        title is read from the stored ``display_title`` (persisted at monitor-add
+        time / backfilled from the channel's ingestion-computed ``detected_title``);
+        render never re-parses the raw name.  Falls back to the raw ``title`` only
+        for a not-yet-backfilled entry whose source channel is gone.
+        """
+        entries = getattr(self.config, "get_monitored_series", lambda: [])()
+        out: list[dict] = []
+        for e in entries:
+            out.append({
+                "cid": e.get("series_channel_id", ""),
+                "title": e.get("display_title") or e.get("title") or "Unknown series",
+                "unseen": e.get("unseen_new") or 0,
+            })
+        # (unseen <= 0) sorts new-first (False < True); then A–Z within each group.
+        out.sort(key=lambda s: (s["unseen"] <= 0, s["title"].casefold()))
+        return out
 
     def _compute_alert_availability(self):
         """Re-validate stored matches against live source state (one bounded query).
@@ -380,14 +479,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._update_vod_toggle_label(self._vod_list.count())
 
     def refresh_vod_rules(self) -> None:
-        """Repopulate the VOD watch-for sub-list from config rules.
+        """Repopulate the Movies & Series sub-list: keyword rules + monitored series.
 
-        Reads ``config.get_vod_watch_alerts()`` synchronously (config is
-        in-memory), then for each rule fetches matching channel names from the
-        DB to show a per-rule match count.  Called on startup, after a rule is
-        added/removed, and after ``VodWatchAlertManager.new_matches_found``.
+        Reads ``config.get_vod_watch_alerts()`` and ``config.get_monitored_series()``
+        synchronously (config is in-memory); a single bounded query re-validates the
+        keyword-rule match counts against live source state.  Series rows read the
+        stored cleaned ``display_title`` — no name re-parsing at render.  Called on
+        startup, after a rule/series is added/removed, after a mark-seen, and after
+        ``VodWatchAlertManager.new_matches_found`` / ``new_episodes_found``.
         """
+        from metatv.gui import icons as _icons  # local import avoids circular at top
+
         rules = getattr(self.config, "get_vod_watch_alerts", lambda: [])()
+        series = self._series_display_entries()
         self._vod_list.clear()
 
         # Re-validate every count against LIVE source state (once, one bounded query):
@@ -404,20 +508,21 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             _rules_firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
             _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
         self._firing_count = _rules_firing  # read by _update_vod_toggle_label
+        self._series_new_count = sum(1 for s in series if s["unseen"] > 0)
         self.update_new_match_badge(_rules_firing, _new_items)
 
-        if not rules:
+        if not rules and not series:
             self._vod_hdr_container.hide()
             self._vod_list.hide()
+            self._recompute_empty()
             return
-
-        from metatv.gui import icons as _icons  # local import avoids circular at top
 
         type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
         _unviewed_for = getattr(
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
         )
 
+        # ── Keyword rules ─────────────────────────────────────────────────
         for rule in rules:
             text = rule.get("text") or "?"
             match_type = rule.get("match_type", "any")
@@ -442,6 +547,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, created)
+            item.setData(_ROLE_KIND, "rule")
             count_tip = f"{count} match{'es' if count != 1 else ''} found" if count else "No matches yet"
             new_tip = f"\n{unviewed} new (unviewed)" if unviewed > 0 else ""
             item.setToolTip(
@@ -452,11 +558,51 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             item.setSizeHint(row.sizeHint())
             self._vod_list.setItemWidget(item, row)
 
-        count = self._vod_list.count()
-        self._update_vod_toggle_label(count)
+        # ── Series divider + monitored-series rows ────────────────────────
+        # The divider appears only when there ARE monitored series; it is a
+        # collapse toggle (default expanded) so a heavy monitorer can tuck the
+        # idle list away.
+        if series:
+            arrow = self.config.expand_icon if self._series_collapsed else self.config.collapse_icon
+            divider = QListWidgetItem(f"{arrow}  ──── Series ({len(series)}) ────")
+            divider.setData(_ROLE_KIND, "series_divider")
+            divider.setForeground(QColor(_theme.COLOR_MUTED))
+            divider.setToolTip("Series you're monitoring for new episodes — click to collapse/expand")
+            self._vod_list.addItem(divider)
+
+            if not self._series_collapsed:
+                for s in series:
+                    cid, title, unseen = s["cid"], s["title"], s["unseen"]
+                    has_new = unseen > 0
+                    # New-episode series get 🆕 + a green "+N eps" count (colour PLUS
+                    # the icon/count, never colour alone); idle ones show 📺, no count.
+                    type_icon = _icons.new_episodes_icon if has_new else _icons.series_icon
+                    ep_word = "ep" if unseen == 1 else "eps"
+                    count_text = f"+{unseen} {ep_word}" if has_new else ""
+                    count_style = (
+                        _theme.VOD_ALERT_COUNT_NEW if has_new
+                        else _theme.VOD_ALERT_COUNT_IDLE
+                    )
+                    item = QListWidgetItem()
+                    item.setData(_ROLE_KIND, "series")
+                    item.setData(_ROLE_SERIES_ID, cid)
+                    tip = f"{title}"
+                    if has_new:
+                        tip += f"\n{unseen} new {ep_word} — click to open, right-click to mark seen / stop"
+                    else:
+                        tip += "\nMonitoring for new episodes — right-click to stop"
+                    item.setToolTip(tip)
+                    self._vod_list.addItem(item)
+                    row = _VodAlertRow(type_icon, title, count_text, count_style)
+                    item.setSizeHint(row.sizeHint())
+                    self._vod_list.setItemWidget(item, row)
+
+        # Toggle count = keyword rules + monitored series (the divider row is chrome).
+        self._update_vod_toggle_label(len(rules) + len(series))
         self._vod_hdr_container.show()
         if not self._vod_collapsed:
             self._vod_list.show()
+        self._recompute_empty()
 
     def update_new_match_badge(self, count: int, item_count: int | None = None) -> None:
         """Recompute the Alerts header dot/title/count + Clear-all visibility.
@@ -487,25 +633,53 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             return  # header not built (e.g. __new__ test stub) — nothing to update
 
     def _on_vod_item_clicked(self, item: "QListWidgetItem") -> None:
-        """Single-click on a rule row → show that rule's STORED matched channels.
+        """Single-click routing by item kind.
 
-        Carries the rule id (not a keyword) so the host shows the exact stored
-        ``alerted_ids`` — a fresh keyword search is lossy.
+        - keyword rule → show that rule's STORED matched channels (carries the rule
+          id, not a keyword — a fresh keyword search would be lossy).
+        - series → open the series details pane.
+        - series divider → toggle the series block collapse.
         """
+        kind = item.data(_ROLE_KIND)
+        if kind == "series_divider":
+            self._series_collapsed = not self._series_collapsed
+            self.refresh_vod_rules()
+            return
+        if kind == "series":
+            cid = item.data(_ROLE_SERIES_ID)
+            if cid:
+                self.seriesClicked.emit(cid)
+            return
         rule_created = item.data(Qt.ItemDataRole.UserRole)
         if rule_created:
             self.vodRuleShowMatchesRequested.emit(rule_created)
 
     def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
-        """Double-clicking a rule row opens the manage dialog."""
+        """Double-click: series opens its details; a rule opens the manage dialog."""
+        kind = item.data(_ROLE_KIND)
+        if kind == "series":
+            cid = item.data(_ROLE_SERIES_ID)
+            if cid:
+                self.seriesClicked.emit(cid)
+            return
+        if kind == "series_divider":
+            return  # single-click already toggles it
         self.manageWatchForClicked.emit()
 
     def _on_vod_context_menu(self, pos) -> None:
-        """Right-click on a rule row → context menu with View matches / Remove / Manage."""
+        """Right-click menu — differs by item kind (keyword rule vs monitored series)."""
         from PyQt6.QtWidgets import QMenu
         item = self._vod_list.itemAt(pos)
         if not item:
             return
+
+        kind = item.data(_ROLE_KIND)
+        if kind == "series":
+            self._show_series_context_menu(item, pos)
+            return
+        if kind == "series_divider":
+            return
+
         rule_created = item.data(Qt.ItemDataRole.UserRole)
         unviewed = getattr(
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
@@ -538,6 +712,44 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         menu.addSeparator()
         manage_action = menu.addAction(f"{_icons.manage_icon}  Manage rules…")
         manage_action.setToolTip("View and manage all watch-for rules")
+        manage_action.triggered.connect(self.manageWatchForClicked.emit)
+
+        menu.exec(self._vod_list.viewport().mapToGlobal(pos))
+
+    def _show_series_context_menu(self, item: "QListWidgetItem", pos) -> None:
+        """Right-click on a monitored-series row → Open / Mark seen / Stop / Manage."""
+        from PyQt6.QtWidgets import QMenu
+        cid = item.data(_ROLE_SERIES_ID)
+        if not cid:
+            return
+        unseen = 0
+        for e in getattr(self.config, "get_monitored_series", lambda: [])():
+            if e.get("series_channel_id") == cid:
+                unseen = e.get("unseen_new") or 0
+                break
+
+        menu = QMenu(self._vod_list)
+        open_action = menu.addAction(f"{_icons.series_icon}  Open series")
+        open_action.setToolTip("Show this series in the details pane")
+        open_action.triggered.connect(lambda _=False, c=cid: self.seriesClicked.emit(c))
+
+        if unseen > 0:
+            seen_action = menu.addAction(f"{_icons.watched_icon}  Mark seen")
+            seen_action.setToolTip("Clear the new-episode count for this series")
+            seen_action.triggered.connect(
+                lambda _=False, c=cid: self.seriesMarkSeenRequested.emit(c)
+            )
+
+        menu.addSeparator()
+        stop_action = menu.addAction(f"{_icons.close_icon}  Stop alerts")
+        stop_action.setToolTip("Stop monitoring this series for new episodes")
+        stop_action.triggered.connect(
+            lambda _=False, c=cid: self.seriesStopRequested.emit(c)
+        )
+
+        menu.addSeparator()
+        manage_action = menu.addAction(f"{_icons.manage_icon}  Manage…")
+        manage_action.setToolTip("Manage watch alerts — keyword rules and monitored series")
         manage_action.triggered.connect(self.manageWatchForClicked.emit)
 
         menu.exec(self._vod_list.viewport().mapToGlobal(pos))
@@ -607,6 +819,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.notification_warning_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
+        self._reveal_epg_subsection()
         self.set_empty(False)
 
     def show_loading(self, tree, message: str = "Loading…") -> None:
@@ -620,7 +833,28 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item = QTreeWidgetItem([f"{_icons.loading_icon} {message}"])
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
+        self._reveal_epg_subsection()
         self.set_empty(False)
+
+    def _reveal_epg_subsection(self) -> None:
+        """Show the EPG sub-header + tree (for loading / error / populated states)."""
+        # Guarded for __new__ test stubs (no full constructor → no EPG widgets),
+        # matching this file's other stub-tolerant helpers.
+        if "_epg_hdr_container" not in self.__dict__:
+            return
+        self._epg_has_rows = True
+        self._epg_hdr_container.show()
+        self.alerts_tree.setVisible(not self._epg_collapsed)
+        self._update_epg_toggle_label(self.alerts_tree.topLevelItemCount())
+
+    def _hide_epg_subsection(self) -> None:
+        """Hide the EPG sub-header + tree, then recompute the section's empty state."""
+        self._epg_has_rows = False
+        if "_epg_hdr_container" in self.__dict__:
+            self._epg_hdr_container.hide()
+            self.alerts_tree.hide()
+            self._update_epg_toggle_label(0)
+        self._recompute_empty()
 
     def _load_rows(self) -> dict:
         """Worker thread — NO widget access.
@@ -740,7 +974,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         upcoming_only = data["upcoming_only"]
 
         if not live_groups and not upcoming_only:
-            self.set_empty(True)
+            # No live/upcoming matches — hide the EPG sub-section entirely, then let
+            # the other sub-sections decide the section's overall empty state.
+            self._hide_epg_subsection()
             return
 
         def _section_hdr(text: str) -> None:
@@ -822,6 +1058,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     for a in airings[:10]:
                         _add_child(hdr, a[2], a[1], a[3], title)
 
+        self._reveal_epg_subsection()
         self.set_empty(False)
         QTimer.singleShot(0, self._apply_expansion)
 
@@ -831,6 +1068,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if not entries:
             self._retry_hdr_container.hide()
             self._retry_list.hide()
+            self._recompute_empty()
             return
 
         from datetime import datetime, timezone
@@ -869,6 +1107,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_hdr_container.show()
         if not self._retry_collapsed:
             self._retry_list.show()
+        self._recompute_empty()
 
     def _on_retry_double_clicked(self, item: "QListWidgetItem") -> None:
         channel_id   = item.data(Qt.ItemDataRole.UserRole + 1)
