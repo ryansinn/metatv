@@ -1307,6 +1307,14 @@ class Config(BaseModel):
                 idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
                 self.sidebar_visible_sections.insert(idx, sid)
                 changed = True
+        # Retire the orphaned "new_episodes" section — its role folded into the
+        # always-visible Watch Alerts section.  Strip any stale saved reference so
+        # the create loop never tries to build a section that no longer exists.
+        for _attr in ("sidebar_sections", "sidebar_visible_sections"):
+            _lst = getattr(self, _attr)
+            if "new_episodes" in _lst:
+                setattr(self, _attr, [s for s in _lst if s != "new_episodes"])
+                changed = True
         if changed:
             self.save()
 

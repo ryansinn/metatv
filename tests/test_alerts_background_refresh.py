@@ -307,13 +307,20 @@ def test_load_rows_excludes_expired_provider_programme(tmp_path):
 
 def _make_section(qapp):
     """Build a WatchAlertsSection via __new__ with only the fields _populate_rows needs."""
-    from PyQt6.QtWidgets import QTreeWidget
+    from PyQt6.QtWidgets import QListWidget, QPushButton, QTreeWidget, QWidget
     from metatv.gui.sidebar.alerts import WatchAlertsSection
 
     obj = WatchAlertsSection.__new__(WatchAlertsSection)
     obj.alerts_tree = QTreeWidget()
     obj.alerts_tree.setHeaderHidden(True)
     obj.alerts_tree.setColumnCount(1)
+    # EPG sub-section chrome + the sibling sub-lists that _recompute_empty reads.
+    obj._epg_collapsed = False
+    obj._epg_has_rows = False
+    obj._epg_hdr_container = QWidget()
+    obj._epg_toggle = QPushButton()
+    obj._vod_list = QListWidget()
+    obj._retry_list = QListWidget()
     obj.config = _fake_config()
     obj.set_empty = MagicMock()
     # Provide stub signals so _wire_row's .connect() calls don't crash

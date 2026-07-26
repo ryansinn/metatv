@@ -19,7 +19,7 @@ from metatv.gui.middle_click_actions import (
 )
 
 _SIDEBAR_SECTION_LABELS: dict[str, str] = {
-    "alerts":      "Alerts",
+    "alerts":      "Watch Alerts",
     "recommended": "Recommended",
     "queue":       "Watch Queue",
     "favorites":   "Favorites",

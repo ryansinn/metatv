@@ -5,8 +5,10 @@ Covers:
 - SeriesMonitorManager._worker_check_entries detects a delta and emits _notify_new.
 - SeriesMonitorManager._on_new_episodes updates config and fires new_episodes_found.
 - No notification or config change when episode count is unchanged (delta == 0).
-- NewEpisodesSection.refresh() renders entries with unseen > 0 and empty state.
 - channel_menu: monitor_series action applies only to series, not live/movie.
+
+The monitored-series RENDER surface now lives in the Watch Alerts section (see
+tests/test_watch_alerts_consolidation.py) — NewEpisodesSection was retired.
 """
 
 from __future__ import annotations
@@ -498,140 +500,9 @@ class TestSeriesMonitorWorker:
 
 
 # ===========================================================================
-# Part 3: NewEpisodesSection render
+# Part 3: Movies & Series series rows live in the Watch Alerts section now — see
+# tests/test_watch_alerts_consolidation.py (NewEpisodesSection was retired).
 # ===========================================================================
-
-class TestNewEpisodesSection:
-    """Tests for NewEpisodesSection.refresh() rendering."""
-
-    def _make_section(self, config, qapp):
-        """Create a NewEpisodesSection via __new__ so no window is needed."""
-        from metatv.gui.sidebar.new_episodes import NewEpisodesSection
-        from PyQt6.QtWidgets import QListWidget
-
-        section = NewEpisodesSection.__new__(NewEpisodesSection)
-        # Initialize base CollapsibleSection state without calling the full __init__
-        section.config = config
-        section.is_empty = True
-        section._user_collapsed = False
-        section.is_collapsed = False
-
-        # Give it a real QListWidget for testing
-        section._list = QListWidget()
-        return section
-
-    def test_refresh_renders_entries_with_unseen(self, qapp):
-        """refresh() creates one row per series with unseen_new > 0."""
-        cfg = _FakeConfig()
-        cfg.add_monitored_series({
-            "series_channel_id": "ch1",
-            "source_id": "s1",
-            "provider_id": "p1",
-            "title": "My Watched Show",
-            "baseline_episode_count": 10,
-            "unseen_new": 3,
-            "last_checked": None,
-        })
-        cfg.add_monitored_series({
-            "series_channel_id": "ch2",
-            "source_id": "s2",
-            "provider_id": "p1",
-            "title": "Caught Up Show",
-            "baseline_episode_count": 5,
-            "unseen_new": 0,
-            "last_checked": None,
-        })
-
-        from metatv.gui.sidebar.new_episodes import NewEpisodesSection
-        from PyQt6.QtWidgets import QListWidget
-
-        section = self._make_section(cfg, qapp)
-
-        # Minimal stubs for set_empty (it normally touches Qt widgets)
-        section.set_empty = lambda v: setattr(section, "is_empty", v)
-
-        section.refresh()
-
-        # Should have "My Watched Show" row + "Mark seen" sub-row, but NOT ch2
-        texts = [
-            section._list.item(i).text()
-            for i in range(section._list.count())
-        ]
-        assert any("My Watched Show" in t for t in texts), \
-            f"Expected 'My Watched Show' row, got: {texts}"
-        assert any("+3" in t for t in texts), \
-            f"Expected +3 eps badge, got: {texts}"
-        assert not any("Caught Up Show" in t for t in texts), \
-            f"Caught-up series should not appear: {texts}"
-        # Mark-seen sub-row
-        assert any("Mark seen" in t for t in texts), \
-            f"Expected 'Mark seen' sub-row, got: {texts}"
-
-    def test_refresh_empty_state_when_no_unseen(self, qapp):
-        """refresh() renders a muted 'No new episodes' row when all are caught up."""
-        cfg = _FakeConfig()
-        cfg.add_monitored_series({
-            "series_channel_id": "ch1",
-            "source_id": "s1",
-            "provider_id": "p1",
-            "title": "Fully Caught Up",
-            "baseline_episode_count": 8,
-            "unseen_new": 0,
-            "last_checked": None,
-        })
-
-        section = self._make_section(cfg, qapp)
-        section.set_empty = lambda v: setattr(section, "is_empty", v)
-
-        section.refresh()
-
-        texts = [
-            section._list.item(i).text()
-            for i in range(section._list.count())
-        ]
-        assert any("No new episodes" in t for t in texts), \
-            f"Expected 'No new episodes', got: {texts}"
-
-    def test_refresh_empty_state_when_nothing_monitored(self, qapp):
-        """refresh() shows empty state when no series are monitored at all."""
-        cfg = _FakeConfig()
-        section = self._make_section(cfg, qapp)
-        section.set_empty = lambda v: setattr(section, "is_empty", v)
-
-        section.refresh()
-
-        texts = [
-            section._list.item(i).text()
-            for i in range(section._list.count())
-        ]
-        assert any("No new episodes" in t for t in texts), \
-            f"Expected empty state, got: {texts}"
-
-    def test_refresh_ep_singular_label(self, qapp):
-        """'1 new ep' should use singular 'ep' label."""
-        cfg = _FakeConfig()
-        cfg.add_monitored_series({
-            "series_channel_id": "ch1",
-            "source_id": "s1",
-            "provider_id": "p1",
-            "title": "One More Episode",
-            "baseline_episode_count": 9,
-            "unseen_new": 1,
-            "last_checked": None,
-        })
-
-        section = self._make_section(cfg, qapp)
-        section.set_empty = lambda v: setattr(section, "is_empty", v)
-
-        section.refresh()
-
-        texts = [
-            section._list.item(i).text()
-            for i in range(section._list.count())
-        ]
-        # Should say "+1 ep" not "+1 eps"
-        assert any("+1 ep" in t and "+1 eps" not in t for t in texts), \
-            f"Expected '+1 ep' (singular), got: {texts}"
 
 
 # ===========================================================================
@@ -808,53 +679,7 @@ class TestActionBarMonitorButton:
 
 
 # ===========================================================================
-# Part 6: Monitored Series management dialog (see-all + stop)
+# Part 6: The see-all / stop-monitoring surface moved into ManageVodAlertsDialog
+# (the "Series — new-episode alerts" section) — see
+# tests/test_watch_alerts_consolidation.py.  MonitoredSeriesDialog was retired.
 # ===========================================================================
-
-class TestMonitoredSeriesDialog:
-    """Behavioral tests for the see-all / stop-monitoring dialog."""
-
-    def _cfg(self, n: int):
-        cfg = _FakeConfig()
-        for i in range(n):
-            cfg.add_monitored_series({
-                "series_channel_id": f"ch{i}",
-                "source_id": f"s{i}",
-                "provider_id": "p1",
-                "title": f"Series {i}",
-                "baseline_episode_count": 10,
-                "unseen_new": (3 if i == 0 else 0),
-                "last_checked": None,
-            })
-        return cfg
-
-    def _rows(self, dlg) -> list:
-        return [
-            dlg._scroll_vl.itemAt(i).widget()
-            for i in range(dlg._scroll_vl.count())
-            if dlg._scroll_vl.itemAt(i).widget() is not None
-        ]
-
-    def test_lists_every_monitored_series(self, qapp):
-        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
-        dlg = MonitoredSeriesDialog(self._cfg(3))
-        assert len(self._rows(dlg)) == 3, "one row per monitored series"
-
-    def test_empty_state_when_nothing_monitored(self, qapp):
-        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
-        dlg = MonitoredSeriesDialog(_FakeConfig())
-        assert len(self._rows(dlg)) == 1, "a single empty-state row"
-
-    def test_stop_removes_entry_refreshes_and_emits_changed(self, qapp):
-        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
-        cfg = self._cfg(2)
-        dlg = MonitoredSeriesDialog(cfg)
-        changed: list[bool] = []
-        dlg.changed.connect(lambda: changed.append(True))
-
-        dlg._stop("ch0")
-
-        assert not cfg.is_series_monitored("ch0"), "stopped series must be removed"
-        assert cfg.is_series_monitored("ch1"), "other series must remain"
-        assert changed, "changed must emit so the host refreshes its views"
-        assert len(self._rows(dlg)) == 1, "list refreshes to the remaining series"

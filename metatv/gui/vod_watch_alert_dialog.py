@@ -129,14 +129,21 @@ class WatchForDialog(QDialog):
 
 
 class ManageVodAlertsDialog(QDialog):
-    """List every active VOD watch-for rule with a remove button.
+    """Manage every VOD watch alert: keyword watch-for rules AND monitored series.
 
-    Opening is triggered from the "Watch for…" sub-section of the Alerts sidebar.
-    Clicking a rule row emits ``view_matches_requested`` and closes the dialog so
-    the main window can populate the channel list with matching content.
+    Opened from the always-visible "Manage" affordance in the Watch Alerts sidebar
+    header.  Two grouped sections:
+
+    - Keyword rules (top): remove a rule, or "View" its matches in the channel list
+      (emits ``view_matches_requested`` and closes so the main window can populate
+      the list).
+    - Series — new-episode alerts (below): each monitored series with a per-series
+      "Stop" button that removes it from ``monitored_series``.
+
+    Absorbs everything the retired ``MonitoredSeriesDialog`` did.
     """
 
-    # Emitted when a rule is removed so the host can refresh dependent views.
+    # Emitted when a rule OR series is removed so the host can refresh dependent views.
     changed = pyqtSignal()
     # Emitted when the user clicks "View matches" on a rule row (text, match_type).
     view_matches_requested = pyqtSignal(str, str)
@@ -144,8 +151,8 @@ class ManageVodAlertsDialog(QDialog):
     def __init__(self, config, parent=None) -> None:
         super().__init__(parent)
         self._config = config
-        self.setWindowTitle("Watch-For Rules")
-        self.setMinimumSize(480, 380)
+        self.setWindowTitle("Manage Watch Alerts")
+        self.setMinimumSize(480, 420)
         self._setup_ui()
         self._load()
 
@@ -156,7 +163,7 @@ class ManageVodAlertsDialog(QDialog):
         vl.setSpacing(8)
 
         hdr_row = QHBoxLayout()
-        hdr = QLabel(f"{_icons.alert_icon}  VOD Watch-For Rules")
+        hdr = QLabel(f"{_icons.alert_icon}  Manage Watch Alerts")
         hdr.setStyleSheet(f"font-size: {_theme.FONT_XL}; font-weight: bold;")
         hdr_row.addWidget(hdr)
         hdr_row.addStretch()
@@ -168,8 +175,10 @@ class ManageVodAlertsDialog(QDialog):
         vl.addLayout(hdr_row)
 
         hint = QLabel(
-            "You'll be alerted when matching content appears on any of your sources."
+            "You'll be alerted when matching content — or a new episode of a "
+            "monitored series — appears on any of your sources."
         )
+        hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_SM};")
         vl.addWidget(hint)
 
@@ -193,6 +202,16 @@ class ManageVodAlertsDialog(QDialog):
 
     # ── Data loading ─────────────────────────────────────────────────────────
 
+    def _sub_header(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(_theme.DIALOG_SUBHEADER)
+        return lbl
+
+    def _muted_line(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM}; padding: 2px 4px;")
+        return lbl
+
     def _load(self) -> None:
         while self._scroll_vl.count():
             item = self._scroll_vl.takeAt(0)
@@ -200,23 +219,41 @@ class ManageVodAlertsDialog(QDialog):
                 w.deleteLater()
 
         rules = self._config.get_vod_watch_alerts()
-        self._count_lbl.setText(f"{len(rules)} active" if rules else "")
+        series = self._config.get_monitored_series()
+        counts = []
+        if rules:
+            counts.append(f"{len(rules)} rule{'s' if len(rules) != 1 else ''}")
+        if series:
+            counts.append(f"{len(series)} series")
+        self._count_lbl.setText("  ·  ".join(counts))
 
-        if not rules:
-            empty = QLabel(
-                "No watch-for rules yet.\n\n"
-                'Click the "+" in the Alerts section header to add one.'
-            )
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(
-                f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_LG}; padding: 30px;"
-            )
-            self._scroll_vl.addWidget(empty)
-            self._scroll_vl.addStretch()
-            return
+        # ── Keyword rules ─────────────────────────────────────────────────
+        self._scroll_vl.addWidget(self._sub_header("Movies & Series — keyword rules"))
+        if rules:
+            for rule in rules:
+                self._scroll_vl.addWidget(self._make_row(rule))
+        else:
+            self._scroll_vl.addWidget(self._muted_line(
+                'No keyword rules yet — click the "+" in the Watch Alerts header to add one.'
+            ))
 
-        for rule in rules:
-            self._scroll_vl.addWidget(self._make_row(rule))
+        # ── Monitored series ──────────────────────────────────────────────
+        self._scroll_vl.addWidget(self._sub_header("Series — new-episode alerts"))
+        if series:
+            # New-episode series first, then alphabetical by cleaned title.
+            for entry in sorted(
+                series,
+                key=lambda e: (
+                    -(e.get("unseen_new") or 0),
+                    (e.get("display_title") or e.get("title") or "").lower(),
+                ),
+            ):
+                self._scroll_vl.addWidget(self._make_series_row(entry))
+        else:
+            self._scroll_vl.addWidget(self._muted_line(
+                'No monitored series yet — right-click a series → "Alert me to new episodes".'
+            ))
+
         self._scroll_vl.addStretch()
 
     def _make_row(self, rule: dict) -> QWidget:
@@ -271,16 +308,46 @@ class ManageVodAlertsDialog(QDialog):
 
         remove_btn = QPushButton(f"{_icons.close_icon} Remove")
         remove_btn.setFlat(True)
-        remove_btn.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ERR_2};"
-            f" padding: 1px 6px; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_RED_BRIGHT}; }}"
-        )
+        remove_btn.setStyleSheet(_theme.DIALOG_DANGER_LINK)
         remove_btn.setToolTip(f"Remove the watch-for rule for '{text}'")
         remove_btn.clicked.connect(
             lambda _checked=False, rc=rule_created: self._remove(rc)
         )
         hl.addWidget(remove_btn)
+
+        return row
+
+    def _make_series_row(self, entry: dict) -> QWidget:
+        """One monitored-series row: cleaned title + unseen badge + Stop button."""
+        cid = entry.get("series_channel_id", "")
+        title = entry.get("display_title") or entry.get("title") or "Unknown series"
+        unseen = entry.get("unseen_new") or 0
+
+        row = QWidget()
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(4, 2, 4, 2)
+        hl.setSpacing(6)
+
+        name_lbl = QLabel(f"{_icons.series_icon} {title}")
+        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+        hl.addWidget(name_lbl, 1)
+
+        if unseen > 0:
+            ep_word = "ep" if unseen == 1 else "eps"
+            badge = QLabel(f"{_icons.new_episodes_icon} +{unseen} {ep_word}")
+            badge.setStyleSheet(
+                f"color: {_theme.COLOR_ACCENT_GREEN}; font-size: {_theme.FONT_SM};"
+                " font-weight: bold;"
+            )
+            badge.setToolTip(f"{unseen} new {ep_word} since you last looked")
+            hl.addWidget(badge)
+
+        stop_btn = QPushButton(f"{_icons.close_icon} Stop")
+        stop_btn.setFlat(True)
+        stop_btn.setStyleSheet(_theme.DIALOG_DANGER_LINK)
+        stop_btn.setToolTip(f"Stop new-episode alerts for {title}")
+        stop_btn.clicked.connect(lambda _checked=False, c=cid: self._stop_series(c))
+        hl.addWidget(stop_btn)
 
         return row
 
@@ -294,5 +361,11 @@ class ManageVodAlertsDialog(QDialog):
     def _remove(self, rule_created: str) -> None:
         self._config.remove_vod_watch_alert(rule_created)
         logger.info(f"Removed VOD watch-for rule: {rule_created}")
+        self._load()
+        self.changed.emit()
+
+    def _stop_series(self, series_channel_id: str) -> None:
+        self._config.remove_monitored_series(series_channel_id)
+        logger.info(f"Stopped new-episode alerts for series {series_channel_id}")
         self._load()
         self.changed.emit()

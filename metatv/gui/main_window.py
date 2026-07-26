@@ -67,7 +67,6 @@ from metatv.core.migration_manager import MigrationManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
-from metatv.gui.sidebar.new_episodes import NewEpisodesSection
 from metatv.gui.migration_progress_widget import MigrationProgressWidget
 from metatv.gui.refresh_queue_manager import RefreshQueueManager
 
@@ -598,7 +597,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.sidebar_sections = {}
 
         # Determine full ordered list: saved order first, then any new sections not yet in it
-        _known = ["new_episodes", "alerts", "recommended", "queue", "favorites", "history", "sources"]
+        _known = ["alerts", "recommended", "queue", "favorites", "history", "sources"]
         ordered = list(self.config.sidebar_sections or _known)
         for sid in _known:
             if sid not in ordered:
@@ -648,17 +647,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     
     def create_section(self, section_id: str):
         """Create a sidebar section by ID"""
-        if section_id == "new_episodes":
-            section = NewEpisodesSection(self.config, self)
-            section.seriesClicked.connect(self.show_channel_details_by_id)
-            section.markSeenClicked.connect(self._on_mark_series_seen)
-            section.manageRequested.connect(self._open_monitored_dialog)
-            self.series_monitor.new_episodes_found.connect(
-                lambda _cid, _n: section.refresh()
-            )
-            return section
-
-        elif section_id == "sources":
+        if section_id == "sources":
             section = SourcesSection(self.config, self.db, self)
             section.providerSelected.connect(self.on_provider_selected_new)
             section.providerRefreshClicked.connect(self.refresh_provider)
@@ -688,11 +677,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.vodRuleRemoveRequested.connect(self._on_vod_rule_remove)
             section.clearAllAlertsClicked.connect(self._clear_all_alerts)
             section.vodRuleClearAlertRequested.connect(self._clear_vod_rule_alert)
+            # Monitored-series wiring (folded in from the retired New Episodes section)
+            section.seriesClicked.connect(self.show_channel_details_by_id)
+            section.seriesMarkSeenRequested.connect(self._on_mark_series_seen)
+            section.seriesStopRequested.connect(self._unmonitor_series)
             self.vod_watch_alert_manager.new_matches_found.connect(
                 self._refresh_alert_visibility
             )
-            # Populate the rule list on startup (rules come from config, synchronous)
-            QTimer.singleShot(0, self._refresh_vod_alerts_section)
+            # A newly-detected episode recolors/pins the series row in Movies & Series.
+            self.series_monitor.new_episodes_found.connect(
+                lambda _cid, _n: self._refresh_vod_alerts_section()
+            )
+            # Populate rules + series on startup; backfill any missing cleaned titles
+            # first (bounded off-thread lookup), then render (rules are synchronous).
+            QTimer.singleShot(0, self._backfill_series_display_titles)
             return section
         
         elif section_id == "history":
@@ -773,18 +771,40 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # Series monitor helpers
     # ------------------------------------------------------------------
 
-    def _refresh_new_episodes_section(self) -> None:
-        """Refresh the New Episodes sidebar section."""
-        section = self.sidebar_sections.get("new_episodes")
-        if section:
-            section.refresh()
+    def _backfill_series_display_titles(self) -> None:
+        """Fill in cleaned ``display_title`` for any monitored series that lack one.
 
-    def _open_monitored_dialog(self) -> None:
-        """Open the 'Episode Alerts' management dialog (see-all + stop alerts)."""
-        from metatv.gui.monitored_series_dialog import MonitoredSeriesDialog
-        dlg = MonitoredSeriesDialog(self.config, self)
-        dlg.changed.connect(self._refresh_new_episodes_section)
-        dlg.exec()
+        New monitors persist ``display_title`` at add time; this one-time startup
+        backfill covers entries created before that (a bounded off-thread lookup of
+        the stored ``detected_title`` for just the missing ids — never a large-table
+        scan, never an ORM object across the session boundary).  Always ends by
+        refreshing the Movies & Series list.
+        """
+        missing = [
+            e.get("series_channel_id")
+            for e in self.config.get_monitored_series()
+            if not e.get("display_title") and e.get("series_channel_id")
+        ]
+        if not missing:
+            self._refresh_vod_alerts_section()
+            return
+
+        def _query(repos) -> dict:
+            # Plain-string result only (no ORM escapes the session boundary).
+            titles: dict[str, str] = {}
+            for cid in missing:
+                ch = repos.channels.get_by_id(cid)
+                if ch is not None:
+                    titles[cid] = ch.detected_title or ch.name or ""
+            return titles
+
+        def _apply(titles) -> None:
+            for cid, clean in (titles or {}).items():
+                if clean:
+                    self.config.update_monitored_series(cid, display_title=clean)
+            self._refresh_vod_alerts_section()
+
+        self._run_query(_query, _apply, on_error=lambda _e: self._refresh_vod_alerts_section())
 
     def _monitor_series(self, channel_id: str) -> None:
         """Start a new-episode alert for a series.
@@ -804,6 +824,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 "source_id": channel.source_id or "",
                 "provider_id": channel.provider_id or "",
                 "title": channel.name or "",
+                # Cleaned title read from the ingestion-computed detected_title, stored
+                # so the sidebar/manage-dialog render never re-parses the raw name.
+                "display_title": channel.detected_title or channel.name or "",
                 "baseline_episode_count": None,  # None = not yet established (set by set_baseline)
                 "unseen_new": 0,
                 "last_checked": None,
@@ -811,12 +834,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         self.config.add_monitored_series(entry)
         self.series_monitor.set_baseline(channel_id)
-        self._refresh_new_episodes_section()
+        self._refresh_vod_alerts_section()
 
     def _unmonitor_series(self, channel_id: str) -> None:
         """Stop the new-episode alert for a series."""
         self.config.remove_monitored_series(channel_id)
-        self._refresh_new_episodes_section()
+        self._refresh_vod_alerts_section()
 
     def _on_details_monitor_toggled(self, channel_id: str) -> None:
         """Toggle the new-episode alert from the details-pane Alert button."""
@@ -828,7 +851,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     def _on_mark_series_seen(self, channel_id: str) -> None:
         """Clear unseen count for the given series (main thread)."""
         self.config.clear_unseen(channel_id)
-        self._refresh_new_episodes_section()
+        self._refresh_vod_alerts_section()
 
     # ------------------------------------------------------------------
     # VOD watch-alert helpers
