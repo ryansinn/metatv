@@ -154,7 +154,13 @@ wt="${main}-pr-${PR}"
 
 git -C "$main" fetch origin -q || true
 if git -C "$main" worktree list --porcelain | grep -qx "worktree $wt"; then
-    git -C "$wt" reset --hard "origin/$branch" -q       # refresh to latest push
+    # Reuse the existing checkout — but scrub it PRISTINE first. A prior run leaves
+    # untracked pytest artifacts (__pycache__/.pytest_cache) and a throwaway merge
+    # commit; a bare `reset --hard` reuse compounds that into an inconsistent tree
+    # across runs (the root of a mid-run `os.chdir` failure when the tree shifts
+    # under a running pytest). reset --hard + `clean -ffdx` = guaranteed clean slate.
+    git -C "$wt" reset --hard "origin/$branch" -q
+    git -C "$wt" clean -ffdx -q
 else
     git -C "$main" worktree add -f --detach "$wt" "origin/$branch" || {
         echo "verify_pr.sh: failed to create worktree $wt" >&2; exit 1; }
@@ -184,10 +190,17 @@ fi
 cleanup_worktree() {
     if [ "$KEEP" = 1 ]; then
         echo "verify_pr.sh: kept $wt (--keep)"
-    elif git -C "$main" worktree remove "$wt" 2>/dev/null; then
+        return
+    fi
+    # Force-remove: this is a disposable QA checkout, and pytest ALWAYS leaves
+    # untracked artifacts that make a non-force `worktree remove` refuse and KEEP
+    # the dir — the stale leftover a later run then reused into an inconsistent
+    # state. Forcing guarantees each run leaves a clean slate (use --keep to retain
+    # the checkout for a paired launcher).
+    if git -C "$main" worktree remove --force "$wt" 2>/dev/null; then
         echo "verify_pr.sh: removed $wt"
     else
-        echo "verify_pr.sh: kept $wt (uncommitted changes) — remove with: git -C \"$main\" worktree remove --force \"$wt\""
+        echo "verify_pr.sh: could not remove $wt — remove manually: git -C \"$main\" worktree remove --force \"$wt\""
     fi
 }
 
