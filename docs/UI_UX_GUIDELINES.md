@@ -313,8 +313,8 @@ row's leading/separator slots so positions never shift:
   row (`_compose_parts`).
 - `🚨` new match (`alert_icon`) + count — live-register sidebar rows for VOD watch-for rules
   (`sidebar/alerts.py`).
-- `🆕` new episodes (`new_episodes_icon`) + count — the New Episodes sidebar section
-  (`sidebar/new_episodes.py`).
+- `🆕` new episodes (`new_episodes_icon`) + count — monitored-series rows with unseen episodes,
+  pinned to the top of the Movies & Series sub-section of Watch Alerts (`sidebar/alerts.py`).
 - `✨` discovery / freshly-surfaced content (`discover_icon`) — the Discover chip
   (`main_window.py`) and the "Recommended for you" header (`preferences_view.py`).
 
