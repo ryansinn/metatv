@@ -672,6 +672,12 @@ SEPARATOR_H    = "border: none; border-top: 1px solid " + COLOR_LINE + "; margin
 SEP_DARK       = "color: " + COLOR_BORDER + "; margin-top: 4px; margin-bottom: 4px;"
 CARD_BG        = "QWidget { background: " + OVERLAY_03 + "; border-radius: 6px; }"
 HEADER_TINT    = "background-color: " + OVERLAY_05 + ";"
+# Scoped variant of HEADER_TINT for sidebar section headers: an *unscoped*
+# ``background-color`` cascades onto child widgets (the title label + the flat
+# link buttons), stacking the translucent overlay into a visibly darker box.  The
+# ``#sectionHeader`` selector pins the tint to the header container only.  Applied
+# by ``_ClickableHeader`` (which sets ``objectName("sectionHeader")``).
+SECTION_HEADER_TINT = "#sectionHeader { background-color: " + OVERLAY_05 + "; }"
 BG_TRANSPARENT = "background: transparent;"
 
 # Exclusions chip (FilterChip in bottom nav bar) — three visual states.

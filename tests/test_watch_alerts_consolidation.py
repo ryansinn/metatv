@@ -216,7 +216,24 @@ class TestRefreshMoviesSeries:
 
         section.refresh_vod_rules()
 
-        assert self._kinds(section) == ["rule", "series_divider", "series"]
+        # With BOTH groups present, the keyword group gets a "Watching for" label
+        # above its rules, mirroring the Series divider below.
+        assert self._kinds(section) == [
+            "keyword_divider", "rule", "series_divider", "series",
+        ]
+
+    def test_no_keyword_divider_when_only_rules(self, qapp):
+        cfg = _FakeConfig()
+        cfg.add_vod_watch_alert({
+            "text": "Dune", "match_type": "movie", "created": _now_iso(),
+            "alerted_ids": [], "viewed_ids": [],
+        })
+        section = _make_section(cfg)
+
+        section.refresh_vod_rules()
+
+        # A single group needs no label (the sub-section toggle already names it).
+        assert self._kinds(section) == ["rule"]
 
     def test_no_rules_no_series_hides_subsection(self, qapp):
         cfg = _FakeConfig()

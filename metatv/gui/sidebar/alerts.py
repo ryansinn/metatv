@@ -1,5 +1,7 @@
 """WatchAlertsSection and its _AlertRow helper widget."""
 
+import html
+
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
     QAbstractScrollArea, QListWidget, QListWidgetItem,
@@ -12,6 +14,7 @@ from loguru import logger
 from metatv.core.epg_utils import now_utc as _now_utc, is_local_today as _is_local_today, to_local as _to_local
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
+from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui import theme as _theme
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
@@ -19,8 +22,31 @@ from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 # Item-data roles for the Movies & Series list (_vod_list).  UserRole stays the
 # rule_created id for keyword-rule rows (existing click/menu code reads it); the
 # extra roles tag the item kind and, for series rows, the series channel id.
-_ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "series_divider" | "series"
+_ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "keyword_divider" | "series_divider" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
+
+
+def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
+    """Rich-text ``title`` with an optional dim, smaller disambiguator suffix.
+
+    The suffix (a collision disambiguator — see
+    :func:`metatv.gui.series_alert_identity.disambiguation_suffixes`) is rendered
+    in the muted/smaller theme tokens so it reads as secondary text next to the
+    title.  Colour is paired with the always-on tooltip, so this is text-only (no
+    colour-alone state).  Both fragments are HTML-escaped.
+
+    Args:
+        text: The (cleaned) title.
+        suffix: The disambiguator suffix, or ``""`` for none.
+
+    Returns:
+        An HTML string for a rich-text ``QLabel``.
+    """
+    return (
+        f"{html.escape(text)} "
+        f'<span style="color:{_theme.COLOR_MUTED}; font-size:{_theme.FONT_SM}">'
+        f"{html.escape(suffix)}</span>"
+    )
 
 
 def _alerts_title_html(title: str, count: int) -> str:
@@ -88,7 +114,7 @@ class _VodAlertRow(QWidget):
     """
 
     def __init__(self, type_icon: str, text: str, count_text: str,
-                 count_style: str, parent=None):
+                 count_style: str, parent=None, *, suffix: str = ""):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 1, 4, 1)
@@ -97,8 +123,15 @@ class _VodAlertRow(QWidget):
         icon_lbl = QLabel(type_icon)
         layout.addWidget(icon_lbl)
 
-        name_lbl = QLabel(text)
+        name_lbl = QLabel()
         name_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — never tinted
+        if suffix:
+            # Collision disambiguator: title + a dim, smaller suffix inline (rich
+            # text so it flows immediately after the title, not at the far margin).
+            name_lbl.setTextFormat(Qt.TextFormat.RichText)
+            name_lbl.setText(_name_with_dim_suffix_html(text, suffix))
+        else:
+            name_lbl.setText(text)
         layout.addWidget(name_lbl, 1)
 
         count_lbl = QLabel(count_text)
@@ -414,15 +447,23 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _update_vod_toggle_label(self, count: int) -> None:
         arrow = self.config.expand_icon if self._vod_collapsed else self.config.collapse_icon
-        label = f"Movies & Series  ({count})" if count else "Movies & Series"
+        # ``_vod_toggle`` is a QPushButton, which treats a lone "&" as a keyboard
+        # mnemonic (rendering "Movies _Series").  Escape it as "&&" so the label
+        # shows a literal ampersand.  (The manage-dialog QLabel sub-header does not
+        # process mnemonics, so it stays a single "&".)
+        label = "Movies && Series"
+        if count:
+            label += f"  ({count})"
         # Surface firing alerts on the toggle itself (plain text — the header dot
         # carries the colour): "Movies & Series (5)  ·  3 new".  Combines firing
         # keyword rules (AVAILABLE-only, stashed by the last refresh) with the
-        # number of monitored series that have unseen new episodes.
-        firing = getattr(self, "_firing_count", None)
+        # number of monitored series that have unseen new episodes.  Read via
+        # __dict__ (not getattr) so a __new__'d test stub — whose Qt C++ side was
+        # never initialised — does not raise instead of returning the default.
+        firing = self.__dict__.get("_firing_count")
         if firing is None:
             firing = getattr(self.config, "get_rules_with_new_matches_count", lambda: 0)()
-        new_total = firing + getattr(self, "_series_new_count", 0)
+        new_total = firing + self.__dict__.get("_series_new_count", 0)
         if new_total > 0:
             label += f"  ·  {new_total} new"
         self._vod_toggle.setText(f"{arrow}  {label}")
@@ -436,17 +477,39 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         time / backfilled from the channel's ingestion-computed ``detected_title``);
         render never re-parses the raw name.  Falls back to the raw ``title`` only
         for a not-yet-backfilled entry whose source channel is gone.
+
+        Each row also carries the persisted identity fields (``language``,
+        ``region``, ``source``, raw ``title``) and a ``suffix`` — a dim inline
+        disambiguator, non-empty ONLY when two entries share a cleaned title (the
+        "two Fallout" case).  All identity data is read from stored fields; nothing
+        re-parses the raw name at render.
         """
         entries = getattr(self.config, "get_monitored_series", lambda: [])()
-        out: list[dict] = []
+        # Pair each display dict with its raw config entry so the shared
+        # disambiguation helper (which reads the raw stored fields) can run on the
+        # SORTED order and align 1:1 back onto the rows.
+        pairs: list[tuple[dict, dict]] = []
         for e in entries:
-            out.append({
-                "cid": e.get("series_channel_id", ""),
-                "title": e.get("display_title") or e.get("title") or "Unknown series",
-                "unseen": e.get("unseen_new") or 0,
-            })
+            pairs.append((
+                {
+                    "cid": e.get("series_channel_id", ""),
+                    "title": e.get("display_title") or e.get("title") or "Unknown series",
+                    "unseen": e.get("unseen_new") or 0,
+                    "language": (e.get("language") or "").strip(),
+                    "region": (e.get("region") or "").strip(),
+                    "source": (e.get("source") or "").strip(),
+                    "raw_title": e.get("title") or "",
+                },
+                e,
+            ))
         # (unseen <= 0) sorts new-first (False < True); then A–Z within each group.
-        out.sort(key=lambda s: (s["unseen"] <= 0, s["title"].casefold()))
+        pairs.sort(key=lambda p: (p[0]["unseen"] <= 0, p[0]["title"].casefold()))
+
+        suffixes = _series_identity.disambiguation_suffixes([e for _, e in pairs])
+        out: list[dict] = []
+        for (row, _raw), suffix in zip(pairs, suffixes):
+            row["suffix"] = suffix
+            out.append(row)
         return out
 
     def _compute_alert_availability(self):
@@ -509,7 +572,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             _new_items = getattr(self.config, "get_unviewed_vod_match_count", lambda: 0)()
         self._firing_count = _rules_firing  # read by _update_vod_toggle_label
         self._series_new_count = sum(1 for s in series if s["unseen"] > 0)
-        self.update_new_match_badge(_rules_firing, _new_items)
+        # Header dot/(N) reflect TOTAL firing = keyword rules + series with new
+        # episodes (so a collapsed section glows even when only a series is new).
+        # "Clear all" stays tied to keyword rules ONLY (series are cleared via each
+        # row's "Mark seen"), so it gets the separate clearable_count.
+        self.update_new_match_badge(
+            _rules_firing + self._series_new_count,
+            _new_items,
+            clearable_count=_rules_firing,
+        )
 
         if not rules and not series:
             self._vod_hdr_container.hide()
@@ -521,6 +592,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         _unviewed_for = getattr(
             self.config, "get_vod_rule_unviewed_count", lambda _c: 0
         )
+
+        # ── "Watching for" divider (keyword group label) ──────────────────
+        # Only shown when BOTH groups are present — with a single group the
+        # sub-section toggle already names it, so a label would be redundant.  A
+        # plain, non-interactive muted row mirroring the Series divider's look
+        # (that one is a collapse toggle; this one is just a label).
+        if rules and series:
+            kw_divider = QListWidgetItem("──── Watching for ────")
+            kw_divider.setData(_ROLE_KIND, "keyword_divider")
+            kw_divider.setForeground(QColor(_theme.COLOR_MUTED))
+            kw_divider.setFlags(Qt.ItemFlag.NoItemFlags)  # label only — not clickable
+            kw_divider.setToolTip("Keyword watch-for rules")
+            self._vod_list.addItem(kw_divider)
 
         # ── Keyword rules ─────────────────────────────────────────────────
         for rule in rules:
@@ -586,14 +670,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     item = QListWidgetItem()
                     item.setData(_ROLE_KIND, "series")
                     item.setData(_ROLE_SERIES_ID, cid)
+                    # Always-on identity tooltip (Language/Region/Source) so any
+                    # series is fully identifiable on hover, even when two share a
+                    # cleaned title.
                     tip = f"{title}"
                     if has_new:
                         tip += f"\n{unseen} new {ep_word} — click to open, right-click to mark seen / stop"
                     else:
                         tip += "\nMonitoring for new episodes — right-click to stop"
+                    tip += "\n\n" + _series_identity.identity_lines(
+                        language=s["language"], region=s["region"], source=s["source"]
+                    )
                     item.setToolTip(tip)
                     self._vod_list.addItem(item)
-                    row = _VodAlertRow(type_icon, title, count_text, count_style)
+                    # A dim inline suffix only when this cleaned title collides.
+                    row = _VodAlertRow(
+                        type_icon, title, count_text, count_style,
+                        suffix=s.get("suffix", ""),
+                    )
                     item.setSizeHint(row.sizeHint())
                     self._vod_list.setItemWidget(item, row)
 
@@ -604,31 +698,59 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self._vod_list.show()
         self._recompute_empty()
 
-    def update_new_match_badge(self, count: int, item_count: int | None = None) -> None:
+    def update_new_match_badge(
+        self, count: int, item_count: int | None = None, *,
+        clearable_count: int | None = None,
+    ) -> None:
         """Recompute the Alerts header dot/title/count + Clear-all visibility.
 
         The header is one state-driven label: gray dot + plain title when quiet,
-        green dot + green "Alerts (N)" when alerts are firing.  N is the number of
-        RULES with new matches (a firing-alerts glance), not the total matched-item
-        count.  The "Clear all" link shows only while N > 0.
+        green dot + green "Alerts (N)" when alerts are firing.  The dot/title/"(N)"
+        reflect the TOTAL firing count (keyword rules + series with new episodes),
+        so a collapsed section still glows when only a series is new.
+
+        "Clear all" acknowledges keyword matches only, so its visibility is driven
+        by a SEPARATE ``clearable_count`` — a series-only new-episode state must not
+        surface it (series are cleared per-row via "Mark seen").
 
         Args:
-            count: Number of watch-for RULES currently firing (header glance).
-            item_count: Total unviewed matched items — shown only in the tooltip to
-                clarify both numbers.  Defaults to ``count`` when omitted.
+            count: TOTAL firing count for the header glance (rules + series).
+            item_count: Total unviewed matched items (keyword) — shown in the
+                tooltip.  Defaults to ``count`` when omitted.
+            clearable_count: Firing KEYWORD rules only — drives "Clear all".
+                Defaults to ``count`` for back-compat (keyword-only callers).
         """
+        clearable = count if clearable_count is None else clearable_count
         try:
             self.title_label.setText(_alerts_title_html(self.title, count))
             if count > 0:
                 items = count if item_count is None else item_count
-                verb = "have" if count != 1 else "has"
-                self.title_label.setToolTip(
-                    f"{count} alert{'s' if count != 1 else ''} {verb} new matches "
-                    f"({items} new item{'s' if items != 1 else ''})"
-                )
+                series_new = max(0, count - clearable)
+                if series_new > 0:
+                    # Mixed / series-included — spell out both numbers.
+                    parts = []
+                    if clearable > 0:
+                        parts.append(
+                            f"{clearable} keyword match{'es' if clearable != 1 else ''}"
+                        )
+                    parts.append(
+                        f"{series_new} series with new episode"
+                        f"{'s' if series_new != 1 else ''}"
+                    )
+                    self.title_label.setToolTip(
+                        f"{count} alert{'s' if count != 1 else ''} — "
+                        + ", ".join(parts)
+                    )
+                else:
+                    # Keyword-only — unchanged wording incl. the matched-item total.
+                    verb = "have" if count != 1 else "has"
+                    self.title_label.setToolTip(
+                        f"{count} alert{'s' if count != 1 else ''} {verb} new matches "
+                        f"({items} new item{'s' if items != 1 else ''})"
+                    )
             else:
                 self.title_label.setToolTip("")
-            self._clear_all_btn.setVisible(count > 0)
+            self._clear_all_btn.setVisible(clearable > 0)
         except (AttributeError, RuntimeError):
             return  # header not built (e.g. __new__ test stub) — nothing to update
 
@@ -677,7 +799,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         if kind == "series":
             self._show_series_context_menu(item, pos)
             return
-        if kind == "series_divider":
+        if kind in ("series_divider", "keyword_divider"):
             return
 
         rule_created = item.data(Qt.ItemDataRole.UserRole)

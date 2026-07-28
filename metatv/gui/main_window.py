@@ -772,36 +772,57 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # ------------------------------------------------------------------
 
     def _backfill_series_display_titles(self) -> None:
-        """Fill in cleaned ``display_title`` for any monitored series that lack one.
+        """Backfill cleaned ``display_title`` + identity fields for monitored series.
 
-        New monitors persist ``display_title`` at add time; this one-time startup
-        backfill covers entries created before that (a bounded off-thread lookup of
-        the stored ``detected_title`` for just the missing ids — never a large-table
-        scan, never an ORM object across the session boundary).  Always ends by
+        New monitors persist ``display_title``, ``region``, ``language`` (the
+        ingestion-computed ``detected_*``) and ``source`` (provider name) at add
+        time; this one-time startup backfill covers entries created before that (a
+        bounded off-thread lookup for just the incomplete ids — never a large-table
+        scan, never an ORM object across the session boundary).  The identity
+        fields disambiguate two series that share a cleaned title.  Always ends by
         refreshing the Movies & Series list.
         """
+        # An entry needs a top-up when it lacks a display_title OR any identity key
+        # is absent.  Key-presence (not truthiness) is the test so a legitimately
+        # empty region/language does not re-query on every launch.
+        def _needs_backfill(e: dict) -> bool:
+            if not e.get("display_title"):
+                return True
+            return any(k not in e for k in ("region", "language", "source"))
+
         missing = [
             e.get("series_channel_id")
             for e in self.config.get_monitored_series()
-            if not e.get("display_title") and e.get("series_channel_id")
+            if _needs_backfill(e) and e.get("series_channel_id")
         ]
         if not missing:
             self._refresh_vod_alerts_section()
             return
 
         def _query(repos) -> dict:
-            # Plain-string result only (no ORM escapes the session boundary).
-            titles: dict[str, str] = {}
+            # Plain-string fields only (no ORM escapes the session boundary).
+            out: dict[str, dict] = {}
             for cid in missing:
                 ch = repos.channels.get_by_id(cid)
-                if ch is not None:
-                    titles[cid] = ch.detected_title or ch.name or ""
-            return titles
+                if ch is None:
+                    continue
+                provider = repos.providers.get_by_id(ch.provider_id) if ch.provider_id else None
+                out[cid] = {
+                    "display_title": ch.detected_title or ch.name or "",
+                    "region": ch.detected_region or "",
+                    "language": ch.detected_prefix or "",
+                    "source": (provider.name if provider else "") or "",
+                }
+            return out
 
-        def _apply(titles) -> None:
-            for cid, clean in (titles or {}).items():
-                if clean:
-                    self.config.update_monitored_series(cid, display_title=clean)
+        def _apply(rows) -> None:
+            for cid, fields in (rows or {}).items():
+                update: dict[str, str] = {"region": fields["region"],
+                                          "language": fields["language"],
+                                          "source": fields["source"]}
+                if fields["display_title"]:
+                    update["display_title"] = fields["display_title"]
+                self.config.update_monitored_series(cid, **update)
             self._refresh_vod_alerts_section()
 
         self._run_query(_query, _apply, on_error=lambda _e: self._refresh_vod_alerts_section())
@@ -819,6 +840,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             if not channel:
                 logger.warning(f"_monitor_series: channel {channel_id} not found")
                 return
+            provider = (
+                repos.providers.get_by_id(channel.provider_id)
+                if channel.provider_id else None
+            )
             entry = {
                 "series_channel_id": channel_id,
                 "source_id": channel.source_id or "",
@@ -827,6 +852,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 # Cleaned title read from the ingestion-computed detected_title, stored
                 # so the sidebar/manage-dialog render never re-parses the raw name.
                 "display_title": channel.detected_title or channel.name or "",
+                # Identity fields (also ingestion-computed) — disambiguate two series
+                # that share a cleaned title; read at render, never re-parsed.
+                "region": channel.detected_region or "",
+                "language": channel.detected_prefix or "",
+                "source": (provider.name if provider else "") or "",
                 "baseline_episode_count": None,  # None = not yet established (set by set_baseline)
                 "unseen_new": 0,
                 "last_checked": None,

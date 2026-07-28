@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -15,8 +16,11 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+import html
+
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
+from metatv.gui import series_alert_identity as _series_identity
 from metatv.gui import theme as _theme
 
 
@@ -241,14 +245,18 @@ class ManageVodAlertsDialog(QDialog):
         self._scroll_vl.addWidget(self._sub_header("Series — new-episode alerts"))
         if series:
             # New-episode series first, then alphabetical by cleaned title.
-            for entry in sorted(
+            series_sorted = sorted(
                 series,
                 key=lambda e: (
                     -(e.get("unseen_new") or 0),
                     (e.get("display_title") or e.get("title") or "").lower(),
                 ),
-            ):
-                self._scroll_vl.addWidget(self._make_series_row(entry))
+            )
+            # Dim inline disambiguator, non-empty only when two series share a
+            # cleaned title (same helper the sidebar uses — one source of truth).
+            suffixes = _series_identity.disambiguation_suffixes(series_sorted)
+            for entry, suffix in zip(series_sorted, suffixes):
+                self._scroll_vl.addWidget(self._make_series_row(entry, suffix))
         else:
             self._scroll_vl.addWidget(self._muted_line(
                 'No monitored series yet — right-click a series → "Alert me to new episodes".'
@@ -317,8 +325,14 @@ class ManageVodAlertsDialog(QDialog):
 
         return row
 
-    def _make_series_row(self, entry: dict) -> QWidget:
-        """One monitored-series row: cleaned title + unseen badge + Stop button."""
+    def _make_series_row(self, entry: dict, suffix: str = "") -> QWidget:
+        """One monitored-series row: cleaned title + unseen badge + Stop button.
+
+        Args:
+            entry: The raw monitored-series config entry.
+            suffix: A dim inline disambiguator (non-empty only when this cleaned
+                title collides with another monitored series).
+        """
         cid = entry.get("series_channel_id", "")
         title = entry.get("display_title") or entry.get("title") or "Unknown series"
         unseen = entry.get("unseen_new") or 0
@@ -328,8 +342,27 @@ class ManageVodAlertsDialog(QDialog):
         hl.setContentsMargins(4, 2, 4, 2)
         hl.setSpacing(6)
 
-        name_lbl = QLabel(f"{_icons.series_icon} {title}")
+        # Always-on identity tooltip so any series is fully identifiable on hover,
+        # even when two share a cleaned title.
+        identity_tip = _series_identity.identity_lines(
+            language=entry.get("language", ""),
+            region=entry.get("region", ""),
+            source=entry.get("source", ""),
+        )
+        row.setToolTip(f"{title}\n\n{identity_tip}")
+
+        name_lbl = QLabel()
         name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
+        if suffix:
+            # Rich text so the dim suffix flows right after the title.
+            name_lbl.setTextFormat(Qt.TextFormat.RichText)
+            name_lbl.setText(
+                f"{html.escape(_icons.series_icon)} {html.escape(title)} "
+                f'<span style="color:{_theme.COLOR_MUTED}; font-size:{_theme.FONT_SM}">'
+                f"{html.escape(suffix)}</span>"
+            )
+        else:
+            name_lbl.setText(f"{_icons.series_icon} {title}")
         hl.addWidget(name_lbl, 1)
 
         if unseen > 0:

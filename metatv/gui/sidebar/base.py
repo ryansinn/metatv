@@ -30,7 +30,12 @@ class _ClickableHeader(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         cursor_affordance.set_clickable(self)
-        self.setStyleSheet(_theme.HEADER_TINT)
+        # Tint the header container ONLY: an unscoped background-color cascades onto
+        # the title label + link buttons, stacking the overlay into a darker box.
+        # The objectName lets SECTION_HEADER_TINT's ``#sectionHeader`` selector pin
+        # the tint to this widget.
+        self.setObjectName("sectionHeader")
+        self.setStyleSheet(_theme.SECTION_HEADER_TINT)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         self.clicked.emit()
