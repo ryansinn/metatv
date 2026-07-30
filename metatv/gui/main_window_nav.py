@@ -48,6 +48,10 @@ class _NavMixin:
         if "recipe_view" in self.__dict__:
             if self.recipe_view.isVisible():
                 self.recipe_view.on_deactivate()
+        # Deactivate the Missing TMDb diagnostic view if it exists and is visible
+        if "missing_tmdb_view" in self.__dict__:
+            if self.missing_tmdb_view.isVisible():
+                self.missing_tmdb_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -58,6 +62,8 @@ class _NavMixin:
             self.source_analytics.setVisible(False)
         if "recipe_view" in self.__dict__:
             self.recipe_view.setVisible(False)
+        if "missing_tmdb_view" in self.__dict__:
+            self.missing_tmdb_view.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
         if hasattr(self, "filter_panel"):

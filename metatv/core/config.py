@@ -802,7 +802,16 @@ class Config(BaseModel):
     image_cache_enabled: bool = True  # Enable image caching
     image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
-    
+
+    # Provider-native TMDb enrichment (Phase 2 — tmdb_enrichment_manager.py).
+    # Backfills detected_tmdb_id for idless VOD rows by calling the provider's own
+    # detail endpoint, so cross-language/quality variants finally collapse.  No
+    # external API key.  Politeness knobs spread the ~200k backlog across launches.
+    tmdb_enrichment_enabled: bool = True        # Master toggle for the background pass
+    tmdb_enrichment_session_cap: int = 500      # Max idless rows attempted per launch
+    tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
+    tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
+
     # Content category groups — maps raw source_category labels (from ## headers ##) to
     # normalized display names used in the Global Filter and Discovery shelves.
     # Keys are the normalized type name shown in the UI; values are lists of raw labels
@@ -927,6 +936,13 @@ class Config(BaseModel):
     # the content_key backfill (registration order in gui/main_window.py) so the
     # content_key recompute can key on the tmdb id.
     tmdb_id_backfill_version: int = 0
+
+    # Internal migration version for the tmdb title-sibling propagation (Phase-2 reshape).
+    # Bump CURRENT_VERSION in metatv/core/migrations/tmdb_sibling_propagation.py to trigger
+    # a one-time pass where idless VOD rows adopt a confident same-title sibling's
+    # detected_tmdb_id.  MUST run after the tmdb-id + content_key backfills (registration
+    # order in gui/main_window.py) so id-bearing siblings exist to adopt from.
+    tmdb_sibling_propagation_version: int = 0
 
     # Internal migration version for the detected_title re-parse (#78).
     # Bump CURRENT_VERSION in metatv/core/migrations/detected_title_reparse.py

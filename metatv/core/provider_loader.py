@@ -326,6 +326,11 @@ class ProviderLoadThread(QThread):
                     "is_adult": is_adult,
                     "raw_data": channel.raw_data,
                     "detected_tmdb_id": channel.detected_tmdb_id,
+                    # Provenance marker for the enrichment funnel: 'list' means the id
+                    # came straight from the provider's list row (Phase-1 harvest).  Set
+                    # on INSERT only — it is NOT in _CATALOG_UPDATE_COLS, so a later
+                    # 'fetched' / 'propagated' / 'none' marker survives every refresh.
+                    "tmdb_enrich_state": "list" if channel.detected_tmdb_id else None,
                     "source_num": source_num,
                     "source_category": current_source_category if channel.media_type == "live" else None,
                     "source_quality_flags": current_source_quality if channel.media_type == "live" else None,
@@ -376,10 +381,19 @@ class ProviderLoadThread(QThread):
         ``raw_data``.  This is expressed as a CASE in the DO UPDATE clause so it
         happens atomically inside the same bulk upsert — no extra query needed.
         """
-        from sqlalchemy import case, literal
+        from sqlalchemy import case, func, literal
 
         stmt = _sqlite_insert(ChannelDB).values(batch)
         update_set = {col: getattr(stmt.excluded, col) for col in _CATALOG_UPDATE_COLS}
+        # Preserve provider-native / propagated tmdb enrichment across refreshes.
+        # detected_tmdb_id is a catalog column, but the enrichment layer writes ids the
+        # provider LIST row still omits (from the detail endpoint or a title sibling).
+        # A plain overwrite would wipe those back to NULL every refresh, undoing the
+        # collapse; COALESCE keeps the stored id whenever the incoming payload carries
+        # none, and only overwrites when the refresh actually ships a real id.
+        update_set["detected_tmdb_id"] = func.coalesce(
+            stmt.excluded.detected_tmdb_id, ChannelDB.detected_tmdb_id
+        )
         # Clear stale metadata when the channel name changes (stream-ID reuse).
         # new rows (INSERT path) have metadata_id=NULL by default — this only fires
         # for the DO UPDATE branch (existing rows), and only when the name actually changed.
@@ -502,6 +516,14 @@ class ProviderLoadThread(QThread):
                 progress_cb=_progress_cb,
             )
             logger.info(f"Prefix detection: updated {updated:,} channels")
+
+            # Content refreshed → clear the provider-native tmdb enrichment marker
+            # for this source so the next background pass re-attempts its idless
+            # rows against the (possibly changed) catalog. Only the generated
+            # marker is touched. See tmdb_enrichment_manager.py.
+            reset = repos.channels.reset_tmdb_enrich_state(self.provider.id)
+            if reset:
+                logger.info(f"tmdb_enrich: reset attempt marker for {reset:,} rows")
         except Exception as e:
             logger.error(f"Prefix detection failed: {e}")
         finally:

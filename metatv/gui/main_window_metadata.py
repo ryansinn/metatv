@@ -237,6 +237,13 @@ class _MetadataMixin:
         if (self.details_pane.current_channel
                 and self.details_pane.current_channel.id == channel_id):
             self.details_pane.set_versions(versions)
+        # Feed the sibling variants to lazy TMDb enrichment — an idless variant in
+        # "Other Versions" is exactly a row whose id a detail lookup could resolve so
+        # it collapses onto the rest. Include the anchor channel too.
+        if versions:
+            self._enqueue_tmdb_enrichment(
+                [channel_id] + [v.channel_id for v in versions]
+            )
 
     def _on_prefix_block(self, prefix: str) -> None:
         if prefix and prefix not in self.config.global_filter_excluded_prefixes:

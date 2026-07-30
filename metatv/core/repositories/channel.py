@@ -9,7 +9,7 @@ from loguru import logger
 
 from metatv.core.database import (
     ChannelDB, MetadataDB, SeasonDB, EpisodeDB,
-    EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB,
+    EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
 )
 from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
 from metatv.core.channel_name_utils import (
@@ -17,7 +17,10 @@ from metatv.core.channel_name_utils import (
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
     AI_VOICEOVER_VALUE,
 )
-from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
+from metatv.core.repositories.dtos import (
+    FavoriteDTO, LiveEventDTO,
+    TmdbFunnelDTO, MissingTmdbRowDTO, MissingTmdbSourceDTO,
+)
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
 from metatv.core.tag_decomposer import region_code_from_category
@@ -26,6 +29,82 @@ from metatv.core.tag_decomposer import region_code_from_category
 # _GENRE_NORM and normalize_genre now live in metatv.core.filter_utils (a dependency-free
 # leaf) — single source of truth, re-imported above so existing `channel._GENRE_NORM` /
 # `channel.normalize_genre` references keep working. See filter_utils for the table.
+
+
+class _TmdbKeyProxy:
+    """Minimal duck-typed channel for :func:`content_key_for` (tmdb-first path).
+
+    ``content_key_for`` reads its inputs via ``getattr(..., default)``; a valid
+    ``detected_tmdb_id`` short-circuits to ``"tmdb:{id}|{media_type}"`` before the
+    title/year fields are consulted, so only these three attributes are needed to
+    recompute the key when the enrichment discovers an id.
+    """
+
+    __slots__ = ("detected_tmdb_id", "media_type", "id")
+
+    def __init__(self, detected_tmdb_id: str, media_type: str, id: str) -> None:
+        self.detected_tmdb_id = detected_tmdb_id
+        self.media_type = media_type
+        self.id = id
+
+
+_YEAR4_RE = re.compile(r"\b(\d{4})\b")
+
+
+def _start_year_int(detected_year) -> Optional[int]:
+    """Return the first 4-digit year in *detected_year* as an int, or ``None``.
+
+    Mirrors ``content_identity._start_year`` (ranges ``"2015-2018"`` → 2015,
+    ``"(2024)"`` → 2024, junk/empty → ``None``) but yields an ``int`` for the
+    ``abs(a - b) <= 1`` remake-compatibility comparison used by the tmdb
+    title-sibling propagation.
+    """
+    if not detected_year:
+        return None
+    m = _YEAR4_RE.search(str(detected_year))
+    return int(m.group(1)) if m else None
+
+
+# Scene-release noise tokens — their presence in a "title" means the row kept a
+# release filename (e.g. "Movie.2019.1080p.WEB.x264-GROUP"), which a title search
+# would NOT match cleanly.  Used only for the qualitative TMDb-addressability flag
+# in the Missing-TMDb diagnostic (never for identity/collapse).
+_SCENE_NOISE_TOKENS = frozenset({
+    "1080p", "720p", "480p", "2160p", "4k", "x264", "x265", "h264", "h265",
+    "hevc", "web", "webrip", "web-dl", "webdl", "bluray", "brrip", "bdrip",
+    "hdrip", "dvdrip", "hdtv", "xvid", "aac", "ac3", "dts", "hdr", "remux",
+})
+
+
+def _looks_tmdb_addressable(detected_title, media_type, detected_year) -> bool:
+    """Qualitative guess: could an external TMDb title search likely resolve this row?
+
+    Decision-support only (never identity): a clean, short title — plus a year for
+    movies — is plausibly matchable; a scene-release filename or an empty title is
+    not.  Deliberately conservative so the "K titles the TMDb API could resolve"
+    figure isn't inflated by junk rows.
+
+    Args:
+        detected_title: The stored, already-stripped title (may be None).
+        media_type: ``"movie"`` / ``"series"``.
+        detected_year: The stored year string (may be None).
+
+    Returns:
+        True when the row looks like a plausible title-search target.
+    """
+    if not detected_title:
+        return False
+    # Split on any non-alphanumeric run so dot-separated scene filenames
+    # ("Movie.2019.1080p.WEB.x264-GRP") tokenize like space-separated ones.
+    tokens = [t for t in re.split(r"[^a-z0-9]+", detected_title.lower()) if t]
+    if not tokens or len(tokens) > 12:
+        return False
+    if any(t in _SCENE_NOISE_TOKENS for t in tokens):
+        return False
+    # Movies benefit from a disambiguating year; series are matchable on title alone.
+    if media_type == "movie":
+        return _start_year_int(detected_year) is not None
+    return True
 
 
 class ChannelRepository(_ChannelStatsMixin):
@@ -1295,12 +1374,19 @@ class ChannelRepository(_ChannelStatsMixin):
         # detected_region from a row sharing the same content_key. Skipped after a
         # cancellation (partial per-row state — don't propagate from it).
         sib_filled = 0
+        tmdb_adopted = 0
         if not (is_cancelled is not None and is_cancelled()):
             sib_filled = self._propagate_region_from_siblings(provider_id)
+            # Free (no-network) tmdb propagation: an idless row self-heals by adopting
+            # a confident same-title sibling's detected_tmdb_id so new content collapses
+            # without waiting for a background provider-detail fetch. Same shared helper
+            # the one-time migration uses.
+            tmdb_adopted = self.propagate_tmdb_from_title_siblings(provider_id)
 
         logger.info(
             f"Updated parsed name fields for {updated} of {processed} channels "
-            f"(+{sib_filled} regions filled from content_key siblings)"
+            f"(+{sib_filled} regions filled from content_key siblings, "
+            f"+{tmdb_adopted} tmdb ids from title siblings)"
         )
         return updated
 
@@ -1396,6 +1482,134 @@ class ChannelRepository(_ChannelStatsMixin):
 
         self.session.commit()
         return filled
+
+    def propagate_tmdb_from_title_siblings(
+        self, provider_id: Optional[str] = None
+    ) -> int:
+        """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
+
+        Free (no-network) Phase-2 pass.  For each idless VOD row
+        (``detected_tmdb_id IS NULL``), if a sibling shares the **same normalized
+        ``detected_title``** (via :func:`content_dedup.normalize_title`) **and the
+        same ``media_type``** and is **year-compatible**, adopt that sibling's id:
+        store ``detected_tmdb_id``, recompute ``content_key`` through the
+        :func:`~metatv.core.content_identity.content_key_for` chokepoint (tmdb-first
+        → ``"tmdb:{id}|{media_type}"``), and mark ``tmdb_enrich_state='propagated'``.
+
+        Year-compat / remake guard: a sibling is *year-compatible* when either row
+        lacks a ``detected_year`` or their start years differ by ≤ 1.  Among the
+        year-compatible id-bearing siblings a row adopts an id **only when exactly
+        one distinct id remains** — multiple distinct ids (a genuine remake split)
+        are ambiguous and skipped (never guess between remakes).
+
+        Sibling ids are read across **all** providers (content identity is
+        source-independent); when *provider_id* is given only that provider's idless
+        rows are filled (the ingestion-hook path — new content self-heals against the
+        whole library).  Only the generated ``detected_tmdb_id`` / ``content_key`` /
+        ``tmdb_enrich_state`` columns are written — user tags/ratings/favorites are
+        never touched (mirror-not-cage).  Shared by the one-time migration
+        (``tmdb_sibling_propagation``) and ``update_detected_prefixes`` so both paths
+        use one definition.
+
+        Args:
+            provider_id: Restrict the idless rows filled to this provider, or None
+                to fill across the whole library (the migration path).
+
+        Returns:
+            Number of idless rows that adopted a sibling id.
+        """
+        from metatv.core.content_dedup import normalize_title
+
+        _BATCH = 2000
+        _VOD = ("movie", "series")
+
+        # 1. Winner map from id-bearing VOD rows: (norm_title, media_type) ->
+        #    {tmdb_id: start_year_or_None}.  Dedup collapses variants; >1 distinct
+        #    id in a group flags a remake split resolved per-row (year-compat) below.
+        groups: Dict[Tuple[str, str], Dict[str, Optional[int]]] = {}
+        id_rows = (
+            self.session.query(
+                ChannelDB.detected_title,
+                ChannelDB.media_type,
+                ChannelDB.detected_year,
+                ChannelDB.detected_tmdb_id,
+            )
+            .filter(ChannelDB.detected_tmdb_id.isnot(None))
+            .filter(ChannelDB.media_type.in_(_VOD))
+            .yield_per(_BATCH)
+        )
+        for det_title, mt, det_year, det_tmdb in id_rows:
+            tmdb = valid_tmdb_id(det_tmdb)
+            if not tmdb:
+                continue
+            norm = normalize_title(det_title or "")
+            if not norm:
+                continue
+            year = _start_year_int(det_year)
+            bucket = groups.setdefault((norm, mt or ""), {})
+            # Keep the first year seen for an id, upgrading None → a real year when
+            # a later row for the same id carries one (helps the compat check).
+            if tmdb not in bucket or (bucket[tmdb] is None and year is not None):
+                bucket[tmdb] = year
+
+        if not groups:
+            return 0
+
+        # 2. Scan idless rows (scoped) and adopt where a single year-compatible id wins.
+        idless_q = (
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.detected_title,
+                ChannelDB.media_type,
+                ChannelDB.detected_year,
+            )
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.media_type.in_(_VOD))
+        )
+        if provider_id:
+            idless_q = idless_q.filter(ChannelDB.provider_id == provider_id)
+
+        adopted = 0
+        pending = 0
+        for cid, det_title, mt, det_year in idless_q.yield_per(_BATCH):
+            norm = normalize_title(det_title or "")
+            if not norm:
+                continue
+            bucket = groups.get((norm, mt or ""))
+            if not bucket:
+                continue
+            my_year = _start_year_int(det_year)
+            compat_ids = {
+                tid
+                for tid, syear in bucket.items()
+                if my_year is None or syear is None or abs(my_year - syear) <= 1
+            }
+            if len(compat_ids) != 1:
+                continue  # no candidate, or ambiguous remake split → don't guess
+            tmdb = next(iter(compat_ids))
+            proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=mt or "", id=cid)
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == cid)
+                .values(
+                    detected_tmdb_id=tmdb,
+                    content_key=content_key_for(proxy),
+                    tmdb_enrich_state="propagated",
+                )
+            )
+            adopted += 1
+            pending += 1
+            if pending >= _BATCH:
+                self.session.commit()
+                pending = 0
+
+        self.session.commit()
+        if adopted:
+            logger.info(
+                "tmdb_sibling_propagation: adopted {} idless row(s) from title siblings",
+                adopted,
+            )
+        return adopted
 
     def backfill_tmdb_ids(
         self,
@@ -1589,6 +1803,401 @@ class ChannelRepository(_ChannelStatsMixin):
 
         logger.info(f"backfill_content_keys: filled {filled} of {total} rows")
         return filled
+
+    # ── Provider-native tmdb enrichment (Phase 2) ─────────────────────────────
+
+    def _tmdb_candidate_filter(self, query, excluded_provider_ids, provider_id):
+        """Apply the shared idless-VOD-candidate predicate to *query*.
+
+        A candidate is a movie/series row that is visible (``is_hidden`` False),
+        belongs to a non-excluded provider, carries **no** ``detected_tmdb_id``
+        (its list row shipped no id), and has **not** been attempted yet
+        (``tmdb_enrich_state IS NULL``) — the persistent marker that makes the
+        pass resumable and hits each row at most once.  Single definition so the
+        candidate query and the has-candidates probe never drift.
+        """
+        query = (
+            query
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.tmdb_enrich_state.is_(None))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        if provider_id is not None:
+            query = query.filter(ChannelDB.provider_id == provider_id)
+        return query
+
+    def provider_ids_with_tmdb_candidates(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> List[str]:
+        """Return the distinct providers that still have idless VOD rows to attempt.
+
+        Lets the caller split its per-session cap fairly across sources rather than
+        exhausting the largest provider first (which would starve the others for
+        hundreds of launches).
+
+        Args:
+            excluded_provider_ids: Hidden providers — never enriched.
+
+        Returns:
+            Distinct ``provider_id`` values with at least one candidate.
+        """
+        q = self._tmdb_candidate_filter(
+            self.session.query(ChannelDB.provider_id).distinct(),
+            excluded_provider_ids,
+            provider_id=None,
+        )
+        return [row[0] for row in q.all()]
+
+    def select_tmdb_enrichment_candidates(
+        self,
+        limit: int,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        provider_id: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        """Return idless VOD rows that still need a provider-detail tmdb lookup.
+
+        See :meth:`_tmdb_candidate_filter` for the candidate predicate.  Returns
+        plain dicts (safe to cross the worker → write-session boundary — no ORM
+        objects escape).
+
+        Args:
+            limit: Hard cap on rows returned.
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+            provider_id: When given, restrict to this one provider (used to draw a
+                fair per-provider slice of the session cap).
+
+        Returns:
+            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts.
+        """
+        q = self._tmdb_candidate_filter(
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.provider_id,
+                ChannelDB.source_id,
+                ChannelDB.media_type,
+            ),
+            excluded_provider_ids,
+            provider_id,
+        )
+        q = q.order_by(ChannelDB.provider_id).limit(limit)
+
+        return [
+            {
+                "id": cid,
+                "provider_id": pid,
+                "source_id": sid,
+                "media_type": mt,
+            }
+            for (cid, pid, sid, mt) in q.all()
+        ]
+
+    def select_tmdb_candidates_by_ids(
+        self,
+        channel_ids,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, str]]:
+        """Narrow *channel_ids* to the rows that still need a provider-detail lookup.
+
+        The lazy enrichment (``TmdbEnrichmentManager.enqueue``) is fed **bare ids**
+        from the result surfaces (Discover / Recipe / channel list / search / details)
+        — none of whose DTOs carry ``detected_tmdb_id`` / ``tmdb_enrich_state``.  This
+        applies the shared candidate predicate (:meth:`_tmdb_candidate_filter`:
+        idless, unattempted, visible, non-excluded VOD) to the queued ids off the UI
+        thread, so a row is fetched at most once and only when it really needs it.
+
+        Args:
+            channel_ids: The ids a surface just loaded (a bounded drain batch).
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+
+        Returns:
+            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts for the
+            subset that are still candidates (plain dicts — no ORM objects escape).
+        """
+        ids = list(channel_ids)
+        if not ids:
+            return []
+        q = self._tmdb_candidate_filter(
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.provider_id,
+                ChannelDB.source_id,
+                ChannelDB.media_type,
+            ),
+            excluded_provider_ids,
+            provider_id=None,
+        ).filter(ChannelDB.id.in_(ids))
+        return [
+            {"id": cid, "provider_id": pid, "source_id": sid, "media_type": mt}
+            for (cid, pid, sid, mt) in q.all()
+        ]
+
+    def tmdb_enrichment_funnel(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> TmdbFunnelDTO:
+        """Return the enrichment funnel across visible VOD rows (analytics).
+
+        Buckets every movie/series row on a visible, non-excluded provider by how
+        its tmdb id was resolved (provenance in ``tmdb_enrich_state``), so the
+        "Missing TMDb data" view can present provider-native coverage vs. the
+        residual gap that only the external TMDb API could close.  One GROUP BY —
+        no per-row scan.
+
+        Args:
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) to exclude.
+
+        Returns:
+            A :class:`TmdbFunnelDTO` (safe to cross the worker boundary).
+        """
+        q = (
+            self.session.query(
+                ChannelDB.detected_tmdb_id.isnot(None),
+                ChannelDB.tmdb_enrich_state,
+                func.count(),
+            )
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            q = q.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        q = q.group_by(
+            ChannelDB.detected_tmdb_id.isnot(None), ChannelDB.tmdb_enrich_state
+        )
+
+        from_list = propagated = fetched = unattempted = residual = 0
+        for has_id, state, n in q.all():
+            if has_id:
+                if state == "propagated":
+                    propagated += n
+                elif state == "fetched":
+                    fetched += n
+                else:
+                    # 'list' / NULL / anything else with an id → harvested-from-list.
+                    from_list += n
+            else:
+                if state == "none":
+                    residual += n
+                else:
+                    unattempted += n  # NULL marker → still a lazy-fetch candidate
+
+        total = from_list + propagated + fetched + unattempted + residual
+        return TmdbFunnelDTO(
+            total_vod=total,
+            from_list=from_list,
+            propagated=propagated,
+            fetched=fetched,
+            unattempted=unattempted,
+            residual=residual,
+        )
+
+    def missing_tmdb_by_source(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        sample_per_source: int = 8,
+        max_sources: int = 50,
+    ) -> List[MissingTmdbSourceDTO]:
+        """Return idless-VOD counts + a sample per source for the diagnostic view.
+
+        A row is *idless* when ``detected_tmdb_id IS NULL`` (visible VOD only); of
+        those, the ``'none'``-marked subset is the residual only the TMDb API could
+        resolve.  The view feeds each returned row's ``channel_id`` back through the
+        enqueue chokepoint, so opening it drives enrichment (the list shrinks as ids
+        land).  Returns frozen DTOs — no ORM objects escape.
+
+        Args:
+            excluded_provider_ids: Hidden providers to exclude.
+            sample_per_source: Max example rows per source (for the drill-down).
+            max_sources: Cap on the number of sources returned (largest gaps first).
+
+        Returns:
+            List of :class:`MissingTmdbSourceDTO`, sorted by ``missing_count`` desc.
+        """
+        from sqlalchemy import case
+
+        base = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            base = base.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+
+        counts = (
+            base.with_entities(
+                ChannelDB.provider_id,
+                func.count(),
+                func.sum(case((ChannelDB.tmdb_enrich_state == "none", 1), else_=0)),
+            )
+            .group_by(ChannelDB.provider_id)
+            .order_by(func.count().desc())
+            .limit(max_sources)
+            .all()
+        )
+        if not counts:
+            return []
+
+        # Provider names (single lookup — the DTO carries the human-readable name).
+        names = {p.id: p.name for p in self.session.query(ProviderDB.id, ProviderDB.name).all()}
+
+        out: List[MissingTmdbSourceDTO] = []
+        for pid, missing_count, residual_count in counts:
+            sample_rows = (
+                base.with_entities(
+                    ChannelDB.id,
+                    ChannelDB.name,
+                    ChannelDB.detected_title,
+                    ChannelDB.detected_year,
+                    ChannelDB.media_type,
+                )
+                .filter(ChannelDB.provider_id == pid)
+                .order_by(ChannelDB.name)
+                .limit(sample_per_source)
+                .all()
+            )
+            sample = [
+                MissingTmdbRowDTO(
+                    channel_id=cid,
+                    name=name,
+                    detected_title=dt,
+                    detected_year=dy,
+                    media_type=mt,
+                    tmdb_addressable=_looks_tmdb_addressable(dt, mt, dy),
+                )
+                for (cid, name, dt, mt, dy) in (
+                    (r[0], r[1], r[2], r[4], r[3]) for r in sample_rows
+                )
+            ]
+            out.append(
+                MissingTmdbSourceDTO(
+                    provider_id=pid,
+                    provider_name=names.get(pid, pid),
+                    missing_count=int(missing_count or 0),
+                    residual_count=int(residual_count or 0),
+                    sample=sample,
+                )
+            )
+        return out
+
+    def apply_tmdb_enrichment(
+        self,
+        hits: Dict[str, str],
+        misses,
+    ) -> int:
+        """Persist a provider-native enrichment batch and report new collapses.
+
+        For each **hit** (``channel_id → tmdb_id`` discovered via the detail
+        endpoint): store ``detected_tmdb_id``, recompute ``content_key`` through
+        the SAME chokepoint the migration uses
+        (:func:`~metatv.core.content_identity.content_key_for`, which is
+        tmdb-first, so the recomputed key is ``"tmdb:{id}|{media_type}"``), and
+        mark ``tmdb_enrich_state='fetched'``.  For each **miss** (attempted but the
+        detail endpoint carried no id): mark ``tmdb_enrich_state='none'`` so the
+        row is never re-fetched (until a content refresh resets it) — the residual
+        ``NULL id + 'none'`` is the only-TMDb-API-addressable gap the analytics
+        surface reports.
+
+        Only these three generated fields are written — user tags / ratings /
+        favorites are never touched (mirror-not-cage).
+
+        Args:
+            hits: ``{channel_id: tmdb_id}`` — validated digit-string ids.
+            misses: Iterable of channel ids that were attempted but yielded no id.
+
+        Returns:
+            The number of *hit* rows whose recomputed ``content_key`` now appears
+            on ≥ 2 rows — i.e. rows that landed in a shared collapse group this
+            batch.  A positive count is the host's cue to refresh the views.
+        """
+        miss_ids = list(misses)
+        if miss_ids:
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id.in_(miss_ids))
+                .values(tmdb_enrich_state="none")
+            )
+
+        if not hits:
+            self.session.commit()
+            return 0
+
+        hit_ids = list(hits.keys())
+        # media_type is needed to namespace the tmdb key (movie vs series live in
+        # separate TMDb id spaces) — project just that column, no raw_data blob.
+        mt_by_id = {
+            cid: mt
+            for (cid, mt) in self.session.query(ChannelDB.id, ChannelDB.media_type)
+            .filter(ChannelDB.id.in_(hit_ids))
+            .all()
+        }
+
+        new_keys: Dict[str, str] = {}
+        for cid, tmdb in hits.items():
+            media_type = mt_by_id.get(cid) or ""
+            # Read a proxy through content_key_for so identity has ONE definition;
+            # a valid tmdb short-circuits to "tmdb:{id}|{media_type}".
+            proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=media_type, id=cid)
+            key = content_key_for(proxy)
+            new_keys[cid] = key
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == cid)
+                .values(
+                    detected_tmdb_id=tmdb,
+                    content_key=key,
+                    tmdb_enrich_state="fetched",
+                )
+            )
+
+        self.session.commit()
+
+        # New collapses: of the keys we just wrote, how many enriched rows now
+        # share a key with at least one other row (a real fold, not a lone id).
+        distinct_keys = set(new_keys.values())
+        key_counts = dict(
+            self.session.query(ChannelDB.content_key, func.count())
+            .filter(ChannelDB.content_key.in_(distinct_keys))
+            .group_by(ChannelDB.content_key)
+            .all()
+        )
+        return sum(1 for key in new_keys.values() if key_counts.get(key, 0) >= 2)
+
+    def reset_tmdb_enrich_state(self, provider_id: str) -> int:
+        """Clear the attempt marker for one provider's rows **that are still idless**.
+
+        Called from the content-refresh chokepoint (``provider_loader``) after a
+        source is re-ingested, so an idless row that was previously attempted-empty
+        (``'none'``) gets one more chance against the (possibly changed) catalog on
+        the next lazy fetch.  Only the generated marker is touched.
+
+        **Narrowed to idless rows only** (``detected_tmdb_id IS NULL``): a row that
+        already carries an id — from the list (``'list'``), a title sibling
+        (``'propagated'``), or a provider-detail fetch (``'fetched'``) — keeps both
+        its id (preserved on refresh by the ``COALESCE`` in ``_flush_batch``) and
+        its provenance marker, so enrichment is never re-done for a row that already
+        resolved.  This is the fetch-once guarantee surviving refresh.
+
+        Args:
+            provider_id: The just-refreshed provider.
+
+        Returns:
+            Number of rows whose marker was cleared.
+        """
+        result = self.session.execute(
+            update(ChannelDB)
+            .where(ChannelDB.provider_id == provider_id)
+            .where(ChannelDB.tmdb_enrich_state.isnot(None))
+            .where(ChannelDB.detected_tmdb_id.is_(None))
+            .values(tmdb_enrich_state=None)
+        )
+        self.session.commit()
+        return result.rowcount or 0
 
     # ── Cross-source sibling lookup (content_key-based failover) ───────────────
 

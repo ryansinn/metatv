@@ -71,7 +71,24 @@ class ProviderPlugin(ABC):
             }
         """
         pass
-    
+
+    async def fetch_vod_info(self, provider: Provider, vod_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch detailed movie/VOD information (optional, default: not supported).
+
+        The detail endpoint carries the canonical TMDb id even when the bulk
+        list row omitted it — used by the provider-native tmdb enrichment.
+
+        Args:
+            provider: Provider instance
+            vod_id: Provider-specific movie/VOD identifier
+
+        Returns:
+            Dictionary with VOD info (``{'info': {...}, ...}``), or None if not
+            supported / not found.
+        """
+        # Default implementation: not supported
+        return None
+
     async def search_content(self, provider: Provider, query: str) -> List[Channel]:
         """Search for content (optional, default: not supported)
         

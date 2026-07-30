@@ -624,6 +624,11 @@ class _ChannelListMixin:
         """
         channels, params = result
 
+        # Lazy TMDb enrichment: feed the loaded page (covers text search too — it
+        # renders through this same slot) so idless variants the user is viewing get
+        # a provider-detail lookup. The manager filters to real candidates off-thread.
+        self._enqueue_tmdb_enrichment([c.id for c in channels])
+
         # A current channel load finished — the visible result of a provider toggle's
         # canonical refresh. Clear any provider busy/spinner state now.
         self._clear_provider_busy()
@@ -1488,6 +1493,8 @@ class _ChannelListMixin:
             self.channel_model.mark_fetch_failed()
             return
         dtos, has_more, raw_count = result
+        # Feed the freshly-paged rows to lazy TMDb enrichment (scroll = more visible).
+        self._enqueue_tmdb_enrichment([d.id for d in dtos])
         self.channel_model.append_page(
             dtos, has_more=has_more, raw_count=raw_count, generation=generation
         )

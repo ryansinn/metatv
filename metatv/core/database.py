@@ -113,9 +113,24 @@ class ChannelDB(Base):
     # re-parsed from raw_data at read time.  When present it is authoritative and drives
     # ``content_key`` (``tmdb:{id}|{media_type}``, namespaced because TMDb numbers movies
     # and series separately).  NULL when the provider ships no id (or a sentinel).
-    # A catalog-derived field: it IS in _CATALOG_COLS (refreshes with raw_data) — unlike
-    # the name-derived detected_* fields, which the upsert preserves.
+    # A catalog-derived field, but the enrichment layer also writes ids the LIST row
+    # omitted, so the upsert preserves it via COALESCE (see provider_loader._flush_batch)
+    # rather than blindly overwriting to NULL each refresh.
     detected_tmdb_id = Column(String, nullable=True)
+
+    # tmdb enrichment provenance marker (Phase 2 — see tmdb_enrichment_manager.py).
+    # Encodes HOW/whether a row's tmdb id was resolved, driving the fetch-once guard and
+    # the "Missing TMDb data" analytics funnel:
+    #   NULL         — unattempted (no id yet; a lazy-fetch candidate)
+    #   'list'       — id came straight from the provider list row (Phase-1 harvest)
+    #   'propagated' — id adopted from a confident same-title sibling (free, no network)
+    #   'fetched'    — id found via the provider's detail endpoint (get_vod/series_info)
+    #   'none'       — detail endpoint attempted but carried no id (the residual gap only
+    #                  the external TMDb API could resolve)
+    # Guarantees an idless row is fetched at most once; on content refresh only STILL-idless
+    # rows are reset to NULL (reset_tmdb_enrich_state) so resolved rows keep their provenance.
+    # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites an existing marker.
+    tmdb_enrich_state = Column(String, nullable=True, index=True)
 
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
     # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
@@ -535,6 +550,7 @@ class Database:
             ("channels",     "content_key",                "TEXT"),
             ("channels",     "detected_audio",             "TEXT"),
             ("channels",     "detected_tmdb_id",           "TEXT"),
+            ("channels",     "tmdb_enrich_state",          "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -550,6 +566,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
                 "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
             ]
             for idx_sql in index_migrations:
                 try:

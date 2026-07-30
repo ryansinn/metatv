@@ -72,6 +72,7 @@ class DiscoverView(QWidget):
     channelSelected             = pyqtSignal(str)
     channelContextMenuRequested = pyqtSignal(str, int, int)
     channelMiddleClicked        = pyqtSignal(str)   # channel_id — configured middle-click play
+    tmdbEnrichRequested         = pyqtSignal(list)  # channel_ids just rendered → lazy TMDb enrichment
 
     def __init__(self, db: Database, config: Config,
                  image_cache: "ImageCache", parent=None) -> None:
@@ -507,6 +508,8 @@ class DiscoverView(QWidget):
         shelf.set_cards(cards, image_cache=self._image_cache, config=self._config)
         self._shelf_data_cache[shelf_key] = cards
         self._loaded_shelf_keys.add(shelf_key)
+        if cards:
+            self.tmdbEnrichRequested.emit([c.channel_id for c in cards])
 
         # Trigger image loading for the newly visible cards.
         QTimer.singleShot(120, shelf._load_visible)
@@ -696,6 +699,9 @@ class DiscoverView(QWidget):
         if not data.header_only:
             self._shelf_data_cache[data.shelf_key] = data.cards
             self._loaded_shelf_keys.add(data.shelf_key)
+            # Feed the just-rendered cards to lazy TMDb enrichment (host chokepoint).
+            if data.cards:
+                self.tmdbEnrichRequested.emit([c.channel_id for c in data.cards])
 
         shelf = _Shelf(
             data.title, data.shelf_key, data.cards,
@@ -828,6 +834,8 @@ class DiscoverView(QWidget):
         def _on_ready(key: str, cards: list) -> None:
             if self._stack.currentIndex() == 1:
                 self._browse_view.load(title, cards)
+            if cards:
+                self.tmdbEnrichRequested.emit([c.channel_id for c in cards])
 
         self._see_all_worker.ready.connect(_on_ready)
         self._see_all_worker.ready.connect(lambda *_: self._see_all_thread.quit())

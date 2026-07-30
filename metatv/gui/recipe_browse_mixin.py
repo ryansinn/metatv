@@ -214,6 +214,8 @@ class _RecipeBrowseMixin:
         """Main-thread slot: append the fetched page to the browse grid."""
         if not self._active:
             return
+        if cards:
+            self.tmdbEnrichRequested.emit([c.channel_id for c in cards])
         self._browse.append(cards)
         self._see_all_offset += len(cards)
         self._see_all_loading = False
