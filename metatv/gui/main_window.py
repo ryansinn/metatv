@@ -323,6 +323,25 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "vod_watch_alert_manager", self.vod_watch_alert_manager.shutdown
         )
 
+        # Provider-native TMDb enrichment — backfills detected_tmdb_id for idless
+        # VOD rows via the provider's own detail endpoint so cross-language/quality
+        # variants collapse. Background + resumable + capped. When a pass produces
+        # new collapses it refreshes the content-derived views through the single
+        # canonical chokepoint (never a partial per-view refresh).
+        from metatv.core.tmdb_enrichment_manager import TmdbEnrichmentManager
+        self.tmdb_enrichment_manager = TmdbEnrichmentManager(
+            self.db, self.config, parent=self,
+        )
+        # Connect to the MainWindow's bound method (a QObject receiver on the main
+        # thread) — NOT a bare lambda — so the worker-thread emit is delivered via a
+        # queued connection on the main thread. The signal's int arg is dropped.
+        self.tmdb_enrichment_manager.collapses_found.connect(
+            self._refresh_provider_dependent_views
+        )
+        self._register_cleanable(
+            "tmdb_enrichment_manager", self.tmdb_enrichment_manager.shutdown
+        )
+
         # Migration manager — runs one-time background migrations sequentially.
         # Registered for clean cancellation on closeEvent before the pool drains.
         self.migration_manager = MigrationManager(self.config, self.db, parent=self)
@@ -419,6 +438,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # MigrationManager: run any pending one-time background migrations.
         # Deferred 1 s so channels load and the UI paints before the worker starts.
         QTimer.singleShot(1000, self.migration_manager.run_pending)
+
+        # TMDb enrichment: one capped provider-native pass per launch. Deferred
+        # well after startup (channels + migrations underway) so it never competes
+        # with the initial paint; the manager self-gates on its config toggle and a
+        # busy flag, and the pass is rate-limited + resumable across launches.
+        QTimer.singleShot(15000, self.tmdb_enrichment_manager.start)
 
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False

@@ -793,7 +793,16 @@ class Config(BaseModel):
     image_cache_enabled: bool = True  # Enable image caching
     image_cache_dir: str = "~/.cache/metatv/images"  # Image cache directory
     image_cache_max_size_mb: int = 500  # Maximum cache size in MB
-    
+
+    # Provider-native TMDb enrichment (Phase 2 — tmdb_enrichment_manager.py).
+    # Backfills detected_tmdb_id for idless VOD rows by calling the provider's own
+    # detail endpoint, so cross-language/quality variants finally collapse.  No
+    # external API key.  Politeness knobs spread the ~200k backlog across launches.
+    tmdb_enrichment_enabled: bool = True        # Master toggle for the background pass
+    tmdb_enrichment_session_cap: int = 500      # Max idless rows attempted per launch
+    tmdb_enrichment_concurrency: int = 4        # Max concurrent detail requests per provider
+    tmdb_enrichment_throttle_ms: int = 150      # Gentle delay before each request
+
     # Content category groups — maps raw source_category labels (from ## headers ##) to
     # normalized display names used in the Global Filter and Discovery shelves.
     # Keys are the normalized type name shown in the UI; values are lists of raw labels

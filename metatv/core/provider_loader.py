@@ -502,6 +502,14 @@ class ProviderLoadThread(QThread):
                 progress_cb=_progress_cb,
             )
             logger.info(f"Prefix detection: updated {updated:,} channels")
+
+            # Content refreshed → clear the provider-native tmdb enrichment marker
+            # for this source so the next background pass re-attempts its idless
+            # rows against the (possibly changed) catalog. Only the generated
+            # marker is touched. See tmdb_enrichment_manager.py.
+            reset = repos.channels.reset_tmdb_enrich_state(self.provider.id)
+            if reset:
+                logger.info(f"tmdb_enrich: reset attempt marker for {reset:,} rows")
         except Exception as e:
             logger.error(f"Prefix detection failed: {e}")
         finally:
