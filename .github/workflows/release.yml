@@ -75,7 +75,9 @@ jobs:
           set -euo pipefail
           BREW_PREFIX="$(brew --prefix)"
           RES_DIR="dist/MetaTV.app/Contents/Resources/mpv"
-          mkdir -p "$RES_DIR"
+          # Create both the mpv dir AND the libs/ subdir dylibbundler writes into
+          # (dylibbundler errors "Dest folder does not exist" instead of creating it).
+          mkdir -p "$RES_DIR/libs"
           cp "$BREW_PREFIX/bin/mpv" "$RES_DIR/mpv"
           # Gather + rewrite mpv's dylib dependencies into Resources/mpv/libs so
           # the bundle is self-contained (no Homebrew needed on the user's Mac).
