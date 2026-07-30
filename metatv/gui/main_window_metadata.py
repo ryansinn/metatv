@@ -9,7 +9,6 @@ All methods access state set in MainWindow.__init__ via ``self.*``.
 from __future__ import annotations
 
 import asyncio
-import re
 
 from loguru import logger
 from PyQt6.QtCore import QTimer
@@ -306,69 +305,27 @@ class _MetadataMixin:
         self.executor.submit(self._bg_fetch_similar_titles, channel_id)
 
     def _bg_fetch_similar_titles(self, channel_id: str) -> None:
-        from metatv.core.database import ChannelDB, MetadataDB, UserRatingDB
-        from metatv.core.content_dedup import normalize_title, build_dedup_key
-        from metatv.core.preference_engine import version_score as _version_score
-        _non_ascii = re.compile(r'[^\x00-\x7F]+')
+        from metatv.core.database import UserRatingDB
 
         similar = []
         try:
             with self.db.session_scope() as session:
-                channel = session.get(ChannelDB, channel_id)
-                if not channel:
-                    self._similar_titles_loaded.emit(channel_id, [])
-                    return
-
-                norm = normalize_title(channel.name, channel.detected_prefix)
-                words = [w for w in norm.split() if len(w) >= 4]
-                if not words:
-                    self._similar_titles_loaded.emit(channel_id, [])
-                    return
-
-                candidates = (
-                    session.query(ChannelDB)
-                    .filter(
-                        ChannelDB.media_type == channel.media_type,
-                        ChannelDB.id != channel_id,
-                        ChannelDB.is_hidden == False,
-                        ChannelDB.name.ilike(f"%{words[0]}%"),
-                    )
-                    .limit(200)
-                    .all()
-                )
-
-                threshold = max(1, len(words) // 2)
-                current_meta = session.get(MetadataDB, channel.metadata_id) if channel.metadata_id else None
-                current_key = build_dedup_key(channel, current_meta)
-
-                # Collapse same-production variants, keeping the best-scored version per
-                # group so that users who have a preferred prefix (e.g. "EN") see that
-                # version when they click a similar title rather than a non-preferred one.
-                # Group key prefers the stored content_key (so localized/translated and
-                # "MULTI" variants that share a key collapse into one row, exactly as on
-                # Discover/Other-Versions); falls back to the normalized title only for
-                # rows with no content_key (pre-backfill).
-                best_per_title: dict[str, tuple[ChannelDB, int]] = {}
-                for ch in candidates:
-                    ch_norm = normalize_title(ch.name, ch.detected_prefix)
-                    ch_norm_ascii = _non_ascii.sub(" ", ch_norm).strip()
-                    ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
-                    overlap = sum(1 for w in words if w in ch_words)
-                    if overlap < threshold or ch_norm == norm:
-                        continue
-                    if current_key:
-                        ch_meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
-                        if build_dedup_key(ch, ch_meta) == current_key:
-                            continue
-                    group_key = (ch.content_key or None) or ch_norm
-                    score = _version_score(ch, self.config)
-                    existing = best_per_title.get(group_key)
-                    if existing is None or score > existing[1]:
-                        best_per_title[group_key] = (ch, score)
-
-                results = [ch for ch, _ in list(best_per_title.values())[:20]]
-
                 repos = RepositoryFactory(session)
+                # Canonical similar-titles chokepoint: owns the candidate selection,
+                # content_key dedup, AND the visibility gate (is_hidden + inactive/
+                # expired/orphaned provider exclusion). We shape best-per-group
+                # ChannelVersion DTOs (queue/ratings/favorite/history) from its rows.
+                excluded = set(repos.providers.get_hidden_provider_ids())
+                rows = repos.channels.get_similar_channels(
+                    channel_id,
+                    excluded_provider_ids=excluded,
+                    limit=20,
+                    config=self.config,
+                )
+                if not rows:
+                    self._similar_titles_loaded.emit(channel_id, [])
+                    return
+
                 queue_ids = repos.queue.get_queued_ids()
                 ratings = {r.channel_id: r.rating for r in session.query(UserRatingDB).all()}
                 similar = [
@@ -384,7 +341,7 @@ class _MetadataMixin:
                         media_type=ch.media_type or "",
                         user_rating=ratings.get(ch.id, 0),
                     )
-                    for ch in results[:20]
+                    for ch in rows
                 ]
         except Exception:
             logger.exception("Error fetching similar titles for %s", channel_id)

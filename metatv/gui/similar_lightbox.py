@@ -376,7 +376,7 @@ class SimilarTitleLightbox(QWidget):
     def _bg_load(self, channel_id: str) -> None:
         """Background: fetch channel + metadata from DB, emit _data_ready signal."""
         from metatv.core.database import ChannelDB, MetadataDB, ProviderDB, WatchQueueDB
-        from metatv.core.content_dedup import normalize_title, build_dedup_key
+        from metatv.core.repositories import RepositoryFactory
 
         session = self._db.get_session()
         try:
@@ -398,43 +398,23 @@ class SimilarTitleLightbox(QWidget):
 
             queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
 
-            # Similar titles (same media_type, word overlap ≥50%; no prefix filter so
-            # results cross language/region boundaries — dedup handles same-title dupes)
-            similar: list[dict] = []
-            norm = normalize_title(ch.name, ch.detected_prefix)
-            words = [w for w in norm.split() if len(w) >= 4]
-            if words:
-                current_key = build_dedup_key(ch, meta)
-                candidates = (
-                    session.query(ChannelDB)
-                    .filter(
-                        ChannelDB.media_type == ch.media_type,
-                        ChannelDB.id != channel_id,
-                        ChannelDB.is_hidden == False,
-                        ChannelDB.name.ilike(f"%{words[0]}%"),
-                    )
-                    .limit(150)
-                    .all()
+            # Similar titles — canonical chokepoint (shared with the details-pane
+            # "Similar Titles" row): owns candidate selection, content_key dedup, and
+            # the visibility gate (is_hidden + inactive/expired/orphaned provider
+            # exclusion so disabled/expired sources never surface). Same media_type,
+            # word-overlap heuristic, results cross language/region. The lightbox only
+            # needs the lightweight id+name of each collapsed group.
+            repos = RepositoryFactory(session)
+            excluded = set(repos.providers.get_hidden_provider_ids())
+            similar: list[dict] = [
+                {"id": c.id, "name": c.name}
+                for c in repos.channels.get_similar_channels(
+                    channel_id,
+                    excluded_provider_ids=excluded,
+                    limit=12,
+                    config=self._config,
                 )
-                threshold = max(1, len(words) // 2)
-                # Dedup key prefers the stored content_key (so localized/translated and
-                # "MULTI" variants sharing a key collapse to one entry, matching every
-                # other collapse surface); falls back to the normalized title only for
-                # rows with no content_key.
-                seen: set[str] = set()
-                for c in candidates:
-                    c_norm = normalize_title(c.name, c.detected_prefix)
-                    c_words = {w for w in c_norm.split() if len(w) >= 4}
-                    overlap = sum(1 for w in words if w in c_words)
-                    c_group = (c.content_key or None) or c_norm
-                    if overlap >= threshold and c_norm != norm and c_group not in seen:
-                        c_meta = session.get(MetadataDB, c.metadata_id) if c.metadata_id else None
-                        if current_key and build_dedup_key(c, c_meta) == current_key:
-                            continue
-                        seen.add(c_group)
-                        similar.append({"id": c.id, "name": c.name})
-                        if len(similar) >= 12:
-                            break
+            ]
 
             data = {
                 "name": ch.name,

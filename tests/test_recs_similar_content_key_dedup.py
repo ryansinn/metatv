@@ -90,6 +90,22 @@ def _make_rating(session, channel_id: str, rating: int):
     return r
 
 
+def _make_provider(session, pid: str = "p1", *, is_active: bool = True, exp=None):
+    """Seed a ProviderDB so channels aren't treated as orphaned by provider scoping.
+
+    ``get_hidden_provider_ids()`` (which the Similar chokepoint consults) counts a
+    ``provider_id`` with no matching ProviderDB row as *orphaned* → hidden. The
+    similar-titles path is provider-scoped, so its candidate channels need a real,
+    active provider row to remain visible.
+    """
+    from metatv.core.database import ProviderDB
+    session.add(ProviderDB(
+        id=pid, name=pid, type="xtream", url="http://e.com",
+        username="u", password="p", is_active=is_active, account_exp_date=exp,
+    ))
+    session.flush()
+
+
 # ---------------------------------------------------------------------------
 # 1. Recommendations — content_key collapses localized-title variants
 # ---------------------------------------------------------------------------
@@ -197,6 +213,9 @@ class TestSimilarContentKeyDedup:
         return obj
 
     def _seed(self, session, *, variant_content_key: str | None):
+        # All channels default to provider "p1"; seed it active so provider scoping
+        # (get_hidden_provider_ids) doesn't treat them as orphaned and hide them.
+        _make_provider(session, "p1", is_active=True)
         # Origin has its own (distinct) content_key so it isn't filtered as "same as current".
         _make_channel(
             session, cid="ch-origin", name="EN The Bridge Origin", media_type="series",
