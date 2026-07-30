@@ -586,3 +586,63 @@ class TestMigrationProgressWidget:
             f"pending glyph should be {_icons.migration_pending_icon!r}; "
             f"got {row._glyph.text()!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 4. Migration completion → canonical corpus refresh (MainWindow wiring)
+# ---------------------------------------------------------------------------
+
+class TestMigrationCompletionRefreshWiring:
+    """When background migrations finish, the app must refresh the FULL corpus-
+    derived view set — not just the channel list.
+
+    A migration can rewrite ``content_key`` (cross-source dedup), which is a
+    corpus mutation, so completion must route through the one canonical
+    chokepoint ``MainWindow._refresh_provider_dependent_views`` (it reloads
+    Discover, Recipe, filter-facet counts and preferences in addition to the
+    list). Regression guard: the wiring used to connect ``all_finished``
+    straight to ``load_channels`` alone, leaving Discover / Recipe / facet
+    counts stale until an app restart.
+    """
+
+    def test_all_finished_funnels_through_canonical_refresh(self, qapp, monkeypatch):
+        """Emit the real ``all_finished`` signal through the real
+        ``setup_notifications`` wiring and assert the canonical refresh runs —
+        and that completion does NOT bypass it by calling ``load_channels``
+        directly."""
+        from types import SimpleNamespace
+
+        from metatv.gui import main_window as mw_mod
+        from metatv.gui.main_window import MainWindow
+        from metatv.core.migration_manager import MigrationManager
+
+        # Neutralize the heavy Qt widget construction inside setup_notifications;
+        # the wiring under test is driven by a REAL MigrationManager signal.
+        monkeypatch.setattr(mw_mod, "NotificationWidget", MagicMock())
+        monkeypatch.setattr(mw_mod, "MigrationProgressWidget", MagicMock())
+
+        mgr = MigrationManager(config=MagicMock(), db=MagicMock())
+        me = SimpleNamespace(
+            migration_manager=mgr,
+            notification_manager=MagicMock(),
+            config=MagicMock(),
+            centralWidget=MagicMock(),
+            update_notifications=MagicMock(),
+            load_channels=MagicMock(),
+            _refresh_provider_dependent_views=MagicMock(),
+        )
+        try:
+            # Run the real wiring code.
+            MainWindow.setup_notifications(me)
+
+            # Simulate migrations completing.
+            mgr.all_finished.emit()
+
+            # The canonical chokepoint must run (it internally reloads Discover /
+            # Recipe / filter stats / preferences / the list) ...
+            me._refresh_provider_dependent_views.assert_called_once()
+            # ... and completion must NOT bypass it by wiring load_channels
+            # directly (that left Discover / Recipe / facet counts stale — the bug).
+            me.load_channels.assert_not_called()
+        finally:
+            mgr.shutdown()

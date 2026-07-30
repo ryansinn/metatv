@@ -1580,8 +1580,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.all_finished.connect(
             self.migration_progress_widget.on_all_finished
         )
-        # When migrations finish, reload the channel list (same as old _on_prefix_rescan_done)
-        self.migration_manager.all_finished.connect(self.load_channels)
+        # When migrations finish, refresh everything derived from the corpus, not
+        # just the channel list. A migration can rewrite content_key (cross-source
+        # dedup) — a corpus mutation — so it must route through the one canonical
+        # chokepoint that also reloads Discover, Recipe, filter-facet counts and
+        # preferences. (_refresh_provider_dependent_views calls load_channels
+        # internally, so there is no double-load.)
+        self.migration_manager.all_finished.connect(
+            self._refresh_provider_dependent_views
+        )
 
         # Listen for notification changes
         self.notification_manager.add_listener(self.update_notifications)
