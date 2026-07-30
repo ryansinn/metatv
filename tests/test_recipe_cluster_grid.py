@@ -162,6 +162,22 @@ class TestGetTopTagsPerFacet:
         assert repos.tags.get_top_tags_per_facet([], 10) == {}
         assert repos.tags.get_top_tags_per_facet(["genre"], 0) == {}
 
+    def test_returns_all_eight_browse_facets(self, session):
+        """One windowed pass resolves every browse facet that has data (all 8)."""
+        from metatv.gui.recipe_widgets import BROWSE_FACETS
+
+        pid = _make_provider(session, "p1")
+        # One channel carrying a tag in each of the 8 browse facets.
+        c = _make_channel(session, pid)
+        for facet in BROWSE_FACETS:
+            _tag(session, c, facet, f"{facet}_v")
+        session.commit()
+
+        repos = RepositoryFactory(session)
+        out = repos.tags.get_top_tags_per_facet(list(BROWSE_FACETS), 24)
+        assert set(out.keys()) == set(BROWSE_FACETS)
+        assert len(BROWSE_FACETS) == 8
+
 
 # ---------------------------------------------------------------------------
 # VIEW — cluster grid default, drill-in toggle, cross-facet build, persistence
@@ -311,34 +327,55 @@ def test_decade_tile_ordered_chronologically(qapp):
     )
 
 
-def test_more_facets_toggle_persists(qapp, tmp_path):
-    """Expanding "More facets" writes the state to Config (save on change)."""
-    from metatv.core.config import Config
-    import yaml
-
-    config = Config(config_dir=tmp_path)
-    view, _seam = _make_view(qapp, config=config)
-
-    view._on_more_facets_toggled(True)
-
-    assert config.recipe_more_facets_expanded is True
-    on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
-    assert on_disk["recipe_more_facets_expanded"] is True
+def _col_widget_counts(grid) -> list[int]:
+    """Number of tile widgets in each masonry column layout (ignores stretches)."""
+    counts = []
+    for col in grid._col_layouts:
+        n = sum(1 for i in range(col.count()) if col.itemAt(i).widget() is not None)
+        counts.append(n)
+    return counts
 
 
-def test_col1_collapse_persists_and_hides_body(qapp, tmp_path):
-    """The column-1 collapse chevron hides the rail panel and persists the state."""
-    from metatv.core.config import Config
-    import yaml
+def test_masonry_distributes_tiles_across_columns(qapp):
+    """The masonry packs tiles into MULTIPLE columns (not a single stacked list)."""
+    from metatv.gui.recipe_widgets import _ClusterGrid
 
-    config = Config(config_dir=tmp_path)
-    view, _seam = _make_view(qapp, config=config)
-    assert view._col1_body.isVisible() or not view.isVisible()  # expanded by default
+    grid = _ClusterGrid()
+    grid.set_clusters(
+        {
+            "genre": [TagCountDTO("Drama", 100), TagCountDTO("Comedy", 60)],
+            "region": [TagCountDTO("ES", 80)],
+            "language": [TagCountDTO("English", 90)],
+            "decade": [TagCountDTO("1990s", 40)],
+            "collection": [TagCountDTO("Marvel", 12)],
+            "quality": [TagCountDTO("HD", 70)],
+            "platform": [TagCountDTO("Netflix", 30)],
+            "subtitle": [TagCountDTO("ENG-SUB", 15)],
+        },
+        {}, {},
+    )
+    assert len(grid.tiles()) == 8
+    # Responsive column count ≥ 2 in the fallback width, tiles spread across them.
+    assert len(grid._col_layouts) >= 2
+    populated = [c for c in _col_widget_counts(grid) if c > 0]
+    assert len(populated) >= 2, (
+        f"Masonry must spread tiles across ≥2 columns, got {_col_widget_counts(grid)}"
+    )
 
-    view._toggle_col1_collapsed()
 
-    assert view._col1_collapsed is True
-    assert view._col1_body.isHidden(), "collapsed column hides the rail body"
-    assert config.recipe_col1_collapsed is True
-    on_disk = yaml.safe_load((tmp_path / "config.yaml").read_text())
-    assert on_disk["recipe_col1_collapsed"] is True
+def test_browse_facet_set_excludes_format(session):
+    """The control-layer BROWSE_FACETS set never queries the 'format' facet."""
+    from metatv.gui.recipe_widgets import BROWSE_FACETS
+
+    assert "format" not in BROWSE_FACETS
+
+    pid = _make_provider(session, "p1")
+    cg = _make_channel(session, pid)
+    _tag(session, cg, "genre", "Drama")
+    _tag(session, cg, "format", "Dub")   # exists in DB, but must never surface
+    session.commit()
+
+    repos = RepositoryFactory(session)
+    out = repos.tags.get_top_tags_per_facet(list(BROWSE_FACETS), 24)
+    assert "format" not in out, "format must be excluded from the browse grid"
+    assert "genre" in out and out["genre"][0].value == "Drama"

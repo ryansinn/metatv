@@ -1,13 +1,16 @@
-"""Recipe view helper widgets — cluster grid, Tonight's Recipe rail, Now Plating grid.
+"""Recipe view helper widgets — facet metadata + the masonry cluster grid.
 
 Extracted from ``recipe_view.py`` (which exceeded the 1000-line file limit) so
 that file holds only the :class:`RecipeView` host.  Everything here is a leaf
 presentation widget or a pure helper (facet metadata, editorial name generator,
-layout clearing) — no DB access, no async seam.  ``recipe_view`` re-exports these
-names for backward compatibility, so existing imports keep resolving.
+layout clearing, the masonry facet grid) — no DB access, no async seam.
+``recipe_view`` re-exports these names for backward compatibility, so existing
+imports keep resolving.
 
 Split follows the same convention as the EPG view (``epg_widgets.py`` /
 ``epg_*_mixin.py``): one cohesive concern per file, re-exported from the host.
+The one-line recipe bar + Matching Content shelf live in
+``recipe_bar_widgets.py``; the Saved-tab cards live in ``recipe_saved_widgets.py``.
 """
 
 from __future__ import annotations
@@ -15,15 +18,14 @@ from __future__ import annotations
 import random
 import re
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -48,7 +50,7 @@ _FACET_META: dict[str, tuple[str, str, str]] = {
     "category":   ("Category",      _theme.COLOR_FACET_CATEGORY,   "KIND"),
     "genre":      ("Genre",         _theme.COLOR_FACET_GENRE,      "BASE"),
     "language":   ("Language",      _theme.COLOR_FACET_LANGUAGE,   "IN"),
-    "subtitle":   ("Subtitle Lang", _theme.COLOR_FACET_SUBTITLE,   "IN"),
+    "subtitle":   ("Subtitle",      _theme.COLOR_FACET_SUBTITLE,   "IN"),
     "dub":        ("Dub Lang",      _theme.COLOR_FACET_DUB,        "IN"),
     "format":     ("Audio Format",  _theme.COLOR_FACET_FORMAT,     "AUDIO"),
     "region":     ("Region",        _theme.COLOR_FACET_REGION,     "FROM"),
@@ -58,8 +60,27 @@ _FACET_META: dict[str, tuple[str, str, str]] = {
     "collection": ("Collection",    _theme.COLOR_FACET_COLLECTION, "SET"),
 }
 
-# Role display order in the recipe rail
+# Role display order in the recipe rail / bar
 _ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "FINISH", "SET"]
+
+# The browse facets shown as masonry tiles, in display order (mockup order).
+# **Format is deliberately excluded** — audio format is a filter-panel concern,
+# not a browse dimension (owner decision).  This is the control-layer set the
+# view hands to the generic ``get_top_tags_per_facet`` engine; the engine itself
+# stays facet-agnostic (DR-0007).
+BROWSE_FACETS: tuple[str, ...] = (
+    "genre", "region", "language", "decade", "collection", "quality", "platform", "subtitle",
+)
+# Back-compat alias — the cluster mixin loads this exact set in one windowed pass.
+_ALL_CLUSTER_FACETS: tuple[str, ...] = BROWSE_FACETS
+
+# Top-N tag values requested per facet for the overview (small facets return all).
+_CLUSTER_LIMIT_PER_FACET: int = 24
+
+# Minimum tile width (px) used to compute the responsive masonry column count.
+_CLUSTER_TILE_MIN_W: int = 300
+# Cap the masonry at this many columns even on very wide monitors.
+_CLUSTER_MAX_COLS: int = 4
 
 
 def _facet_color(facet_type: str) -> str:
@@ -75,6 +96,33 @@ def _facet_display(facet_type: str) -> str:
 def _facet_role(facet_type: str) -> str:
     """Return the role label (BASE/IN/FROM…) for a facet type."""
     return _FACET_META.get(facet_type, ("", "", "OTHER"))[2]
+
+
+def _facet_chip_style(color: str, *, excluded: bool = False) -> str:
+    """Return the stylesheet for a facet-colored ingredient / saved-recipe tag.
+
+    Composed from theme tokens (never a literal), centralised here so the recipe
+    bar and the Saved-recipe cards share ONE chip look instead of copy-pasting
+    the composition.  ``excluded`` renders the omit (strike-through, warn) style.
+
+    Args:
+        color: The facet's theme color token (from :func:`_facet_color`).
+        excluded: When True, render the exclude/omit variant.
+
+    Returns:
+        A Qt stylesheet string for a small pill button/label.
+    """
+    if excluded:
+        return (
+            f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_WARN};"
+            f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 8px;"
+            f" padding: 3px 9px; background: transparent; text-decoration: line-through;"
+        )
+    return (
+        f"font-size: {_theme.FONT_LG}; color: {color};"
+        f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 8px;"
+        f" padding: 3px 9px; background: {_theme.OVERLAY_05};"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -135,42 +183,26 @@ def _generate_recipe_name(
 
 
 # ---------------------------------------------------------------------------
-# Default cluster grid: per-facet mini tag-clouds ("clusters")
+# Default cluster grid: per-facet mini tag-clouds ("clusters"), masonry-packed
 # ---------------------------------------------------------------------------
-
-# The Recipe builder's DEFAULT overview shows a mini weighted tag-cloud for each
-# facet at once (a "cluster"), replacing the old one-facet-at-a-time pantry list.
-#   MAIN tiles  — the roomy, high-coverage browse facets (always shown).
-#   MORE tiles  — the low-cardinality tail, tucked in a collapsible "More facets"
-#                 section (mirror-not-cage: reachable, not hidden).  Any facet in
-#                 neither list is still reachable via the cross-facet search box.
-_CLUSTER_FACETS: tuple[str, ...] = ("genre", "region", "language", "collection", "decade")
-_MORE_FACETS: tuple[str, ...] = ("quality", "platform", "format", "subtitle")
-_ALL_CLUSTER_FACETS: tuple[str, ...] = _CLUSTER_FACETS + _MORE_FACETS
-
-# Top-N tag values requested per facet for the overview (small facets return all).
-_CLUSTER_LIMIT_PER_FACET: int = 24
-
-# Minimum tile width (px) used to compute the responsive column count.
-_CLUSTER_TILE_MIN_W: int = 300
 
 
 def _decade_sort_key(value: str) -> int:
     """Chronological sort key for a decade tag value (``"1990s"`` → ``1990``).
 
-    Decade tiles order their chips by era, not by catalogue weight — the single
-    special-case in decision 2; a non-numeric value sorts last.
+    Decade tiles order their chips by era, not by catalogue weight; a non-numeric
+    value sorts last.
     """
     m = re.match(r"\s*(\d{3,4})", value or "")
     return int(m.group(1)) if m else 9999
 
 
 class _TagSearchBar(QWidget):
-    """Cross-facet tag search box shown above the cluster grid.
+    """Cross-facet tag search box shown beside the "Browse by facet" header.
 
-    Replaces the retired Pantry search row.  Emits ``search_changed(text)`` —
-    empty immediately (so clearing restores the grid without an idle wait),
-    non-empty debounced so fast typing coalesces into one DB round-trip.
+    Emits ``search_changed(text)`` — empty immediately (so clearing restores the
+    grid without an idle wait), non-empty debounced so fast typing coalesces into
+    one DB round-trip.
     """
 
     search_changed = pyqtSignal(str)   # debounced search text (stripped)
@@ -191,7 +223,7 @@ class _TagSearchBar(QWidget):
         self._box.setPlaceholderText("Search tags across all facets…")
         self._box.setToolTip("Search tag values across every facet at once")
         self._box.setClearButtonEnabled(True)
-        self._box.setFixedWidth(240)
+        self._box.setFixedWidth(300)
         self._box.textChanged.connect(self._on_text)
         row.addWidget(self._box)
 
@@ -217,62 +249,41 @@ class _TagSearchBar(QWidget):
         self.search_changed.emit(self._box.text().strip())
 
 
-class _SavedRecipesPanel(QWidget):
-    """The "SAVED RECIPES" section (stub) — column 1, under Tonight's Recipe.
-
-    Extracted from the retired Pantry sidebar so column 1 keeps only the recipe
-    rail + saved recipes after the cluster-grid redesign (decision 3).  Slice 4
-    populates this with real saved recipes.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(_theme.RECIPE_PANTRY_BG)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 10, 8, 8)
-        outer.setSpacing(0)
-
-        hdr = QLabel("SAVED RECIPES")
-        hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
-        outer.addWidget(hdr)
-
-        stub = QLabel("No saved recipes yet")
-        stub.setStyleSheet(
-            f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            " padding: 4px 8px;"
-        )
-        stub.setToolTip("Saving recipes will be available in a future update")
-        outer.addWidget(stub)
-        outer.addStretch()
-
-
 class _ClusterTile(QFrame):
-    """One facet's mini weighted tag-cloud in the default overview grid.
+    """One facet's mini weighted tag-cloud, sized to its own content.
 
     Header = the facet name (clickable → drill into that facet's full cloud; the
-    labelled header is the non-color a11y cue per decision 5).  Body = the
-    facet's top-N values as weighted tag buttons, font-size normalized WITHIN
-    this tile (its own min/max) so a small facet isn't erased by a global scale.
-    Clicking a tag adds it to the recipe without leaving the overview.  The decade
-    tile orders its chips chronologically (decision 2), every other tile by weight.
+    labelled header is the non-color a11y cue) + a "N tags" count + a "see all ›"
+    hint.  Body = the facet's top-N values as weighted tag buttons, font-size
+    normalized WITHIN this tile (its own min/max) so a small facet isn't erased by
+    a global scale.  Clicking a tag adds it to the recipe without leaving the
+    overview.  **The decade tile is special**: uniform (un-weighted) chips ordered
+    chronologically oldest→newest — a chip strip, not a weighted cloud.
 
     Reuses the shared cloud primitives (``_TagButton`` / ``_count_to_font_token``
     / ``_CloudBody``) so a cluster renders identically to the full cloud and the
-    Pantry search cloud — one renderer, never a parallel one.
+    cross-facet search cloud — one renderer, never a parallel one.  The tile sizes
+    itself to header + body height (no filler gap between title and tags).
     """
 
     facet_clicked = pyqtSignal(str)         # facet_type — drill into the full cloud
     tag_clicked   = pyqtSignal(str, str)    # (facet_type, value) — add an ingredient
 
+    # Uniform font tier for decade chips (strip, not weighted).
+    _DECADE_FONT = _theme.FONT_CLOUD_3
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("clusterTile")
         self.setStyleSheet(_theme.RECIPE_CLUSTER_TILE)
+        # Size to content vertically so the masonry packs tiles by true height.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._facet: str = ""
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 8, 10, 10)
-        outer.setSpacing(4)
+        outer.setContentsMargins(12, 10, 12, 12)
+        outer.setSpacing(8)
+        self._outer = outer
 
         hdr_row = QHBoxLayout()
         hdr_row.setContentsMargins(0, 0, 0, 0)
@@ -285,6 +296,10 @@ class _ClusterTile(QFrame):
         self._sub_lbl.setStyleSheet(_theme.RECIPE_CLUSTER_SUBTITLE)
         hdr_row.addWidget(self._sub_lbl)
         hdr_row.addStretch()
+        self._see_all_lbl = QLabel(f"see all {_icons.nav_next_icon}")
+        self._see_all_lbl.setStyleSheet(_theme.RECIPE_CLUSTER_SUBTITLE)
+        hdr_row.addWidget(self._see_all_lbl)
+        self._hdr_row = hdr_row
         outer.addLayout(hdr_row)
 
         self._body = _CloudBody()
@@ -311,20 +326,23 @@ class _ClusterTile(QFrame):
         self._hdr_btn.setText(display)
         self._hdr_btn.setStyleSheet(
             f"QPushButton {{ border: none; background: transparent; color: {color};"
-            f" font-size: {_theme.FONT_LG}; font-weight: bold; text-align: left;"
-            f" padding: 2px 0; }}"
+            f" font-size: {_theme.FONT_LG}; font-weight: bold; letter-spacing: 1px;"
+            f" text-align: left; padding: 0; }}"
             f"QPushButton:hover {{ text-decoration: underline; }}"
         )
         self._hdr_btn.setToolTip(f"Browse all {display} tags")
-        self._sub_lbl.setText(f"· {len(items)}")
+        self._sub_lbl.setText(f"· {len(items)} tags")
 
+        is_decade = facet == "decade"
         # Decade orders chronologically; every other facet keeps the engine's
         # count-DESC order.
         ordered = (
             sorted(items, key=lambda d: _decade_sort_key(d.value))
-            if facet == "decade"
+            if is_decade
             else list(items)
         )
+        # Decade is a chip strip (see all one line), never truncated to a "see all".
+        self._see_all_lbl.setVisible(not is_decade)
 
         # content_type slugs render friendly labels; identity stays the slug.
         display_map: dict[str, str] = {}
@@ -332,7 +350,8 @@ class _ClusterTile(QFrame):
             from metatv.core.channel_name_utils import content_type_display
             display_map = {d.value: content_type_display(d.value) for d in ordered}
 
-        # Normalize font size WITHIN this tile (its own min/max), per decision 5.
+        # Normalize font size WITHIN this tile (its own min/max).  Decade chips are
+        # uniform (a strip, not a weighted cloud).
         counts = [d.channel_count for d in ordered] or [1]
         mn, mx = min(counts), max(counts)
 
@@ -344,7 +363,7 @@ class _ClusterTile(QFrame):
                 state = "exclude"
             else:
                 state = "none"
-            token = _count_to_font_token(dto.channel_count, mn, mx)
+            token = self._DECADE_FONT if is_decade else _count_to_font_token(dto.channel_count, mn, mx)
             btn = _TagButton(
                 dto.value, dto.channel_count, state, token, color,
                 facet_type=facet, display=display_map.get(dto.value),
@@ -352,6 +371,19 @@ class _ClusterTile(QFrame):
             btn.clicked.connect(self._make_handler(dto.value))
             self._body.flow().add(btn)
         self._body.refresh_layout()
+
+    def height_for_width(self, width: int) -> int:
+        """Estimate the tile's laid-out height at *width* (for masonry balancing).
+
+        Deterministic (no show/paint dependency): relayouts the body flow at the
+        tile's inner width and adds the header row + margins.  Used only to pick
+        the shortest column; Qt sets the real geometry once the tile is placed.
+        """
+        m = self._outer.contentsMargins()
+        inner = max(1, width - m.left() - m.right())
+        body_h = self._body.flow().relayout(inner)
+        hdr_h = self._hdr_btn.sizeHint().height()
+        return m.top() + hdr_h + self._outer.spacing() + body_h + m.bottom()
 
     # ── private ───────────────────────────────────────────────────────────
 
@@ -365,38 +397,33 @@ class _ClusterTile(QFrame):
 
 
 class _ClusterGrid(QWidget):
-    """Responsive grid of per-facet cluster tiles + a collapsible "More facets".
+    """Masonry-packed grid of per-facet cluster tiles — the dominant browse area.
 
-    The Recipe builder's default overview.  Main (roomy) facets fill a responsive
-    grid whose column count tracks the available width (landscape-first); the
-    low-cardinality tail lives under a collapsible "▸ More facets" header whose
-    expand state persists to Config.
+    All browse facets (see :data:`BROWSE_FACETS`) render as tiles at once; there
+    is NO "More facets" collapse.  Tiles are packed by a column-balancing flow
+    (each tile joins the currently-shortest column), so short tiles don't leave a
+    dead gap under a tall neighbour the way a fixed grid does.  The column count
+    tracks the available width (landscape-first; fewer columns on a narrow window
+    is the "compact" — never a collapse).
 
-    Emits ``facet_selected`` (drill into a facet's full cloud), ``tag_clicked``
-    (add an ingredient without leaving the overview), and ``more_facets_toggled``
-    (so the host can persist the collapse state).
+    Emits ``facet_selected`` (drill into a facet's full cloud) and ``tag_clicked``
+    (add an ingredient without leaving the overview).
     """
 
-    facet_selected      = pyqtSignal(str)        # facet_type — drill into the full cloud
-    tag_clicked         = pyqtSignal(str, str)   # (facet_type, value)
-    more_facets_toggled = pyqtSignal(bool)       # persist "More facets" expand state
+    facet_selected = pyqtSignal(str)        # facet_type — drill into the full cloud
+    tag_clicked    = pyqtSignal(str, str)   # (facet_type, value)
 
-    def __init__(self, more_expanded: bool = False, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._more_expanded = bool(more_expanded)
         self._data: dict[str, list] = {}
         self._includes: dict[str, set] = {}
         self._excludes: dict[str, set] = {}
-        self._main_tiles: list[_ClusterTile] = []
-        self._more_tiles: list[_ClusterTile] = []
+        self._tiles: list[_ClusterTile] = []
+        self._col_layouts: list[QVBoxLayout] = []
+        self._last_cols: int = 0
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
-
-    def set_more_expanded(self, expanded: bool) -> None:
-        """Restore the persisted "More facets" expand state (no signal)."""
-        self._more_expanded = bool(expanded)
-        self._apply_more_visibility()
 
     def set_clusters(
         self,
@@ -411,8 +438,8 @@ class _ClusterGrid(QWidget):
         self._rebuild()
 
     def tiles(self) -> list:
-        """All rendered tiles (main + more) — for tests/introspection."""
-        return list(self._main_tiles) + list(self._more_tiles)
+        """All rendered tiles — for tests/introspection."""
+        return list(self._tiles)
 
     # ── private ───────────────────────────────────────────────────────────
 
@@ -421,58 +448,36 @@ class _ClusterGrid(QWidget):
         outer.setContentsMargins(12, 8, 12, 8)
         outer.setSpacing(8)
 
-        self._grid_host = QWidget()
-        self._grid = QGridLayout(self._grid_host)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(10)
-        outer.addWidget(self._grid_host)
-
         # Empty / loading placeholder (shown until the async cluster load lands).
         self._placeholder = QLabel("Loading facets…")
-        self._placeholder.setStyleSheet(
-            f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            " padding: 8px 2px;"
-        )
+        self._placeholder.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
         outer.addWidget(self._placeholder)
 
-        # Collapsible "▸ More facets" section (icons.expand_icon/collapse_icon).
-        self._more_btn = QPushButton("")
-        self._more_btn.setStyleSheet(_theme.RECIPE_MORE_FACETS_BTN)
-        self._more_btn.clicked.connect(self._toggle_more)
-        outer.addWidget(self._more_btn)
-
-        self._more_host = QWidget()
-        self._more_grid = QGridLayout(self._more_host)
-        self._more_grid.setContentsMargins(0, 0, 0, 0)
-        self._more_grid.setSpacing(10)
-        outer.addWidget(self._more_host)
-
+        # Masonry host — a horizontal row of column layouts, rebuilt on column-count
+        # changes.  Tiles pack into the shortest column (see _relayout).
+        self._cols_host = QWidget()
+        self._cols_row = QHBoxLayout(self._cols_host)
+        self._cols_row.setContentsMargins(0, 0, 0, 0)
+        self._cols_row.setSpacing(14)
+        outer.addWidget(self._cols_host)
         outer.addStretch()
 
-        self._more_btn.hide()
-        self._more_host.hide()
-
     def _rebuild(self) -> None:
-        for t in self._main_tiles + self._more_tiles:
+        for t in self._tiles:
+            t.setParent(None)
             t.deleteLater()
-        self._main_tiles = []
-        self._more_tiles = []
+        self._tiles = []
 
-        for facet in _CLUSTER_FACETS:
+        for facet in BROWSE_FACETS:
             items = self._data.get(facet)
             if items:
-                self._main_tiles.append(self._make_tile(facet, items))
-        for facet in _MORE_FACETS:
-            items = self._data.get(facet)
-            if items:
-                self._more_tiles.append(self._make_tile(facet, items))
+                self._tiles.append(self._make_tile(facet, items))
 
-        has_any = bool(self._main_tiles or self._more_tiles)
+        has_any = bool(self._tiles)
         self._placeholder.setVisible(not has_any)
         self._placeholder.setText("No facets to show yet" if self._data else "Loading facets…")
 
-        self._more_btn.setVisible(bool(self._more_tiles))
-        self._apply_more_visibility()
+        self._last_cols = 0   # force a fresh distribution
         self._relayout()
 
     def _make_tile(self, facet: str, items: list) -> "_ClusterTile":
@@ -491,284 +496,54 @@ class _ClusterGrid(QWidget):
         if w <= 0 and self.parentWidget() is not None:
             w = self.parentWidget().width()
         if w <= 0:
-            w = 900
-        return max(1, min(3, w // _CLUSTER_TILE_MIN_W))
+            w = 1000
+        return max(1, min(_CLUSTER_MAX_COLS, w // _CLUSTER_TILE_MIN_W))
+
+    def _clear_columns(self) -> None:
+        """Detach tiles and tear down the current column layouts."""
+        for tile in self._tiles:
+            tile.setParent(self._cols_host)  # keep alive across the reflow
+        while self._cols_row.count():
+            item = self._cols_row.takeAt(0)
+            sub = item.layout()
+            if sub is not None:
+                while sub.count():
+                    sub.takeAt(0)
+                sub.deleteLater()
+        self._col_layouts = []
 
     def _relayout(self) -> None:
         cols = self._cols()
-        self._place(self._grid, self._main_tiles, cols)
-        self._place(self._more_grid, self._more_tiles, cols)
+        if cols == self._last_cols and self._col_layouts:
+            return   # equal-width columns reflow tile widths for free
+        self._last_cols = cols
+        self._clear_columns()
 
-    @staticmethod
-    def _place(grid: QGridLayout, tiles: list, cols: int) -> None:
-        while grid.count():
-            item = grid.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                grid.removeWidget(w)
-        for i, tile in enumerate(tiles):
-            grid.addWidget(tile, i // cols, i % cols)
+        # Fresh column layouts inside the host row (equal stretch → equal width).
+        for _ in range(cols):
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(14)
+            self._cols_row.addLayout(col, 1)
+            self._col_layouts.append(col)
+
+        total_gap = self._cols_row.spacing() * max(0, cols - 1)
+        host_w = self._cols_host.width() or self.width() or 1000
+        col_w = max(_CLUSTER_TILE_MIN_W, (host_w - total_gap) // max(1, cols))
+
+        heights = [0] * cols
+        for tile in self._tiles:
+            idx = heights.index(min(heights))   # shortest column so far
+            self._col_layouts[idx].addWidget(tile)
             tile.show()
+            heights[idx] += tile.height_for_width(col_w) + self._cols_row.spacing()
 
-    def _apply_more_visibility(self) -> None:
-        n = len(self._more_tiles)
-        chevron = _icons.collapse_icon if self._more_expanded else _icons.expand_icon
-        self._more_btn.setText(f"{chevron} More facets ({n})")
-        self._more_btn.setToolTip(
-            "Hide the low-cardinality facets"
-            if self._more_expanded
-            else "Show more facets (quality, platform, audio format, subtitles)"
-        )
-        self._more_host.setVisible(self._more_expanded and n > 0)
-
-    def _toggle_more(self) -> None:
-        self._more_expanded = not self._more_expanded
-        self._apply_more_visibility()
-        self.more_facets_toggled.emit(self._more_expanded)
+        for col in self._col_layouts:
+            col.addStretch()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         self._relayout()
-
-
-# ---------------------------------------------------------------------------
-# Recipe rail (right column)
-# ---------------------------------------------------------------------------
-
-class _RecipeRail(QWidget):
-    """Right-column rail showing ingredient chips grouped by role.
-
-    Emits ``ingredient_remove_requested(facet_type, value, state)`` when an
-    ingredient chip is clicked (cycles back through the include→exclude→none
-    cycle by signalling the parent to remove it).
-    """
-
-    ingredient_remove_requested = pyqtSignal(str, str)  # (facet_type, value)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedWidth(328)
-        self.setStyleSheet(_theme.RECIPE_RAIL_BG)
-        self._build_ui()
-
-    # ── public ────────────────────────────────────────────────────────────
-
-    def update_recipe(
-        self,
-        includes: dict[str, set[str]],
-        excludes: dict[str, set[str]],
-        match_count: int | None,
-    ) -> None:
-        """Re-render the recipe rail with the current recipe state.
-
-        Args:
-            includes: facet_type → set of included values.
-            excludes: facet_type → set of excluded values.
-            match_count: Number of matching channels for the YIELDS display, or
-                ``None`` when the count is still pending (shows "counting…").
-        """
-        # Update editorial name
-        name = _generate_recipe_name(includes, excludes)
-        self._name_lbl.setText(name)
-
-        # Clear ingredient area
-        _clear_layout(self._ingredients_layout)
-
-        has_ingredients = False
-
-        # Render include groups by role order
-        for role in _ROLE_ORDER:
-            # Find the facet(s) that map to this role
-            for ftype, vals in includes.items():
-                if not vals:
-                    continue
-                role_label = _facet_role(ftype)
-                if role_label != role:
-                    continue
-                has_ingredients = True
-                # Role label
-                rl = QLabel(role)
-                rl.setStyleSheet(_theme.RECIPE_ROLE_LABEL)
-                self._ingredients_layout.addWidget(rl)
-                # Chips row
-                row = _ChipRow(ftype, list(vals), "include", self)
-                row.remove_clicked.connect(self._on_remove)
-                self._ingredients_layout.addWidget(row)
-
-        # Render excludes under OMIT
-        exclude_vals: list[tuple[str, str]] = [
-            (ftype, v)
-            for ftype, vals in excludes.items()
-            for v in vals
-            if vals
-        ]
-        if exclude_vals:
-            has_ingredients = True
-            omit_lbl = QLabel("OMIT")
-            omit_lbl.setStyleSheet(
-                f"font-size: {_theme.FONT_SM}; font-weight: bold;"
-                f" color: {_theme.COLOR_WARN}; letter-spacing: 1px;"
-            )
-            self._ingredients_layout.addWidget(omit_lbl)
-            for ftype, v in exclude_vals:
-                row = _ChipRow(ftype, [v], "exclude", self)
-                row.remove_clicked.connect(self._on_remove)
-                self._ingredients_layout.addWidget(row)
-
-        if not has_ingredients:
-            empty = QLabel("No ingredients yet — click tags to add them")
-            empty.setStyleSheet(
-                f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            )
-            empty.setWordWrap(True)
-            self._ingredients_layout.addWidget(empty)
-
-        self._ingredients_layout.addStretch()
-
-        # YIELDS
-        if match_count is None:
-            self._yields_lbl.setText("YIELDS counting…")
-        else:
-            self._yields_lbl.setText(f"YIELDS {match_count:,} channel{'s' if match_count != 1 else ''}")
-
-    # ── private ───────────────────────────────────────────────────────────
-
-    def _build_ui(self) -> None:
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        outer = QVBoxLayout(inner)
-        outer.setContentsMargins(12, 12, 12, 8)
-        outer.setSpacing(6)
-
-        # "TONIGHT'S RECIPE" header
-        rail_hdr = QLabel("TONIGHT'S RECIPE")
-        rail_hdr.setStyleSheet(_theme.RECIPE_RAIL_HDR)
-        outer.addWidget(rail_hdr)
-
-        # Editorial recipe name
-        self._name_lbl = QLabel("Your recipe is empty")
-        self._name_lbl.setStyleSheet(_theme.RECIPE_EDITORIAL_NAME)
-        self._name_lbl.setWordWrap(True)
-        outer.addWidget(self._name_lbl)
-
-        # Divider
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(_theme.SEPARATOR_H)
-        outer.addWidget(line)
-
-        # Ingredient chips area (populated dynamically via update_recipe)
-        self._ingredients_layout = QVBoxLayout()
-        self._ingredients_layout.setSpacing(4)
-        self._ingredients_layout.setContentsMargins(0, 0, 0, 0)
-        outer.addLayout(self._ingredients_layout)
-
-        # Initial empty state
-        empty = QLabel("No ingredients yet — click tags to add them")
-        empty.setStyleSheet(
-            f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-        )
-        empty.setWordWrap(True)
-        self._ingredients_layout.addWidget(empty)
-        self._ingredients_layout.addStretch()
-
-        # Divider above footer
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.Shape.HLine)
-        line2.setStyleSheet(_theme.SEPARATOR_H)
-        outer.addWidget(line2)
-
-        # YIELDS count
-        self._yields_lbl = QLabel("YIELDS 0 channels")
-        self._yields_lbl.setStyleSheet(_theme.RECIPE_YIELDS)
-        outer.addWidget(self._yields_lbl)
-
-        scroll.setWidget(inner)
-
-        # Action buttons (Save stub + Clear)
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        self.save_btn = QPushButton(f"{_icons.recipe_save_icon} Save Recipe")
-        self.save_btn.setEnabled(False)   # slice 4 TODO
-        self.save_btn.setStyleSheet(_theme.RECIPE_SAVE_BTN)
-        self.save_btn.setToolTip("Save this recipe for quick access — coming in a future update")
-        btn_row.addWidget(self.save_btn)
-
-        self.clear_btn = QPushButton(f"{_icons.recipe_clear_icon} Clear")
-        self.clear_btn.setStyleSheet(_theme.RECIPE_CLEAR_BTN)
-        self.clear_btn.setToolTip("Remove all ingredients from the recipe")
-        btn_row.addWidget(self.clear_btn)
-
-        wrapper = QVBoxLayout(self)
-        wrapper.setContentsMargins(0, 0, 0, 0)
-        wrapper.setSpacing(0)
-        wrapper.addWidget(scroll)
-
-        footer = QWidget()
-        footer.setStyleSheet("background: transparent;")
-        footer.setLayout(btn_row)
-        footer.layout().setContentsMargins(12, 8, 12, 12)  # type: ignore[union-attr]
-        wrapper.addWidget(footer)
-
-    def _on_remove(self, facet_type: str, value: str) -> None:
-        self.ingredient_remove_requested.emit(facet_type, value)
-
-
-class _ChipRow(QWidget):
-    """A horizontal row of ingredient chips for one facet + state.
-
-    Args:
-        facet_type: The facet namespace (e.g. "genre").
-        values: The ingredient values for this role group.
-        state: "include" or "exclude".
-        parent: Parent widget.
-    """
-
-    remove_clicked = pyqtSignal(str, str)   # (facet_type, value)
-
-    def __init__(
-        self,
-        facet_type: str,
-        values: list[str],
-        state: str,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        style = _theme.RECIPE_OMIT_CHIP if state == "exclude" else _theme.RECIPE_INGREDIENT_CHIP
-        icon = _icons.tag_exclude_icon if state == "exclude" else _icons.tag_include_icon
-        color = _facet_color(facet_type)
-
-        for v in sorted(values):
-            chip = QPushButton(f"{icon} {v}")
-            chip.setStyleSheet(style)
-            chip.setToolTip(f"Click to remove '{v}' from the recipe")
-            # color override for include chips — use facet color
-            if state == "include":
-                chip.setStyleSheet(
-                    f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {color};"
-                    f" border: 1px solid {_theme.COLOR_BORDER}; border-radius: 4px;"
-                    f" padding: 2px 8px; background: {_theme.OVERLAY_05}; }}"
-                    f"QPushButton:hover {{ background: {_theme.OVERLAY_10}; }}"
-                )
-            chip.clicked.connect(self._make_handler(facet_type, v))
-            layout.addWidget(chip)
-
-        layout.addStretch()
-
-    def _make_handler(self, facet_type: str, value: str):
-        def _handler() -> None:
-            self.remove_clicked.emit(facet_type, value)
-        return _handler
 
 
 # ---------------------------------------------------------------------------
@@ -783,199 +558,3 @@ def _clear_layout(layout) -> None:
             item.widget().deleteLater()
         elif item.layout():
             _clear_layout(item.layout())
-
-
-# ---------------------------------------------------------------------------
-# Now Plating results grid
-# ---------------------------------------------------------------------------
-
-class _GridContainer(QWidget):
-    """Flow-layout body for the Now-Plating grid.
-
-    Holds the Discover ``_FlowLayout`` and reflows (wraps) its cards on every
-    resize, growing its own fixed height to the wrapped content height so the
-    enclosing vertical ``QScrollArea`` scrolls.  Mirrors ``_BrowseContainer`` in
-    ``discover_browse.py`` — the same vertically-scrollable wrapping-grid
-    primitive, kept local so the recipe view doesn't couple to the See-All
-    browse drill-down.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._flow = None  # _FlowLayout | None
-
-    def set_flow(self, flow) -> None:
-        self._flow = flow
-
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
-        if self._flow is not None:
-            h = self._flow.relayout(self.width())
-            self.setFixedHeight(max(h + 16, 1))
-        if event is not None:
-            super().resizeEvent(event)
-
-
-class _NowPlatingStrip(QWidget):
-    """Wrapping, vertically-scrollable grid of clickable result cards.
-
-    Reuses the Discover ``_ContentCard`` surface (poster + async ``ImageCache``
-    loading + title) and the Discover ``_FlowLayout`` so a recipe match is
-    browsable and actionable — the cards wrap into rows and the area fills the
-    space below the cloud rather than clipping a single horizontal row:
-
-    - single-click  → ``cardClicked(channel_id)``       (select → details pane)
-    - double-click  → ``cardDoubleClicked(channel_id)``  (play, host-delegated)
-
-    Poster loading is lazy (same pattern as ``discover_browse._BrowseView``):
-    only cards inside the current vertical viewport request an image, fired on
-    scroll and once after each rebuild has settled — so toggling a tag (which
-    rebuilds the grid) only ever decodes the visible posters.  QPixmap is built
-    on the main thread inside each card's own ``image_loaded`` slot.
-    """
-
-    cardClicked       = pyqtSignal(str)        # channel_id
-    cardDoubleClicked = pyqtSignal(str)        # channel_id
-    cardMiddleClicked = pyqtSignal(str)        # channel_id — configured middle-click play
-    cardContextMenu   = pyqtSignal(str, int, int)  # channel_id, gx, gy
-    showAllRequested  = pyqtSignal()           # "Show all →" → full-results browse page
-
-    def __init__(self, image_cache, config, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._image_cache = image_cache
-        self._config = config
-        self._card_widgets: list = []          # list[_ContentCard]
-        self._scroll: QScrollArea | None = None
-        self._flow = None                      # _FlowLayout | None
-        self._total_count: int = 0             # latest match total (drives "Show all")
-        self._build_ui()
-
-    # ── public ────────────────────────────────────────────────────────────
-
-    def load_results(self, cards: list, total_count: int) -> None:
-        """Populate the grid with real content cards.
-
-        Args:
-            cards:       ``ContentCard`` value objects (≤ the grid cap) from
-                         ``TagRepository.sample_channels_by_tag_facets``.
-            total_count: Total number of matching channels (for the header +
-                         the "+N more…" remainder indicator).
-        """
-        from metatv.gui.discover_card import _ContentCard, _FlowLayout
-
-        self._total_count = total_count
-        self._hdr.setText(
-            f"NOW PLATING  ·  {total_count:,} match{'es' if total_count != 1 else ''}"
-        )
-        # "Show all" only makes sense when there is at least one match.
-        self._show_all_btn.setVisible(total_count > 0)
-
-        # Tear down the previous flow + cards, then start a fresh flow.  (A new
-        # _FlowLayout each rebuild matches discover_browse — clear() deletes the
-        # old card widgets.)
-        if self._flow is not None:
-            self._flow.clear()
-        self._card_widgets = []
-        self._flow = _FlowLayout(self._grid_container, spacing=8)
-        self._grid_container.set_flow(self._flow)
-
-        if not cards:
-            placeholder = QLabel("No channels match this recipe yet")
-            placeholder.setStyleSheet(
-                f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            )
-            self._flow.add(placeholder)
-            placeholder.show()
-            self._grid_container.resizeEvent(None)
-            return
-
-        for card in cards:
-            w = _ContentCard(card, self._image_cache, self._config, self._grid_container)
-            w.clicked.connect(self.cardClicked)
-            w.doubleClicked.connect(self.cardDoubleClicked)
-            w.middleClicked.connect(self.cardMiddleClicked)
-            w.contextMenuRequested.connect(self.cardContextMenu)
-            self._flow.add(w)
-            w.show()
-            self._card_widgets.append(w)
-
-        if total_count > len(cards):
-            more = QLabel(f"+ {total_count - len(cards):,} more…  ·  showing {len(cards)} of {total_count:,}")
-            more.setStyleSheet(
-                f"color: {_theme.COLOR_RECIPE_MUTED}; font-size: {_theme.FONT_MD};"
-            )
-            self._flow.add(more)
-            more.show()
-
-        # Wrap into rows now that all cards exist, then load posters for the
-        # cards in the viewport once geometry has settled.
-        self._grid_container.resizeEvent(None)
-        QTimer.singleShot(120, self._load_visible)
-
-    # ── private ───────────────────────────────────────────────────────────
-
-    def _load_visible(self) -> None:
-        """Request poster images for cards currently in the vertical viewport."""
-        if self._scroll is None:
-            return
-        vp_h = self._scroll.viewport().height()
-        if vp_h == 0:
-            QTimer.singleShot(80, self._load_visible)
-            return
-        scroll_y = self._scroll.verticalScrollBar().value()
-        for card in self._card_widgets:
-            top = card.y()
-            if top + card.height() >= scroll_y and top <= scroll_y + vp_h:
-                card.request_image()
-
-    def _build_ui(self) -> None:
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 8, 0, 0)
-        outer.setSpacing(4)
-
-        # Divider
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(_theme.SEPARATOR_H)
-        outer.addWidget(line)
-
-        # Header row: "NOW PLATING · N matches" label + "Show all →" affordance.
-        hdr_row = QHBoxLayout()
-        hdr_row.setContentsMargins(0, 0, 0, 0)
-        hdr_row.setSpacing(8)
-
-        self._hdr = QLabel("NOW PLATING  ·  0 matches")
-        self._hdr.setStyleSheet(_theme.RECIPE_NOW_PLATING_HDR)
-        hdr_row.addWidget(self._hdr)
-        hdr_row.addStretch()
-
-        # "Show all →" — flat link styled like Discover's "See all →", swaps the
-        # bounded teaser for the full-results browse grid.  Hidden until there is
-        # at least one match (toggled in load_results).
-        self._show_all_btn = QPushButton(f"Show all {_icons.see_all_arrow_icon}")
-        self._show_all_btn.setFlat(True)
-        self._show_all_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none;"
-            f" font-size: {_theme.FONT_MD}; padding: 2px 4px; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
-        )
-        self._show_all_btn.setToolTip("Browse all matching channels")
-        self._show_all_btn.setVisible(False)
-        self._show_all_btn.clicked.connect(self.showAllRequested)
-        hdr_row.addWidget(self._show_all_btn)
-
-        outer.addLayout(hdr_row)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self._scroll = scroll
-        scroll.verticalScrollBar().valueChanged.connect(self._load_visible)
-
-        self._grid_container = _GridContainer()
-        self._grid_container.setStyleSheet("background: transparent;")
-        scroll.setWidget(self._grid_container)
-        # The grid takes the remaining vertical space in the center column.
-        outer.addWidget(scroll, stretch=1)
-

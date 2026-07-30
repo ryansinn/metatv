@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from loguru import logger
 
-from metatv.gui import icons as _icons
 from metatv.gui.recipe_widgets import (
     _ALL_CLUSTER_FACETS,
     _CLUSTER_LIMIT_PER_FACET,
@@ -122,49 +121,9 @@ class _RecipeClusterMixin:
     def _on_cluster_tag_clicked(self, facet_type: str, value: str) -> None:
         """A tag inside a cluster tile → add the ingredient, STAY in the overview.
 
-        Cross-facet build without leaving the grid (decision 4): reuses the shared
+        Cross-facet build without leaving the grid: reuses the shared
         :meth:`_cycle_tag` include/exclude cycle, then re-renders the cluster grid
         so the clicked tag immediately shows its new mark.
         """
         self._cycle_tag(facet_type, value)
         self._render_clusters()
-
-    # ── Persisted collapse states ─────────────────────────────────────────
-
-    def _on_more_facets_toggled(self, expanded: bool) -> None:
-        """Persist the cluster grid's "More facets" collapse state (save on change)."""
-        try:
-            self._config.recipe_more_facets_expanded = bool(expanded)
-            self._config.save()
-        except Exception as e:  # never let a config write crash the UI
-            logger.warning("RecipeView: could not persist More-facets state: {}", e)
-
-    def _toggle_col1_collapsed(self) -> None:
-        """Collapse/expand the Tonight's-Recipe column (persisted)."""
-        self._col1_collapsed = not self._col1_collapsed
-        self._apply_col1_collapsed()
-        try:
-            self._config.recipe_col1_collapsed = self._col1_collapsed
-            self._config.save()
-        except Exception as e:  # never let a config write crash the UI
-            logger.warning("RecipeView: could not persist column-1 collapse: {}", e)
-
-    def _apply_col1_collapsed(self) -> None:
-        """Apply the column-1 collapse state: chevron glyph + body visibility + width.
-
-        Follows ``icons.expand_icon``/``collapse_icon`` for the chevron and shrinks
-        the column to a thin strip when collapsed so the cluster grid widens.
-        """
-        collapsed = self._col1_collapsed
-        self._col1_body.setVisible(not collapsed)
-        self._col1_chevron.setText(
-            _icons.expand_icon if collapsed else _icons.collapse_icon
-        )
-        self._col1_chevron.setToolTip(
-            "Show the Tonight's Recipe panel" if collapsed
-            else "Hide the Tonight's Recipe panel to widen the facet grid"
-        )
-        if collapsed:
-            self._col1_container.setMaximumWidth(34)
-        else:
-            self._col1_container.setMaximumWidth(16777215)  # QWIDGETSIZE_MAX

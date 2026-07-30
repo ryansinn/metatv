@@ -113,9 +113,9 @@ def _make_view(qapp):
 # #99 — Now-Plating card context menu
 # ---------------------------------------------------------------------------
 
-def test_now_plating_strip_has_card_context_menu_signal(qapp):
-    """_NowPlatingStrip exposes a cardContextMenu(str, int, int) signal."""
-    from metatv.gui.recipe_view import _NowPlatingStrip
+def test_matching_shelf_has_card_context_menu_signal(qapp):
+    """_MatchingShelf exposes a cardContextMenu(str, int, int) signal."""
+    from metatv.gui.recipe_view import _MatchingShelf
     from PyQt6.QtCore import QObject, pyqtSignal
 
     class _FakeCache(QObject):
@@ -133,15 +133,15 @@ def test_now_plating_strip_has_card_context_menu_signal(qapp):
         queue_icon = "▶"
         watched_icon = "✓"
 
-    strip = _NowPlatingStrip(_FakeCache(), _FakeCfg())
+    shelf = _MatchingShelf(_FakeCache(), _FakeCfg())
     # Signal must exist with 3 args (channel_id, gx, gy).
     captured: list[tuple] = []
-    strip.cardContextMenu.connect(lambda cid, gx, gy: captured.append((cid, gx, gy)))
-    strip.cardContextMenu.emit("chan_1", 100, 200)
+    shelf.cardContextMenu.connect(lambda cid, gx, gy: captured.append((cid, gx, gy)))
+    shelf.cardContextMenu.emit("chan_1", 100, 200)
     assert captured == [("chan_1", 100, 200)]
 
 
-def test_now_plating_card_context_menu_wired_on_load_results(qapp):
+def test_matching_card_context_menu_wired_on_load_results(qapp):
     """After load_results, right-clicking a card emits RecipeView.channelContextMenuRequested."""
     view, seam = _make_view(qapp)
     view._active = True
@@ -155,11 +155,11 @@ def test_now_plating_card_context_menu_wired_on_load_results(qapp):
     view._on_results_loaded((cards, 1))
 
     # Simulate a right-click context-menu event on the card widget.
-    card_widget = view._now_plating._card_widgets[0]
+    card_widget = view._matching._card_widgets[0]
     card_widget.contextMenuRequested.emit("chan_42", 55, 77)
 
     assert captured == [("chan_42", 55, 77)], (
-        "Right-clicking a Now-Plating card must emit channelContextMenuRequested"
+        "Right-clicking a Matching Content card must emit channelContextMenuRequested"
     )
 
 

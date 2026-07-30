@@ -347,8 +347,8 @@ def test_include_and_exclude_in_same_facet(qapp):
 # Results strip and YIELDS
 # ---------------------------------------------------------------------------
 
-def test_results_loaded_updates_strip(qapp):
-    """_on_results_loaded renders real result cards in the Now Plating strip."""
+def test_results_loaded_updates_shelf(qapp):
+    """_on_results_loaded renders real result cards in the Matching Content shelf."""
     view, seam = _make_view(qapp)
     view._active = True
 
@@ -359,11 +359,10 @@ def test_results_loaded_updates_strip(qapp):
     ]
     view._on_results_loaded((cards, 3))
 
-    # Strip header should mention the match count
-    hdr_text = view._now_plating._hdr.text()
-    assert "3" in hdr_text
+    # The shelf subtitle should mention the match total ("preview · N total").
+    assert "3" in view._matching._sub.text()
     # One card widget per delivered card.
-    assert len(view._now_plating._card_widgets) == 3
+    assert len(view._matching._card_widgets) == 3
 
 
 def test_results_loaded_inactive_skips(qapp):
@@ -371,22 +370,21 @@ def test_results_loaded_inactive_skips(qapp):
     view, seam = _make_view(qapp)
     view._active = False
 
-    initial_hdr = view._now_plating._hdr.text()
+    initial_sub = view._matching._sub.text()
     view._on_results_loaded(([_FakeCard("c1", "Chan X")], 1))
     # Should not have changed
-    assert view._now_plating._hdr.text() == initial_hdr
-    assert view._now_plating._card_widgets == []
+    assert view._matching._sub.text() == initial_sub
+    assert view._matching._card_widgets == []
 
 
 def test_results_loaded_updates_yields(qapp):
-    """_on_results_loaded updates the YIELDS label in the recipe rail."""
+    """_on_results_loaded updates the yield count in the one-line recipe bar."""
     view, seam = _make_view(qapp)
     view._active = True
 
     view._on_results_loaded(([_FakeCard("a", "Channel A"), _FakeCard("b", "Channel B")], 42))
 
-    yields_text = view._rail._yields_lbl.text()
-    assert "42" in yields_text
+    assert "42" in view._recipe_bar._yield_lbl.text()
 
 
 def test_results_zero_matches(qapp):
@@ -396,11 +394,10 @@ def test_results_zero_matches(qapp):
 
     view._on_results_loaded(([], 0))
 
-    yields_text = view._rail._yields_lbl.text()
-    assert "0" in yields_text
-    # Empty result: no card widgets, header still shows 0 matches.
-    assert view._now_plating._card_widgets == []
-    assert "0" in view._now_plating._hdr.text()
+    assert "0" in view._recipe_bar._yield_lbl.text()
+    # Empty result: no card widgets, subtitle still shows 0 total.
+    assert view._matching._card_widgets == []
+    assert "0" in view._matching._sub.text()
 
 
 def test_card_click_emits_channel_selected(qapp):
@@ -412,7 +409,7 @@ def test_card_click_emits_channel_selected(qapp):
 
     view._on_results_loaded(([_FakeCard("chan_42", "Pick Me")], 1))
     # Emit the card's clicked signal (what a left-click does).
-    view._now_plating._card_widgets[0].clicked.emit("chan_42")
+    view._matching._card_widgets[0].clicked.emit("chan_42")
 
     assert captured == ["chan_42"]
 
@@ -425,117 +422,89 @@ def test_card_double_click_emits_play_requested(qapp):
     view.playRequested.connect(captured.append)
 
     view._on_results_loaded(([_FakeCard("chan_7", "Play Me")], 1))
-    view._now_plating._card_widgets[0].doubleClicked.emit("chan_7")
+    view._matching._card_widgets[0].doubleClicked.emit("chan_7")
 
     assert captured == ["chan_7"]
 
 
-def test_more_label_when_total_exceeds_cards(qapp):
-    """When total > delivered cards, a '+ N more…' label is appended."""
+def test_show_all_visible_when_matches_present(qapp):
+    """The shelf is a bounded preview: 'Show all →' appears whenever total > 0."""
     view, seam = _make_view(qapp)
     view._active = True
 
     cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(3)]
     view._on_results_loaded((cards, 50))
 
-    # 3 card widgets; the surplus is shown as a "+ 47 more…" label, not a card.
-    assert len(view._now_plating._card_widgets) == 3
+    # The shelf shows the fetched preview cards; the full 50 are reachable via Show all.
+    assert len(view._matching._card_widgets) == 3
+    assert "50" in view._matching._sub.text()
+    assert (view._matching._show_all_btn.isVisible()
+            or not view._matching._show_all_btn.isHidden())
 
 
 # ---------------------------------------------------------------------------
-# Now-Plating grid (Task 2): wrapping, vertically-scrollable card grid
+# Matching Content shelf (redesign): a Discover-style horizontal preview row
 # ---------------------------------------------------------------------------
 #
-# The strip used to be a single clipped horizontal row showing ~6 of 2,500
-# results; it is now a wrapping grid that fills the space below the cloud.
+# The old vertical wrapping grid is replaced by a single horizontal shelf (a
+# bounded preview); the full match set is reached via "Show all →".
 
 from PyQt6.QtWidgets import QLabel as _QLabel  # noqa: E402
 
 
-def _flow_items(view):
-    """Return the widgets currently in the Now-Plating flow layout."""
-    flow = view._now_plating._flow
-    return list(flow._items) if flow is not None else []
+def _shelf_labels(view):
+    """Return the placeholder QLabels currently in the Matching shelf row."""
+    layout = view._matching._inner_layout
+    out = []
+    for i in range(layout.count()):
+        w = layout.itemAt(i).widget()
+        if isinstance(w, _QLabel):
+            out.append(w)
+    return out
 
 
-def test_grid_wraps_cards_into_multiple_rows(qapp):
-    """A gridful of cards wraps into >1 row when the container is narrow.
-
-    Proven by relaying the flow at a width that fits only a few cards and
-    asserting the wrapped content spans multiple distinct y-rows.
-    """
+def test_shelf_holds_all_preview_cards_in_one_row(qapp):
+    """A preview of cards lands in the single horizontal shelf layout."""
     view, seam = _make_view(qapp)
     view._active = True
 
     cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(12)]
     view._on_results_loaded((cards, 12))
 
-    assert len(view._now_plating._card_widgets) == 12
-    # Reflow at a narrow width (≈3 cards wide at 120px each) → must wrap.
-    flow = view._now_plating._flow
-    total_h = flow.relayout(400)
-    rows = {w.y() for w in view._now_plating._card_widgets}
-    assert len(rows) > 1, "Cards must wrap into multiple rows in a narrow grid"
-    assert total_h > 0
+    assert len(view._matching._card_widgets) == 12
+    # All cards are in the one horizontal inner layout (a shelf, not a wrap-grid).
+    assert view._matching._inner_layout.count() >= 12
 
 
-def test_grid_more_indicator_present_when_total_exceeds_cap(qapp):
-    """A '+N more … showing M of TOTAL' indicator is added when total > shown."""
-    view, seam = _make_view(qapp)
-    view._active = True
-
-    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(5)]
-    view._on_results_loaded((cards, 2500))
-
-    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
-    texts = " ".join(lbl.text() for lbl in labels)
-    assert "more" in texts
-    assert "2,495" in texts          # 2500 − 5 remainder
-    assert "showing 5 of 2,500" in texts
-
-
-def test_grid_no_more_indicator_when_all_shown(qapp):
-    """No '+N more' indicator when the full match set fits in the grid."""
-    view, seam = _make_view(qapp)
-    view._active = True
-
-    cards = [_FakeCard(f"c{i}", f"Channel {i}") for i in range(4)]
-    view._on_results_loaded((cards, 4))
-
-    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
-    assert all("more" not in lbl.text() for lbl in labels)
-
-
-def test_grid_empty_state_renders_cleanly(qapp):
+def test_shelf_empty_state_renders_cleanly(qapp):
     """Zero matches renders a placeholder label and no card widgets."""
     view, seam = _make_view(qapp)
     view._active = True
 
     view._on_results_loaded(([], 0))
 
-    assert view._now_plating._card_widgets == []
-    labels = [w for w in _flow_items(view) if isinstance(w, _QLabel)]
-    assert any("No channels match" in lbl.text() for lbl in labels)
+    assert view._matching._card_widgets == []
+    assert any("No titles match" in lbl.text() for lbl in _shelf_labels(view))
 
 
-def test_grid_rebuild_replaces_previous_cards(qapp):
+def test_shelf_rebuild_replaces_previous_cards(qapp):
     """A second load (tag toggle) clears the prior cards before adding new ones."""
     view, seam = _make_view(qapp)
     view._active = True
 
     view._on_results_loaded(([_FakeCard("a", "A"), _FakeCard("b", "B")], 2))
-    assert len(view._now_plating._card_widgets) == 2
+    assert len(view._matching._card_widgets) == 2
 
-    # Re-load with a different set — the grid rebuilds, not appends.
+    # Re-load with a different set — the shelf rebuilds, not appends.
     view._on_results_loaded(([_FakeCard("c", "C")], 1))
-    assert len(view._now_plating._card_widgets) == 1
-    assert view._now_plating._card_widgets[0]._card.channel_id == "c"
+    assert len(view._matching._card_widgets) == 1
+    assert view._matching._card_widgets[0]._card.channel_id == "c"
 
 
-def test_grid_results_card_cap_is_a_gridful(qapp):
-    """The result cap is raised to a gridful (>1 row) of cards."""
+def test_shelf_results_card_cap_is_a_preview(qapp):
+    """The result cap fetches a bounded preview shelf (never the full set)."""
     from metatv.gui.recipe_view import RecipeView
-    assert RecipeView._RESULTS_CARD_CAP >= 48
+    assert RecipeView._RESULTS_CARD_CAP >= 12
 
 
 def test_cloud_has_no_trailing_stretch(qapp):
@@ -577,7 +546,7 @@ def test_clear_recipe_empties_includes_excludes(qapp):
 
 
 def test_clear_recipe_resets_yields(qapp):
-    """After clear_recipe(), the YIELDS label shows 0."""
+    """After clear_recipe(), the recipe bar's yield count shows 0."""
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"
@@ -587,7 +556,7 @@ def test_clear_recipe_resets_yields(qapp):
     view._on_results_loaded(([_FakeCard("a", "Channel A")], 99))
     view.clear_recipe()
 
-    yields_text = view._rail._yields_lbl.text()
+    yields_text = view._recipe_bar._yield_lbl.text()
     assert "0" in yields_text
 
 
@@ -1138,10 +1107,10 @@ class _RailSpy:
 
 
 def _make_view_with_rail_spy(qapp):
-    """Create a RecipeView with the real _RecipeRail replaced by a spy."""
+    """Create a RecipeView with the real one-line recipe bar replaced by a spy."""
     view, seam = _make_view(qapp)
     spy = _RailSpy()
-    view._rail = spy
+    view._recipe_bar = spy
     return view, seam, spy
 
 
@@ -1223,28 +1192,74 @@ def test_ingredient_remove_renders_rail_chips_synchronously(qapp):
     assert total is None
 
 
-def test_update_recipe_pending_total_shows_counting_label(qapp):
-    """_RecipeRail.update_recipe with total=None shows 'counting' in YIELDS label."""
-    from metatv.gui.recipe_view import _RecipeRail
+def test_update_recipe_pending_total_shows_pending_label(qapp):
+    """_RecipeBar.update_recipe with total=None shows a pending yield (no number)."""
+    from metatv.gui.recipe_view import _RecipeBar
 
-    rail = _RecipeRail()
-    rail.update_recipe({"genre": {"Drama"}}, {}, None)
+    bar = _RecipeBar()
+    bar.update_recipe({"genre": {"Drama"}}, {}, None)
 
-    yields_text = rail._yields_lbl.text()
-    assert "counting" in yields_text.lower(), (
-        f"YIELDS label must say 'counting' when total is None, got: {yields_text!r}"
+    yields_text = bar._yield_lbl.text()
+    assert "…" in yields_text, (
+        f"Yield must read as pending when total is None, got: {yields_text!r}"
     )
 
 
 def test_update_recipe_real_total_shows_count(qapp):
-    """_RecipeRail.update_recipe with a real total shows the numeric YIELDS."""
-    from metatv.gui.recipe_view import _RecipeRail
+    """_RecipeBar.update_recipe with a real total shows the numeric yield."""
+    from metatv.gui.recipe_view import _RecipeBar
 
-    rail = _RecipeRail()
-    rail.update_recipe({"genre": {"Drama"}}, {}, 42)
+    bar = _RecipeBar()
+    bar.update_recipe({"genre": {"Drama"}}, {}, 42)
 
-    yields_text = rail._yields_lbl.text()
+    yields_text = bar._yield_lbl.text()
     assert "42" in yields_text
+
+
+def test_recipe_bar_renders_ingredient_pills(qapp):
+    """Ingredients render as pills; Save/Clear enable only when non-empty."""
+    from metatv.gui.recipe_view import _RecipeBar
+    from PyQt6.QtWidgets import QPushButton
+
+    bar = _RecipeBar()
+    # Empty → placeholder visible, actions disabled.
+    bar.update_recipe({}, {}, 0)
+    assert bar._empty_lbl.isVisible() or not bar._empty_lbl.isHidden()
+    assert not bar.save_btn.isEnabled()
+    assert not bar.clear_btn.isEnabled()
+
+    # Two ingredients → two pills, actions enabled.
+    bar.update_recipe({"genre": {"Drama"}, "region": {"ES"}}, {}, 5)
+    pills = [w for w in bar._ings._flow._items if isinstance(w, QPushButton)]
+    assert len(pills) == 2
+    assert bar.save_btn.isEnabled() and bar.clear_btn.isEnabled()
+
+
+def test_recipe_bar_region_ingredient_shows_code_not_name(qapp):
+    """A region ingredient pill shows the CODE (ES), never an expanded name."""
+    from metatv.gui.recipe_view import _RecipeBar
+    from PyQt6.QtWidgets import QPushButton
+
+    bar = _RecipeBar()
+    bar.update_recipe({"region": {"ES"}}, {}, 3)
+    pills = [w for w in bar._ings._flow._items if isinstance(w, QPushButton)]
+    texts = " ".join(p.text() for p in pills)
+    assert "ES" in texts
+    assert "Spain" not in texts
+
+
+def test_recipe_bar_remove_emits_signal(qapp):
+    """Clicking an ingredient pill emits ingredient_remove_requested(facet, value)."""
+    from metatv.gui.recipe_view import _RecipeBar
+    from PyQt6.QtWidgets import QPushButton
+
+    bar = _RecipeBar()
+    captured: list[tuple] = []
+    bar.ingredient_remove_requested.connect(lambda f, v: captured.append((f, v)))
+    bar.update_recipe({"genre": {"Drama"}}, {}, 1)
+    pill = next(w for w in bar._ings._flow._items if isinstance(w, QPushButton))
+    pill.click()
+    assert captured == [("genre", "Drama")]
 
 
 def test_rapid_tag_clicks_coalesce_into_one_db_query(qapp):
@@ -1327,16 +1342,16 @@ def test_show_all_button_hidden_until_matches(qapp):
     view._active = True
 
     # No results yet → button hidden.
-    assert not view._now_plating._show_all_btn.isVisible()
+    assert not view._matching._show_all_btn.isVisible()
 
     view._on_results_loaded(([_FakeCard("c1", "A")], 5))
     # Visibility flag is set even on a not-yet-shown widget.
-    assert view._now_plating._show_all_btn.isVisible() or \
-        not view._now_plating._show_all_btn.isHidden()
+    assert view._matching._show_all_btn.isVisible() or \
+        not view._matching._show_all_btn.isHidden()
 
     # Zero matches → button hidden again.
     view._on_results_loaded(([], 0))
-    assert view._now_plating._show_all_btn.isHidden()
+    assert view._matching._show_all_btn.isHidden()
 
 
 def test_show_all_switches_stack_to_browse_page(qapp):

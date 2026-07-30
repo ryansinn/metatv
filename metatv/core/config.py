@@ -626,12 +626,19 @@ class Config(BaseModel):
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
     sidebar_section_sizes: list = Field(default_factory=list)  # Heights of sidebar sections in pixels
 
-    # Recipe view splitter geometry (two-column layout).  Empty → view defaults.
-    recipe_main_splitter_sizes: list = Field(default_factory=list)     # [col1, col2] widths
-    recipe_col1_splitter_sizes: list = Field(default_factory=list)     # [recipe-rail, saved-recipes] heights
-    recipe_content_splitter_sizes: list = Field(default_factory=list)  # [cluster/cloud, now-plating] heights
-    recipe_col1_collapsed: bool = False           # Tonight's-Recipe column collapsed to a strip
-    recipe_more_facets_expanded: bool = False     # cluster grid "▸ More facets" section expanded
+    # Recipe view legacy splitter geometry (pre-redesign two-column layout).
+    # Retained so older config.yaml files still load cleanly; the current
+    # masonry redesign no longer reads or writes them.
+    recipe_main_splitter_sizes: list = Field(default_factory=list)
+    recipe_col1_splitter_sizes: list = Field(default_factory=list)
+    recipe_content_splitter_sizes: list = Field(default_factory=list)
+    recipe_col1_collapsed: bool = False
+    recipe_more_facets_expanded: bool = False
+
+    # Saved recipes — the user's personal facet "recipes" (Saved tab).  Each entry
+    # is ``{"name": str, "includes": {facet: [values]}, "excludes": {facet: [values]}}``.
+    # Persisted so a saved recipe survives restarts and reloads back into the builder.
+    saved_recipes: list = Field(default_factory=list)
 
     # Performance
     chunk_size: int = 1000  # Channels to process at once
