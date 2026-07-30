@@ -113,16 +113,23 @@ class ChannelDB(Base):
     # re-parsed from raw_data at read time.  When present it is authoritative and drives
     # ``content_key`` (``tmdb:{id}|{media_type}``, namespaced because TMDb numbers movies
     # and series separately).  NULL when the provider ships no id (or a sentinel).
-    # A catalog-derived field: it IS in _CATALOG_COLS (refreshes with raw_data) — unlike
-    # the name-derived detected_* fields, which the upsert preserves.
+    # A catalog-derived field, but the enrichment layer also writes ids the LIST row
+    # omitted, so the upsert preserves it via COALESCE (see provider_loader._flush_batch)
+    # rather than blindly overwriting to NULL each refresh.
     detected_tmdb_id = Column(String, nullable=True)
 
-    # Provider-native tmdb enrichment marker (Phase 2 — see tmdb_enrichment_manager.py).
-    # Tracks whether the provider's detail endpoint has been queried for a row that
-    # shipped no list-row tmdb id: NULL = unattempted, 'none' = attempted-but-empty,
-    # 'done' = an id was found and stored.  Guarantees an idless row is fetched at most
-    # once; reset to NULL on content refresh (reset_tmdb_enrich_state) so new catalog
-    # data re-attempts.  NOT in _CATALOG_COLS — the provider upsert never overwrites it.
+    # tmdb enrichment provenance marker (Phase 2 — see tmdb_enrichment_manager.py).
+    # Encodes HOW/whether a row's tmdb id was resolved, driving the fetch-once guard and
+    # the "Missing TMDb data" analytics funnel:
+    #   NULL         — unattempted (no id yet; a lazy-fetch candidate)
+    #   'list'       — id came straight from the provider list row (Phase-1 harvest)
+    #   'propagated' — id adopted from a confident same-title sibling (free, no network)
+    #   'fetched'    — id found via the provider's detail endpoint (get_vod/series_info)
+    #   'none'       — detail endpoint attempted but carried no id (the residual gap only
+    #                  the external TMDb API could resolve)
+    # Guarantees an idless row is fetched at most once; on content refresh only STILL-idless
+    # rows are reset to NULL (reset_tmdb_enrich_state) so resolved rows keep their provenance.
+    # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites an existing marker.
     tmdb_enrich_state = Column(String, nullable=True, index=True)
 
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).

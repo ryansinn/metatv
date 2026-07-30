@@ -1863,9 +1863,11 @@ class ChannelRepository(_ChannelStatsMixin):
         the SAME chokepoint the migration uses
         (:func:`~metatv.core.content_identity.content_key_for`, which is
         tmdb-first, so the recomputed key is ``"tmdb:{id}|{media_type}"``), and
-        mark ``tmdb_enrich_state='done'``.  For each **miss** (attempted but the
+        mark ``tmdb_enrich_state='fetched'``.  For each **miss** (attempted but the
         detail endpoint carried no id): mark ``tmdb_enrich_state='none'`` so the
-        row is never re-fetched (until a content refresh resets it).
+        row is never re-fetched (until a content refresh resets it) — the residual
+        ``NULL id + 'none'`` is the only-TMDb-API-addressable gap the analytics
+        surface reports.
 
         Only these three generated fields are written — user tags / ratings /
         favorites are never touched (mirror-not-cage).
@@ -1915,7 +1917,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 .values(
                     detected_tmdb_id=tmdb,
                     content_key=key,
-                    tmdb_enrich_state="done",
+                    tmdb_enrich_state="fetched",
                 )
             )
 
@@ -1933,19 +1935,19 @@ class ChannelRepository(_ChannelStatsMixin):
         return sum(1 for key in new_keys.values() if key_counts.get(key, 0) >= 2)
 
     def reset_tmdb_enrich_state(self, provider_id: str) -> int:
-        """Clear the enrichment attempt marker for one provider's rows.
+        """Clear the attempt marker for one provider's rows **that are still idless**.
 
         Called from the content-refresh chokepoint (``provider_loader``) after a
-        source is re-ingested, so genuinely new/changed catalog rows are attempted
-        again on the next enrichment pass.  Only the generated marker is touched.
+        source is re-ingested, so an idless row that was previously attempted-empty
+        (``'none'``) gets one more chance against the (possibly changed) catalog on
+        the next lazy fetch.  Only the generated marker is touched.
 
-        Note: because ``detected_tmdb_id`` is a catalog column, a re-ingest clears
-        any *enriched* id back to NULL; resetting the marker here is what lets the
-        next pass re-discover it (an enriched row would otherwise be stuck idless +
-        marked ``done`` and never re-attempted).  Re-fetching the empty tail every
-        refresh is the accepted cost of this "re-attempt on content refresh" model
-        (bounded by the per-session cap); a future refinement could scope the reset
-        to rows whose ``raw_data`` actually changed.
+        **Narrowed to idless rows only** (``detected_tmdb_id IS NULL``): a row that
+        already carries an id — from the list (``'list'``), a title sibling
+        (``'propagated'``), or a provider-detail fetch (``'fetched'``) — keeps both
+        its id (preserved on refresh by the ``COALESCE`` in ``_flush_batch``) and
+        its provenance marker, so enrichment is never re-done for a row that already
+        resolved.  This is the fetch-once guarantee surviving refresh.
 
         Args:
             provider_id: The just-refreshed provider.
@@ -1957,6 +1959,7 @@ class ChannelRepository(_ChannelStatsMixin):
             update(ChannelDB)
             .where(ChannelDB.provider_id == provider_id)
             .where(ChannelDB.tmdb_enrich_state.isnot(None))
+            .where(ChannelDB.detected_tmdb_id.is_(None))
             .values(tmdb_enrich_state=None)
         )
         self.session.commit()
