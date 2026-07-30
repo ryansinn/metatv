@@ -19,7 +19,7 @@ from metatv.core.channel_name_utils import (
 )
 from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
-from metatv.core.content_identity import content_key_for
+from metatv.core.content_identity import content_key_for, valid_tmdb_id
 from metatv.core.tag_decomposer import region_code_from_category
 
 
@@ -1237,15 +1237,25 @@ class ChannelRepository(_ChannelStatsMixin):
                 # Build a lightweight proxy that reflects the new field values without
                 # mutating the channel yet — this lets us include content_key in the
                 # changed comparison atomically.
+                # detected_tmdb_id is a provider fact captured at ingestion (not
+                # recomputed here) — read the already-stored value so the recomputed
+                # content_key stays tmdb-first when the provider shipped an id.
                 class _NewFields:
-                    __slots__ = ("detected_title", "media_type", "detected_year", "id")
-                    def __init__(self, title, mt, year, ch_id):
+                    __slots__ = (
+                        "detected_title", "media_type", "detected_year",
+                        "detected_tmdb_id", "id",
+                    )
+                    def __init__(self, title, mt, year, tmdb_id, ch_id):
                         self.detected_title = title
                         self.media_type = mt
                         self.detected_year = year
+                        self.detected_tmdb_id = tmdb_id
                         self.id = ch_id
                 new_content_key = content_key_for(
-                    _NewFields(new_title, channel.media_type, new_year, channel.id)
+                    _NewFields(
+                        new_title, channel.media_type, new_year,
+                        channel.detected_tmdb_id, channel.id,
+                    )
                 )
 
                 changed = (
@@ -1387,6 +1397,95 @@ class ChannelRepository(_ChannelStatsMixin):
         self.session.commit()
         return filled
 
+    def backfill_tmdb_ids(
+        self,
+        progress_cb=None,
+        is_cancelled=None,
+    ) -> int:
+        """Populate ``detected_tmdb_id`` from each row's ``raw_data["tmdb"]``.
+
+        Content-identity Slice 3.  Existing rows were ingested before the raw
+        provider tmdb id was captured, so their ``detected_tmdb_id`` is NULL.
+        This one-time pass reads the ``raw_data`` blob, validates the id via the
+        shared :func:`~metatv.core.content_identity.valid_tmdb_id`, and stores it.
+
+        **Ordering:** must run BEFORE the content_key recompute (version 4) so
+        that recompute reads a populated ``detected_tmdb_id`` and can emit the
+        tmdb-first key.  See the registration order in ``gui/main_window.py``.
+
+        Only ``detected_tmdb_id`` (a generated field derived purely from the
+        provider blob) is written — user tags/ratings/favorites are never
+        touched (mirror-not-cage).  Rows with no real tmdb id keep NULL.
+
+        Processes rows in 2000-row batches, loading ``raw_data`` for at most one
+        batch at a time (then commit + ``expunge_all``) to stay memory-safe on
+        large tables.  Idempotent: only rows whose ``detected_tmdb_id`` is still
+        NULL are scanned, so an interrupted run resumes cheaply.
+
+        Args:
+            progress_cb: Optional ``(done: int, total: int) -> None`` called
+                after each batch commit.
+            is_cancelled: Optional ``() -> bool`` checked at the top of each
+                batch.  Early exit leaves committed batches durable; the task
+                version is not bumped so it restarts next launch.
+
+        Returns:
+            Number of rows that had a non-NULL ``detected_tmdb_id`` written.
+        """
+        _BATCH = 2000
+
+        # Only rows that don't yet have an id — NULL covers both "never scanned"
+        # and "scanned, no id".  We narrow to VOD media types because live
+        # channels never carry a tmdb id; this skips the bulk of most libraries.
+        q = (
+            self.session.query(ChannelDB.id)
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+        )
+        all_ids = [row[0] for row in q.all()]
+        total = len(all_ids)
+
+        if total == 0:
+            logger.debug("backfill_tmdb_ids: nothing to do (no NULL-id VOD rows)")
+            return 0
+
+        logger.info("backfill_tmdb_ids: scanning {} VOD rows for provider tmdb ids", total)
+        filled = 0
+
+        for batch_start in range(0, total, _BATCH):
+            if is_cancelled is not None and is_cancelled():
+                logger.info("backfill_tmdb_ids: cancelled at {}/{}", batch_start, total)
+                break
+
+            chunk_ids = all_ids[batch_start : batch_start + _BATCH]
+            # raw_data IS needed here (that's where tmdb lives), so load it for
+            # this batch only, then expunge below.
+            rows = (
+                self.session.query(ChannelDB.id, ChannelDB.raw_data)
+                .filter(ChannelDB.id.in_(chunk_ids))
+                .all()
+            )
+
+            for (ch_id, raw) in rows:
+                tmdb = valid_tmdb_id((raw or {}).get("tmdb")) if raw else None
+                if tmdb is None:
+                    continue  # leave NULL — no real id shipped for this row
+                self.session.execute(
+                    update(ChannelDB)
+                    .where(ChannelDB.id == ch_id)
+                    .values(detected_tmdb_id=tmdb)
+                )
+                filled += 1
+
+            self.session.commit()
+            self.session.expunge_all()
+
+            if progress_cb is not None:
+                progress_cb(min(batch_start + _BATCH, total), total)
+
+        logger.info("backfill_tmdb_ids: wrote {} tmdb ids across {} scanned rows", filled, total)
+        return filled
+
     def backfill_content_keys(
         self,
         progress_cb=None,
@@ -1446,27 +1545,34 @@ class ChannelRepository(_ChannelStatsMixin):
                 break
 
             chunk_ids = all_ids[batch_start : batch_start + _BATCH]
-            # Project only the columns we need to stay memory-safe.
+            # Project only the columns we need to stay memory-safe.  detected_tmdb_id
+            # is included so content_key_for can pick the tmdb-first key on recompute
+            # (else it would fall back to the title/year key and never key on tmdb).
             rows = (
                 self.session.query(
                     ChannelDB.id,
                     ChannelDB.detected_title,
                     ChannelDB.media_type,
                     ChannelDB.detected_year,
+                    ChannelDB.detected_tmdb_id,
                 )
                 .filter(ChannelDB.id.in_(chunk_ids))
                 .all()
             )
 
-            for (ch_id, det_title, media_type, det_year) in rows:
+            for (ch_id, det_title, media_type, det_year, det_tmdb_id) in rows:
                 class _Proxy:
-                    __slots__ = ("detected_title", "media_type", "detected_year", "id")
-                    def __init__(self, t, m, y, i):
+                    __slots__ = (
+                        "detected_title", "media_type", "detected_year",
+                        "detected_tmdb_id", "id",
+                    )
+                    def __init__(self, t, m, y, tmdb, i):
                         self.detected_title = t
                         self.media_type = m
                         self.detected_year = y
+                        self.detected_tmdb_id = tmdb
                         self.id = i
-                key = content_key_for(_Proxy(det_title, media_type, det_year, ch_id))
+                key = content_key_for(_Proxy(det_title, media_type, det_year, det_tmdb_id, ch_id))
                 # Update via bulk UPDATE to avoid loading the full ORM object (raw_data JSON blob).
                 self.session.execute(
                     update(ChannelDB)

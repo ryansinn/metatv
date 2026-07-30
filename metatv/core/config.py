@@ -899,6 +899,13 @@ class Config(BaseModel):
     # to trigger a one-time re-derivation of all content_key values from stored detected_* fields.
     content_key_backfill_version: int = 0
 
+    # Internal migration version for the tmdb-id backfill (content-identity Slice 3).
+    # Bump CURRENT_VERSION in metatv/core/migrations/tmdb_id_backfill.py to trigger a
+    # one-time pass that reads raw_data["tmdb"] into detected_tmdb_id.  MUST run before
+    # the content_key backfill (registration order in gui/main_window.py) so the
+    # content_key recompute can key on the tmdb id.
+    tmdb_id_backfill_version: int = 0
+
     # Internal migration version for the detected_title re-parse (#78).
     # Bump CURRENT_VERSION in metatv/core/migrations/detected_title_reparse.py
     # to trigger a one-time full re-run of update_detected_prefixes() that strips trailing

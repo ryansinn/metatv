@@ -8,6 +8,7 @@ from loguru import logger
 
 from metatv.core.models import Channel, Provider, MediaType, StreamQuality, ProviderURL
 from metatv.core.connection_tracker import ConnectionTracker
+from metatv.core.content_identity import valid_tmdb_id
 from metatv.providers.base import ProviderPlugin
 
 
@@ -324,7 +325,12 @@ class XtreamAPI:
             epg_channel_id=raw_data.get('epg_channel_id'),
             media_type=media_type,
             quality=quality,
-            raw_data=raw_data
+            raw_data=raw_data,
+            # Capture the provider's canonical TMDb id once, at ingestion (the
+            # compute-once principle). Validated by the shared valid_tmdb_id so
+            # sentinels ("", "0", "null") become None. Drives the tmdb-first
+            # content_key downstream; never re-read from raw_data at render time.
+            detected_tmdb_id=valid_tmdb_id(raw_data.get("tmdb")),
         )
 
 

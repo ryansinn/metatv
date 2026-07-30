@@ -59,7 +59,13 @@ class Channel:
     
     # Raw data from provider
     raw_data: dict = field(default_factory=dict)
-    
+
+    # Canonical TMDb id extracted from raw_data at ingestion (validated via
+    # content_identity.valid_tmdb_id). Persisted to ChannelDB.detected_tmdb_id
+    # by the catalog upsert; drives the tmdb-first content_key. None when the
+    # provider ships no id (or a sentinel).
+    detected_tmdb_id: Optional[str] = None
+
     # Timestamps
     added_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
