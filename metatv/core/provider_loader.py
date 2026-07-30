@@ -201,6 +201,7 @@ class ProviderLoadThread(QThread):
 
         try:
             self._store_channels(session, channels, total)
+            self._reset_epg_unnamed_refetch_marker(session)
             self.progress.emit(_BAND_STORE[1], 100, f"Stored {total:,} channels")
 
         except Exception as e:
@@ -342,6 +343,22 @@ class ProviderLoadThread(QThread):
             if batch:
                 self._flush_batch(session, batch)
                 batch.clear()
+
+    def _reset_epg_unnamed_refetch_marker(self, session) -> None:
+        """Clear this provider's persistent EPG "unnamed re-fetch attempted" marker.
+
+        Content was just (re)ingested, so a feed that may have improved should get
+        one more chance at the one-time channel-name re-fetch driven by
+        ``EpgManager.refresh_all_if_needed`` (which sets the marker again if the guide
+        is still nameless, keeping it to a single attempt per content refresh).
+
+        Generated/system state only — never touches user data. A bulk UPDATE (no ORM
+        load) so it stays cheap on the large refresh path.
+        """
+        session.query(ProviderDB).filter_by(id=self.provider.id).update(
+            {"epg_unnamed_refetch_attempted": False}
+        )
+        session.commit()
 
     @staticmethod
     def _flush_batch(session, batch: list[dict]) -> None:

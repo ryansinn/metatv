@@ -283,11 +283,24 @@ class EpgManager(QObject):
         backwards compatibility with rows predating the column.
 
         In addition to the normal time-staleness check, this method detects the
-        "unmatched guide" case: EPG rows exist but all have ``channel_db_id=NULL``
-        because the fetch ran before the channel list was loaded.  For such providers
-        a one-time re-fetch is triggered per session (guarded by
-        ``_unmatched_refresh_attempted``) so the link is rebuilt against the now-
-        loaded channel table without the user having to click Refresh manually.
+        "unnamed legacy guide" case: EPG rows exist but are unmatched
+        (``channel_db_id=NULL``) AND lack a stored ``channel_name``, so the cheap
+        DB-only relink can't fuzzy-match them.  A one-time re-fetch is triggered to
+        populate names, guarded by TWO layers:
+
+        - ``_unmatched_refresh_attempted`` — in-memory, per-session dedupe.
+        - ``ProviderDB.epg_unnamed_refetch_attempted`` — **persistent** cross-launch
+          marker (reset only when the source is content-refreshed).
+
+        The persistent marker is what stops the every-launch loop: a feed that
+        genuinely serves nameless programme rows (channel ids with no ``<channel>``
+        display-name, e.g. TREX) keeps ``has_unmatched_unnamed_epg`` True forever, so
+        the in-memory guard alone re-fetched the full guide on EVERY launch (it resets
+        each start).  Once the marker is set, this branch never fires again for that
+        provider; the guide still refreshes on the normal ``needs_refresh`` interval.
+        A content refresh clears the marker so a genuinely-improved feed re-attempts
+        the names re-fetch exactly once.  (Sibling of the #285 fix, which converged the
+        unmatched-but-NAMED case but not the nameless-forever case.)
         """
         if not self.config.epg_auto_refresh:
             return
@@ -308,28 +321,37 @@ class EpgManager(QObject):
                     self._start_refresh(provider.id, eff_url, provider.name, force=False)
                 elif (
                     provider.id not in self._unmatched_refresh_attempted
+                    and not getattr(provider, "epg_unnamed_refetch_attempted", False)
                     and epg_repo.has_unmatched_unnamed_epg(provider.id)
                 ):
                     # Guide is time-fresh but has LEGACY rows that are unmatched AND
                     # lack a stored channel_name, so the DB-only relink can't fuzzy-match
-                    # them. Re-fetch once this session to populate channel_name; the cheap
-                    # relink then handles everything without a network fetch.
+                    # them. Re-fetch ONCE to populate channel_name; the cheap relink then
+                    # handles everything without a further network fetch.
                     #
                     # We deliberately do NOT re-fetch the merely "unmatched but named"
                     # case (``has_unmatched_epg``): ``relink_all()`` already re-matches
                     # named rows DB-only on every activation, so a network re-fetch adds
                     # nothing.  For a provider whose guide can never match its channels
                     # (a source serving placeholder/foreign EPG, e.g. TREX) those rows
-                    # stay permanently unmatched, which made this branch fire on EVERY
-                    # launch — the in-memory ``_unmatched_refresh_attempted`` guard resets
-                    # each session, so it re-fetched an unmatchable guide forever.  The
-                    # unnamed case, by contrast, converges: one re-fetch stores names →
-                    # ``has_unmatched_unnamed_epg`` goes False and it stops.
+                    # stay permanently unmatched AND unnamed — a channel id with no
+                    # ``<channel>`` display-name in the feed is written with an empty
+                    # ``channel_name`` and no re-fetch can ever fill it — so
+                    # ``has_unmatched_unnamed_epg`` never goes False.  With ONLY the
+                    # in-memory guard (resets each launch) this branch re-fetched the
+                    # full guide on EVERY launch, ignoring the refresh interval.  The
+                    # persistent ``epg_unnamed_refetch_attempted`` marker (set + committed
+                    # below) is what stops the cross-launch loop; the guide still
+                    # refreshes on the normal ``needs_refresh`` interval.  A content
+                    # refresh clears the marker so a genuinely-improved feed re-attempts
+                    # exactly once.
                     logger.info(
                         f"EPG: provider {provider.name!r} has unnamed (legacy) guide "
                         f"data — triggering one-time re-fetch to populate channel names"
                     )
                     self._unmatched_refresh_attempted.add(provider.id)
+                    provider.epg_unnamed_refetch_attempted = True
+                    session.commit()  # persist so the next launch does NOT re-fetch again
                     self._start_refresh(provider.id, eff_url, provider.name, force=False)
         finally:
             session.close()
