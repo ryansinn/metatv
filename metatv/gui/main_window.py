@@ -1640,7 +1640,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         """
         if not channel_ids:
             return
-        mgr = getattr(self, "tmdb_enrichment_manager", None)
+        # __dict__.get (not getattr) — the seam is called from render slots that
+        # tests drive on a MainWindow built via __new__ (no __init__), where a
+        # normal attribute access on the QObject would raise before the manager
+        # exists. Dict lookup stays a clean no-op until construction wires it up.
+        mgr = self.__dict__.get("tmdb_enrichment_manager")
         if mgr is not None:
             mgr.enqueue(channel_ids)
 
