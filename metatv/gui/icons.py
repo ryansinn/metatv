@@ -104,6 +104,7 @@ history_icon: str = "🕒"
 provider_icon: str = "📡"
 watch_alerts_icon: str = "⚠"
 info_icon: str = "ℹ"
+missing_data_icon: str = "🗄"   # U+1F5C4 FILE CABINET — Missing TMDb data diagnostic view
 watchlist_icon: str = "⏰"
 calendar_icon: str = "📅"
 discover_icon: str = "✨"

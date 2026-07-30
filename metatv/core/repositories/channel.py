@@ -9,7 +9,7 @@ from loguru import logger
 
 from metatv.core.database import (
     ChannelDB, MetadataDB, SeasonDB, EpisodeDB,
-    EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB,
+    EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
 )
 from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
 from metatv.core.channel_name_utils import (
@@ -17,7 +17,10 @@ from metatv.core.channel_name_utils import (
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
     AI_VOICEOVER_VALUE,
 )
-from metatv.core.repositories.dtos import FavoriteDTO, LiveEventDTO
+from metatv.core.repositories.dtos import (
+    FavoriteDTO, LiveEventDTO,
+    TmdbFunnelDTO, MissingTmdbRowDTO, MissingTmdbSourceDTO,
+)
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
 from metatv.core.tag_decomposer import region_code_from_category
@@ -60,6 +63,48 @@ def _start_year_int(detected_year) -> Optional[int]:
         return None
     m = _YEAR4_RE.search(str(detected_year))
     return int(m.group(1)) if m else None
+
+
+# Scene-release noise tokens — their presence in a "title" means the row kept a
+# release filename (e.g. "Movie.2019.1080p.WEB.x264-GROUP"), which a title search
+# would NOT match cleanly.  Used only for the qualitative TMDb-addressability flag
+# in the Missing-TMDb diagnostic (never for identity/collapse).
+_SCENE_NOISE_TOKENS = frozenset({
+    "1080p", "720p", "480p", "2160p", "4k", "x264", "x265", "h264", "h265",
+    "hevc", "web", "webrip", "web-dl", "webdl", "bluray", "brrip", "bdrip",
+    "hdrip", "dvdrip", "hdtv", "xvid", "aac", "ac3", "dts", "hdr", "remux",
+})
+
+
+def _looks_tmdb_addressable(detected_title, media_type, detected_year) -> bool:
+    """Qualitative guess: could an external TMDb title search likely resolve this row?
+
+    Decision-support only (never identity): a clean, short title — plus a year for
+    movies — is plausibly matchable; a scene-release filename or an empty title is
+    not.  Deliberately conservative so the "K titles the TMDb API could resolve"
+    figure isn't inflated by junk rows.
+
+    Args:
+        detected_title: The stored, already-stripped title (may be None).
+        media_type: ``"movie"`` / ``"series"``.
+        detected_year: The stored year string (may be None).
+
+    Returns:
+        True when the row looks like a plausible title-search target.
+    """
+    if not detected_title:
+        return False
+    # Split on any non-alphanumeric run so dot-separated scene filenames
+    # ("Movie.2019.1080p.WEB.x264-GRP") tokenize like space-separated ones.
+    tokens = [t for t in re.split(r"[^a-z0-9]+", detected_title.lower()) if t]
+    if not tokens or len(tokens) > 12:
+        return False
+    if any(t in _SCENE_NOISE_TOKENS for t in tokens):
+        return False
+    # Movies benefit from a disambiguating year; series are matchable on title alone.
+    if media_type == "movie":
+        return _start_year_int(detected_year) is not None
+    return True
 
 
 class ChannelRepository(_ChannelStatsMixin):
@@ -1891,6 +1936,154 @@ class ChannelRepository(_ChannelStatsMixin):
             {"id": cid, "provider_id": pid, "source_id": sid, "media_type": mt}
             for (cid, pid, sid, mt) in q.all()
         ]
+
+    def tmdb_enrichment_funnel(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> TmdbFunnelDTO:
+        """Return the enrichment funnel across visible VOD rows (analytics).
+
+        Buckets every movie/series row on a visible, non-excluded provider by how
+        its tmdb id was resolved (provenance in ``tmdb_enrich_state``), so the
+        "Missing TMDb data" view can present provider-native coverage vs. the
+        residual gap that only the external TMDb API could close.  One GROUP BY —
+        no per-row scan.
+
+        Args:
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) to exclude.
+
+        Returns:
+            A :class:`TmdbFunnelDTO` (safe to cross the worker boundary).
+        """
+        q = (
+            self.session.query(
+                ChannelDB.detected_tmdb_id.isnot(None),
+                ChannelDB.tmdb_enrich_state,
+                func.count(),
+            )
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            q = q.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        q = q.group_by(
+            ChannelDB.detected_tmdb_id.isnot(None), ChannelDB.tmdb_enrich_state
+        )
+
+        from_list = propagated = fetched = unattempted = residual = 0
+        for has_id, state, n in q.all():
+            if has_id:
+                if state == "propagated":
+                    propagated += n
+                elif state == "fetched":
+                    fetched += n
+                else:
+                    # 'list' / NULL / anything else with an id → harvested-from-list.
+                    from_list += n
+            else:
+                if state == "none":
+                    residual += n
+                else:
+                    unattempted += n  # NULL marker → still a lazy-fetch candidate
+
+        total = from_list + propagated + fetched + unattempted + residual
+        return TmdbFunnelDTO(
+            total_vod=total,
+            from_list=from_list,
+            propagated=propagated,
+            fetched=fetched,
+            unattempted=unattempted,
+            residual=residual,
+        )
+
+    def missing_tmdb_by_source(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        sample_per_source: int = 8,
+        max_sources: int = 50,
+    ) -> List[MissingTmdbSourceDTO]:
+        """Return idless-VOD counts + a sample per source for the diagnostic view.
+
+        A row is *idless* when ``detected_tmdb_id IS NULL`` (visible VOD only); of
+        those, the ``'none'``-marked subset is the residual only the TMDb API could
+        resolve.  The view feeds each returned row's ``channel_id`` back through the
+        enqueue chokepoint, so opening it drives enrichment (the list shrinks as ids
+        land).  Returns frozen DTOs — no ORM objects escape.
+
+        Args:
+            excluded_provider_ids: Hidden providers to exclude.
+            sample_per_source: Max example rows per source (for the drill-down).
+            max_sources: Cap on the number of sources returned (largest gaps first).
+
+        Returns:
+            List of :class:`MissingTmdbSourceDTO`, sorted by ``missing_count`` desc.
+        """
+        from sqlalchemy import case
+
+        base = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            base = base.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+
+        counts = (
+            base.with_entities(
+                ChannelDB.provider_id,
+                func.count(),
+                func.sum(case((ChannelDB.tmdb_enrich_state == "none", 1), else_=0)),
+            )
+            .group_by(ChannelDB.provider_id)
+            .order_by(func.count().desc())
+            .limit(max_sources)
+            .all()
+        )
+        if not counts:
+            return []
+
+        # Provider names (single lookup — the DTO carries the human-readable name).
+        names = {p.id: p.name for p in self.session.query(ProviderDB.id, ProviderDB.name).all()}
+
+        out: List[MissingTmdbSourceDTO] = []
+        for pid, missing_count, residual_count in counts:
+            sample_rows = (
+                base.with_entities(
+                    ChannelDB.id,
+                    ChannelDB.name,
+                    ChannelDB.detected_title,
+                    ChannelDB.detected_year,
+                    ChannelDB.media_type,
+                )
+                .filter(ChannelDB.provider_id == pid)
+                .order_by(ChannelDB.name)
+                .limit(sample_per_source)
+                .all()
+            )
+            sample = [
+                MissingTmdbRowDTO(
+                    channel_id=cid,
+                    name=name,
+                    detected_title=dt,
+                    detected_year=dy,
+                    media_type=mt,
+                    tmdb_addressable=_looks_tmdb_addressable(dt, mt, dy),
+                )
+                for (cid, name, dt, mt, dy) in (
+                    (r[0], r[1], r[2], r[4], r[3]) for r in sample_rows
+                )
+            ]
+            out.append(
+                MissingTmdbSourceDTO(
+                    provider_id=pid,
+                    provider_name=names.get(pid, pid),
+                    missing_count=int(missing_count or 0),
+                    residual_count=int(residual_count or 0),
+                    sample=sample,
+                )
+            )
+        return out
 
     def apply_tmdb_enrichment(
         self,

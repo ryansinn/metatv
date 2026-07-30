@@ -630,6 +630,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         tools_menu = menubar.addMenu("&Tools")
         tools_menu.addAction("&Diagnostics", self.show_diagnostics)
         tools_menu.addAction("&Filters", self.manage_filters)
+        missing_tmdb_action = QAction(
+            f"{_icons.missing_data_icon}  Missing TMDb Data", self
+        )
+        missing_tmdb_action.setToolTip(
+            "Diagnose TMDb-id coverage and drive on-demand enrichment"
+        )
+        missing_tmdb_action.triggered.connect(self.enter_missing_tmdb_mode)
+        tools_menu.addAction(missing_tmdb_action)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -1574,6 +1582,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.source_analytics.done.connect(self.exit_provider_analytics_mode)
         self.source_analytics.setVisible(False)
         self._list_layout.addWidget(self.source_analytics)
+
+        # Missing TMDb data diagnostic view (hidden by default; Tools menu).
+        from metatv.gui.missing_tmdb_view import MissingTmdbView
+        self.missing_tmdb_view = MissingTmdbView(self)
+        self.missing_tmdb_view.done.connect(self.exit_missing_tmdb_mode)
+        self.missing_tmdb_view.setVisible(False)
+        self._list_layout.addWidget(self.missing_tmdb_view)
 
         # Inner splitter: filter panel (left) | list area (right)
         self._inner_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)

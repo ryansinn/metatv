@@ -272,6 +272,66 @@ class PrefixStatDTO:
 
 
 # ---------------------------------------------------------------------------
+# TMDb enrichment diagnostics ("Missing TMDb data" view)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TmdbFunnelDTO:
+    """Enrichment funnel across visible VOD rows — decision-support for the TMDb API.
+
+    Every count is a movie/series row on a visible, non-excluded provider, bucketed
+    by how (or whether) its tmdb id was resolved.  The buckets partition the corpus:
+    ``total_vod == from_list + propagated + fetched + unattempted + residual``.  The
+    ``residual`` (idless AND attempted-empty) is the ONLY-TMDb-API-addressable gap.
+    """
+    total_vod: int
+    from_list: int       # id shipped in the provider list row (Phase-1 harvest)
+    propagated: int      # id adopted from a confident title sibling (free, no network)
+    fetched: int         # id found via the provider detail endpoint
+    unattempted: int     # idless, not yet attempted (a lazy-fetch candidate)
+    residual: int        # idless AND attempted-empty ('none') — only TMDb-API can resolve
+
+    @property
+    def resolved(self) -> int:
+        """Rows that now carry a tmdb id (via any provider-native method)."""
+        return self.from_list + self.propagated + self.fetched
+
+    @property
+    def idless(self) -> int:
+        """Rows still without a tmdb id (candidates + residual)."""
+        return self.unattempted + self.residual
+
+    @property
+    def resolved_pct(self) -> float:
+        return (self.resolved / self.total_vod * 100.0) if self.total_vod else 0.0
+
+    @property
+    def residual_pct(self) -> float:
+        return (self.residual / self.total_vod * 100.0) if self.total_vod else 0.0
+
+
+@dataclass(frozen=True)
+class MissingTmdbRowDTO:
+    """One idless VOD row shown in the 'Missing TMDb data' sample list."""
+    channel_id: str
+    name: str
+    detected_title: str | None
+    detected_year: str | None
+    media_type: str
+    tmdb_addressable: bool        # clean title (+year for movies) → likely TMDb-matchable
+
+
+@dataclass(frozen=True)
+class MissingTmdbSourceDTO:
+    """One source's idless-VOD summary for the 'Missing TMDb data' view."""
+    provider_id: str
+    provider_name: str
+    missing_count: int            # idless VOD rows on this source (detected_tmdb_id NULL)
+    residual_count: int           # of those, attempted-empty ('none') — TMDb-API-only
+    sample: list["MissingTmdbRowDTO"]
+
+
+# ---------------------------------------------------------------------------
 # Events tab DTO
 # ---------------------------------------------------------------------------
 

@@ -199,6 +199,23 @@ class _ProviderMixin:
         self.source_analytics.on_deactivate()
         self.switch_to_list_view()
 
+    def enter_missing_tmdb_mode(self):
+        """Switch center panel to the Missing TMDb data diagnostic view.
+
+        Opening it drives lazy enrichment (the view feeds the sampled ids through
+        the enqueue chokepoint), so the idless counts fill in + shrink as ids land.
+        """
+        self._hide_all_content_views()
+        self.missing_tmdb_view.setVisible(True)
+        self.missing_tmdb_view.on_activate()
+        self.stats_label.setText("Diagnosing TMDb coverage")
+        self._deactivate_view_chips()
+
+    def exit_missing_tmdb_mode(self):
+        """Return to the normal channel list view."""
+        self.missing_tmdb_view.on_deactivate()
+        self.switch_to_list_view()
+
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh all affected views."""
         sources = self.sidebar_sections.get("sources")
@@ -361,6 +378,10 @@ class _ProviderMixin:
         # path). reload() self-guards before the view has ever been activated.
         if "recipe_view" in self.__dict__:
             self.recipe_view.reload()
+        # Missing-TMDb diagnostic: an enrichment batch just collapsed rows, so its
+        # idless counts + samples should settle down. reload() self-guards on visible.
+        if "missing_tmdb_view" in self.__dict__:
+            self.missing_tmdb_view.reload()
         # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
         # state. Re-resolve provider ids + reload live only when EPG is on screen;
         # a hidden EPG view re-resolves its scope on its next on_activate().
