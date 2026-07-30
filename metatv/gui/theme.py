@@ -963,6 +963,143 @@ RECIPE_CLEAR_BTN = (
 )
 
 
+# ── Recipe builder — default "cluster grid" of per-facet mini tag-clouds ───────
+# The default overview replaces the one-facet-at-a-time pantry list with a grid
+# of per-facet mini clouds ("clusters").  Per-facet header colors stay dynamic
+# (composed inline from the COLOR_FACET_* tokens, like the pantry rows); only the
+# facet-agnostic chrome below is a shared role constant.
+
+# One cluster tile frame (a single facet's mini cloud in the overview grid).
+RECIPE_CLUSTER_TILE = (
+    "QFrame#clusterTile { background: " + COLOR_RECIPE_PANEL_BG + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 6px; }"
+)
+
+# "· N values" subtitle beside a cluster's facet header.
+RECIPE_CLUSTER_SUBTITLE = (
+    "color: " + COLOR_RECIPE_MUTED_2 + "; font-size: " + FONT_SM + ";"
+)
+
+# Collapsible "▸ More facets" section toggle at the foot of the cluster grid.
+RECIPE_MORE_FACETS_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_RECIPE_MUTED + ";"
+    " font-size: " + FONT_SM + "; font-weight: bold; letter-spacing: 1px;"
+    " text-align: left; padding: 6px 2px; }"
+    "QPushButton:hover { color: " + COLOR_RECIPE_TEXT + "; }"
+)
+
+# Column-1 collapse/expand chevron (hides the Tonight's-Recipe rail to widen the grid).
+RECIPE_COL1_CHEVRON = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_RECIPE_MUTED + ";"
+    " font-size: " + FONT_MD + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_RECIPE_TEXT + "; background: " + OVERLAY_05 + ";"
+    " border-radius: 4px; }"
+)
+
+# "‹ All facets" link — returns the drill-in / search view to the cluster grid.
+RECIPE_BACK_TO_GRID_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_ACCENT_BLUE + ";"
+    " font-size: " + FONT_MD + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_HOVER + "; }"
+)
+
+
+# ── Recipe builder — redesign (masonry grid · Recipe|Saved tabs · one-line bar) ─
+# The locked-mockup port: two sub-tabs, a masonry facet grid, a slim one-line
+# "recipe sentence" bar, and a Discover-style "Matching Content" shelf.  Only the
+# facet-agnostic chrome is a shared role constant here; per-facet colored chips
+# stay composed inline from the COLOR_FACET_* tokens (see recipe_widgets helpers).
+
+# Sub-tab bar ("Recipe" | "Saved") — pill toggle group.
+RECIPE_TABBAR_BG = "QWidget { background: transparent; }"
+RECIPE_TAB = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_MUTED + ";"
+    " font-size: " + FONT_XL + "; font-weight: 600; padding: 5px 16px; border-radius: 7px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
+)
+RECIPE_TAB_ACTIVE = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: " + COLOR_BG_CARD + ";"
+    " color: " + COLOR_TEXT_HI + "; font-size: " + FONT_XL + "; font-weight: 600;"
+    " padding: 5px 16px; border-radius: 7px; }"
+)
+# Small right-aligned hint next to the tabs.
+RECIPE_TABBAR_HINT = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+
+# "BROWSE BY FACET" uppercase section header above the masonry grid.
+RECIPE_BROWSE_HDR = (
+    "font-size: " + FONT_MD + "; font-weight: 600; color: " + COLOR_MUTED + ";"
+    " letter-spacing: 1.4px;"
+)
+
+# The slim one-line recipe "sentence" bar dividing the grid from Matching Content.
+RECIPE_BAR_BG = (
+    "QWidget#recipeBar { background: " + COLOR_RECIPE_PANEL_BG + ";"
+    " border-top: 1px solid " + COLOR_BORDER + "; border-bottom: 1px solid " + COLOR_BORDER + "; }"
+)
+RECIPE_BAR_LABEL = (
+    "font-size: " + FONT_SM + "; font-weight: bold; color: " + COLOR_FAINT + ";"
+    " letter-spacing: 1.6px;"
+)
+RECIPE_BAR_EMPTY = (
+    "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + "; font-style: italic;"
+)
+RECIPE_BAR_OP = "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + "; font-weight: 600;"
+RECIPE_BAR_YIELD = (
+    "font-size: " + FONT_LG + "; color: " + COLOR_MUTED + ";"
+)
+# Save (gold, primary) + Clear (ghost) actions on the recipe bar.
+RECIPE_BAR_SAVE_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_GOLD + "; background: transparent;"
+    " color: " + COLOR_GOLD + "; font-size: " + FONT_LG + "; font-weight: 600;"
+    " padding: 5px 13px; border-radius: 8px; }"
+    "QPushButton:hover { background: " + OVERLAY_10 + "; color: " + COLOR_GOLD_LIGHT + "; }"
+    "QPushButton:disabled { border-color: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
+)
+RECIPE_BAR_CLEAR_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_FAINT + ";"
+    " font-size: " + FONT_LG + "; font-weight: 600; padding: 5px 11px; border-radius: 8px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; background: " + OVERLAY_05 + "; }"
+    "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
+)
+
+# "MATCHING CONTENT" shelf header + "preview · N total" subtitle.
+RECIPE_MATCH_HDR = (
+    "font-size: " + FONT_LG + "; font-weight: bold; color: " + COLOR_MUTED + ";"
+    " letter-spacing: 1.3px;"
+)
+RECIPE_MATCH_SUB = "font-size: " + FONT_LG + "; color: " + COLOR_FAINT + ";"
+# "Show all →" link (flat blue accent, shared by shelf header).
+RECIPE_SHOW_ALL_BTN = (
+    "QPushButton { color: " + COLOR_ACCENT_BLUE + "; border: none;"
+    " font-size: " + FONT_LG + "; font-weight: 600; padding: 2px 6px; }"
+    "QPushButton:hover { color: " + COLOR_GOLD + "; }"
+)
+
+# Saved tab — subtitle + recipe card frame + editable name + count line.
+RECIPE_SAVED_SUB = "color: " + COLOR_FAINT + "; font-size: " + FONT_XL + ";"
+RECIPE_SAVED_CARD = (
+    "QFrame#savedRecipeCard { background: " + COLOR_RECIPE_PANEL_BG + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 12px; }"
+    "QFrame#savedRecipeCard:hover { border-color: " + COLOR_DIM + "; }"
+)
+RECIPE_SAVED_NAME_EDIT = (
+    "QLineEdit { border: none; background: transparent; color: " + COLOR_TEXT_HI + ";"
+    " font-size: " + FONT_2XL + "; font-weight: 600; padding: 0; }"
+    "QLineEdit:focus { border-bottom: 1px solid " + COLOR_BORDER + "; }"
+)
+RECIPE_SAVED_COUNT = "font-size: " + FONT_MD + "; color: " + COLOR_FAINT + ";"
+# Generic muted empty/loading placeholder text (saved-empty, grid-loading, no-matches).
+RECIPE_EMPTY_HINT = (
+    "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_XL + "; padding: 8px 2px;"
+)
+# Small icon button on a saved card (delete / load) — faint, hover-lit.
+RECIPE_SAVED_ICON_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_FAINT + ";"
+    " font-size: " + FONT_XL + "; padding: 2px 5px; border-radius: 4px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + OVERLAY_10 + "; }"
+)
+
+
 # ── Dev-only QA Testing Checklist — tri-state pass/fail ───────────────────────
 # Pass/fail toggle buttons.  Each has an inactive (ghost) and active state; the
 # active state tints to the OK (green) / ERR (red) palette so the chosen state

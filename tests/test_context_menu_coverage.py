@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import QApplication, QMenu
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import ChannelVersion, _VersionSection
-from metatv.gui.recipe_view import _NowPlatingStrip
+from metatv.gui.recipe_view import _MatchingShelf
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +84,8 @@ def _version_config() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 def test_now_plating_card_emits_context_menu_through_seam(qapp):
-    """A Now-Plating result card must re-emit cardContextMenu(channel_id, gx, gy)."""
-    strip = _NowPlatingStrip(_FakeImageCache(), _card_config())
+    """A Matching Content result card must re-emit cardContextMenu(channel_id, gx, gy)."""
+    strip = _MatchingShelf(_FakeImageCache(), _card_config())
     card = ContentCard(
         channel_id="ch-rec-1",
         title="Recipe Match",

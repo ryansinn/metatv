@@ -7,7 +7,7 @@ form one cohesive concern: swapping the builder for the full-results browse grid
 keeping the browse page in sync when the recipe / Global Exclusions change.
 
 The mixin is stateless — it only ever touches ``self`` attributes owned by
-:class:`~metatv.gui.recipe_view.RecipeView` (``_browse``, ``_now_plating``,
+:class:`~metatv.gui.recipe_view.RecipeView` (``_browse``, ``_matching``,
 ``_stack``, the recipe state, the ``_see_all_*`` pagination cursors, and the
 ``_run_query`` seam), so it is mixed into ``RecipeView`` and never instantiated
 on its own.
@@ -30,7 +30,7 @@ class _RecipeBrowseMixin:
         (else a neutral "Tonight's Recipe"), suffixed with the live match count
         — e.g. "Late-Night Drama Selection · 366,085 matches".
         """
-        total = self._now_plating._total_count
+        total = self._matching._total_count
         if self._recipe_includes or self._recipe_excludes:
             name = _generate_recipe_name(self._recipe_includes, self._recipe_excludes)
         else:
@@ -66,11 +66,11 @@ class _RecipeBrowseMixin:
         """
         # Drop any page request still in flight against the previous recipe.
         self._see_all_token[0] += 1
-        # Page 1 = the cards the strip already rendered (zero-latency feedback).
-        cached_cards = [w._card for w in self._now_plating._card_widgets]
+        # Page 1 = the cards the shelf already rendered (zero-latency feedback).
+        cached_cards = [w._card for w in self._matching._card_widgets]
         self._browse.load(self._browse_title(), cached_cards)
         self._see_all_offset = len(cached_cards)
-        self._see_all_total = self._now_plating._total_count
+        self._see_all_total = self._matching._total_count
         self._see_all_loading = False
         self._browse.set_has_more(self._see_all_offset < self._see_all_total)
 

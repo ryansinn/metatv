@@ -5,12 +5,9 @@
   - _NowPlatingStrip.cardContextMenu is forwarded to RecipeView.channelContextMenuRequested
   - _BrowseView.cardContextMenu is also forwarded to RecipeView.channelContextMenuRequested
 
-#100 — Pantry search box (cross-facet tag search; facet rows are NOT hidden)
-  - Pantry has a _filter_box QLineEdit attribute
-  - Typing in the search box keeps every facet row visible (it searches tag
-    values across all facets into the center cloud, it does not hide rows)
-  - _PantrySidebar.clear_filter() empties the search box
-  - RecipeView.clear_recipe() also clears the Pantry search box
+#100 — cross-facet tag search box (relocated above the cluster grid)
+  - _TagSearchBar exposes a _box QLineEdit with a clear button
+  - RecipeView.clear_recipe() also clears the cross-facet search box
 """
 
 from __future__ import annotations
@@ -116,9 +113,9 @@ def _make_view(qapp):
 # #99 — Now-Plating card context menu
 # ---------------------------------------------------------------------------
 
-def test_now_plating_strip_has_card_context_menu_signal(qapp):
-    """_NowPlatingStrip exposes a cardContextMenu(str, int, int) signal."""
-    from metatv.gui.recipe_view import _NowPlatingStrip
+def test_matching_shelf_has_card_context_menu_signal(qapp):
+    """_MatchingShelf exposes a cardContextMenu(str, int, int) signal."""
+    from metatv.gui.recipe_view import _MatchingShelf
     from PyQt6.QtCore import QObject, pyqtSignal
 
     class _FakeCache(QObject):
@@ -136,15 +133,15 @@ def test_now_plating_strip_has_card_context_menu_signal(qapp):
         queue_icon = "▶"
         watched_icon = "✓"
 
-    strip = _NowPlatingStrip(_FakeCache(), _FakeCfg())
+    shelf = _MatchingShelf(_FakeCache(), _FakeCfg())
     # Signal must exist with 3 args (channel_id, gx, gy).
     captured: list[tuple] = []
-    strip.cardContextMenu.connect(lambda cid, gx, gy: captured.append((cid, gx, gy)))
-    strip.cardContextMenu.emit("chan_1", 100, 200)
+    shelf.cardContextMenu.connect(lambda cid, gx, gy: captured.append((cid, gx, gy)))
+    shelf.cardContextMenu.emit("chan_1", 100, 200)
     assert captured == [("chan_1", 100, 200)]
 
 
-def test_now_plating_card_context_menu_wired_on_load_results(qapp):
+def test_matching_card_context_menu_wired_on_load_results(qapp):
     """After load_results, right-clicking a card emits RecipeView.channelContextMenuRequested."""
     view, seam = _make_view(qapp)
     view._active = True
@@ -158,11 +155,11 @@ def test_now_plating_card_context_menu_wired_on_load_results(qapp):
     view._on_results_loaded((cards, 1))
 
     # Simulate a right-click context-menu event on the card widget.
-    card_widget = view._now_plating._card_widgets[0]
+    card_widget = view._matching._card_widgets[0]
     card_widget.contextMenuRequested.emit("chan_42", 55, 77)
 
     assert captured == [("chan_42", 55, 77)], (
-        "Right-clicking a Now-Plating card must emit channelContextMenuRequested"
+        "Right-clicking a Matching Content card must emit channelContextMenuRequested"
     )
 
 
@@ -193,88 +190,34 @@ def test_recipe_view_has_channel_context_menu_required_signal(qapp):
 
 
 # ---------------------------------------------------------------------------
-# #100 — Pantry filter text box
+# Cross-facet tag search box (relocated above the cluster grid)
 # ---------------------------------------------------------------------------
 
-def test_pantry_has_filter_box(qapp):
-    """_PantrySidebar has a _filter_box QLineEdit attribute."""
-    from metatv.gui.recipe_view import _PantrySidebar
+def test_search_bar_has_box(qapp):
+    """_TagSearchBar exposes a QLineEdit search box with a clear button."""
+    from metatv.gui.recipe_view import _TagSearchBar
     from PyQt6.QtWidgets import QLineEdit
-    pantry = _PantrySidebar()
-    assert hasattr(pantry, "_filter_box"), "_PantrySidebar must have _filter_box"
-    assert isinstance(pantry._filter_box, QLineEdit)
+    bar = _TagSearchBar()
+    assert isinstance(bar._box, QLineEdit)
+    assert bar._box.isClearButtonEnabled()
 
 
-def test_pantry_search_keeps_all_facets_visible(qapp):
-    """Typing in the search box NEVER hides facet rows (it searches into the cloud).
-
-    The old name-only facet-row filter is replaced by cross-facet tag search, so
-    every facet row must stay visible regardless of the search text.
-    """
-    view, seam = _make_view(qapp)
-    view._active = True
-
-    summaries = [
-        _FacetSummaryDTO("genre", 100),
-        _FacetSummaryDTO("language", 50),
-        _FacetSummaryDTO("region", 75),
-    ]
-    view._on_pantry_loaded(summaries)
-    buttons = view._pantry._facet_buttons
-    assert len(buttons) == 3
-
-    # Type "lang" — under the new behaviour NO facet row is hidden.
-    # Use isHidden() (explicit hide state); headless widgets report isVisible()=False.
-    view._pantry._filter_box.setText("lang")
-    assert all(not b.isHidden() for b in buttons), (
-        "Pantry search must not hide any facet row — it searches tag values, not rows"
-    )
-
-
-def test_pantry_clear_filter_method(qapp):
-    """_PantrySidebar.clear_filter() empties the search box; facets stay visible."""
-    view, seam = _make_view(qapp)
-    view._active = True
-
-    summaries = [
-        _FacetSummaryDTO("genre", 120),
-        _FacetSummaryDTO("platform", 30),
-    ]
-    view._on_pantry_loaded(summaries)
-    view._pantry._filter_box.setText("genre")
-
-    view._pantry.clear_filter()
-
-    assert view._pantry._filter_box.text() == "", "clear_filter must empty the text box"
-    assert all(not b.isHidden() for b in view._pantry._facet_buttons), (
-        "All facet rows must remain visible after clear_filter()"
-    )
-
-
-def test_clear_recipe_also_clears_pantry_filter(qapp):
-    """RecipeView.clear_recipe() also clears the Pantry search box."""
+def test_clear_recipe_also_clears_search_box(qapp):
+    """RecipeView.clear_recipe() also clears the cross-facet search box."""
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"
 
-    summaries = [
-        _FacetSummaryDTO("genre", 100),
-        _FacetSummaryDTO("language", 50),
-        _FacetSummaryDTO("region", 75),
-    ]
-    view._on_pantry_loaded(summaries)
-
     # Set search text and recipe ingredients.
-    view._pantry._filter_box.setText("lan")
+    view._search_box._box.setText("lan")
+    view._search_query = "lan"
     view._recipe_includes = {"genre": {"Drama"}}
 
-    # clear_recipe must reset both the recipe AND the pantry search box.
+    # clear_recipe must reset both the recipe AND the search box.
     view.clear_recipe()
 
-    assert view._pantry._filter_box.text() == "", (
-        "clear_recipe() must clear the Pantry search box"
+    assert view._search_box.text() == "", (
+        "clear_recipe() must clear the cross-facet search box"
     )
-    assert all(not b.isHidden() for b in view._pantry._facet_buttons), (
-        "All Pantry facets must remain visible after clear_recipe()"
-    )
+    assert view._search_query == ""
     assert not view.recipe_includes, "Recipe includes must be empty after clear_recipe()"

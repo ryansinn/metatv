@@ -6,7 +6,7 @@ the existing clear_filter() public API still works correctly after the removal
 of the bespoke external clear buttons.
 
 Boxes covered:
-  * _PantrySidebar._filter_box          (recipe_view.py)
+  * _TagSearchBar._box                  (recipe_view.py)
   * WeightedTagCloud._filter_edit        (weighted_tag_cloud.py)
   * _BrowseView._search_box             (discover_browse.py)
 
@@ -61,39 +61,27 @@ class _FakeImageCache:
 
 
 # ---------------------------------------------------------------------------
-# _PantrySidebar._filter_box — recipe Pantry facet filter
+# _TagSearchBar._box — recipe cross-facet tag search box
 # ---------------------------------------------------------------------------
 
-def test_pantry_filter_box_has_clear_button(qapp):
-    """_PantrySidebar._filter_box must have isClearButtonEnabled() == True."""
-    from metatv.gui.recipe_view import _PantrySidebar
-    pantry = _PantrySidebar()
-    assert pantry._filter_box.isClearButtonEnabled(), (
-        "_PantrySidebar._filter_box must call setClearButtonEnabled(True) [isClearButtonEnabled() must return True]"
+def test_search_bar_box_has_clear_button(qapp):
+    """_TagSearchBar._box must have isClearButtonEnabled() == True."""
+    from metatv.gui.recipe_view import _TagSearchBar
+    bar = _TagSearchBar()
+    assert bar._box.isClearButtonEnabled(), (
+        "_TagSearchBar._box must call setClearButtonEnabled(True) [isClearButtonEnabled() must return True]"
     )
 
 
-def test_pantry_clear_filter_still_works(qapp):
-    """clear_filter() must empty the text box after the external button was removed."""
-    from metatv.gui.recipe_view import _PantrySidebar
-    from dataclasses import dataclass
+def test_search_bar_clear_still_works(qapp):
+    """clear() must empty the text box (the standard programmatic clear path)."""
+    from metatv.gui.recipe_view import _TagSearchBar
 
-    @dataclass(frozen=True)
-    class _FacetSummaryDTO:
-        facet_type: str
-        distinct_values: int
-
-    pantry = _PantrySidebar()
-    pantry.load_facets([_FacetSummaryDTO("genre", 100), _FacetSummaryDTO("region", 50)])
-    pantry._filter_box.setText("genre")
-    assert pantry._filter_box.text() == "genre"
-    pantry.clear_filter()
-    assert pantry._filter_box.text() == "", (
-        "clear_filter() must empty the filter box"
-    )
-    assert all(not b.isHidden() for b in pantry._facet_buttons), (
-        "clear_filter() must make all facet buttons visible"
-    )
+    bar = _TagSearchBar()
+    bar._box.setText("comedy")
+    assert bar.text() == "comedy"
+    bar.clear()
+    assert bar.text() == "", "clear() must empty the search box"
 
 
 # ---------------------------------------------------------------------------
