@@ -365,6 +365,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(TmdbIdBackfillTask(self.db))
         from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
         self.migration_manager.register(ContentKeyBackfillTask(self.db))
+        # Free (no-network) tmdb sibling propagation — AFTER the id + content_key
+        # backfills above so id-bearing siblings exist for idless rows to adopt from.
+        from metatv.core.migrations.tmdb_sibling_propagation import TmdbSiblingPropagationTask
+        self.migration_manager.register(TmdbSiblingPropagationTask(self.db))
         from metatv.core.migrations.tag_backfill import TagBackfillTask
         self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
         from metatv.core.migrations.category_facet_refacet import CategoryFacetRefacetTask

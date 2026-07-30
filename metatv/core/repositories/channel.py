@@ -45,6 +45,23 @@ class _TmdbKeyProxy:
         self.id = id
 
 
+_YEAR4_RE = re.compile(r"\b(\d{4})\b")
+
+
+def _start_year_int(detected_year) -> Optional[int]:
+    """Return the first 4-digit year in *detected_year* as an int, or ``None``.
+
+    Mirrors ``content_identity._start_year`` (ranges ``"2015-2018"`` → 2015,
+    ``"(2024)"`` → 2024, junk/empty → ``None``) but yields an ``int`` for the
+    ``abs(a - b) <= 1`` remake-compatibility comparison used by the tmdb
+    title-sibling propagation.
+    """
+    if not detected_year:
+        return None
+    m = _YEAR4_RE.search(str(detected_year))
+    return int(m.group(1)) if m else None
+
+
 class ChannelRepository(_ChannelStatsMixin):
     """Repository for channel data access"""
     
@@ -1312,12 +1329,19 @@ class ChannelRepository(_ChannelStatsMixin):
         # detected_region from a row sharing the same content_key. Skipped after a
         # cancellation (partial per-row state — don't propagate from it).
         sib_filled = 0
+        tmdb_adopted = 0
         if not (is_cancelled is not None and is_cancelled()):
             sib_filled = self._propagate_region_from_siblings(provider_id)
+            # Free (no-network) tmdb propagation: an idless row self-heals by adopting
+            # a confident same-title sibling's detected_tmdb_id so new content collapses
+            # without waiting for a background provider-detail fetch. Same shared helper
+            # the one-time migration uses.
+            tmdb_adopted = self.propagate_tmdb_from_title_siblings(provider_id)
 
         logger.info(
             f"Updated parsed name fields for {updated} of {processed} channels "
-            f"(+{sib_filled} regions filled from content_key siblings)"
+            f"(+{sib_filled} regions filled from content_key siblings, "
+            f"+{tmdb_adopted} tmdb ids from title siblings)"
         )
         return updated
 
@@ -1413,6 +1437,134 @@ class ChannelRepository(_ChannelStatsMixin):
 
         self.session.commit()
         return filled
+
+    def propagate_tmdb_from_title_siblings(
+        self, provider_id: Optional[str] = None
+    ) -> int:
+        """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
+
+        Free (no-network) Phase-2 pass.  For each idless VOD row
+        (``detected_tmdb_id IS NULL``), if a sibling shares the **same normalized
+        ``detected_title``** (via :func:`content_dedup.normalize_title`) **and the
+        same ``media_type``** and is **year-compatible**, adopt that sibling's id:
+        store ``detected_tmdb_id``, recompute ``content_key`` through the
+        :func:`~metatv.core.content_identity.content_key_for` chokepoint (tmdb-first
+        → ``"tmdb:{id}|{media_type}"``), and mark ``tmdb_enrich_state='propagated'``.
+
+        Year-compat / remake guard: a sibling is *year-compatible* when either row
+        lacks a ``detected_year`` or their start years differ by ≤ 1.  Among the
+        year-compatible id-bearing siblings a row adopts an id **only when exactly
+        one distinct id remains** — multiple distinct ids (a genuine remake split)
+        are ambiguous and skipped (never guess between remakes).
+
+        Sibling ids are read across **all** providers (content identity is
+        source-independent); when *provider_id* is given only that provider's idless
+        rows are filled (the ingestion-hook path — new content self-heals against the
+        whole library).  Only the generated ``detected_tmdb_id`` / ``content_key`` /
+        ``tmdb_enrich_state`` columns are written — user tags/ratings/favorites are
+        never touched (mirror-not-cage).  Shared by the one-time migration
+        (``tmdb_sibling_propagation``) and ``update_detected_prefixes`` so both paths
+        use one definition.
+
+        Args:
+            provider_id: Restrict the idless rows filled to this provider, or None
+                to fill across the whole library (the migration path).
+
+        Returns:
+            Number of idless rows that adopted a sibling id.
+        """
+        from metatv.core.content_dedup import normalize_title
+
+        _BATCH = 2000
+        _VOD = ("movie", "series")
+
+        # 1. Winner map from id-bearing VOD rows: (norm_title, media_type) ->
+        #    {tmdb_id: start_year_or_None}.  Dedup collapses variants; >1 distinct
+        #    id in a group flags a remake split resolved per-row (year-compat) below.
+        groups: Dict[Tuple[str, str], Dict[str, Optional[int]]] = {}
+        id_rows = (
+            self.session.query(
+                ChannelDB.detected_title,
+                ChannelDB.media_type,
+                ChannelDB.detected_year,
+                ChannelDB.detected_tmdb_id,
+            )
+            .filter(ChannelDB.detected_tmdb_id.isnot(None))
+            .filter(ChannelDB.media_type.in_(_VOD))
+            .yield_per(_BATCH)
+        )
+        for det_title, mt, det_year, det_tmdb in id_rows:
+            tmdb = valid_tmdb_id(det_tmdb)
+            if not tmdb:
+                continue
+            norm = normalize_title(det_title or "")
+            if not norm:
+                continue
+            year = _start_year_int(det_year)
+            bucket = groups.setdefault((norm, mt or ""), {})
+            # Keep the first year seen for an id, upgrading None → a real year when
+            # a later row for the same id carries one (helps the compat check).
+            if tmdb not in bucket or (bucket[tmdb] is None and year is not None):
+                bucket[tmdb] = year
+
+        if not groups:
+            return 0
+
+        # 2. Scan idless rows (scoped) and adopt where a single year-compatible id wins.
+        idless_q = (
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.detected_title,
+                ChannelDB.media_type,
+                ChannelDB.detected_year,
+            )
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.media_type.in_(_VOD))
+        )
+        if provider_id:
+            idless_q = idless_q.filter(ChannelDB.provider_id == provider_id)
+
+        adopted = 0
+        pending = 0
+        for cid, det_title, mt, det_year in idless_q.yield_per(_BATCH):
+            norm = normalize_title(det_title or "")
+            if not norm:
+                continue
+            bucket = groups.get((norm, mt or ""))
+            if not bucket:
+                continue
+            my_year = _start_year_int(det_year)
+            compat_ids = {
+                tid
+                for tid, syear in bucket.items()
+                if my_year is None or syear is None or abs(my_year - syear) <= 1
+            }
+            if len(compat_ids) != 1:
+                continue  # no candidate, or ambiguous remake split → don't guess
+            tmdb = next(iter(compat_ids))
+            proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=mt or "", id=cid)
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == cid)
+                .values(
+                    detected_tmdb_id=tmdb,
+                    content_key=content_key_for(proxy),
+                    tmdb_enrich_state="propagated",
+                )
+            )
+            adopted += 1
+            pending += 1
+            if pending >= _BATCH:
+                self.session.commit()
+                pending = 0
+
+        self.session.commit()
+        if adopted:
+            logger.info(
+                "tmdb_sibling_propagation: adopted {} idless row(s) from title siblings",
+                adopted,
+            )
+        return adopted
 
     def backfill_tmdb_ids(
         self,
