@@ -136,6 +136,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
     playRequested                = pyqtSignal(str)        # channel_id — play (host-delegated)
     channelMiddleClicked         = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested  = pyqtSignal(str, int, int)  # channel_id, gx, gy
+    tmdbEnrichRequested          = pyqtSignal(list)       # channel_ids just rendered → lazy TMDb enrichment
 
     def __init__(
         self,
@@ -586,6 +587,9 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         if not self._active:
             return
         cards, total = payload
+        # Feed the just-rendered matching cards to lazy TMDb enrichment (host chokepoint).
+        if cards:
+            self.tmdbEnrichRequested.emit([c.channel_id for c in cards])
         self._matching.load_results(cards, total)
         self._recipe_bar.update_recipe(self._recipe_includes, self._recipe_excludes, total)
         if self._stack.currentIndex() == 1:

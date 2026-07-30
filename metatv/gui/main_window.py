@@ -323,20 +323,26 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "vod_watch_alert_manager", self.vod_watch_alert_manager.shutdown
         )
 
-        # Provider-native TMDb enrichment — backfills detected_tmdb_id for idless
-        # VOD rows via the provider's own detail endpoint so cross-language/quality
-        # variants collapse. Background + resumable + capped. When a pass produces
-        # new collapses it refreshes the content-derived views through the single
-        # canonical chokepoint (never a partial per-view refresh).
+        # Lazy provider-native TMDb enrichment — backfills detected_tmdb_id for the
+        # idless VOD rows the user is actually viewing (result surfaces feed
+        # enqueue()) via the provider's own detail endpoint, so cross-language/quality
+        # variants collapse on demand. Background + resumable + throttled; no startup
+        # sweep. When a batch produces new collapses it refreshes the content-derived
+        # views through the single canonical chokepoint (never a partial per-view one).
         from metatv.core.tmdb_enrichment_manager import TmdbEnrichmentManager
         self.tmdb_enrichment_manager = TmdbEnrichmentManager(
             self.db, self.config, parent=self,
         )
-        # Connect to the MainWindow's bound method (a QObject receiver on the main
-        # thread) — NOT a bare lambda — so the worker-thread emit is delivered via a
-        # queued connection on the main thread. The signal's int arg is dropped.
+        # Connect to MainWindow bound methods (QObject receivers on the main thread)
+        # — NOT bare lambdas — so worker-thread emits are delivered via a queued
+        # connection on the main thread. collapses_found's int arg is dropped.
         self.tmdb_enrichment_manager.collapses_found.connect(
             self._refresh_provider_dependent_views
+        )
+        # Coalesced per-source "Updating N titles from {name}…" toast (main thread).
+        self._tmdb_enrich_notifs: dict[str, str] = {}
+        self.tmdb_enrichment_manager.enrichment_progress.connect(
+            self._on_tmdb_enrichment_progress
         )
         self._register_cleanable(
             "tmdb_enrichment_manager", self.tmdb_enrichment_manager.shutdown
@@ -443,11 +449,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Deferred 1 s so channels load and the UI paints before the worker starts.
         QTimer.singleShot(1000, self.migration_manager.run_pending)
 
-        # TMDb enrichment: one capped provider-native pass per launch. Deferred
-        # well after startup (channels + migrations underway) so it never competes
-        # with the initial paint; the manager self-gates on its config toggle and a
-        # busy flag, and the pass is rate-limited + resumable across launches.
-        QTimer.singleShot(15000, self.tmdb_enrichment_manager.start)
+        # No TMDb enrichment sweep at launch: it is now lazy/on-demand — result
+        # surfaces feed tmdb_enrichment_manager.enqueue() with the rows they load
+        # (see _enqueue_tmdb_enrichment), so we only fetch what the user is viewing.
 
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False
@@ -1524,6 +1528,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.discover_view.channelSelected.connect(self.show_channel_details_by_id)
         self.discover_view.channelMiddleClicked.connect(self._dispatch_middle_click)
         self.discover_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
+        self.discover_view.tmdbEnrichRequested.connect(self._enqueue_tmdb_enrichment)
         self.discover_view.setVisible(False)
         self._list_layout.addWidget(self.discover_view)
 
@@ -1539,6 +1544,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Route right-click on Now-Plating / Show-All cards through the unified
         # channel menu (same seam as DiscoverView and Recommendations).
         self.recipe_view.channelContextMenuRequested.connect(self._on_rec_channel_context_menu)
+        self.recipe_view.tmdbEnrichRequested.connect(self._enqueue_tmdb_enrichment)
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 
@@ -1605,6 +1611,60 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         else:
             return self.unknown_icon
     
+    def _enqueue_tmdb_enrichment(self, channel_ids) -> None:
+        """Single seam every result surface calls to feed lazy TMDb enrichment.
+
+        Discover shelves, Recipe "Matching Content", the channel list, search, and
+        details "Other Versions" all route the ids they just loaded through here so
+        there is ONE chokepoint into ``TmdbEnrichmentManager.enqueue`` (which filters
+        to idless/unattempted rows off-thread).  A no-op when the manager isn't up
+        yet (early startup) or the id list is empty.
+
+        Args:
+            channel_ids: The channel ids a surface just rendered (the loaded batch).
+        """
+        if not channel_ids:
+            return
+        mgr = getattr(self, "tmdb_enrichment_manager", None)
+        if mgr is not None:
+            mgr.enqueue(channel_ids)
+
+    def _on_tmdb_enrichment_progress(self, provider_id: str, provider_name: str, count: int) -> None:
+        """Render the coalesced per-source enrichment toast (main-thread slot).
+
+        Driven by ``TmdbEnrichmentManager.enrichment_progress`` (a queued signal, so
+        this always runs on the main thread — the worker never touches the
+        NotificationManager, which makes a main-thread QTimer).  One toast per source:
+        ``count > 0`` shows/updates "Updating N titles from {name}…"; ``count == 0``
+        clears it when that source drains.
+
+        Args:
+            provider_id: The source being enriched (toast key).
+            provider_name: Human-readable source name for the message.
+            count: Live in-flight title count for this source (0 = drained → dismiss).
+        """
+        from metatv.core.notifications import NotificationType
+
+        existing = self._tmdb_enrich_notifs.get(provider_id)
+        if count <= 0:
+            if existing is not None:
+                self.notification_manager.dismiss(existing)
+                self._tmdb_enrich_notifs.pop(provider_id, None)
+            return
+
+        noun = "title" if count == 1 else "titles"
+        message = f"Updating {count} {noun} from {provider_name}…"
+        if existing is None:
+            notif_id = self.notification_manager.show(
+                title="Matching TMDb data",
+                message=message,
+                type=NotificationType.INFO,
+                dismissible=False,
+            )
+            self._tmdb_enrich_notifs[provider_id] = notif_id
+        else:
+            self.notification_manager.update(existing, message=message)
+
     def setup_notifications(self):
         """Set up notification system"""
         # Create notification widget (as child of central widget)

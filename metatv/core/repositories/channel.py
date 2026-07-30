@@ -1851,6 +1851,47 @@ class ChannelRepository(_ChannelStatsMixin):
             for (cid, pid, sid, mt) in q.all()
         ]
 
+    def select_tmdb_candidates_by_ids(
+        self,
+        channel_ids,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, str]]:
+        """Narrow *channel_ids* to the rows that still need a provider-detail lookup.
+
+        The lazy enrichment (``TmdbEnrichmentManager.enqueue``) is fed **bare ids**
+        from the result surfaces (Discover / Recipe / channel list / search / details)
+        — none of whose DTOs carry ``detected_tmdb_id`` / ``tmdb_enrich_state``.  This
+        applies the shared candidate predicate (:meth:`_tmdb_candidate_filter`:
+        idless, unattempted, visible, non-excluded VOD) to the queued ids off the UI
+        thread, so a row is fetched at most once and only when it really needs it.
+
+        Args:
+            channel_ids: The ids a surface just loaded (a bounded drain batch).
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+
+        Returns:
+            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts for the
+            subset that are still candidates (plain dicts — no ORM objects escape).
+        """
+        ids = list(channel_ids)
+        if not ids:
+            return []
+        q = self._tmdb_candidate_filter(
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.provider_id,
+                ChannelDB.source_id,
+                ChannelDB.media_type,
+            ),
+            excluded_provider_ids,
+            provider_id=None,
+        ).filter(ChannelDB.id.in_(ids))
+        return [
+            {"id": cid, "provider_id": pid, "source_id": sid, "media_type": mt}
+            for (cid, pid, sid, mt) in q.all()
+        ]
+
     def apply_tmdb_enrichment(
         self,
         hits: Dict[str, str],
