@@ -117,6 +117,14 @@ class ChannelDB(Base):
     # the name-derived detected_* fields, which the upsert preserves.
     detected_tmdb_id = Column(String, nullable=True)
 
+    # Provider-native tmdb enrichment marker (Phase 2 — see tmdb_enrichment_manager.py).
+    # Tracks whether the provider's detail endpoint has been queried for a row that
+    # shipped no list-row tmdb id: NULL = unattempted, 'none' = attempted-but-empty,
+    # 'done' = an id was found and stored.  Guarantees an idless row is fetched at most
+    # once; reset to NULL on content refresh (reset_tmdb_enrich_state) so new catalog
+    # data re-attempts.  NOT in _CATALOG_COLS — the provider upsert never overwrites it.
+    tmdb_enrich_state = Column(String, nullable=True, index=True)
+
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
     # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
     # "form" is one of "Dub", "Original", "Multi", "Dual", "" (unknown).
@@ -535,6 +543,7 @@ class Database:
             ("channels",     "content_key",                "TEXT"),
             ("channels",     "detected_audio",             "TEXT"),
             ("channels",     "detected_tmdb_id",           "TEXT"),
+            ("channels",     "tmdb_enrich_state",          "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -550,6 +559,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_last_played ON channels (last_played)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
                 "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
             ]
             for idx_sql in index_migrations:
                 try:

@@ -248,7 +248,33 @@ class XtreamAPI:
         except Exception as e:
             logger.error(f"Failed to get series info for {series_id}: {e}")
         return None
-    
+
+    async def get_vod_info(self, vod_id: str) -> Optional[Dict[str, Any]]:
+        """Get detailed movie/VOD information (carries ``info.tmdb_id``).
+
+        The provider's per-title detail endpoint returns the canonical TMDb id
+        even when the bulk ``get_vod_streams`` list row omitted it — the basis of
+        the provider-native tmdb enrichment (Phase 2).  The reused session already
+        sends the app User-Agent (``STREAM_HTTP_HEADERS``); the provider 403s /
+        returns empty without it.
+
+        Args:
+            vod_id: The movie/VOD ``stream_id``.
+
+        Returns:
+            The parsed response dict (``{'info': {...}, 'movie_data': {...}}``),
+            or ``None`` on HTTP error / non-200 / connection failure.
+        """
+        try:
+            url = self._build_url("get_vod_info", vod_id=vod_id)
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as response:
+                if response.status == 200:
+                    return await response.json(content_type=None)
+                logger.debug(f"get_vod_info({vod_id}): HTTP {response.status}")
+        except Exception as e:
+            logger.debug(f"Failed to get vod info for {vod_id}: {e}")
+        return None
+
     async def _get_streams(self, action: str, category_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Generic stream fetcher. Raises aiohttp.ClientError on connection failure."""
         params = {}
@@ -459,6 +485,19 @@ class XtreamProvider(ProviderPlugin):
             except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"fetch_series_info: {base_url} failed: {e}, trying next…")
         logger.error(f"fetch_series_info: all URLs failed for provider '{provider.name}'")
+        return None
+
+    async def fetch_vod_info(self, provider: Provider, vod_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch movie/VOD info, cycling through URLs on connection failure."""
+        for base_url in provider.ordered_urls():
+            try:
+                async with XtreamAPI(base_url, provider.username, provider.password) as api:
+                    result = await api.get_vod_info(vod_id)
+                    if result is not None:
+                        return result
+            except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"fetch_vod_info: {base_url} failed: {e}, trying next…")
+        logger.error(f"fetch_vod_info: all URLs failed for provider '{provider.name}'")
         return None
 
     async def get_server_info(self, provider: Provider) -> Optional[Dict[str, Any]]:

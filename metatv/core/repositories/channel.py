@@ -28,6 +28,23 @@ from metatv.core.tag_decomposer import region_code_from_category
 # `channel.normalize_genre` references keep working. See filter_utils for the table.
 
 
+class _TmdbKeyProxy:
+    """Minimal duck-typed channel for :func:`content_key_for` (tmdb-first path).
+
+    ``content_key_for`` reads its inputs via ``getattr(..., default)``; a valid
+    ``detected_tmdb_id`` short-circuits to ``"tmdb:{id}|{media_type}"`` before the
+    title/year fields are consulted, so only these three attributes are needed to
+    recompute the key when the enrichment discovers an id.
+    """
+
+    __slots__ = ("detected_tmdb_id", "media_type", "id")
+
+    def __init__(self, detected_tmdb_id: str, media_type: str, id: str) -> None:
+        self.detected_tmdb_id = detected_tmdb_id
+        self.media_type = media_type
+        self.id = id
+
+
 class ChannelRepository(_ChannelStatsMixin):
     """Repository for channel data access"""
     
@@ -1589,6 +1606,209 @@ class ChannelRepository(_ChannelStatsMixin):
 
         logger.info(f"backfill_content_keys: filled {filled} of {total} rows")
         return filled
+
+    # ── Provider-native tmdb enrichment (Phase 2) ─────────────────────────────
+
+    def _tmdb_candidate_filter(self, query, excluded_provider_ids, provider_id):
+        """Apply the shared idless-VOD-candidate predicate to *query*.
+
+        A candidate is a movie/series row that is visible (``is_hidden`` False),
+        belongs to a non-excluded provider, carries **no** ``detected_tmdb_id``
+        (its list row shipped no id), and has **not** been attempted yet
+        (``tmdb_enrich_state IS NULL``) — the persistent marker that makes the
+        pass resumable and hits each row at most once.  Single definition so the
+        candidate query and the has-candidates probe never drift.
+        """
+        query = (
+            query
+            .filter(ChannelDB.detected_tmdb_id.is_(None))
+            .filter(ChannelDB.tmdb_enrich_state.is_(None))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.is_hidden.is_(False))
+        )
+        if excluded_provider_ids:
+            query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        if provider_id is not None:
+            query = query.filter(ChannelDB.provider_id == provider_id)
+        return query
+
+    def provider_ids_with_tmdb_candidates(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> List[str]:
+        """Return the distinct providers that still have idless VOD rows to attempt.
+
+        Lets the caller split its per-session cap fairly across sources rather than
+        exhausting the largest provider first (which would starve the others for
+        hundreds of launches).
+
+        Args:
+            excluded_provider_ids: Hidden providers — never enriched.
+
+        Returns:
+            Distinct ``provider_id`` values with at least one candidate.
+        """
+        q = self._tmdb_candidate_filter(
+            self.session.query(ChannelDB.provider_id).distinct(),
+            excluded_provider_ids,
+            provider_id=None,
+        )
+        return [row[0] for row in q.all()]
+
+    def select_tmdb_enrichment_candidates(
+        self,
+        limit: int,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        provider_id: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        """Return idless VOD rows that still need a provider-detail tmdb lookup.
+
+        See :meth:`_tmdb_candidate_filter` for the candidate predicate.  Returns
+        plain dicts (safe to cross the worker → write-session boundary — no ORM
+        objects escape).
+
+        Args:
+            limit: Hard cap on rows returned.
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+            provider_id: When given, restrict to this one provider (used to draw a
+                fair per-provider slice of the session cap).
+
+        Returns:
+            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts.
+        """
+        q = self._tmdb_candidate_filter(
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.provider_id,
+                ChannelDB.source_id,
+                ChannelDB.media_type,
+            ),
+            excluded_provider_ids,
+            provider_id,
+        )
+        q = q.order_by(ChannelDB.provider_id).limit(limit)
+
+        return [
+            {
+                "id": cid,
+                "provider_id": pid,
+                "source_id": sid,
+                "media_type": mt,
+            }
+            for (cid, pid, sid, mt) in q.all()
+        ]
+
+    def apply_tmdb_enrichment(
+        self,
+        hits: Dict[str, str],
+        misses,
+    ) -> int:
+        """Persist a provider-native enrichment batch and report new collapses.
+
+        For each **hit** (``channel_id → tmdb_id`` discovered via the detail
+        endpoint): store ``detected_tmdb_id``, recompute ``content_key`` through
+        the SAME chokepoint the migration uses
+        (:func:`~metatv.core.content_identity.content_key_for`, which is
+        tmdb-first, so the recomputed key is ``"tmdb:{id}|{media_type}"``), and
+        mark ``tmdb_enrich_state='done'``.  For each **miss** (attempted but the
+        detail endpoint carried no id): mark ``tmdb_enrich_state='none'`` so the
+        row is never re-fetched (until a content refresh resets it).
+
+        Only these three generated fields are written — user tags / ratings /
+        favorites are never touched (mirror-not-cage).
+
+        Args:
+            hits: ``{channel_id: tmdb_id}`` — validated digit-string ids.
+            misses: Iterable of channel ids that were attempted but yielded no id.
+
+        Returns:
+            The number of *hit* rows whose recomputed ``content_key`` now appears
+            on ≥ 2 rows — i.e. rows that landed in a shared collapse group this
+            batch.  A positive count is the host's cue to refresh the views.
+        """
+        miss_ids = list(misses)
+        if miss_ids:
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id.in_(miss_ids))
+                .values(tmdb_enrich_state="none")
+            )
+
+        if not hits:
+            self.session.commit()
+            return 0
+
+        hit_ids = list(hits.keys())
+        # media_type is needed to namespace the tmdb key (movie vs series live in
+        # separate TMDb id spaces) — project just that column, no raw_data blob.
+        mt_by_id = {
+            cid: mt
+            for (cid, mt) in self.session.query(ChannelDB.id, ChannelDB.media_type)
+            .filter(ChannelDB.id.in_(hit_ids))
+            .all()
+        }
+
+        new_keys: Dict[str, str] = {}
+        for cid, tmdb in hits.items():
+            media_type = mt_by_id.get(cid) or ""
+            # Read a proxy through content_key_for so identity has ONE definition;
+            # a valid tmdb short-circuits to "tmdb:{id}|{media_type}".
+            proxy = _TmdbKeyProxy(detected_tmdb_id=tmdb, media_type=media_type, id=cid)
+            key = content_key_for(proxy)
+            new_keys[cid] = key
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id == cid)
+                .values(
+                    detected_tmdb_id=tmdb,
+                    content_key=key,
+                    tmdb_enrich_state="done",
+                )
+            )
+
+        self.session.commit()
+
+        # New collapses: of the keys we just wrote, how many enriched rows now
+        # share a key with at least one other row (a real fold, not a lone id).
+        distinct_keys = set(new_keys.values())
+        key_counts = dict(
+            self.session.query(ChannelDB.content_key, func.count())
+            .filter(ChannelDB.content_key.in_(distinct_keys))
+            .group_by(ChannelDB.content_key)
+            .all()
+        )
+        return sum(1 for key in new_keys.values() if key_counts.get(key, 0) >= 2)
+
+    def reset_tmdb_enrich_state(self, provider_id: str) -> int:
+        """Clear the enrichment attempt marker for one provider's rows.
+
+        Called from the content-refresh chokepoint (``provider_loader``) after a
+        source is re-ingested, so genuinely new/changed catalog rows are attempted
+        again on the next enrichment pass.  Only the generated marker is touched.
+
+        Note: because ``detected_tmdb_id`` is a catalog column, a re-ingest clears
+        any *enriched* id back to NULL; resetting the marker here is what lets the
+        next pass re-discover it (an enriched row would otherwise be stuck idless +
+        marked ``done`` and never re-attempted).  Re-fetching the empty tail every
+        refresh is the accepted cost of this "re-attempt on content refresh" model
+        (bounded by the per-session cap); a future refinement could scope the reset
+        to rows whose ``raw_data`` actually changed.
+
+        Args:
+            provider_id: The just-refreshed provider.
+
+        Returns:
+            Number of rows whose marker was cleared.
+        """
+        result = self.session.execute(
+            update(ChannelDB)
+            .where(ChannelDB.provider_id == provider_id)
+            .where(ChannelDB.tmdb_enrich_state.isnot(None))
+            .values(tmdb_enrich_state=None)
+        )
+        self.session.commit()
+        return result.rowcount or 0
 
     # ── Cross-source sibling lookup (content_key-based failover) ───────────────
 
