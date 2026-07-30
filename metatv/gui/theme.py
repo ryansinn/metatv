@@ -1177,3 +1177,134 @@ QA_GOTO_BTN = (
     " font-size: " + FONT_SM + "; font-weight: bold; }"
     "QPushButton:hover { background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_ACCENT_BLUE_2 + "; }"
 )
+
+# ── Similar-titles lightbox (redesign) ───────────────────────────────────────
+# Role constants for the poster-hero preview overlay (similar_lightbox.py +
+# similar_lightbox_card.py).  Colours come only from tokens above; these name the
+# roles so the two widget files carry no palette/font-size literals.
+
+# Card frame + chrome
+LIGHTBOX_CARD = (
+    "#lightbox_card { background: " + COLOR_LIGHTBOX_BG + "; border-radius: 12px;"
+    " border: 1px solid " + COLOR_BORDER + "; }"
+)
+LIGHTBOX_HEADER_BAR = (
+    "background: " + COLOR_LIGHTBOX_HEADER + "; border-radius: 12px 12px 0 0;"
+)
+LIGHTBOX_FOOTER_BAR = (
+    "background: " + COLOR_LIGHTBOX_HEADER + "; border-radius: 0 0 12px 12px;"
+)
+LIGHTBOX_BACK_BTN = (
+    "QPushButton { color: " + COLOR_ACCENT_BLUE_2 + "; font-size: " + FONT_XL + ";"
+    " font-weight: bold; border: none; background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
+)
+LIGHTBOX_TITLE = (
+    "color: " + COLOR_TEXT_HI + "; font-size: " + FONT_2XL + "; font-weight: bold;"
+)
+LIGHTBOX_COUNTER = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+LIGHTBOX_CLOSE_BTN = (
+    "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_3XL + ";"
+    " border: none; background: transparent; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; }"
+)
+# Round prev/next chevron flanking the card (used 2×).
+LIGHTBOX_CHEVRON = (
+    "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_4XL + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 22px;"
+    " background: " + COLOR_LIGHTBOX_BG + "; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+    "QPushButton:disabled { color: " + COLOR_LINE + "; border-color: " + COLOR_LINE + "; }"
+)
+
+# Hero — poster slot + future-player affordance
+LIGHTBOX_POSTER_SLOT = (
+    "#lightbox_poster { background: " + COLOR_BG_DEEP + "; border-radius: 9px;"
+    " border: 1px solid " + COLOR_BORDER + "; }"
+)
+LIGHTBOX_POSTER_PLACEHOLDER = (
+    "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + ";"
+)
+# Play orb revealed on poster hover (the future embedded-player surface).
+LIGHTBOX_PLAY_ORB = (
+    "QPushButton { color: " + COLOR_BG_DEEP + "; font-size: " + FONT_4XL + ";"
+    " border: none; border-radius: 26px; background: " + COLOR_ACCENT_HOVER + "; }"
+    "QPushButton:hover { background: " + COLOR_ACCENT_BLUE_2 + "; }"
+)
+LIGHTBOX_PLAYER_TAG = "color: " + COLOR_ACCENT_PURPLE + "; font-size: " + FONT_SM + ";"
+
+# Primary Play button under the poster (filled accent, dark text).
+LIGHTBOX_PLAY_PRIMARY = (
+    "QPushButton { background: " + COLOR_ACCENT + "; color: " + COLOR_TEXT_HI + ";"
+    " border: none; border-radius: 9px; padding: 9px 12px; font-size: " + FONT_XL + ";"
+    " font-weight: bold; }"
+    "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
+)
+# Secondary action button (Queue / Favorite / Hide) — outline, checkable-friendly.
+LIGHTBOX_ACTION_BTN = (
+    "QPushButton { border: 1px solid " + COLOR_BORDER + "; background: " + COLOR_LIGHTBOX_HEADER + ";"
+    " color: " + COLOR_TEXT + "; border-radius: 9px; padding: 8px 12px;"
+    " font-size: " + FONT_LG + "; font-weight: bold; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+)
+
+# Right column typography
+LIGHTBOX_HEADING = (
+    "color: " + COLOR_TEXT_HI + "; font-size: " + FONT_3XL + "; font-weight: bold;"
+)
+LIGHTBOX_META = "color: " + COLOR_MUTED + "; font-size: " + FONT_XL + ";"
+LIGHTBOX_STAR = "color: " + COLOR_GOLD + "; font-size: " + FONT_XL + "; font-weight: bold;"
+LIGHTBOX_SOURCE = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+# ×N versions badge on the meta line (used when >1 content_key sibling).
+LIGHTBOX_VERSION_BADGE = (
+    "background: " + OVERLAY_BLUE_15 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
+    " border: 1px solid " + COLOR_ACCENT_BLUE + "; border-radius: 6px;"
+    " padding: 1px 7px; font-size: " + FONT_LG + "; font-weight: bold;"
+)
+
+# Genre chips — DISPLAY ONLY here (not clickable-to-Recipe yet); no hover affordance.
+LIGHTBOX_GENRE_CHIP = (
+    "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
+    " border-radius: 10px; padding: 3px 10px; font-size: " + FONT_LG + ";"
+)
+
+# Section sub-heading (OVERVIEW / CAST & CREW / OTHER VERSIONS / SIMILAR TITLES).
+LIGHTBOX_SECTION_HDR = (
+    "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
+    " letter-spacing: 1px;"
+)
+LIGHTBOX_PLOT = "color: " + COLOR_TEXT + "; font-size: " + FONT_XL + ";"
+LIGHTBOX_CAST = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
+# Green "✓ disabled & expired sources excluded" scope note (paired with the ✓ glyph).
+LIGHTBOX_SCOPED_NOTE = "color: " + COLOR_OK + "; font-size: " + FONT_MD + ";"
+
+# Other Versions chip button (used N×) — sunken pill, click dives to that variant.
+LIGHTBOX_VERSION_CHIP = (
+    "QPushButton { background: " + COLOR_BG_DEEP + "; color: " + COLOR_TEXT + ";"
+    " border: 1px solid " + COLOR_LINE + "; border-radius: 8px; padding: 5px 10px;"
+    " font-size: " + FONT_LG + "; text-align: left; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+)
+
+# Similar-strip mini card (used N×) — poster, ⤢ preview button, name, year.
+LIGHTBOX_SIM_POSTER = (
+    "#lightbox_sim_poster { background: " + COLOR_BG_DEEP + "; border-radius: 8px;"
+    " border: 1px solid " + COLOR_BORDER + "; color: " + COLOR_TEXT + ";"
+    " font-size: " + FONT_MD + "; }"
+)
+LIGHTBOX_SIM_EXPAND_BTN = (
+    "QPushButton { background: " + OVERLAY_BLACK_65 + "; color: " + COLOR_TEXT_HI + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 7px; font-size: " + FONT_2XL + "; }"
+    "QPushButton:hover { background: " + COLOR_ACCENT + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_ACCENT + "; }"
+)
+LIGHTBOX_SIM_NAME = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + ";"
+LIGHTBOX_SIM_YEAR = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+
+# Footer keyboard-hint kbd chip (used N×).
+LIGHTBOX_KBD = (
+    "background: " + COLOR_BG_DEEP + "; color: " + COLOR_TEXT + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 5px; padding: 1px 6px;"
+    " font-size: " + FONT_MD + ";"
+)
+LIGHTBOX_FOOTER_HINT = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
