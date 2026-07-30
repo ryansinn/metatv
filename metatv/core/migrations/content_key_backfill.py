@@ -49,12 +49,19 @@ if TYPE_CHECKING:
 #       Requires recompute_all=True so existing non-NULL rows get the new key.
 #       (Recomputes only the generated content_key column — user tags/ratings/
 #       favorites are untouched.)
-CURRENT_VERSION: int = 3
+#   4 — tmdb-first identity (content-identity Slice 3): when a row carries a stored
+#       detected_tmdb_id the key becomes "tmdb:{id}|{media_type}", collapsing
+#       cross-language/quality variants the title heuristic missed.  Requires
+#       recompute_all=True so existing non-NULL rows adopt the tmdb key.
+#       MUST run AFTER TmdbIdBackfillTask (which populates detected_tmdb_id from
+#       raw_data) — see the migration registration order in gui/main_window.py.
+#       (Recomputes only the generated content_key column — user data untouched.)
+CURRENT_VERSION: int = 4
 
 # Versions whose formula changed and therefore need every row recomputed, not
 # just NULL rows.  Add the new CURRENT_VERSION here whenever the key formula
 # changes.
-_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2, 3})
+_RECOMPUTE_ALL_VERSIONS: frozenset[int] = frozenset({2, 3, 4})
 
 
 class ContentKeyBackfillTask:

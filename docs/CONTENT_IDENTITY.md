@@ -1,7 +1,8 @@
 # Content Identity & Cross-Source Dedup
 
-**Status:** Implemented (dedup Slices 1–3, PRs #204/#205/#206/#210). This doc is the spec for the
-stored `content_key` identity layer and the surfaces that collapse on it.
+**Status:** Implemented (dedup Slices 1–3, PRs #204/#205/#206/#210) + the **TMDb-first canonical-id
+layer** (the "TMDb-first layer" section below). This doc is the spec for the stored `content_key`
+identity layer and the surfaces that collapse on it.
 
 **See also:** `docs/DESIGN_RATIONALE.md` **DR-0009** (the *why*); CLAUDE.md Critical Rule
 *"Content identity — one stored `content_key`, computed at ingestion, collapsed at read"*;
@@ -44,6 +45,36 @@ solved **once, as a data layer**, not per surface.
 `content_key_for(channel) -> str` is an **engine-layer pure function** (DR-0007): same inputs → same
 output, no DB, no config. It dispatches on a per-domain strategy (below); the only strategy implemented
 today is Xtream/IPTV.
+
+### TMDb-first layer (Slice 3, PR #TBD)
+
+When the provider ships a canonical TMDb id, that id is **authoritative** and takes precedence over the
+heuristic title/year key:
+
+| condition | key format |
+|---|---|
+| valid stored `detected_tmdb_id` | `tmdb:{id}\|{media_type}` |
+| otherwise | the title/year heuristic below (unchanged) |
+
+- **Compute once at ingestion.** Xtream carries the id in `raw_data["tmdb"]`. `xtream.convert_to_channel`
+  captures it into the stored `detected_tmdb_id` column (via `valid_tmdb_id`) at the provider boundary;
+  `content_key_for` READS that stored field and never re-parses `raw_data` at render time. `detected_tmdb_id`
+  is a catalog column (in `_CATALOG_COLS`) because it is a provider fact, not a name-derived field — it
+  refreshes with `raw_data`, unlike the preserved name-derived `detected_*` fields.
+- **`media_type` namespacing is mandatory.** TMDb numbers movies and TV series in *separate* id spaces, so
+  the same integer denotes an unrelated movie and series. In the measured library **1,388 tmdb ints span
+  both movie and series rows**; a bare `tmdb:{id}` key would wrongly merge those unrelated productions
+  (e.g. a movie sharing #603 with a series). Appending `|{media_type}` is the sole fix.
+- **One validator, one source of truth.** `content_identity.valid_tmdb_id(v)` — imported by both the
+  ingestion writer (`xtream.py`) and `compute_key` — rejects the provider sentinels (`""` / `"0"` /
+  `"null"` / `"None"`) and any non-numeric value, so a sentinel row falls back to the title/year key.
+- **Impact (measured):** ~52% of visible VOD rows already carry an id; keying on it collapses ~116k
+  redundant cards into 25,725 new cross-title/language merge groups the title heuristic missed.
+- **Accepted edge cases:** event segments sharing one id (UFC prelims/main) may over-collapse (niche, low
+  harm); two rows with *different* ids but the same title now SPLIT (tmdb is more authoritative than
+  title — intended).
+
+The rest of this section describes the **fallback** heuristic used for the ~48% of VOD rows with no id.
 
 ### Normalisation
 
@@ -98,7 +129,13 @@ changes**. The seam exists now; only Xtream is filled in.
 the **updated** `detected_*` values in the same batch loop, and writes it only when it changed.
 - **Initial population / backfill:** `backfill_content_keys()` (chunked, 2000/batch) fills NULL keys;
   `ContentKeyBackfillTask` (`migrations/content_key_backfill.py`, gated on `content_key_backfill_version`)
-  runs it once on launch.
+  runs it once on launch. **The tmdb id is backfilled in a separate, ordered step:**
+  `TmdbIdBackfillTask` (`migrations/tmdb_id_backfill.py`) reads `raw_data["tmdb"]` into `detected_tmdb_id`
+  for existing VOD rows and **must run before** the content_key recompute — so the recompute
+  (`content_key_backfill` `CURRENT_VERSION` bumped to **4**, `recompute_all=True`, `detected_tmdb_id` added
+  to its narrow column set) can emit the tmdb-first key. Both steps write only generated columns; user
+  tags/ratings/favorites are never touched (mirror-not-cage). Registration order lives in
+  `gui/main_window.py`.
 - Because `update_detected_prefixes()` writes `detected_title` **and** `content_key` in one pass, the
   `DetectedTitleReparseTask` (which re-cleans titles) refreshes keys for free — no separate backfill
   after a title-strip rule change.
@@ -150,9 +187,26 @@ the coarse key is a separate wave (DR-0009 Q1) so a working feature isn't destab
 
 ## Migration path — canonical IDs
 
-`content_key` is structured to **become** the canonical id. Once TMDb/IMDb metadata is wired
-(ROADMAP), a channel's resolved external id (e.g. `tmdb:movie:603`) replaces the heuristic
-`{norm_title}|{media_type}|{year}` string in the *same column*. Every collapse site already reads
-`content_key`, so they inherit canonical identity with no surface changes — the heuristic key degrades
-to the fallback for rows without a resolved id. That one-column swap is the whole point of storing an
-opaque-but-stable key instead of dedup-ing per surface.
+`content_key` is structured to **become** the canonical id, and **Slice 3 (the TMDb-first layer above)
+is the first realisation of that path**: for the ~52% of VOD rows carrying a provider `raw_data["tmdb"]`,
+the resolved id (`tmdb:{id}|{media_type}`) already replaces the heuristic `{norm_title}|{media_type}|{year}`
+string in the *same column*. Every collapse site already reads `content_key`, so it inherited canonical
+identity with **zero surface changes** — the heuristic key degrades to the fallback for rows without a
+resolved id. That one-column swap is the whole point of storing an opaque-but-stable key instead of
+dedup-ing per surface.
+
+### Phase 2 — enrich the idless ~48% (SPEC-NOTE, not built)
+
+200k+ visible VOD rows carry no `raw_data["tmdb"]`. Phase 2 would resolve an id for them via the Xtream
+`get_vod_info` endpoint (`info.tmdb_id`) or a TMDB title search, then feed the same `detected_tmdb_id`
+column — catching cross-language pairs the current phase can't (e.g. a Spanish "Misión: Salvar el bosque"
+whose English "Animal Adventures…" copy ships no id, so they still don't share a key today). This is
+network- + rate-limit- + metadata-provider-chain work and is deliberately a **separate slice** — not part
+of the Phase 1 PR.
+
+### Hardening follow-up (SPEC-NOTE, not built)
+
+Promote the persistent "≠ Show N versions separately" un-merge override (`rec_dedupe_overrides`, currently
+honored only in the Preferences view) to a **library-wide** override respected by every collapse surface,
+so a user who splits a wrongly-merged group sees that split everywhere (Browse, Discover, details). Left
+un-built here; noted so the design intent survives.

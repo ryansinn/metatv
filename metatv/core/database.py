@@ -108,6 +108,15 @@ class ChannelDB(Base):
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
     content_key = Column(String, index=True, nullable=True)
 
+    # Canonical TMDb id shipped by the provider (Xtream ``raw_data["tmdb"]``), captured
+    # once at ingestion via ``valid_tmdb_id`` (content_identity) and stored here — never
+    # re-parsed from raw_data at read time.  When present it is authoritative and drives
+    # ``content_key`` (``tmdb:{id}|{media_type}``, namespaced because TMDb numbers movies
+    # and series separately).  NULL when the provider ships no id (or a sentinel).
+    # A catalog-derived field: it IS in _CATALOG_COLS (refreshes with raw_data) — unlike
+    # the name-derived detected_* fields, which the upsert preserves.
+    detected_tmdb_id = Column(String, nullable=True)
+
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
     # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
     # "form" is one of "Dub", "Original", "Multi", "Dual", "" (unknown).
@@ -523,6 +532,7 @@ class Database:
             ("channels",     "tag_fingerprint",            "TEXT"),
             ("channels",     "content_key",                "TEXT"),
             ("channels",     "detected_audio",             "TEXT"),
+            ("channels",     "detected_tmdb_id",           "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

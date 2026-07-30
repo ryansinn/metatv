@@ -2,12 +2,40 @@
 
 Slice 1 of the content-identity/dedup plan.  This module computes a
 ``content_key`` for a channel row using already-ingested stored fields
-(``detected_title``, ``media_type``, ``detected_year``).  It does NOT change
-any read/query/UI surface and adds no collapse logic — that is Slice 2+.
+(``detected_tmdb_id``, ``detected_title``, ``media_type``, ``detected_year``).
+It does NOT change any read/query/UI surface and adds no collapse logic — that
+is Slice 2+.
+
+TMDb-first identity (Slice 3)
+-----------------------------
+When the provider ships a canonical TMDb id (Xtream carries it in
+``raw_data["tmdb"]``; captured once at ingestion into the stored
+``detected_tmdb_id`` field — never re-parsed at read time), it is authoritative
+and **takes precedence** over the heuristic title/year key:
+
+    valid tmdb id  →  ``"tmdb:{id}|{media_type}"``
+    otherwise      →  the existing title/year heuristic (unchanged)
+
+**The key MUST be namespaced by ``media_type``.**  TMDb numbers movies and TV
+series in *separate* id spaces, so the same integer id denotes an unrelated
+movie and series.  In the measured library 1,388 tmdb ints span both movie and
+series rows; a bare ``"tmdb:{id}"`` key would wrongly merge those unrelated
+productions (e.g. the movie "The Host" with a same-numbered series).  Appending
+``|{media_type}`` is the sole fix for that collision (verified against the
+London Kills/The First Man and The Continental/The Host mistags in analysis).
+
+Validation lives in one place — ``valid_tmdb_id()`` (this module) — imported by
+both the ingestion writer (``providers/xtream.py``) and the key computation
+below, so "what counts as a real tmdb id" has a single source of truth.  It
+rejects the provider sentinels (``""`` / ``"0"`` / ``"null"`` / ``"None"``) and
+any non-numeric value, falling back to the title/year key for those rows.
+
+This module stays engine-pure: it READS the already-stored ``detected_tmdb_id``
+(via ``getattr``) and never touches the DB, config, or ``raw_data`` blob.
 
 Design rationale
 ----------------
-The key is **coarse by design**:
+The heuristic (fallback) key is **coarse by design**:
 
 - ``detected_title`` is already prefix/suffix/year/quality-stripped at
   ingestion by ``update_detected_prefixes()``.  We normalize it further
@@ -26,7 +54,9 @@ The key is **coarse by design**:
     Trade-off: a rare same-title reboot (e.g. two different "The Office" series
     from different eras) will collapse into one card — accepted per DR-0006
     (false positive is visible and one-click-correctable; false negative is
-    invisible).  Canonical TMDb IDs (Slice 3+) will disambiguate reboots.
+    invisible).  A canonical TMDb id (see "TMDb-first identity" above), when the
+    provider ships one, pre-empts this heuristic and disambiguates reboots; the
+    coarse rule below only applies to rows *without* a tmdb id.
 
   * **Movies:** year is **kept but normalized to the start year** (first
     4-digit group extracted from ``detected_year``; junk/empty → omit).  Key
@@ -42,7 +72,9 @@ The key is **coarse by design**:
   key: metadata from TMDb/OMDb is not yet available at channel-upsert time, and
   TV series have many episode directors making the field unreliable.  A coarse
   key safely groups language/quality variants of the same production without
-  over-splitting.  Slice 3+ can refine using canonical IDs once TMDb is wired.
+  over-splitting.  When the provider ships a canonical TMDb id it is preferred
+  outright (see "TMDb-first identity" above); this heuristic is the fallback for
+  the ~48% of VOD rows that carry no id.
 
 Per-domain strategy seam
 ------------------------
@@ -153,6 +185,44 @@ def _start_year(detected_year: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# TMDb id validation — single source of truth
+# ---------------------------------------------------------------------------
+
+
+def valid_tmdb_id(value) -> str | None:
+    """Return a normalized TMDb id string, or ``None`` when *value* is not a real id.
+
+    This is the **single source of truth** for "does the provider's ``tmdb``
+    field carry a real canonical id?"  It is imported by both the ingestion
+    writer (``providers/xtream.py::convert_to_channel``, which stores the result
+    in ``detected_tmdb_id``) and the content-key computation
+    (``_XtreamContentKeyStrategy.compute_key``, which reads it back), so the two
+    never disagree on what counts.
+
+    Rejects the sentinels providers use for "no id" — ``""``, ``"0"`` (and any
+    all-zero string), ``"null"``, ``"None"`` — and any non-numeric value.
+    Accepts ``int`` as well as ``str`` (Xtream sometimes ships the id as a
+    JSON number); the returned value is always the stripped digit string.
+
+    Args:
+        value: The raw ``raw_data["tmdb"]`` value (``str`` / ``int`` / ``None``).
+
+    Returns:
+        The canonical id as a digit string (e.g. ``"603"``) when valid, else
+        ``None``.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or not s.isdigit():
+        return None
+    # "0", "00", "000" … are provider sentinels for "no id", not real ids.
+    if int(s) <= 0:
+        return None
+    return s
+
+
+# ---------------------------------------------------------------------------
 # Strategy interface
 # ---------------------------------------------------------------------------
 
@@ -187,7 +257,15 @@ class _ContentKeyStrategy(ABC):
 class _XtreamContentKeyStrategy(_ContentKeyStrategy):
     """Content key strategy for Xtream/IPTV channel rows.
 
-    Key format varies by media_type:
+    **TMDb-first (precedence).**  When the row carries a valid stored
+    ``detected_tmdb_id`` (populated at ingestion from ``raw_data["tmdb"]``), the
+    key is ``"tmdb:{id}|{media_type}"`` and the title/year heuristic is skipped
+    entirely.  The ``|{media_type}`` namespace is mandatory: TMDb numbers movies
+    and TV series in separate id spaces, so the same integer denotes unrelated
+    productions — a bare ``"tmdb:{id}"`` would wrongly merge a movie with a
+    same-numbered series.
+
+    Otherwise (no id / sentinel id) the key format varies by media_type:
 
     * **series / live:** ``"{norm_title}|{media_type}"`` — year omitted.
       Cross-provider year labelling for the same series is noisy (some embed
@@ -209,6 +287,13 @@ class _XtreamContentKeyStrategy(_ContentKeyStrategy):
         raw_title: str | None = getattr(channel, "detected_title", None)
         media_type: str = getattr(channel, "media_type", None) or ""
         raw_year: str = getattr(channel, "detected_year", None) or ""
+
+        # TMDb-first: an authoritative provider id pre-empts the heuristic.
+        # Namespaced by media_type because TMDb numbers movie vs TV separately —
+        # the same int is an unrelated movie and series (never merge them).
+        tmdb = valid_tmdb_id(getattr(channel, "detected_tmdb_id", None))
+        if tmdb:
+            return f"tmdb:{tmdb}|{media_type}"
 
         if raw_title:
             norm = _normalize_for_key(raw_title)

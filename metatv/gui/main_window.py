@@ -336,6 +336,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # never re-run to pick them up. Keep DetectedTitleReparse ahead of TagBackfill.
         from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
         self.migration_manager.register(DetectedTitleReparseTask(self.db))
+        # ORDER MATTERS — populate detected_tmdb_id from raw_data BEFORE the
+        # content_key recompute (v4) reads it, so cross-language/quality variants
+        # sharing a provider tmdb id collapse onto one tmdb-first key.
+        from metatv.core.migrations.tmdb_id_backfill import TmdbIdBackfillTask
+        self.migration_manager.register(TmdbIdBackfillTask(self.db))
         from metatv.core.migrations.content_key_backfill import ContentKeyBackfillTask
         self.migration_manager.register(ContentKeyBackfillTask(self.db))
         from metatv.core.migrations.tag_backfill import TagBackfillTask

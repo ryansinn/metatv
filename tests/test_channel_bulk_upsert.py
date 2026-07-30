@@ -65,6 +65,7 @@ def _make_channel(
     category: str = "General",
     quality: str = "hd",
     raw_data: dict | None = None,
+    detected_tmdb_id: str | None = None,
 ) -> MagicMock:
     """Return a fake Channel-like object (duck-typing; no import of Channel dataclass)."""
     ch = MagicMock()
@@ -80,6 +81,9 @@ def _make_channel(
     ch.quality = MagicMock()
     ch.quality.value = quality
     ch.raw_data = raw_data if raw_data is not None else {}
+    # Provider-captured tmdb id (catalog column, default None) — a real Channel
+    # sets this from raw_data["tmdb"]; explicit here so the mock is bindable.
+    ch.detected_tmdb_id = detected_tmdb_id
     return ch
 
 

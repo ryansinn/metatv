@@ -74,6 +74,7 @@ def _fake_channel(ch_id: str, name: str, raw_data: dict | None = None) -> MagicM
     ch.quality = MagicMock()
     ch.quality.value = "hd"
     ch.raw_data = raw_data if raw_data is not None else {"info": {"name": name}}
+    ch.detected_tmdb_id = None
     return ch
 
 

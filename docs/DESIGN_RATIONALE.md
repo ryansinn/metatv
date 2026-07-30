@@ -696,3 +696,59 @@ an accessibility requirement into a design constraint that also makes the UI cle
   can no longer trust a color; reserving three meanings is the constraint that keeps cues legible.
 - *Green for the poster watched badge* — deliberately kept neutral (Plex/Jellyfin overlay convention)
   so green stays exclusively the "active-now" cue and the corner badge doesn't read as "playing".
+
+---
+
+### DR-0011 — The provider's TMDb id is authoritative identity; namespace it by media_type
+**Status:** Accepted (2026-07-30). Implemented as content-identity Slice 3 (Phase 1).
+**Ties to:** DR-0009 (content_key is the stored identity every surface collapses on — this fills its
+"canonical id" migration slot); the two Governing Principles (single source of truth — `valid_tmdb_id`;
+compute-once-at-ingestion — `detected_tmdb_id`); DR-0006 (a false-positive merge is visible +
+one-click-correctable). **Spec:** `docs/CONTENT_IDENTITY.md` → "TMDb-first layer". **Rule already
+distilled:** CLAUDE.md *"Content identity — one stored `content_key`…"* (unchanged — the key column and
+every collapse site are the same; only how the key is *derived* improved).
+
+**Problem.** The heuristic `content_key` (`{norm_title}|{media_type}|{year}`) can only group variants
+whose *titles* normalise alike. Cross-language copies of one production carry genuinely different titles
+("Misión: Salvar el bosque" vs an English release name), so they never collapse — the same film shows as
+several cards. Meanwhile the Xtream provider was **already shipping the answer** in `raw_data["tmdb"]` (a
+canonical TMDb id) on ~52% of visible VOD rows, and we discarded it at ingestion. Measured: keying on that
+id yields **25,725 new merge groups** folding ~116k redundant cards the title heuristic missed.
+
+**Insight.** A provider-supplied canonical id is strictly more authoritative than a title guess, and it
+costs nothing to capture — it's already in the blob. So it should *pre-empt* the heuristic, not wait for a
+future TMDb API integration. DR-0009 deliberately stored an opaque-but-stable key in one column precisely
+so a resolved id could slot in with **zero surface changes**; this is that slot being filled for the rows
+that already have an id.
+
+**Decision.**
+1. **Capture once at ingestion, read at render.** `xtream.convert_to_channel` validates `raw_data["tmdb"]`
+   and stores it in a new `detected_tmdb_id` column; `content_identity.compute_key` READS that stored field
+   — it never re-parses `raw_data`. `detected_tmdb_id` is a *catalog* column (refreshes with `raw_data`),
+   the one deliberate exception among the `detected_*` names, because it is a provider fact, not a
+   name-derived one.
+2. **Precedence, not replacement.** Valid id → `tmdb:{id}|{media_type}`; otherwise the existing title/year
+   heuristic runs completely unchanged. The heuristic remains the fallback for the idless ~48%.
+3. **Namespace by `media_type` — non-negotiable.** TMDb numbers movies and TV series in *separate* id
+   spaces, so the same integer is an unrelated movie and series. In the real DB **1,388 tmdb ints span
+   both**; a bare `tmdb:{id}` key would merge, e.g., a movie with a same-numbered series. `|{media_type}`
+   is the sole fix (verified against the London Kills/The First Man and The Continental/The Host mistags).
+4. **One validator.** `valid_tmdb_id()` (single source of truth) rejects the provider sentinels
+   (`""`/`"0"`/`"null"`/`"None"`) and non-numerics, imported by both the writer and `compute_key`.
+5. **Migration = two ordered, generated-only steps.** `TmdbIdBackfillTask` populates `detected_tmdb_id`
+   from `raw_data`, then `content_key_backfill` (v4, `recompute_all`) recomputes every key — user
+   tags/ratings/favorites untouched (mirror-not-cage).
+
+**Search is preserved.** The collapse SQL applies the search `name_filter` to each row's *own* title
+BEFORE the window collapse, so a wrongly-merged variant is still found by searching its own name — proven
+by a regression test. Collapse hides duplicates from the *grid*, never from *search*.
+
+**Rejected.**
+- *A bare `tmdb:{id}` key (no media_type)* — silently merges the 1,388 movie/series id collisions into
+  wrong cards; the namespacing is the whole point.
+- *Re-reading `raw_data["tmdb"]` at render time* — violates compute-once-at-ingestion and re-parses a JSON
+  blob on every collapse; the stored `detected_tmdb_id` is read instead.
+- *Enriching the idless 48% now (TMDb search / `get_vod_info`)* — network + rate-limit + provider-chain
+  work; deferred to Phase 2 (spec-noted) so the free-id win ships first.
+- *Blocking on a full TMDb API integration* — the provider already ships authoritative ids for half the
+  library; there was no reason to discard them while waiting.
