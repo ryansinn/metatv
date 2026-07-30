@@ -822,6 +822,103 @@ class TagRepository:
             if cnt > 0
         ]
 
+    def get_top_tags_per_facet(
+        self,
+        facets: List[str],
+        limit_per_facet: int,
+        *,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        excluded_tag_content_types: Optional[Set[str]] = None,
+    ) -> dict[str, list]:
+        """Return the top-N tag values for EACH requested facet in ONE windowed pass.
+
+        The engine chokepoint for the Recipe builder's default **cluster grid**:
+        instead of the caller firing one :meth:`get_tag_counts_for_facet` per facet
+        (N round-trips, N GROUP BYs), this resolves every facet's most-common values
+        in a single SQL statement — a ``ROW_NUMBER() OVER (PARTITION BY tag.type
+        ORDER BY <distinct-channel count> DESC)`` window keeps at most
+        *limit_per_facet* rows per namespace.
+
+        Scoping is IDENTICAL to :meth:`get_tag_counts_for_facet` (the same
+        ``_scope_to_visible_channels`` predicate over ``excluded_provider_ids`` +
+        the caller's Global Exclusion sets), so a cluster tile agrees value-for-value
+        with the single-facet cloud you reach by drilling into it, and never surfaces
+        a hidden-source / globally-banished channel's tags.  The engine never reads
+        ``Config`` (DR-0007 — the control layer resolves the sets and passes them in).
+
+        A facet with fewer than *limit_per_facet* distinct values returns ALL of
+        them (its ``ROW_NUMBER`` never exceeds the cap), so small facets are never
+        truncated.  A facet with no visible values is simply absent from the result.
+
+        Args:
+            facets: The tag namespaces to include (e.g.
+                ``["genre", "region", "language", "collection"]``).  Empty → ``{}``.
+            limit_per_facet: Max tag values returned per facet (the tile's top-N).
+                ``<= 0`` → ``{}``.
+            excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
+                sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
+            excluded_prefixes: Global-exclusion prefix/region codes to drop (see
+                :meth:`_scope_to_visible_channels`).
+            excluded_categories: Global-exclusion ``user_category`` labels to drop.
+            excluded_tag_content_types: Global-exclusion ``content_type`` tag values
+                to drop.
+
+        Returns:
+            ``{facet_type: [TagCountDTO, …]}`` — each list sorted by
+            ``channel_count`` DESC, capped at *limit_per_facet*.  Zero-count values
+            and empty facets are omitted.  No ORM objects cross the boundary.
+        """
+        from sqlalchemy import func as _func
+        from metatv.core.repositories.dtos import TagCountDTO
+
+        facet_list = [f for f in (facets or []) if f]
+        if not facet_list or limit_per_facet <= 0:
+            return {}
+
+        # ── INNER ── per-(type, value) distinct-channel counts, scoped to visible.
+        inner_q = (
+            self.session.query(
+                TagDB.type.label("ftype"),
+                TagDB.value.label("value"),
+                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+            .filter(TagDB.type.in_(facet_list))
+        )
+        inner_q = self._scope_to_visible_channels(
+            inner_q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes, excluded_categories, excluded_tag_content_types,
+        ).group_by(TagDB.type, TagDB.value)
+        inner = inner_q.subquery()
+
+        # ── MIDDLE ── rank each value within its facet by count DESC.  A window
+        # function cannot be filtered in the same SELECT's WHERE, so we rank in a
+        # subquery and filter ``rn <= limit`` in the outer query.
+        _rn = _func.row_number().over(
+            partition_by=inner.c.ftype,
+            order_by=inner.c.cnt.desc(),
+        ).label("rn")
+        windowed = self.session.query(
+            inner.c.ftype, inner.c.value, inner.c.cnt, _rn
+        ).subquery()
+
+        # ── OUTER ── keep the top-N per facet, ordered facet then count DESC.
+        rows = (
+            self.session.query(windowed.c.ftype, windowed.c.value, windowed.c.cnt)
+            .filter(windowed.c.rn <= limit_per_facet, windowed.c.cnt > 0)
+            .order_by(windowed.c.ftype, windowed.c.cnt.desc())
+            .all()
+        )
+
+        result: dict[str, list] = {}
+        for ftype, value, cnt in rows:
+            result.setdefault(ftype, []).append(
+                TagCountDTO(value=value, channel_count=int(cnt))
+            )
+        return result
+
     def search_tag_values_across_facets(
         self,
         query: str,

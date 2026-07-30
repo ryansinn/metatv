@@ -1,4 +1,4 @@
-"""Recipe view helper widgets — Pantry, Tonight's Recipe rail, Now Plating grid.
+"""Recipe view helper widgets — cluster grid, Tonight's Recipe rail, Now Plating grid.
 
 Extracted from ``recipe_view.py`` (which exceeded the 1000-line file limit) so
 that file holds only the :class:`RecipeView` host.  Everything here is a leaf
@@ -13,11 +13,12 @@ Split follows the same convention as the EPG view (``epg_widgets.py`` /
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING
+import re
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,9 +30,11 @@ from PyQt6.QtWidgets import (
 
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-
-if TYPE_CHECKING:
-    from metatv.core.repositories.dtos import FacetSummaryDTO
+from metatv.gui.weighted_tag_cloud import (
+    _CloudBody,
+    _TagButton,
+    _count_to_font_token,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -132,256 +135,400 @@ def _generate_recipe_name(
 
 
 # ---------------------------------------------------------------------------
-# Pantry sidebar
+# Default cluster grid: per-facet mini tag-clouds ("clusters")
 # ---------------------------------------------------------------------------
 
-class _FacetRowButton(QPushButton):
-    """One facet row in the Pantry sidebar.
+# The Recipe builder's DEFAULT overview shows a mini weighted tag-cloud for each
+# facet at once (a "cluster"), replacing the old one-facet-at-a-time pantry list.
+#   MAIN tiles  — the roomy, high-coverage browse facets (always shown).
+#   MORE tiles  — the low-cardinality tail, tucked in a collapsible "More facets"
+#                 section (mirror-not-cage: reachable, not hidden).  Any facet in
+#                 neither list is still reachable via the cross-facet search box.
+_CLUSTER_FACETS: tuple[str, ...] = ("genre", "region", "language", "collection", "decade")
+_MORE_FACETS: tuple[str, ...] = ("quality", "platform", "format", "subtitle")
+_ALL_CLUSTER_FACETS: tuple[str, ...] = _CLUSTER_FACETS + _MORE_FACETS
 
-    Shows a small colored bar on the left edge, the facet display name,
-    and the distinct-value count on the right.  Selected state is applied
-    via stylesheet swap.
+# Top-N tag values requested per facet for the overview (small facets return all).
+_CLUSTER_LIMIT_PER_FACET: int = 24
+
+# Minimum tile width (px) used to compute the responsive column count.
+_CLUSTER_TILE_MIN_W: int = 300
+
+
+def _decade_sort_key(value: str) -> int:
+    """Chronological sort key for a decade tag value (``"1990s"`` → ``1990``).
+
+    Decade tiles order their chips by era, not by catalogue weight — the single
+    special-case in decision 2; a non-numeric value sorts last.
+    """
+    m = re.match(r"\s*(\d{3,4})", value or "")
+    return int(m.group(1)) if m else 9999
+
+
+class _TagSearchBar(QWidget):
+    """Cross-facet tag search box shown above the cluster grid.
+
+    Replaces the retired Pantry search row.  Emits ``search_changed(text)`` —
+    empty immediately (so clearing restores the grid without an idle wait),
+    non-empty debounced so fast typing coalesces into one DB round-trip.
     """
 
-    def __init__(
-        self,
-        facet_type: str,
-        display_name: str,
-        distinct_values: int,
-        color: str,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.facet_type = facet_type
-        self._color = color
-        self._selected = False
-        self._display_name = display_name
-        self._distinct_values = distinct_values
-        self._match_count = 0   # cross-facet search match count (0 → no badge)
-
-        # Build label: "■ Genre    512"
-        self._refresh_label()
-        self._apply_style()
-
-    # ── public ────────────────────────────────────────────────────────────
-
-    def set_selected(self, selected: bool) -> None:
-        self._selected = selected
-        self._apply_style()
-
-    def is_selected(self) -> bool:
-        return self._selected
-
-    def set_match_count(self, n: int) -> None:
-        """Set the cross-facet search match badge ("·N"); 0 hides it."""
-        self._match_count = max(0, int(n))
-        self._refresh_label()
-
-    # ── private ───────────────────────────────────────────────────────────
-
-    def _refresh_label(self) -> None:
-        """Rebuild the row label, appending a subtle "·N" badge when matches exist."""
-        text = f"■ {self._display_name}   {self._distinct_values:,}"
-        tip = f"{self._display_name} — {self._distinct_values:,} distinct values in your library"
-        if self._match_count:
-            text += f"   ·{self._match_count}"
-            tip = (
-                f"{self._display_name} — {self._match_count} value"
-                f"{'s' if self._match_count != 1 else ''} match your search"
-            )
-        self.setText(text)
-        self.setToolTip(tip)
-
-    # ── private ───────────────────────────────────────────────────────────
-
-    def _apply_style(self) -> None:
-        color = self._color
-        if self._selected:
-            style = (
-                f"QPushButton {{ border: none; background: {_theme.OVERLAY_RECIPE_SELECTED};"
-                f" color: {color}; font-size: {_theme.FONT_MD};"
-                f" text-align: left; padding: 5px 8px; border-radius: 4px;"
-                f" border-left: 2px solid {color}; }}"
-            )
-        else:
-            style = (
-                f"QPushButton {{ border: none; background: transparent;"
-                f" color: {_theme.COLOR_RECIPE_TEXT}; font-size: {_theme.FONT_MD};"
-                f" text-align: left; padding: 5px 8px; border-radius: 4px; }}"
-                f"QPushButton:hover {{ background: {_theme.OVERLAY_05}; }}"
-            )
-        self.setStyleSheet(style)
-
-
-class _PantrySidebar(QWidget):
-    """Left sidebar listing all available facets + stub Saved Recipes section.
-
-    Emits ``facet_selected(facet_type)`` when the user clicks a facet row, and
-    ``search_changed(text)`` (debounced) when the search box text settles — the
-    owner runs the cross-facet tag search off-thread and fills the center cloud.
-    """
-
-    facet_selected = pyqtSignal(str)   # facet_type string
     search_changed = pyqtSignal(str)   # debounced search text (stripped)
 
-    # Debounce window for the search box: rapid keystrokes coalesce into one
-    # cross-facet DB query while the box stays responsive.
     _SEARCH_DEBOUNCE_MS: int = 220
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(212)
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(self._SEARCH_DEBOUNCE_MS)
+        self._debounce.timeout.connect(self._emit)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self._box = QLineEdit()
+        self._box.setPlaceholderText("Search tags across all facets…")
+        self._box.setToolTip("Search tag values across every facet at once")
+        self._box.setClearButtonEnabled(True)
+        self._box.setFixedWidth(240)
+        self._box.textChanged.connect(self._on_text)
+        row.addWidget(self._box)
+
+    # ── public ────────────────────────────────────────────────────────────
+
+    def text(self) -> str:
+        return self._box.text()
+
+    def clear(self) -> None:
+        """Clear the search box (restores the cluster grid)."""
+        self._box.clear()
+
+    # ── private ───────────────────────────────────────────────────────────
+
+    def _on_text(self, text: str) -> None:
+        if not text.strip():
+            self._debounce.stop()
+            self.search_changed.emit("")
+        else:
+            self._debounce.start()
+
+    def _emit(self) -> None:
+        self.search_changed.emit(self._box.text().strip())
+
+
+class _SavedRecipesPanel(QWidget):
+    """The "SAVED RECIPES" section (stub) — column 1, under Tonight's Recipe.
+
+    Extracted from the retired Pantry sidebar so column 1 keeps only the recipe
+    rail + saved recipes after the cluster-grid redesign (decision 3).  Slice 4
+    populates this with real saved recipes.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.setStyleSheet(_theme.RECIPE_PANTRY_BG)
-        self._facet_buttons: list[_FacetRowButton] = []
-        self._selected_facet: str | None = None
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 10, 8, 8)
+        outer.setSpacing(0)
 
-        # Restartable single-shot timer — coalesces keystrokes into one emit.
-        self._search_debounce = QTimer(self)
-        self._search_debounce.setSingleShot(True)
-        self._search_debounce.setInterval(self._SEARCH_DEBOUNCE_MS)
-        self._search_debounce.timeout.connect(self._emit_search)
+        hdr = QLabel("SAVED RECIPES")
+        hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
+        outer.addWidget(hdr)
 
+        stub = QLabel("No saved recipes yet")
+        stub.setStyleSheet(
+            f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
+            " padding: 4px 8px;"
+        )
+        stub.setToolTip("Saving recipes will be available in a future update")
+        outer.addWidget(stub)
+        outer.addStretch()
+
+
+class _ClusterTile(QFrame):
+    """One facet's mini weighted tag-cloud in the default overview grid.
+
+    Header = the facet name (clickable → drill into that facet's full cloud; the
+    labelled header is the non-color a11y cue per decision 5).  Body = the
+    facet's top-N values as weighted tag buttons, font-size normalized WITHIN
+    this tile (its own min/max) so a small facet isn't erased by a global scale.
+    Clicking a tag adds it to the recipe without leaving the overview.  The decade
+    tile orders its chips chronologically (decision 2), every other tile by weight.
+
+    Reuses the shared cloud primitives (``_TagButton`` / ``_count_to_font_token``
+    / ``_CloudBody``) so a cluster renders identically to the full cloud and the
+    Pantry search cloud — one renderer, never a parallel one.
+    """
+
+    facet_clicked = pyqtSignal(str)         # facet_type — drill into the full cloud
+    tag_clicked   = pyqtSignal(str, str)    # (facet_type, value) — add an ingredient
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("clusterTile")
+        self.setStyleSheet(_theme.RECIPE_CLUSTER_TILE)
+        self._facet: str = ""
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 8, 10, 10)
+        outer.setSpacing(4)
+
+        hdr_row = QHBoxLayout()
+        hdr_row.setContentsMargins(0, 0, 0, 0)
+        hdr_row.setSpacing(6)
+        self._hdr_btn = QPushButton("")
+        self._hdr_btn.setFlat(True)
+        self._hdr_btn.clicked.connect(self._emit_facet)
+        hdr_row.addWidget(self._hdr_btn)
+        self._sub_lbl = QLabel("")
+        self._sub_lbl.setStyleSheet(_theme.RECIPE_CLUSTER_SUBTITLE)
+        hdr_row.addWidget(self._sub_lbl)
+        hdr_row.addStretch()
+        outer.addLayout(hdr_row)
+
+        self._body = _CloudBody()
+        outer.addWidget(self._body)
+
+    # ── public ────────────────────────────────────────────────────────────
+
+    def facet_type(self) -> str:
+        return self._facet
+
+    def set_data(
+        self,
+        facet: str,
+        items: list,
+        includes: set,
+        excludes: set,
+    ) -> None:
+        """Render *facet*'s top-N ``TagCountDTO`` list with current recipe marks."""
+        self._facet = facet
+        color = _facet_color(facet)
+        display = _facet_display(facet)
+
+        # Labelled, facet-colored header (word = the non-color cue; color = accent).
+        self._hdr_btn.setText(display)
+        self._hdr_btn.setStyleSheet(
+            f"QPushButton {{ border: none; background: transparent; color: {color};"
+            f" font-size: {_theme.FONT_LG}; font-weight: bold; text-align: left;"
+            f" padding: 2px 0; }}"
+            f"QPushButton:hover {{ text-decoration: underline; }}"
+        )
+        self._hdr_btn.setToolTip(f"Browse all {display} tags")
+        self._sub_lbl.setText(f"· {len(items)}")
+
+        # Decade orders chronologically; every other facet keeps the engine's
+        # count-DESC order.
+        ordered = (
+            sorted(items, key=lambda d: _decade_sort_key(d.value))
+            if facet == "decade"
+            else list(items)
+        )
+
+        # content_type slugs render friendly labels; identity stays the slug.
+        display_map: dict[str, str] = {}
+        if facet == "content_type":
+            from metatv.core.channel_name_utils import content_type_display
+            display_map = {d.value: content_type_display(d.value) for d in ordered}
+
+        # Normalize font size WITHIN this tile (its own min/max), per decision 5.
+        counts = [d.channel_count for d in ordered] or [1]
+        mn, mx = min(counts), max(counts)
+
+        self._body.flow().clear()
+        for dto in ordered:
+            if dto.value in includes:
+                state = "include"
+            elif dto.value in excludes:
+                state = "exclude"
+            else:
+                state = "none"
+            token = _count_to_font_token(dto.channel_count, mn, mx)
+            btn = _TagButton(
+                dto.value, dto.channel_count, state, token, color,
+                facet_type=facet, display=display_map.get(dto.value),
+            )
+            btn.clicked.connect(self._make_handler(dto.value))
+            self._body.flow().add(btn)
+        self._body.refresh_layout()
+
+    # ── private ───────────────────────────────────────────────────────────
+
+    def _emit_facet(self) -> None:
+        self.facet_clicked.emit(self._facet)
+
+    def _make_handler(self, value: str):
+        def _h() -> None:
+            self.tag_clicked.emit(self._facet, value)
+        return _h
+
+
+class _ClusterGrid(QWidget):
+    """Responsive grid of per-facet cluster tiles + a collapsible "More facets".
+
+    The Recipe builder's default overview.  Main (roomy) facets fill a responsive
+    grid whose column count tracks the available width (landscape-first); the
+    low-cardinality tail lives under a collapsible "▸ More facets" header whose
+    expand state persists to Config.
+
+    Emits ``facet_selected`` (drill into a facet's full cloud), ``tag_clicked``
+    (add an ingredient without leaving the overview), and ``more_facets_toggled``
+    (so the host can persist the collapse state).
+    """
+
+    facet_selected      = pyqtSignal(str)        # facet_type — drill into the full cloud
+    tag_clicked         = pyqtSignal(str, str)   # (facet_type, value)
+    more_facets_toggled = pyqtSignal(bool)       # persist "More facets" expand state
+
+    def __init__(self, more_expanded: bool = False, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._more_expanded = bool(more_expanded)
+        self._data: dict[str, list] = {}
+        self._includes: dict[str, set] = {}
+        self._excludes: dict[str, set] = {}
+        self._main_tiles: list[_ClusterTile] = []
+        self._more_tiles: list[_ClusterTile] = []
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
 
-    def load_facets(self, summaries: list[FacetSummaryDTO]) -> None:
-        """Populate the pantry with facet summary rows.
+    def set_more_expanded(self, expanded: bool) -> None:
+        """Restore the persisted "More facets" expand state (no signal)."""
+        self._more_expanded = bool(expanded)
+        self._apply_more_visibility()
 
-        Args:
-            summaries: Ordered list of FacetSummaryDTO from
-                TagRepository.get_facet_summary().
-        """
-        # Clear existing buttons (but not the layout structure)
-        for btn in self._facet_buttons:
-            btn.deleteLater()
-        self._facet_buttons.clear()
+    def set_clusters(
+        self,
+        data: dict[str, list],
+        includes: dict[str, set],
+        excludes: dict[str, set],
+    ) -> None:
+        """Render the per-facet tiles from ``{facet: [TagCountDTO, …]}`` + recipe marks."""
+        self._data = data or {}
+        self._includes = includes or {}
+        self._excludes = excludes or {}
+        self._rebuild()
 
-        for dto in summaries:
-            meta = _FACET_META.get(dto.facet_type)
-            display = meta[0] if meta else dto.facet_type.title()
-            color = meta[1] if meta else _theme.COLOR_TEXT
-            btn = _FacetRowButton(dto.facet_type, display, dto.distinct_values, color)
-            btn.clicked.connect(self._make_selector(dto.facet_type))
-            self._facets_layout.addWidget(btn)
-            self._facet_buttons.append(btn)
-
-        # Auto-select first facet if none is selected yet
-        if self._facet_buttons and self._selected_facet is None:
-            self._select_facet(self._facet_buttons[0].facet_type)
-
-    def selected_facet(self) -> str | None:
-        return self._selected_facet
-
-    def preselect_facet(self, facet_type: str) -> None:
-        """Mark *facet_type* as selected without emitting ``facet_selected``.
-
-        Used when the view is seeded externally (the details-pane tag right-click
-        → Discover path) before the pantry rows have loaded: setting the selection
-        here means a subsequent async ``load_facets`` keeps it (it only
-        auto-selects the first facet when nothing is selected yet), and any rows
-        that already exist get their selected style applied.
-        """
-        self._selected_facet = facet_type
-        for btn in self._facet_buttons:
-            btn.set_selected(btn.facet_type == facet_type)
+    def tiles(self) -> list:
+        """All rendered tiles (main + more) — for tests/introspection."""
+        return list(self._main_tiles) + list(self._more_tiles)
 
     # ── private ───────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 12, 8, 8)
-        outer.setSpacing(0)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(8)
 
-        # "THE PANTRY" header
-        pantry_hdr = QLabel("THE PANTRY")
-        pantry_hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
-        outer.addWidget(pantry_hdr)
+        self._grid_host = QWidget()
+        self._grid = QGridLayout(self._grid_host)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(10)
+        outer.addWidget(self._grid_host)
 
-        # Filter row: search box + × clear button
-        filter_row = QHBoxLayout()
-        filter_row.setContentsMargins(0, 4, 0, 2)
-        filter_row.setSpacing(4)
-
-        self._filter_box = QLineEdit()
-        self._filter_box.setPlaceholderText("Search tags…")
-        self._filter_box.setToolTip("Search tags across all facets")
-        self._filter_box.setClearButtonEnabled(True)
-        self._filter_box.textChanged.connect(self._on_search_text)
-        filter_row.addWidget(self._filter_box)
-
-        outer.addLayout(filter_row)
-
-        # Facet rows (populated dynamically via load_facets)
-        self._facets_layout = QVBoxLayout()
-        self._facets_layout.setContentsMargins(0, 4, 0, 0)
-        self._facets_layout.setSpacing(2)
-        outer.addLayout(self._facets_layout)
-
-        # Divider
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(_theme.SEPARATOR_H)
-        outer.addWidget(line)
-
-        # "SAVED RECIPES" stub header
-        saved_hdr = QLabel("SAVED RECIPES")
-        saved_hdr.setStyleSheet(_theme.RECIPE_PANTRY_HDR)
-        outer.addWidget(saved_hdr)
-
-        # Stub placeholder — slice 4 will populate this
-        saved_stub = QLabel("No saved recipes yet")
-        saved_stub.setStyleSheet(
+        # Empty / loading placeholder (shown until the async cluster load lands).
+        self._placeholder = QLabel("Loading facets…")
+        self._placeholder.setStyleSheet(
             f"color: {_theme.COLOR_RECIPE_MUTED_2}; font-size: {_theme.FONT_MD};"
-            " padding: 4px 8px;"
+            " padding: 8px 2px;"
         )
-        saved_stub.setToolTip("Saving recipes will be available in a future update")
-        outer.addWidget(saved_stub)  # slice 4 TODO
+        outer.addWidget(self._placeholder)
+
+        # Collapsible "▸ More facets" section (icons.expand_icon/collapse_icon).
+        self._more_btn = QPushButton("")
+        self._more_btn.setStyleSheet(_theme.RECIPE_MORE_FACETS_BTN)
+        self._more_btn.clicked.connect(self._toggle_more)
+        outer.addWidget(self._more_btn)
+
+        self._more_host = QWidget()
+        self._more_grid = QGridLayout(self._more_host)
+        self._more_grid.setContentsMargins(0, 0, 0, 0)
+        self._more_grid.setSpacing(10)
+        outer.addWidget(self._more_host)
 
         outer.addStretch()
 
-    def _make_selector(self, facet_type: str):
-        """Closure factory so each button captures its own facet_type."""
-        def _select() -> None:
-            self._select_facet(facet_type)
-        return _select
+        self._more_btn.hide()
+        self._more_host.hide()
 
-    def _select_facet(self, facet_type: str) -> None:
-        self._selected_facet = facet_type
-        for btn in self._facet_buttons:
-            btn.set_selected(btn.facet_type == facet_type)
-        self.facet_selected.emit(facet_type)
+    def _rebuild(self) -> None:
+        for t in self._main_tiles + self._more_tiles:
+            t.deleteLater()
+        self._main_tiles = []
+        self._more_tiles = []
 
-    def _on_search_text(self, text: str) -> None:
-        """Debounce the search box; emit empty immediately so clearing is instant.
+        for facet in _CLUSTER_FACETS:
+            items = self._data.get(facet)
+            if items:
+                self._main_tiles.append(self._make_tile(facet, items))
+        for facet in _MORE_FACETS:
+            items = self._data.get(facet)
+            if items:
+                self._more_tiles.append(self._make_tile(facet, items))
 
-        Cross-facet search (non-empty) is debounced so fast typing coalesces into
-        one DB round-trip.  Clearing the box restores today's selected-facet cloud,
-        so we emit ``""`` synchronously (no idle wait) and stop any pending timer.
-        """
-        if not text.strip():
-            self._search_debounce.stop()
-            self.search_changed.emit("")
-        else:
-            self._search_debounce.start()
+        has_any = bool(self._main_tiles or self._more_tiles)
+        self._placeholder.setVisible(not has_any)
+        self._placeholder.setText("No facets to show yet" if self._data else "Loading facets…")
 
-    def _emit_search(self) -> None:
-        """Debounce timeout: emit the current (stripped) search text."""
-        self.search_changed.emit(self._filter_box.text().strip())
+        self._more_btn.setVisible(bool(self._more_tiles))
+        self._apply_more_visibility()
+        self._relayout()
 
-    def set_match_counts(self, counts: dict[str, int]) -> None:
-        """Show a "·N" badge on each facet row (N = matching values in that facet)."""
-        for btn in self._facet_buttons:
-            btn.set_match_count(counts.get(btn.facet_type, 0))
+    def _make_tile(self, facet: str, items: list) -> "_ClusterTile":
+        tile = _ClusterTile()
+        tile.set_data(
+            facet, items,
+            self._includes.get(facet, set()),
+            self._excludes.get(facet, set()),
+        )
+        tile.facet_clicked.connect(self.facet_selected)
+        tile.tag_clicked.connect(self.tag_clicked)
+        return tile
 
-    def clear_match_counts(self) -> None:
-        """Remove all per-facet match badges (empty search)."""
-        for btn in self._facet_buttons:
-            btn.set_match_count(0)
+    def _cols(self) -> int:
+        w = self.width()
+        if w <= 0 and self.parentWidget() is not None:
+            w = self.parentWidget().width()
+        if w <= 0:
+            w = 900
+        return max(1, min(3, w // _CLUSTER_TILE_MIN_W))
 
-    def clear_filter(self) -> None:
-        """Clear the pantry search box (restores the selected-facet cloud)."""
-        self._filter_box.clear()
+    def _relayout(self) -> None:
+        cols = self._cols()
+        self._place(self._grid, self._main_tiles, cols)
+        self._place(self._more_grid, self._more_tiles, cols)
+
+    @staticmethod
+    def _place(grid: QGridLayout, tiles: list, cols: int) -> None:
+        while grid.count():
+            item = grid.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                grid.removeWidget(w)
+        for i, tile in enumerate(tiles):
+            grid.addWidget(tile, i // cols, i % cols)
+            tile.show()
+
+    def _apply_more_visibility(self) -> None:
+        n = len(self._more_tiles)
+        chevron = _icons.collapse_icon if self._more_expanded else _icons.expand_icon
+        self._more_btn.setText(f"{chevron} More facets ({n})")
+        self._more_btn.setToolTip(
+            "Hide the low-cardinality facets"
+            if self._more_expanded
+            else "Show more facets (quality, platform, audio format, subtitles)"
+        )
+        self._more_host.setVisible(self._more_expanded and n > 0)
+
+    def _toggle_more(self) -> None:
+        self._more_expanded = not self._more_expanded
+        self._apply_more_visibility()
+        self.more_facets_toggled.emit(self._more_expanded)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._relayout()
 
 
 # ---------------------------------------------------------------------------

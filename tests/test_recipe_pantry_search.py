@@ -298,14 +298,6 @@ def _make_view(qapp):
     return view, seam
 
 
-def _load_pantry(view):
-    view._on_pantry_loaded([
-        _FacetSummaryDTO("genre", 100),
-        _FacetSummaryDTO("collection", 20),
-        _FacetSummaryDTO("region", 50),
-    ])
-
-
 def test_search_changed_dispatches_cross_facet_query(qapp):
     """A non-empty search runs the new repo method through the async seam."""
     view, seam = _make_view(qapp)
@@ -327,7 +319,6 @@ def test_search_loaded_fills_cloud_with_multi_facet_matches(qapp):
     """_on_search_loaded drives the cloud with matches from >1 facet."""
     view, seam = _make_view(qapp)
     view._active = True
-    _load_pantry(view)
     view._search_query = "comedy"
 
     view._on_search_loaded([
@@ -342,6 +333,8 @@ def test_search_loaded_fills_cloud_with_multi_facet_matches(qapp):
     assert {b.facet_type() for b in buttons} == {"genre", "collection"}
     # Header reflects the search term.
     assert "comedy" in view._stage_hdr.text().lower()
+    # The mixed-facet search cloud is shown in the center cloud pane.
+    assert view._top_stack.currentIndex() == 1
 
 
 def test_search_cloud_colors_tags_by_facet(qapp):
@@ -350,7 +343,6 @@ def test_search_cloud_colors_tags_by_facet(qapp):
 
     view, seam = _make_view(qapp)
     view._active = True
-    _load_pantry(view)
     view._search_query = "comedy"
 
     view._on_search_loaded([
@@ -363,42 +355,19 @@ def test_search_cloud_colors_tags_by_facet(qapp):
     assert _theme.COLOR_FACET_COLLECTION in by_facet["collection"].styleSheet()
 
 
-def test_search_sets_per_facet_badges(qapp):
-    """Each left facet row gets a "·N" badge = matching values in that facet."""
+def test_empty_search_restores_cluster_overview(qapp):
+    """Clearing the search (no facet selected) resets state and returns to the grid."""
     view, seam = _make_view(qapp)
     view._active = True
-    _load_pantry(view)
-    view._search_query = "comedy"
-
-    view._on_search_loaded([
-        _SearchDTO("genre", "Comedy", 300),
-        _SearchDTO("genre", "Dark Comedy", 40),
-        _SearchDTO("collection", "Comedy Central", 12),
-    ])
-
-    badges = {b.facet_type: b._match_count for b in view._pantry._facet_buttons}
-    assert badges["genre"] == 2
-    assert badges["collection"] == 1
-    assert badges["region"] == 0
-    # The badge text actually shows on the matching rows.
-    genre_btn = next(b for b in view._pantry._facet_buttons if b.facet_type == "genre")
-    assert "·2" in genre_btn.text()
-
-
-def test_empty_search_clears_badges_and_restores(qapp):
-    """Clearing the search drops badges and resets the search state."""
-    view, seam = _make_view(qapp)
-    view._active = True
-    view._selected_facet = "genre"
-    _load_pantry(view)
     view._search_query = "comedy"
     view._on_search_loaded([_SearchDTO("genre", "Comedy", 300)])
-    assert any(b._match_count for b in view._pantry._facet_buttons)
+    assert view._top_stack.currentIndex() == 1  # search cloud showing
 
     view._on_search_changed("")
 
     assert view._search_query == ""
-    assert all(b._match_count == 0 for b in view._pantry._facet_buttons)
+    # With no drilled-in facet, clearing search lands back on the cluster overview.
+    assert view._top_stack.currentIndex() == 0
 
 
 def test_search_tag_click_adds_under_its_own_facet(qapp):
@@ -406,7 +375,6 @@ def test_search_tag_click_adds_under_its_own_facet(qapp):
     view, seam = _make_view(qapp)
     view._active = True
     view._selected_facet = "genre"   # deliberately DIFFERENT from the clicked facet
-    _load_pantry(view)
     view._search_query = "comedy"
     view._on_search_loaded([_SearchDTO("collection", "Comedy Central", 12)])
 
@@ -424,7 +392,6 @@ def test_search_tag_click_reflects_include_mark(qapp):
 
     view, seam = _make_view(qapp)
     view._active = True
-    _load_pantry(view)
     view._search_query = "comedy"
     view._on_search_loaded([_SearchDTO("genre", "Comedy", 300)])
 
@@ -438,11 +405,9 @@ def test_search_loaded_ignored_when_query_cleared(qapp):
     """A late search result that arrives after the box was cleared does not repaint."""
     view, seam = _make_view(qapp)
     view._active = True
-    _load_pantry(view)
     view._search_query = ""   # user already cleared the box
 
     view._on_search_loaded([_SearchDTO("genre", "Comedy", 300)])
 
-    # No badges, no cloud buttons painted from the stale result.
-    assert all(b._match_count == 0 for b in view._pantry._facet_buttons)
+    # No cloud buttons painted from the stale result.
     assert view._cloud._tag_buttons == []

@@ -1,7 +1,7 @@
 """Behavioral tests for RecipeView (task #56 slice 3).
 
 These tests exercise the main-thread result slots directly — the "half that
-regresses" per CLAUDE.md. The DB worker half (_load_pantry / _load_cloud /
+regresses" per CLAUDE.md. The DB worker half (_load_clusters / _load_cloud /
 _load_results) is trivial; what matters is how the view processes delivered
 results and what state it exposes.
 
@@ -179,55 +179,33 @@ def _make_view(qapp):
 
 
 # ---------------------------------------------------------------------------
-# Pantry: load_facets populates buttons
+# Cluster grid: the default overview renders per-facet mini clouds
 # ---------------------------------------------------------------------------
 
-def test_pantry_loads_facets(qapp):
-    """After delivering facet summaries, pantry has one button per facet."""
-    view, seam = _make_view(qapp)
-    view._active = True  # simulate activated
-
-    summaries = [
-        _FacetSummaryDTO("genre", 120),
-        _FacetSummaryDTO("language", 30),
-        _FacetSummaryDTO("region", 75),
-    ]
-    view._on_pantry_loaded(summaries)
-
-    buttons = view._pantry._facet_buttons
-    assert len(buttons) == 3
-    assert buttons[0].facet_type == "genre"
-    assert buttons[1].facet_type == "language"
-    assert buttons[2].facet_type == "region"
-
-
-def test_pantry_auto_selects_first_facet(qapp):
-    """Delivering facet summaries auto-selects the first facet when none was selected."""
+def test_clusters_render_default_overview(qapp):
+    """After delivering the top-tags payload, the cluster grid has one tile per facet
+    and the center pane shows the overview (page 0)."""
     view, seam = _make_view(qapp)
     view._active = True
 
-    summaries = [
-        _FacetSummaryDTO("genre", 50),
-        _FacetSummaryDTO("decade", 10),
-    ]
-    view._on_pantry_loaded(summaries)
+    view._on_clusters_loaded({
+        "genre": [_TagCountDTO("Drama", 120), _TagCountDTO("Comedy", 30)],
+        "region": [_TagCountDTO("US", 75)],
+    })
 
-    # A cloud load should have been submitted for "genre"
-    last_call = seam.calls[-1]
-    assert last_call["on_result"] == view._on_cloud_loaded
+    facets = {t.facet_type() for t in view._cluster_grid.tiles()}
+    assert {"genre", "region"} <= facets
+    assert view._top_stack.currentIndex() == 0  # cluster overview is the default center
 
 
-def test_pantry_inactive_view_skips_population(qapp):
-    """If the view is not active, _on_pantry_loaded does nothing."""
+def test_clusters_inactive_view_skips_population(qapp):
+    """If the view is not active, _on_clusters_loaded does nothing."""
     view, seam = _make_view(qapp)
     view._active = False
 
-    summaries = [_FacetSummaryDTO("genre", 50)]
-    initial_count = len(view._pantry._facet_buttons)
-    view._on_pantry_loaded(summaries)
+    view._on_clusters_loaded({"genre": [_TagCountDTO("Drama", 50)]})
 
-    # Should not have changed because view is inactive
-    assert len(view._pantry._facet_buttons) == initial_count
+    assert view._cluster_grid.tiles() == []
 
 
 # ---------------------------------------------------------------------------
@@ -703,15 +681,15 @@ def test_generate_recipe_name_includes_decade():
 # ---------------------------------------------------------------------------
 
 def test_on_activate_sets_active_flag(qapp):
-    """on_activate() sets _active = True and triggers a pantry load."""
+    """on_activate() sets _active = True and triggers a cluster-overview load."""
     view, seam = _make_view(qapp)
     view._active = False  # reset just in case
 
     view.on_activate()
 
     assert view._active is True
-    # A pantry load should have been queued
-    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    # A cluster load should have been queued
+    assert any(c["on_result"] == view._on_clusters_loaded for c in seam.calls)
 
 
 def test_on_deactivate_clears_active_flag(qapp):
@@ -743,16 +721,16 @@ def test_reload_noop_when_never_activated(qapp):
     assert seam.calls == []
 
 
-def test_reload_reissues_pantry_load(qapp):
-    """reload() on an active view re-issues the pantry load (same as on_activate)."""
+def test_reload_reissues_cluster_load(qapp):
+    """reload() on an active view re-issues the cluster load (same as on_activate)."""
     view, seam = _make_view(qapp)
     view._active = True
 
     view.reload()
 
-    # The pantry load is the load on_activate fires; reload must re-issue it so
+    # The cluster load is the load on_activate fires; reload must re-issue it so
     # new Global Exclusions re-resolve through _global_exclusion_sets().
-    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert any(c["on_result"] == view._on_clusters_loaded for c in seam.calls)
 
 
 def test_reload_reissues_results_when_recipe_in_progress(qapp):
@@ -764,21 +742,21 @@ def test_reload_reissues_results_when_recipe_in_progress(qapp):
 
     view.reload()
 
-    # Both pantry (→ cascades to cloud) and results must re-run so the count +
-    # cards reflect the new exclusions immediately, not after a nav round-trip.
-    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    # Both the cluster overview and results must re-run so the count + cards
+    # reflect the new exclusions immediately, not after a nav round-trip.
+    assert any(c["on_result"] == view._on_clusters_loaded for c in seam.calls)
     assert any(c["on_result"] == view._on_results_loaded for c in seam.calls)
 
 
 def test_reload_skips_results_when_recipe_empty(qapp):
-    """reload() with no ingredients re-issues only the pantry (no results query)."""
+    """reload() with no ingredients re-issues only the cluster load (no results query)."""
     view, seam = _make_view(qapp)
     view._active = True
     # No includes/excludes set.
 
     view.reload()
 
-    assert any(c["on_result"] == view._on_pantry_loaded for c in seam.calls)
+    assert any(c["on_result"] == view._on_clusters_loaded for c in seam.calls)
     assert not any(c["on_result"] == view._on_results_loaded for c in seam.calls)
 
 
@@ -1002,6 +980,10 @@ class _RecordingTags:
         self.calls["facet_summary"] = kwargs
         return []
 
+    def get_top_tags_per_facet(self, facets, limit_per_facet, **kwargs):
+        self.calls["top_tags"] = dict(facets=facets, limit_per_facet=limit_per_facet, **kwargs)
+        return {}
+
     def get_tag_counts_for_facet(self, facet_type, **kwargs):
         self.calls["tag_counts"] = kwargs
         return []
@@ -1101,20 +1083,21 @@ def test_load_cloud_threads_exclusion_sets_to_engine(qapp):
     assert repos.tags.calls["tag_counts"]["excluded_categories"] == set()
 
 
-def test_load_pantry_threads_exclusion_sets_to_engine(qapp):
-    """_load_pantry runs its query_fn with the exclusion sets on get_facet_summary."""
+def test_load_clusters_threads_exclusion_sets_to_engine(qapp):
+    """_load_clusters runs its query_fn with the exclusion sets on get_top_tags_per_facet."""
     view, seam = _make_view(qapp)
     view._active = True
     _set_global_filter(view, categories=["AR"], user_categories=["Kids"])
 
-    view._load_pantry()
-    # the pantry call is the only one queued; find it by callback.
-    entry = next(c for c in seam.calls if c["on_result"] == view._on_pantry_loaded)
+    view._load_clusters()
+    # the cluster call is queued; find it by callback.
+    entry = next(c for c in seam.calls if c["on_result"] == view._on_clusters_loaded)
     repos = _RecordingRepos()
     entry["query_fn"](repos)
 
-    assert repos.tags.calls["facet_summary"]["excluded_prefixes"] == {"AR"}
-    assert repos.tags.calls["facet_summary"]["excluded_categories"] == {"Kids"}
+    assert repos.tags.calls["top_tags"]["excluded_prefixes"] == {"AR"}
+    assert repos.tags.calls["top_tags"]["excluded_categories"] == {"Kids"}
+    assert repos.tags.calls["top_tags"]["excluded_provider_ids"] == ["prov_hidden"]
 
 
 # ---------------------------------------------------------------------------

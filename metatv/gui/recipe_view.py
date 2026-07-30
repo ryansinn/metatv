@@ -1,36 +1,46 @@
-"""RecipeView — tag-cloud "Recipe" builder (task #56; two-column redesign).
+"""RecipeView — tag-cloud "Recipe" builder (task #56; cluster-grid overview).
 
 Two-column view reached via the ✦ Recipe nav chip:
 
-    COLUMN 1  — "THE PANTRY" facet sidebar + "SAVED RECIPES", stacked over the
-                "TONIGHT'S RECIPE" ingredient rail (a vertical QSplitter).
-    COLUMN 2  — the WeightedTagCloud stacked over the "Now Plating" results
-                grid (a vertical QSplitter, cloud on top, results getting the
-                bottom half — a real, browsable results area, not a thin strip).
+    COLUMN 1  — the "TONIGHT'S RECIPE" ingredient rail over "SAVED RECIPES",
+                behind a collapse chevron so the overview can go near-full-width
+                (a vertical QSplitter inside a collapsible container).
+    COLUMN 2  — a header (facet breadcrumb + cross-facet search) over a vertical
+                QSplitter of the center pane and the "Now Plating" results grid.
+                The center pane is a stack: the DEFAULT **cluster grid** (a mini
+                weighted tag-cloud per facet, shown all at once), or a single
+                facet's full WeightedTagCloud when a cluster is drilled into (or
+                the cross-facet search cloud).
 
-All three splitters (Column 1 vs 2, pantry vs rail, cloud vs Now Plating) persist
-their sizes to Config and restore on construction, per DESIGN.md (save on change,
-restore in __init__ with signals blocked, connect handlers after).
+The standalone Pantry facet-LIST is gone — the cluster grid replaces it (users
+never click through facets one-by-one).  Clicking a cluster's facet header drills
+into that facet's full cloud; "‹ All facets" returns to the overview.  Clicking a
+tag INSIDE a cluster adds the ingredient and stays in the grid (cross-facet build
+without leaving the overview).  The decade tile orders its chips chronologically.
+
+All three splitters persist their sizes to Config and restore on construction,
+per DESIGN.md; the column-1 collapse + "More facets" expand states persist too.
 
 Entry behaviour is content-first: :meth:`seed_facet` (the details-pane tag
 right-click seam) lands on the full-results browse page showing what matches the
 tag, with a "Build recipe" affordance back to the builder.  Opening via the nav
-chip (no preset tag) lands on the builder as before.
+chip (no preset tag) lands on the builder's cluster overview.
 
-Helper widgets (Pantry / rail / Now Plating grid) live in ``recipe_widgets.py``
-and are re-exported here for backward compatibility.
+Helper widgets (cluster grid / rail / Now Plating grid) live in
+``recipe_widgets.py`` and are re-exported here for backward compatibility.
 
 Data wiring (all DB reads off the main thread via the owner's _run_query seam):
-  - Pantry  ← TagRepository.get_facet_summary(...)
-  - Cloud   ← TagRepository.get_tag_counts_for_facet(facet, ...)
-  - YIELDS  ← TagRepository.count_channels_by_tag_facets(...)        (SQL COUNT)
-  - Results ← TagRepository.sample_channels_by_tag_facets(...)       (bounded
+  - Clusters ← TagRepository.get_top_tags_per_facet(facets, N, ...)  (one windowed
+                pass — top-N tags for every facet)
+  - Cloud    ← TagRepository.get_tag_counts_for_facet(facet, ...)    (drill-in)
+  - YIELDS   ← TagRepository.count_channels_by_tag_facets(...)       (SQL COUNT)
+  - Results  ← TagRepository.sample_channels_by_tag_facets(...)      (bounded
                 LIMIT → session-free ContentCards; never materialises the set).
 
 Scoping follows DR-0007: the engine is agnostic; the view (control layer) passes
 ProviderRepository.get_hidden_provider_ids() AND the user's Global Exclusions
 (_global_exclusion_sets(), resolved from Config) into every faceted read, so the
-pantry, cloud, YIELDS, and results all agree.
+clusters, cloud, YIELDS, and results all agree.
 
 Selection/playback are host-delegated like DiscoverView: result cards emit
 channelSelected / playRequested (channel_id), wired by MainWindow to
@@ -44,7 +54,9 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -56,20 +68,28 @@ from PyQt6.QtWidgets import (
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.recipe_browse_mixin import _RecipeBrowseMixin
+from metatv.gui.recipe_cluster_mixin import _RecipeClusterMixin
 from metatv.gui.weighted_tag_cloud import WeightedTagCloud
 
 # Re-exported for backward compatibility — tests and callers import these helper
 # widgets / functions from ``recipe_view`` (their original home before the split).
 from metatv.gui.recipe_widgets import (  # noqa: F401
+    _ALL_CLUSTER_FACETS,
+    _CLUSTER_FACETS,
+    _CLUSTER_LIMIT_PER_FACET,
     _FACET_META,
+    _MORE_FACETS,
     _ROLE_ORDER,
     _ChipRow,
-    _FacetRowButton,
+    _ClusterGrid,
+    _ClusterTile,
     _GridContainer,
     _NowPlatingStrip,
-    _PantrySidebar,
     _RecipeRail,
+    _SavedRecipesPanel,
+    _TagSearchBar,
     _clear_layout,
+    _decade_sort_key,
     _facet_color,
     _facet_display,
     _facet_role,
@@ -86,7 +106,7 @@ if TYPE_CHECKING:
 # Main RecipeView
 # ---------------------------------------------------------------------------
 
-class RecipeView(_RecipeBrowseMixin, QWidget):
+class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, QWidget):
     """Three-column Recipe builder view.
 
     Registered as a chip-nav destination by MainWindow.  Follows the same
@@ -108,7 +128,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
             ``facet_type → set[value]``.
         _recipe_excludes: Current exclude recipe state.  Maps
             ``facet_type → set[value]``.
-        _selected_facet: The currently selected facet in the Pantry.
+        _selected_facet: The drilled-in facet, or None for the cluster overview.
         _tag_counts:     Most recently loaded TagCountDTOs for the current facet.
         _active:         True while the view is visible (between on_activate /
             on_deactivate).
@@ -140,6 +160,15 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._tag_counts: list[TagCountDTO] = []
         self._active: bool = False
 
+        # Default "cluster grid" overview state: the last-loaded top-N-per-facet
+        # payload (``{facet: [TagCountDTO, …]}``) and the collapse state of the
+        # Tonight's-Recipe column (persisted).  When ``_selected_facet is None``
+        # and no search is active the center shows the cluster grid.
+        self._cluster_data: dict[str, list] = {}
+        self._col1_collapsed: bool = bool(
+            getattr(config, "recipe_col1_collapsed", False)
+        )
+
         # Cross-facet Pantry search state.  When _search_query is non-empty the
         # center cloud shows matches across ALL facets (color-coded) instead of
         # the selected facet's tags; _search_results caches the last result set so
@@ -148,7 +177,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._search_results: list = []
 
         # Tokens for stale-drop on rapid switches
-        self._pantry_token: list[int] = [0]
+        self._cluster_token: list[int] = [0]
         self._cloud_token: list[int] = [0]
         self._results_token: list[int] = [0]
         self._see_all_token: list[int] = [0]
@@ -190,7 +219,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # page from a previous visit.
         self._stack.setCurrentIndex(0)
         logger.debug("RecipeView: activated")
-        self._load_pantry()
+        self._load_clusters()
 
     def on_deactivate(self) -> None:
         """Called by MainWindow when another view is selected."""
@@ -205,12 +234,12 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         """Re-issue all data loads against the *current* config.
 
         Called by the host (MainWindow) after the user changes Global
-        Exclusions, so the pantry / cloud / results re-resolve
+        Exclusions, so the cluster grid / cloud / results re-resolve
         :meth:`_global_exclusion_sets` and drop now-excluded values.  Mirrors
         the loads ``on_activate`` triggers:
 
-        - re-load the pantry (which cascades to the cloud via the currently
-          selected facet in ``_on_pantry_loaded``), and
+        - re-load the cluster overview (and the drilled-in facet cloud, if any),
+          and
         - re-load the results shelf + YIELDS when a recipe is in progress, so
           the count and cards reflect the new exclusions immediately.
 
@@ -222,7 +251,11 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         if not self._active:
             return
         logger.debug("RecipeView: reload (config changed)")
-        self._load_pantry()
+        self._load_clusters()
+        # Re-issue the drilled-in facet cloud too, so its per-value counts
+        # re-resolve the new exclusions (the cluster reload covers the overview).
+        if self._selected_facet is not None:
+            self._load_cloud(self._selected_facet)
         # Re-run the teaser results when a recipe is in progress OR the browse
         # drill-down is showing (it may have no ingredients yet still needs to
         # re-resolve the new exclusions).  _on_results_loaded re-seeds the browse
@@ -266,14 +299,12 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._recipe_includes = {facet_type: {value}}
         self._recipe_excludes = {}
         self._selected_facet = facet_type
-        # Drop any cross-facet pantry search so the seeded facet's cloud shows.
+        # Drop any cross-facet search so the seeded facet's single cloud shows.
         self._search_query = ""
         self._search_results = []
-        self._pantry.clear_filter()
-        self._pantry.clear_match_counts()
-        # Keep the selection through the async pantry load (preselect → no override).
-        self._pantry.preselect_facet(facet_type)
-        self._stage_hdr.setText(_facet_display(facet_type))
+        self._search_box.clear()
+        # Drill straight into the seeded facet's cloud (single-facet view).
+        self._enter_facet_mode(facet_type)
         # Render the rail instantly (so the builder is ready behind the browse page).
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, None)
         # Reset the teaser so the initial browse title shows a clean "0 matches"
@@ -290,17 +321,19 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
     def clear_recipe(self) -> None:
         """Remove all ingredients and refresh the view.
 
-        Also clears the Pantry filter text box so the full facet list is restored.
+        Also clears the cross-facet search box so the cluster overview is restored.
         """
         self._recipe_includes.clear()
         self._recipe_excludes.clear()
         self._rail.update_recipe(self._recipe_includes, self._recipe_excludes, 0)
         self._now_plating.load_results([], 0)
-        # Clear pantry filter so the full facet list is visible after a recipe reset.
-        self._pantry.clear_filter()
+        # Clear the cross-facet search so the overview (or selected-facet cloud) shows.
+        self._search_box.clear()
+        self._search_query = ""
+        self._search_results = []
         # Clear the center facet-value filter so all tag chips reappear.
         self._cloud.clear_filter()
-        # Rebuild cloud with no states
+        # Re-render whichever center view is active (clusters when no facet selected).
         self._rebuild_cloud()
 
     # ── UI construction ───────────────────────────────────────────────────
@@ -319,11 +352,12 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         outer.addWidget(self._stack)
 
         # --- Page 0: the 2-column constructor ---
-        #   COLUMN 1 (col1 splitter, vertical): Pantry over the Tonight's-Recipe rail
-        #   COLUMN 2 (col2): stage header over a vertical splitter of cloud / results
+        #   COLUMN 1 (collapsible): Tonight's-Recipe rail over Saved Recipes.
+        #   COLUMN 2: header (breadcrumb + search) over a vertical splitter of the
+        #             center stack (cluster grid / cloud) and the results grid.
         # The two columns sit either side of the horizontal _main_splitter, so the
-        # user can widen the pantry column or give the cloud/results more room; all
-        # three splitters persist their sizes (see _init_splitter_sizes).
+        # user can widen column 1 or give the center/results more room; all three
+        # splitters persist their sizes (see _init_splitter_sizes).
         constructor = QWidget()
         root = QVBoxLayout(constructor)
         root.setContentsMargins(0, 0, 0, 0)
@@ -332,38 +366,98 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setChildrenCollapsible(False)
 
-        # ── COLUMN 1 — Pantry (top) over Tonight's Recipe rail (bottom) ──
+        # ── COLUMN 1 — Tonight's Recipe rail (top) over Saved Recipes (bottom),
+        #    behind a collapse chevron so the cluster grid can go near-full-width.
+        #    The facet LIST is gone: the center cluster grid replaces it (decision 3).
+        self._col1_container = QWidget()
+        self._col1_container.setStyleSheet(_theme.RECIPE_PANTRY_BG)
+        col1_outer = QVBoxLayout(self._col1_container)
+        col1_outer.setContentsMargins(0, 0, 0, 0)
+        col1_outer.setSpacing(0)
+
+        # Collapse chevron header (hides the rail to widen the overview grid).
+        col1_hdr = QHBoxLayout()
+        col1_hdr.setContentsMargins(6, 6, 6, 0)
+        col1_hdr.setSpacing(4)
+        self._col1_chevron = QPushButton("")
+        self._col1_chevron.setStyleSheet(_theme.RECIPE_COL1_CHEVRON)
+        self._col1_chevron.clicked.connect(self._toggle_col1_collapsed)
+        col1_hdr.addWidget(self._col1_chevron)
+        col1_hdr.addStretch()
+        col1_outer.addLayout(col1_hdr)
+
+        # Body — the rail (top) over Saved Recipes (bottom); hidden when collapsed.
+        self._col1_body = QWidget()
+        col1_body_layout = QVBoxLayout(self._col1_body)
+        col1_body_layout.setContentsMargins(0, 0, 0, 0)
+        col1_body_layout.setSpacing(0)
         self._col1_splitter = QSplitter(Qt.Orientation.Vertical)
         self._col1_splitter.setChildrenCollapsible(False)
-
-        self._pantry = _PantrySidebar()
-        self._pantry.facet_selected.connect(self._on_facet_selected)
-        self._pantry.search_changed.connect(self._on_search_changed)
-        self._col1_splitter.addWidget(self._pantry)
 
         self._rail = _RecipeRail()
         self._rail.clear_btn.clicked.connect(self.clear_recipe)
         self._rail.ingredient_remove_requested.connect(self._on_ingredient_remove)
         self._col1_splitter.addWidget(self._rail)
 
-        self._main_splitter.addWidget(self._col1_splitter)
+        self._saved_recipes = _SavedRecipesPanel()
+        self._col1_splitter.addWidget(self._saved_recipes)
 
-        # ── COLUMN 2 — stage header over a cloud / Now-Plating vertical splitter ──
+        col1_body_layout.addWidget(self._col1_splitter)
+        col1_outer.addWidget(self._col1_body, stretch=1)
+
+        self._main_splitter.addWidget(self._col1_container)
+
+        # ── COLUMN 2 — header (breadcrumb + search) over a center / Now-Plating
+        #    vertical splitter.  The center is a stack: the default cluster grid,
+        #    or the single-facet / search cloud when drilled in.
         col2 = QWidget()
         col2_layout = QVBoxLayout(col2)
         col2_layout.setContentsMargins(16, 12, 16, 8)
         col2_layout.setSpacing(6)
 
-        # Stage header (facet name label)
-        self._stage_hdr = QLabel("Select a facet from The Pantry")
+        # Header row: stage title + "‹ All facets" back link + cross-facet search.
+        hdr_row = QHBoxLayout()
+        hdr_row.setContentsMargins(0, 0, 0, 0)
+        hdr_row.setSpacing(8)
+        self._back_to_clusters_btn = QPushButton(f"{_icons.nav_prev_icon} All facets")
+        self._back_to_clusters_btn.setFlat(True)
+        self._back_to_clusters_btn.setStyleSheet(_theme.RECIPE_BACK_TO_GRID_BTN)
+        self._back_to_clusters_btn.setToolTip("Back to the facet overview")
+        self._back_to_clusters_btn.clicked.connect(self._on_back_to_clusters)
+        self._back_to_clusters_btn.setVisible(False)
+        hdr_row.addWidget(self._back_to_clusters_btn)
+
+        self._stage_hdr = QLabel("Browse by facet")
         self._stage_hdr.setStyleSheet(_theme.RECIPE_STAGE_HDR)
-        col2_layout.addWidget(self._stage_hdr)
+        hdr_row.addWidget(self._stage_hdr)
+        hdr_row.addStretch()
+
+        self._search_box = _TagSearchBar()
+        self._search_box.search_changed.connect(self._on_search_changed)
+        hdr_row.addWidget(self._search_box)
+        col2_layout.addLayout(hdr_row)
 
         self._content_splitter = QSplitter(Qt.Orientation.Vertical)
         self._content_splitter.setChildrenCollapsible(False)
 
-        # Tag cloud (top) — wrapped in a scroll area so a facet with many values
-        # scrolls within its splitter pane instead of squeezing the results grid.
+        # Center stack (top) — page 0 = cluster grid overview, page 1 = the single
+        # facet / cross-facet search cloud.  Both wrapped in a scroll area so a
+        # dense facet scrolls within its pane instead of squeezing the results grid.
+        self._top_stack = QStackedWidget()
+
+        cluster_scroll = QScrollArea()
+        cluster_scroll.setWidgetResizable(True)
+        cluster_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cluster_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self._cluster_grid = _ClusterGrid(
+            more_expanded=bool(getattr(self._config, "recipe_more_facets_expanded", False))
+        )
+        self._cluster_grid.facet_selected.connect(self._on_facet_selected)
+        self._cluster_grid.tag_clicked.connect(self._on_cluster_tag_clicked)
+        self._cluster_grid.more_facets_toggled.connect(self._on_more_facets_toggled)
+        cluster_scroll.setWidget(self._cluster_grid)
+        self._top_stack.addWidget(cluster_scroll)   # index 0 — cluster overview
+
         cloud_scroll = QScrollArea()
         cloud_scroll.setWidgetResizable(True)
         cloud_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -376,7 +470,9 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         # Cross-facet search tags carry their own facet → add under that facet.
         self._cloud.tag_clicked_facet.connect(self._on_search_tag_clicked)
         cloud_scroll.setWidget(self._cloud)
-        self._content_splitter.addWidget(cloud_scroll)
+        self._top_stack.addWidget(cloud_scroll)     # index 1 — single/search cloud
+
+        self._content_splitter.addWidget(self._top_stack)
 
         # Now Plating grid (bottom) — real result cards (reuses Discover card
         # surface + flow layout).  Now a real half-height results area, not a strip.
@@ -391,11 +487,14 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         col2_layout.addWidget(self._content_splitter, stretch=1)
         self._main_splitter.addWidget(col2)
 
-        # Column 2 grows first when the window widens (the pantry column stays lean).
+        # Column 2 grows first when the window widens (column 1 stays lean).
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
 
         root.addWidget(self._main_splitter)
+
+        # Apply the persisted column-1 collapse state (chevron glyph + visibility).
+        self._apply_col1_collapsed()
 
         # Constructor is page 0.
         self._stack.addWidget(constructor)
@@ -434,8 +533,8 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
     # Fallback splitter sizes (px) when Config has none yet — landscape-friendly
     # (wide content column, cloud getting a bit more than half of column 2).
     _DEFAULT_MAIN_SIZES: tuple[int, int] = (320, 940)          # [col1, col2]
-    _DEFAULT_COL1_SIZES: tuple[int, int] = (440, 320)          # [pantry, rail]
-    _DEFAULT_CONTENT_SIZES: tuple[int, int] = (360, 440)       # [cloud, now-plating]
+    _DEFAULT_COL1_SIZES: tuple[int, int] = (520, 240)          # [recipe-rail, saved-recipes]
+    _DEFAULT_CONTENT_SIZES: tuple[int, int] = (400, 400)       # [cluster/cloud, now-plating]
 
     def _init_splitter_sizes(self) -> None:
         """Restore persisted splitter sizes, then connect the save handlers.
@@ -528,33 +627,12 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         excluded_content_types: set[str] = excluded_tag_content_types(cfg)
         return excluded_prefixes, excluded_categories, excluded_content_types
 
-    def _load_pantry(self) -> None:
-        """Load facet summaries from the DB (off-thread)."""
-        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
-        self._run_query(
-            lambda repos: repos.tags.get_facet_summary(
-                excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
-                excluded_prefixes=excl_prefixes,
-                excluded_categories=excl_categories,
-                excluded_tag_content_types=excl_content_types,
-            ),
-            self._on_pantry_loaded,
-            token_ref=self._pantry_token,
-            on_error=self._on_pantry_error,
-        )
-
-    def _on_pantry_loaded(self, summaries: list) -> None:
-        """Main-thread slot: populate the pantry sidebar."""
-        if not self._active:
-            return
-        self._pantry.load_facets(summaries)
-        # If a facet was already selected before reload, keep it
-        if self._pantry.selected_facet():
-            self._on_facet_selected(self._pantry.selected_facet())
-
-    def _on_pantry_error(self, exc: Exception) -> None:
-        logger.error("RecipeView: pantry load failed: {}", exc)
-        self._stage_hdr.setText("Couldn't load facets")
+    # The default cluster-grid overview + center-mode switch + collapse states
+    # live in _RecipeClusterMixin (recipe_cluster_mixin.py), mixed into this class:
+    #   _load_clusters / _on_clusters_loaded / _on_clusters_error / _render_clusters
+    #   _show_clusters / _show_cloud / _enter_facet_mode / _on_back_to_clusters
+    #   _on_cluster_tag_clicked / _on_more_facets_toggled / _toggle_col1_collapsed
+    #   _apply_col1_collapsed
 
     def _load_cloud(self, facet_type: str) -> None:
         """Load tag counts for the selected facet (off-thread)."""
@@ -584,9 +662,15 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         self._stage_hdr.setText("Couldn't load tags")
 
     def _rebuild_cloud(self) -> None:
-        """Re-render the WeightedTagCloud with current tag counts + recipe state."""
+        """Re-render the center view with current tag counts + recipe state.
+
+        The default (``_selected_facet is None`` and no active search) renders the
+        per-facet **cluster grid** — the old dead early-return became the cluster
+        path.  A selected facet renders that facet's single WeightedTagCloud.
+        """
         facet = self._selected_facet
         if facet is None:
+            self._render_clusters()
             return
 
         meta = _FACET_META.get(facet)
@@ -616,6 +700,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
 
         self._cloud.set_tags(items, facet_color=color, facet_name=display,
                              display_map=display_map)
+        self._show_cloud()
 
     # Result-grid card cap — a gridful of cards.  The bounded preview never
     # materialises the full set: a broad facet costs one SQL COUNT for YIELDS
@@ -703,11 +788,13 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
     # ── Event handlers ────────────────────────────────────────────────────
 
     def _on_facet_selected(self, facet_type: str) -> None:
-        """User clicked a facet row in the Pantry."""
-        self._selected_facet = facet_type
-        meta = _FACET_META.get(facet_type)
-        display = meta[0] if meta else facet_type.title()
-        self._stage_hdr.setText(display)
+        """User clicked a cluster's facet header → drill into its full cloud.
+
+        Also the ``seed_facet`` / cluster-tile entry point.  Re-selecting the same
+        facet from the overview simply reloads its cloud (harmless).  The
+        center-mode switch itself lives in :class:`_RecipeClusterMixin`.
+        """
+        self._enter_facet_mode(facet_type)
         self._tag_counts = []
         self._load_cloud(facet_type)
 
@@ -772,18 +859,23 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         else:
             self._rebuild_cloud()
 
-    # ── Cross-facet Pantry search ─────────────────────────────────────────
+    # ── Cross-facet tag search ────────────────────────────────────────────
 
     def _on_search_changed(self, text: str) -> None:
-        """Pantry search text settled — search across facets or restore the facet cloud."""
+        """Search box settled — search across facets, or restore the prior view.
+
+        A non-empty query renders the cross-facet (mixed) cloud; clearing it
+        restores whichever center view was showing before (the drilled-in facet
+        cloud, or the default cluster overview).
+        """
         self._search_query = text.strip()
         if not self._search_query:
-            # Empty search → today's behaviour: drop badges, show selected facet.
             self._search_results = []
-            self._pantry.clear_match_counts()
             facet = self._selected_facet
             if facet is not None:
                 self._stage_hdr.setText(_facet_display(facet))
+            else:
+                self._stage_hdr.setText("Browse by facet")
             self._rebuild_cloud()
             return
         self._load_search(self._search_query)
@@ -805,7 +897,7 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
         )
 
     def _on_search_loaded(self, results: list) -> None:
-        """Main-thread slot: fill the cloud with cross-facet matches + set badges."""
+        """Main-thread slot: fill the cloud with cross-facet matches."""
         if not self._active:
             return
         # A late result from a stale query (now cleared) must not repaint.
@@ -813,12 +905,10 @@ class RecipeView(_RecipeBrowseMixin, QWidget):
             return
         self._search_results = results
         self._render_search_cloud(results)
-        # Per-facet match badge: count distinct matching values per facet.
-        counts: dict[str, int] = {}
-        for dto in results:
-            counts[dto.facet_type] = counts.get(dto.facet_type, 0) + 1
-        self._pantry.set_match_counts(counts)
         self._stage_hdr.setText(f'Matches for "{self._search_query}"')
+        # The mixed-facet search cloud lives in the cloud pane; show it + the
+        # "‹ All facets" affordance so the user can drop back to the overview.
+        self._show_cloud()
 
     def _render_search_cloud(self, results: list) -> None:
         """Render *results* (cross-facet matches) into the cloud, colored by facet."""

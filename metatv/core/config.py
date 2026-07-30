@@ -628,8 +628,10 @@ class Config(BaseModel):
 
     # Recipe view splitter geometry (two-column layout).  Empty → view defaults.
     recipe_main_splitter_sizes: list = Field(default_factory=list)     # [col1, col2] widths
-    recipe_col1_splitter_sizes: list = Field(default_factory=list)     # [pantry, recipe-rail] heights
-    recipe_content_splitter_sizes: list = Field(default_factory=list)  # [tag-cloud, now-plating] heights
+    recipe_col1_splitter_sizes: list = Field(default_factory=list)     # [recipe-rail, saved-recipes] heights
+    recipe_content_splitter_sizes: list = Field(default_factory=list)  # [cluster/cloud, now-plating] heights
+    recipe_col1_collapsed: bool = False           # Tonight's-Recipe column collapsed to a strip
+    recipe_more_facets_expanded: bool = False     # cluster grid "▸ More facets" section expanded
 
     # Performance
     chunk_size: int = 1000  # Channels to process at once

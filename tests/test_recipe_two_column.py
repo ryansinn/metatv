@@ -115,8 +115,11 @@ def _make_view(qapp, config=None):
 # ── (a) Two-column structure ────────────────────────────────────────────────
 
 def test_two_column_structure(qapp):
-    """Column 1 stacks Pantry over the Tonight's-Recipe rail; column 2 is a
-    vertical splitter of cloud over the Now-Plating results area."""
+    """Column 1 stacks the Tonight's-Recipe rail over Saved Recipes (behind a
+    collapse container); column 2 is a vertical splitter of the center stack
+    (cluster grid / cloud) over the Now-Plating results area."""
+    from PyQt6.QtWidgets import QStackedWidget
+
     view, _seam = _make_view(qapp)
 
     # Main horizontal splitter has exactly two columns.
@@ -124,22 +127,29 @@ def test_two_column_structure(qapp):
     assert view._main_splitter.orientation() == Qt.Orientation.Horizontal
     assert view._main_splitter.count() == 2
 
-    # Column 1 = vertical splitter: Pantry (top) over the recipe rail (bottom).
-    assert view._main_splitter.widget(0) is view._col1_splitter
+    # Column 1 = the collapsible container wrapping a vertical splitter: the
+    # Tonight's-Recipe rail (top) over Saved Recipes (bottom).  The Pantry
+    # facet-LIST is gone (decision 3).
+    assert view._main_splitter.widget(0) is view._col1_container
     assert view._col1_splitter.orientation() == Qt.Orientation.Vertical
-    assert view._col1_splitter.widget(0) is view._pantry
-    assert view._col1_splitter.widget(1) is view._rail, (
-        "Tonight's Recipe rail must live UNDER the Pantry in column 1"
+    assert view._col1_splitter.widget(0) is view._rail, (
+        "Tonight's Recipe rail must be the TOP of column 1"
     )
+    assert view._col1_splitter.widget(1) is view._saved_recipes
 
-    # Column 2 contains the vertical content splitter: cloud over Now-Plating.
+    # Column 2 contains the vertical content splitter: the center stack over
+    # Now-Plating.
     assert view._content_splitter.orientation() == Qt.Orientation.Vertical
     assert view._content_splitter.widget(1) is view._now_plating, (
         "Now Plating must occupy the bottom half of column 2's vertical splitter"
     )
-    # The cloud sits in the top pane (wrapped in a scroll area so it can scroll).
+    # The center stack (cluster grid page 0, cloud page 1) sits in the top pane.
     top = view._content_splitter.widget(0)
-    assert isinstance(top, QScrollArea) and top.widget() is view._cloud
+    assert top is view._top_stack and isinstance(top, QStackedWidget)
+    assert top.count() == 2
+    # The cloud is reachable inside the stack's cloud page (wrapped in a scroll).
+    cloud_page = top.widget(1)
+    assert isinstance(cloud_page, QScrollArea) and cloud_page.widget() is view._cloud
 
 
 # ── (b) Content-first tag entry + affordance ────────────────────────────────

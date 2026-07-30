@@ -963,6 +963,47 @@ RECIPE_CLEAR_BTN = (
 )
 
 
+# ── Recipe builder — default "cluster grid" of per-facet mini tag-clouds ───────
+# The default overview replaces the one-facet-at-a-time pantry list with a grid
+# of per-facet mini clouds ("clusters").  Per-facet header colors stay dynamic
+# (composed inline from the COLOR_FACET_* tokens, like the pantry rows); only the
+# facet-agnostic chrome below is a shared role constant.
+
+# One cluster tile frame (a single facet's mini cloud in the overview grid).
+RECIPE_CLUSTER_TILE = (
+    "QFrame#clusterTile { background: " + COLOR_RECIPE_PANEL_BG + ";"
+    " border: 1px solid " + COLOR_BORDER + "; border-radius: 6px; }"
+)
+
+# "· N values" subtitle beside a cluster's facet header.
+RECIPE_CLUSTER_SUBTITLE = (
+    "color: " + COLOR_RECIPE_MUTED_2 + "; font-size: " + FONT_SM + ";"
+)
+
+# Collapsible "▸ More facets" section toggle at the foot of the cluster grid.
+RECIPE_MORE_FACETS_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_RECIPE_MUTED + ";"
+    " font-size: " + FONT_SM + "; font-weight: bold; letter-spacing: 1px;"
+    " text-align: left; padding: 6px 2px; }"
+    "QPushButton:hover { color: " + COLOR_RECIPE_TEXT + "; }"
+)
+
+# Column-1 collapse/expand chevron (hides the Tonight's-Recipe rail to widen the grid).
+RECIPE_COL1_CHEVRON = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_RECIPE_MUTED + ";"
+    " font-size: " + FONT_MD + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_RECIPE_TEXT + "; background: " + OVERLAY_05 + ";"
+    " border-radius: 4px; }"
+)
+
+# "‹ All facets" link — returns the drill-in / search view to the cluster grid.
+RECIPE_BACK_TO_GRID_BTN = (
+    "QPushButton { border: none; background: transparent; color: " + COLOR_ACCENT_BLUE + ";"
+    " font-size: " + FONT_MD + "; padding: 2px 4px; }"
+    "QPushButton:hover { color: " + COLOR_ACCENT_HOVER + "; }"
+)
+
+
 # ── Dev-only QA Testing Checklist — tri-state pass/fail ───────────────────────
 # Pass/fail toggle buttons.  Each has an inactive (ghost) and active state; the
 # active state tints to the OK (green) / ERR (red) palette so the chosen state
