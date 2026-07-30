@@ -33,6 +33,7 @@ class SettingsDialog(QDialog):
     """Modal settings dialog with Playback, Interaction, Metadata/API Keys, and Interface tabs."""
 
     settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
+    check_updates_requested = pyqtSignal()  # "Check for updates now" clicked (Interface → Updates)
 
     def __init__(self, config: Config, parent=None):
         super().__init__(parent)
@@ -442,6 +443,28 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(sources_group)
 
+        updates_group = QGroupBox("Updates")
+        updates_layout = QVBoxLayout(updates_group)
+        updates_layout.setSpacing(8)
+
+        self._update_check_enabled_check = QCheckBox("Automatically check for updates")
+        self._update_check_enabled_check.setToolTip(
+            "When on, the packaged app checks GitHub for a newer release on startup\n"
+            "(at most once a day) and offers to download it. Running from source is\n"
+            "never auto-checked — use the button below to check on demand."
+        )
+        updates_layout.addWidget(self._update_check_enabled_check)
+
+        check_now_row = QHBoxLayout()
+        self._check_updates_btn = QPushButton("Check for updates now")
+        self._check_updates_btn.setToolTip("Check GitHub Releases for a newer version right now.")
+        self._check_updates_btn.clicked.connect(self.check_updates_requested.emit)
+        check_now_row.addWidget(self._check_updates_btn)
+        check_now_row.addStretch()
+        updates_layout.addLayout(check_now_row)
+
+        layout.addWidget(updates_group)
+
         sidebar_group = QGroupBox("Sidebar")
         sidebar_layout = QVBoxLayout(sidebar_group)
         sidebar_layout.setSpacing(10)
@@ -556,6 +579,13 @@ class SettingsDialog(QDialog):
         )
         self._refresh_all_inactive_check.blockSignals(False)
 
+        # Updates
+        self._update_check_enabled_check.blockSignals(True)
+        self._update_check_enabled_check.setChecked(
+            getattr(c, "update_check_enabled", True)
+        )
+        self._update_check_enabled_check.blockSignals(False)
+
         # EPG
         epg_idx = self._epg_interval_combo.findData(c.epg_default_refresh_interval)
         self._epg_interval_combo.setCurrentIndex(epg_idx if epg_idx >= 0 else 0)
@@ -635,6 +665,9 @@ class SettingsDialog(QDialog):
 
         # Sources
         c.refresh_all_includes_inactive = self._refresh_all_inactive_check.isChecked()
+
+        # Updates
+        c.update_check_enabled = self._update_check_enabled_check.isChecked()
 
         # EPG
         epg_val = self._epg_interval_combo.currentData()

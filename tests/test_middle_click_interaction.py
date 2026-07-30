@@ -111,6 +111,7 @@ class _FakeConfig:
         self.split_streams_by_source = False
         self.remember_search = True
         self.refresh_all_includes_inactive = True
+        self.update_check_enabled = True
         self.epg_default_refresh_interval = "3d"
         self.epg_browse_hide_older_than_hours = 24
         self.metadata_enabled = True

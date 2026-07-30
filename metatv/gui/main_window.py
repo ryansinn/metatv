@@ -28,6 +28,8 @@ from datetime import datetime
 from metatv.core.build_info import window_title
 from metatv.core.channel_name_utils import parse_channel_name
 from metatv.core.config import Config
+from metatv.core.update_checker import UpdateChecker
+from metatv.core.runtime_env import is_frozen
 from metatv.gui.main_window_streaming import _StreamingMixin, _looks_like_text
 from metatv.gui.main_window_nav import _NavMixin
 from metatv.gui.main_window_metadata import _MetadataMixin
@@ -36,6 +38,7 @@ from metatv.gui.main_window_async import _AsyncMixin
 from metatv.gui.main_window_providers import _ProviderMixin
 from metatv.gui.main_window_series import _SeriesMixin
 from metatv.gui.main_window_channels import _ChannelListMixin
+from metatv.gui.main_window_updates import _UpdatesMixin
 from metatv.core.database import Database, SeasonDB, EpisodeDB
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.notifications import NotificationManager
@@ -122,7 +125,7 @@ class _ClickableNavLabel(QLabel):
 
 
 
-class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _AsyncMixin, QMainWindow):
+class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixin, _NavMixin, _MetadataMixin, _FavoritesMixin, _UpdatesMixin, _AsyncMixin, QMainWindow):
     """Main application window"""
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
@@ -357,6 +360,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._register_cleanable("refresh_queue_manager", self.refresh_queue_manager.shutdown)
 
+        # In-app update checker — polls GitHub Releases off-thread; the result and
+        # any download are surfaced through main-thread slots (_UpdatesMixin).
+        self.update_checker = UpdateChecker(self.config, parent=self)
+        self._register_cleanable("update_checker", self.update_checker.shutdown)
+        self.update_checker.update_available.connect(self._on_update_available)
+        self.update_checker.no_update.connect(self._on_update_none)
+        self.update_checker.download_completed.connect(self._on_update_downloaded)
+
         self.setup_ui()
         self.setup_notifications()
 
@@ -431,6 +442,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # first poke so the app honors the configured interval from launch without
         # requiring the user to open the EPG view.
         QTimer.singleShot(2000, self.epg_manager.refresh_all_if_needed)
+
+        # Automatic update check — bundled (.app) builds only, so a source-run
+        # developer is never nagged. The manual "Check for updates now" button
+        # (Settings → Interface → Updates) always works regardless of this gate.
+        # Deferred 3 s so startup work and the first paint finish first.
+        if is_frozen() and getattr(self.config, "update_check_enabled", True):
+            QTimer.singleShot(3000, self.update_checker.check_async)
 
         logger.info("Main window initialized")
     
@@ -1671,6 +1689,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self)
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
+        dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             tabs = getattr(dialog, "_tabs", None)
             if tabs is not None:

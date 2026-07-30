@@ -196,6 +196,7 @@ def _bare_dialog(qapp):
     dlg._split_check = QCheckBox()
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
+    dlg._update_check_enabled_check = QCheckBox()
     dlg._epg_interval_combo = QComboBox()
     for value, label in _epg.EPG_INTERVAL_CHOICES:
         dlg._epg_interval_combo.addItem(label, value)
