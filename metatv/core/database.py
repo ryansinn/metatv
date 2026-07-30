@@ -222,6 +222,7 @@ class ProviderDB(Base):
     epg_enabled = Column(Boolean, default=True)  # If False, skip EPG fetch and exclude from EPG surfaces
     epg_refresh_interval = Column(String, default="default")  # Per-source throttle: "default"|"every_open"|"4h"|…|"when_stale"
     epg_url_override = Column(String, nullable=True)  # User-supplied XMLTV URL; blank/NULL = use auto-built epg_url
+    epg_unnamed_refetch_attempted = Column(Boolean, default=False)  # Persistent guard: the one-time re-fetch to name legacy nameless guide rows has been tried (reset on content refresh)
 
     # Account info cached from provider API
     account_status = Column(String)         # Active, Expired, Banned, Disabled
@@ -521,6 +522,7 @@ class Database:
             ("providers",    "epg_enabled",                "INTEGER DEFAULT 1"),
             ("providers",    "epg_refresh_interval",       "TEXT DEFAULT 'default'"),
             ("providers",    "epg_url_override",           "TEXT"),
+            ("providers",    "epg_unnamed_refetch_attempted", "INTEGER DEFAULT 0"),
             ("channels",     "watch_progress",             "INTEGER DEFAULT 0"),
             ("channels",     "watch_completed",            "INTEGER DEFAULT 0"),
             ("channels",     "last_played_via",            "TEXT"),
