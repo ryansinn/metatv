@@ -151,6 +151,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
     dlg._remember_search_check = QCheckBox()
+    dlg._update_check_enabled_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._timeout_spin = QSpinBox()
     dlg._timeout_spin.setRange(1, 60)

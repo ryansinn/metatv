@@ -149,6 +149,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Remember last search checkbox
     dlg._remember_search_check = QCheckBox()
+    dlg._update_check_enabled_check = QCheckBox()
 
     # Refresh-all-includes-inactive checkbox (Sources group in Interface tab)
     dlg._refresh_all_inactive_check = QCheckBox()

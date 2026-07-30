@@ -321,4 +321,5 @@ def _wire_minimal_dialog(dlg, qapp):
     # Interface
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
+    dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()

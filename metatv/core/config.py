@@ -686,6 +686,19 @@ class Config(BaseModel):
     # Configurable in Settings → Interaction → "Middle-click action".
     middle_click_action: str = "playback_position"
 
+    # ── Update checker (in-app GitHub Releases check) ────────────────────────
+    # When True, bundled (.app) builds check GitHub Releases for a newer version
+    # on startup and offer an assisted download.  Source runs are never
+    # auto-checked (only the manual "Check for updates" action).  Toggle lives in
+    # Settings → Interface → Updates.
+    update_check_enabled: bool = True
+    # ISO-8601 UTC timestamp of the last automatic check.  Throttles automatic
+    # checks to at most once / 24 h; "" = never checked.
+    update_last_checked: str = ""
+    # A version the user chose to "Skip this version"; the auto banner stays
+    # suppressed while the latest release equals this value.
+    update_skip_version: str = ""
+
     # Stream diagnostics settings (headless engine; see core/stream_diagnostics.py)
     diagnostics_baseline_url: str = "https://speed.cloudflare.com/__down?bytes=25000000"  # Neutral-host speed sample
     diagnostics_sample_seconds: int = 8  # How long to sample provider throughput
