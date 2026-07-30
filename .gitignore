@@ -49,6 +49,8 @@ Thumbs.db
 
 # Distribution
 *.spec
+# ...but the committed PyInstaller build spec is tracked.
+!packaging/metatv.spec
 
 # User config and data (contains personal settings and database)
 config.json

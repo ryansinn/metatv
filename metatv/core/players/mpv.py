@@ -14,6 +14,7 @@ from loguru import logger
 from metatv.core.players.base import PlayerPlugin, QueueMode
 from metatv.core.config import Config
 from metatv.core.http_headers import stream_user_agent
+from metatv.core.runtime_env import is_frozen, bundle_resource_path
 
 # Always-on reconnect for transient live-stream drops. These three options have
 # been stable across ffmpeg/libavformat for many years and are intentionally
@@ -22,6 +23,60 @@ RECONNECT_FLAG = "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_del
 
 # Constant instance key used when split_streams_by_source is False.
 _SHARED_KEY = "__shared__"
+
+# Cached result of _resolve_mpv_binary().  Resolution is stable for a process
+# lifetime (frozen-ness, env, and PATH don't change), so resolve once.
+_MPV_BINARY_CACHE: Optional[str] = None
+
+
+def _reset_mpv_binary_cache() -> None:
+    """Clear the resolved-mpv cache (test hook — resolution is process-stable)."""
+    global _MPV_BINARY_CACHE
+    _MPV_BINARY_CACHE = None
+
+
+def _resolve_mpv_binary() -> str:
+    """Resolve the mpv executable to spawn.
+
+    Resolution order (first hit wins), cached after the first call:
+
+    1. **Bundled** ``Resources/mpv/mpv`` when running frozen (a self-contained
+       ``.app`` ships its own mpv so the end user needs no Homebrew install).
+    2. ``$MPV_BINARY`` env override (a name on ``PATH`` or an absolute path).
+    3. ``shutil.which("mpv")`` — the dev/Linux fallback.  This MUST remain so
+       running from source and the test suite keep working unchanged.
+
+    Returns:
+        The resolved executable path, or the literal ``"mpv"`` as a last resort
+        (so a launch still surfaces a clear "not found" error rather than
+        passing ``None`` to ``subprocess``).
+    """
+    global _MPV_BINARY_CACHE
+    if _MPV_BINARY_CACHE is not None:
+        return _MPV_BINARY_CACHE
+
+    resolved: Optional[str] = None
+
+    # 1. Bundled binary when frozen.
+    if is_frozen():
+        bundled = bundle_resource_path("mpv/mpv")
+        if bundled.exists():
+            resolved = str(bundled)
+
+    # 2. Environment override.
+    if resolved is None:
+        env_binary = os.environ.get("MPV_BINARY")
+        if env_binary and (shutil.which(env_binary) or os.path.exists(env_binary)):
+            resolved = env_binary
+
+    # 3. PATH lookup (dev / Linux / any unbundled run).
+    if resolved is None:
+        which = shutil.which("mpv")
+        if which:
+            resolved = which
+
+    _MPV_BINARY_CACHE = resolved or "mpv"
+    return _MPV_BINARY_CACHE
 
 # Open-ended disk-backed cache flags — single source of truth shared by
 # _buffer_profile_args('open_ended') and _compose_open_ended_buffer_args().
@@ -82,8 +137,13 @@ class MPVPlayer(PlayerPlugin):
         return "mpv"
 
     def is_available(self) -> bool:
-        """Check if mpv is available on system."""
-        return shutil.which("mpv") is not None
+        """Check if mpv is available (bundled, ``$MPV_BINARY``, or on ``PATH``)."""
+        binary = _resolve_mpv_binary()
+        # An absolute/relative path must exist on disk; a bare ``"mpv"`` means
+        # resolution fell through to a PATH lookup (preserves the legacy check).
+        if os.sep in binary:
+            return os.path.exists(binary)
+        return shutil.which(binary) is not None
 
     def active_keys(self) -> list[str]:
         """Return keys whose mpv process is currently alive."""
@@ -220,7 +280,7 @@ class MPVPlayer(PlayerPlugin):
 
         try:
             cmd = [
-                "mpv",
+                _resolve_mpv_binary(),
                 f"--input-ipc-server={sock_path}",
                 "--force-window=yes",
                 "--keep-open=no",
@@ -631,7 +691,7 @@ class MPVPlayer(PlayerPlugin):
             else:
                 extra_args = self._compose_extra_args()
 
-            cmd = ["mpv", f"--force-media-title={title}"] + extra_args
+            cmd = [_resolve_mpv_binary(), f"--force-media-title={title}"] + extra_args
             if start_seconds > 0:
                 cmd.append(f"--start={start_seconds}")
             cmd.append(url)
