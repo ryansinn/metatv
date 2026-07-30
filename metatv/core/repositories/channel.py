@@ -30,6 +30,12 @@ from metatv.core.tag_decomposer import region_code_from_category
 # leaf) — single source of truth, re-imported above so existing `channel._GENRE_NORM` /
 # `channel.normalize_genre` references keep working. See filter_utils for the table.
 
+# Similar-titles tuning — shared by the single chokepoint
+# ``ChannelRepository.get_similar_channels`` (both the details-pane "Similar Titles"
+# row and the similar-titles lightbox route through it).
+_SIMILAR_CANDIDATE_SCAN = 200  # max rows the word-overlap heuristic scans per lookup
+_SIMILAR_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]+")  # blanked before candidate word-split
+
 
 class _TmdbKeyProxy:
     """Minimal duck-typed channel for :func:`content_key_for` (tmdb-first path).
@@ -2270,6 +2276,116 @@ class ChannelRepository(_ChannelStatsMixin):
         for r in result:
             r.pop("_quality_rank", None)
         return result
+
+    def get_similar_channels(
+        self,
+        channel_id: str,
+        excluded_provider_ids: "Optional[Set[str] | List[str]]" = None,
+        limit: int = 20,
+        config=None,
+    ) -> "List[ChannelDB]":
+        """Canonical "Similar Titles" query — ranked, content_key-deduped, provider-scoped.
+
+        Single source of truth for the two Similar-Titles surfaces (the details-pane
+        row and the similar-titles lightbox). Both call this **inside their own
+        session** and shape their own output DTO from the returned rows: this method
+        owns the candidate selection *and the visibility predicate*; the callers own
+        hydration. It replaces the two near-duplicate hand-rolled queries that each
+        filtered only ``is_hidden`` and leaked disabled/expired-source content.
+
+        Matching (preserves the prior behavior of both surfaces):
+        - Same ``media_type`` as the origin channel; excludes the origin row itself.
+        - Word-overlap heuristic on the origin's ``normalize_title`` words of length
+          ≥ 4: a candidate qualifies when it shares ≥ ``max(1, len(words)//2)`` of
+          them (non-ASCII is blanked before splitting a candidate's words).
+        - Collapses same-production variants by ``content_key or normalized_title``,
+          keeping the best-scored variant per group
+          (``preference_engine.version_score`` — requires *config*; without it the
+          first variant encountered per group wins).
+        - Drops any candidate whose ``build_dedup_key`` equals the origin's current
+          key (its own other-source variants belong in "Other Versions", not here).
+
+        Visibility — the absolute gate (DR-0007 active-source scoping):
+        - ``is_hidden == False`` (per-channel hide), **and**
+        - ``provider_id NOT IN excluded_provider_ids`` — the inactive ∪ expired ∪
+          orphaned providers the caller supplies via
+          ``ProviderRepository.get_hidden_provider_ids()``. Content from a
+          disabled/expired source must never surface here.
+
+        Args:
+            channel_id: Origin channel whose neighbours to find.
+            excluded_provider_ids: Hidden provider ids to exclude. None/empty applies
+                no provider gate — callers always pass ``get_hidden_provider_ids()``.
+            limit: Max number of collapsed groups to return.
+            config: Optional ``Config`` used to score the per-group winner by the
+                user's version preferences (prefix/provider/quality).
+
+        Returns:
+            Ranked list of ``ChannelDB`` rows. These are ORM objects — consume them
+            inside the caller's session and map to DTOs before crossing a thread
+            boundary (ORM-to-DTO rule).
+        """
+        from metatv.core.content_dedup import normalize_title, build_dedup_key
+        from metatv.core.preference_engine import version_score as _version_score
+
+        channel = self.session.get(ChannelDB, channel_id)
+        if not channel:
+            return []
+
+        norm = normalize_title(channel.name, channel.detected_prefix)
+        words = [w for w in norm.split() if len(w) >= 4]
+        if not words:
+            return []
+
+        excluded = list(excluded_provider_ids or [])
+        q = (
+            self.session.query(ChannelDB)
+            .filter(
+                ChannelDB.media_type == channel.media_type,
+                ChannelDB.id != channel_id,
+                ChannelDB.is_hidden == False,  # noqa: E712 — per-channel hide gate
+                ChannelDB.name.ilike(f"%{words[0]}%"),
+            )
+        )
+        if excluded:
+            # Absolute gate: inactive/expired/orphaned sources never surface here.
+            q = q.filter(~ChannelDB.provider_id.in_(excluded))
+        candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
+
+        threshold = max(1, len(words) // 2)
+        current_meta = (
+            self.session.get(MetadataDB, channel.metadata_id)
+            if channel.metadata_id else None
+        )
+        current_key = build_dedup_key(channel, current_meta)
+
+        # Collapse same-production variants, keeping the best-scored version per group
+        # so a user with a preferred prefix/provider/quality sees that copy. Group key
+        # prefers the stored content_key (localized/translated + "MULTI" variants share
+        # a key and collapse exactly as on Discover/Other-Versions); falls back to the
+        # normalized title only for rows with no content_key (pre-backfill).
+        best_per_group: "dict[str, tuple[ChannelDB, int]]" = {}
+        for ch in candidates:
+            ch_norm = normalize_title(ch.name, ch.detected_prefix)
+            ch_norm_ascii = _SIMILAR_NON_ASCII_RE.sub(" ", ch_norm).strip()
+            ch_words = {w for w in ch_norm_ascii.split() if len(w) >= 4}
+            overlap = sum(1 for w in words if w in ch_words)
+            if overlap < threshold or ch_norm == norm:
+                continue
+            if current_key:
+                ch_meta = (
+                    self.session.get(MetadataDB, ch.metadata_id)
+                    if ch.metadata_id else None
+                )
+                if build_dedup_key(ch, ch_meta) == current_key:
+                    continue
+            group_key = (ch.content_key or None) or ch_norm
+            score = _version_score(ch, config) if config is not None else 0
+            existing = best_per_group.get(group_key)
+            if existing is None or score > existing[1]:
+                best_per_group[group_key] = (ch, score)
+
+        return [ch for ch, _ in list(best_per_group.values())[:limit]]
 
     # ── User category methods ──────────────────────────────────────────────────
 
