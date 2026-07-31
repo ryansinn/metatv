@@ -110,8 +110,8 @@ def test_channel_surface_movie_contains_expected_actions(qapp):
     assert any("New Window" in t for t in non_sep), f"Expected New Window, got: {non_sep}"
     # Favorite label — unfavorite icon prefix when is_favorite=False → "Add to Favorites"
     assert any("Favorites" in t for t in non_sep), f"Expected Favorites, got: {non_sep}"
-    # Queue
-    assert any("Queue" in t for t in non_sep), f"Expected Queue, got: {non_sep}"
+    # Queue action — standardized user-facing verb is "Watch Later"
+    assert any("Watch Later" in t for t in non_sep), f"Expected Watch Later, got: {non_sep}"
     # Like / Dislike (media_type=movie)
     assert any("Like" in t for t in non_sep), f"Expected Like, got: {non_sep}"
     assert any("Dislike" in t for t in non_sep), f"Expected Dislike, got: {non_sep}"
@@ -197,9 +197,9 @@ def test_queue_label_when_not_in_queue(qapp):
                                     "track": lambda: None,
                                     "hide": lambda: None,
                                     "category": lambda: None}, parent=None)
-    act = _action_by_fragment(menu, "Queue")
+    act = _action_by_fragment(menu, "Watch Later")
     assert act is not None
-    assert "Add" in act.text(), f"Expected 'Add to Queue', got {act.text()!r}"
+    assert "Add" in act.text(), f"Expected 'Add to Watch Later', got {act.text()!r}"
 
 
 def test_queue_label_when_in_queue(qapp):
@@ -214,9 +214,9 @@ def test_queue_label_when_in_queue(qapp):
                                     "track": lambda: None,
                                     "hide": lambda: None,
                                     "category": lambda: None}, parent=None)
-    act = _action_by_fragment(menu, "Queue")
+    act = _action_by_fragment(menu, "Watch Later")
     assert act is not None
-    assert "Remove" in act.text(), f"Expected 'Remove from Queue', got {act.text()!r}"
+    assert "Remove" in act.text(), f"Expected 'Remove from Watch Later', got {act.text()!r}"
 
 
 def test_watch_label_when_not_watched(qapp):
@@ -771,11 +771,11 @@ def test_queue_surface_queue_label_flips_with_queue_state(qapp):
     not_queued = build_channel_menu(
         _queue_ctx(in_queue=False), {"queue": lambda: None}, parent=None
     )
-    act = _action_by_fragment(not_queued, "Queue")
-    assert act is not None and "Add" in act.text(), f"Expected 'Add to Queue', got {act.text()!r}"
+    act = _action_by_fragment(not_queued, "Watch Later")
+    assert act is not None and "Add" in act.text(), f"Expected 'Add to Watch Later', got {act.text()!r}"
 
     queued = build_channel_menu(
         _queue_ctx(in_queue=True), {"queue": lambda: None}, parent=None
     )
-    act = _action_by_fragment(queued, "Queue")
-    assert act is not None and "Remove" in act.text(), f"Expected 'Remove from Queue', got {act.text()!r}"
+    act = _action_by_fragment(queued, "Watch Later")
+    assert act is not None and "Remove" in act.text(), f"Expected 'Remove from Watch Later', got {act.text()!r}"

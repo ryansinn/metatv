@@ -50,8 +50,8 @@ def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypa
     Strategy: subclass QMenu so that exec() returns whichever action the code added for
     the queue slot.  This exercises the real _show_version_chip_menu code path and
     verifies that:
-      - the action text is 'Add to Queue' when in_queue=False (and flips to True)
-      - the action text is 'Remove from Queue' when in_queue=True (and flips to False)
+      - the action text is 'Add to Watch Later' when in_queue=False (and flips to True)
+      - the action text is 'Remove from Watch Later' when in_queue=True (and flips to False)
     """
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QMenu
@@ -61,7 +61,7 @@ def test_version_chip_menu_queue_action_label_and_optimistic_flip(qapp, monkeypa
     class _FakeMenuPickQueue(QMenu):
         def exec(self, pos=None):  # type: ignore[override]
             for act in self.actions():
-                if "Queue" in act.text():
+                if "Watch Later" in act.text():
                     return act
             return None
 
@@ -98,7 +98,7 @@ def test_version_chip_menu_updates_chip_text_on_queue_toggle(qapp, monkeypatch):
     class _FakeMenuPickQueue(QMenu):
         def exec(self, pos=None):  # type: ignore[override]
             for act in self.actions():
-                if "Queue" in act.text():
+                if "Watch Later" in act.text():
                     return act
             return None
 

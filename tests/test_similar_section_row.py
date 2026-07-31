@@ -46,7 +46,7 @@ def test_queue_button_click_does_not_crash_and_toggles(qapp):
     s._channel_ids = [v.channel_id]
     row = s._make_row(v)
 
-    btn = _find_button(row, "Queue")
+    btn = _find_button(row, "Watch Later")
     assert btn is not None, "queue button should exist in the row"
 
     emitted: list[str] = []
@@ -66,7 +66,7 @@ def test_queue_button_click_toggles_back_off(qapp):
     v = _version(in_queue=True)
     s._channel_ids = [v.channel_id]
     row = s._make_row(v)
-    btn = _find_button(row, "Queue")
+    btn = _find_button(row, "Watch Later")
     btn.click()
     assert v.in_queue is False
 

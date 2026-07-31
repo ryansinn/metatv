@@ -123,7 +123,9 @@ def _fav_icon(c: ChannelMenuContext) -> str:
 
 
 def _queue_label(c: ChannelMenuContext) -> str:
-    return "Remove from Queue" if c.in_queue else "Add to Queue"
+    # "Watch Later" is the standardized user-facing verb for the watch-queue action
+    # (the sidebar COLLECTION stays "Watch Queue"); the DB/vars keep the queue names.
+    return "Remove from Watch Later" if c.in_queue else "Add to Watch Later"
 
 
 def _watch_label(c: ChannelMenuContext) -> str:
@@ -513,7 +515,7 @@ ACTIONS: dict[str, ChannelAction] = {
     ),
     "bulk_queue": ChannelAction(
         id="bulk_queue",
-        label=lambda c: "Add to Queue",
+        label=lambda c: "Add to Watch Later",
         icon=_icons.queue_icon,
         tooltip="Add all selected channels to the Watch Queue",
         applies=lambda c: c.is_multi,

@@ -184,7 +184,7 @@ class SimilarTitleLightbox(QWidget):
         ``MetadataResult`` object escapes the block — everything is mapped to
         primitives here).
         """
-        from metatv.core.database import ChannelDB, MetadataDB, ProviderDB
+        from metatv.core.database import ChannelDB, MetadataDB, ProviderDB, UserRatingDB
         from metatv.core.discovery_engine import channel_thumbnail
         from metatv.core.repositories import RepositoryFactory
         from metatv.core.repositories.provider import parse_provider_urls
@@ -228,6 +228,13 @@ class SimilarTitleLightbox(QWidget):
                 # row. We deliberately do NOT call get_metadata for the (up to 12)
                 # strip items — 12 on-demand network fetches per open would make
                 # browsing janky. Only the MAIN card is enriched on demand.
+                # Badge state maps read ONCE (not per item — perf guard preserved): the
+                # queued-id set and the like/dislike map, exactly as the details-pane
+                # Similar rows are shaped (main_window_metadata._bg_fetch_similar_titles).
+                queue_ids = repos.queue.get_queued_ids()
+                ratings_map = {
+                    r.channel_id: r.rating for r in session.query(UserRatingDB).all()
+                }
                 similar: list[dict] = []
                 for c in repos.channels.get_similar_channels(
                     channel_id, excluded_provider_ids=hidden, limit=12, config=self._config,
@@ -241,6 +248,14 @@ class SimilarTitleLightbox(QWidget):
                         "year": (c_meta.year if c_meta else None) or c.detected_year,
                         "poster_url": channel_thumbnail(c) or (c_meta.poster_url if c_meta else None),
                         "media_type": c.media_type or "",
+                        # Strip-card badges (mirror the details-pane Similar rows). All read
+                        # from already-loaded columns / the two maps above — no extra query.
+                        "user_rating": ratings_map.get(c.id, 0),
+                        "in_queue": c.id in queue_ids,
+                        "is_favorite": bool(c.is_favorite),
+                        "watched": bool(c.watch_completed),
+                        "rating": (c_meta.rating if c_meta else None),
+                        "lang": (c.detected_region or "").strip(),
                     })
 
                 # Other Versions — stored content_key siblings, provider-scoped with

@@ -106,7 +106,7 @@ def test_epg_on_now_single_core_actions_present(qapp):
         f"Expected Play: {texts}"
     assert any("New Window" in t for t in texts), f"Expected New Window: {texts}"
     assert any("Favorites" in t for t in texts), f"Expected Favorites: {texts}"
-    assert any("Queue" in t for t in texts), f"Expected Queue: {texts}"
+    assert any("Watch Later" in t for t in texts), f"Expected Watch Later: {texts}"
     assert any("Like" in t for t in texts), f"Expected Like (movie): {texts}"
     assert any("Dislike" in t for t in texts), f"Expected Dislike (movie): {texts}"
 
@@ -248,7 +248,7 @@ def test_epg_browse_single_actions_present(qapp):
     assert any("Play" in t and "New Window" not in t for t in texts), f"Play expected: {texts}"
     assert any("New Window" in t for t in texts), f"New Window expected: {texts}"
     assert any("Favorites" in t for t in texts), f"Favorites expected: {texts}"
-    assert any("Queue" in t for t in texts), f"Queue expected: {texts}"
+    assert any("Watch Later" in t for t in texts), f"Watch Later expected: {texts}"
     assert any("Watch this channel" in t for t in texts), f"epg_watch expected: {texts}"
     assert any("Track show" in t for t in texts), f"epg_track_show expected: {texts}"
 
