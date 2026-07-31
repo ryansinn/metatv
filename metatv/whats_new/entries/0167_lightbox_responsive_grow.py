@@ -1,7 +1,7 @@
 from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
-    id=166,
+    id=167,
     version="0.11.0",
     date="2026-07-30",
     title="Similar Titles lightbox — bigger, responsive card with no forced scroll",
