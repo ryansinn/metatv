@@ -72,6 +72,9 @@ COLOR_LINE       = "#333"        # separators / panel bg
 COLOR_LINE_DARK  = "#2a2a2a"     # fainter hairline separators
 COLOR_BG_BAR     = "#1e1e1e"     # bottom nav bar / sidebar footer panel background
 COLOR_BG_SECTION = "#1a1a1a"     # filter section header background
+# Role-named token composed from the grey ramp — the muted grip dots painted on
+# collapsible splitter handles (their discoverable click-to-collapse affordance).
+COLOR_SPLITTER_GRIP = COLOR_MUTED_2
 # Accent + status
 COLOR_ACCENT       = "#2288dd"
 COLOR_ACCENT_HOVER = "#55aaff"

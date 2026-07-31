@@ -57,6 +57,14 @@ class _NavMixin:
         if "full_history_view" in self.__dict__:
             if self.full_history_view.isVisible():
                 self.full_history_view.on_deactivate()
+                # Symmetric restore: re-expand exactly the flanking panels the
+                # history activation auto-collapsed (see switch_to_full_history_view),
+                # so the sidebar + details pane return to their prior widths.
+                splitter = getattr(self, "main_splitter", None)
+                if splitter is not None:
+                    for i in getattr(self, "_history_restored_panels", (0, 2)):
+                        splitter.expand_panel(i)
+                    self._history_restored_panels = []
         # EPG stats-line controls (source status + Refresh) belong to the EPG view
         # only — hide them whenever we blank the content area (guarded: the stats
         # line is built after this mixin's earliest possible call).
@@ -233,6 +241,18 @@ class _NavMixin:
         self.full_history_view.setVisible(True)
         self.stats_label.setText("Watch History")
         self.full_history_view.on_activate()
+        # The embedded trail-map is boxed by the sidebar + details pane, so give it
+        # the full window: auto-collapse both flanking panels (reusing the splitter's
+        # own remember-and-restore collapse_panel, never snapshotting sizes here).  We
+        # record ONLY the panels we actually collapse so the symmetric restore in
+        # _hide_all_content_views doesn't pop open a details pane the user had shut.
+        splitter = getattr(self, "main_splitter", None)
+        if splitter is not None:
+            self._history_restored_panels = [
+                i for i in (0, 2) if not splitter.is_panel_collapsed(i)
+            ]
+            for i in self._history_restored_panels:
+                splitter.collapse_panel(i)
 
     def navigate_back(self):
         """Navigate back from series view to the originating view.
