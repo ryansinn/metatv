@@ -2,6 +2,17 @@ name: Release (macOS)
 
 # Builds an unsigned MetaTV.app / .dmg on a version tag, or on demand via
 # workflow_dispatch (test build → uploaded as a workflow artifact, no Release).
+#
+# Dual-arch: the build job is a matrix over both macOS architectures. Each job
+# builds NATIVELY for its runner's arch — Homebrew installs a single-arch `mpv`
+# matching the runner, which is exactly why we build per-runner rather than a
+# universal2 binary. The two jobs run in parallel and attach their arch-named
+# dmg to the SAME GitHub Release.
+#
+# OS floors (accepted limitation): brew bottles pin the deployment floor to the
+# runner's OS, and GitHub offers no ARM runner older than macos-14. So:
+#   * x86_64 build (macos-13) → runs on macOS 13+ (Intel)
+#   * arm64  build (macos-14) → runs on macOS 14+ (Apple Silicon)
 on:
   push:
     tags:
@@ -13,7 +24,18 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14  # Apple Silicon (arm64) runner
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Don't cancel the other arch if one build fails — we want as many dmgs
+      # attached to the release as succeed, and the failure is easier to see.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon runner
+            arch: arm64
+          - runner: macos-13   # Intel runner
+            arch: x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,7 +118,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.meta.outputs.version }}"
-          DMG="MetaTV-${VERSION}-arm64.dmg"
+          ARCH="${{ matrix.arch }}"
+          DMG="MetaTV-${VERSION}-${ARCH}.dmg"
           # create-dmg gives a nice drag-to-Applications window; fall back to a
           # plain hdiutil image if the styled build fails on the headless runner.
           create-dmg \
@@ -116,12 +139,19 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MetaTV-${{ steps.meta.outputs.version }}-arm64-dmg
+          # Arch-unique so the two parallel matrix jobs don't collide.
+          name: MetaTV-${{ steps.meta.outputs.version }}-${{ matrix.arch }}-dmg
           path: ${{ steps.dmg.outputs.dmg }}
           if-no-files-found: error
 
       - name: Publish to GitHub Release
         if: steps.meta.outputs.is_tag == 'true'
+        # Both matrix jobs target the SAME release with identical metadata. The
+        # action appends assets to an existing release and only overwrites an
+        # asset of the SAME name — the two dmgs have distinct arch-named files,
+        # so neither clobbers the other. Do NOT add any clean/clobber option
+        # (that would delete the sibling job's already-uploaded dmg). Whichever
+        # job wins the create race sets the (identical) metadata.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
