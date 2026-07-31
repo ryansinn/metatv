@@ -1,17 +1,21 @@
 """Lightbox overlay for browsing similar titles without leaving the current details pane.
 
-Right-clicking a Similar Titles row opens this overlay. The user can browse deeper
-into similar content — each title's details load inside the lightbox — and then
-close it to return to the original channel's details pane untouched.
+Opening a Similar Titles row (right-click, or the ⤢ preview button) raises this
+poster-hero overlay. The user can browse the origin's similar list with the
+prev/next chevrons, dive deeper into any similar title or Other Version
+(rabbit-hole with a Back step), and close to return to the untouched details pane.
 
 Architecture:
-- SimilarTitleLightbox is a child QWidget of the main window, raised above all other
-  widgets via raise_(). It covers the full main-window area.
-- paintEvent draws a semi-transparent backdrop. Clicks on the backdrop dismiss it.
-- The content card is a centred QFrame containing the full preview.
-- Internal navigation is tracked via a simple stack so the user can go back.
-- Left/right arrows cycle the original similar-titles list from the calling context.
-- Background DB reads marshal results back via _data_ready signal (never QTimer from threads).
+- ``SimilarTitleLightbox`` (this file) is a child QWidget of the main window,
+  raised above everything via ``raise_()``. It owns the backdrop, the prev/next
+  chevrons flanking the card, the navigation state, the background DB read
+  (``_bg_load``) and the ImageCache. It is intentionally thin.
+- ``_LightboxCard`` (``similar_lightbox_card.py``) owns the card's widget tree and
+  populate logic. It emits user intents as signals; this overlay attaches the
+  current channel id and relays them to the main window (the existing external
+  play/queue/favorite/rating/suppress/hide paths — unchanged signatures).
+- Background DB reads marshal results back via the ``_data_ready`` signal (never a
+  QTimer from a worker thread); QPixmaps are only ever built on the main thread.
 """
 from __future__ import annotations
 
@@ -19,14 +23,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QPainter, QColor, QPixmap
-from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-    QSizePolicy, QVBoxLayout, QWidget,
-)
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.similar_lightbox_card import _LightboxCard
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -86,11 +89,14 @@ class SimilarTitleLightbox(QWidget):
         origin_title: str,
     ) -> None:
         """Open (or refresh) the lightbox at channel_ids[index]."""
+        if not channel_ids:
+            return
         self._origin_ids = list(channel_ids)
         self._origin_idx = max(0, min(index, len(channel_ids) - 1))
         self._origin_title = origin_title
         self._nav_stack = []
-        self._header_lbl.setText(f"Similar Titles to:  {origin_title}")
+        self._card.set_header(origin_title)
+        self._card.set_back_visible(False)
         self.resize(self.parent().size())
         self.show()
         self.raise_()
@@ -106,242 +112,44 @@ class SimilarTitleLightbox(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._card = QFrame()
-        self._card.setObjectName("lightbox_card")
-        self._card.setStyleSheet(
-            f"#lightbox_card {{ background: {_theme.COLOR_LIGHTBOX_BG}; border-radius: 10px;"
-            f" border: 1px solid {_theme.COLOR_BORDER}; }}"
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+        row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._prev_chev = self._make_chevron(_icons.nav_prev_icon, "Previous similar title (←)")
+        self._prev_chev.clicked.connect(self._go_prev)
+        row.addWidget(self._prev_chev, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self._card = _LightboxCard()
+        self._card.back_clicked.connect(self._go_back)
+        self._card.close_clicked.connect(self._close)
+        self._card.play_clicked.connect(lambda: self.play_requested.emit(self._current_id))
+        self._card.queue_clicked.connect(lambda: self.queue_toggled.emit(self._current_id))
+        self._card.favorite_clicked.connect(lambda: self.favorite_toggled.emit(self._current_id))
+        self._card.hide_clicked.connect(lambda: self.hide_requested.emit(self._current_id))
+        self._card.rating_clicked.connect(lambda r: self.rating_requested.emit(self._current_id, r))
+        self._card.suppression_toggled.connect(
+            lambda on: self.suppression_requested.emit(self._current_id, on)
         )
-        self._card.setFixedWidth(760)
-        self._card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
-        self._card.setMaximumHeight(640)
+        self._card.dive_requested.connect(self._dive_into)
+        row.addWidget(self._card, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        card_layout = QVBoxLayout(self._card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(0)
+        self._next_chev = self._make_chevron(_icons.nav_next_icon, "Next similar title (→)")
+        self._next_chev.clicked.connect(self._go_next)
+        row.addWidget(self._next_chev, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # ---- header bar ----
-        header_bar = QWidget()
-        header_bar.setStyleSheet(f"background: {_theme.COLOR_LIGHTBOX_HEADER}; border-radius: 10px 10px 0 0;")
-        header_row = QHBoxLayout(header_bar)
-        header_row.setContentsMargins(14, 8, 10, 8)
-        header_row.setSpacing(8)
+        row_w = QWidget()
+        row_w.setLayout(row)
+        outer.addWidget(row_w)
 
-        self._back_btn = QPushButton("◀ Back")
-        self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BLUE_2}; font-size: {_theme.FONT_LG}; border: none;")
-        self._back_btn.setToolTip("Go back to previous title")
-        self._back_btn.clicked.connect(self._go_back)
-        self._back_btn.hide()
-        header_row.addWidget(self._back_btn)
-
-        self._header_lbl = QLabel()
-        self._header_lbl.setStyleSheet(f"color: {_theme.COLOR_TEXT}; font-size: {_theme.FONT_LG}; font-weight: bold;")
-        header_row.addWidget(self._header_lbl, 1)
-
-        self._counter_lbl = QLabel()
-        self._counter_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        header_row.addWidget(self._counter_lbl)
-
-        close_btn = QPushButton(self._config.close_icon)
-        close_btn.setFlat(True)
-        close_btn.setFixedSize(22, 22)
-        close_btn.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_2XL}; border: none;")
-        close_btn.setToolTip("Close preview")
-        close_btn.clicked.connect(self._close)
-        header_row.addWidget(close_btn)
-
-        card_layout.addWidget(header_bar)
-
-        # ---- navigation row (prev / content / next) ----
-        nav_row = QHBoxLayout()
-        nav_row.setContentsMargins(0, 0, 0, 0)
-        nav_row.setSpacing(0)
-
-        self._prev_btn = QPushButton(self._config.prev_icon)
-        self._prev_btn.setFixedWidth(36)
-        self._prev_btn.setFlat(True)
-        self._prev_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_3XL}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-            f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
-        )
-        self._prev_btn.setToolTip("Previous similar title")
-        self._prev_btn.clicked.connect(self._go_prev)
-        nav_row.addWidget(self._prev_btn)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_theme.BG_TRANSPARENT)
-
-        self._content_widget = QWidget()
-        self._content_widget.setStyleSheet(_theme.BG_TRANSPARENT)
-        self._content_layout = QVBoxLayout(self._content_widget)
-        self._content_layout.setContentsMargins(12, 12, 12, 12)
-        self._content_layout.setSpacing(8)
-        self._build_content_widgets()
-
-        scroll.setWidget(self._content_widget)
-        nav_row.addWidget(scroll, 1)
-
-        self._next_btn = QPushButton(self._config.next_icon)
-        self._next_btn.setFixedWidth(36)
-        self._next_btn.setFlat(True)
-        self._next_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_3XL}; border: none; }}"
-            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-            f"QPushButton:disabled {{ color: {_theme.COLOR_LINE}; }}"
-        )
-        self._next_btn.setToolTip("Next similar title")
-        self._next_btn.clicked.connect(self._go_next)
-        nav_row.addWidget(self._next_btn)
-
-        nav_widget = QWidget()
-        nav_widget.setLayout(nav_row)
-        card_layout.addWidget(nav_widget, 1)
-
-        outer.addWidget(self._card)
-
-    def _build_content_widgets(self) -> None:
-        """Build the inner content panel (poster + metadata + plot + cast + buttons)."""
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
-
-        self._poster_lbl = QLabel()
-        self._poster_lbl.setFixedSize(110, 160)
-        self._poster_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        self._poster_lbl.setStyleSheet(
-            f"background: {_theme.COLOR_BG_DEEP}; border-radius: 4px; color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
-        )
-        top_row.addWidget(self._poster_lbl)
-
-        right_col = QVBoxLayout()
-        right_col.setSpacing(4)
-
-        self._title_lbl = QLabel()
-        self._title_lbl.setWordWrap(True)
-        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_INPUT}; font-weight: bold; color: {_theme.COLOR_TEXT_HI};")
-        right_col.addWidget(self._title_lbl)
-
-        self._meta_lbl = QLabel()
-        self._meta_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        right_col.addWidget(self._meta_lbl)
-
-        self._source_lbl = QLabel()
-        self._source_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED_2};")
-        right_col.addWidget(self._source_lbl)
-
-        self._genres_lbl = QLabel()
-        self._genres_lbl.setWordWrap(True)
-        self._genres_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: lightblue;")
-        right_col.addWidget(self._genres_lbl)
-
-        # Rating buttons (Like / Not Interested / Dislike)
-        rating_row = QHBoxLayout()
-        rating_row.setSpacing(4)
-        rating_row.setContentsMargins(0, 0, 0, 0)
-
-        self._like_btn = QPushButton(self._config.like_icon)
-        self._like_btn.setCheckable(True)
-        self._like_btn.setFixedSize(30, 24)
-        self._like_btn.setFlat(True)
-        self._like_btn.setToolTip("Like")
-        self._like_btn.setStyleSheet(_theme.RATING_BTN)
-        self._like_btn.clicked.connect(lambda: self.rating_requested.emit(self._current_id, 1))
-        rating_row.addWidget(self._like_btn)
-
-        self._not_interested_btn = QPushButton(self._config.not_interested_icon)
-        self._not_interested_btn.setCheckable(True)
-        self._not_interested_btn.setFixedSize(30, 24)
-        self._not_interested_btn.setFlat(True)
-        self._not_interested_btn.setToolTip("Not Interested (suppress from recommendations)")
-        self._not_interested_btn.setStyleSheet(_theme.RATING_BTN)
-        self._not_interested_btn.clicked.connect(
-            lambda checked: self.suppression_requested.emit(self._current_id, checked)
-        )
-        rating_row.addWidget(self._not_interested_btn)
-
-        self._dislike_btn = QPushButton(self._config.dislike_icon)
-        self._dislike_btn.setCheckable(True)
-        self._dislike_btn.setFixedSize(30, 24)
-        self._dislike_btn.setFlat(True)
-        self._dislike_btn.setToolTip("Dislike")
-        self._dislike_btn.setStyleSheet(_theme.RATING_BTN)
-        self._dislike_btn.clicked.connect(lambda: self.rating_requested.emit(self._current_id, -1))
-        rating_row.addWidget(self._dislike_btn)
-
-        rating_row.addStretch()
-        right_col.addLayout(rating_row)
-        right_col.addStretch()
-
-        # Watch / library action buttons
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
-
-        self._play_btn = QPushButton(f"{self._config.play_icon} Play")
-        self._play_btn.setToolTip("Play this title")
-        self._play_btn.clicked.connect(lambda: self.play_requested.emit(self._current_id))
-        btn_row.addWidget(self._play_btn)
-
-        self._queue_btn = QPushButton(f"{self._config.queue_icon} Queue")
-        self._queue_btn.setToolTip("Add to / remove from Watch Queue")
-        self._queue_btn.clicked.connect(lambda: self.queue_toggled.emit(self._current_id))
-        btn_row.addWidget(self._queue_btn)
-
-        self._fav_btn = QPushButton(f"{self._config.unfavorite_icon} Favorite")
-        self._fav_btn.setToolTip("Add to / remove from Favorites")
-        self._fav_btn.clicked.connect(lambda: self.favorite_toggled.emit(self._current_id))
-        btn_row.addWidget(self._fav_btn)
-
-        self._hide_btn = QPushButton(f"{self._config.hide_icon} Hide")
-        self._hide_btn.setToolTip("Hide this channel from all views")
-        self._hide_btn.clicked.connect(lambda: self.hide_requested.emit(self._current_id))
-        btn_row.addWidget(self._hide_btn)
-
-        right_col.addLayout(btn_row)
-        top_row.addLayout(right_col, 1)
-        self._content_layout.addLayout(top_row)
-
-        # Overview section
-        self._overview_header = QLabel("Overview")
-        self._overview_header.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 6px;"
-        )
-        self._content_layout.addWidget(self._overview_header)
-
-        self._plot_lbl = QLabel()
-        self._plot_lbl.setWordWrap(True)
-        self._plot_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
-        self._content_layout.addWidget(self._plot_lbl)
-
-        # Cast & Crew section
-        self._cast_header = QLabel("Cast & Crew")
-        self._cast_header.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_DIM_2}; margin-top: 4px;"
-        )
-        self._content_layout.addWidget(self._cast_header)
-
-        self._cast_lbl = QLabel()
-        self._cast_lbl.setWordWrap(True)
-        self._cast_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        self._content_layout.addWidget(self._cast_lbl)
-
-        self._similar_header_lbl = QLabel("Similar Titles:")
-        self._similar_header_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_MUTED}; margin-top: 6px;"
-        )
-        self._similar_header_lbl.hide()
-        self._content_layout.addWidget(self._similar_header_lbl)
-
-        self._similar_container = QWidget()
-        self._similar_vbox = QVBoxLayout(self._similar_container)
-        self._similar_vbox.setContentsMargins(0, 0, 0, 0)
-        self._similar_vbox.setSpacing(2)
-        self._content_layout.addWidget(self._similar_container)
-
-        self._content_layout.addStretch()
+    def _make_chevron(self, glyph: str, tip: str) -> QPushButton:
+        btn = QPushButton(glyph)
+        btn.setFixedSize(44, 44)
+        btn.setFlat(True)
+        btn.setStyleSheet(_theme.LIGHTBOX_CHEVRON)
+        btn.setToolTip(tip)
+        return btn
 
     # ------------------------------------------------------------------ #
     # Loading                                                              #
@@ -350,201 +158,158 @@ class SimilarTitleLightbox(QWidget):
     def _load_channel(self, channel_id: str) -> None:
         self._current_id = channel_id
         self._update_nav_state()
-
-        # Reset display to loading state
-        self._title_lbl.setText("Loading…")
-        self._meta_lbl.clear()
-        self._source_lbl.clear()
-        self._genres_lbl.clear()
-        self._plot_lbl.clear()
-        self._overview_header.hide()
-        self._plot_lbl.hide()
-        self._cast_header.hide()
-        self._cast_lbl.clear()
-        self._cast_lbl.hide()
-        self._poster_lbl.setPixmap(QPixmap())
-        self._poster_lbl.setText("…")
-        self._similar_header_lbl.hide()
-        self._clear_similar_list()
-        self._fav_btn.setText(f"{self._config.unfavorite_icon} Favorite")
-        self._like_btn.setChecked(False)
-        self._not_interested_btn.setChecked(False)
-        self._dislike_btn.setChecked(False)
-
+        self._card.reset_loading()
         self._executor.submit(self._bg_load, channel_id)
 
     def _bg_load(self, channel_id: str) -> None:
-        """Background: fetch channel + metadata from DB, emit _data_ready signal."""
-        from metatv.core.database import ChannelDB, MetadataDB, ProviderDB, WatchQueueDB
+        """Background: fetch channel + metadata + siblings from DB, emit _data_ready.
+
+        Runs off the UI thread. Reads only ``self._db`` / ``self._config`` and emits
+        ``self._data_ready`` — never touches Qt widgets or the ImageCache (poster
+        pixmaps are built on the main thread in ``_apply_data``). Uses
+        ``session_scope`` and returns a plain dict (no ORM object escapes the block).
+        """
+        from metatv.core.database import ChannelDB, MetadataDB, ProviderDB
         from metatv.core.repositories import RepositoryFactory
 
-        session = self._db.get_session()
+        data: dict = {}
         try:
-            ch = session.get(ChannelDB, channel_id)
-            if not ch:
-                self._data_ready.emit(channel_id, {})
-                return
+            with self._db.session_scope(commit=False) as session:
+                ch = session.get(ChannelDB, channel_id)
+                if not ch:
+                    self._data_ready.emit(channel_id, {})
+                    return
 
-            provider = session.get(ProviderDB, ch.provider_id)
-            provider_name = provider.name if provider else None
+                repos = RepositoryFactory(session)
+                # Absolute gate (DR-0007): hidden = inactive ∪ expired ∪ orphaned.
+                hidden = set(repos.providers.get_hidden_provider_ids())
+                provider = session.get(ProviderDB, ch.provider_id) if ch.provider_id else None
+                provider_name = provider.name if provider else None
+                provider_active = bool(ch.provider_id) and ch.provider_id not in hidden
 
-            meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
+                meta = session.get(MetadataDB, ch.metadata_id) if ch.metadata_id else None
 
-            cast_list: list[str] = []
-            if meta and meta.cast:
-                cast_list = [
-                    (p.get("name") or "") for p in (meta.cast or [])[:5] if isinstance(p, dict)
-                ]
-
-            queue_ids = {r.channel_id for r in session.query(WatchQueueDB).all()}
-
-            # Similar titles — canonical chokepoint (shared with the details-pane
-            # "Similar Titles" row): owns candidate selection, content_key dedup, and
-            # the visibility gate (is_hidden + inactive/expired/orphaned provider
-            # exclusion so disabled/expired sources never surface). Same media_type,
-            # word-overlap heuristic, results cross language/region. The lightbox only
-            # needs the lightweight id+name of each collapsed group.
-            repos = RepositoryFactory(session)
-            excluded = set(repos.providers.get_hidden_provider_ids())
-            similar: list[dict] = [
-                {"id": c.id, "name": c.name}
+                # Similar titles — canonical scoped chokepoint (shared with the
+                # details-pane row): owns candidate selection, content_key dedup and
+                # the visibility gate. We hydrate lightweight display dicts per row.
+                similar: list[dict] = []
                 for c in repos.channels.get_similar_channels(
-                    channel_id,
-                    excluded_provider_ids=excluded,
-                    limit=12,
-                    config=self._config,
-                )
-            ]
+                    channel_id, excluded_provider_ids=hidden, limit=12, config=self._config,
+                ):
+                    c_meta = (
+                        session.get(MetadataDB, c.metadata_id) if c.metadata_id else None
+                    )
+                    similar.append({
+                        "id": c.id,
+                        "name": c.detected_title or c.name,
+                        "year": (c_meta.year if c_meta else None) or c.detected_year,
+                        "poster_url": c_meta.poster_url if c_meta else None,
+                        "media_type": c.media_type or "",
+                    })
 
-            data = {
-                "name": ch.name,
-                "media_type": ch.media_type or "",
-                "provider_name": provider_name,
-                "is_favorite": bool(ch.is_favorite),
-                "is_hidden": bool(ch.is_hidden),
-                "in_queue": channel_id in queue_ids,
-                "user_rating": getattr(ch, "user_rating", 0) or 0,
-                "is_suppressed": bool(getattr(ch, "is_suppressed", False)),
-                "poster_url": meta.poster_url if meta else None,
-                "year": meta.year if meta else None,
-                "rating": meta.rating if meta else None,
-                "genre": meta.genre if meta else None,
-                "plot": meta.plot if meta else None,
-                "cast": ", ".join(c for c in cast_list if c),
-                "similar": similar,
-            }
+                # Other Versions — stored content_key siblings, provider-scoped with
+                # the SAME gate (hidden/expired sources never surface here either).
+                versions: list[dict] = []
+                if ch.content_key:
+                    for s in repos.channels.get_content_key_siblings(
+                        ch.content_key, channel_id, excluded_provider_ids=hidden,
+                    ):
+                        tag = (
+                            s.get("detected_quality")
+                            or s.get("detected_region")
+                            or s.get("detected_prefix")
+                            or ""
+                        )
+                        versions.append({
+                            "id": s["id"],
+                            "name": s.get("name") or "?",
+                            "tag": tag,
+                            "provider_name": s.get("provider_name"),
+                        })
+
+                data = {
+                    "id": channel_id,
+                    "name": ch.detected_title or ch.name,
+                    "media_type": ch.media_type or "",
+                    "provider_name": provider_name,
+                    "provider_active": provider_active,
+                    "is_favorite": bool(ch.is_favorite),
+                    "is_hidden": bool(ch.is_hidden),
+                    "in_queue": repos.queue.is_queued(channel_id),
+                    # Real like/dislike from UserRatingDB, real suppression from the
+                    # ChannelDB.is_rec_suppressed column (the old getattr(ch,
+                    # "user_rating"/"is_suppressed") read columns that don't exist, so
+                    # the buttons never lit up).
+                    "user_rating": repos.ratings.get(channel_id) or 0,
+                    "is_suppressed": bool(ch.is_rec_suppressed),
+                    "poster_url": meta.poster_url if meta else None,
+                    "year": (meta.year if meta else None) or ch.detected_year,
+                    "rating": meta.rating if meta else None,
+                    "runtime": meta.runtime if meta else None,
+                    "genres": self._extract_genres(meta),
+                    "plot": meta.plot if meta else None,
+                    "cast": self._extract_cast(meta),
+                    "similar": similar,
+                    "versions": versions,
+                    "version_count": len(versions),
+                }
         except Exception:
             logger.exception("Lightbox bg_load failed for %s", channel_id)
             data = {}
-        finally:
-            session.close()
 
         # Signal is thread-safe — Qt queues delivery to the main thread
         self._data_ready.emit(channel_id, data)
+
+    @staticmethod
+    def _extract_genres(meta) -> list[str]:
+        """Normalize MetadataDB.genres (JSON list, or a legacy comma string) → list."""
+        if not meta:
+            return []
+        raw = getattr(meta, "genres", None)
+        if isinstance(raw, list):
+            return [str(g).strip() for g in raw if str(g).strip()]
+        if isinstance(raw, str):
+            return [g.strip() for g in raw.split(",") if g.strip()]
+        return []
+
+    @staticmethod
+    def _extract_cast(meta) -> str:
+        """Build a 'A, B, C · dir. D' line from MetadataDB cast + director."""
+        if not meta:
+            return ""
+        names = [
+            (p.get("name") or "")
+            for p in (getattr(meta, "cast", None) or [])[:5]
+            if isinstance(p, dict)
+        ]
+        cast = ", ".join(n for n in names if n)
+        director = (getattr(meta, "director", None) or "").strip()
+        if director:
+            return f"{cast} · dir. {director}" if cast else f"dir. {director}"
+        return cast
 
     def _apply_data(self, channel_id: str, data: object) -> None:
         """Called on the main thread via _data_ready signal."""
         if channel_id != self._current_id or not self.isVisible():
             return
         if not isinstance(data, dict) or not data:
-            self._title_lbl.setText("Could not load details")
+            self._card.show_error("Could not load details")
             return
 
-        self._title_lbl.setText(data.get("name", "Unknown"))
+        self._card.populate(data)
 
-        meta_parts = []
-        if data.get("year"):   meta_parts.append(str(data["year"]))
-        if data.get("rating"): meta_parts.append(f"{self._config.rating_star_icon} {data['rating']}")
-        self._meta_lbl.setText("  ·  ".join(meta_parts))
-
-        if data.get("provider_name"):
-            self._source_lbl.setText(f"Source: {data['provider_name']}")
-            self._source_lbl.show()
-        else:
-            self._source_lbl.hide()
-
-        self._genres_lbl.setText(data.get("genre") or "")
-
-        plot = data.get("plot") or ""
-        self._plot_lbl.setText(plot)
-        self._overview_header.setVisible(bool(plot.strip()))
-        self._plot_lbl.setVisible(bool(plot.strip()))
-
-        cast = data.get("cast") or ""
-        has_cast = bool(cast)
-        self._cast_header.setVisible(has_cast)
-        if has_cast:
-            self._cast_lbl.setText(f"Cast: {cast}")
-            self._cast_lbl.show()
-        else:
-            self._cast_lbl.hide()
-
-        is_fav = data.get("is_favorite", False)
-        self._fav_btn.setText(
-            f"{self._config.favorite_icon} Unfavorite" if is_fav
-            else f"{self._config.unfavorite_icon} Favorite"
-        )
-
-        in_queue = data.get("in_queue", False)
-        self._queue_btn.setText(
-            f"{self._config.queue_icon} Remove from Queue" if in_queue
-            else f"{self._config.queue_icon} Add to Queue"
-        )
-
-        rating = data.get("user_rating", 0) or 0
-        self._like_btn.setChecked(rating > 0)
-        self._dislike_btn.setChecked(rating < 0)
-        self._not_interested_btn.setChecked(bool(data.get("is_suppressed", False)))
-
-        # Similar titles mini-list
-        self._clear_similar_list()
-        similar = data.get("similar") or []
-        if similar:
-            self._similar_header_lbl.show()
-            for item in similar:
-                btn = QPushButton(item["name"])
-                btn.setFlat(True)
-                btn.setStyleSheet(
-                    f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};"
-                    " border: none; padding: 1px 0; }"
-                    f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-                )
-                btn.setToolTip(f"Preview: {item['name']}")
-                cid = item["id"]
-                btn.clicked.connect(lambda _, c=cid: self._dive_into(c))
-                self._similar_vbox.addWidget(btn)
-
-        # Poster — check sync cache first, fall back to async
-        poster_url = data.get("poster_url")
-        if poster_url:
-            self._pending_poster_url = poster_url
-            pix = self._image_cache.get_image_sync(poster_url)
+        # Poster images — main thread only. Check the sync cache first, fall back
+        # to async (the shared image_loaded slot routes results back to the card).
+        for url in self._card.pending_poster_urls():
+            pix = self._image_cache.get_image_sync(url)
             if pix:
-                self._set_poster(pix)
+                self._card.set_poster_pixmap(url, pix)
             else:
-                self._image_cache.get_image_async(poster_url)
-        else:
-            self._poster_lbl.setPixmap(QPixmap())
-            self._poster_lbl.setText("No poster")
+                self._image_cache.get_image_async(url)
 
     def _on_image_loaded(self, url: str, pix: QPixmap) -> None:
-        if url == getattr(self, "_pending_poster_url", None) and self.isVisible():
-            self._set_poster(pix)
-
-    def _set_poster(self, pix: QPixmap) -> None:
-        scaled = pix.scaled(
-            QSize(110, 160),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._poster_lbl.setPixmap(scaled)
-        self._poster_lbl.setText("")
-
-    def _clear_similar_list(self) -> None:
-        while self._similar_vbox.count():
-            item = self._similar_vbox.takeAt(0)
-            if w := item.widget():
-                w.deleteLater()
+        if self.isVisible():
+            self._card.set_poster_pixmap(url, pix)
 
     # ------------------------------------------------------------------ #
     # Navigation                                                           #
@@ -563,9 +328,11 @@ class SimilarTitleLightbox(QWidget):
         self._load_channel(self._origin_ids[self._origin_idx])
 
     def _dive_into(self, channel_id: str) -> None:
-        """Navigate deeper into similar content (rabbit-hole mode)."""
+        """Navigate deeper into similar / other-version content (rabbit-hole mode)."""
+        if not channel_id:
+            return
         self._nav_stack.append(self._current_id)
-        self._back_btn.show()
+        self._card.set_back_visible(True)
         self._load_channel(channel_id)
 
     def _go_back(self) -> None:
@@ -573,21 +340,21 @@ class SimilarTitleLightbox(QWidget):
             return
         prev_id = self._nav_stack.pop()
         if not self._nav_stack:
-            self._back_btn.hide()
+            self._card.set_back_visible(False)
         self._load_channel(prev_id)
 
     def _update_nav_state(self) -> None:
         in_rabbit_hole = bool(self._nav_stack)
         n = len(self._origin_ids)
         if in_rabbit_hole:
-            self._counter_lbl.setText("")
-            self._prev_btn.setEnabled(False)
-            self._next_btn.setEnabled(False)
+            self._card.set_counter("")
+            self._prev_chev.setEnabled(False)
+            self._next_chev.setEnabled(False)
         else:
             idx = self._origin_idx
-            self._counter_lbl.setText(f"{idx + 1} of {n}")
-            self._prev_btn.setEnabled(idx > 0)
-            self._next_btn.setEnabled(idx < n - 1)
+            self._card.set_counter(f"{idx + 1} of {n}")
+            self._prev_chev.setEnabled(idx > 0)
+            self._next_chev.setEnabled(idx < n - 1)
 
     # ------------------------------------------------------------------ #
     # Dismiss                                                              #
@@ -595,14 +362,20 @@ class SimilarTitleLightbox(QWidget):
 
     def _close(self) -> None:
         self._nav_stack.clear()
-        self._back_btn.hide()
+        self._card.set_back_visible(False)
         self.hide()
 
     def mousePressEvent(self, event) -> None:
-        if not self._card.geometry().contains(event.pos()):
-            self._close()
-        else:
-            super().mousePressEvent(event)
+        # Close only on a genuine backdrop click. A press on the card (incl. its
+        # padding) or a chevron is a control interaction — walk up from the widget
+        # under the cursor and bail if the card/chevron is an ancestor.
+        node = self.childAt(event.pos())
+        while node is not None:
+            if node in (self._card, self._prev_chev, self._next_chev):
+                super().mousePressEvent(event)
+                return
+            node = node.parent()
+        self._close()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -622,9 +395,9 @@ class SimilarTitleLightbox(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 170))
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 185))
         painter.end()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._card.setMaximumHeight(max(400, int(self.height() * 0.85)))
+        self._card.setMaximumHeight(max(420, int(self.height() * 0.9)))

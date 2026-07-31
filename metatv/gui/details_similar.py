@@ -121,6 +121,8 @@ class _SimilarSection(QWidget):
         row.setContentsMargins(0, 1, 0, 1)
         row.setSpacing(4)
 
+        idx = self._channel_ids.index(v.channel_id)
+
         # 1. Play button
         play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedSize(22, 20)
@@ -129,6 +131,22 @@ class _SimilarSection(QWidget):
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
+
+        # 1b. Lightbox preview affordance — the discoverable, always-visible way to
+        # open the preview overlay (left-click). DISTINCT from icons.expand_icon (the
+        # collapsible caret): this is icons.lightbox_icon (⤢). The name button's
+        # right-click still opens the lightbox too (kept below).
+        preview_btn = QPushButton(_icons.lightbox_icon)
+        preview_btn.setFixedSize(22, 20)
+        preview_btn.setFlat(True)
+        preview_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_ICON_BTN}")
+        preview_btn.setToolTip("Preview in lightbox")
+        preview_btn.clicked.connect(
+            lambda _, _idx=idx: self.similar_preview_requested.emit(
+                self._channel_ids, _idx, self._origin_title
+            )
+        )
+        row.addWidget(preview_btn)
 
         # 2. Media type icon (🎬/📺/📡)
         type_icon = {
@@ -173,7 +191,6 @@ class _SimilarSection(QWidget):
         name_btn.setToolTip("Click: go to details  ·  Right-click: preview in lightbox")
         name_btn.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
         name_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        idx = self._channel_ids.index(v.channel_id)
         name_btn.customContextMenuRequested.connect(
             lambda _pos, _idx=idx: self.similar_preview_requested.emit(
                 self._channel_ids, _idx, self._origin_title

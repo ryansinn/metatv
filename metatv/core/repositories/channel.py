@@ -2211,11 +2211,18 @@ class ChannelRepository(_ChannelStatsMixin):
         self,
         content_key: str,
         exclude_channel_id: str,
+        excluded_provider_ids: "Optional[Set[str] | List[str]]" = None,
     ) -> list[dict]:
         """Return sibling channels that share *content_key* but differ from the given channel.
 
-        Used by the cross-source playback failover path: when a stream fails, the
-        caller can try these sibling channels in order.
+        Two callers, one query:
+        - **Cross-source playback failover** passes no ``excluded_provider_ids`` — it
+          deliberately wants every sibling (including inactive/expired ones) so the
+          failure toast can offer them and the failover can rank active-first itself.
+        - **The Similar-titles lightbox "Other Versions" row** passes
+          ``ProviderRepository.get_hidden_provider_ids()`` so hidden/expired/orphaned
+          sources never surface — the same absolute gate as ``get_similar_channels``
+          (DR-0007 active-source scoping).
 
         Ranking:
         1. Active providers first (``ProviderDB.is_active == True``).
@@ -2229,12 +2236,16 @@ class ChannelRepository(_ChannelStatsMixin):
         Args:
             content_key: The stored ``content_key`` to match on.
             exclude_channel_id: The channel that just failed; excluded from results.
+            excluded_provider_ids: Hidden provider ids to gate out (inactive ∪ expired
+                ∪ orphaned). ``None``/empty applies no provider gate (the failover
+                default). The visibility-scoped surfaces always pass
+                ``get_hidden_provider_ids()``.
 
         Returns:
             List of plain dicts — safe to cross the Qt thread boundary:
-            ``{id, name, stream_url, provider_id, detected_quality,
+            ``{id, name, stream_url, provider_id, provider_name, detected_quality,
                detected_region, detected_prefix, is_active}``
-            (``is_active`` comes from the joined ``ProviderDB.is_active`` flag).
+            (``is_active``/``provider_name`` come from the joined ``ProviderDB``).
         """
         from metatv.core.database import ProviderDB  # local import avoids circular
 
@@ -2245,24 +2256,29 @@ class ChannelRepository(_ChannelStatsMixin):
             "4K": 0, "UHD": 0, "FHD": 1, "FHD+": 1, "HD": 2, "SD": 3,
         }
 
-        rows = (
-            self.session.query(ChannelDB, ProviderDB.is_active)
+        q = (
+            self.session.query(ChannelDB, ProviderDB.is_active, ProviderDB.name)
             .join(ProviderDB, ChannelDB.provider_id == ProviderDB.id, isouter=True)
             .filter(
                 ChannelDB.content_key == content_key,
                 ChannelDB.id != exclude_channel_id,
             )
-            .all()
         )
+        excluded = list(excluded_provider_ids or [])
+        if excluded:
+            # Absolute gate: inactive/expired/orphaned sources never surface here.
+            q = q.filter(~ChannelDB.provider_id.in_(excluded))
+        rows = q.all()
 
         result: list[dict] = []
-        for ch, is_active in rows:
+        for ch, is_active, provider_name in rows:
             quality_rank = _QUALITY_ORDER.get(ch.detected_quality or "", 4)
             result.append({
                 "id": ch.id,
                 "name": ch.name,
                 "stream_url": ch.stream_url,
                 "provider_id": ch.provider_id,
+                "provider_name": provider_name,
                 "detected_quality": ch.detected_quality,
                 "detected_region": ch.detected_region,
                 "detected_prefix": ch.detected_prefix,
