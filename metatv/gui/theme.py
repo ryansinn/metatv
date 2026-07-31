@@ -1278,13 +1278,32 @@ LIGHTBOX_CAST = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
 # Green "✓ disabled & expired sources excluded" scope note (paired with the ✓ glyph).
 LIGHTBOX_SCOPED_NOTE = "color: " + COLOR_OK + "; font-size: " + FONT_MD + ";"
 
-# Other Versions chip button (used N×) — sunken pill, click dives to that variant.
+# Other Versions chip button (used N×) — a COMPACT pill in the hero's upper-right
+# showing only the distinguishing token (quality/region/prefix) plus an optional
+# source-icon glyph; the full "<name> · <source>" lives in the tooltip. Click dives
+# to that variant. A runtime provider colour (``ProviderDB.color``) may be injected
+# as a left-border source badge in code (``LIGHTBOX_VERSION_CHIP_ACCENT`` — same
+# runtime-data pattern as the sidebar source labels); never a colour literal here.
 LIGHTBOX_VERSION_CHIP = (
     "QPushButton { background: " + COLOR_BG_DEEP + "; color: " + COLOR_TEXT + ";"
-    " border: 1px solid " + COLOR_LINE + "; border-radius: 8px; padding: 5px 10px;"
-    " font-size: " + FONT_LG + "; text-align: left; }"
+    " border: 1px solid " + COLOR_LINE + "; border-radius: 6px; padding: 2px 8px;"
+    " font-size: " + FONT_MD + "; font-weight: bold; }"
     "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
 )
+
+
+def lightbox_version_chip(accent_color: str = "") -> str:
+    """Compose the Other-Versions chip style, tinting the left border by *accent_color*.
+
+    ``accent_color`` is a runtime provider colour (``ProviderDB.color``) — NOT a
+    palette literal — so injecting it here mirrors the accepted sidebar source-label
+    pattern. Blank/absent → the plain :data:`LIGHTBOX_VERSION_CHIP` pill.
+    """
+    if not accent_color:
+        return LIGHTBOX_VERSION_CHIP
+    return LIGHTBOX_VERSION_CHIP + (
+        "QPushButton { border-left: 3px solid " + accent_color + "; }"
+    )
 
 # Similar-strip mini card (used N×) — poster, ⤢ preview button, name, year.
 LIGHTBOX_SIM_POSTER = (

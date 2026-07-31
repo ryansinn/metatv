@@ -37,6 +37,10 @@ from metatv.gui.flow_layout import FlowLayout
 _POSTER_W, _POSTER_H = 168, 252
 _SIM_W, _SIM_H = 116, 174
 
+# Max width of the hero's Other-Versions chip column (flow-wraps the compact chips
+# in the upper-right; the metadata column takes the rest of the hero).
+_VERSIONS_COL_W = 240
+
 # Responsive card-width bounds. The overlay sizes the card to a fraction of the
 # window between these (single source of truth — imported by ``similar_lightbox``);
 # the card's Fixed/Maximum size policy then lets height grow to content up to the
@@ -293,10 +297,12 @@ class _LightboxCard(QFrame):
         body.setContentsMargins(24, 14, 24, 14)
         body.setSpacing(2)
 
+        # Other Versions is built INSIDE the hero (upper-right column) — it is no
+        # longer a wasteful full-width block below the hero (that repeated the
+        # identical title/year/source N×). See ``_build_versions_column``.
         self._build_hero(body)
         self._build_overview(body)
         self._build_cast(body)
-        self._build_other_versions(body)
         self._build_similar_strip(body)
         body.addStretch()
 
@@ -424,6 +430,9 @@ class _LightboxCard(QFrame):
         right_w = QWidget()
         right_w.setLayout(right)
         hero.addWidget(right_w, 1)
+
+        # -- far-right column: Other Versions (fills the hero's empty upper-right) --
+        self._build_versions_column(hero)
         body.addLayout(hero)
 
     def _make_rating_btn(self, glyph: str, tip: str) -> QPushButton:
@@ -451,12 +460,31 @@ class _LightboxCard(QFrame):
         self._cast_lbl.setStyleSheet(_theme.LIGHTBOX_CAST)
         body.addWidget(self._cast_lbl)
 
-    def _build_other_versions(self, body: QVBoxLayout) -> None:
+    def _build_versions_column(self, hero: QHBoxLayout) -> None:
+        """Other Versions — a compact, flow-wrapped chip column in the hero's top-right.
+
+        Each chip shows only its distinguishing token (quality/region/prefix) + an
+        optional source-icon glyph; the identical title/year/source that used to be
+        repeated N× now lives in each chip's tooltip. Top-aligned so it hugs the
+        title/metadata row instead of leaving the upper-right empty.
+        """
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(6)
         self._versions_hdr = self._section_header("OTHER VERSIONS")
-        body.addWidget(self._versions_hdr)
+        col.addWidget(self._versions_hdr)
         self._versions_w = QWidget()
-        self._versions_flow = FlowLayout(self._versions_w, spacing=8)
-        body.addWidget(self._versions_w)
+        self._versions_flow = FlowLayout(self._versions_w, spacing=6)
+        col.addWidget(self._versions_w)
+        col.addStretch()
+
+        self._versions_col_w = QWidget()
+        self._versions_col_w.setLayout(col)
+        # Fixed width so the FlowLayout reliably flow-wraps ~4 compact chips per row
+        # into the hero's upper-right dead space (with stretch 0 the flow's narrow
+        # size-hint would otherwise collapse the column to a thin 1–2-chip strip).
+        self._versions_col_w.setFixedWidth(_VERSIONS_COL_W)
+        hero.addWidget(self._versions_col_w, 0, Qt.AlignmentFlag.AlignTop)
 
     def _build_similar_strip(self, body: QVBoxLayout) -> None:
         hdr_row = QHBoxLayout()
@@ -576,8 +604,7 @@ class _LightboxCard(QFrame):
         self._cast_hdr.hide()
         self._cast_lbl.hide()
         self._cast_lbl.clear()
-        self._versions_hdr.hide()
-        self._versions_w.hide()
+        self._versions_col_w.hide()
         self._clear_flow(self._versions_flow)
         self._similar_hdr_row_w.hide()
         self._strip_scroll.hide()
@@ -712,26 +739,34 @@ class _LightboxCard(QFrame):
     def _populate_versions(self, versions: list[dict]) -> None:
         self._clear_flow(self._versions_flow)
         if not versions:
-            self._versions_hdr.hide()
-            self._versions_w.hide()
+            self._versions_col_w.hide()
             return
         self._versions_hdr.setText(f"OTHER VERSIONS ({len(versions)})")
         for v in versions:
             self._versions_flow.addWidget(self._make_version_chip(v))
-        self._versions_hdr.show()
-        self._versions_w.show()
+        self._versions_col_w.show()
 
     def _make_version_chip(self, v: dict) -> QPushButton:
-        tag = v.get("tag") or ""
+        """A compact chip: distinguishing token (+ source glyph), full detail on hover.
+
+        The visible label is ONLY the token (quality/region/prefix) prefixed by the
+        source's icon glyph when the provider has one — never the identical
+        title/year/source repeated across every sibling (that text is the tooltip).
+        A runtime provider colour tints the left border as a source badge; the token
+        text is always present, so the chip never distinguishes by colour alone.
+        """
+        tag = (v.get("tag") or "").strip()
         name = v.get("name") or "?"
         src = v.get("provider_name") or ""
-        label = f"{tag}  {name}" if tag else name
-        if src:
-            label += f"  · {src}"
-        chip = QPushButton(label)
+        icon = (v.get("provider_icon") or "").strip()
+        color = (v.get("provider_color") or "").strip()
+
+        visible = " ".join(p for p in (icon, tag) if p) or icon or "•"
+        chip = QPushButton(visible)
         chip.setFlat(True)
-        chip.setStyleSheet(_theme.LIGHTBOX_VERSION_CHIP)
-        chip.setToolTip(f"Preview this version: {name}")
+        chip.setStyleSheet(_theme.lightbox_version_chip(color))
+        detail = f"{name} · {src}" if src else name
+        chip.setToolTip(detail)  # QPushButton auto-qualifies for the hand cursor
         cid = v.get("id")
         chip.clicked.connect(lambda _=False, c=cid: self.dive_requested.emit(c))
         return chip
