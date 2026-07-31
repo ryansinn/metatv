@@ -576,7 +576,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         # Similar titles lightbox — overlay child widget, hidden by default
         from metatv.gui.similar_lightbox import SimilarTitleLightbox
-        self._lightbox = SimilarTitleLightbox(self, self.config, self.image_cache, self.db)
+        self._lightbox = SimilarTitleLightbox(
+            self, self.config, self.image_cache, self.db, self.metadata_manager
+        )
         self._lightbox.play_requested.connect(self.play_channel_by_id)
         self._lightbox.queue_toggled.connect(self._on_details_queue_toggle)
         self._lightbox.favorite_toggled.connect(self.toggle_favorite_by_id)
