@@ -501,6 +501,7 @@ class Database:
         self._migrate()
         self._ensure_auto_vacuum()
         self._prune_orphaned_channels()
+        self._prune_orphaned_content_tags()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -726,6 +727,54 @@ class Database:
 
         except Exception as exc:
             logger.error(f"Orphan-channel cleanup migration failed (startup unblocked): {exc}")
+
+    def _prune_orphaned_content_tags(self) -> None:
+        """One-time migration: delete ``content_tags`` rows whose channel is gone.
+
+        ``content_tags`` has no FK cascade (SQLite foreign keys are off), so every
+        provider-delete before the set-based ``prune_provider_content`` fix left the
+        deleted channels' tag links behind — on the benchmarked 3 GB DB, 1.24 M of
+        4.45 M ``content_tags`` rows were already orphaned.  This heals the backlog
+        once; from now on ``prune_provider_content`` removes the tags inline so no
+        new orphans accumulate.
+
+        Runs once per database (gated on ``PRAGMA user_version == 3``) AFTER
+        ``_prune_orphaned_channels()`` so the channel set is already trimmed to the
+        rows that should survive.  A single ``DELETE ... WHERE NOT EXISTS`` uses the
+        ``ix_content_tags_channel_id`` index + the channels primary key, so it never
+        materialises the id list.
+
+        Any failure is caught and logged — it must never block startup.
+        """
+        try:
+            with self.engine.connect() as conn:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version >= 3:
+                return  # already ran — fast path
+
+            with self.engine.connect() as conn:
+                result = conn.execute(text(
+                    "DELETE FROM content_tags WHERE NOT EXISTS "
+                    "(SELECT 1 FROM channels WHERE channels.id = content_tags.channel_id)"
+                ))
+                conn.commit()
+                removed = result.rowcount or 0
+
+            if removed > 0:
+                logger.info(
+                    f"One-time cleanup: removed {removed} orphaned content_tags row(s) "
+                    f"(deleted-channel tag links with no FK cascade)."
+                )
+            else:
+                logger.debug("content_tags cleanup: no orphaned rows found — nothing to do.")
+
+            # Stamp version 3 so this never reruns
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA user_version = 3"))
+                conn.commit()
+
+        except Exception as exc:
+            logger.error(f"Orphaned content_tags cleanup migration failed (startup unblocked): {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""

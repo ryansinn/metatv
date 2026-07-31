@@ -10,6 +10,7 @@ from loguru import logger
 from metatv.core.database import (
     ChannelDB, MetadataDB, SeasonDB, EpisodeDB,
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
+    ContentTagDB,
 )
 from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
 from metatv.core.channel_name_utils import (
@@ -2592,7 +2593,27 @@ class ChannelRepository(_ChannelStatsMixin):
 
     # ── Cascade prune ──────────────────────────────────────────────────────────
 
+    # Retained for backwards-compatibility (referenced by an existing test), but the
+    # prune is no longer id-batched: it uses set-based, provider-scoped deletes that
+    # resolve the doomed set with an indexed ``provider_id`` subquery — never
+    # shipping the 294k+ ids to Python. See ``prune_provider_content``.
     _PRUNE_BATCH_SIZE = 2000
+
+    def _engaged_channel_predicate(self):
+        """Return the SQL predicate for an *engaged* channel (kept on provider delete).
+
+        A channel is engaged — and therefore preserved even when its provider is
+        removed — when it is favorited, has been played (``last_played`` set or
+        ``play_count > 0``), or is currently queued.  This is the single
+        "flag engaged-unavailable, don't delete" gate reused by every doomed-set
+        delete below so the exclusion can never drift between statements.
+        """
+        return or_(
+            ChannelDB.is_favorite == True,           # noqa: E712
+            ChannelDB.last_played.isnot(None),
+            ChannelDB.play_count > 0,
+            ChannelDB.id.in_(self.session.query(WatchQueueDB.channel_id)),
+        )
 
     def prune_provider_content(
         self,
@@ -2605,135 +2626,125 @@ class ChannelRepository(_ChannelStatsMixin):
         accessible in History / Favorites / Watch Queue and are hidden from
         forward-looking views via ``get_hidden_provider_ids()``.
 
-        The delete is chunked (``_PRUNE_BATCH_SIZE`` ids per batch) with a
-        ``session.commit()`` between batches so the transaction window stays
-        small and SQLite's ``auto_vacuum=FULL`` reclaims pages incrementally.
+        Set-based, provider-scoped deletes (not id-batched):  every child delete
+        targets ``... WHERE <fk> IN (SELECT id FROM channels WHERE provider_id IN
+        (:pids) AND NOT <engaged>)`` and the channels themselves are removed with a
+        single ``DELETE ... WHERE provider_id IN (:pids) AND NOT <engaged>`` — the
+        doomed set is resolved by SQLite via the indexed ``provider_id`` instead of
+        shipping every id to Python and issuing ~150 batches of ~7 ``IN(...)``
+        deletes.  The channels row is deleted LAST so the correlated subquery still
+        resolves the doomed set for the child deletes, and each step group commits
+        once (a few large transactions, not ~150 per-batch commits) — collapsing the
+        SQLite single-writer lock-contention points that turned a ~13s purge into a
+        2-minute UI freeze.
+
+        ``content_tags`` is pruned here too: it has no FK cascade (SQLite FKs are
+        off), so before this fix a deleted channel's ``content_tags`` rows were
+        orphaned forever.  Engaged channels' tags are spared by the same doomed-set
+        subquery.
 
         Args:
             provider_ids: Provider IDs whose non-engaged content should be
                 purged.  May be an empty list (returns zero counts immediately).
 
         Returns:
-            Dict with counts: ``channels``, ``metadata``, ``epg_by_channel``,
-            ``epg_by_provider``, ``seasons``, ``episodes``, ``ratings``,
-            ``alerts``.
+            Dict with counts: ``channels``, ``metadata``, ``content_tags``,
+            ``epg_by_channel``, ``epg_by_provider``, ``seasons``, ``episodes``,
+            ``ratings``, ``alerts``.
         """
         if not provider_ids:
             return {
-                "channels": 0, "metadata": 0, "epg_by_channel": 0,
-                "epg_by_provider": 0, "seasons": 0, "episodes": 0,
-                "ratings": 0, "alerts": 0,
+                "channels": 0, "metadata": 0, "content_tags": 0,
+                "epg_by_channel": 0, "epg_by_provider": 0, "seasons": 0,
+                "episodes": 0, "ratings": 0, "alerts": 0,
             }
 
         counts: dict[str, int] = {
-            "channels": 0, "metadata": 0, "epg_by_channel": 0,
-            "epg_by_provider": 0, "seasons": 0, "episodes": 0,
-            "ratings": 0, "alerts": 0,
+            "channels": 0, "metadata": 0, "content_tags": 0,
+            "epg_by_channel": 0, "epg_by_provider": 0, "seasons": 0,
+            "episodes": 0, "ratings": 0, "alerts": 0,
         }
 
-        # Step 1 — collect doomed channel ids (id-only: memory-safe even for 335k+)
-        # A channel is engaged when it is favorited, has been played, or is queued.
-        queued_subq = self.session.query(WatchQueueDB.channel_id)
-        doomed_rows = (
-            self.session.query(ChannelDB.id, ChannelDB.metadata_id)
-            .filter(ChannelDB.provider_id.in_(provider_ids))
-            .filter(
-                ~or_(
-                    ChannelDB.is_favorite == True,           # noqa: E712
-                    ChannelDB.last_played.isnot(None),
-                    ChannelDB.play_count > 0,
-                    ChannelDB.id.in_(queued_subq),
-                )
-            )
-            .all()
-        )
+        engaged = self._engaged_channel_predicate()
 
-        doomed_ids   = [r[0] for r in doomed_rows]
-        doomed_meta  = [r[1] for r in doomed_rows if r[1] is not None]
-        total_doomed = len(doomed_ids)
+        # The doomed channel set as a reusable correlated subquery.  Because the
+        # channels row is deleted LAST, this subquery resolves the same non-engaged
+        # set for every child delete below.  ``provider_id`` is indexed, so the
+        # planner never materialises the full id list.
+        doomed_channel_ids = (
+            self.session.query(ChannelDB.id)
+            .filter(ChannelDB.provider_id.in_(provider_ids))
+            .filter(~engaged)
+        )
+        doomed_meta_ids = (
+            self.session.query(ChannelDB.metadata_id)
+            .filter(ChannelDB.provider_id.in_(provider_ids))
+            .filter(~engaged)
+            .filter(ChannelDB.metadata_id.isnot(None))
+        )
 
         logger.info(
-            f"prune_provider_content: {total_doomed} non-engaged channels from "
-            f"{len(provider_ids)} provider(s) — pruning in batches of "
-            f"{self._PRUNE_BATCH_SIZE}"
+            f"prune_provider_content: pruning non-engaged channels from "
+            f"{len(provider_ids)} provider(s) via set-based provider-scoped deletes"
         )
 
-        # Step 2 — chunked deletes of channel-level dependents
-        batch_size = self._PRUNE_BATCH_SIZE
-        for batch_start in range(0, len(doomed_ids), batch_size):
-            batch_ids  = doomed_ids [batch_start : batch_start + batch_size]
-            batch_meta = doomed_meta[batch_start : batch_start + batch_size]
+        # Step 2 — set-based deletes of channel-level dependents (child → parent).
+        # content_tags first (no FK cascade — the leak this also fixes).
+        counts["content_tags"] += (
+            self.session.query(ContentTagDB)
+            .filter(ContentTagDB.channel_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["epg_by_channel"] += (
+            self.session.query(EpgProgramDB)
+            .filter(EpgProgramDB.channel_db_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["episodes"] += (
+            self.session.query(EpisodeDB)
+            .filter(EpisodeDB.series_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["seasons"] += (
+            self.session.query(SeasonDB)
+            .filter(SeasonDB.series_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["ratings"] += (
+            self.session.query(UserRatingDB)
+            .filter(UserRatingDB.channel_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["alerts"] += (
+            self.session.query(AlertMatchDB)
+            .filter(AlertMatchDB.channel_id.in_(doomed_channel_ids))
+            .delete(synchronize_session=False)
+        )
+        # MetadataDB rows referenced by the doomed channels (subquery reads
+        # channels.metadata_id — must run before the channels row is deleted).
+        counts["metadata"] += (
+            self.session.query(MetadataDB)
+            .filter(MetadataDB.id.in_(doomed_meta_ids))
+            .delete(synchronize_session=False)
+        )
+        # Finally, the channels themselves — deleted LAST so the correlated
+        # doomed-set subquery above still resolved while the child deletes ran.
+        counts["channels"] += (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.provider_id.in_(provider_ids))
+            .filter(~engaged)
+            .delete(synchronize_session=False)
+        )
+        self.session.commit()
 
-            # EpgProgramDB entries matched to these channels
-            n = (
-                self.session.query(EpgProgramDB)
-                .filter(EpgProgramDB.channel_db_id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["epg_by_channel"] += n
-
-            # SeasonDB and EpisodeDB whose series_id is one of the doomed channels
-            n = (
-                self.session.query(EpisodeDB)
-                .filter(EpisodeDB.series_id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["episodes"] += n
-
-            n = (
-                self.session.query(SeasonDB)
-                .filter(SeasonDB.series_id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["seasons"] += n
-
-            # UserRatingDB and AlertMatchDB tied to these channel ids
-            n = (
-                self.session.query(UserRatingDB)
-                .filter(UserRatingDB.channel_id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["ratings"] += n
-
-            n = (
-                self.session.query(AlertMatchDB)
-                .filter(AlertMatchDB.channel_id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["alerts"] += n
-
-            # MetadataDB rows referenced by these channels
-            if batch_meta:
-                n = (
-                    self.session.query(MetadataDB)
-                    .filter(MetadataDB.id.in_(batch_meta))
-                    .delete(synchronize_session=False)
-                )
-                counts["metadata"] += n
-
-            # Finally, the channels themselves
-            n = (
-                self.session.query(ChannelDB)
-                .filter(ChannelDB.id.in_(batch_ids))
-                .delete(synchronize_session=False)
-            )
-            counts["channels"] += n
-
-            self.session.commit()
-
-        # Step 3 — feed-side EPG: programmes whose provider_id is one of the
-        # removed providers (these are EPG feed entries, not channel matches).
-        # Chunk provider_ids only if unusually large; in practice < 10.
-        pid_batch_size = 500
-        for pid_start in range(0, len(provider_ids), pid_batch_size):
-            pid_batch = provider_ids[pid_start : pid_start + pid_batch_size]
-            n = (
-                self.session.query(EpgProgramDB)
-                .filter(EpgProgramDB.provider_id.in_(pid_batch))
-                .delete(synchronize_session=False)
-            )
-            counts["epg_by_provider"] += n
-            self.session.commit()
+        # Step 3 — feed-side EPG: programmes whose provider_id is one of the removed
+        # providers (these are EPG feed entries, not channel matches).
+        counts["epg_by_provider"] += (
+            self.session.query(EpgProgramDB)
+            .filter(EpgProgramDB.provider_id.in_(provider_ids))
+            .delete(synchronize_session=False)
+        )
+        self.session.commit()
 
         # Step 4 — orphaned SeasonDB / EpisodeDB whose provider_id is in the removed
         # set but whose series channel is NOT one of the KEPT (engaged) channels.
@@ -2744,46 +2755,38 @@ class ChannelRepository(_ChannelStatsMixin):
         # survives a provider delete (history is sacrosanct).  Only truly orphaned
         # catalog rows (series channel already gone) are pruned, and even those are
         # spared when the episode itself still carries user watch-state.
-        for pid_start in range(0, len(provider_ids), pid_batch_size):
-            pid_batch = provider_ids[pid_start : pid_start + pid_batch_size]
-
-            # Series channels that survived Step 2 for this batch == the engaged/kept
-            # series whose seasons & episodes must be preserved.
-            kept_series_subq = (
-                self.session.query(ChannelDB.id)
-                .filter(ChannelDB.provider_id.in_(pid_batch))
-            )
-
-            n = (
-                self.session.query(EpisodeDB)
-                .filter(EpisodeDB.provider_id.in_(pid_batch))
-                .filter(~EpisodeDB.series_id.in_(kept_series_subq))
-                # Floor: never delete an episode carrying user watch-state, even if
-                # its series channel is already gone (pre-fix orphans).
-                .filter(
-                    ~or_(
-                        EpisodeDB.is_watched == True,       # noqa: E712
-                        EpisodeDB.watch_completed == True,  # noqa: E712
-                        EpisodeDB.watch_progress > 0,
-                        EpisodeDB.last_played.isnot(None),
-                        EpisodeDB.play_count > 0,
-                    )
+        kept_series_subq = (
+            self.session.query(ChannelDB.id)
+            .filter(ChannelDB.provider_id.in_(provider_ids))
+        )
+        counts["episodes"] += (
+            self.session.query(EpisodeDB)
+            .filter(EpisodeDB.provider_id.in_(provider_ids))
+            .filter(~EpisodeDB.series_id.in_(kept_series_subq))
+            # Floor: never delete an episode carrying user watch-state, even if its
+            # series channel is already gone (pre-fix orphans).
+            .filter(
+                ~or_(
+                    EpisodeDB.is_watched == True,       # noqa: E712
+                    EpisodeDB.watch_completed == True,  # noqa: E712
+                    EpisodeDB.watch_progress > 0,
+                    EpisodeDB.last_played.isnot(None),
+                    EpisodeDB.play_count > 0,
                 )
-                .delete(synchronize_session=False)
             )
-            counts["episodes"] += n
-            n = (
-                self.session.query(SeasonDB)
-                .filter(SeasonDB.provider_id.in_(pid_batch))
-                .filter(~SeasonDB.series_id.in_(kept_series_subq))
-                .delete(synchronize_session=False)
-            )
-            counts["seasons"] += n
-            self.session.commit()
+            .delete(synchronize_session=False)
+        )
+        counts["seasons"] += (
+            self.session.query(SeasonDB)
+            .filter(SeasonDB.provider_id.in_(provider_ids))
+            .filter(~SeasonDB.series_id.in_(kept_series_subq))
+            .delete(synchronize_session=False)
+        )
+        self.session.commit()
 
         logger.info(
             f"prune_provider_content complete: {counts['channels']} channels, "
-            f"{counts['metadata']} metadata, "
+            f"{counts['metadata']} metadata, {counts['content_tags']} content_tags, "
             f"{counts['epg_by_channel'] + counts['epg_by_provider']} EPG rows, "
             f"{counts['seasons']} seasons, {counts['episodes']} episodes pruned; "
             f"engaged channels preserved."

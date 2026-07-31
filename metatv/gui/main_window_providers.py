@@ -331,6 +331,81 @@ class _ProviderMixin:
         self._refresh_provider_dependent_views()
         self.status_bar.showMessage("Provider deleted.", 3000)
 
+    def _on_provider_delete_requested(self, provider_id: str) -> None:
+        """User confirmed a source delete — run the purge OFF the UI thread.
+
+        The purge (:meth:`ChannelRepository.prune_provider_content`) sweeps hundreds
+        of thousands of rows; running it on the Qt main thread froze the app ("Not
+        Responding") for minutes on a large DB.  We submit it to the shared executor
+        (mirrors the ``_on_all_refreshes_finished`` write-worker template) and marshal
+        the outcome back via ``_provider_delete_finished`` so the editor reset + the
+        canonical view refresh run on the main thread — never touching a widget from
+        the worker.
+        """
+        if not provider_id:
+            return
+
+        # Disable the editor + mark the source row busy while the purge is in flight
+        # (main thread — safe to touch widgets here).
+        editor = getattr(self, "provider_editor", None)
+        if editor is not None:
+            editor.setEnabled(False)
+        sources = self.sidebar_sections.get("sources")
+        if sources is not None:
+            sources.set_provider_busy(provider_id, True)
+
+        # Indeterminate work — suppress the bar so it doesn't sit frozen at 0%
+        # (the toast title is the progress indicator).
+        notif_id = self.notification_manager.show_progress(
+            title="Deleting source…", show_bar=False,
+        )
+        self._provider_delete_notifs[provider_id] = notif_id
+
+        def _worker() -> None:
+            try:
+                with self.db.session_scope() as session:
+                    deleted = RepositoryFactory(session).providers.delete(provider_id)
+                self._provider_delete_finished.emit(provider_id, bool(deleted), "")
+            except Exception as exc:  # noqa: BLE001 — reported to the main thread
+                logger.exception("Provider delete failed")
+                self._provider_delete_finished.emit(provider_id, False, str(exc))
+
+        self.executor.submit(_worker)
+
+    def _on_provider_delete_finished(
+        self, provider_id: str, success: bool, error: str
+    ) -> None:
+        """Main-thread slot: the off-thread purge finished — reset UI + refresh.
+
+        Clears the "Deleting source…" toast, re-enables the editor / source row, and
+        on success routes through the canonical ``_on_provider_deleted`` path (exit
+        edit mode + ``_refresh_provider_dependent_views``).  A failure surfaces an
+        error toast rather than leaving the spinner running.
+        """
+        notif_id = self._provider_delete_notifs.pop(provider_id, None)
+        if notif_id is not None:
+            self.notification_manager.dismiss(notif_id)
+
+        editor = getattr(self, "provider_editor", None)
+        if editor is not None:
+            editor.setEnabled(True)
+        sources = self.sidebar_sections.get("sources")
+        if sources is not None:
+            sources.set_provider_busy(provider_id, False)
+
+        if success:
+            # Reset the editor so it never tries to reload the now-deleted provider,
+            # then run the canonical delete-cleanup (exit edit mode + view refresh).
+            if editor is not None:
+                editor._provider_id = None
+            self._on_provider_deleted(provider_id)
+        else:
+            msg = error or "The source could not be deleted."
+            self.notification_manager.show(
+                title="Delete Failed", message=msg, type="error",
+            )
+            logger.error(f"Provider {provider_id} delete failed: {error}")
+
     def _on_account_info_updated(self, provider_id: str):
         """Refresh sources sidebar when account info is updated.
 

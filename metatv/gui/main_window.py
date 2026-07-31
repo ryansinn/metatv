@@ -156,6 +156,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # refreshes the provider-dependent views (so newly-collapsed cards settle) when
     # the count is positive.
     _propagation_finished = pyqtSignal(int)
+    # Provider-delete purge result (worker → main thread): (provider_id, success,
+    # error).  The purge runs OFF the UI thread; this marshals the outcome back so
+    # the editor reset + canonical view refresh happen on the main thread.
+    _provider_delete_finished = pyqtSignal(str, bool, str)
 
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
@@ -424,6 +428,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._playback_health_ready.connect(self._on_playback_health_ready)
         self._queue_end_detected.connect(self._on_queue_end_detected)
         self._propagation_finished.connect(self._on_propagation_finished)
+        # Provider-delete: off-thread purge worker → main-thread finished slot.
+        self._provider_delete_notifs: dict[str, str] = {}
+        self._provider_delete_finished.connect(self._on_provider_delete_finished)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
@@ -1586,6 +1593,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
+        self.provider_editor.provider_delete_requested.connect(self._on_provider_delete_requested)
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
         self.provider_editor.account_info_updated.connect(self._on_account_info_updated)
         self.provider_editor.setVisible(False)
