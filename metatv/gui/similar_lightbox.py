@@ -259,6 +259,9 @@ class SimilarTitleLightbox(QWidget):
                             "name": s.get("name") or "?",
                             "tag": tag,
                             "provider_name": s.get("provider_name"),
+                            # Source badge for the compact chip (icon glyph + colour).
+                            "provider_icon": s.get("provider_icon") or "",
+                            "provider_color": s.get("provider_color") or "",
                         })
 
                 data = {

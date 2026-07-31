@@ -2243,9 +2243,11 @@ class ChannelRepository(_ChannelStatsMixin):
 
         Returns:
             List of plain dicts — safe to cross the Qt thread boundary:
-            ``{id, name, stream_url, provider_id, provider_name, detected_quality,
-               detected_region, detected_prefix, is_active}``
-            (``is_active``/``provider_name`` come from the joined ``ProviderDB``).
+            ``{id, name, stream_url, provider_id, provider_name, provider_icon,
+               provider_color, detected_quality, detected_region, detected_prefix,
+               is_active}`` (``is_active``/``provider_name``/``provider_icon``/
+               ``provider_color`` come from the joined ``ProviderDB`` — the lightbox's
+               "Other Versions" chips render the icon/colour as a compact source badge).
         """
         from metatv.core.database import ProviderDB  # local import avoids circular
 
@@ -2257,7 +2259,13 @@ class ChannelRepository(_ChannelStatsMixin):
         }
 
         q = (
-            self.session.query(ChannelDB, ProviderDB.is_active, ProviderDB.name)
+            self.session.query(
+                ChannelDB,
+                ProviderDB.is_active,
+                ProviderDB.name,
+                ProviderDB.icon,
+                ProviderDB.color,
+            )
             .join(ProviderDB, ChannelDB.provider_id == ProviderDB.id, isouter=True)
             .filter(
                 ChannelDB.content_key == content_key,
@@ -2271,7 +2279,7 @@ class ChannelRepository(_ChannelStatsMixin):
         rows = q.all()
 
         result: list[dict] = []
-        for ch, is_active, provider_name in rows:
+        for ch, is_active, provider_name, provider_icon, provider_color in rows:
             quality_rank = _QUALITY_ORDER.get(ch.detected_quality or "", 4)
             result.append({
                 "id": ch.id,
@@ -2279,6 +2287,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 "stream_url": ch.stream_url,
                 "provider_id": ch.provider_id,
                 "provider_name": provider_name,
+                # Source badge data for the lightbox "Other Versions" chips.
+                "provider_icon": provider_icon or "",
+                "provider_color": provider_color or "",
                 "detected_quality": ch.detected_quality,
                 "detected_region": ch.detected_region,
                 "detected_prefix": ch.detected_prefix,
