@@ -2,12 +2,14 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
-from PyQt6.QtWidgets import QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import (
+    QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget, QHBoxLayout,
+)
 from PyQt6.QtCore import Qt, pyqtSignal
 from loguru import logger
 
 from metatv.gui import theme as _theme
-from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+from metatv.gui.sidebar.base import CollapsibleSection
 
 # Sentinel emitted by _bg_refresh when the background load raises, so
 # _on_rec_data_ready can render a visible error row instead of leaving the
@@ -148,16 +150,8 @@ class RecommendedSection(CollapsibleSection):
             self.set_empty(True)
             return
         for sc in recs:
-            media_icon = (
-                self.config.movie_icon if sc.media_type == "movie"
-                else self.config.series_icon
-            )
-            liked_prefix = f"{self.config.like_icon} " if sc.already_liked else ""
             year = year_by_id.get(sc.channel_id, "")
-            item = QListWidgetItem(
-                f"{liked_prefix}{media_icon} "
-                f"{_fmt_channel_name(sc.channel_name, year, detected_title=sc.detected_title, detected_region=sc.detected_region, detected_quality=sc.detected_quality, detected_year=sc.detected_year)}"
-            )
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, sc.channel_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, sc.reason)
             item.setData(Qt.ItemDataRole.UserRole + 2, sc.variant_count)
@@ -168,8 +162,56 @@ class RecommendedSection(CollapsibleSection):
                 f"{sc.reason}{rating_tip}{shown_tip}{variant_tip}\n"
                 f"Genres: {', '.join(sc.matching_genres) or '—'}"
             )
+            row = self._build_rec_row(sc, year)
+            item.setSizeHint(row.sizeHint())
             self._list.addItem(item)
+            self._list.setItemWidget(item, row)
         self.set_empty(False)
+
+    def _build_rec_row(self, sc, year: str) -> QWidget:
+        """Recommendation row: 'icon title · year' (left) + right-aligned facet chips.
+
+        Mirrors the mouse-transparent ``setItemWidget`` pattern of ``_VodAlertRow``.
+        The title area carries only the title + year (remakes need the year to tell
+        editions apart).  The audio language (``detected_prefix`` — the honest
+        language, NOT the source ``detected_region`` that used to leak into the
+        title) and quality are shown as distinct, right-aligned chips so a row title
+        stays a title rather than a run-on of facets.
+        """
+        media_icon = (
+            self.config.movie_icon if sc.media_type == "movie"
+            else self.config.series_icon
+        )
+        liked = f"{self.config.like_icon} " if sc.already_liked else ""
+        title = sc.detected_title or sc.channel_name
+        yr = sc.detected_year or year
+        text = f"{liked}{media_icon} {title}" + (f"  ·  {yr}" if yr else "")
+
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(4, 1, 4, 1)
+        layout.setSpacing(6)
+
+        name_lbl = QLabel(text)
+        name_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — legible list-row name
+        layout.addWidget(name_lbl, 1)  # stretch → chips pushed to the far right
+
+        # Facet chips, far-right: language (honest prefix) then quality, when present.
+        for value, style in (
+            (sc.detected_prefix, _theme.LANG_CHIP),
+            (sc.detected_quality, _theme.QUALITY_CHIP),
+        ):
+            if value:
+                chip = QLabel(value)
+                chip.setStyleSheet(style)
+                chip.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                layout.addWidget(chip)
+
+        row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        # The item (not this widget) owns click/double-click/context-menu — let mouse
+        # events pass through to the QListWidget viewport (same as _VodAlertRow).
+        row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        return row
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
         channel_id = item.data(Qt.ItemDataRole.UserRole)
