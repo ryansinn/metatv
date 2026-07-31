@@ -56,15 +56,100 @@ _TRAIL_COL_W, _DRILL_COL_W = 292, 262
 _SIMILAR_LIMIT = 18
 
 
+class _ClickableThumb(QLabel):
+    """A row's poster thumbnail — a *peek* target, not a select/drill target.
+
+    A press emits :attr:`clicked` and is **consumed** (``event.accept()``, no
+    ``super()`` call) so it never propagates to the parent :class:`_TrailRow`'s
+    ``mousePressEvent`` — clicking the poster enlarges it, exactly like the
+    details pane, while clicking the row body still selects/drills.
+    """
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        self.clicked.emit()
+        # Consume the press: an accepted event is not re-delivered to the parent
+        # row, so the poster peek never doubles as a select/drill.
+        event.accept()
+
+
+class _ElidedTitleLabel(QLabel):
+    """A row-title label that word-wraps to at most ``max_lines`` lines, then elides.
+
+    A plain single-line ``QLabel`` overflows the fixed-width column; a plain
+    word-wrapping one runs a long title to 3+ lines.  This keeps the full title (as
+    its tooltip) and, at the label's current (layout-driven) width, lays it out as up
+    to ``max_lines`` lines with the overflow ellipsized (``…``), so a title never
+    exceeds the column and always signals truncation.  Recomputed on every resize.
+    """
+
+    def __init__(self, text: str, *, max_lines: int = 2, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = (text or "").strip()
+        self._max_lines = max_lines
+        self.setWordWrap(True)
+        self.setToolTip(self._full)
+        super().setText(self._full)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _reflow(self) -> None:
+        w = self.width()
+        if w <= 0 or not self._full:
+            return
+        fm = self.fontMetrics()
+        elide = Qt.TextElideMode.ElideRight
+        words = self._full.split()
+        lines: list[str] = []
+        cur = ""
+        idx = 0
+        # Greedily fill up to max_lines; the first word on a line always goes on
+        # (a lone over-wide word is elided at the end).
+        while idx < len(words) and len(lines) < self._max_lines:
+            word = words[idx]
+            trial = f"{cur} {word}".strip()
+            if not cur or fm.horizontalAdvance(trial) <= w:
+                cur = trial
+                idx += 1
+            else:
+                lines.append(cur)
+                cur = ""
+        if cur and len(lines) < self._max_lines:
+            lines.append(cur)
+            cur = ""
+        # Words left unplaced (title exceeds max_lines) → elide the last line to
+        # absorb the remainder with an ellipsis.
+        if idx < len(words):
+            rest = " ".join(words[idx:])
+            base = lines[-1] if lines else ""
+            merged = f"{base} {rest}".strip()
+            if lines:
+                lines[-1] = fm.elidedText(merged, elide, w)
+            else:
+                lines.append(fm.elidedText(merged, elide, w))
+        # Elide any single line that itself overflows (one very long word).
+        lines = [ln if fm.horizontalAdvance(ln) <= w else fm.elidedText(ln, elide, w)
+                 for ln in lines]
+        new_text = "\n".join(lines) if lines else self._full
+        if new_text != self.text():
+            super().setText(new_text)
+
+
 class _TrailRow(QWidget):
     """One row in a column: thumb + title/year + badges + hover action bar.
 
     A dumb view — it emits :attr:`clicked` (the whole row is the expand/select
-    target) and relays its 👍👎🙅📋 bar with the row id.  The action bar reveals on
-    hover (guarded against hiding when the pointer moves onto its own buttons).
+    target), :attr:`poster_clicked` (the poster thumbnail alone — enlarge/peek,
+    never select) and relays its 👍👎🙅📋 bar with the row id.  The action bar
+    reveals on hover (guarded against hiding when the pointer moves onto its own
+    buttons).
     """
 
     clicked             = pyqtSignal(str)
+    poster_clicked      = pyqtSignal(str)   # row id — enlarge the poster (not select)
     rating_clicked      = pyqtSignal(str, int)
     suppression_toggled = pyqtSignal(str, bool)
     queue_clicked       = pyqtSignal(str)
@@ -90,11 +175,14 @@ class _TrailRow(QWidget):
             num.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(num)
 
-        self.thumb = QLabel(row.title[:1] if row.title else "")
+        self.thumb = _ClickableThumb(row.title[:1] if row.title else "")
         self.thumb.setObjectName("trailmap_thumb")
         self.thumb.setFixedSize(_THUMB_W, _THUMB_H)
         self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumb.setStyleSheet(_theme.TRAILMAP_THUMB)
+        self.thumb.setToolTip("Enlarge poster")
+        set_clickable(self.thumb)
+        self.thumb.clicked.connect(lambda: self.poster_clicked.emit(self._id))
         lay.addWidget(self.thumb)
 
         main = QVBoxLayout()
@@ -103,9 +191,13 @@ class _TrailRow(QWidget):
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
-        name = QLabel(row.title or "Unknown")
+        name = _ElidedTitleLabel(row.title or "Unknown")
         name.setStyleSheet(_theme.TRAILMAP_ROW_TITLE)
-        title_row.addWidget(name, 0)
+        # Title fills the row's text column (stretch=1) and wraps/elides to ≤2 lines
+        # so a long title never overflows the fixed-width column.  Title + year (+
+        # "here") all AlignBottom → they share ONE baseline (the title's last line),
+        # so the year reads on the title's baseline whether it wraps or not.
+        title_row.addWidget(name, 1, Qt.AlignmentFlag.AlignBottom)
         if row.year:
             yr = QLabel(str(row.year))
             yr.setStyleSheet(_theme.TRAILMAP_ROW_YEAR)
@@ -113,10 +205,15 @@ class _TrailRow(QWidget):
         if is_here:
             here = QLabel("here")
             here.setStyleSheet(_theme.TRAILMAP_HERE_TAG)
-            title_row.addWidget(here, 0, Qt.AlignmentFlag.AlignVCenter)
-        title_row.addStretch()
+            title_row.addWidget(here, 0, Qt.AlignmentFlag.AlignBottom)
+        # No trailing stretch — the title's stretch fills, pinning year/"here" to the
+        # right edge on the shared baseline.
         main.addLayout(title_row)
-        main.addWidget(make_sim_badges(row.as_badge_item()))
+        # The year is shown on the title line above, so suppress the shared badge
+        # renderer's own year (right side of its meta line) — otherwise a trail row
+        # shows the year twice. (Lightbox strip cards keep the badge year: they have
+        # no separate title-line year.)
+        main.addWidget(make_sim_badges(row.as_badge_item(), show_year=False))
         lay.addLayout(main, 1)
 
         chev = QLabel(_icons.trail_expand_icon)
@@ -136,6 +233,7 @@ class _TrailRow(QWidget):
         self._actions.hide()
         lay.addWidget(self._actions, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        self._selected = selected   # exposed for path-aware highlight assertions
         self.setStyleSheet(
             _theme.TRAILMAP_ROW_SELECTED if selected else _theme.TRAILMAP_ROW
         )
@@ -289,6 +387,9 @@ class TrailMapView(QWidget):
         self._poster_targets: dict[str, list[tuple[QLabel, QSize]]] = {}
         self._detail_poster_url: str | None = None
         self._detail_full_pix: QPixmap | None = None
+        # A column-row poster click awaiting its (not-yet-cached) full image, so it
+        # can pop the enlarged-poster overlay once the async load lands.
+        self._pending_expand_url: str | None = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -322,6 +423,7 @@ class TrailMapView(QWidget):
         self._poster_targets.clear()
         self._detail_poster_url = None
         self._detail_full_pix = None
+        self._pending_expand_url = None
 
         self.resize(self.parent().size())
         self._apply_shell_size()
@@ -479,6 +581,15 @@ class TrailMapView(QWidget):
         self._seed_rows = rows
         for r in rows:
             self._row_cache[r.id] = r
+        # A single-item trail has exactly one possible next action, so the extra
+        # click to drill it is pure friction: auto-drill it (fetch its similars +
+        # select its detail) so the user lands on a populated adjacency view.  A
+        # multi-item trail is deliberately left detail-only — auto-fetching every
+        # stop of a long trail (e.g. the large Full-History seed) would fire N
+        # similars queries no one asked for.
+        if len(rows) == 1:
+            self._select_seed_row(rows[0].id)
+            return
         # Auto-select the current stop (the last walked) for the detail strip — no
         # auto-expand (that would fire a similars fetch before the user asks).
         if rows:
@@ -557,16 +668,27 @@ class TrailMapView(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
+        # Path-aware highlighting (a breadcrumb, NOT a leaf-id match): each column
+        # highlights the item on the PATH toward the next column, so the drilled
+        # chain (root → … → leaf) is lit one-per-column and the leaf is highlighted
+        # exactly once — never in every column where it happens to be a similar.
+        #   • Trail column → the explored root ``_drill[0]`` while drilling, else the
+        #     selected stop (``_selected_id``, == the current stop when not drilling).
+        #   • Drill column ``i`` (SIMILAR TO ``_drill[i]``) → its drilled child
+        #     ``_drill[i+1]``; the frontier column (``i+1 == len(_drill)``) has no
+        #     selected child (``None`` → nothing highlighted).
+
         # -- trail column (column 0) --
         trail_col = _TrailColumn("YOUR TRAIL", "", is_trail=True)
         if not self._seed_rows:
             trail_col.set_hint("Loading…")
         else:
+            trail_highlight = self._drill[0] if self._drill else self._selected_id
             n = len(self._seed_rows)
             for i, r in enumerate(self._seed_rows):
                 row_w = self._make_row(
                     r, trail_num=i + 1, is_here=(i == n - 1),
-                    on_click=self._select_seed_row,
+                    on_click=self._select_seed_row, highlight_id=trail_highlight,
                 )
                 trail_col.add_row(row_w)
             trail_col.set_hint("expand any stop →")
@@ -576,6 +698,7 @@ class TrailMapView(QWidget):
         for i, parent_id in enumerate(self._drill):
             parent = self._row_cache.get(parent_id)
             col = _TrailColumn("SIMILAR TO", parent.title if parent else "…", is_trail=False)
+            col_highlight = self._drill[i + 1] if i + 1 < len(self._drill) else None
             raw = self._similars_cache.get(parent_id)
             if raw is None:
                 col.set_hint("Finding similar titles…")
@@ -584,6 +707,7 @@ class TrailMapView(QWidget):
                 for r in shown:
                     col.add_row(self._make_row(
                         r, on_click=lambda cid, idx=i: self._select_drill_row(idx, cid),
+                        highlight_id=col_highlight,
                     ))
                 col.set_hint(f"{len(shown)} similar" if shown else "no new similar titles")
             self._cols_layout.insertWidget(self._cols_layout.count() - 1, col)
@@ -593,13 +717,17 @@ class TrailMapView(QWidget):
 
     def _make_row(
         self, row: TrailRowDTO, *, on_click: Callable, trail_num: int | None = None,
-        is_here: bool = False,
+        is_here: bool = False, highlight_id: str | None = None,
     ) -> _TrailRow:
+        # Path-aware: highlight only when this row is the caller-supplied breadcrumb
+        # item for its column (never a bare ``row.id == self._selected_id`` leaf
+        # match, which lights a leaf up in every column it appears in).
         w = _TrailRow(
             row, trail_num=trail_num, is_here=is_here,
-            selected=(row.id == self._selected_id),
+            selected=(row.id == highlight_id),
         )
         w.clicked.connect(on_click)
+        w.poster_clicked.connect(self._on_row_poster_clicked)
         w.rating_clicked.connect(self._on_rating)
         w.suppression_toggled.connect(self._on_suppression)
         w.queue_clicked.connect(self._on_queue)
@@ -703,6 +831,27 @@ class TrailMapView(QWidget):
         if self._detail_full_pix and not self._detail_full_pix.isNull():
             self.poster_expand_requested.emit(self._detail_full_pix)
 
+    def _on_row_poster_clicked(self, channel_id: str) -> None:
+        """A column-row poster click enlarges that row's poster (peek) — never drills.
+
+        Mirrors the details-pane poster-click affordance: resolve the row's full
+        poster (sync cache first, else load-then-show once the async image lands)
+        and emit :attr:`poster_expand_requested`.  The thumbnail consumed the press,
+        so the row's normal select/drill is untouched.  A row with no poster is a
+        graceful no-op.
+        """
+        row = self._row_cache.get(channel_id)
+        url = row.poster_url if row else None
+        if not url:
+            return
+        pix = self._image_cache.get_image_sync(url)
+        if pix and not pix.isNull():
+            self.poster_expand_requested.emit(pix)
+        else:
+            # Not cached yet — remember it and enlarge once image_loaded delivers it.
+            self._pending_expand_url = url
+            self._image_cache.get_image_async(url)
+
     # ------------------------------------------------------------------ #
     # Poster images (main thread only)                                    #
     # ------------------------------------------------------------------ #
@@ -729,6 +878,10 @@ class TrailMapView(QWidget):
     def _on_image_loaded(self, url: str, pix: QPixmap) -> None:
         if not self.isVisible():
             return
+        # A row-poster peek awaiting this image → pop the enlarged-poster overlay.
+        if url == self._pending_expand_url and pix and not pix.isNull():
+            self._pending_expand_url = None
+            self.poster_expand_requested.emit(pix)
         if url == self._detail_poster_url and pix and not pix.isNull():
             self._detail_full_pix = pix
             self._detail.set_poster_pixmap(pix)
