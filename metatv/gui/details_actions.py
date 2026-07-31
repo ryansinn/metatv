@@ -364,9 +364,14 @@ class _ActionBar(QWidget):
         if is_favorite:
             self.favorite_button.setText(self.config.favorite_icon)
             self.favorite_button.setToolTip("Remove from Favorites")
+            # Favorited glows GOLD (the star fills yellow) — the favorite button is
+            # NOT :checkable, so the accent :checked rule can't reach it; swap the
+            # whole style directly (mirrors the alert/monitor button's style swap).
+            self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_FAV)
         else:
             self.favorite_button.setText(self.config.unfavorite_icon)
             self.favorite_button.setToolTip("Add to Favorites")
+            self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN)
 
     def update_epg_title(self, title: str, watchlist_patterns: list) -> None:
         self._current_epg_title = title

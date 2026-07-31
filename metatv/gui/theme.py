@@ -359,6 +359,22 @@ DETAIL_RAIL_BTN_ALERT = (
     " border-color: " + COLOR_DIM + "; }"
 )
 
+# Gold (COLOR_GOLD) tints — the FAVORITED rail-button fill.
+OVERLAY_GOLD_18 = "rgba(255,215,0,0.18)"
+OVERLAY_GOLD_28 = "rgba(255,215,0,0.28)"
+
+# Favorite rail button, FAVORITED state — glows GOLD (the star fills yellow): on-brand
+# (favorite = gold star) and unmistakable.  The favorite button is NOT :checkable
+# (state is icon-swap ☆→★), so the accent :checked fix couldn't reach it — this whole
+# style is swapped in via update_favorite() rather than a :checked rule.
+DETAIL_RAIL_BTN_FAV = (
+    "QPushButton { border: 1px solid " + COLOR_GOLD + "; border-radius: 4px;"
+    " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_GOLD_18 + ";"
+    " color: " + COLOR_GOLD + "; }"
+    "QPushButton:hover { background: " + OVERLAY_GOLD_28 + "; color: " + COLOR_GOLD + ";"
+    " border-color: " + COLOR_GOLD + "; }"
+)
+
 # Alert/monitor rail button in the "new matched content" state — the reserved
 # OK/new-match GREEN, filled (a SHAPE change from the outline inactive state, so the
 # cue is never colour-alone), paired with the 🚨 siren glyph + tooltip.  Wins over

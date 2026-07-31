@@ -38,6 +38,29 @@ def _make_config():
     return Config()
 
 
+def test_favorite_button_is_gold_when_favorited(qapp):
+    """Favorited state must be an unmistakable GOLD star, not gray-on-gray.
+
+    The favorite rail button is not ``:checkable`` (state = icon-swap ☆→★), so the
+    accent ``:checked`` rule can't reach it — ``update_favorite`` swaps in the gold
+    ``DETAIL_RAIL_BTN_FAV`` style and reverts to the plain rail style when cleared.
+    """
+    from metatv.gui.details_actions import _ActionBar
+    from metatv.gui import theme as _theme
+
+    bar = _ActionBar(_make_config())
+
+    bar.update_favorite(True)
+    on = bar.favorite_button.styleSheet()
+    assert on == _theme.DETAIL_RAIL_BTN_FAV, "favorited → gold rail style"
+    assert "gold" in on.lower(), "favorited style must use the gold colour"
+    assert on != _theme.DETAIL_RAIL_BTN, "favorited must look different from unfavorited"
+
+    bar.update_favorite(False)
+    assert bar.favorite_button.styleSheet() == _theme.DETAIL_RAIL_BTN, \
+        "un-favorited reverts to the plain rail style"
+
+
 def _build(qapp):
     """Return (poster, action_bar) with the buttons wired into their tiered slots."""
     from metatv.gui.details_sections import _PosterSection
