@@ -1390,6 +1390,53 @@ def _classify_bracket(content: str) -> _BracketClass:
     return _BracketClass("unknown", content)
 
 
+# ── Control-character mojibake cleanup (single source of truth) ──────────────── #
+# Some provider feeds ship names with stray C0/C1 control characters — most often a
+# raw C1 byte (U+0080–U+009F) left behind by a latin-1/UTF-8 mishandling of an
+# accented letter (e.g. "|ES| Alita: <U+0081>ngel de combate", where the U+0081
+# corrupts "Á").  The glyph renders as a box/blank AND leaks into the title-fallback
+# content_key (``_normalize_for_key`` turns it into a stray space), so two would-be
+# variants split.  We strip these non-printing controls at the single name-parsing
+# chokepoint (``parse_channel_name``) so every derived ``detected_*`` field — and the
+# ``content_key`` computed from ``detected_title`` — stores clean.  Legitimate letters
+# are never touched (only true control codepoints match); we do NOT guess-repair the
+# corrupted letter, we only remove the non-printing artifact.
+#
+# Range: C0 controls (U+0000–U+001F) + DEL (U+007F) + C1 controls (U+0080–U+009F).
+# Normal spaces (U+0020) are outside the range and preserved; any whitespace run the
+# removal exposes is collapsed so no double-space survives.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def clean_control_chars(name: str) -> str:
+    """Strip non-printing C0/C1 control characters (mojibake artifacts) from a name.
+
+    Removes control codepoints in the ranges U+0000–U+001F, U+007F, and
+    U+0080–U+009F (the C1 block that carries raw-byte mojibake like a stray
+    U+0081), then collapses any whitespace run the removal exposes and trims.
+    Ordinary printable characters — including accented letters and legitimate
+    punctuation — are left untouched; this is a lossless removal of the
+    non-printing artifact only, never a heuristic character substitution.
+
+    Single source of truth for control-char cleanup: called at the top of
+    :func:`parse_channel_name` so every ``detected_*`` field (and the
+    ``content_key`` derived from ``detected_title``) is computed from clean text.
+
+    Args:
+        name: The raw provider channel name (may be ``None`` / empty).
+
+    Returns:
+        The name with control characters removed and whitespace normalised.
+        Returns the input unchanged when it is falsy.
+    """
+    if not name:
+        return name
+    cleaned = _CONTROL_CHAR_RE.sub("", name)
+    # Collapse any whitespace run the removal exposed (and trim ends).
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
+
 def parse_channel_name(name: str) -> ParsedChannel:
     """Parse a raw channel name into structured components.
 
@@ -1411,7 +1458,13 @@ def parse_channel_name(name: str) -> ParsedChannel:
     if not name:
         return ParsedChannel("", "", [], "", "", "")
 
-    bare = name.strip()
+    # Strip control-character mojibake (stray C1 bytes like U+0081 from a latin-1/
+    # UTF-8 mishandling of accented letters) at the single name-parsing chokepoint so
+    # every derived detected_* field — and the content_key built from detected_title —
+    # is computed from clean text and never carries the non-printing artifact.
+    bare = clean_control_chars(name)
+    if not bare:
+        return ParsedChannel("", "", [], "", "", "")
     region = ""
     _prefix_quality: str = ""  # set when a digit-starting quality token is the prefix
     _bracket_origin: str = ""  # secondary lang/region from bracket or suffix
