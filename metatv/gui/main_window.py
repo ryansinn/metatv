@@ -598,6 +598,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.poster_lightbox import PosterLightbox
         self._poster_lightbox = PosterLightbox(self)
         self.details_pane.poster_enlarged.connect(self._poster_lightbox.show_pixmap)
+        # A click on the Similar-Titles lightbox poster enlarges it via the SAME
+        # overlay the details pane (poster_enlarged) and trail-map feed.
+        self._lightbox.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
 
         # Explore trail-map — cascading-columns adjacency browser (opened from the
         # lightbox's Explore button; seeded with the walked nav trail).  Relays the

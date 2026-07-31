@@ -15,8 +15,9 @@ structure (self-documenting modularity, and both files stay well under the
   drive async image loading on the main thread (QPixmap is main-thread only).
 
 The poster slot is deliberately built as a self-contained ``_HoverPosterSlot``
-so a future embedded player can drop into the same footprint; hovering it reveals
-a play affordance that fires the existing external ``play_requested`` path.
+so a future embedded player can drop into the same footprint; clicking it enlarges
+the poster (the same peek affordance as the details pane), while the dedicated
+Play button owns playback.
 """
 from __future__ import annotations
 
@@ -146,9 +147,12 @@ class _ClickableFrame(QFrame):
 class _HoverPosterSlot(QFrame):
     """Static poster surface sized as the eventual embedded-player viewport.
 
-    Hovering reveals a play orb; clicking the poster (or the orb) emits
-    :attr:`clicked`, which the card relays to the overlay's external play path.
-    A real player can later replace :attr:`_img` without moving anything else.
+    Clicking the poster emits :attr:`clicked`, which the card turns into an
+    *enlarge poster* request (the same peek affordance as the details pane) —
+    playback is owned by the dedicated Play button below the poster.  The full-res
+    pixmap is retained (:attr:`_full_pix`) so the enlarged overlay shows the
+    original, not the down-scaled slot image.  A real player can later replace
+    :attr:`_img` without moving anything else.
     """
 
     clicked = pyqtSignal()
@@ -159,27 +163,24 @@ class _HoverPosterSlot(QFrame):
         self.setFixedSize(_POSTER_W, _POSTER_H)
         self.setStyleSheet(_theme.LIGHTBOX_POSTER_SLOT)
         set_clickable(self)
-        self.setToolTip("Play this title")
+        self.setToolTip("Enlarge poster")
+
+        # The full-resolution pixmap most recently set (None on a placeholder) —
+        # the enlarged-poster overlay shows this, not the scaled slot image.
+        self._full_pix: QPixmap | None = None
 
         self._img = QLabel(self)
         self._img.setGeometry(0, 0, _POSTER_W, _POSTER_H)
         self._img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._img.setWordWrap(True)
         self._img.setStyleSheet(_theme.LIGHTBOX_POSTER_PLACEHOLDER)
-        # Let presses on the image fall through to the slot (play affordance).
+        # Let presses on the image fall through to the slot (enlarge affordance).
         self._img.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-
-        # Play orb — hidden until hover.
-        self._orb = QPushButton(_icons.play_icon, self)
-        self._orb.setFixedSize(52, 52)
-        self._orb.setStyleSheet(_theme.LIGHTBOX_PLAY_ORB)
-        self._orb.setToolTip("Play this title")
-        self._orb.move((_POSTER_W - 52) // 2, (_POSTER_H - 52) // 2)
-        self._orb.clicked.connect(self.clicked)  # QPushButton auto-qualifies for the hand cursor
-        self._orb.hide()
 
     # -- population ------------------------------------------------------- #
     def set_pixmap(self, pix: QPixmap) -> None:
+        # Keep the full-res pixmap BEFORE scaling — it feeds the enlarged overlay.
+        self._full_pix = pix
         scaled = pix.scaled(
             QSize(_POSTER_W, _POSTER_H),
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -189,17 +190,9 @@ class _HoverPosterSlot(QFrame):
         self._img.setText("")
 
     def set_placeholder(self, text: str) -> None:
+        self._full_pix = None
         self._img.setPixmap(QPixmap())
         self._img.setText(text)
-
-    # -- hover reveal ----------------------------------------------------- #
-    def enterEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self._orb.setVisible(bool(self.isEnabled()))
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self._orb.hide()
-        super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
         self.clicked.emit()
@@ -220,6 +213,7 @@ class _LightboxCard(QFrame):
     rating_clicked      = pyqtSignal(int)   # +1 like / -1 dislike
     suppression_toggled = pyqtSignal(bool)  # Not-Interested on/off
     dive_requested      = pyqtSignal(str)   # channel_id (Other Version OR similar card)
+    poster_expand_requested = pyqtSignal(QPixmap)  # enlarge the main poster (peek)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -331,7 +325,9 @@ class _LightboxCard(QFrame):
         left = QVBoxLayout()
         left.setSpacing(6)
         self._poster = _HoverPosterSlot()
-        self._poster.clicked.connect(self.play_clicked)
+        # Poster click enlarges the poster (peek) — NOT play; the dedicated Play
+        # button below owns playback.  A placeholder (no pixmap) click is a no-op.
+        self._poster.clicked.connect(self._on_poster_clicked)
         left.addWidget(self._poster, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self._play_btn = QPushButton(f"{_icons.play_icon} Play")
@@ -450,6 +446,17 @@ class _LightboxCard(QFrame):
         btn.setToolTip(tip)
         btn.setStyleSheet(_theme.RATING_BTN)
         return btn
+
+    def _on_poster_clicked(self) -> None:
+        """Enlarge the main poster (peek) on click — never play.
+
+        Emits :attr:`poster_expand_requested` with the retained full-res pixmap so
+        the overlay can feed the same enlarged-poster overlay the details pane uses.
+        A placeholder (no pixmap yet) click is a graceful no-op.
+        """
+        pix = self._poster._full_pix
+        if pix is not None and not pix.isNull():
+            self.poster_expand_requested.emit(pix)
 
     def _build_overview(self, body: QVBoxLayout) -> None:
         self._overview_hdr = self._section_header("OVERVIEW")
