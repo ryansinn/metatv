@@ -10,9 +10,11 @@ name: Release (macOS)
 # dmg to the SAME GitHub Release.
 #
 # OS floors (accepted limitation): brew bottles pin the deployment floor to the
-# runner's OS, and GitHub offers no ARM runner older than macos-14. So:
-#   * x86_64 build (macos-13) → runs on macOS 13+ (Intel)
-#   * arm64  build (macos-14) → runs on macOS 14+ (Apple Silicon)
+# runner's OS. So:
+#   * x86_64 build (macos-15-intel) → runs on macOS 15 (Intel). GitHub retired the
+#     macos-13 Intel image on 2025-12-04 (jobs targeting it hang queued forever);
+#     macos-15-intel is GitHub's Intel/x86_64 label, available through Aug 2027.
+#   * arm64  build (macos-14)       → runs on macOS 14+ (Apple Silicon)
 on:
   push:
     tags:
@@ -34,7 +36,7 @@ jobs:
         include:
           - runner: macos-14   # Apple Silicon runner
             arch: arm64
-          - runner: macos-13   # Intel runner
+          - runner: macos-15-intel   # Intel runner (macos-13 image retired Dec 2025)
             arch: x86_64
     steps:
       - name: Checkout
