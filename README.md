@@ -21,6 +21,7 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **Series Management**: Browse seasons and episodes with hierarchical tree view
 - **Favorites System**: Star your favorite series, movies, and streams (Continue Watching / Never Watched sections)
 - **Watch History**: Tracks recently played content with last episode info
+- **Resume Playback & Watch Progress**: Movies and episodes resume where you left off (configurable default; per-play "Play from Beginning" / "Resume from M:SS" override). Graduated watch-progress glyphs (◔ ◐ ◕ ✓) on list rows, a progress bar on Discover cards, and auto-mark-watched at 90% (with a "Still watching?" check after episode auto-advance)
 - **Watch Queue**: Ordered manual queue with "Continue Watching" / "Up Next" sections, persists across restarts, Clear All / Clear Watched
 
 **Discovery & Recommendations**
@@ -34,6 +35,8 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **Hide Channel**: Remove content from all views permanently
 - **Content Preference Signals**: ▲/▼ indicators on cast and director names in the details pane
 - **Smart Recommendation Exclusions**: Disliked, hidden, watched, favorited, and Watch Queue items are all automatically excluded from recommendations — only unengaged content surfaces
+- **Similar Titles**: Title-linked suggestions in the details pane, plus a full-screen preview lightbox (poster hero, real ratings, cast, "Other Versions") you can browse and dive into without leaving the pane
+- **Cross-Source De-duplication**: The same title across providers, languages, and qualities collapses to a single card in Discover, Recommendations, and Similar — content-identity keyed (TMDb-id-first) — with an "Other Versions" picker in the details pane
 
 **EPG & Alerts**
 - **EPG System**: XMLTV feed parsing (140 MB+ supported), background fetch, channel matching
@@ -74,12 +77,11 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 - **Player / Provider Abstraction**: Plugin-based systems ready for additional backends
 
 ### 🚧 In Progress
-- **TMDb / OMDb Metadata Providers**: Architecture complete; external provider implementations pending
-- **Resume Playback**: Continue from last position (requires mpv IPC event system)
+- **TMDb / OMDb Metadata Providers**: Architecture in place, plus a provider-native TMDb-id enrichment path (uses the id your provider returns — no API key). External TMDb/OMDb API lookups (posters/plot beyond your provider) still pending
 
 ### 📋 Planned
-- **Missing Episode Detection**: Detect and surface gaps when a provider is missing episodes
-- **De-duplication**: Group quality variants (reduce channel count to unique titles)
+- **Missing Episode Detection (per-episode)**: Surface gaps *within* a season (missing S01E05); season-number gaps are already flagged inline
+- **Channel-List De-duplication**: Collapse quality/language variants in the main Browse list into one row with a quality selector (cross-source de-dup already ships in Discover, Recommendations, and Similar)
 - **Genre Filters**: Organize by genre from metadata
 - **Custom Collections**: User-created playlists and groups
 - **Export / Import**: Backup and share configuration
@@ -102,13 +104,14 @@ A lean, native cross-platform desktop app for curating and playing your media: a
 
 ### Setup
 
+> **Platform:** Linux and macOS are supported today. **Windows is not yet supported** — the single-instance mpv player talks over a Unix domain socket (`AF_UNIX`); a named-pipe port is on the [roadmap](ROADMAP.md) (Platform & Distribution).
+
 ```bash
-git clone https://github.com/yourusername/metatv.git
+git clone https://github.com/ryansinn/metatv.git
 cd metatv
 
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate  # Windows
+source venv/bin/activate
 
 pip install -r requirements.txt
 python -m metatv
