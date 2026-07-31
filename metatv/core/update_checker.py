@@ -13,15 +13,16 @@ Design mirrors the other background managers (``SeriesMonitorManager`` etc.):
   ``update_skip_version``.  A **manual** check bypasses the enable/throttle
   gates and the skip-version suppression (the user explicitly asked).
 
-The pure helpers (:func:`is_newer_version`, :func:`build_update_info`,
-:func:`fetch_latest_release`) are import-safe with no Qt dependency so they can
-be unit-tested without an event loop or a real network.
+The pure helpers (:func:`is_newer_version`, :func:`select_dmg_url`,
+:func:`build_update_info`, :func:`fetch_latest_release`) are import-safe with no
+Qt dependency so they can be unit-tested without an event loop or a real network.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
 import urllib.error
@@ -62,7 +63,8 @@ class UpdateInfo:
         latest: The latest published version, ``v`` stripped (e.g. ``"0.11.0"``).
         is_newer: True when *latest* is strictly newer than *current*.
         release_url: Human-facing GitHub release page (``html_url``).
-        dmg_url: Direct download URL of the ``.dmg`` asset, or ``""`` if none.
+        dmg_url: Direct download URL of the ``.dmg`` asset matching the running
+            architecture, or ``""`` if the release has no ``.dmg`` at all.
     """
 
     current: str
@@ -111,6 +113,66 @@ def is_newer_version(latest: str, current: str) -> bool:
     return _version_key(latest) > _version_key(current)
 
 
+# ── Arch-aware asset selection ───────────────────────────────────────────────
+
+def _running_arch_tokens() -> tuple[str, ...]:
+    """Return dmg-filename arch tokens for the running machine, best match first.
+
+    ``platform.machine()`` reports ``"arm64"`` on Apple Silicon and ``"x86_64"``
+    on Intel Macs — exactly the tokens the release workflow bakes into the dmg
+    names. A couple of common aliases are folded in so an unexpected report
+    (e.g. ``"aarch64"``) still resolves to the right dmg.
+    """
+    machine = (platform.machine() or "").lower()
+    aliases = {
+        "arm64": ("arm64", "aarch64"),
+        "aarch64": ("arm64", "aarch64"),
+        "x86_64": ("x86_64", "amd64"),
+        "amd64": ("x86_64", "amd64"),
+    }
+    return aliases.get(machine, (machine,) if machine else ())
+
+
+def select_dmg_url(assets) -> str:
+    """Pick the ``.dmg`` download URL matching the running architecture.
+
+    A release now carries one dmg per arch (``…-arm64.dmg`` / ``…-x86_64.dmg``).
+    Prefer the dmg whose filename contains the running-arch token; **fall back**
+    to the first ``.dmg`` when none carries an arch token (older single-dmg
+    releases, or an unexpected asset name). Returns ``""`` when the release has
+    no ``.dmg`` asset at all.
+
+    Args:
+        assets: The ``assets`` list from a GitHub release JSON object.
+
+    Returns:
+        The chosen ``browser_download_url``, or ``""`` if there is no ``.dmg``.
+    """
+    dmg_assets: list[tuple[str, str]] = []
+    for asset in assets or []:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "").lower()
+        if not name.endswith(".dmg"):
+            continue
+        url = str(asset.get("browser_download_url") or "")
+        if url:
+            dmg_assets.append((name, url))
+
+    if not dmg_assets:
+        return ""
+
+    for token in _running_arch_tokens():
+        if not token:
+            continue
+        for name, url in dmg_assets:
+            if token in name:
+                return url
+
+    # No arch-matching dmg → fall back to the first .dmg found.
+    return dmg_assets[0][1]
+
+
 # ── Pure DTO construction / network fetch ────────────────────────────────────
 
 def build_update_info(data: dict, current_version: str) -> Optional[UpdateInfo]:
@@ -132,15 +194,7 @@ def build_update_info(data: dict, current_version: str) -> Optional[UpdateInfo]:
     latest_display = tag.lstrip("vV")
     release_url = str(data.get("html_url") or "")
 
-    dmg_url = ""
-    for asset in data.get("assets") or []:
-        if not isinstance(asset, dict):
-            continue
-        name = str(asset.get("name") or "").lower()
-        if name.endswith(".dmg"):
-            dmg_url = str(asset.get("browser_download_url") or "")
-            if dmg_url:
-                break
+    dmg_url = select_dmg_url(data.get("assets"))
 
     return UpdateInfo(
         current=current_version,
