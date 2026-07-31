@@ -24,6 +24,7 @@ _NAV_VIEW_TARGETS: dict[str, tuple[str, str | None]] = {
     "recipe": ("switch_to_recipe_view", "recipe_chip"),
     "epg": ("switch_to_epg_view", "epg_chip"),
     "preferences": ("switch_to_preferences_view", "prefs_chip"),
+    "history": ("switch_to_full_history_view", None),
 }
 
 
@@ -52,6 +53,10 @@ class _NavMixin:
         if "missing_tmdb_view" in self.__dict__:
             if self.missing_tmdb_view.isVisible():
                 self.missing_tmdb_view.on_deactivate()
+        # Deactivate the Full Watch-History view if it exists and is visible
+        if "full_history_view" in self.__dict__:
+            if self.full_history_view.isVisible():
+                self.full_history_view.on_deactivate()
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -64,6 +69,8 @@ class _NavMixin:
             self.recipe_view.setVisible(False)
         if "missing_tmdb_view" in self.__dict__:
             self.missing_tmdb_view.setVisible(False)
+        if "full_history_view" in self.__dict__:
+            self.full_history_view.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
         if hasattr(self, "filter_panel"):
@@ -187,6 +194,20 @@ class _NavMixin:
         self.recipe_view.setVisible(True)
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
+
+    def switch_to_full_history_view(self) -> None:
+        """Switch content area to the Full Watch-History view (embedded trail-map).
+
+        Launched from the sidebar History section's "See all →" link (and the
+        ``navigate_to("view:history")`` deep-link seam).  It is a RECORD view with no
+        nav chip, so every view chip is cleared and none is lit.
+        """
+        self.view_mode = "history"
+        self._hide_all_content_views()
+        self._deactivate_view_chips()  # record view — no chip of its own
+        self.full_history_view.setVisible(True)
+        self.stats_label.setText("Watch History")
+        self.full_history_view.on_activate()
 
     def navigate_back(self):
         """Navigate back from series view to the originating view.

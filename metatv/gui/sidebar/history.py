@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidg
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
@@ -58,6 +59,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
+    seeAllClicked      = pyqtSignal()      # open the Full Watch-History view
     _data_ready        = pyqtSignal(object)  # list[HistoryDTO] | None
 
     def __init__(self, config, db, parent=None):
@@ -67,6 +69,22 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def get_section_id(self):
         return "history"
+
+    def create_header(self):
+        """Header with a "See all →" link that opens the Full Watch-History view."""
+        header = self._build_clickable_header()
+        hl = header.layout()
+        self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
+        hl.addWidget(self.title_label)
+        hl.addStretch()
+        self.see_all_btn = QPushButton(f"See all {_icons.see_all_arrow_icon}")
+        self.see_all_btn.setFlat(True)
+        self.see_all_btn.setToolTip("Open the full Watch History view")
+        self.see_all_btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
+        # A QPushButton consumes its own click, so it never toggles the header.
+        self.see_all_btn.clicked.connect(self.seeAllClicked.emit)
+        hl.addWidget(self.see_all_btn)
+        self.main_layout.addWidget(header)
 
     def create_content(self):
         self.history_list = QListWidget()

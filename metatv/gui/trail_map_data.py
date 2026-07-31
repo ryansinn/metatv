@@ -72,7 +72,38 @@ def _dedup_key_for(ch) -> str:
     return normalize_title(ch.name, ch.detected_prefix) or (ch.id or "")
 
 
-def _row_from_channel(session, ch, queue_ids: set, ratings_map: dict) -> TrailRowDTO:
+def _fmt_last_watched(dt) -> str | None:
+    """Format a ``last_played`` timestamp as a short, friendly "when" string.
+
+    ``last_played`` is written via ``datetime.now()`` (local, naive) — it is NOT an
+    EPG start/stop time, so the epg_utils timezone chokepoint does not apply here and
+    plain local arithmetic is correct.  Returns ``None`` for a missing timestamp.
+    """
+    if not dt:
+        return None
+    from datetime import datetime
+
+    now = datetime.now()
+    secs = max(0.0, (now - dt).total_seconds())
+    if secs < 3600:
+        mins = int(secs // 60)
+        return "just now" if mins < 1 else f"{mins}m ago"
+    days = (now.date() - dt.date()).days
+    if days <= 0:
+        return f"{int(secs // 3600)}h ago"
+    if days == 1:
+        return "yesterday"
+    if days < 7:
+        return f"{days}d ago"
+    month = dt.strftime("%b")
+    if dt.year == now.year:
+        return f"{month} {dt.day}"
+    return f"{month} {dt.day}, {dt.year}"
+
+
+def _row_from_channel(
+    session, ch, queue_ids: set, ratings_map: dict, *, history_extras: bool = False
+) -> TrailRowDTO:
     """Map one ``ChannelDB`` row → ``TrailRowDTO`` (called inside the read session).
 
     Reads the ★rating + poster from the channel's already-linked metadata row and
@@ -80,6 +111,12 @@ def _row_from_channel(session, ch, queue_ids: set, ratings_map: dict) -> TrailRo
     (``channel_thumbnail`` — the resolver Discover cards use), so building a column
     never fires a per-row network fetch.  Engagement state comes from the two maps
     the caller reads once (queue ids + ratings), never a per-row query.
+
+    ``history_extras`` populates the Watch-History-mode fields (``watch_count`` =
+    ``play_count``, ``last_watched`` formatted from ``last_played``) so the shared row
+    + detail renderers show "watched N× · <when>".  The watch-state fields
+    (progress/completed) that drive the badges and the Play/Resume label are always
+    set, so history rows surface the correct watch badge + Play affordance regardless.
     """
     from metatv.core.database import MetadataDB
     from metatv.core.discovery_engine import channel_thumbnail
@@ -102,6 +139,8 @@ def _row_from_channel(session, ch, queue_ids: set, ratings_map: dict) -> TrailRo
         watch_completed=bool(ch.watch_completed),
         watch_percent=int(ch.watch_percent or 0),
         dedup_key=_dedup_key_for(ch),
+        watch_count=(int(ch.play_count or 0) if history_extras else None),
+        last_watched=(_fmt_last_watched(ch.last_played) if history_extras else None),
     )
 
 
@@ -164,6 +203,69 @@ def load_similar_rows(
         config=config,
     )
     return [_row_from_channel(session, ch, queue_ids, ratings_map) for ch in neighbours]
+
+
+# Full Watch-History view seed size.  The trail column scrolls, so this is a
+# generous cap, not a page — it bounds the one ordered read the view issues.
+HISTORY_SEED_LIMIT = 200
+
+
+def load_history_ids(
+    session, limit: int = HISTORY_SEED_LIMIT, adult_mode: str = "all"
+) -> list[str]:
+    """Return recently-played channel ids, most-recent first.
+
+    The single ordering chokepoint is ``ChannelRepository.get_recent_history`` (the
+    same query the History sidebar uses); this just projects it to ids so the Full
+    History view can seed the trail-map with the *actual* engaged ids (dedup stays
+    correct).  As a RECORD view, history is NOT provider-scoped — a stop whose source
+    later went inactive is still part of the record (DR-0007 record-view exemption).
+    """
+    from metatv.core.repositories import RepositoryFactory
+
+    repos = RepositoryFactory(session)
+    return [
+        ch.id
+        for ch in repos.channels.get_recent_history(limit=limit, adult_mode=adult_mode)
+    ]
+
+
+def load_history_seed_rows(
+    session, ids: list[str] | None = None, *, limit: int = HISTORY_SEED_LIMIT
+) -> list[TrailRowDTO]:
+    """Hydrate the Watch-History seed (column 0) as ``TrailRowDTO``s.
+
+    The Full History view's history-backed seed loader (the data-source-agnostic
+    reuse the trail-map was built for).  Rows carry the history extras
+    (``watch_count`` / ``last_watched``) plus the always-set watch state, so the
+    shared row renderer shows the watch badges and the detail strip's Play/Resume
+    label works.
+
+    When *ids* is given the rows are hydrated in that order (the view passes the ids
+    it seeded ``open`` with, so ordering + path-dedup line up).  When *ids* is None
+    the loader resolves the recent-history order itself via
+    :func:`load_history_ids` — the convenience shape used directly + in tests.
+
+    As a RECORD view this is NOT provider-scoped: a played title on a since-inactive
+    source still appears (DR-0007 record-view exemption).  Missing ids are dropped.
+    """
+    from metatv.core.database import ChannelDB
+
+    if ids is None:
+        ids = load_history_ids(session, limit=limit)
+    if not ids:
+        return []
+    queue_ids, ratings_map = _engagement_maps(session)
+    rows = session.query(ChannelDB).filter(ChannelDB.id.in_(ids)).all()
+    by_id = {ch.id: ch for ch in rows}
+    out: list[TrailRowDTO] = []
+    for cid in ids:
+        ch = by_id.get(cid)
+        if ch is not None:
+            out.append(
+                _row_from_channel(session, ch, queue_ids, ratings_map, history_extras=True)
+            )
+    return out
 
 
 def metadata_to_detail(meta) -> dict:
