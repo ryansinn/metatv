@@ -214,7 +214,18 @@ class _TrailColumn(QFrame):
 
 
 class TrailMapView(QWidget):
-    """Full-window overlay hosting the cascading columns + detail strip."""
+    """Cascading-columns adjacency browser + detail strip.
+
+    Two mounting modes share this one widget (no fork):
+
+    - **Overlay** (default) — a full-window scrim + centred shell raised above the
+      main window; opened from the lightbox's Explore button, dismissed on Esc / an
+      outside click.  ``_close`` hides it.
+    - **Embedded** (``embedded=True``) — a first-class content-stack view that fills
+      its host (no scrim, no outside-click dismissal); this is the Full Watch-History
+      view (seed = history).  ``_close`` emits :attr:`close_requested` so the host
+      returns to Browse instead of leaving a blank pane.
+    """
 
     # Relayed user intents (host attaches nothing — the id is already included).
     play_requested        = pyqtSignal(str)
@@ -227,6 +238,7 @@ class TrailMapView(QWidget):
     open_details_requested = pyqtSignal(str)
     recipe_requested      = pyqtSignal(str)
     poster_expand_requested = pyqtSignal(QPixmap)
+    close_requested       = pyqtSignal()   # embedded mode: host returns to Browse
 
     # Worker → main-thread marshalling (never a QTimer from the worker).
     _seed_ready     = pyqtSignal(object)       # list[TrailRowDTO]
@@ -243,12 +255,15 @@ class TrailMapView(QWidget):
         *,
         seed_loader: Callable | None = None,
         similars_loader: Callable | None = None,
+        embedded: bool = False,
     ) -> None:
         """Args:
-            seed_loader: ``(session, ids) -> list[TrailRowDTO]`` for column 0.  A
-                future Watch-History view swaps this for a history-backed loader.
+            seed_loader: ``(session, ids) -> list[TrailRowDTO]`` for column 0.  The
+                Full Watch-History view swaps this for a history-backed loader.
             similars_loader: ``(session, parent_id, *, excluded_provider_ids, config,
                 limit) -> list[TrailRowDTO]`` for the drilled columns.
+            embedded: When True, mount as a fill-the-host content view (no scrim, no
+                outside-click / Esc dismissal); ``_close`` emits ``close_requested``.
         """
         super().__init__(parent)
         self._config = config
@@ -257,6 +272,7 @@ class TrailMapView(QWidget):
         self._metadata_manager = metadata_manager
         self._seed_loader = seed_loader or load_seed_rows
         self._similars_loader = similars_loader or load_similar_rows
+        self._embedded = embedded
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="trailmap")
 
         # State
@@ -294,6 +310,9 @@ class TrailMapView(QWidget):
             return
         self._seed_ids = seed_ids
         self._origin_title = origin_title
+        if self._embedded and origin_title:
+            # Full History view: relabel the header (it is not "Explore" here).
+            self._header_title.setText(f"{_icons.history_icon}  {origin_title}")
         self._seed_rows = []
         self._drill = []
         self._selected_id = None
@@ -366,6 +385,7 @@ class TrailMapView(QWidget):
 
         title = QLabel(f"{_icons.explore_icon}  Explore")
         title.setStyleSheet(_theme.TRAILMAP_TITLE)
+        self._header_title = title  # embedded mode relabels this per origin_title
         row.addWidget(title)
         self._subtitle = QLabel("")
         self._subtitle.setStyleSheet(_theme.TRAILMAP_SUBTITLE)
@@ -727,21 +747,31 @@ class TrailMapView(QWidget):
     # Dismiss + sizing                                                    #
     # ------------------------------------------------------------------ #
     def _close(self) -> None:
-        self.hide()
+        # Embedded (Full History) view: don't self-hide into a blank pane — ask the
+        # host to return to Browse.  Overlay: dismiss by hiding.
+        if self._embedded:
+            self.close_requested.emit()
+        else:
+            self.hide()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        if not self._shell.geometry().contains(event.pos()):
+        # Outside-the-shell dismissal is an overlay affordance only; embedded fills
+        # its host, so a press anywhere is just a normal press.
+        if not self._embedded and not self._shell.geometry().contains(event.pos()):
             self._close()
         else:
             super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        if event.key() == Qt.Key.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape and not self._embedded:
             self._close()
         else:
             super().keyPressEvent(event)
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if self._embedded:
+            # No scrim — the opaque shell fills the whole view.
+            return
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 190))
         painter.end()
@@ -751,6 +781,10 @@ class TrailMapView(QWidget):
         self._apply_shell_size()
 
     def _apply_shell_size(self) -> None:
+        if self._embedded:
+            # Fill the host content area (no centred 0.9× card, no scrim margins).
+            self._shell.setFixedSize(self.width(), self.height())
+            return
         w = max(720, int(self.width() * 0.9))
         h = max(520, int(self.height() * 0.86))
         self._shell.setFixedSize(min(w, self.width()), min(h, self.height()))

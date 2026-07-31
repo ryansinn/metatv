@@ -607,16 +607,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._trail_map = TrailMapView(
             self, self.config, self.image_cache, self.db, self.metadata_manager
         )
-        self._trail_map.play_requested.connect(self.play_channel_by_id)
-        self._trail_map.resume_requested.connect(self.play_channel_resume_by_id)
-        self._trail_map.queue_toggled.connect(self._on_details_queue_toggle)
-        self._trail_map.favorite_toggled.connect(self.toggle_favorite_by_id)
-        self._trail_map.rating_requested.connect(self._toggle_rating)
-        self._trail_map.suppression_requested.connect(self._on_suppression_requested)
-        self._trail_map.watched_toggled.connect(self._on_details_watched_toggled)
-        self._trail_map.open_details_requested.connect(self._on_trail_open_details)
-        self._trail_map.recipe_requested.connect(self._on_trail_recipe_requested)
-        self._trail_map.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
+        self._connect_trail_map_signals(self._trail_map)
         self._register_cleanable("trail_map", self._trail_map.shutdown)
 
         # Center panel gets all extra space when window is resized
@@ -804,6 +795,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.historyItemClicked.connect(self.play_from_history_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
+            section.seeAllClicked.connect(self.switch_to_full_history_view)
             # Connect context menu handler
             section.history_list.customContextMenuRequested.connect(
                 lambda pos: self.show_history_context_menu(pos, section.history_list)
@@ -1598,6 +1590,21 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 
+        # Full Watch-History view (hidden by default) — the Explore trail-map reused
+        # in embedded mode, seeded with watch history.  Its per-title intents route
+        # through the SAME shared handlers as the lightbox Explore overlay; ✕ / Esc
+        # (via close_requested) returns to Browse instead of a blank pane.
+        from metatv.gui.full_history_view import FullHistoryView
+        self.full_history_view = FullHistoryView(
+            self, self.config, self.image_cache, self.db,
+            self.metadata_manager, self._run_query,
+        )
+        self._connect_trail_map_signals(self.full_history_view.trail_map)
+        self.full_history_view.trail_map.close_requested.connect(self.switch_to_list_view)
+        self.full_history_view.setVisible(False)
+        self._list_layout.addWidget(self.full_history_view)
+        self._register_cleanable("full_history_view", self.full_history_view.shutdown)
+
         self.epg_manager.start_notification_timer()
         # Periodic scheduler: poke refresh_all_if_needed every hour so long-running
         # sessions honor the configured interval without requiring the EPG view to open.
@@ -1791,6 +1798,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     ) -> None:
         self._lightbox.resize(self.size())
         self._lightbox.show_preview(channel_ids, index, origin_title)
+
+    def _connect_trail_map_signals(self, tm) -> None:
+        """Wire a TrailMapView's per-title intents to the shared host handlers.
+
+        One seam for BOTH trail-map instances (the lightbox Explore overlay and the
+        embedded Full Watch-History view) so every action routes through the same
+        canonical play/queue/favorite/rating handlers (single chokepoint).
+        """
+        tm.play_requested.connect(self.play_channel_by_id)
+        tm.resume_requested.connect(self.play_channel_resume_by_id)
+        tm.queue_toggled.connect(self._on_details_queue_toggle)
+        tm.favorite_toggled.connect(self.toggle_favorite_by_id)
+        tm.rating_requested.connect(self._toggle_rating)
+        tm.suppression_requested.connect(self._on_suppression_requested)
+        tm.watched_toggled.connect(self._on_details_watched_toggled)
+        tm.open_details_requested.connect(self._on_trail_open_details)
+        tm.recipe_requested.connect(self._on_trail_recipe_requested)
+        tm.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
 
     def _show_trail_map(self, seed_ids: list) -> None:
         """Open the Explore trail-map seeded with the lightbox's walked trail.
