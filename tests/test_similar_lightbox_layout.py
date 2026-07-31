@@ -35,6 +35,15 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+def _fake_metadata_manager():
+    """Stand-in MetadataManager (the overlay requires one since #329); these layout
+    tests don't exercise the fetched fields, so ``get_metadata`` returns None."""
+    class _FakeMM:
+        async def get_metadata(self, channel_id, force_refresh=False):
+            return None
+    return _FakeMM()
+
+
 def _rich_data() -> dict:
     """A fully-populated title — every section present (poster, plot, cast, four
     genres, three Other Versions, six Similar)."""
@@ -135,7 +144,7 @@ class TestResponsiveWidth:
         parent.resize(1600, 1000)
         parent.show()
         ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
-        lb = SimilarTitleLightbox(parent, Config(), ic, db)
+        lb = SimilarTitleLightbox(parent, Config(), ic, db, _fake_metadata_manager())
         lb.show()  # a shown widget delivers resizeEvent deterministically
         qapp.processEvents()
         try:
