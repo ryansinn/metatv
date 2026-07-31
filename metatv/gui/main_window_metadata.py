@@ -236,13 +236,18 @@ class _MetadataMixin:
         if (self.details_pane.current_channel
                 and self.details_pane.current_channel.id == channel_id):
             self.details_pane.set_versions(versions)
-        # Feed the sibling variants to lazy TMDb enrichment — an idless variant in
-        # "Other Versions" is exactly a row whose id a detail lookup could resolve so
-        # it collapses onto the rest. Include the anchor channel too.
-        if versions:
-            self._enqueue_tmdb_enrichment(
-                [channel_id] + [v.channel_id for v in versions]
-            )
+        # Feed the anchor + any sibling variants to lazy TMDb enrichment — an idless
+        # row a user is looking at is exactly one whose id a provider detail lookup
+        # could resolve so it collapses onto the rest.  The anchor is ALWAYS enqueued,
+        # even when the row is a content_key singleton with no "Other Versions": a
+        # corrupted/idless title (e.g. the mojibake "|ES| Alita: …ngel de combate",
+        # whose content_key groups with nothing) would otherwise never be attempted
+        # by viewing its details, so it stays unmarked and never surfaces in the
+        # "Missing TMDb" diagnostic.  enqueue() is idempotent and filters
+        # non-candidates off-thread, so a redundant id here is harmless.
+        self._enqueue_tmdb_enrichment(
+            [channel_id] + [v.channel_id for v in versions]
+        )
 
     def _on_prefix_block(self, prefix: str) -> None:
         if prefix and prefix not in self.config.global_filter_excluded_prefixes:

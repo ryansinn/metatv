@@ -70,7 +70,15 @@ if TYPE_CHECKING:
 #       detected_title so its content_key stays distinct from any real same-title
 #       work.  Full re-run re-parses all rows and recomputes content_key in the
 #       same update_detected_prefixes pass (no separate backfill needed).
-CURRENT_VERSION: int = 5
+#   6 — control-char mojibake strip: parse_channel_name now removes stray C0/C1
+#       control characters (e.g. a raw U+0081 corrupting "Á" in
+#       "|ES| Alita: <U+0081>ngel de combate") from the name before deriving
+#       detected_title, so the stored title displays cleanly and its title-fallback
+#       content_key is no longer polluted by the artifact.  Full re-run re-cleans
+#       every existing detected_title and recomputes content_key in the same
+#       update_detected_prefixes pass (only generated fields are written — user
+#       tags/ratings/favorites are never touched).
+CURRENT_VERSION: int = 6
 
 
 class DetectedTitleReparseTask:
