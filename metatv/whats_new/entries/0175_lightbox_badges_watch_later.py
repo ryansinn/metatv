@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=175,
-    version="0.14.0",
+    version="0.14.1",
     date="2026-07-31",
     title="Preview lightbox polish: strip-card badges, cleaner cards, clearer selected state",
     items=(

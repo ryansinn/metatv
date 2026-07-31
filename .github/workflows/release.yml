@@ -115,6 +115,19 @@ jobs:
           echo "Vendored mpv:"
           ls -la "$RES_DIR"
 
+      - name: Ad-hoc re-sign the app bundle
+        # dylibbundler rewrites dylibs INSIDE the .app after PyInstaller's ad-hoc
+        # sign, which invalidates that signature. A quarantined app with a *broken*
+        # signature is what makes macOS say "MetaTV is damaged" (vs the milder
+        # "unidentified developer"). Re-sign the whole bundle ad-hoc so the shipped
+        # signature is valid. (Full Developer ID notarization would remove the
+        # Gatekeeper prompt entirely but needs a paid account — this is the free fix.)
+        run: |
+          set -euo pipefail
+          codesign --force --deep --sign - dist/MetaTV.app
+          codesign --verify --deep --strict dist/MetaTV.app \
+            || echo "codesign verify reported issues (non-fatal)"
+
       - name: Create DMG
         id: dmg
         run: |

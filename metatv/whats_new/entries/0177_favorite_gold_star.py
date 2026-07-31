@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=177,
-    version="0.14.0",
+    version="0.14.1",
     date="2026-07-31",
     title="Favorited items now show a clear gold star",
     items=(

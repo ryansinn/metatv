@@ -308,7 +308,7 @@ def test_whats_new_entry_175_present_with_test_steps():
     from metatv.whats_new import WHATS_NEW
     entry = next((e for e in WHATS_NEW if e.id == 175), None)
     assert entry is not None, "What's New entry id=175 must be registered"
-    assert entry.version == "0.14.0"
+    assert entry.version == "0.14.1"
     assert entry.date == "2026-07-31"
     assert entry.items, "entry must have items"
     assert entry.test_steps, "entry must carry a non-empty test_steps tuple"

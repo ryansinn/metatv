@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=176,
-    version="0.14.0",
+    version="0.14.1",
     date="2026-07-31",
     title="Explore: a trail-map that lets you wander sideways through similar titles",
     items=(
