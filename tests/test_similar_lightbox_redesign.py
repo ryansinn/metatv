@@ -481,3 +481,64 @@ class TestDiscoverabilityAffordance:
         assert selected == ["a"], (
             "right-click must emit version_selected (open in details pane)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Part B — the MAIN poster enlarges on click (no play); Play is its own button
+# ---------------------------------------------------------------------------
+
+class TestMainPosterEnlarge:
+    def _card(self):
+        from metatv.gui.similar_lightbox_card import _LightboxCard
+        return _LightboxCard()
+
+    def test_poster_click_enlarges_not_plays(self, qapp):
+        from PyQt6.QtGui import QPixmap
+        card = self._card()
+        card._poster.set_pixmap(QPixmap(12, 18))     # store a non-null full-res pixmap
+        expanded, played = [], []
+        card.poster_expand_requested.connect(lambda p: expanded.append(p))
+        card.play_clicked.connect(lambda: played.append(1))
+        card._poster.clicked.emit()                  # a press on the poster
+        assert len(expanded) == 1, "poster click emits poster_expand_requested"
+        assert not expanded[0].isNull(), "the stored full-res pixmap is emitted"
+        assert played == [], "poster click must NOT play (Play is the dedicated button)"
+
+    def test_placeholder_poster_click_is_noop(self, qapp):
+        card = self._card()
+        card._poster.set_placeholder("No poster")    # no full pixmap
+        expanded = []
+        card.poster_expand_requested.connect(lambda p: expanded.append(p))
+        card._poster.clicked.emit()
+        assert expanded == [], "a placeholder (no-pixmap) poster click is a graceful no-op"
+
+    def test_play_button_still_plays(self, qapp):
+        card = self._card()
+        played = []
+        card.play_clicked.connect(lambda: played.append(1))
+        card._play_btn.click()
+        assert played == [1], "the dedicated Play button still emits play_clicked"
+
+    def test_no_play_orb_on_poster(self, qapp):
+        card = self._card()
+        assert not hasattr(card._poster, "_orb"), "the contradictory hover play-orb is removed"
+
+    def test_overlay_relays_card_poster_expand(self, qapp, tmp_path):
+        from PyQt6.QtWidgets import QWidget
+        from PyQt6.QtGui import QPixmap
+        from metatv.core.image_cache import ImageCache
+        from metatv.gui.similar_lightbox import SimilarTitleLightbox
+
+        db = _make_db(tmp_path / "poster_relay.db")
+        parent = QWidget()
+        parent.resize(900, 700)
+        ic = ImageCache(cache_dir=str(tmp_path / "ic"))
+        lb = SimilarTitleLightbox(parent, _fake_config(), ic, db, _fake_metadata_manager())
+        got = []
+        lb.poster_expand_requested.connect(lambda p: got.append(p))
+        lb._card.poster_expand_requested.emit(QPixmap(10, 10))
+        assert len(got) == 1 and not got[0].isNull(), (
+            "the overlay must relay the card's poster-expand request to the host"
+        )
+        lb._executor.shutdown(wait=False)
+        db.close()

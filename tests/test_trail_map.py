@@ -66,6 +66,30 @@ class _FakeImageCache:
         return getattr(self._ic, name)
 
 
+class _PixImageCache:
+    """ImageCache stand-in whose ``get_image_sync`` returns a real (non-null) pixmap.
+
+    Lets the Part-C column-poster-peek path resolve synchronously so the enlarge
+    emit is deterministic (no background image load to race)."""
+
+    def __init__(self):
+        from PyQt6.QtCore import QObject, pyqtSignal
+        from PyQt6.QtGui import QPixmap
+
+        pix = QPixmap(10, 15)  # sized → not null
+
+        class _IC(QObject):
+            image_loaded = pyqtSignal(str, object)
+            def get_image_sync(self, url):  # noqa: D401
+                return pix
+            def get_image_async(self, url, provider_urls=None):
+                return None
+        self._ic = _IC()
+
+    def __getattr__(self, name):
+        return getattr(self._ic, name)
+
+
 class _FakeMetadataManager:
     async def get_metadata(self, channel_id, force_refresh=False):
         return None
@@ -182,14 +206,14 @@ def _cleanup_views(qapp):
     qapp.processEvents()
 
 
-def _make_view(db, qapp, **kw):
+def _make_view(db, qapp, image_cache=None, **kw):
     from PyQt6.QtWidgets import QWidget
     from metatv.gui.trail_map_view import TrailMapView
 
     host = QWidget()
     host.resize(1400, 900)
     host.show()
-    tm = TrailMapView(host, _fake_config(), _FakeImageCache(), db,
+    tm = TrailMapView(host, _fake_config(), image_cache or _FakeImageCache(), db,
                       _FakeMetadataManager(), **kw)
     # Swap the real thread pool for an inline one so open()/expand run synchronously.
     tm._executor.shutdown(wait=False)
@@ -210,15 +234,18 @@ def _rows_in_columns(tm):
 
 class TestColumnsAndExpand:
     def test_seed_renders_trail_column(self, tmp_path, qapp):
+        # A MULTI-item trail renders a single trail column and does NOT auto-drill
+        # (single-item auto-drill is covered in TestSingleItemAutoDrill).
         db = _seed_db(tmp_path / "cols.db")
         tm = _make_view(db, qapp)
-        tm.open(["o"])                    # inline executor loads the seed synchronously
-        assert [r.title for r in tm._seed_rows] == ["The Sea Beast"]
-        assert tm._selected_id == "o", "the last (current) stop is auto-selected"
-        # One column (the trail) with one row.
+        tm.open(["o", "s1"])              # inline executor loads the seed synchronously
+        assert [r.title for r in tm._seed_rows] == ["The Sea Beast", "The Sea Wolf Beast"]
+        assert tm._selected_id == "s1", "the last (current) stop is auto-selected"
+        assert tm._drill == [], "a multi-item trail is not auto-drilled"
+        # One column (the trail) with two rows.
         assert tm._cols_layout.count() - 1 == 1
         rows = _rows_in_columns(tm)
-        assert len(rows) == 1
+        assert len(rows) == 2
         db.close()
 
     def test_expanding_a_stop_fetches_and_renders_a_new_column(self, tmp_path, qapp):
@@ -250,6 +277,253 @@ class TestColumnsAndExpand:
         )
         assert not tm._filter_path([dupe], upto_index=0), "same content_key as origin → dropped"
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# 2b. Single-item trail auto-expands on open (Part A)
+# ---------------------------------------------------------------------------
+
+class TestSingleItemAutoDrill:
+    def test_single_seed_auto_drills(self, tmp_path, qapp):
+        """A 1-id seed has one possible next action, so it drills on open: its
+        similars are fetched, the drilled column renders and its detail populates."""
+        db = _seed_db(tmp_path / "auto1.db")
+        tm = _make_view(db, qapp)
+        tm.open(["o"])                     # single-item trail → auto-drill (inline)
+        assert tm._drill == ["o"], "a 1-item trail auto-drills its only stop"
+        assert "o" in tm._similars_cache, "similars fetched for the auto-drilled stop"
+        assert {r.id for r in tm._similars_cache["o"]} >= {"s1", "s2"}
+        assert tm._cols_layout.count() - 1 == 2, "trail + the auto-drilled column"
+        assert tm._selected_id == "o", "the auto-drilled stop is selected"
+        assert "o" in tm._detail_cache, "the selected stop's detail was fetched/populated"
+        assert tm._detail._title_lbl.text() == "The Sea Beast"
+        db.close()
+
+    def test_multi_seed_does_not_auto_drill(self, tmp_path, qapp):
+        """A 2+-id seed (e.g. the Full-History trail) must NOT auto-fetch every
+        stop's similars — it waits for the user to pick a stop to expand."""
+        db = _seed_db(tmp_path / "auto2.db")
+        tm = _make_view(db, qapp)
+        tm.open(["o", "s1"])               # multi-item trail → NO auto-drill
+        assert tm._drill == [], "a multi-item trail does not auto-drill"
+        assert tm._similars_cache == {}, "no premature similars fetch for a multi-item trail"
+        assert tm._cols_layout.count() - 1 == 1, "only the trail column"
+        assert tm._selected_id == "s1", "the current (last) stop is selected"
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# 2c. Column-row poster click enlarges (peek), never drills (Part C)
+# ---------------------------------------------------------------------------
+
+def _press_event():
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(2, 2), QPointF(2, 2),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
+class TestColumnPosterEnlarge:
+    def test_thumb_press_is_consumed_and_emits_clicked(self, qapp):
+        """The poster thumbnail emits ``clicked`` and CONSUMES the press (accepts
+        it) so it never propagates to the row's select/drill handler."""
+        from metatv.gui.trail_map_view import _ClickableThumb
+        thumb = _ClickableThumb("A")
+        fired = []
+        thumb.clicked.connect(lambda: fired.append(1))
+        ev = _press_event()
+        thumb.mousePressEvent(ev)
+        assert fired == [1], "thumb press emits clicked"
+        assert ev.isAccepted(), "thumb press is consumed (won't select/drill the row)"
+
+    def test_row_relays_thumb_click_as_poster_clicked(self, qapp):
+        """The row relays its thumb's click as ``poster_clicked(id)`` (distinct from
+        the whole-row ``clicked``)."""
+        from metatv.gui.trail_map_view import _TrailRow
+        row = _TrailRow(_dto(id="r1", title="Row One"))
+        peeks, selects = [], []
+        row.poster_clicked.connect(lambda cid: peeks.append(cid))
+        row.clicked.connect(lambda cid: selects.append(cid))
+        row.thumb.clicked.emit()
+        assert peeks == ["r1"], "thumb click relays as poster_clicked with the row id"
+        assert selects == [], "a poster click does NOT fire the row select"
+
+    def test_column_poster_click_enlarges_not_drills(self, tmp_path, qapp):
+        """Clicking a rendered column row's poster emits the trail-map's
+        ``poster_expand_requested`` (with the loaded pixmap) and leaves the drill /
+        selection untouched."""
+        from metatv.gui.trail_map_view import _TrailRow
+        db = _seed_db(tmp_path / "peek.db")
+        tm = _make_view(db, qapp, image_cache=_PixImageCache())
+        tm.open(["o", "s1"])               # 2-item → no auto-drill; trail has 2 rows
+        drill_before = list(tm._drill)
+        selected_before = tm._selected_id
+        got = []
+        tm.poster_expand_requested.connect(lambda pix: got.append(pix))
+        # Find the rendered "o" row (it has a metadata poster_url) and click its thumb.
+        o_row = next(r for r in _rows_in_columns(tm) if r._id == "o")
+        o_row.thumb.clicked.emit()
+        assert len(got) == 1 and not got[0].isNull(), "poster peek emitted a pixmap"
+        assert tm._drill == drill_before, "poster peek must not change the drill"
+        assert tm._selected_id == selected_before, "poster peek must not change selection"
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# 2d. Path-aware column highlighting (breadcrumb, not leaf-id match) — Part E
+# ---------------------------------------------------------------------------
+
+def _columns_in_order(tm):
+    from metatv.gui.trail_map_view import _TrailColumn
+    out = []
+    for i in range(tm._cols_layout.count()):
+        w = tm._cols_layout.itemAt(i).widget()
+        if isinstance(w, _TrailColumn):
+            out.append(w)
+    return out
+
+
+def _selected_ids(col):
+    from metatv.gui.trail_map_view import _TrailRow
+    return [r._id for r in col.findChildren(_TrailRow) if r._selected]
+
+
+def _row_ids(col):
+    from metatv.gui.trail_map_view import _TrailRow
+    return [r._id for r in col.findChildren(_TrailRow)]
+
+
+class TestPathAwareHighlight:
+    def test_breadcrumb_highlight_one_per_column_leaf_once(self, tmp_path, qapp):
+        """A 3-deep drill lights the DRILLED chain one-per-column; the leaf, which
+        also appears as a similar in an earlier column, is highlighted exactly once
+        (in its own column) and NOT in the earlier column."""
+        db = _seed_db(tmp_path / "hl.db")
+
+        # Deterministic adjacency via injected loaders (independent of the heuristic).
+        # Note: the leaf "C" is a similar of BOTH the root R and of A.
+        adj = {
+            "R": [_dto(id="A", title="A", dedup_key="A"),
+                  _dto(id="C", title="C", dedup_key="C")],
+            "A": [_dto(id="C", title="C", dedup_key="C"),
+                  _dto(id="X", title="X", dedup_key="X")],
+            "C": [_dto(id="D", title="D", dedup_key="D")],
+        }
+
+        def fake_seed(session, ids):
+            return [_dto(id="R", title="Root", dedup_key="R")]
+
+        def fake_sim(session, parent_id, *, excluded_provider_ids=None, config=None, limit=20):
+            return list(adj.get(parent_id, []))
+
+        tm = _make_view(db, qapp, seed_loader=fake_seed, similars_loader=fake_sim)
+        tm.open(["R"])                       # single seed → auto-drill R (Part A)
+        tm._select_drill_row(0, "A")         # drill A
+        tm._select_drill_row(1, "C")         # drill C (the leaf)
+        assert tm._drill == ["R", "A", "C"]
+
+        cols = _columns_in_order(tm)
+        assert len(cols) == 4, "trail + 3 drilled columns"
+        # Each column highlights exactly its breadcrumb item (the _drill chain).
+        assert _selected_ids(cols[0]) == ["R"], "trail highlights the explored root"
+        assert _selected_ids(cols[1]) == ["A"], "SIMILAR TO R highlights the drilled child A"
+        assert _selected_ids(cols[2]) == ["C"], "SIMILAR TO A highlights the drilled child C"
+        assert _selected_ids(cols[3]) == [], "the frontier column has no selected child"
+        # The leaf C is a similar of R too — present in col 1 but NOT highlighted there.
+        assert "C" in _row_ids(cols[1]), "the leaf also appears earlier as a similar"
+        assert "C" not in _selected_ids(cols[1]), "leaf must NOT light up in the earlier column"
+        # …and it is highlighted exactly ONCE across all columns.
+        from metatv.gui.trail_map_view import _TrailRow
+        leaf_hits = sum(
+            1 for col in cols for r in col.findChildren(_TrailRow)
+            if r._id == "C" and r._selected
+        )
+        assert leaf_hits == 1, "the leaf is highlighted exactly once"
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# 2e. Row title/year layout (Part F) + shared lang chip (Part G)
+# ---------------------------------------------------------------------------
+
+class TestRowTitleYearLayout:
+    def test_year_shown_once(self, qapp):
+        """A trail row shows the year on its title line only — NOT also on the
+        shared badge line (which would render it twice)."""
+        from PyQt6.QtWidgets import QLabel
+        from metatv.gui.trail_map_view import _TrailRow
+        row = _TrailRow(_dto(id="r", title="Some Title", year=2022, lang="EN"))
+        year_labels = [l for l in row.findChildren(QLabel) if l.text() == "2022"]
+        assert len(year_labels) == 1, "the year must appear exactly once (title line only)"
+
+    def test_title_and_year_share_baseline(self, qapp):
+        from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+        from metatv.gui.trail_map_view import _TrailRow
+        host = QWidget()
+        host.resize(420, 120)
+        row = _TrailRow(_dto(id="r", title="Aligned Title", year=2019))
+        QVBoxLayout(host).addWidget(row)
+        host.show()
+        qapp.processEvents()
+        title_lbl = next(l for l in row.findChildren(QLabel) if l.text() == "Aligned Title")
+        year_lbl = next(l for l in row.findChildren(QLabel) if l.text() == "2019")
+        # Both AlignBottom in the same row → their bottom edges line up (one line).
+        assert abs(title_lbl.geometry().bottom() - year_lbl.geometry().bottom()) <= 3
+        host.hide()
+
+    def test_long_title_wraps_two_lines_and_elides_inside_column(self, qapp):
+        """A long title wraps to at most 2 lines, ellipsizes the overflow, and every
+        line stays within the (fixed) column width (Part H). Flows to Full-History."""
+        from PyQt6.QtWidgets import QVBoxLayout, QWidget
+        from metatv.gui.trail_map_view import _TrailRow, _ElidedTitleLabel, _DRILL_COL_W
+        long = ("Eternal Sunshine Of The Spotless Mind Special Extended "
+                "4K Remastered Collectors Edition")
+        host = QWidget()
+        host.setFixedWidth(_DRILL_COL_W)
+        host.resize(_DRILL_COL_W, 140)
+        row = _TrailRow(_dto(id="r", title=long))
+        QVBoxLayout(host).addWidget(row)
+        host.show()
+        qapp.processEvents()
+        lbl = row.findChild(_ElidedTitleLabel)
+        assert lbl is not None
+        shown = lbl.text()
+        assert shown.count("\n") <= 1, f"title must be ≤ 2 lines; got {shown!r}"
+        assert "…" in shown, "a very long title must be ellipsized"
+        fm = lbl.fontMetrics()
+        for line in shown.split("\n"):
+            assert fm.horizontalAdvance(line) <= lbl.width() + 2, (
+                f"line {line!r} overflows the column width {lbl.width()}"
+            )
+        assert lbl.toolTip() == long, "the full title is preserved as the tooltip"
+        host.hide()
+
+
+class TestSharedLangChip:
+    def test_sim_badges_lang_uses_shared_bordered_chip(self, qapp):
+        from PyQt6.QtWidgets import QLabel
+        from metatv.gui import theme as _theme
+        from metatv.gui.sim_badges import make_sim_badges
+        w = make_sim_badges({"lang": "LAT", "rating": 8.0, "year": 2020})
+        lang_lbl = next(l for l in w.findChildren(QLabel) if l.text() == "LAT")
+        assert lang_lbl.styleSheet() == _theme.LANG_CHIP, (
+            "the sim-badges lang label must use the shared canonical LANG_CHIP token"
+        )
+        # The canonical chip is the BORDERED style (background + radius), not the old
+        # borderless muted text.
+        assert "background" in _theme.LANG_CHIP and "border-radius" in _theme.LANG_CHIP
+
+    def test_detail_strip_and_sim_badges_share_the_token(self, qapp):
+        """One source of truth: the trail-map detail strip renders the lang chip with
+        the SAME token the shared sim-badges renderer uses."""
+        import inspect
+        from metatv.gui import trail_map_detail, sim_badges
+        assert "_theme.LANG_CHIP" in inspect.getsource(trail_map_detail)
+        assert "_theme.LANG_CHIP" in inspect.getsource(sim_badges)
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +768,17 @@ def test_whats_new_entry_176_present_with_test_steps():
     entry = next((e for e in WHATS_NEW if e.id == 176), None)
     assert entry is not None, "What's New entry id=176 must be registered"
     assert entry.version == "0.14.0"
+    assert entry.date == "2026-07-31"
+    assert entry.items, "entry must have items"
+    assert entry.test_steps, "entry must carry a non-empty test_steps tuple"
+
+
+def test_whats_new_entry_179_present_with_test_steps():
+    """Explore + lightbox poster-interaction polish (Parts A+B+C)."""
+    from metatv.whats_new import WHATS_NEW
+    entry = next((e for e in WHATS_NEW if e.id == 179), None)
+    assert entry is not None, "What's New entry id=179 must be registered"
+    assert entry.version == "0.14.1"
     assert entry.date == "2026-07-31"
     assert entry.items, "entry must have items"
     assert entry.test_steps, "entry must carry a non-empty test_steps tuple"

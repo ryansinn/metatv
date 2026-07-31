@@ -539,6 +539,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         sidebar.setMinimumWidth(200)
         self.main_splitter.addWidget(sidebar)
 
+        # Poster lightbox — full-res image overlay, hidden by default. Created HERE,
+        # BEFORE create_content_area(), because the Full-History view built inside it
+        # wires its trail-map's poster_expand_requested to _poster_lightbox.show_pixmap
+        # (via _connect_trail_map_signals). Its feeder .connect() calls live later,
+        # once details_pane / _lightbox exist. PosterLightbox(self) needs only the
+        # window as parent, so early construction is safe.
+        from metatv.gui.poster_lightbox import PosterLightbox
+        self._poster_lightbox = PosterLightbox(self)
+
         # Main content area
         content = self.create_content_area()
         content.setMinimumWidth(400)
@@ -594,10 +603,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._lightbox.suppression_requested.connect(self._on_suppression_requested)
         self._lightbox.explore_requested.connect(self._show_trail_map)
 
-        # Poster lightbox — full-res image overlay, hidden by default
-        from metatv.gui.poster_lightbox import PosterLightbox
-        self._poster_lightbox = PosterLightbox(self)
+        # Poster lightbox is constructed earlier (before create_content_area, so the
+        # Full-History view can wire to it); connect its feeders now that details_pane
+        # and _lightbox exist.
         self.details_pane.poster_enlarged.connect(self._poster_lightbox.show_pixmap)
+        # A click on the Similar-Titles lightbox poster enlarges it via the SAME
+        # overlay the details pane (poster_enlarged) and trail-map feed.
+        self._lightbox.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
 
         # Explore trail-map — cascading-columns adjacency browser (opened from the
         # lightbox's Explore button; seeded with the walked nav trail).  Relays the

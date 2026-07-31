@@ -22,7 +22,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
-def make_sim_badges(item: dict, width: int | None = None) -> QWidget:
+def make_sim_badges(item: dict, width: int | None = None, show_year: bool = True) -> QWidget:
     """Build a badge cluster from the fields a card/row threads in.
 
     Args:
@@ -33,6 +33,10 @@ def make_sim_badges(item: dict, width: int | None = None) -> QWidget:
         width: Optional fixed width for the cluster (the lightbox strip cards pass
             the poster width so the badges align under the poster). ``None`` lets it
             size to its content (the trail-map rows want that).
+        show_year: Whether to render the year on the right of the meta line. The
+            lightbox strip cards keep it (their only year); trail-map rows pass
+            ``False`` because they show the year on their own title line (else it
+            would appear twice).
 
     Returns:
         A ``QWidget`` holding the meta line above the state-glyph line.
@@ -51,7 +55,10 @@ def make_sim_badges(item: dict, width: int | None = None) -> QWidget:
     lang = (item.get("lang") or "").strip()
     if lang:
         lang_lbl = QLabel(lang)
-        lang_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_LANG)
+        # The ONE canonical bordered language/region chip — shared with the
+        # trail-map detail strip (single source of truth), so the lang badge reads
+        # identically on the lightbox strip AND the trail-map rows.
+        lang_lbl.setStyleSheet(_theme.LANG_CHIP)
         lang_lbl.setToolTip(f"Language / region: {lang}")
         meta.addWidget(lang_lbl)
     rating = item.get("rating")
@@ -62,9 +69,10 @@ def make_sim_badges(item: dict, width: int | None = None) -> QWidget:
         meta.addWidget(star)
     meta.addStretch()
     year = item.get("year")
-    year_lbl = QLabel(str(year) if year else "")
-    year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
-    meta.addWidget(year_lbl)
+    if show_year:
+        year_lbl = QLabel(str(year) if year else "")
+        year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
+        meta.addWidget(year_lbl)
     box.addLayout(meta)
 
     # State-glyph line: only the active states (distinct shape + tooltip each).

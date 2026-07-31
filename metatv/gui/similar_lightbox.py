@@ -49,6 +49,7 @@ class SimilarTitleLightbox(QWidget):
     rating_requested      = pyqtSignal(str, int)  # channel_id, ±1
     suppression_requested = pyqtSignal(str, bool) # channel_id, suppressed
     explore_requested     = pyqtSignal(list)      # seed channel_ids (the walked trail)
+    poster_expand_requested = pyqtSignal(QPixmap) # enlarge the main poster (peek)
 
     # Internal signal — background thread emits this; main thread receives it
     _data_ready = pyqtSignal(str, object)   # channel_id, data dict
@@ -144,6 +145,9 @@ class SimilarTitleLightbox(QWidget):
         )
         self._card.dive_requested.connect(self._dive_into)
         self._card.explore_clicked.connect(self._on_explore)
+        # Poster-peek relay: the card's enlarge request bubbles to the host, which
+        # feeds the SAME enlarged-poster overlay the details pane / trail-map use.
+        self._card.poster_expand_requested.connect(self.poster_expand_requested)
         row.addWidget(self._card, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._next_chev = self._make_chevron(_icons.nav_next_icon, "Next similar title (→)")

@@ -256,3 +256,125 @@ class TestConsolidatedChokepoint:
         src = inspect.getsource(ChannelRepository.get_similar_channels)
         assert "is_hidden" in src, "chokepoint must gate per-channel is_hidden"
         assert "provider_id.in_" in src, "chokepoint must gate excluded providers"
+
+
+# ---------------------------------------------------------------------------
+# 5. Global Filter (Exclusions) — Similar honors the same blacklist Discover does
+# ---------------------------------------------------------------------------
+#
+# Bug: Similar/Explore/lightbox showed content the user had globally excluded
+# (Albanian/German/NL after setting exclusions). The chokepoint now applies the
+# Global Filter prefix blacklist when a (non-paused) config is supplied.
+
+def _filter_config(*, excluded_categories=None, excluded_prefixes=None,
+                   include_uncategorized=True, paused=False):
+    """A duck-typed Config carrying BOTH the version-score and Global-Filter fields."""
+    return SimpleNamespace(
+        preferred_version_prefixes=[],
+        preferred_version_provider_ids=[],
+        preferred_version_quality=None,
+        global_filter_paused=paused,
+        global_filter_excluded_categories=list(excluded_categories or []),
+        global_filter_excluded_prefixes=list(excluded_prefixes or []),
+        global_filter_include_uncategorized=include_uncategorized,
+    )
+
+
+def _seed_langs(session):
+    """Origin (EN) + one EN similar, one DE similar, one untagged (no prefix) similar.
+
+    All on one active provider, all is_hidden=0, distinct content_keys (so each is a
+    genuine 'similar', not an 'other version') and each shares the origin's overlap
+    words.  Only detected_prefix distinguishes them for the Global-Filter test."""
+    from metatv.core.database import ChannelDB
+
+    now = datetime.now()
+    _make_provider(session, "prov-active", is_active=True, exp=now + timedelta(days=30))
+
+    def _ch(cid, name, prefix, ck):
+        ch = ChannelDB(
+            id=cid, source_id=str(uuid.uuid4()), provider_id="prov-active",
+            name=name, media_type="movie", content_key=ck,
+            is_hidden=False, detected_prefix=prefix,
+        )
+        session.add(ch)
+        session.flush()
+
+    _ch("o", "Twelve Monkeys Origin", "EN", "origin|movie")
+    _ch("en-sim", "Twelve Monkeys English", "EN", "en|movie")
+    _ch("de-sim", "Twelve Monkeys German", "DE", "de|movie")
+    _ch("null-sim", "Twelve Monkeys Extra", None, "extra|movie")
+
+
+def _similar_ids(db, config):
+    from metatv.core.repositories import RepositoryFactory
+    with db.session_scope(commit=False) as session:
+        rows = RepositoryFactory(session).channels.get_similar_channels(
+            "o", excluded_provider_ids=None, limit=20, config=config,
+        )
+        return {r.id for r in rows}
+
+
+class TestGlobalFilterExclusions:
+    def test_excluded_category_drops_that_language(self, tmp_path):
+        db = _make_db(tmp_path / "gf_cat.db")
+        with db.session_scope() as session:
+            _seed_langs(session)
+        ids = _similar_ids(db, _filter_config(excluded_categories=["DE"]))
+        assert "en-sim" in ids, "an un-excluded language similar stays"
+        assert "null-sim" in ids, "untagged stays (include_uncategorized default True)"
+        assert "de-sim" not in ids, "a globally-excluded language must be dropped"
+        db.close()
+
+    def test_block_prefix_drops_that_language(self, tmp_path):
+        db = _make_db(tmp_path / "gf_pref.db")
+        with db.session_scope() as session:
+            _seed_langs(session)
+        ids = _similar_ids(db, _filter_config(excluded_prefixes=["DE"]))
+        assert "en-sim" in ids and "null-sim" in ids
+        assert "de-sim" not in ids, "explicit Block [PREFIX] also drops it"
+        db.close()
+
+    def test_paused_config_applies_nothing(self, tmp_path):
+        db = _make_db(tmp_path / "gf_paused.db")
+        with db.session_scope() as session:
+            _seed_langs(session)
+        ids = _similar_ids(
+            db, _filter_config(excluded_categories=["DE"], paused=True)
+        )
+        assert {"en-sim", "de-sim", "null-sim"} <= ids, "paused → excluded titles return"
+        db.close()
+
+    def test_config_none_applies_nothing(self, tmp_path):
+        db = _make_db(tmp_path / "gf_none.db")
+        with db.session_scope() as session:
+            _seed_langs(session)
+        ids = _similar_ids(db, None)
+        assert {"en-sim", "de-sim", "null-sim"} <= ids, "config=None → no filter"
+        db.close()
+
+    def test_include_uncategorized_false_drops_untagged(self, tmp_path):
+        db = _make_db(tmp_path / "gf_uncat.db")
+        with db.session_scope() as session:
+            _seed_langs(session)
+        # Untagged (NULL prefix) visible with include_uncategorized True (default)...
+        ids_show = _similar_ids(db, _filter_config(excluded_categories=["DE"]))
+        assert "null-sim" in ids_show
+        # ...but hidden when include_uncategorized is False.
+        ids_hide = _similar_ids(
+            db, _filter_config(excluded_categories=["DE"], include_uncategorized=False)
+        )
+        assert "null-sim" not in ids_hide, "untagged dropped when include_uncategorized False"
+        assert "en-sim" in ids_hide, "a tagged, un-excluded language still shows"
+        assert "de-sim" not in ids_hide
+        db.close()
+
+
+def test_whats_new_entry_180_present_with_test_steps():
+    """Similar Titles honoring the Global Filter (Part D)."""
+    from metatv.whats_new import WHATS_NEW
+    entry = next((e for e in WHATS_NEW if e.id == 180), None)
+    assert entry is not None, "What's New entry id=180 must be registered"
+    assert entry.version == "0.14.1"
+    assert entry.date == "2026-07-31"
+    assert entry.items and entry.test_steps

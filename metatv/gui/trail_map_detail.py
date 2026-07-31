@@ -343,7 +343,7 @@ class TrailDetailStrip(QWidget):
             parts.append(self._meta_text(runtime))
         if row.lang:
             chip = QLabel(row.lang)
-            chip.setStyleSheet(_theme.TRAILMAP_LANG_CHIP)
+            chip.setStyleSheet(_theme.LANG_CHIP)   # shared canonical lang/region chip
             chip.setToolTip(f"Language / region: {row.lang}")
             parts.append(chip)
         if row.watch_count:

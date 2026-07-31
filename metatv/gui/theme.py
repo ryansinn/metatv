@@ -1253,12 +1253,6 @@ LIGHTBOX_POSTER_SLOT = (
 LIGHTBOX_POSTER_PLACEHOLDER = (
     "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + ";"
 )
-# Play orb revealed on poster hover (the future embedded-player surface).
-LIGHTBOX_PLAY_ORB = (
-    "QPushButton { color: " + COLOR_BG_DEEP + "; font-size: " + FONT_4XL + ";"
-    " border: none; border-radius: 26px; background: " + COLOR_ACCENT_HOVER + "; }"
-    "QPushButton:hover { background: " + COLOR_ACCENT_BLUE_2 + "; }"
-)
 
 # Primary Play button under the poster (filled accent, dark text).
 LIGHTBOX_PLAY_PRIMARY = (
@@ -1340,12 +1334,21 @@ LIGHTBOX_SIM_POSTER = (
 LIGHTBOX_SIM_NAME = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + ";"
 LIGHTBOX_SIM_YEAR = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
 
+# Language/region chip — the ONE canonical bordered chip shared by the sim-badge
+# renderer (lightbox strip + trail-map rows, via ``sim_badges.make_sim_badges``) and
+# the trail-map detail strip, so the lang/region badge reads identically everywhere
+# (single source of truth — no per-surface lang style).
+LANG_CHIP = (
+    "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
+    " border-radius: 8px; padding: 1px 7px; font-size: " + FONT_MD + ";"
+)
+
 # Similar-strip mini-card badge cluster — a compact meta line (language/region +
 # rating) above a state-glyph line (liked / in Watch Later / favorited / watched),
 # mirroring the badges the details-pane Similar rows show.  Colours match those
 # surfaces (blue like/queue, gold favorite/rating, green watched); each glyph also
-# carries a tooltip, so state is never conveyed by colour alone.
-LIGHTBOX_SIM_LANG          = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+# carries a tooltip, so state is never conveyed by colour alone.  (Language uses the
+# shared ``LANG_CHIP`` above.)
 LIGHTBOX_SIM_RATING        = "color: " + COLOR_GOLD + "; font-size: " + FONT_MD + "; font-weight: bold;"
 LIGHTBOX_SIM_GLYPH_LIKE    = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
 LIGHTBOX_SIM_GLYPH_QUEUE   = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
@@ -1480,10 +1483,6 @@ TRAILMAP_FAV_STAR = (
 TRAILMAP_DETAIL_META = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
 TRAILMAP_DETAIL_STAR = (
     "color: " + COLOR_GOLD + "; font-size: " + FONT_LG + "; font-weight: bold;"
-)
-TRAILMAP_LANG_CHIP = (
-    "background: " + OVERLAY_BLUE_10 + "; color: " + COLOR_ACCENT_BLUE_LIGHT + ";"
-    " border-radius: 8px; padding: 1px 7px; font-size: " + FONT_MD + ";"
 )
 TRAILMAP_SECTION_HDR = (
     "color: " + COLOR_FAINT + "; font-size: " + FONT_SM + "; font-weight: bold;"
