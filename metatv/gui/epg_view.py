@@ -122,13 +122,21 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         root.setSpacing(0)
 
         # ── Header ─────────────────────────────────────────────────────
+        # Two stacked rows so the long status text + Refresh button no longer
+        # share the tab row — that combination ate ~500px and forced the QTabBar
+        # into a ‹ › overflow-scroll state, hiding tabs.  Row 1 gives the tab bar
+        # the full header width; row 2 is a slim right-aligned status/refresh line
+        # underneath it.
         header_widget = QWidget()
         header_widget.setObjectName("epgHeader")
-        header_layout = QHBoxLayout(header_widget)
+        header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(6)
 
-        # Tab bar
+        # Row 1: tab bar spans the full header width (trailing stretch keeps tabs left)
+        tab_row = QHBoxLayout()
+        tab_row.setContentsMargins(0, 0, 0, 0)
+        tab_row.setSpacing(8)
         self.tab_bar = QTabBar()
         self.tab_bar.addTab(f"{self.config.watchlist_icon} Watchlist")      # 0
         self.tab_bar.addTab(f"{self.config.series_icon} My Channels")      # 1
@@ -138,19 +146,28 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self.tab_bar.addTab(f"{self.config.hide_icon} Manage")             # 5
         self.tab_bar.addTab(f"{_icons.events_icon} Events")                # 6
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
-        header_layout.addWidget(self.tab_bar)
-        header_layout.addStretch()
+        tab_row.addWidget(self.tab_bar)
+        tab_row.addStretch()
+        header_layout.addLayout(tab_row)
+
+        # Row 2: slim right-aligned status + Refresh line, under the tabs
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
+        status_row.addStretch()
 
         # Status label
         self.status_label = QLabel("")
         self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        header_layout.addWidget(self.status_label)
+        status_row.addWidget(self.status_label)
 
         # Refresh button
         self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
         self.refresh_btn.setToolTip("Refresh EPG data from all providers")
         self.refresh_btn.clicked.connect(self._on_force_refresh)
-        header_layout.addWidget(self.refresh_btn)
+        status_row.addWidget(self.refresh_btn)
+
+        header_layout.addLayout(status_row)
 
         root.addWidget(header_widget)
 
