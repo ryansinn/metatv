@@ -2340,13 +2340,26 @@ class ChannelRepository(_ChannelStatsMixin):
           ``ProviderRepository.get_hidden_provider_ids()``. Content from a
           disabled/expired source must never surface here.
 
+        Global Filter (Exclusions) — the SAME language/category blacklist Discover
+        applies (all three Similar surfaces route through here, so a globally-hidden
+        language never leaks into Similar / Explore / the lightbox strip):
+        - When *config* is supplied and Global Exclusions are not paused, drops any
+          candidate whose ``detected_prefix`` is in the excluded set (the category
+          blacklist ∪ the explicit "Block [PREFIX]" codes), honoring
+          ``include_uncategorized`` (untagged rows stay visible unless it is False).
+        - Resolved via the shared ``filter_utils`` resolvers and applied with the
+          canonical ``discovery_engine._apply_prefix_filter`` predicate (single
+          source of truth — never a parallel excluded-set). ``config=None`` or paused
+          applies nothing.
+
         Args:
             channel_id: Origin channel whose neighbours to find.
             excluded_provider_ids: Hidden provider ids to exclude. None/empty applies
                 no provider gate — callers always pass ``get_hidden_provider_ids()``.
             limit: Max number of collapsed groups to return.
-            config: Optional ``Config`` used to score the per-group winner by the
-                user's version preferences (prefix/provider/quality).
+            config: Optional ``Config``. Scores the per-group winner by the user's
+                version preferences (prefix/provider/quality) AND supplies the Global
+                Filter exclusions above. ``None`` applies neither.
 
         Returns:
             Ranked list of ``ChannelDB`` rows. These are ORM objects — consume them
@@ -2378,6 +2391,22 @@ class ChannelRepository(_ChannelStatsMixin):
         if excluded:
             # Absolute gate: inactive/expired/orphaned sources never surface here.
             q = q.filter(~ChannelDB.provider_id.in_(excluded))
+        # Global Filter (Exclusions): the same language/category blacklist Discover
+        # applies, so a globally-excluded language never leaks into any of the three
+        # Similar surfaces.  The excluded set comes from the shared filter_utils
+        # resolvers (single source of truth for the DATA); the SQL is applied with the
+        # canonical _apply_prefix_filter predicate.  config=None or paused → no-op.
+        if config is not None and not getattr(config, "global_filter_paused", False):
+            from metatv.core.filter_utils import (
+                get_active_category_filter, get_excluded_prefixes,
+            )
+            from metatv.core.discovery_engine import _apply_prefix_filter
+
+            cat_excluded, include_uncategorized = get_active_category_filter(config)
+            excluded_prefixes = set(cat_excluded or []) | get_excluded_prefixes(config)
+            q = _apply_prefix_filter(
+                q, list(excluded_prefixes) or None, include_uncategorized
+            )
         candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
 
         threshold = max(1, len(words) // 2)
