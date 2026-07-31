@@ -151,7 +151,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     # (last_played_via='queue'). Emitted only when >0 episodes were queue-watched so
     # the main thread can show the "Still here?" confirmation prompt.
     _queue_end_detected = pyqtSignal(object)  # list[str] — auto-advanced episode ids
-    
+    # Whole-library title-sibling propagation re-sweep result: the worker emits the
+    # count of idless rows that adopted a sibling's tmdb id; the main-thread slot
+    # refreshes the provider-dependent views (so newly-collapsed cards settle) when
+    # the count is positive.
+    _propagation_finished = pyqtSignal(int)
+
     def __init__(self, config: Config, config_recovered: bool = False):
         super().__init__()
         self.config = config
@@ -418,6 +423,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._query_result.connect(self._on_query_result)
         self._playback_health_ready.connect(self._on_playback_health_ready)
         self._queue_end_detected.connect(self._on_queue_end_detected)
+        self._propagation_finished.connect(self._on_propagation_finished)
 
         self.stream_retry_manager.stream_online.connect(self._on_stream_back_online)
         self.stream_retry_manager.retry_list_changed.connect(self._refresh_alerts_retry_section)
@@ -427,6 +433,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Wire the serial refresh queue manager signals
         self.refresh_queue_manager.refresh_finished.connect(self._on_queue_refresh_finished)
         self.refresh_queue_manager._request_epg_wire.connect(self._on_queue_epg_wire_requested)
+        # When the whole refresh queue drains, re-run the no-network whole-library
+        # title-sibling propagation so idless rows that only just became adoptable
+        # (a later source brought in the id-bearing variant) fold onto one card.
+        self.refresh_queue_manager.all_refreshes_finished.connect(
+            self._on_all_refreshes_finished
+        )
 
         self.load_providers()
         self.load_favorites()

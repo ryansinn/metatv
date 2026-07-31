@@ -406,6 +406,86 @@ class TestOverviewDismissedWhenEmpty:
         nm.dismiss.assert_called_with(overview_id)
 
 
+class TestAllRefreshesFinished:
+    """all_refreshes_finished must fire once when the WHOLE queue drains — the
+    seam the whole-library dedup re-sweep hangs off (analogous to
+    MigrationManager.all_finished)."""
+
+    def test_fires_once_when_single_source_finishes(self, qapp):
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+
+        fired = []
+        manager.all_refreshes_finished.connect(lambda: fired.append(True))
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            assert not fired, "must NOT fire until the source actually finishes"
+            t1._fire_finished(True)
+            qapp.processEvents()
+
+        assert fired == [True], "all_refreshes_finished must fire exactly once on drain"
+
+    def test_not_fired_while_a_second_source_still_queued(self, qapp):
+        """With two sources, the seam must fire only after the LAST one — not
+        after the first, while the second is still running/queued."""
+        p1 = _make_db_provider("p1", "Provider 1")
+        p2 = _make_db_provider("p2", "Provider 2")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t2 = _FakeThread(_make_provider_model("p2", "Provider 2"), None)
+        t1.start = lambda: None
+        t2.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager(
+            {"p1": t1, "p2": t2}, [p1, p2]
+        )
+
+        fired = []
+        manager.all_refreshes_finished.connect(lambda: fired.append(True))
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            manager.enqueue("p2", "Provider 2")
+            t1._fire_finished(True)   # first done — p2 still to run
+            qapp.processEvents()
+            assert not fired, "must NOT fire while p2 is still pending"
+            t2._fire_finished(True)   # last done — queue drains
+            qapp.processEvents()
+
+        assert fired == [True], "seam must fire exactly once, after the LAST source"
+
+    def test_fires_even_when_last_source_failed(self, qapp):
+        """A drain caused by a failing last source still completes the refresh —
+        the seam must fire (a re-sweep is a cheap no-op then)."""
+        p1 = _make_db_provider("p1", "Provider 1")
+        t1 = _FakeThread(_make_provider_model("p1", "Provider 1"), None)
+        t1.start = lambda: None
+
+        manager, repo_factory, thread_factory, nm = _build_manager({"p1": t1}, [p1])
+
+        fired = []
+        manager.all_refreshes_finished.connect(lambda: fired.append(True))
+
+        with (
+            patch("metatv.gui.refresh_queue_manager.RepositoryFactory", repo_factory),
+            patch("metatv.gui.refresh_queue_manager.ProviderLoadThread", side_effect=thread_factory),
+        ):
+            manager.enqueue("p1", "Provider 1")
+            t1._fire_finished(False, "Connection refused")
+            qapp.processEvents()
+
+        assert fired == [True], "seam must fire on drain even after a failure"
+
+
 class TestShutdown:
     """shutdown() must drop pending items but not kill a running thread."""
 

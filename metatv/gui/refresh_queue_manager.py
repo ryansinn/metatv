@@ -80,6 +80,14 @@ class RefreshQueueManager(QObject):
         Carries ``(provider_id, success, message, thread)`` so that the
         MainWindow can run the canonical post-refresh actions (EPG, relink,
         monitor checks, ``_refresh_provider_dependent_views``).
+    all_refreshes_finished
+        Emitted **once** when the queue drains — i.e. the LAST enqueued source
+        of a (possibly multi-provider) refresh has finished, whether it
+        succeeded or failed.  This is the whole-refresh completion seam: the
+        MainWindow runs the no-network whole-library title-sibling propagation
+        re-sweep here so idless rows that only just became adoptable fold onto
+        their canonical ``content_key``.  Analogous to
+        ``MigrationManager.all_finished``.
     """
 
     # Snapshot of (name, status, pct) for the overview widget
@@ -87,6 +95,10 @@ class RefreshQueueManager(QObject):
 
     # (provider_id, success, message, thread) — main-window post-refresh hook
     refresh_finished = pyqtSignal(str, bool, str, object)
+
+    # Fired once when the queue empties (all enqueued sources done) — the
+    # whole-refresh completion seam (whole-library dedup re-sweep hook).
+    all_refreshes_finished = pyqtSignal()
 
     def __init__(
         self,
@@ -342,9 +354,14 @@ class RefreshQueueManager(QObject):
 
         self._emit_queue_changed()
 
-        # If queue is now empty, dismiss overview
+        # If queue is now empty, dismiss overview and signal whole-refresh
+        # completion.  _mark_done is the single chokepoint every source passes
+        # through as it leaves the queue, so an empty queue here always means
+        # "the last enqueued source just finished" — fire the seam exactly once
+        # per drained batch (analogous to MigrationManager.all_finished).
         if not self._queue:
             self._dismiss_overview()
+            self.all_refreshes_finished.emit()
 
     # ------------------------------------------------------------------
     # Overview notification helpers
