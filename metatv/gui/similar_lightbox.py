@@ -469,4 +469,7 @@ class SimilarTitleLightbox(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._card.setMaximumHeight(max(420, int(self.height() * 0.9)))
+        # Responsive, grow-to-content sizing lives in one seam on the card so the
+        # width fraction and the 0.9×window height cap are computed in a single
+        # place (shared by any offscreen render).
+        self._card.apply_overlay_size(self.width(), self.height())

@@ -23,8 +23,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QAbstractScrollArea, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from metatv.gui import icons as _icons
@@ -33,8 +33,16 @@ from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
 
 # Poster / strip-card dimensions (structural spacing — px is fine inline).
-_POSTER_W, _POSTER_H = 190, 285
+# Poster is the mockup's 2:3 poster-hero; strip cards are 116×174 (also 2:3).
+_POSTER_W, _POSTER_H = 168, 252
 _SIM_W, _SIM_H = 116, 174
+
+# Responsive card-width bounds. The overlay sizes the card to a fraction of the
+# window between these (single source of truth — imported by ``similar_lightbox``);
+# the card's Fixed/Maximum size policy then lets height grow to content up to the
+# overlay's 0.9×window cap. A sensible floor means it never collapses.
+CARD_MIN_W = 760
+CARD_MAX_W = 1150
 
 
 def _fmt_runtime(minutes: int | None) -> str:
@@ -54,6 +62,65 @@ _MEDIA_TYPE_ICON = {
     "series": _icons.series_icon,
     "live": _icons.live_icon,
 }
+
+
+class _GrowScrollArea(QScrollArea):
+    """A scroll area whose size-hint tracks its content instead of the stock cap.
+
+    Stock ``QScrollArea.sizeHint()`` clamps to ``24 × fontMetrics().height()``
+    (~400px) even with ``AdjustToContents`` set, so a ``Fixed/Maximum``-height
+    parent can never grow past that — the exact reason the lightbox body used to
+    fold every section below a scrollbar on a large window. Reporting the inner
+    content's real height (plus the frame) lets the card grow to its natural
+    content height up to the overlay's cap; the vertical scrollbar then appears
+    only once content genuinely exceeds that cap.
+
+    Height is measured with ``heightForWidth`` at the actual content width so the
+    wrapping FlowLayout sections (genre / Other-Versions chips) report the height
+    they *really* occupy — their raw one-chip-per-row size-hint would over-grow
+    the card and leave dead space below the last section on a tall window.
+    """
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        w = self.widget()
+        if w is None:
+            return super().sizeHint()
+        frame = 2 * self.frameWidth()
+        hint = w.sizeHint()
+        height = hint.height()
+        lay = w.layout()
+        avail = self.viewport().width() or w.width()
+        if avail > 0 and lay is not None and lay.hasHeightForWidth():
+            hfw = lay.heightForWidth(avail)
+            if hfw > 0:
+                height = hfw
+        return QSize(hint.width() + frame, height + frame)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        # heightForWidth depends on the viewport width, so when the width changes
+        # our size-hint changes too — re-publish it to the parent card's layout
+        # (otherwise the card keeps a stale, taller hint and leaves dead space).
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self.updateGeometry()
+
+
+class _StripScrollArea(QScrollArea):
+    """Fixed-height horizontal strip whose size-hint reports that fixed height.
+
+    Stock ``QScrollArea`` ignores its fixed height in ``sizeHint``, so the
+    grow-to-content parent (which measures via child size-hints) would under-count
+    the Similar strip and clip its last row. Reporting the row height keeps the
+    measurement honest.
+    """
+
+    def __init__(self, row_height: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._row_height = row_height
+        self.setFixedHeight(row_height)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return QSize(super().sizeHint().width(), self._row_height)
 
 
 class _ClickableFrame(QFrame):
@@ -152,7 +219,11 @@ class _LightboxCard(QFrame):
         super().__init__(parent)
         self.setObjectName("lightbox_card")
         self.setStyleSheet(_theme.LIGHTBOX_CARD)
-        self.setFixedWidth(820)
+        # Width is driven responsively by the overlay (see ``apply_overlay_size``);
+        # this is only the pre-first-resize default so the card never renders at
+        # its bare size-hint width. Height is Maximum so it can grow to content up
+        # to the overlay's 0.9×window cap (grow-to-content, scroll only on overflow).
+        self.setFixedWidth(CARD_MAX_W)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
 
         # url → poster labels awaiting an async image (main poster + strip cards).
@@ -205,17 +276,22 @@ class _LightboxCard(QFrame):
         outer.addWidget(bar)
 
     def _build_body(self, outer: QVBoxLayout) -> None:
-        scroll = QScrollArea()
+        scroll = _GrowScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Grow-to-content: the scroll area reports its inner content's size-hint as
+        # its own, so the card (Fixed/Maximum) expands to show every section. The
+        # vertical scrollbar then appears ONLY when content exceeds the height cap.
+        scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         scroll.setStyleSheet(_theme.BG_TRANSPARENT)
+        self._body_scroll = scroll
 
         content = QWidget()
         content.setStyleSheet(_theme.BG_TRANSPARENT)
         body = QVBoxLayout(content)
-        body.setContentsMargins(20, 18, 20, 18)
-        body.setSpacing(6)
+        body.setContentsMargins(24, 14, 24, 14)
+        body.setSpacing(2)
 
         self._build_hero(body)
         self._build_overview(body)
@@ -229,12 +305,12 @@ class _LightboxCard(QFrame):
 
     def _build_hero(self, body: QVBoxLayout) -> None:
         hero = QHBoxLayout()
-        hero.setSpacing(20)
+        hero.setSpacing(22)
         hero.setContentsMargins(0, 0, 0, 0)
 
         # -- left: poster + primary Play + player-trajectory tag --
         left = QVBoxLayout()
-        left.setSpacing(10)
+        left.setSpacing(6)
         self._poster = _HoverPosterSlot()
         self._poster.clicked.connect(self.play_clicked)
         left.addWidget(self._poster, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -245,10 +321,11 @@ class _LightboxCard(QFrame):
         self._play_btn.clicked.connect(self.play_clicked)
         left.addWidget(self._play_btn)
 
-        tag = QLabel("Preview — the player lands here later")
+        # Compact single-line trajectory note (the poster is the future embedded-
+        # player surface — mockup pin 8); kept to one line to spend no extra height.
+        tag = QLabel("Player embeds here later")
         tag.setStyleSheet(_theme.LIGHTBOX_PLAYER_TAG)
         tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        tag.setWordWrap(True)
         left.addWidget(tag)
         left.addStretch()
 
@@ -398,13 +475,15 @@ class _LightboxCard(QFrame):
         self._similar_hdr_row_w.setLayout(hdr_row)
         body.addWidget(self._similar_hdr_row_w)
 
-        self._strip_scroll = QScrollArea()
+        # Poster (174) + 2-line name + year + row margins — sized so the full mini
+        # card shows and only the horizontal scrollbar ever appears (the fixed
+        # height is reported in sizeHint so the grow-to-content parent counts it).
+        self._strip_scroll = _StripScrollArea(_SIM_H + 64)
         self._strip_scroll.setWidgetResizable(True)
         self._strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._strip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._strip_scroll.setStyleSheet(_theme.BG_TRANSPARENT)
-        self._strip_scroll.setFixedHeight(_SIM_H + 56)
         self._strip_w = QWidget()
         self._strip_w.setStyleSheet(_theme.BG_TRANSPARENT)
         self._strip_layout = QHBoxLayout(self._strip_w)
@@ -439,8 +518,30 @@ class _LightboxCard(QFrame):
     def _section_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet(_theme.LIGHTBOX_SECTION_HDR)
+        # Top margin gives each section the mockup's breathing gap (body spacing
+        # adds the rest); the small bottom margin keeps the header tight to its
+        # own content.
         lbl.setContentsMargins(0, 8, 0, 2)
         return lbl
+
+    # ------------------------------------------------------------------ #
+    # Responsive sizing (single seam — driven by the overlay)             #
+    # ------------------------------------------------------------------ #
+
+    def apply_overlay_size(self, overlay_w: int, overlay_h: int) -> None:
+        """Size the card to the overlay: responsive width, grow-to-content height.
+
+        Width is a generous fraction of the window, clamped to
+        ``[CARD_MIN_W, CARD_MAX_W]`` for readability (so it scales up on a large
+        window but never collapses). Height is capped at 0.9× the window; the card's
+        Maximum vertical policy plus the body's ``AdjustToContents`` scroll area let
+        it grow to its natural content height below that cap, scrolling only when the
+        content genuinely exceeds it. One seam so the overlay's ``resizeEvent`` and
+        any offscreen render share exactly the same maths.
+        """
+        card_w = min(CARD_MAX_W, max(CARD_MIN_W, int(overlay_w * 0.82)))
+        self.setFixedWidth(card_w)
+        self.setMaximumHeight(max(420, int(overlay_h * 0.9)))
 
     # ------------------------------------------------------------------ #
     # Header / navigation state (driven by the overlay)                    #
