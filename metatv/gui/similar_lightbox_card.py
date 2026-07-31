@@ -31,6 +31,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
+from metatv.gui.sim_badges import make_sim_badges
 
 # Poster / strip-card dimensions (structural spacing — px is fine inline).
 # Poster is the mockup's 2:3 poster-hero; strip cards are 116×174 (also 2:3).
@@ -211,6 +212,7 @@ class _LightboxCard(QFrame):
     # User intents relayed up to the overlay (which attaches the current id).
     back_clicked        = pyqtSignal()
     close_clicked       = pyqtSignal()
+    explore_clicked     = pyqtSignal()   # open the Explore trail-map (seeded with the nav trail)
     play_clicked        = pyqtSignal()
     queue_clicked       = pyqtSignal()
     favorite_clicked    = pyqtSignal()
@@ -268,6 +270,17 @@ class _LightboxCard(QFrame):
         self._counter_lbl = QLabel()
         self._counter_lbl.setStyleSheet(_theme.LIGHTBOX_COUNTER)
         row.addWidget(self._counter_lbl)
+
+        # Explore — opens the cascading-columns trail-map seeded with this dive path
+        # (contextual lateral adjacency; distinct from the global ✨ Discover).
+        self._explore_btn = QPushButton(f"{_icons.explore_icon} Explore")
+        self._explore_btn.setFlat(True)
+        self._explore_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
+        self._explore_btn.setToolTip(
+            "Explore — walk the adjacency trail of everything you've dived through"
+        )
+        self._explore_btn.clicked.connect(self.explore_clicked)
+        row.addWidget(self._explore_btn)
 
         close_btn = QPushButton(_icons.close_icon)
         close_btn.setFlat(True)
@@ -831,66 +844,16 @@ class _LightboxCard(QFrame):
         return card
 
     def _make_sim_badges(self, item: dict) -> QWidget:
-        """Build a strip card's badge cluster from the fields the overlay threads in.
+        """Build a strip card's badge cluster (delegates to the shared renderer).
 
-        A meta line (language/region + rating ★N, year on the right) sits above a
-        state-glyph line showing only the ACTIVE states — liked (👍), in Watch Later
-        (📋), favorited (★), watched (green ✓) — the same set the details-pane Similar
-        rows carry.  Each glyph pairs a distinct SHAPE with a tooltip, so state is
-        never conveyed by colour alone.
+        The badge cluster — a meta line (language/region + ★rating, year on the
+        right) above the active state glyphs (liked / in Watch Later / favorited /
+        watched) — is built by the single shared :func:`sim_badges.make_sim_badges`
+        so the lightbox strip and the Explore trail-map rows render badges
+        identically (one badge renderer everywhere).  The strip fixes the cluster to
+        the poster width so it aligns under the poster.
         """
-        wrap = QWidget()
-        wrap.setFixedWidth(_SIM_W)
-        box = QVBoxLayout(wrap)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(1)
-
-        # Meta line: language/region + rating (left), year (right).
-        meta = QHBoxLayout()
-        meta.setContentsMargins(0, 0, 0, 0)
-        meta.setSpacing(6)
-        lang = (item.get("lang") or "").strip()
-        if lang:
-            lang_lbl = QLabel(lang)
-            lang_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_LANG)
-            lang_lbl.setToolTip(f"Language / region: {lang}")
-            meta.addWidget(lang_lbl)
-        rating = item.get("rating")
-        if rating:
-            star = QLabel(f"{_icons.rating_star_icon}{rating}")
-            star.setStyleSheet(_theme.LIGHTBOX_SIM_RATING)
-            star.setToolTip(f"Rating: {rating}")
-            meta.addWidget(star)
-        meta.addStretch()
-        year = item.get("year")
-        year_lbl = QLabel(str(year) if year else "")
-        year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
-        meta.addWidget(year_lbl)
-        box.addLayout(meta)
-
-        # State-glyph line: only the active states (distinct shape + tooltip each).
-        glyphs = QHBoxLayout()
-        glyphs.setContentsMargins(0, 0, 0, 0)
-        glyphs.setSpacing(5)
-        for present, glyph, style, tip in (
-            (item.get("user_rating") == 1, _icons.like_icon,
-             _theme.LIGHTBOX_SIM_GLYPH_LIKE, "You liked this"),
-            (bool(item.get("in_queue")), _icons.queue_icon,
-             _theme.LIGHTBOX_SIM_GLYPH_QUEUE, "In Watch Later"),
-            (bool(item.get("is_favorite")), _icons.favorite_icon,
-             _theme.LIGHTBOX_SIM_GLYPH_FAV, "In Favorites"),
-            (bool(item.get("watched")), _icons.watched_icon,
-             _theme.LIGHTBOX_SIM_GLYPH_WATCHED, "Watched"),
-        ):
-            if present:
-                g = QLabel(glyph)
-                g.setStyleSheet(style)
-                g.setToolTip(tip)
-                glyphs.addWidget(g)
-        glyphs.addStretch()
-        box.addLayout(glyphs)
-
-        return wrap
+        return make_sim_badges(item, width=_SIM_W)
 
     # ------------------------------------------------------------------ #
     # Poster image seam (overlay owns the ImageCache)                      #

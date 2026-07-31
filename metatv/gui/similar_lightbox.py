@@ -48,6 +48,7 @@ class SimilarTitleLightbox(QWidget):
     hide_requested        = pyqtSignal(str)
     rating_requested      = pyqtSignal(str, int)  # channel_id, ±1
     suppression_requested = pyqtSignal(str, bool) # channel_id, suppressed
+    explore_requested     = pyqtSignal(list)      # seed channel_ids (the walked trail)
 
     # Internal signal — background thread emits this; main thread receives it
     _data_ready = pyqtSignal(str, object)   # channel_id, data dict
@@ -142,6 +143,7 @@ class SimilarTitleLightbox(QWidget):
             lambda on: self.suppression_requested.emit(self._current_id, on)
         )
         self._card.dive_requested.connect(self._dive_into)
+        self._card.explore_clicked.connect(self._on_explore)
         row.addWidget(self._card, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._next_chev = self._make_chevron(_icons.nav_next_icon, "Next similar title (→)")
@@ -415,6 +417,18 @@ class SimilarTitleLightbox(QWidget):
             return
         self._origin_idx = min(len(self._origin_ids) - 1, self._origin_idx + 1)
         self._load_channel(self._origin_ids[self._origin_idx])
+
+    def _on_explore(self) -> None:
+        """Open the Explore trail-map seeded with the walked dive path.
+
+        The seed is the trail the user actually walked: every prior stop on the
+        nav-stack plus the title currently shown.  Emitting the id list lets the
+        host build the (data-source-agnostic) trail-map — the same component a later
+        Watch-History view seeds with history instead.
+        """
+        seed = [cid for cid in (self._nav_stack + [self._current_id]) if cid]
+        if seed:
+            self.explore_requested.emit(seed)
 
     def _dive_into(self, channel_id: str) -> None:
         """Navigate deeper into similar / other-version content (rabbit-hole mode)."""
