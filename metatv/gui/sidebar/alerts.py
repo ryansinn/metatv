@@ -25,6 +25,14 @@ from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "keyword_divider" | "series_divider" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
+# Sane maximum height (px) for the EPG alerts_tree — the single budget shared by
+# _fit_alerts_tree_to_content() (clamps the content-sized cap) and _apply_expansion()
+# (the row budget for its expand-all-if-it-fits decision).  Sits above the two smaller
+# capped sibling lists (Stream Monitoring 120 / Movies & Series 200): the EPG list is
+# the primary sub-section, but past this it must SCROLL rather than balloon into — and
+# starve the siblings of — the section's leftover vertical space.
+_ALERTS_TREE_MAX_HEIGHT = 320
+
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
     """Rich-text ``title`` with an optional dim, smaller disambiguator suffix.
@@ -408,6 +416,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._retry_list)
 
         self._update_retry_toggle_label(0)
+
+        # Trailing stretch collects the section's surplus vertical space at the BOTTOM
+        # so no single sub-list balloons to absorb it.  Each list is capped to its own
+        # content (alerts_tree via _fit_alerts_tree_to_content, the two QListWidgets via
+        # setMaximumHeight); without this stretch the leftover space would flow into the
+        # tree (default Expanding policy) and starve Movies & Series / Stream Monitoring.
+        self.content_layout.addStretch()
+
         self.set_empty(True)
 
     # ------------------------------------------------------------------
@@ -942,6 +958,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
         self._reveal_epg_subsection()
+        self._fit_alerts_tree_to_content()
         self.set_empty(False)
 
     def show_loading(self, tree, message: str = "Loading…") -> None:
@@ -956,6 +973,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
         self._reveal_epg_subsection()
+        self._fit_alerts_tree_to_content()
         self.set_empty(False)
 
     def _reveal_epg_subsection(self) -> None:
@@ -1182,6 +1200,9 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._reveal_epg_subsection()
         self.set_empty(False)
+        # Cap the tree to its collapsed content now (so it never flashes ballooned
+        # this tick); _apply_expansion re-fits once it has set the expansion state.
+        self._fit_alerts_tree_to_content()
         QTimer.singleShot(0, self._apply_expansion)
 
     def refresh_retry(self, entries: list) -> None:
@@ -1247,8 +1268,49 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         gp = self._retry_list.viewport().mapToGlobal(pos)
         self.retryContextMenuRequested.emit(entry_id, channel_id or "", gp.x(), gp.y())
 
+    def _fit_alerts_tree_to_content(self) -> None:
+        """Cap ``alerts_tree`` to its visible content height so it never balloons.
+
+        A ``QTreeWidget`` defaults to the Expanding vertical policy, so — uncapped —
+        the EPG sub-list would absorb ALL of the section's leftover vertical space and
+        starve the capped Movies & Series / Stream Monitoring lists below it (the bug
+        this fixes).  We size the tree to its currently-visible rows (top-level rows
+        plus the children of any expanded group) using the SAME per-row primitive
+        ``_apply_expansion`` relies on (``sizeHintForRow(0)``, fallback 22), then clamp
+        to ``_ALERTS_TREE_MAX_HEIGHT`` so a long watchlist SCROLLS instead of growing
+        the section unboundedly tall.  Idempotent; safe to call after every populate or
+        expand/collapse change.
+        """
+        # Guarded for __new__ test stubs (no full constructor → no tree widget),
+        # matching this file's other stub-tolerant helpers.
+        tree = self.__dict__.get("alerts_tree")
+        if tree is None:
+            return
+        n = tree.topLevelItemCount()
+        if n == 0:
+            return
+        row_h = tree.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = 22
+        visible_rows = sum(
+            1 + (tree.topLevelItem(i).childCount()
+                 if tree.topLevelItem(i).isExpanded() else 0)
+            for i in range(n)
+        )
+        # 2×frameWidth for the border; a little slack so the last row is never clipped.
+        content_h = visible_rows * row_h + 2 * tree.frameWidth() + 4
+        tree.setMaximumHeight(min(content_h, _ALERTS_TREE_MAX_HEIGHT))
+
     def _apply_expansion(self) -> None:
-        """Expand all items if they all fit in the visible tree height; otherwise expand none."""
+        """Expand all groups if the fully-expanded list fits the tree's cap; else none.
+
+        The budget is the tree's own height cap (``_ALERTS_TREE_MAX_HEIGHT``), NOT the
+        live ``viewport().height()`` — the viewport is now driven by
+        ``_fit_alerts_tree_to_content``, so reading it here would feed the cap back on
+        itself and progressively suppress expansion.  A fixed budget keeps the
+        "expand-all only when it all fits without scrolling" behaviour stable.  After
+        deciding, we re-fit the tree to the resulting visible rows.
+        """
         tree = self.alerts_tree
         n = tree.topLevelItemCount()
         if n == 0:
@@ -1256,12 +1318,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         row_h = tree.sizeHintForRow(0)
         if row_h <= 0:
             row_h = 22
-        visible_h = tree.viewport().height()
-        if visible_h <= 0:
-            visible_h = tree.height()
-        if visible_h <= 0:
-            return
-        max_rows = visible_h // row_h
+        max_rows = max(1, _ALERTS_TREE_MAX_HEIGHT // row_h)
         total_if_expanded = sum(
             1 + tree.topLevelItem(i).childCount()
             for i in range(n)
@@ -1272,3 +1329,4 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             if item.childCount() == 0:
                 continue  # section header — not expandable
             item.setExpanded(expand_all)
+        self._fit_alerts_tree_to_content()
