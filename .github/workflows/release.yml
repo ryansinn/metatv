@@ -36,8 +36,8 @@ jobs:
         include:
           - runner: macos-14   # Apple Silicon runner
             arch: arm64
-          - runner: macos-15-intel   # Intel runner (macos-13 image retired Dec 2025)
-            arch: x86_64
+          # Intel/x86_64 dropped 2026-07-31 (v0.13.1): Sequoia is the last macOS for
+          # Intel Macs and demand is negligible — arm64-only going forward.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
