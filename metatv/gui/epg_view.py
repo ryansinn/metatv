@@ -72,10 +72,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
     play_channel_requested = pyqtSignal(object)  # ChannelDB
     watchlist_changed = pyqtSignal()             # patterns or channels modified
-
-    # Stack/tab index of the Browse tab — the only tab that populates the global
-    # bottom-bar programmes count (browse_stats); every other tab blanks it.
-    _BROWSE_TAB_INDEX = 4
+    # Source-freshness status (text, tooltip). The status text does NOT live in
+    # the EPG view — the host mirrors it onto the "###,### EPG programmes" stats
+    # line (right-aligned) so status + count read as one strip. Emitted whenever
+    # _update_status_label recomputes (on_activate, _on_epg_refreshed).
+    epg_status_changed = pyqtSignal(str, str)    # (status text, tooltip)
 
     # Internal thread-safe signals
     _data_loaded = pyqtSignal(object)  # payload dict keyed by tab
@@ -126,11 +127,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         root.setSpacing(0)
 
         # ── Header ─────────────────────────────────────────────────────
-        # A single row: the tab bar owns the full header width so every tab
-        # fits without a ‹ › overflow-scroll state.  The source-freshness status
-        # text + Refresh button no longer live here — they moved to a persistent
-        # global bottom bar (built below), which also carries the Browse
-        # programmes count.
+        # A single row: the tab bar owns the full header width so every tab fits
+        # without a ‹ › overflow-scroll state.  The source-freshness status text +
+        # Refresh button do NOT live here — the host renders them right-aligned on
+        # the "###,### EPG programmes" stats line (status via the epg_status_changed
+        # signal; Refresh wired to _on_force_refresh).
         header_widget = QWidget()
         header_widget.setObjectName("epgHeader")
         header_layout = QHBoxLayout(header_widget)
@@ -150,12 +151,6 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         header_layout.addStretch()
 
         root.addWidget(header_widget)
-
-        # browse_stats is a GLOBAL bottom-bar label now (relocated out of the
-        # Browse tab page), but it must exist before _build_browse_tab / any
-        # _render_browse runs — create it here, park it in the bottom bar below.
-        self.browse_stats = QLabel("")
-        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
 
         # Thin separator
         sep = QFrame()
@@ -184,35 +179,6 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._build_browse_tab()      # stack 4
         self._build_hidden_tab()      # stack 5
         self._build_events_tab()      # stack 6
-
-        # ── Global bottom bar ───────────────────────────────────────────
-        # A persistent line under the stack, shown on EVERY tab: the Browse
-        # programmes count sits on the left, the source-freshness status text +
-        # Refresh button are right-aligned.  Keeping status/Refresh here (not in
-        # the tab header) frees the whole header width for the tab bar, and keeps
-        # Refresh reachable from every tab — not just Browse.
-        bottom_bar = QWidget()
-        bottom_bar.setObjectName("epgBottomBar")
-        bottom_layout = QHBoxLayout(bottom_bar)
-        bottom_layout.setContentsMargins(12, 6, 12, 6)
-        bottom_layout.setSpacing(8)
-
-        # Left: Browse programmes count (blank on non-Browse tabs).
-        bottom_layout.addWidget(self.browse_stats)
-        bottom_layout.addStretch()
-
-        # Right: source-freshness status text.
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        bottom_layout.addWidget(self.status_label)
-
-        # Right: Refresh button.
-        self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
-        self.refresh_btn.setToolTip("Refresh EPG data from all providers")
-        self.refresh_btn.clicked.connect(self._on_force_refresh)
-        bottom_layout.addWidget(self.refresh_btn)
-
-        root.addWidget(bottom_bar)
 
     # ── Tab 3: Hidden ──────────────────────────────────────────────────
 
@@ -587,11 +553,6 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
     def _on_tab_changed(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
-        # browse_stats now lives in the GLOBAL bottom bar; only the Browse tab
-        # populates it, so blank it whenever we leave Browse (Refresh + status
-        # stay visible on every tab).
-        if index != self._BROWSE_TAB_INDEX:
-            self.browse_stats.setText("")
         self._reload_all()
 
     def _host(self):
@@ -732,15 +693,16 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             session.close()
 
     def _update_status_label(self) -> None:
-        """Header EPG status: source names + freshness/staleness (flagged c3e1aaf3).
+        """EPG source status: source names + freshness/staleness (flagged c3e1aaf3).
 
         Compact label (single source → its freshness; multiple → "N sources" plus a
         stale count when any guide is stale) with a per-source tooltip naming each
         source and its freshness via the ``EpgManager.get_status_text`` chokepoint.
+        The text does not live in the view — it is emitted via ``epg_status_changed``
+        so the host renders it on the "###,### EPG programmes" stats line.
         """
         if not self._provider_ids:
-            self.status_label.setText("No EPG sources")
-            self.status_label.setToolTip("")
+            self.epg_status_changed.emit("No EPG sources", "")
             return
 
         info = self._epg_source_info()
@@ -754,15 +716,16 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                 lines.append(f"{name}: {status}  (stale)")
             else:
                 lines.append(f"{name}: {status}")
-        self.status_label.setToolTip("\n".join(lines))
+        tooltip = "\n".join(lines)
 
         if len(self._provider_ids) == 1:
             pid = self._provider_ids[0]
             name, _end = info.get(pid, (pid, None))
-            self.status_label.setText(f"{name} · {self.epg_manager.get_status_text(pid)}")
+            text = f"{name} · {self.epg_manager.get_status_text(pid)}"
         else:
             suffix = f" · {stale_count} stale" if stale_count else ""
-            self.status_label.setText(f"{len(self._provider_ids)} sources{suffix}")
+            text = f"{len(self._provider_ids)} sources{suffix}"
+        self.epg_status_changed.emit(text, tooltip)
 
     # ── Watchlist management ───────────────────────────────────────────
 

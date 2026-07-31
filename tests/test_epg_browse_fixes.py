@@ -309,7 +309,12 @@ def test_browse_search_has_standard_clear_button(qapp):
 
 
 # ===========================================================================
-# 4. Source detail in header (flagged c3e1aaf3)
+# 4. Source-freshness status (flagged c3e1aaf3)
+#
+# _update_status_label no longer writes a view widget — it emits the computed
+# (text, tooltip) via the epg_status_changed signal, which MainWindow mirrors onto
+# the "###,### EPG programmes" stats line.  These tests capture that emission and
+# assert the same name/freshness/stale computation as before.
 # ===========================================================================
 
 @pytest.fixture()
@@ -328,28 +333,40 @@ def sources_db(tmp_path):
 
 
 def _make_status_host(db, provider_ids):
-    from PyQt6.QtWidgets import QLabel
     from metatv.gui.epg_view import EpgView
     host = SimpleNamespace()
     host.db = db
     host._provider_ids = list(provider_ids)
-    host.status_label = QLabel("")
+    # Capture what the view emits instead of a status_label widget: the status
+    # text + tooltip now leave the view via epg_status_changed(text, tooltip).
+    host.emitted = []
+    host.epg_status_changed = SimpleNamespace(
+        emit=lambda text, tip: host.emitted.append((text, tip))
+    )
     host.epg_manager = SimpleNamespace(get_status_text=lambda pid: "Updated 1h ago")
     host._epg_source_info = lambda: EpgView._epg_source_info(host)
     host._update_status_label = lambda: EpgView._update_status_label(host)
     return host
 
 
+def _status_text(host):
+    return host.emitted[-1][0]
+
+
+def _status_tooltip(host):
+    return host.emitted[-1][1]
+
+
 def test_status_label_multi_source_shows_stale_count(qapp, sources_db):
     host = _make_status_host(sources_db, ["p1", "p2"])
     host._update_status_label()
-    assert host.status_label.text() == "2 sources · 1 stale"
+    assert _status_text(host) == "2 sources · 1 stale"
 
 
 def test_status_tooltip_names_each_source_and_flags_stale(qapp, sources_db):
     host = _make_status_host(sources_db, ["p1", "p2"])
     host._update_status_label()
-    tip = host.status_label.toolTip()
+    tip = _status_tooltip(host)
     assert "Acme TV" in tip and "Beta TV" in tip
     assert tip.count("(stale)") == 1, f"Exactly one source should be stale: {tip!r}"
     # The stale flag must sit on Acme (the past-dated guide).
@@ -360,11 +377,11 @@ def test_status_tooltip_names_each_source_and_flags_stale(qapp, sources_db):
 def test_status_label_single_source_includes_name(qapp, sources_db):
     host = _make_status_host(sources_db, ["p1"])
     host._update_status_label()
-    assert host.status_label.text().startswith("Acme TV ·")
+    assert _status_text(host).startswith("Acme TV ·")
 
 
 def test_status_label_no_sources(qapp, sources_db):
     host = _make_status_host(sources_db, [])
     host._update_status_label()
-    assert host.status_label.text() == "No EPG sources"
-    assert host.status_label.toolTip() == ""
+    assert _status_text(host) == "No EPG sources"
+    assert _status_tooltip(host) == ""

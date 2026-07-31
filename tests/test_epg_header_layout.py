@@ -1,29 +1,37 @@
-"""EPG global bottom status bar (0183).
+"""EPG source status + Refresh on the programmes-count stats line (0183).
 
-The EPG header used to carry the source-freshness status text and the Refresh
-button (originally on the tab row, then on a second stacked row beneath it —
-0181).  Both now live on a persistent GLOBAL bottom bar below the stacked
-content area, right-aligned, so the whole header width belongs to the tab bar
-and Refresh is reachable from *every* tab:
+The EPG view used to carry the source-freshness status text and a Refresh button
+inside its own header (a single tab row, then a stacked second row — 0181, then a
+separate global bottom bar — the first cut of 0183).  All of those still left the
+status/Refresh on a *different* line from the main-window "###,### EPG programmes"
+count (``MainWindow.stats_label``), which reads badly.
 
-  Header (single row):  ``[tab_bar] [stretch]``
-  Bottom bar (global):  ``[browse_stats] [stretch] [status_label] [refresh_btn]``
+Final design:
 
-The Browse "###,### programmes" count (``browse_stats``) was relocated out of the
-Browse tab page into that same bottom bar's left slot; because it is global now,
-switching to a non-Browse tab blanks it.
+  * The EPG view header is a SINGLE tab row — ``[tab_bar] [stretch]`` — and the
+    view no longer owns a ``status_label`` or ``refresh_btn`` at all.  It emits its
+    computed status text via the ``epg_status_changed`` signal instead.
+  * ``MainWindow`` owns ``epg_status_label`` + ``epg_refresh_btn``, added to the
+    stats line right after ``stats_label`` and its stretch, so they sit
+    right-aligned on the SAME line as the programmes count.  Both are visible only
+    while the EPG view is active and hidden otherwise.  Refresh is wired to the
+    EPG view's force-refresh seam.
+  * The Browse "###,### programmes" count (``browse_stats``) lives back on the
+    Browse tab page — it is Browse-only and never touched the global stats line.
 
-These tests construct the *real* ``EpgView`` widget offscreen and assert the new
-structure — that ``status_label`` / ``refresh_btn`` / ``browse_stats`` are NOT
-children of the tab-bar header, that all three share a bottom-bar parent that
-sits below ``self.stack``, that the bottom bar orders them count-left /
-status+refresh-right, that Refresh is still wired to the force-refresh handler,
-and that leaving the Browse tab clears the programmes count.
+The ``EpgView`` tests build the real widget offscreen and assert the structure +
+the status signal.  The ``MainWindow`` placement/visibility/wiring is asserted in
+a subprocess (booting the real window in-process alongside the EpgView tests both
+crashes at teardown and destabilises later tests — same reason the launch smoke
+test is a subprocess).
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -35,6 +43,8 @@ from PyQt6.QtWidgets import QApplication, QHBoxLayout
 
 from metatv.core.config import Config
 from metatv.gui.epg_view import EpgView
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +62,7 @@ def epg_view(qapp, tmp_path):
 
     ``_setup_ui`` (and every ``_build_*_tab`` it calls) reads config attributes
     and connects signals to real methods, but never touches the DB — so a
-    MagicMock db/epg_manager is sufficient to exercise the header + bottom-bar
+    MagicMock db/epg_manager is sufficient to exercise the header + Browse-tab
     build path.  ``config_dir=tmp_path`` keeps any config write off the real
     user config.
     """
@@ -76,147 +86,175 @@ def _header_of(view: EpgView):
     return view.tab_bar.parentWidget()
 
 
-def _bottom_bar_of(view: EpgView):
-    """The global bottom-bar QWidget — parent of status/refresh/browse_stats."""
-    return view.refresh_btn.parentWidget()
-
-
 def _widgets_in(layout):
     return [layout.itemAt(i).widget() for i in range(layout.count())
             if layout.itemAt(i).widget() is not None]
 
 
 # ---------------------------------------------------------------------------
-# Structure: single-row header, three widgets moved to the global bottom bar
+# EpgView structure: header is a single tab row; no status/refresh widgets
 # ---------------------------------------------------------------------------
 
-def test_header_is_a_single_tabs_row(epg_view):
-    """The header carries only the tab bar — no status / refresh / count."""
+def test_epg_header_is_a_single_tab_row(epg_view):
+    """The header is one horizontal row carrying only the tab bar."""
     header = _header_of(epg_view)
     assert isinstance(header.layout(), QHBoxLayout)
-
-    header_widgets = _widgets_in(header.layout())
-    assert epg_view.tab_bar in header_widgets
-    assert epg_view.status_label not in header_widgets
-    assert epg_view.refresh_btn not in header_widgets
-    assert epg_view.browse_stats not in header_widgets
-
-    # And none of the relocated widgets are parented under the header.
-    for w in (epg_view.status_label, epg_view.refresh_btn, epg_view.browse_stats):
-        assert w.parentWidget() is not header
+    assert epg_view.tab_bar in _widgets_in(header.layout())
 
 
-def test_status_refresh_and_count_share_the_bottom_bar(epg_view):
-    """status_label, refresh_btn and browse_stats live together in one bottom bar."""
-    bottom = _bottom_bar_of(epg_view)
-    assert bottom is not _header_of(epg_view)
-    assert epg_view.status_label.parentWidget() is bottom
-    assert epg_view.refresh_btn.parentWidget() is bottom
-    assert epg_view.browse_stats.parentWidget() is bottom
-    # The tab bar is NOT in the bottom bar.
-    assert epg_view.tab_bar not in _widgets_in(bottom.layout())
+def test_epg_view_no_longer_owns_status_or_refresh(epg_view):
+    """status/Refresh moved to MainWindow's stats line — the view must not keep them.
 
-
-def test_bottom_bar_sits_below_the_stack(epg_view):
-    """The bottom bar is added to the view root layout after (below) self.stack."""
-    root = epg_view.layout()
-    bottom = _bottom_bar_of(epg_view)
-    stack_idx = root.indexOf(epg_view.stack)
-    bottom_idx = root.indexOf(bottom)
-    assert stack_idx != -1 and bottom_idx != -1
-    assert bottom_idx > stack_idx, "bottom bar must come after the stack in the root layout"
-
-
-def test_bottom_bar_orders_count_left_status_refresh_right(epg_view):
-    """Layout order: [browse_stats] [stretch] [status_label] [refresh_btn]."""
-    layout = _bottom_bar_of(epg_view).layout()
-
-    # Widgets appear in this left-to-right order.
-    assert _widgets_in(layout) == [
-        epg_view.browse_stats,
-        epg_view.status_label,
-        epg_view.refresh_btn,
-    ]
-
-    # A stretch spacer sits between the left count and the right status/refresh,
-    # so the status text + Refresh button are right-aligned.
-    spacer_indices = [i for i in range(layout.count())
-                      if layout.itemAt(i).spacerItem() is not None]
-    count_index = next(i for i in range(layout.count())
-                       if layout.itemAt(i).widget() is epg_view.browse_stats)
-    status_index = next(i for i in range(layout.count())
-                        if layout.itemAt(i).widget() is epg_view.status_label)
-    assert any(count_index < s < status_index for s in spacer_indices)
-
-
-def test_all_bar_widgets_still_exist(epg_view):
-    assert epg_view.tab_bar is not None
-    assert epg_view.status_label is not None
-    assert epg_view.refresh_btn is not None
-    assert epg_view.browse_stats is not None
-    assert epg_view.tab_bar.count() == 7  # all tabs preserved
-
-
-# ---------------------------------------------------------------------------
-# Geometry: the bottom bar's Refresh button is below the tab bar (full-width tabs)
-# ---------------------------------------------------------------------------
-
-def test_refresh_button_sits_below_tab_bar(epg_view, qapp):
-    """After a real layout pass, Refresh is below the tab bar and left of nothing.
-
-    A header-embedded control would share the tab row's y band.  In the bottom
-    bar it is well below the tab bar, and the count (browse_stats) is to its left.
+    A lingering ``status_label``/``refresh_btn`` would mean two status widgets and
+    a split source of truth; the view now emits ``epg_status_changed`` instead.
     """
-    epg_view.resize(900, 500)
-    epg_view.show()
-    qapp.processEvents()
-    epg_view.grab()          # force a synchronous layout + paint
-    qapp.processEvents()
+    assert not hasattr(epg_view, "status_label")
+    assert not hasattr(epg_view, "refresh_btn")
+    assert hasattr(epg_view, "epg_status_changed")  # the replacement signal
 
-    tab_bottom_y = epg_view.tab_bar.mapToGlobal(
-        epg_view.tab_bar.rect().bottomLeft()).y()
-    refresh_top_y = epg_view.refresh_btn.mapToGlobal(
-        epg_view.refresh_btn.rect().topLeft()).y()
-    assert refresh_top_y >= tab_bottom_y, (
-        f"Refresh top ({refresh_top_y}) should be at/below tab-bar bottom "
-        f"({tab_bottom_y}) — it lives in the bottom bar, not the header"
+
+def test_all_tabs_preserved(epg_view):
+    assert epg_view.tab_bar.count() == 7
+
+
+# ---------------------------------------------------------------------------
+# browse_stats belongs to the Browse tab page (Browse-only), not the stats line
+# ---------------------------------------------------------------------------
+
+def test_browse_count_lives_on_the_browse_tab_page(epg_view):
+    """browse_stats is a Browse-tab widget, parented inside the Browse stack page.
+
+    It must NOT be a header widget and must NOT be hoisted onto the global stats
+    line — it is the per-tab Browse count, distinct from the whole-guide EPG count.
+    """
+    browse_page = epg_view.stack.widget(4)  # build order: …, On Now(3), Browse(4)
+    assert epg_view.browse_stats.parentWidget() is browse_page
+    assert epg_view.stack.indexOf(browse_page) == 4
+    assert epg_view.browse_stats.parentWidget() is not _header_of(epg_view)
+
+
+# ---------------------------------------------------------------------------
+# EpgView emits its status via epg_status_changed (the signal MainWindow mirrors)
+# ---------------------------------------------------------------------------
+
+def test_update_status_label_emits_no_sources_when_empty(epg_view):
+    """With no EPG providers, the view emits a plain "No EPG sources" status."""
+    captured: list[tuple[str, str]] = []
+    epg_view.epg_status_changed.connect(lambda text, tip: captured.append((text, tip)))
+
+    epg_view._provider_ids = []
+    epg_view._update_status_label()
+
+    assert captured[-1] == ("No EPG sources", "")
+
+
+def test_update_status_label_emits_single_source_text(epg_view):
+    """One provider → the emitted text is "<name> · <freshness>" (no view widget).
+
+    _epg_source_info is monkeypatched so the status path never touches the DB; the
+    point is that the computed status flows out through the signal, which is the
+    only channel MainWindow's stats-line label reads from.
+    """
+    captured: list[tuple[str, str]] = []
+    epg_view.epg_status_changed.connect(lambda text, tip: captured.append((text, tip)))
+
+    epg_view._provider_ids = ["p1"]
+    epg_view._epg_source_info = lambda: {"p1": ("TREX Shared", None)}
+    epg_view.epg_manager.get_status_text.return_value = "Updated 2h ago"
+
+    epg_view._update_status_label()
+
+    assert captured, "status must be emitted via epg_status_changed"
+    assert captured[-1][0] == "TREX Shared · Updated 2h ago"
+
+
+# ---------------------------------------------------------------------------
+# MainWindow: status + Refresh on the stats line, EPG-only visibility, wiring.
+# Booted in a subprocess (see module docstring).
+# ---------------------------------------------------------------------------
+
+_CHILD = r"""
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+from pathlib import Path
+from unittest.mock import MagicMock, call
+
+for sub in (".config/metatv", ".local/share/metatv", ".cache/metatv/images"):
+    (Path.home() / sub).mkdir(parents=True, exist_ok=True)
+
+from PyQt6.QtWidgets import QApplication
+import metatv.gui.main_window as mw
+
+mw.PlayerManager = lambda *a, **k: MagicMock()          # no real mpv process
+mw.MainWindow._run_query = lambda self, *a, **k: None    # no background pool / count query
+
+from metatv.core.config import Config
+
+app = QApplication([])
+config, _ = Config.load()
+win = mw.MainWindow(config)
+
+# 1) The two controls sit on the SAME line as the programmes count (stats_label):
+#    all three share the stats-container parent, count first then status then Refresh.
+line_parent = win.stats_label.parentWidget()
+assert win.epg_status_label.parentWidget() is line_parent, "status not on stats line"
+assert win.epg_refresh_btn.parentWidget() is line_parent, "Refresh not on stats line"
+lay = line_parent.layout()
+order = [lay.itemAt(i).widget() for i in range(lay.count())
+         if lay.itemAt(i).widget() is not None]
+assert order.index(win.stats_label) < order.index(win.epg_status_label) < order.index(win.epg_refresh_btn), \
+    "expected [stats_label] … [epg_status_label] [epg_refresh_btn] left-to-right"
+
+# 2) Hidden until the EPG view is active.  isVisibleTo(win) reflects the explicit
+#    setVisible() intent without needing the top-level window shown.
+assert not win.epg_status_label.isVisibleTo(win)
+assert not win.epg_refresh_btn.isVisibleTo(win)
+
+# Keep the EPG activation network-free and deterministic.
+win.epg_view.epg_manager.refresh_all_if_needed = lambda *a, **k: None
+win.epg_view.epg_manager.relink_all = lambda *a, **k: None
+win.epg_view._reload_all = lambda *a, **k: None
+
+# 3) Entering the EPG view shows both, and the source status flows onto the line
+#    via epg_status_changed (empty DB → "No EPG sources").
+win.switch_to_epg_view()
+assert win.epg_status_label.isVisibleTo(win), "status hidden while EPG active"
+assert win.epg_refresh_btn.isVisibleTo(win), "Refresh hidden while EPG active"
+assert win.epg_status_label.text() == "No EPG sources", win.epg_status_label.text()
+
+# 4) The stats-line Refresh drives the EPG view's per-provider force-refresh seam.
+win.epg_view.epg_manager.force_refresh_provider = MagicMock()
+win.epg_view._provider_ids = ["pA", "pB"]
+win.epg_refresh_btn.click()
+assert win.epg_view.epg_manager.force_refresh_provider.call_args_list == [call("pA"), call("pB")], \
+    win.epg_view.epg_manager.force_refresh_provider.call_args_list
+
+# 5) Leaving the EPG view hides both again.
+win._hide_all_content_views()
+assert not win.epg_status_label.isVisibleTo(win), "status still shown after leaving EPG"
+assert not win.epg_refresh_btn.isVisibleTo(win), "Refresh still shown after leaving EPG"
+
+print("EPG_STATS_LINE_OK")
+"""
+
+
+def test_mainwindow_epg_status_and_refresh_on_stats_line(tmp_path):
+    """Real MainWindow: status + Refresh live on the count line, EPG-only, wired."""
+    env = {
+        "HOME": str(tmp_path),
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(_REPO_ROOT),
+        "QT_QPA_PLATFORM": "offscreen",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", _CHILD],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-
-    # Count is on the left, Refresh on the right of the same bottom bar.
-    count_left_x = epg_view.browse_stats.mapToGlobal(
-        epg_view.browse_stats.rect().topLeft()).x()
-    refresh_left_x = epg_view.refresh_btn.mapToGlobal(
-        epg_view.refresh_btn.rect().topLeft()).x()
-    assert count_left_x < refresh_left_x, "programmes count must be left of Refresh"
-
-
-# ---------------------------------------------------------------------------
-# Wiring: refresh_btn still triggers the force-refresh handler
-# ---------------------------------------------------------------------------
-
-def test_refresh_button_still_wired_to_force_refresh(epg_view):
-    """Clicking Refresh still drives EpgManager.force_refresh_provider per source."""
-    epg_view._provider_ids = ["p1", "p2"]
-    epg_view.refresh_btn.click()
-    calls = [c.args[0] for c in epg_view.epg_manager.force_refresh_provider.call_args_list]
-    assert calls == ["p1", "p2"]
-
-
-# ---------------------------------------------------------------------------
-# Behavior: the global count blanks when leaving the Browse tab
-# ---------------------------------------------------------------------------
-
-def test_leaving_browse_tab_clears_the_programmes_count(epg_view):
-    """browse_stats is global now — switching to a non-Browse tab blanks it.
-
-    _provider_ids is empty in this fixture, so the reload triggered by the tab
-    switch short-circuits without touching the DB; only the clear runs.
-    """
-    epg_view.browse_stats.setText("123,456 programmes")
-    assert epg_view.browse_stats.text() != ""
-
-    # On Now (index 3) is not the Browse tab (index 4).
-    assert epg_view._BROWSE_TAB_INDEX == 4
-    epg_view.tab_bar.setCurrentIndex(3)   # fires _on_tab_changed(3)
-
-    assert epg_view.browse_stats.text() == ""
+    assert result.returncode == 0 and "EPG_STATS_LINE_OK" in result.stdout, (
+        f"EPG stats-line wiring failed (rc={result.returncode}).\n"
+        f"--- stdout ---\n{result.stdout[-2000:]}\n"
+        f"--- stderr ---\n{result.stderr[-3000:]}"
+    )
