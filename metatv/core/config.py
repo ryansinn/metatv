@@ -1502,6 +1502,12 @@ class Config(BaseModel):
         if not config:
             logger.info("Creating fresh default config")
             config = cls()
+            # No prior config to honor (fresh install, or an unrecoverable one): start
+            # the What's New cursor at the newest entry so first launch does NOT replay
+            # the entire historical changelog (160+ entries). Existing users with a
+            # valid config keep whatever cursor they had saved.
+            from metatv.whats_new import latest_id
+            config.last_seen_whats_new_id = latest_id()
             # Note: Don't save fresh config to backup yet — only save after successful load
             # The first save() will create the backup
 

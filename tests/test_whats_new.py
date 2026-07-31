@@ -653,3 +653,49 @@ def test_config_last_seen_id_round_trip(tmp_path):
         data = yaml.safe_load(f)
 
     assert data["last_seen_whats_new_id"] == 42
+
+
+def test_fresh_install_seeds_whats_new_cursor_to_latest(tmp_path, monkeypatch):
+    """First launch (no config file on disk) starts the What's New cursor at the
+    newest entry, so a brand-new user is NOT shown the entire historical changelog."""
+    from pathlib import Path
+    from metatv.core.config import Config
+    from metatv.whats_new import latest_id, entries_since
+
+    fresh_home = tmp_path / "fresh_home"
+    fresh_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fresh_home)
+
+    config, _recovered = Config.load()
+    assert config.last_seen_whats_new_id == latest_id(), (
+        "a fresh install must start caught-up on What's New"
+    )
+    assert entries_since(config.last_seen_whats_new_id) == [], (
+        "there should be nothing unseen to auto-show on first launch"
+    )
+
+
+def test_existing_config_preserves_whats_new_cursor(tmp_path, monkeypatch):
+    """A valid on-disk config keeps its saved cursor through load() — only a fresh
+    or unrecoverable config is seeded to latest, never an existing user's cursor."""
+    from pathlib import Path
+    import yaml
+    from metatv.core.config import Config
+    from metatv.whats_new import latest_id
+
+    home = tmp_path / "home_existing"
+    cfg_dir = home / ".config" / "metatv"
+    cfg_dir.mkdir(parents=True)
+    seed = max(0, latest_id() - 3)
+    with open(cfg_dir / "config.yaml", "w") as f:
+        yaml.safe_dump(
+            {"database_url": "sqlite:///whatsnew_test.db",
+             "last_seen_whats_new_id": seed},
+            f,
+        )
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    loaded, _recovered = Config.load()
+    assert loaded.last_seen_whats_new_id == seed, (
+        "an existing valid config must keep its saved cursor (not reseed to latest)"
+    )
