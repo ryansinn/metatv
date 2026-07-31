@@ -238,7 +238,7 @@ class _SimilarSection(QWidget):
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
         queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_ICON_BTN}")
-        queue_btn.setToolTip("Remove from Queue" if v.in_queue else "Add to Queue")
+        queue_btn.setToolTip("Remove from Watch Later" if v.in_queue else "Add to Watch Later")
 
         def _on_queue_click(_checked=False, _btn=queue_btn, _v=v):
             # _checked absorbs the bool QPushButton.clicked emits — without it
@@ -247,7 +247,7 @@ class _SimilarSection(QWidget):
             _btn.setText(_icons.watched_icon if _v.in_queue else _icons.queue_icon)
             _c = _theme.COLOR_ACCENT_BLUE if _v.in_queue else _theme.COLOR_FAINT
             _btn.setStyleSheet(f"QPushButton {{ color: {_c}; }} {_ICON_BTN}")
-            _btn.setToolTip("Remove from Queue" if _v.in_queue else "Add to Queue")
+            _btn.setToolTip("Remove from Watch Later" if _v.in_queue else "Add to Watch Later")
             self.queue_toggled.emit(_v.channel_id)
 
         queue_btn.clicked.connect(_on_queue_click)

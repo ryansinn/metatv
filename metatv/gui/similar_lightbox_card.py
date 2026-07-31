@@ -404,7 +404,7 @@ class _LightboxCard(QFrame):
         act_row.setSpacing(7)
         self._queue_btn = QPushButton()
         self._queue_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
-        self._queue_btn.setToolTip("Add to / remove from Watch Queue")
+        self._queue_btn.setToolTip("Add to / remove from Watch Later")
         self._queue_btn.clicked.connect(self.queue_clicked)
         act_row.addWidget(self._queue_btn)
         self._fav_btn = QPushButton()
@@ -502,10 +502,11 @@ class _LightboxCard(QFrame):
         self._similar_hdr_row_w.setLayout(hdr_row)
         body.addWidget(self._similar_hdr_row_w)
 
-        # Poster (174) + 2-line name + year + row margins — sized so the full mini
-        # card shows and only the horizontal scrollbar ever appears (the fixed
-        # height is reported in sizeHint so the grow-to-content parent counts it).
-        self._strip_scroll = _StripScrollArea(_SIM_H + 64)
+        # Poster (174) + 2-line name + badge meta line + state-glyph line + row
+        # margins — sized so the full mini card shows and only the horizontal
+        # scrollbar ever appears (the fixed height is reported in sizeHint so the
+        # grow-to-content parent counts it).
+        self._strip_scroll = _StripScrollArea(_SIM_H + 88)
         self._strip_scroll.setWidgetResizable(True)
         self._strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -612,7 +613,7 @@ class _LightboxCard(QFrame):
         self._like_btn.setChecked(False)
         self._dislike_btn.setChecked(False)
         self._not_interested_btn.setChecked(False)
-        self._queue_btn.setText(f"{_icons.queue_icon} Queue")
+        self._queue_btn.setText(f"{_icons.queue_icon} Watch Later")
         self._fav_btn.setText(f"{_icons.unfavorite_icon} Favorite")
 
     def show_error(self, message: str) -> None:
@@ -715,7 +716,8 @@ class _LightboxCard(QFrame):
     def _populate_actions(self, data: dict) -> None:
         in_queue = bool(data.get("in_queue"))
         self._queue_btn.setText(
-            f"{_icons.queue_icon} In Queue" if in_queue else f"{_icons.queue_icon} Queue"
+            f"{_icons.queue_icon} In Watch Later" if in_queue
+            else f"{_icons.queue_icon} Watch Later"
         )
         is_fav = bool(data.get("is_favorite"))
         self._fav_btn.setText(
@@ -788,7 +790,6 @@ class _LightboxCard(QFrame):
     def _make_sim_card(self, item: dict) -> QWidget:
         cid = item.get("id")
         name = item.get("name") or "?"
-        year = item.get("year")
 
         card = QWidget()
         col = QVBoxLayout(card)
@@ -801,7 +802,8 @@ class _LightboxCard(QFrame):
         poster_wrap.setStyleSheet(_theme.LIGHTBOX_SIM_POSTER)
         set_clickable(poster_wrap)
         poster_wrap.setToolTip(f"Preview in lightbox: {name}")
-        # Whole poster is a dive-in target (mockup: "⤢ / click a card — dive in").
+        # The whole poster is the dive-in target — no separate ⤢ button (it was
+        # redundant clutter on every card; a click anywhere on the poster dives in).
         poster_wrap.clicked.connect(lambda c=cid: self.dive_requested.emit(c))
 
         img = QLabel(poster_wrap)
@@ -811,13 +813,6 @@ class _LightboxCard(QFrame):
         img.setText(name)
         # Presses on the poster fall through to the clickable frame (dive-in).
         img.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-
-        expand = QPushButton(_icons.lightbox_icon, poster_wrap)
-        expand.setFixedSize(26, 26)
-        expand.move(_SIM_W - 32, 6)
-        expand.setStyleSheet(_theme.LIGHTBOX_SIM_EXPAND_BTN)
-        expand.setToolTip("Preview in lightbox")  # QPushButton auto-qualifies for the hand cursor
-        expand.clicked.connect(lambda _=False, c=cid: self.dive_requested.emit(c))
         col.addWidget(poster_wrap)
 
         name_lbl = QLabel(name)
@@ -826,14 +821,76 @@ class _LightboxCard(QFrame):
         name_lbl.setFixedWidth(_SIM_W)
         col.addWidget(name_lbl)
 
-        year_lbl = QLabel(str(year) if year else "")
-        year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
-        col.addWidget(year_lbl)
+        # Badge cluster — language/rating + state glyphs, mirroring the details-pane
+        # Similar rows (one shared builder for every strip card).
+        col.addWidget(self._make_sim_badges(item))
 
         url = item.get("poster_url")
         if url:
             self._poster_targets.setdefault(url, []).append(img)
         return card
+
+    def _make_sim_badges(self, item: dict) -> QWidget:
+        """Build a strip card's badge cluster from the fields the overlay threads in.
+
+        A meta line (language/region + rating ★N, year on the right) sits above a
+        state-glyph line showing only the ACTIVE states — liked (👍), in Watch Later
+        (📋), favorited (★), watched (green ✓) — the same set the details-pane Similar
+        rows carry.  Each glyph pairs a distinct SHAPE with a tooltip, so state is
+        never conveyed by colour alone.
+        """
+        wrap = QWidget()
+        wrap.setFixedWidth(_SIM_W)
+        box = QVBoxLayout(wrap)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(1)
+
+        # Meta line: language/region + rating (left), year (right).
+        meta = QHBoxLayout()
+        meta.setContentsMargins(0, 0, 0, 0)
+        meta.setSpacing(6)
+        lang = (item.get("lang") or "").strip()
+        if lang:
+            lang_lbl = QLabel(lang)
+            lang_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_LANG)
+            lang_lbl.setToolTip(f"Language / region: {lang}")
+            meta.addWidget(lang_lbl)
+        rating = item.get("rating")
+        if rating:
+            star = QLabel(f"{_icons.rating_star_icon}{rating}")
+            star.setStyleSheet(_theme.LIGHTBOX_SIM_RATING)
+            star.setToolTip(f"Rating: {rating}")
+            meta.addWidget(star)
+        meta.addStretch()
+        year = item.get("year")
+        year_lbl = QLabel(str(year) if year else "")
+        year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
+        meta.addWidget(year_lbl)
+        box.addLayout(meta)
+
+        # State-glyph line: only the active states (distinct shape + tooltip each).
+        glyphs = QHBoxLayout()
+        glyphs.setContentsMargins(0, 0, 0, 0)
+        glyphs.setSpacing(5)
+        for present, glyph, style, tip in (
+            (item.get("user_rating") == 1, _icons.like_icon,
+             _theme.LIGHTBOX_SIM_GLYPH_LIKE, "You liked this"),
+            (bool(item.get("in_queue")), _icons.queue_icon,
+             _theme.LIGHTBOX_SIM_GLYPH_QUEUE, "In Watch Later"),
+            (bool(item.get("is_favorite")), _icons.favorite_icon,
+             _theme.LIGHTBOX_SIM_GLYPH_FAV, "In Favorites"),
+            (bool(item.get("watched")), _icons.watched_icon,
+             _theme.LIGHTBOX_SIM_GLYPH_WATCHED, "Watched"),
+        ):
+            if present:
+                g = QLabel(glyph)
+                g.setStyleSheet(style)
+                g.setToolTip(tip)
+                glyphs.addWidget(g)
+        glyphs.addStretch()
+        box.addLayout(glyphs)
+
+        return wrap
 
     # ------------------------------------------------------------------ #
     # Poster image seam (overlay owns the ImageCache)                      #

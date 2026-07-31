@@ -109,7 +109,12 @@ OVERLAY_10 = "rgba(255,255,255,0.10)"
 OVERLAY_15 = "rgba(255,255,255,0.15)"
 OVERLAY_18 = "rgba(255,255,255,0.18)"
 OVERLAY_40 = "rgba(255,255,255,0.40)"   # frosted-light fill — poster rail button (rest)
-OVERLAY_55 = "rgba(255,255,255,0.55)"   # frosted-light fill — poster rail button (hover/on)
+OVERLAY_55 = "rgba(255,255,255,0.55)"   # frosted-light fill — poster rail button (hover)
+# COLOR_ACCENT (#2288dd → rgb 34,136,221) tints — the SELECTED (:checked) fill for
+# detail-rail toggle buttons, so an ON rail button reads as accent, NOT the frosted
+# white of :hover (which used to be identical, making selection nearly invisible).
+OVERLAY_ACCENT_35 = "rgba(34,136,221,0.35)"   # detail-rail :checked fill
+OVERLAY_ACCENT_50 = "rgba(34,136,221,0.50)"   # brighter — detail-rail :checked:hover fill
 OVERLAY_POPUP = "rgba(40,40,50,0.97)"   # opaque popup surface (icon palette)
 # Blue (COLOR_ACCENT_BLUE) tints
 OVERLAY_BLUE_10 = "rgba(68,136,255,0.1)"
@@ -325,14 +330,21 @@ RATING_BTN = (
 # vertical rail left of the poster (favorite/play/queue/sentiment/alert/watchlist/
 # hide).  State is conveyed via :checked + icon-swap + tooltip (no text labels), so
 # all rail buttons read uniformly as distinct interactive targets.
+# :checked reads as the ACCENT (accent-tint fill + accent border + bright text) — a
+# fill AND border change, unmistakably ON — modelled on NAV_TOGGLE_BTN. It used to
+# reuse OVERLAY_55, which EQUALS :hover, so a selected rating/like/queue looked all
+# but identical to an unselected one.  The explicit :checked:hover keeps the accent
+# when a selected button is hovered (a bare :hover would otherwise win and revert it).
 DETAIL_RAIL_BTN = (
     "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
     " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_40 + ";"
     " color: " + COLOR_DIM + "; }"
-    "QPushButton:checked { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT_HI + ";"
-    " border-color: " + COLOR_DIM + "; }"
+    "QPushButton:checked { background: " + OVERLAY_ACCENT_35 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_ACCENT + "; }"
     "QPushButton:hover { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT + ";"
     " border-color: " + COLOR_DIM + "; }"
+    "QPushButton:checked:hover { background: " + OVERLAY_ACCENT_50 + "; color: " + COLOR_TEXT_HI + ";"
+    " border-color: " + COLOR_ACCENT_HOVER + "; }"
 )
 
 # Alert/monitor rail button — inactive reads like a normal rail button; active
@@ -1303,20 +1315,26 @@ def lightbox_version_row(accent_color: str = "") -> str:
         "QPushButton { border-left: 3px solid " + accent_color + "; }"
     )
 
-# Similar-strip mini card (used N×) — poster, ⤢ preview button, name, year.
+# Similar-strip mini card (used N×) — poster (whole card dives in), name, year.
 LIGHTBOX_SIM_POSTER = (
     "#lightbox_sim_poster { background: " + COLOR_BG_DEEP + "; border-radius: 8px;"
     " border: 1px solid " + COLOR_BORDER + "; color: " + COLOR_TEXT + ";"
     " font-size: " + FONT_MD + "; }"
 )
-LIGHTBOX_SIM_EXPAND_BTN = (
-    "QPushButton { background: " + OVERLAY_BLACK_65 + "; color: " + COLOR_TEXT_HI + ";"
-    " border: 1px solid " + COLOR_BORDER + "; border-radius: 7px; font-size: " + FONT_2XL + "; }"
-    "QPushButton:hover { background: " + COLOR_ACCENT + "; color: " + COLOR_TEXT_HI + ";"
-    " border-color: " + COLOR_ACCENT + "; }"
-)
 LIGHTBOX_SIM_NAME = "color: " + COLOR_TEXT + "; font-size: " + FONT_LG + ";"
 LIGHTBOX_SIM_YEAR = "color: " + COLOR_FAINT + "; font-size: " + FONT_MD + ";"
+
+# Similar-strip mini-card badge cluster — a compact meta line (language/region +
+# rating) above a state-glyph line (liked / in Watch Later / favorited / watched),
+# mirroring the badges the details-pane Similar rows show.  Colours match those
+# surfaces (blue like/queue, gold favorite/rating, green watched); each glyph also
+# carries a tooltip, so state is never conveyed by colour alone.
+LIGHTBOX_SIM_LANG          = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";"
+LIGHTBOX_SIM_RATING        = "color: " + COLOR_GOLD + "; font-size: " + FONT_MD + "; font-weight: bold;"
+LIGHTBOX_SIM_GLYPH_LIKE    = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
+LIGHTBOX_SIM_GLYPH_QUEUE   = "color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_MD + ";"
+LIGHTBOX_SIM_GLYPH_FAV     = "color: " + COLOR_GOLD + "; font-size: " + FONT_MD + ";"
+LIGHTBOX_SIM_GLYPH_WATCHED = "color: " + COLOR_OK + "; font-size: " + FONT_MD + ";"
 
 # Footer keyboard-hint kbd chip (used N×).
 LIGHTBOX_KBD = (

@@ -131,7 +131,7 @@ def test_queue_action_has_non_null_icon(qapp):
 
     ctx = _single_ctx()
     menu = build_channel_menu(ctx, _all_single_handlers(), parent=None)
-    act = _action_by_fragment(menu, "Queue")
+    act = _action_by_fragment(menu, "Watch Later")
     assert act is not None, "Queue action must be present"
     assert not act.icon().isNull(), "Queue action icon must not be null"
 
@@ -195,7 +195,7 @@ def test_action_label_text_does_not_contain_icon_glyph(qapp):
         f"play_icon glyph must not appear in label text; got {play_act.text()!r}"
     )
 
-    queue_act = _action_by_fragment(menu, "Queue")
+    queue_act = _action_by_fragment(menu, "Watch Later")
     assert queue_act is not None
     assert _icons.queue_icon not in queue_act.text(), (
         f"queue_icon glyph must not appear in label text; got {queue_act.text()!r}"
@@ -260,13 +260,13 @@ def test_multi_select_includes_bulk_favorite(qapp):
 
 
 def test_multi_select_includes_bulk_queue(qapp):
-    """Multi-select menu must include an 'Add to Queue' bulk action."""
+    """Multi-select menu must include an 'Add to Watch Later' bulk action."""
     from metatv.gui.channel_menu import build_channel_menu
 
     ctx = _multi_ctx()
     handlers = {"bulk_queue": lambda: None}
     menu = build_channel_menu(ctx, handlers, parent=None)
-    act = _action_by_fragment(menu, "Add to Queue")
+    act = _action_by_fragment(menu, "Add to Watch Later")
     assert act is not None, "bulk_queue must appear in multi-select menu"
 
 

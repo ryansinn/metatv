@@ -563,7 +563,9 @@ class _VersionSection(QWidget):
 
         fav_act = menu.addAction("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_act.setIcon(_glyph_icon(_icons.unfavorite_icon if v.is_favorite else _icons.favorite_icon))
-        queue_act = menu.addAction("Remove from Queue" if v.in_queue else "Add to Queue")
+        queue_act = menu.addAction(
+            "Remove from Watch Later" if v.in_queue else "Add to Watch Later"
+        )
         queue_act.setIcon(_glyph_icon(_icons.queue_icon))
         if not v.is_inactive:
             hide_act = menu.addAction(f"Hide this {prefix} version")

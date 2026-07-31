@@ -9,8 +9,8 @@ Covers three reported gaps:
    seam targets ("recommended") actually builds a populated menu.
 
 2. The details-pane "Also available as" version chip menu must label its queue
-   action by queue state — "Remove from Queue" when the variant is queued,
-   "Add to Queue" otherwise (flag 02bb5b62).  We drive the real
+   action by queue state — "Remove from Watch Later" when the variant is queued,
+   "Add to Watch Later" otherwise (flag 02bb5b62).  We drive the real
    ``_VersionSection._show_version_chip_menu`` with ``QMenu.exec`` stubbed so the
    menu is built but not shown, then inspect the action labels.
 
@@ -147,30 +147,30 @@ def _capture_version_chip_menu_labels(monkeypatch, section, version) -> list[str
 
 
 def test_version_chip_menu_says_remove_when_queued(qapp, monkeypatch):
-    """When the variant is already queued, the chip menu offers 'Remove from Queue'."""
+    """When the variant is already queued, the chip menu offers 'Remove from Watch Later'."""
     section = _VersionSection(_version_config())
     v = ChannelVersion(
         channel_id="v1", name="Movie X", in_queue=True, detected_prefix="US"
     )
     texts = _capture_version_chip_menu_labels(monkeypatch, section, v)
-    assert any("Remove from Queue" in t for t in texts), (
-        f"Queued variant should show 'Remove from Queue', got: {texts}"
+    assert any("Remove from Watch Later" in t for t in texts), (
+        f"Queued variant should show 'Remove from Watch Later', got: {texts}"
     )
-    assert not any(t.strip() == "Add to Queue" for t in texts), (
-        f"Queued variant must NOT show 'Add to Queue', got: {texts}"
+    assert not any(t.strip() == "Add to Watch Later" for t in texts), (
+        f"Queued variant must NOT show 'Add to Watch Later', got: {texts}"
     )
 
 
 def test_version_chip_menu_says_add_when_not_queued(qapp, monkeypatch):
-    """When the variant is not queued, the chip menu offers 'Add to Queue'."""
+    """When the variant is not queued, the chip menu offers 'Add to Watch Later'."""
     section = _VersionSection(_version_config())
     v = ChannelVersion(
         channel_id="v2", name="Movie Y", in_queue=False, detected_prefix="US"
     )
     texts = _capture_version_chip_menu_labels(monkeypatch, section, v)
-    assert any("Add to Queue" in t for t in texts), (
-        f"Unqueued variant should show 'Add to Queue', got: {texts}"
+    assert any("Add to Watch Later" in t for t in texts), (
+        f"Unqueued variant should show 'Add to Watch Later', got: {texts}"
     )
-    assert not any("Remove from Queue" in t for t in texts), (
-        f"Unqueued variant must NOT show 'Remove from Queue', got: {texts}"
+    assert not any("Remove from Watch Later" in t for t in texts), (
+        f"Unqueued variant must NOT show 'Remove from Watch Later', got: {texts}"
     )
