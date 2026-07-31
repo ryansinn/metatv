@@ -2393,20 +2393,17 @@ class ChannelRepository(_ChannelStatsMixin):
             q = q.filter(~ChannelDB.provider_id.in_(excluded))
         # Global Filter (Exclusions): the same language/category blacklist Discover
         # applies, so a globally-excluded language never leaks into any of the three
-        # Similar surfaces.  The excluded set comes from the shared filter_utils
-        # resolvers (single source of truth for the DATA); the SQL is applied with the
-        # canonical _apply_prefix_filter predicate.  config=None or paused → no-op.
-        if config is not None and not getattr(config, "global_filter_paused", False):
-            from metatv.core.filter_utils import (
-                get_active_category_filter, get_excluded_prefixes,
-            )
+        # Similar surfaces.  The excluded set comes from the shared
+        # get_effective_excluded_prefixes chokepoint (category exclusions ∪ explicit
+        # "Block [PREFIX]" codes, pause-aware) so Similar and Recommendations can never
+        # drift apart; the SQL is applied with the canonical _apply_prefix_filter
+        # predicate.  config=None or paused → the helper returns (None, True) → no-op.
+        if config is not None:
+            from metatv.core.filter_utils import get_effective_excluded_prefixes
             from metatv.core.discovery_engine import _apply_prefix_filter
 
-            cat_excluded, include_uncategorized = get_active_category_filter(config)
-            excluded_prefixes = set(cat_excluded or []) | get_excluded_prefixes(config)
-            q = _apply_prefix_filter(
-                q, list(excluded_prefixes) or None, include_uncategorized
-            )
+            gf_excluded, gf_include_uncat = get_effective_excluded_prefixes(config)
+            q = _apply_prefix_filter(q, gf_excluded, gf_include_uncat)
         candidates = q.limit(_SIMILAR_CANDIDATE_SCAN).all()
 
         threshold = max(1, len(words) // 2)

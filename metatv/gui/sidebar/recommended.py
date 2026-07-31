@@ -78,10 +78,14 @@ class RecommendedSection(CollapsibleSection):
         from metatv.core.preference_engine import (
             compute_weights, score_candidates, record_impressions, version_score,
         )
-        from metatv.core.filter_utils import get_active_category_filter
+        from metatv.core.filter_utils import get_effective_excluded_prefixes
         from metatv.core.database import MetadataDB
         from metatv.core.repositories import RepositoryFactory
-        excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
+        # Global Filter (Exclusions): recommendations honor the SAME blacklist Discover
+        # and Similar do — the category exclusions PLUS the explicit "Block [PREFIX]"
+        # codes (where a per-language block like DE/PL lands), pause-aware. Resolved
+        # through the shared chokepoint so no surface can drift from the others.
+        excluded_prefixes, include_uncategorized = get_effective_excluded_prefixes(self.config)
         _config = self.config
         session = self.db.get_session()
         try:

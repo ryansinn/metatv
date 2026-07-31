@@ -232,6 +232,32 @@ def get_active_category_filter(config) -> tuple[list[str] | None, bool]:
     return (prefixes if prefixes else None), include_uncategorized
 
 
+def get_effective_excluded_prefixes(config) -> tuple[list[str] | None, bool]:
+    """Resolve the FULL Global-Filter prefix blacklist a forward-looking surface hides.
+
+    Single source of truth for "which language/category prefixes must a discovery
+    surface (Recommendations, Similar/Explore, …) drop." Unions BOTH resolvers:
+
+    * the category blacklist (:func:`get_active_category_filter`), and
+    * the explicit "Block [PREFIX]" codes (:func:`get_excluded_prefixes`) — where a
+      per-language block (e.g. DE/PL) lands.
+
+    Pause-aware: :func:`get_active_category_filter` self-pauses, but
+    :func:`get_excluded_prefixes` does NOT, so the union must be guarded here or a
+    blocked prefix would leak while the Global Filter is paused. ``config=None`` and
+    a paused config both resolve to ``(None, True)`` — i.e. no filtering.
+
+    Returns:
+        (excluded_prefixes_or_None, include_uncategorized) — feed straight into
+        ``discovery_engine._apply_prefix_filter`` or ``score_candidates``.
+    """
+    cat_excluded, include_uncategorized = get_active_category_filter(config)
+    if getattr(config, "global_filter_paused", False):
+        return None, include_uncategorized
+    excluded = set(cat_excluded or []) | get_excluded_prefixes(config)
+    return (list(excluded) or None), include_uncategorized
+
+
 def get_active_content_type_filter(config) -> list[str] | None:
     """Resolve excluded content types → raw source_category labels to hide.
 
