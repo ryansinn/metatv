@@ -297,7 +297,8 @@ class ProviderEditorView(QWidget):
 
     done = pyqtSignal()                     # user clicked "Done" — exit editor mode
     provider_saved = pyqtSignal(str)        # provider_id saved
-    provider_deleted = pyqtSignal(str)      # provider_id deleted
+    provider_deleted = pyqtSignal(str)      # provider_id deleted (finished — kept for compatibility)
+    provider_delete_requested = pyqtSignal(str)  # provider_id — user confirmed delete; MainWindow runs the purge off-thread
     refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
 
@@ -1200,6 +1201,16 @@ class ProviderEditorView(QWidget):
             self.load_provider(self._provider_id, force=True)
 
     def _delete_provider(self):
+        """Confirm the delete, then hand it to MainWindow to run OFF the UI thread.
+
+        The purge (``prune_provider_content`` over hundreds of thousands of rows)
+        must not run on the Qt main thread — doing so froze the app ("Not
+        Responding") for minutes on a large DB.  We keep the confirmation modal
+        here (it needs a parent widget), then emit ``provider_delete_requested`` so
+        the MainWindow owner submits the purge to its shared executor and refreshes
+        the dependent views on completion (the "provider mutations funnel through
+        MainWindow" rule).  The finished side clears the editor.
+        """
         if not self._provider_id:
             return
         session = self.db.get_session()
@@ -1217,17 +1228,8 @@ class ProviderEditorView(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            with self.db.session_scope() as session:
-                deleted = RepositoryFactory(session).providers.delete(self._provider_id)
-            if deleted:
-                pid = self._provider_id
-                self._provider_id = None
-                self._set_fields_enabled(False)
-                self.provider_deleted.emit(pid)
-        except Exception as e:
-            logger.error(f"Failed to delete provider: {e}")
-            QMessageBox.critical(self, "Delete Failed", str(e))
+        # Hand off to the MainWindow owner — it runs the purge off-thread.
+        self.provider_delete_requested.emit(self._provider_id)
 
     def _test_connection(self):
         """Test ALL configured URLs in parallel, then reorder by response time."""
