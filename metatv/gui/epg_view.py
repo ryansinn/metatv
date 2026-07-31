@@ -73,6 +73,10 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
     play_channel_requested = pyqtSignal(object)  # ChannelDB
     watchlist_changed = pyqtSignal()             # patterns or channels modified
 
+    # Stack/tab index of the Browse tab — the only tab that populates the global
+    # bottom-bar programmes count (browse_stats); every other tab blanks it.
+    _BROWSE_TAB_INDEX = 4
+
     # Internal thread-safe signals
     _data_loaded = pyqtSignal(object)  # payload dict keyed by tab
 
@@ -122,21 +126,17 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         root.setSpacing(0)
 
         # ── Header ─────────────────────────────────────────────────────
-        # Two stacked rows so the long status text + Refresh button no longer
-        # share the tab row — that combination ate ~500px and forced the QTabBar
-        # into a ‹ › overflow-scroll state, hiding tabs.  Row 1 gives the tab bar
-        # the full header width; row 2 is a slim right-aligned status/refresh line
-        # underneath it.
+        # A single row: the tab bar owns the full header width so every tab
+        # fits without a ‹ › overflow-scroll state.  The source-freshness status
+        # text + Refresh button no longer live here — they moved to a persistent
+        # global bottom bar (built below), which also carries the Browse
+        # programmes count.
         header_widget = QWidget()
         header_widget.setObjectName("epgHeader")
-        header_layout = QVBoxLayout(header_widget)
+        header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(6)
+        header_layout.setSpacing(8)
 
-        # Row 1: tab bar spans the full header width (trailing stretch keeps tabs left)
-        tab_row = QHBoxLayout()
-        tab_row.setContentsMargins(0, 0, 0, 0)
-        tab_row.setSpacing(8)
         self.tab_bar = QTabBar()
         self.tab_bar.addTab(f"{self.config.watchlist_icon} Watchlist")      # 0
         self.tab_bar.addTab(f"{self.config.series_icon} My Channels")      # 1
@@ -146,30 +146,16 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self.tab_bar.addTab(f"{self.config.hide_icon} Manage")             # 5
         self.tab_bar.addTab(f"{_icons.events_icon} Events")                # 6
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
-        tab_row.addWidget(self.tab_bar)
-        tab_row.addStretch()
-        header_layout.addLayout(tab_row)
-
-        # Row 2: slim right-aligned status + Refresh line, under the tabs
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.setSpacing(8)
-        status_row.addStretch()
-
-        # Status label
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        status_row.addWidget(self.status_label)
-
-        # Refresh button
-        self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
-        self.refresh_btn.setToolTip("Refresh EPG data from all providers")
-        self.refresh_btn.clicked.connect(self._on_force_refresh)
-        status_row.addWidget(self.refresh_btn)
-
-        header_layout.addLayout(status_row)
+        header_layout.addWidget(self.tab_bar)
+        header_layout.addStretch()
 
         root.addWidget(header_widget)
+
+        # browse_stats is a GLOBAL bottom-bar label now (relocated out of the
+        # Browse tab page), but it must exist before _build_browse_tab / any
+        # _render_browse runs — create it here, park it in the bottom bar below.
+        self.browse_stats = QLabel("")
+        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
 
         # Thin separator
         sep = QFrame()
@@ -198,6 +184,35 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._build_browse_tab()      # stack 4
         self._build_hidden_tab()      # stack 5
         self._build_events_tab()      # stack 6
+
+        # ── Global bottom bar ───────────────────────────────────────────
+        # A persistent line under the stack, shown on EVERY tab: the Browse
+        # programmes count sits on the left, the source-freshness status text +
+        # Refresh button are right-aligned.  Keeping status/Refresh here (not in
+        # the tab header) frees the whole header width for the tab bar, and keeps
+        # Refresh reachable from every tab — not just Browse.
+        bottom_bar = QWidget()
+        bottom_bar.setObjectName("epgBottomBar")
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(12, 6, 12, 6)
+        bottom_layout.setSpacing(8)
+
+        # Left: Browse programmes count (blank on non-Browse tabs).
+        bottom_layout.addWidget(self.browse_stats)
+        bottom_layout.addStretch()
+
+        # Right: source-freshness status text.
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        bottom_layout.addWidget(self.status_label)
+
+        # Right: Refresh button.
+        self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
+        self.refresh_btn.setToolTip("Refresh EPG data from all providers")
+        self.refresh_btn.clicked.connect(self._on_force_refresh)
+        bottom_layout.addWidget(self.refresh_btn)
+
+        root.addWidget(bottom_bar)
 
     # ── Tab 3: Hidden ──────────────────────────────────────────────────
 
@@ -572,6 +587,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
     def _on_tab_changed(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        # browse_stats now lives in the GLOBAL bottom bar; only the Browse tab
+        # populates it, so blank it whenever we leave Browse (Refresh + status
+        # stay visible on every tab).
+        if index != self._BROWSE_TAB_INDEX:
+            self.browse_stats.setText("")
         self._reload_all()
 
     def _host(self):

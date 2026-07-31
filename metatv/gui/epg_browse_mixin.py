@@ -221,9 +221,10 @@ class _EpgBrowseMixin:
         self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         layout.addWidget(self.browse_placeholder)
 
-        self.browse_stats = QLabel("")
-        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
-        layout.addWidget(self.browse_stats)
+        # browse_stats (the "###,### programmes" count) is no longer on this page —
+        # it moved to EpgView's persistent GLOBAL bottom bar so status + Refresh
+        # stay visible on every tab.  EpgView creates/owns the label in _setup_ui
+        # (before this build runs); _render_browse still sets/clears it by attribute.
 
         self.stack.addWidget(page)
 
