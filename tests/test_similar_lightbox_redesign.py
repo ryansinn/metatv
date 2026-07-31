@@ -51,6 +51,24 @@ def _fake_config():
     )
 
 
+def _fake_metadata_manager(result=None):
+    """A stand-in MetadataManager whose async ``get_metadata`` returns *result*.
+
+    The lightbox now enriches the main card through this seam; these display/scoping
+    tests don't exercise the fetched fields, so the default returns ``None`` (the
+    "no rich metadata" path). ``.calls`` records each channel id fetched.
+    """
+    class _FakeMM:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def get_metadata(self, channel_id, force_refresh=False):
+            self.calls.append(channel_id)
+            return result
+
+    return _FakeMM()
+
+
 def _make_provider(session, pid: str, *, is_active: bool = True, exp=None):
     from metatv.core.database import ProviderDB
     session.add(ProviderDB(
@@ -100,6 +118,7 @@ def _lightbox_for(db):
     lb = SimilarTitleLightbox.__new__(SimilarTitleLightbox)
     lb._db = db
     lb._config = _fake_config()
+    lb._metadata_manager = _fake_metadata_manager()
     lb._data_ready = _FakeSignal()
     lb._calls = calls
     return lb
@@ -315,7 +334,9 @@ class TestOverlayEndToEnd:
         parent.resize(1400, 900)
         parent.show()   # _apply_data guards on isVisible() — the overlay needs a shown ancestor
         ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
-        lb = SimilarTitleLightbox(parent, _fake_config(), ic, db)
+        lb = SimilarTitleLightbox(
+            parent, _fake_config(), ic, db, _fake_metadata_manager()
+        )
         try:
             lb.show_preview(["ch-o"], 0, "12 Monos LATINO")
             lb._executor.shutdown(wait=True)   # let _bg_load finish
