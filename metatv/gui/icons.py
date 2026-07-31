@@ -26,6 +26,7 @@ dislike_icon: str = "👎"
 not_interested_icon: str = "🙅"
 curious_icon: str = "❓"
 watched_icon: str = "✓"
+unwatched_icon: str = "○"   # U+25CB WHITE CIRCLE — poster "mark watched" corner badge, unwatched state
 # Channel-list playback-state separator — the fixed "·" slot between the leading
 # icons/tags and the title becomes a 3-state indicator (see playback_state_glyph).
 # SHAPE carries the meaning (dot vs play-triangle vs check); colour (applied by the
@@ -124,6 +125,14 @@ zoom_poster_icon: str = "⤢"   # U+2922 — diagonal arrow; "click to enlarge" 
 # zoom_poster_icon).  DELIBERATELY DISTINCT in name/meaning from ``expand_icon`` (the
 # collapsible caret ">"): this opens the preview overlay, it does not expand a section.
 lightbox_icon: str = "⤢"
+
+# Explore trail-map (cascading-columns adjacency browser opened from the lightbox).
+# Compass = "lateral exploration / walk the adjacency trail" — DELIBERATELY DISTINCT
+# from ``discover_icon`` (✨ = the global browse) and ``lightbox_icon`` (⤢ = preview).
+explore_icon: str = "🧭"   # U+1F9ED COMPASS
+# Trail-map row chevron — "expand this stop into the next column". Reuses the single
+# right-angle-quote family (nav_next), NOT the collapsible ">" caret (expand_icon).
+trail_expand_icon: str = "›"   # U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
 
 # What's New
 whats_new_icon: str = "✦"   # U+2726 BLACK FOUR POINTED STAR — monochrome, menu + dialog header

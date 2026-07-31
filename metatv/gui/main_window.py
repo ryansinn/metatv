@@ -592,11 +592,32 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._lightbox.hide_requested.connect(self._on_hide_from_details_pane)
         self._lightbox.rating_requested.connect(self._toggle_rating)
         self._lightbox.suppression_requested.connect(self._on_suppression_requested)
+        self._lightbox.explore_requested.connect(self._show_trail_map)
 
         # Poster lightbox — full-res image overlay, hidden by default
         from metatv.gui.poster_lightbox import PosterLightbox
         self._poster_lightbox = PosterLightbox(self)
         self.details_pane.poster_enlarged.connect(self._poster_lightbox.show_pixmap)
+
+        # Explore trail-map — cascading-columns adjacency browser (opened from the
+        # lightbox's Explore button; seeded with the walked nav trail).  Relays the
+        # same per-title intents to the existing host handlers the lightbox/details
+        # pane use (single chokepoint per action).
+        from metatv.gui.trail_map_view import TrailMapView
+        self._trail_map = TrailMapView(
+            self, self.config, self.image_cache, self.db, self.metadata_manager
+        )
+        self._trail_map.play_requested.connect(self.play_channel_by_id)
+        self._trail_map.resume_requested.connect(self.play_channel_resume_by_id)
+        self._trail_map.queue_toggled.connect(self._on_details_queue_toggle)
+        self._trail_map.favorite_toggled.connect(self.toggle_favorite_by_id)
+        self._trail_map.rating_requested.connect(self._toggle_rating)
+        self._trail_map.suppression_requested.connect(self._on_suppression_requested)
+        self._trail_map.watched_toggled.connect(self._on_details_watched_toggled)
+        self._trail_map.open_details_requested.connect(self._on_trail_open_details)
+        self._trail_map.recipe_requested.connect(self._on_trail_recipe_requested)
+        self._trail_map.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
+        self._register_cleanable("trail_map", self._trail_map.shutdown)
 
         # Center panel gets all extra space when window is resized
         self.main_splitter.setStretchFactor(0, 0)  # sidebar: fixed
@@ -1759,6 +1780,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self._lightbox.resize(self.size())
         if hasattr(self, '_poster_lightbox') and self._poster_lightbox.isVisible():
             self._poster_lightbox.resize(self.size())
+        if hasattr(self, '_trail_map') and self._trail_map.isVisible():
+            self._trail_map.resize(self.size())
 
     def _show_similar_lightbox(
         self,
@@ -1768,6 +1791,37 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     ) -> None:
         self._lightbox.resize(self.size())
         self._lightbox.show_preview(channel_ids, index, origin_title)
+
+    def _show_trail_map(self, seed_ids: list) -> None:
+        """Open the Explore trail-map seeded with the lightbox's walked trail.
+
+        The lightbox is dismissed so the trail-map is the single active surface;
+        both are overlays over the same window.
+        """
+        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
+            self._lightbox.hide()
+        self._trail_map.resize(self.size())
+        self._trail_map.open(list(seed_ids))
+
+    def _on_trail_open_details(self, channel_id: str) -> None:
+        """"Open in details" from the trail-map — dismiss the overlays, jump the pane."""
+        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
+            self._lightbox.hide()
+        self.show_channel_details_by_id(channel_id)
+
+    def _on_trail_recipe_requested(self, channel_id: str) -> None:
+        """"Make recipe" from the trail-map — open the Recipe builder.
+
+        First cut: dismiss the overlays and switch to the Recipe view.  Seeding the
+        pantry from *channel_id*'s genres/tags is a follow-up (the intent already
+        carries the id, so the wiring is in place).
+        """
+        if hasattr(self, '_lightbox') and self._lightbox.isVisible():
+            self._lightbox.hide()
+        if hasattr(self, '_trail_map') and self._trail_map.isVisible():
+            self._trail_map.hide()
+        if hasattr(self, "switch_to_recipe_view"):
+            self.switch_to_recipe_view()
     
     def show_test_notification(self):
         """Show a test notification (for development)"""
