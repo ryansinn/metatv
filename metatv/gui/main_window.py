@@ -1992,6 +1992,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             return
         self._whats_new_checked = True
 
+        # In dev/QA mode the app is launched to exercise features, not to greet the
+        # user — and the harness routinely runs a fresh isolated config (last_seen=0)
+        # that would replay the ENTIRE historical changelog every launch. Skip the
+        # auto-dialog under METATV_DEV (the Help ▸ What's New menu still works).
+        if _dev_mode_enabled():
+            return
+
         unseen = self._whats_new_unseen()
         if not unseen:
             return
