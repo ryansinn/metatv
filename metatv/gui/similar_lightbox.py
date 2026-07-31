@@ -185,6 +185,7 @@ class SimilarTitleLightbox(QWidget):
         primitives here).
         """
         from metatv.core.database import ChannelDB, MetadataDB, ProviderDB
+        from metatv.core.discovery_engine import channel_thumbnail
         from metatv.core.repositories import RepositoryFactory
         from metatv.core.repositories.provider import parse_provider_urls
 
@@ -221,11 +222,12 @@ class SimilarTitleLightbox(QWidget):
                 # Similar titles — canonical scoped chokepoint (shared with the
                 # details-pane row): owns candidate selection, content_key dedup and
                 # the visibility gate. PERF GUARD: the strip stays lightweight — name/
-                # year from channel fields, poster from the STORED MetadataDB row if
-                # present else a placeholder. We deliberately do NOT call
-                # get_metadata for the (up to 12) strip items — 12 on-demand network
-                # fetches per open would make browsing janky. Only the MAIN card is
-                # enriched on demand.
+                # year from channel fields and the poster resolved ZERO-NETWORK from
+                # the channel's own provider data via ``channel_thumbnail`` (the same
+                # resolver Discover cards use), falling back to the stored MetadataDB
+                # row. We deliberately do NOT call get_metadata for the (up to 12)
+                # strip items — 12 on-demand network fetches per open would make
+                # browsing janky. Only the MAIN card is enriched on demand.
                 similar: list[dict] = []
                 for c in repos.channels.get_similar_channels(
                     channel_id, excluded_provider_ids=hidden, limit=12, config=self._config,
@@ -237,7 +239,7 @@ class SimilarTitleLightbox(QWidget):
                         "id": c.id,
                         "name": c.detected_title or c.name,
                         "year": (c_meta.year if c_meta else None) or c.detected_year,
-                        "poster_url": c_meta.poster_url if c_meta else None,
+                        "poster_url": channel_thumbnail(c) or (c_meta.poster_url if c_meta else None),
                         "media_type": c.media_type or "",
                     })
 

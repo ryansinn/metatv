@@ -96,7 +96,14 @@ def _raw_year(channel) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _thumbnail(channel) -> str | None:
+def channel_thumbnail(channel) -> str | None:
+    """Resolve a channel's poster/thumbnail URL from its own stored provider data.
+
+    Canonical, zero-network resolver (single chokepoint): reads the poster the
+    provider shipped in ``raw_data`` (``stream_icon``/``cover``). Shared by the
+    Discover cards and the Similar-Titles lightbox strip so both surface the same
+    poster without an on-demand metadata fetch.
+    """
     rd = channel.raw_data or {}
     url = (rd.get("stream_icon") or rd.get("cover") or "").strip()
     if not url:
@@ -143,7 +150,7 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
         channel_id=channel.id,
         title=title,
         media_type=channel.media_type,
-        thumbnail_url=_thumbnail(channel),
+        thumbnail_url=channel_thumbnail(channel),
         rating=_r if 0 < _r < 10 else None,
         year=_raw_year(channel),
         genre=_primary_genre(channel),

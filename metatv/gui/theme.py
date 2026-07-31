@@ -1231,7 +1231,6 @@ LIGHTBOX_PLAY_ORB = (
     " border: none; border-radius: 26px; background: " + COLOR_ACCENT_HOVER + "; }"
     "QPushButton:hover { background: " + COLOR_ACCENT_BLUE_2 + "; }"
 )
-LIGHTBOX_PLAYER_TAG = "color: " + COLOR_ACCENT_PURPLE + "; font-size: " + FONT_SM + ";"
 
 # Primary Play button under the poster (filled accent, dark text).
 LIGHTBOX_PLAY_PRIMARY = (
@@ -1275,33 +1274,32 @@ LIGHTBOX_SECTION_HDR = (
 )
 LIGHTBOX_PLOT = "color: " + COLOR_TEXT + "; font-size: " + FONT_XL + ";"
 LIGHTBOX_CAST = "color: " + COLOR_MUTED + "; font-size: " + FONT_LG + ";"
-# Green "✓ disabled & expired sources excluded" scope note (paired with the ✓ glyph).
-LIGHTBOX_SCOPED_NOTE = "color: " + COLOR_OK + "; font-size: " + FONT_MD + ";"
 
-# Other Versions chip button (used N×) — a COMPACT pill in the hero's upper-right
-# showing only the distinguishing token (quality/region/prefix) plus an optional
-# source-icon glyph; the full "<name> · <source>" lives in the tooltip. Click dives
-# to that variant. A runtime provider colour (``ProviderDB.color``) may be injected
-# as a left-border source badge in code (``LIGHTBOX_VERSION_CHIP_ACCENT`` — same
-# runtime-data pattern as the sidebar source labels); never a colour literal here.
-LIGHTBOX_VERSION_CHIP = (
-    "QPushButton { background: " + COLOR_BG_DEEP + "; color: " + COLOR_TEXT + ";"
-    " border: 1px solid " + COLOR_LINE + "; border-radius: 6px; padding: 2px 8px;"
-    " font-size: " + FONT_MD + "; font-weight: bold; }"
-    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; border-color: " + COLOR_ACCENT_BLUE + "; }"
+# Other Versions row (used N×) — a full-width entry in the hero's vertical, scrollable
+# list showing the friendly "<source> · <quality/region>" label plus an optional
+# source-icon glyph; the full "<name> · <source>" lives in the tooltip. Click dives to
+# that variant. A runtime provider colour (``ProviderDB.color``) may be injected as a
+# left-border source badge in code (via :func:`lightbox_version_row`); the label text
+# is always present, so the row never distinguishes by colour alone.
+LIGHTBOX_VERSION_ROW = (
+    "QPushButton { text-align: left; background: transparent; color: " + COLOR_TEXT + ";"
+    " border: none; border-bottom: 1px solid " + COLOR_LINE + "; padding: 6px 8px;"
+    " font-size: " + FONT_MD + "; }"
+    "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + COLOR_BG_DEEP + "; }"
 )
 
 
-def lightbox_version_chip(accent_color: str = "") -> str:
-    """Compose the Other-Versions chip style, tinting the left border by *accent_color*.
+def lightbox_version_row(accent_color: str = "") -> str:
+    """Compose the Other-Versions list-row style, tinting the left border by
+    *accent_color*.
 
     ``accent_color`` is a runtime provider colour (``ProviderDB.color``) — NOT a
     palette literal — so injecting it here mirrors the accepted sidebar source-label
-    pattern. Blank/absent → the plain :data:`LIGHTBOX_VERSION_CHIP` pill.
+    pattern. Blank/absent → the plain :data:`LIGHTBOX_VERSION_ROW`.
     """
     if not accent_color:
-        return LIGHTBOX_VERSION_CHIP
-    return LIGHTBOX_VERSION_CHIP + (
+        return LIGHTBOX_VERSION_ROW
+    return LIGHTBOX_VERSION_ROW + (
         "QPushButton { border-left: 3px solid " + accent_color + "; }"
     )
 

@@ -80,7 +80,7 @@ def _make_provider(session, pid: str, *, is_active: bool = True, exp=None):
 
 def _make_channel(session, *, cid, name, provider_id, content_key,
                   media_type="movie", is_hidden=False, is_rec_suppressed=False,
-                  detected_quality=None, detected_region=None):
+                  detected_quality=None, detected_region=None, raw_data=None):
     from metatv.core.database import ChannelDB
     ch = ChannelDB(
         id=cid,
@@ -93,6 +93,7 @@ def _make_channel(session, *, cid, name, provider_id, content_key,
         is_rec_suppressed=is_rec_suppressed,
         detected_quality=detected_quality,
         detected_region=detected_region,
+        raw_data=raw_data,
     )
     session.add(ch)
     session.flush()
@@ -274,7 +275,7 @@ class TestOtherVersionsScoping:
 
 
 # ---------------------------------------------------------------------------
-# 3. Discoverability — ⤢ preview affordance on each details Similar row
+# 3. Similar-row click opens the lightbox directly (no separate ⤢ affordance)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -290,10 +291,12 @@ def _version(**kw):
     return ChannelVersion(**base)
 
 
-def _preview_button(row_w):
+def _name_button(row_w, needle: str = ""):
+    """The wide title button — left-click opens the lightbox, right-click → details pane."""
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QPushButton
     for b in row_w.findChildren(QPushButton):
-        if b.toolTip() == "Preview in lightbox":
+        if b.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu and needle in b.text():
             return b
     return None
 
@@ -359,12 +362,66 @@ class TestOverlayEndToEnd:
             db.close()
 
 
+class TestStripPosters:
+    def test_strip_poster_resolved_from_raw_data(self, qapp, tmp_path):
+        """A strip card's poster comes from the channel's own provider cover
+        (raw_data), NOT the (usually empty) stored MetadataDB row — the fix for the
+        blank-carousel bug. The strip registers the resolved URL as a poster target."""
+        import time
+
+        from PyQt6.QtWidgets import QWidget
+        from metatv.core.image_cache import ImageCache
+        from metatv.gui.similar_lightbox import SimilarTitleLightbox
+
+        db = _make_db(tmp_path / "strip_poster.db")
+        now = datetime.now()
+        with db.session_scope() as session:
+            _make_provider(session, "pa", is_active=True, exp=now + timedelta(days=9))
+            _make_channel(session, cid="ch-o", name="Interstellar Odyssey",
+                          provider_id="pa", content_key="tmdb:100|movie")
+            # A SIMILAR title (shares the ≥4-char word 'interstellar', different
+            # content_key so it is a neighbour, not a version) whose poster lives
+            # ONLY in the provider's raw_data — it has no MetadataDB row.
+            _make_channel(session, cid="ch-sim", name="Interstellar Voyage",
+                          provider_id="pa", content_key="tmdb:200|movie",
+                          raw_data={"stream_icon": "http://cdn/cover.jpg"})
+
+        parent = QWidget()
+        parent.resize(1400, 900)
+        parent.show()
+        ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
+        # The poster-target REGISTRATION we assert happens during _apply_data, before
+        # any image load — stub the fetch so the fake cover URL spawns no network thread.
+        ic.get_image_sync = lambda *a, **k: None
+        ic.get_image_async = lambda *a, **k: None
+        lb = SimilarTitleLightbox(
+            parent, _fake_config(), ic, db, _fake_metadata_manager()
+        )
+        try:
+            lb.show_preview(["ch-o"], 0, "Interstellar Odyssey")
+            lb._executor.shutdown(wait=True)
+            for _ in range(20):
+                qapp.processEvents()
+                time.sleep(0.01)
+
+            assert "http://cdn/cover.jpg" in lb._card._poster_targets, (
+                "strip poster must resolve from the channel's raw_data cover, not the "
+                "empty MetadataDB row"
+            )
+        finally:
+            lb.deleteLater()
+            parent.deleteLater()
+            qapp.processEvents()
+            ic.shutdown()  # stop the async poster-fetch thread (fake cover URL)
+            db.close()
+
+
 class TestDiscoverabilityAffordance:
-    def test_left_click_emits_preview_request(self, qapp):
+    def test_row_click_emits_preview_request(self, qapp):
+        """Left-clicking a Similar row's title opens the lightbox (non-destructive) —
+        the row itself is the trigger, no separate ⤢ button, no in-between step."""
         from metatv.core.config import Config
         from metatv.gui.details_similar import _SimilarSection
-        from metatv.gui.details_versions import ChannelVersion
-        from metatv.gui import icons as _icons
 
         section = _SimilarSection(Config())
         titles = [
@@ -378,23 +435,33 @@ class TestDiscoverabilityAffordance:
             lambda ids, idx, origin: emitted.append((ids, idx, origin))
         )
 
-        # The second row's ⤢ button must open the lightbox at index 1.
         row = section._body_layout.itemAt(1).widget()
-        btn = _preview_button(row)
-        assert btn is not None, "each Similar row must expose a ⤢ preview button"
-        assert btn.text() == _icons.lightbox_icon, (
-            "the affordance uses icons.lightbox_icon (⤢), distinct from the caret"
-        )
-        btn.click()
+        name_btn = _name_button(row, "Bravo")
+        assert name_btn is not None, "the Similar row's title must be clickable"
+        name_btn.click()
 
         assert emitted == [(["a", "b"], 1, "Origin Title")], (
             f"left-click must emit similar_preview_requested with ids/index/origin; got {emitted}"
         )
 
-    def test_right_click_path_still_present(self, qapp):
-        """The name button keeps its custom-context-menu (right-click → lightbox) path."""
-        from PyQt6.QtCore import Qt
+    def test_no_standalone_preview_button(self, qapp):
+        """The cluttered per-row ⤢ preview button is gone — nothing carries its tooltip/glyph."""
         from PyQt6.QtWidgets import QPushButton
+        from metatv.core.config import Config
+        from metatv.gui.details_similar import _SimilarSection
+        from metatv.gui import icons as _icons
+
+        section = _SimilarSection(Config())
+        section.load([_version(channel_id="a", name="Alpha")], origin_title="Origin")
+        row = section._body_layout.itemAt(0).widget()
+
+        for b in row.findChildren(QPushButton):
+            assert b.toolTip() != "Preview in lightbox", "the ⤢ preview button must be removed"
+            assert b.text() != _icons.lightbox_icon, "no row button should render the ⤢ glyph"
+
+    def test_right_click_opens_details_pane(self, qapp):
+        """The name button's right-click commits to the full details pane (version_selected)."""
+        from PyQt6.QtCore import QPoint, Qt
         from metatv.core.config import Config
         from metatv.gui.details_similar import _SimilarSection
 
@@ -402,12 +469,15 @@ class TestDiscoverabilityAffordance:
         section.load([_version(channel_id="a", name="Alpha")], origin_title="Origin")
         row = section._body_layout.itemAt(0).widget()
 
-        # Find the name button (the wide, custom-context-menu one).
-        name_btn = None
-        for b in row.findChildren(QPushButton):
-            if b.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu and "Alpha" in b.text():
-                name_btn = b
-                break
+        name_btn = _name_button(row, "Alpha")
         assert name_btn is not None, (
-            "the name button must keep the CustomContextMenu (right-click → lightbox) path"
+            "the name button must keep the CustomContextMenu (right-click) path"
+        )
+        assert name_btn.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+
+        selected: list[str] = []
+        section.version_selected.connect(lambda cid: selected.append(cid))
+        name_btn.customContextMenuRequested.emit(QPoint(1, 1))
+        assert selected == ["a"], (
+            "right-click must emit version_selected (open in details pane)"
         )

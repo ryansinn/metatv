@@ -314,7 +314,7 @@ class _LightboxCard(QFrame):
         hero.setSpacing(22)
         hero.setContentsMargins(0, 0, 0, 0)
 
-        # -- left: poster + primary Play + player-trajectory tag --
+        # -- left: poster + primary Play --
         left = QVBoxLayout()
         left.setSpacing(6)
         self._poster = _HoverPosterSlot()
@@ -327,12 +327,6 @@ class _LightboxCard(QFrame):
         self._play_btn.clicked.connect(self.play_clicked)
         left.addWidget(self._play_btn)
 
-        # Compact single-line trajectory note (the poster is the future embedded-
-        # player surface — mockup pin 8); kept to one line to spend no extra height.
-        tag = QLabel("Player embeds here later")
-        tag.setStyleSheet(_theme.LIGHTBOX_PLAYER_TAG)
-        tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        left.addWidget(tag)
         left.addStretch()
 
         left_w = QWidget()
@@ -461,28 +455,39 @@ class _LightboxCard(QFrame):
         body.addWidget(self._cast_lbl)
 
     def _build_versions_column(self, hero: QHBoxLayout) -> None:
-        """Other Versions — a compact, flow-wrapped chip column in the hero's top-right.
+        """Other Versions — a vertical, scrollable single-column list in the hero's
+        top-right.
 
-        Each chip shows only its distinguishing token (quality/region/prefix) + an
-        optional source-icon glyph; the identical title/year/source that used to be
-        repeated N× now lives in each chip's tooltip. Top-aligned so it hugs the
-        title/metadata row instead of leaving the upper-right empty.
+        Each row is a friendly, clickable entry ("<source> · <quality/region>") rather
+        than a cryptic 2-char token chip; the full "<name> · <source>" is the tooltip.
+        The list scrolls once it exceeds the poster's height so it never grows the card.
         """
         col = QVBoxLayout()
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(6)
+        col.setSpacing(4)
         self._versions_hdr = self._section_header("OTHER VERSIONS")
         col.addWidget(self._versions_hdr)
-        self._versions_w = QWidget()
-        self._versions_flow = FlowLayout(self._versions_w, spacing=6)
-        col.addWidget(self._versions_w)
-        col.addStretch()
+
+        self._versions_list_w = QWidget()
+        self._versions_list = QVBoxLayout(self._versions_list_w)
+        self._versions_list.setContentsMargins(0, 0, 0, 0)
+        self._versions_list.setSpacing(0)
+
+        self._versions_scroll = QScrollArea()
+        self._versions_scroll.setWidget(self._versions_list_w)
+        self._versions_scroll.setWidgetResizable(True)
+        self._versions_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._versions_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        # List height == the poster height (aligns the column with the poster); a
+        # trailing stretch keeps rows top-packed when short, and it scrolls once the
+        # version set exceeds the poster height so it never grows the card.
+        self._versions_scroll.setFixedHeight(_POSTER_H)
+        col.addWidget(self._versions_scroll)
 
         self._versions_col_w = QWidget()
         self._versions_col_w.setLayout(col)
-        # Fixed width so the FlowLayout reliably flow-wraps ~4 compact chips per row
-        # into the hero's upper-right dead space (with stretch 0 the flow's narrow
-        # size-hint would otherwise collapse the column to a thin 1–2-chip strip).
         self._versions_col_w.setFixedWidth(_VERSIONS_COL_W)
         hero.addWidget(self._versions_col_w, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -493,12 +498,6 @@ class _LightboxCard(QFrame):
         self._similar_hdr = self._section_header("SIMILAR TITLES")
         hdr_row.addWidget(self._similar_hdr)
         hdr_row.addStretch()
-        # Colourblind-safe: the ✓ glyph pairs with the green (colour is reinforcement).
-        self._scoped_note = QLabel(
-            f"{_icons.watched_icon} disabled & expired sources excluded"
-        )
-        self._scoped_note.setStyleSheet(_theme.LIGHTBOX_SCOPED_NOTE)
-        hdr_row.addWidget(self._scoped_note)
         self._similar_hdr_row_w = QWidget()
         self._similar_hdr_row_w.setLayout(hdr_row)
         body.addWidget(self._similar_hdr_row_w)
@@ -605,7 +604,7 @@ class _LightboxCard(QFrame):
         self._cast_lbl.hide()
         self._cast_lbl.clear()
         self._versions_col_w.hide()
-        self._clear_flow(self._versions_flow)
+        self._clear_layout(self._versions_list)
         self._similar_hdr_row_w.hide()
         self._strip_scroll.hide()
         self._clear_strip()
@@ -737,39 +736,41 @@ class _LightboxCard(QFrame):
         self._cast_lbl.setText(cast)
 
     def _populate_versions(self, versions: list[dict]) -> None:
-        self._clear_flow(self._versions_flow)
+        self._clear_layout(self._versions_list)
         if not versions:
             self._versions_col_w.hide()
             return
         self._versions_hdr.setText(f"OTHER VERSIONS ({len(versions)})")
         for v in versions:
-            self._versions_flow.addWidget(self._make_version_chip(v))
+            self._versions_list.addWidget(self._make_version_row(v))
+        self._versions_list.addStretch()  # keep rows top-packed when short of the cap
         self._versions_col_w.show()
 
-    def _make_version_chip(self, v: dict) -> QPushButton:
-        """A compact chip: distinguishing token (+ source glyph), full detail on hover.
+    def _make_version_row(self, v: dict) -> QPushButton:
+        """A full-width, friendly Other-Versions row: "<source> · <quality/region>".
 
-        The visible label is ONLY the token (quality/region/prefix) prefixed by the
-        source's icon glyph when the provider has one — never the identical
-        title/year/source repeated across every sibling (that text is the tooltip).
-        A runtime provider colour tints the left border as a source badge; the token
-        text is always present, so the chip never distinguishes by colour alone.
+        The visible label is the human-readable source name plus the distinguishing
+        quality/region token (never a bare 2-char code), prefixed by the source's icon
+        glyph when the provider has one; the full "<name> · <source>" is the tooltip.
+        A runtime provider colour tints the left border as a source badge; the label
+        text is always present, so the row never distinguishes by colour alone.
         """
         tag = (v.get("tag") or "").strip()
         name = v.get("name") or "?"
-        src = v.get("provider_name") or ""
+        src = (v.get("provider_name") or "").strip()
         icon = (v.get("provider_icon") or "").strip()
         color = (v.get("provider_color") or "").strip()
 
-        visible = " ".join(p for p in (icon, tag) if p) or icon or "•"
-        chip = QPushButton(visible)
-        chip.setFlat(True)
-        chip.setStyleSheet(_theme.lightbox_version_chip(color))
+        label = " · ".join(p for p in (src or name, tag) if p)
+        visible = f"{icon}  {label}".strip() if icon else label
+        row = QPushButton(visible)
+        row.setFlat(True)
+        row.setStyleSheet(_theme.lightbox_version_row(color))
         detail = f"{name} · {src}" if src else name
-        chip.setToolTip(detail)  # QPushButton auto-qualifies for the hand cursor
+        row.setToolTip(detail)  # QPushButton auto-qualifies for the hand cursor
         cid = v.get("id")
-        chip.clicked.connect(lambda _=False, c=cid: self.dive_requested.emit(c))
-        return chip
+        row.clicked.connect(lambda _=False, c=cid: self.dive_requested.emit(c))
+        return row
 
     def _populate_similar(self, similar: list[dict]) -> None:
         self._clear_strip()

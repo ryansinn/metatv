@@ -106,16 +106,16 @@ def _lightbox_for(db):
 
 
 # ---------------------------------------------------------------------------
-# 1. Compact chip text + tooltip (the "no repeated title/source" fix)
+# 1. Friendly version rows — "<source> · <token>" text + full-detail tooltip
 # ---------------------------------------------------------------------------
 
-class TestCompactChip:
-    def _chips(self, card):
+class TestVersionRow:
+    def _rows(self, card):
         from PyQt6.QtWidgets import QPushButton
         return [
-            card._versions_flow.itemAt(i).widget()
-            for i in range(card._versions_flow.count())
-            if isinstance(card._versions_flow.itemAt(i).widget(), QPushButton)
+            card._versions_list.itemAt(i).widget()
+            for i in range(card._versions_list.count())
+            if isinstance(card._versions_list.itemAt(i).widget(), QPushButton)
         ]
 
     def _card_with_version(self, v):
@@ -124,21 +124,23 @@ class TestCompactChip:
         card._populate_versions([v])
         return card
 
-    def test_visible_text_is_token_not_full_string(self, qapp):
+    def test_visible_text_is_friendly_source_and_token(self, qapp):
         v = {
             "id": "v1", "name": "September 5 (2024)", "tag": "4K",
             "provider_name": "TREX Shared", "provider_icon": "🔥", "provider_color": "#e0563a",
         }
         card = self._card_with_version(v)
-        chips = self._chips(card)
-        assert len(chips) == 1
-        text = chips[0].text()
+        rows = self._rows(card)
+        assert len(rows) == 1
+        text = rows[0].text()
 
-        assert "4K" in text, f"the chip must show its distinguishing token; got {text!r}"
-        # The identical-across-versions detail must NOT be in the visible chip.
-        assert "September 5" not in text, f"the repeated title must not be on the chip; got {text!r}"
-        assert "(2024)" not in text, f"the repeated year must not be on the chip; got {text!r}"
-        assert "TREX" not in text, f"the repeated source must not be on the chip; got {text!r}"
+        # Friendly, readable label — the source name AND the distinguishing token,
+        # never a bare 2-char code.
+        assert "TREX Shared" in text, f"the row must show the friendly source name; got {text!r}"
+        assert "4K" in text, f"the row must show its distinguishing token; got {text!r}"
+        # The identical-across-versions raw title/year is NOT repeated on the row.
+        assert "September 5" not in text, f"the repeated title must not be on the row; got {text!r}"
+        assert "(2024)" not in text, f"the repeated year must not be on the row; got {text!r}"
 
     def test_tooltip_carries_full_name_and_source(self, qapp):
         v = {
@@ -146,36 +148,37 @@ class TestCompactChip:
             "provider_name": "TREX Shared", "provider_icon": "🔥", "provider_color": "#e0563a",
         }
         card = self._card_with_version(v)
-        tip = self._chips(card)[0].toolTip()
+        tip = self._rows(card)[0].toolTip()
         assert "September 5 (2024)" in tip, f"tooltip must carry the full name; got {tip!r}"
         assert "TREX Shared" in tip, f"tooltip must carry the source; got {tip!r}"
 
-    def test_source_icon_glyph_shown_on_chip(self, qapp):
+    def test_source_icon_glyph_shown_on_row(self, qapp):
         v = {"id": "v1", "name": "X (2024)", "tag": "AR",
              "provider_name": "ProSat", "provider_icon": "⭐", "provider_color": "#4a8fe0"}
         card = self._card_with_version(v)
-        text = card._versions_flow.itemAt(0).widget().text()
-        assert "⭐" in text, f"the source icon glyph must appear on the chip; got {text!r}"
+        text = self._rows(card)[0].text()
+        assert "⭐" in text, f"the source icon glyph must appear on the row; got {text!r}"
+        assert "ProSat" in text
         assert "AR" in text
 
-    def test_color_only_source_falls_back_to_border_badge(self, qapp):
-        """No icon but a colour → the token still shows (colour is the left-border badge)."""
+    def test_color_source_tints_left_border_badge(self, qapp):
+        """A provider colour is injected as a left-border source badge; the friendly
+        text is always present, so the row never distinguishes by colour alone."""
         v = {"id": "v1", "name": "X (2024)", "tag": "DE",
              "provider_name": "Zeus", "provider_icon": "", "provider_color": "#8a5ad0"}
         card = self._card_with_version(v)
-        chip = card._versions_flow.itemAt(0).widget()
-        assert chip.text() == "DE", "with no icon the visible cue is the token text (never colour alone)"
-        # The runtime provider colour is injected as a left-border accent.
-        assert "#8a5ad0" in chip.styleSheet(), "provider colour must tint the chip as a source badge"
-        assert "border-left" in chip.styleSheet()
+        row = self._rows(card)[0]
+        assert row.text() == "Zeus · DE", "friendly label = source · token (never colour alone)"
+        assert "#8a5ad0" in row.styleSheet(), "provider colour must tint the row as a source badge"
+        assert "border-left" in row.styleSheet()
 
-    def test_no_badge_source_shows_plain_token(self, qapp):
+    def test_no_badge_source_shows_plain_row(self, qapp):
         v = {"id": "v1", "name": "X (2024)", "tag": "HD",
              "provider_name": "Bare", "provider_icon": "", "provider_color": ""}
         card = self._card_with_version(v)
-        chip = card._versions_flow.itemAt(0).widget()
-        assert chip.text() == "HD"
-        assert "border-left" not in chip.styleSheet(), "no colour → no accent border, just the token"
+        row = self._rows(card)[0]
+        assert row.text() == "Bare · HD"
+        assert "border-left" not in row.styleSheet(), "no colour → no accent border"
 
     def test_header_counts_versions_and_column_visible(self, qapp):
         from metatv.gui.similar_lightbox_card import _LightboxCard
@@ -186,6 +189,7 @@ class TestCompactChip:
             for i, t in enumerate(["4K", "AR", "DE"])
         ])
         assert card._versions_hdr.text() == "OTHER VERSIONS (3)"
+        assert len(self._rows(card)) == 3, "one row per version"
         assert card._versions_col_w.isVisible() or not card._versions_col_w.isHidden()
 
     def test_empty_versions_hides_column(self, qapp):
@@ -293,8 +297,8 @@ class TestChipClickNavigates:
         emitted: list[str] = []
         card.dive_requested.connect(emitted.append)
 
-        # The second chip must dive to "v2".
-        chip2 = card._versions_flow.itemAt(1).widget()
-        chip2.click()
+        # The second row must dive to "v2".
+        row2 = card._versions_list.itemAt(1).widget()
+        row2.click()
 
-        assert emitted == ["v2"], f"clicking a version chip must dive to its id; got {emitted}"
+        assert emitted == ["v2"], f"clicking a version row must dive to its id; got {emitted}"

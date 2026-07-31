@@ -132,22 +132,6 @@ class _SimilarSection(QWidget):
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
 
-        # 1b. Lightbox preview affordance — the discoverable, always-visible way to
-        # open the preview overlay (left-click). DISTINCT from icons.expand_icon (the
-        # collapsible caret): this is icons.lightbox_icon (⤢). The name button's
-        # right-click still opens the lightbox too (kept below).
-        preview_btn = QPushButton(_icons.lightbox_icon)
-        preview_btn.setFixedSize(22, 20)
-        preview_btn.setFlat(True)
-        preview_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_ICON_BTN}")
-        preview_btn.setToolTip("Preview in lightbox")
-        preview_btn.clicked.connect(
-            lambda _, _idx=idx: self.similar_preview_requested.emit(
-                self._channel_ids, _idx, self._origin_title
-            )
-        )
-        row.addWidget(preview_btn)
-
         # 2. Media type icon (🎬/📺/📡)
         type_icon = {
             "movie":  _icons.movie_icon,
@@ -179,7 +163,10 @@ class _SimilarSection(QWidget):
             )
             row.addWidget(chip)
 
-        # 4. Name button — takes remaining space, shrinkable; right-click → lightbox preview
+        # 4. Name button — takes remaining space, shrinkable. Left-click opens the
+        # preview lightbox (non-destructive — keeps the anchor you came from, so you
+        # never lose the source title); right-click commits to the full details pane
+        # for that title. No separate ⤢ affordance — the row IS the lightbox trigger.
         name_btn = QPushButton(clean_title)
         name_btn.setFlat(True)
         name_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -188,13 +175,15 @@ class _SimilarSection(QWidget):
             f" font-size: {_theme.FONT_MD}; border: none; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
         )
-        name_btn.setToolTip("Click: go to details  ·  Right-click: preview in lightbox")
-        name_btn.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
-        name_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        name_btn.customContextMenuRequested.connect(
-            lambda _pos, _idx=idx: self.similar_preview_requested.emit(
+        name_btn.setToolTip("Click: preview in lightbox  ·  Right-click: open in details pane")
+        name_btn.clicked.connect(
+            lambda _, _idx=idx: self.similar_preview_requested.emit(
                 self._channel_ids, _idx, self._origin_title
             )
+        )
+        name_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        name_btn.customContextMenuRequested.connect(
+            lambda _pos, cid=v.channel_id: self.version_selected.emit(cid)
         )
         row.addWidget(name_btn, 1)
 
