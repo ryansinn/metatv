@@ -18,6 +18,7 @@ from metatv.core.update_checker import (
     build_update_info,
     fetch_latest_release,
     is_newer_version,
+    select_dmg_url,
 )
 
 
@@ -65,6 +66,82 @@ def test_build_update_info_from_json():
 def test_build_update_info_no_tag_returns_none():
     assert build_update_info({}, "0.10.0") is None
     assert build_update_info({"tag_name": ""}, "0.10.0") is None
+
+
+# ── Arch-aware .dmg selection (dual-arch releases) ───────────────────────────
+
+def _dual_arch_release() -> dict:
+    """A release carrying both an arm64 and an x86_64 dmg (plus a decoy asset)."""
+    return {
+        "tag_name": "v0.12.0",
+        "html_url": "https://github.com/ryansinn/metatv/releases/tag/v0.12.0",
+        "assets": [
+            {"name": "notes.zip",
+             "browser_download_url": "https://x/notes.zip"},
+            {"name": "MetaTV-0.12.0-arm64.dmg",
+             "browser_download_url": "https://x/MetaTV-0.12.0-arm64.dmg"},
+            {"name": "MetaTV-0.12.0-x86_64.dmg",
+             "browser_download_url": "https://x/MetaTV-0.12.0-x86_64.dmg"},
+        ],
+    }
+
+
+def test_select_dmg_picks_arm64_on_apple_silicon(monkeypatch):
+    monkeypatch.setattr(uc.platform, "machine", lambda: "arm64")
+    data = _dual_arch_release()
+    # Pure helper …
+    assert select_dmg_url(data["assets"]) == "https://x/MetaTV-0.12.0-arm64.dmg"
+    # … and end-to-end through the DTO the checker hands the UI.
+    info = build_update_info(data, "0.10.0")
+    assert info is not None
+    assert info.dmg_url == "https://x/MetaTV-0.12.0-arm64.dmg"
+
+
+def test_select_dmg_picks_x86_64_on_intel(monkeypatch):
+    monkeypatch.setattr(uc.platform, "machine", lambda: "x86_64")
+    data = _dual_arch_release()
+    assert select_dmg_url(data["assets"]) == "https://x/MetaTV-0.12.0-x86_64.dmg"
+    info = build_update_info(data, "0.10.0")
+    assert info is not None
+    assert info.dmg_url == "https://x/MetaTV-0.12.0-x86_64.dmg"
+
+
+def test_select_dmg_ordering_does_not_matter(monkeypatch):
+    """Arch match wins regardless of asset order (not "first .dmg")."""
+    monkeypatch.setattr(uc.platform, "machine", lambda: "x86_64")
+    data = _dual_arch_release()
+    # x86_64 dmg is listed AFTER the arm64 one; arch match must still win.
+    assert select_dmg_url(data["assets"]) == "https://x/MetaTV-0.12.0-x86_64.dmg"
+
+
+@pytest.mark.parametrize("machine", ["arm64", "x86_64"])
+def test_select_dmg_single_legacy_dmg_falls_back(monkeypatch, machine):
+    """A legacy release with one arch-less dmg still resolves (fallback)."""
+    monkeypatch.setattr(uc.platform, "machine", lambda: machine)
+    assets = [
+        {"name": "MetaTV-0.11.0.dmg",
+         "browser_download_url": "https://x/MetaTV-0.11.0.dmg"},
+    ]
+    assert select_dmg_url(assets) == "https://x/MetaTV-0.11.0.dmg"
+    info = build_update_info({"tag_name": "v0.11.0", "assets": assets}, "0.10.0")
+    assert info is not None
+    assert info.dmg_url == "https://x/MetaTV-0.11.0.dmg"
+
+
+def test_select_dmg_no_dmg_returns_empty(monkeypatch):
+    monkeypatch.setattr(uc.platform, "machine", lambda: "arm64")
+    assert select_dmg_url([{"name": "notes.zip",
+                            "browser_download_url": "https://x/notes.zip"}]) == ""
+    assert select_dmg_url([]) == ""
+    assert select_dmg_url(None) == ""
+    # And the DTO carries "" so the UI falls back to the releases page.
+    info = build_update_info(
+        {"tag_name": "v0.12.0", "assets": [{"name": "x.zip",
+                                            "browser_download_url": "https://x/x.zip"}]},
+        "0.10.0",
+    )
+    assert info is not None
+    assert info.dmg_url == ""
 
 
 # ── Network fetch (mocked urlopen) ───────────────────────────────────────────
