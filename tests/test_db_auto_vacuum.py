@@ -98,6 +98,44 @@ def test_ensure_auto_vacuum_is_idempotent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 3b. New connections don't crash on pragma setup under a concurrent write lock
+# ---------------------------------------------------------------------------
+
+def test_new_connection_survives_concurrent_write_lock(tmp_path):
+    """Opening a fresh connection (which runs _set_pragmas) must NOT raise
+    'database is locked' while another connection holds an open write transaction.
+
+    Regression: _set_pragmas ran ``PRAGMA auto_vacuum=FULL`` on EVERY connection,
+    which acquires a write lock even when the mode is already FULL. During a
+    concurrent off-thread provider delete this raised OperationalError (bypassing
+    busy_timeout) and crashed the app (SIGABRT). The fix skips the write when
+    auto_vacuum is already FULL, so a fresh connection opens cleanly under the lock.
+    """
+    db_path = tmp_path / "concurrent.db"
+    db = Database(f"sqlite:///{db_path}")
+    try:
+        db.create_tables()
+        assert _read_auto_vacuum(db) == 1
+
+        # Another connection holds an OPEN write transaction — the "off-thread delete".
+        holder = sqlite3.connect(str(db_path), timeout=1)
+        holder.execute("PRAGMA busy_timeout=500")
+        holder.execute("BEGIN IMMEDIATE")
+        holder.execute("CREATE TABLE _probe (x INTEGER)")  # take + dirty the write lock
+        try:
+            db.engine.dispose()  # force a brand-new dbapi connection → listener re-fires
+            with db.engine.connect() as conn:
+                # Opens cleanly: reads the WAL-committed header (mode 1) and skips the
+                # auto_vacuum write instead of blocking/raising on the held lock.
+                assert conn.exec_driver_sql("PRAGMA auto_vacuum").scalar() == 1
+        finally:
+            holder.rollback()
+            holder.close()
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # 4. (Optional) Auto-reclaim: freelist_count stays low after delete on FULL DB
 # ---------------------------------------------------------------------------
 

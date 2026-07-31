@@ -488,7 +488,16 @@ class Database:
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA busy_timeout=30000")
             cur.execute("PRAGMA synchronous=NORMAL")
-            cur.execute("PRAGMA auto_vacuum=FULL")
+            # auto_vacuum is a PERSISTENT db-level setting — only WRITE it when the DB
+            # isn't already FULL. Running "PRAGMA auto_vacuum=FULL" unconditionally on
+            # EVERY connection acquires a write lock even when the value is unchanged,
+            # which raised "database is locked" (bypassing busy_timeout) whenever a
+            # concurrent transaction held the writer — e.g. an off-thread provider
+            # delete — and crashed the app (SIGABRT). New/empty DBs still get FULL here
+            # before any table exists; established FULL DBs skip the write entirely.
+            # The one-time legacy (mode==0) migration lives in _ensure_auto_vacuum().
+            if cur.execute("PRAGMA auto_vacuum").fetchone()[0] != 1:
+                cur.execute("PRAGMA auto_vacuum=FULL")
             cur.close()
 
         self.SessionLocal = sessionmaker(bind=self.engine)
