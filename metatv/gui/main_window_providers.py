@@ -555,6 +555,64 @@ class _ProviderMixin:
             if provider_id:
                 self._epg_fetch_after_add.discard(provider_id)
 
+    def _on_all_refreshes_finished(self) -> None:
+        """Whole-library dedup re-sweep after the whole refresh queue drains.
+
+        Wired to ``refresh_queue_manager.all_refreshes_finished`` (fired once
+        when the LAST enqueued source finishes).  Re-runs the FREE, no-network
+        title-sibling tmdb propagation across the WHOLE library — decoupled from
+        the one-time version-gated migration — so idless rows that only just
+        became adoptable finally fold onto their canonical tmdb-first
+        ``content_key``.  This covers the rows the one-time pass and the
+        per-provider at-ingestion hook miss: a refresh that brings in the
+        id-bearing variant *after* the one-time pass already ran, or an
+        incremental refresh that skipped an unchanged idless row.  It also picks
+        up rows a lazy ``get_vod/series_info`` marked ``tmdb_enrich_state='none'``
+        — the propagation filter is ``detected_tmdb_id IS NULL`` (state-agnostic),
+        so a previously lazy-failed row becomes eligible again on the next sweep.
+
+        Runs OFF the UI thread (it scans/aggregates the channels table — the
+        background-DB rule) on the owner's shared executor; the write commits in
+        batches inside :meth:`ChannelRepository.propagate_tmdb_from_title_siblings`.
+        The adopted count is marshalled back to the main thread via
+        ``_propagation_finished`` so the view refresh happens on the main thread.
+        The propagation itself is untouched — same shared helper (same
+        media_type-only grouping, year-compat remake guard, fill-empty-only,
+        generated-data-only) the migration and the ingestion hook call.
+        """
+        def _worker() -> None:
+            try:
+                with self.db.session_scope() as session:
+                    adopted = RepositoryFactory(session).channels.\
+                        propagate_tmdb_from_title_siblings()
+            except Exception:
+                logger.exception("post-refresh title-sibling propagation failed")
+                return
+            # Marshal the result back to the main thread (view refresh is a GUI op).
+            self._propagation_finished.emit(adopted)
+
+        self.executor.submit(_worker)
+
+    def _on_propagation_finished(self, adopted: int) -> None:
+        """Main-thread slot: refresh corpus-derived views when the re-sweep adopted ids.
+
+        Only a positive adopt count changes ``content_key`` values, so we refresh
+        exactly then (avoids a redundant reload when nothing folded).  Routes
+        through the single canonical ``_refresh_provider_dependent_views`` so
+        Browse, Discover, Recipe, filter-facet counts and the details "Other
+        Versions" set all re-collapse together — never a partial per-view refresh.
+
+        Args:
+            adopted: Number of idless rows that adopted a sibling's tmdb id.
+        """
+        logger.info(
+            "post-refresh title-sibling propagation: {} idless row(s) adopted a "
+            "sibling id",
+            adopted,
+        )
+        if adopted > 0:
+            self._refresh_provider_dependent_views()
+
     def _on_queue_epg_wire_requested(
         self,
         active_notif_id: str,
