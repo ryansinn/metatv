@@ -277,7 +277,16 @@ def _qt_teardown_sweep(
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
         # 3) Record the top-levels this test left alive (informational only).
+        # Step 2's DeferredDelete drain may have just destroyed some of these
+        # C++ objects while `leaked` still holds their wrappers — touching such
+        # a corpse USUALLY raises RuntimeError but can segfault on reused
+        # memory (two full-suite runs died here, 2026-08-01). sip.isdeleted is
+        # the only safe probe; count corpses instead of poking them.
+        from PyQt6 import sip as _sip
         for w in leaked:
+            if _sip.isdeleted(w):
+                report.widgets.append(type(w).__name__ + " (deferred-deleted)")
+                continue
             try:
                 report.widgets.append(type(w).__name__)
                 if w.isVisible():

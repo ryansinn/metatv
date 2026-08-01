@@ -74,7 +74,8 @@ def _make_render_host(qapp, *, name_map=None, title_map=None, prefix_map=None,
     from PyQt6.QtWidgets import QTreeWidget, QLabel
 
     host = _EpgBrowseMixin.__new__(_EpgBrowseMixin)
-    host.config = SimpleNamespace(epg_watchlist_patterns=[], category_name_overrides={})
+    host.config = SimpleNamespace(epg_watchlist_patterns=[], category_name_overrides={},
+                                   epg_filter_state={})
     host._channel_name_map = dict(name_map or {})
     host._channel_title_map = dict(title_map or {})
     host._channel_prefix_map = dict(prefix_map or {})
@@ -583,6 +584,9 @@ def _make_browse_tab_host(qapp, config=None):
     host.config = cfg
     host.stack = QStackedWidget(host)
     host._build_browse_tab = lambda: EpgView._build_browse_tab(host)
+    # post-merge (wave3/epg-hygiene): build wires the persisting filler toggle
+    host._on_hide_filler_toggled = MagicMock()
+    host._update_hide_filler_btn_label = MagicMock()
     host._refresh_browse_anchors = lambda: EpgView._refresh_browse_anchors(host)
     host._on_search_changed = lambda *_: None
     host._reload_browse = lambda *_: None
@@ -717,6 +721,7 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
     host = _EpgOnNowMixin.__new__(_EpgOnNowMixin)
     host.config = SimpleNamespace(
         epg_watchlist_patterns=["nightly news"],
+        epg_filter_state={},
         epg_category_overrides={},
         epg_hidden_prefixes=[],
         global_filter_excluded_categories=[],
@@ -733,6 +738,8 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
     host.on_now_stats = QLabel("")
     host.status_message = MagicMock()
     host.on_now_prefix_dropdown = MagicMock()
+    host.on_now_type_dropdown = MagicMock()
+    host.on_now_type_dropdown.get_selected.return_value = set()
     host._channel_name_map = {"ch4": "NBC"}
     host._channel_quality_map = {}
     host._channel_prefix_map = {}
@@ -754,6 +761,9 @@ def test_render_on_now_bolds_show_column_for_watchlist_match(qapp):
         stop_time = _now + _td(minutes=30)
 
     host._render_on_now([_P()])
-    item = host.on_now_list.topLevelItem(0)
+    # Post-merge (wave3/epg-viewing-ux): On Now groups rows by prefix — the
+    # programme row is the first CHILD of the first group header.
+    group = host.on_now_list.topLevelItem(0)
+    item = group.child(0) if group.childCount() else group
     assert item.font(3).bold() is True, "On Now must bold column 3 (Show) on a watchlist match"
     assert item.font(1).bold() is False

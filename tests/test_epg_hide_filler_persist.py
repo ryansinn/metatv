@@ -56,10 +56,16 @@ def _make_browse_host(qapp, *, initial_hide_filler: bool):
     host._on_anchor_selected = lambda *_: None
     host._on_scrubber_value_changed = lambda *_: None
     host._scrubber_seek = lambda *_: None
+    # post-merge (wave3/browse-makeover): build wires header persistence
+    host._save_browse_header_state = MagicMock()
+    host._on_browse_sort_changed = MagicMock()
     # The methods under test — bound to the real mixin implementation.
     host._on_hide_filler_toggled = lambda: _EpgBrowseMixin._on_hide_filler_toggled(host)
     host._update_hide_filler_btn_label = lambda: _EpgBrowseMixin._update_hide_filler_btn_label(host)
     host._build_browse_tab()
+    # Build-time one-shots (3D's sort-col migration) also call config.save —
+    # reset so tests count only the toggle-path saves they assert on.
+    host.config.save.reset_mock()
     return host
 
 

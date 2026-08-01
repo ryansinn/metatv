@@ -422,7 +422,8 @@ def test_queue_double_click_unavailable_emits_search_requested(qapp):
     obj.itemDoubleClicked.emit = lambda cid: play_emitted.append(cid)
 
     item = QListWidgetItem("M Gone Title")
-    item.setData(Qt.ItemDataRole.UserRole, "c_unavail")
+    # UserRole is the harmonized grain dict (wave3/queue-click-semantics).
+    item.setData(Qt.ItemDataRole.UserRole, {"grain": "channel", "channel_id": "c_unavail"})
     item.setData(_ROLE_AVAILABLE, False)
     item.setData(_ROLE_SEARCH_TITLE, "Gone Title")
 
