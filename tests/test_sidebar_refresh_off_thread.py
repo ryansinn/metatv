@@ -64,6 +64,22 @@ def _texts(list_widget):
     return [list_widget.item(i).text() for i in range(list_widget.count())]
 
 
+def _chip_icon(list_widget, i):
+    """Icon-label text (first widget) of the chip row at row ``i`` (or None if plain)."""
+    w = list_widget.itemWidget(list_widget.item(i))
+    return None if w is None else w.layout().itemAt(0).widget().text()
+
+
+def _chip_title(list_widget, i):
+    """MiddleElideLabel title text of the chip row at row ``i`` (or None if plain)."""
+    from metatv.gui.chip_row import MiddleElideLabel
+    w = list_widget.itemWidget(list_widget.item(i))
+    if w is None:
+        return None
+    lbl = w.findChild(MiddleElideLabel)
+    return lbl.text() if lbl else None
+
+
 def _ids(list_widget):
     """UserRole ids for non-header rows (headers carry no UserRole data)."""
     from PyQt6.QtCore import Qt
@@ -136,14 +152,17 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
     ]
     obj._on_data_ready(dtos)
 
+    # Headers stay plain-text items; content rows are chip-row widgets now.
     texts = _texts(obj.favorites_list)
     # continue-watching sorted by last_played desc (c3 then c2), then never-watched (c1)
     assert _ids(obj.favorites_list) == ["c3", "c2", "c1"]
     assert "Continue Watching" in texts[0]
-    assert texts[1].startswith("L ")   # c3 live
-    assert texts[2].startswith("S ")   # c2 series
+    assert _chip_icon(obj.favorites_list, 1) == "L"   # c3 live
+    assert _chip_title(obj.favorites_list, 1) == "Gamma"
+    assert _chip_icon(obj.favorites_list, 2) == "S"   # c2 series
     assert "Never Watched" in texts[3]
-    assert texts[4].startswith("M ")   # c1 movie
+    assert _chip_icon(obj.favorites_list, 4) == "M"   # c1 movie
+    assert _chip_title(obj.favorites_list, 4) == "Alpha"
 
 
 def test_favorites_on_data_ready_empty_shows_hint(qapp):
@@ -225,7 +244,7 @@ def test_history_bg_refresh_emits_none_on_error():
 
 
 def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
-    """Series rows render the episode code on a second line; movies do not."""
+    """Series rows keep the episode code as a visible title suffix; movies do not."""
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.history import HistorySection
 
@@ -240,10 +259,12 @@ def test_history_on_data_ready_renders_episode_code_and_icons(qapp):
     ]
     obj._on_data_ready(dtos)
 
-    texts = _texts(obj.history_list)
     assert _ids(obj.history_list) == ["c1", "c2"]   # history preserves order, no split
-    assert texts[0] == "S My Show\n   → S01E03"
-    assert texts[1] == "M A Film"
+    # Chip rows: icon in the icon label, episode code appended to the (elidable) title.
+    assert _chip_icon(obj.history_list, 0) == "S"
+    assert _chip_title(obj.history_list, 0) == "My Show → S01E03"
+    assert _chip_icon(obj.history_list, 1) == "M"
+    assert _chip_title(obj.history_list, 1) == "A Film"
 
 
 def test_history_on_data_ready_none_shows_error_row(qapp):
@@ -330,9 +351,11 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     texts = _texts(obj._list)
     assert _ids(obj._list) == ["q2", "q1"]   # continue-watching (q2) before never-watched (q1)
     assert "Continue Watching" in texts[0]
-    assert texts[1].startswith("S ")   # q2 series
+    assert _chip_icon(obj._list, 1) == "S"   # q2 series
+    assert _chip_title(obj._list, 1) == "My Show"
     assert "Never Watched" in texts[2]
-    assert texts[3].startswith("M ")   # q1 movie
+    assert _chip_icon(obj._list, 3) == "M"   # q1 movie
+    assert _chip_title(obj._list, 3) == "Film A"
 
 
 def test_queue_on_data_ready_none_shows_error_row(qapp):

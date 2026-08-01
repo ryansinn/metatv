@@ -153,6 +153,7 @@ class FavoriteDTO:
     detected_region: str = ""
     detected_quality: str = ""
     detected_year: str = ""
+    detected_prefix: str = ""          # audio-language token — the honest chip-row language
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,12 @@ class HistoryDTO:
     name: str
     media_type: str | None
     episode_code: str | None     # e.g. "S01E02"; None for non-series or no episode yet
+    # Ingestion-computed display fields — read at render (never re-parse the name), so
+    # History rows render as the same chip row as Recommended / Queue / Favorites.
+    detected_title: str = ""
+    detected_year: str = ""
+    detected_quality: str = ""
+    detected_prefix: str = ""          # audio-language token — the honest chip-row language
 
 
 # ---------------------------------------------------------------------------
@@ -472,5 +479,11 @@ def build_history_dtos(
             name=ch.name,
             media_type=ch.media_type,
             episode_code=episode_code,
+            # Stored ingestion fields off the ChannelDB row (mapped inside the session)
+            # so the sidebar renders the shared chip row without re-parsing the name.
+            detected_title=ch.detected_title or "",
+            detected_year=ch.detected_year or "",
+            detected_quality=ch.detected_quality or "",
+            detected_prefix=ch.detected_prefix or "",
         ))
     return result

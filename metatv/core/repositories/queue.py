@@ -28,6 +28,7 @@ class QueueEntry:
     detected_region:  str = ""
     detected_quality: str = ""
     detected_year:    str = ""
+    detected_prefix:  str = ""        # audio-language token — the honest chip-row language
 
 
 class WatchQueueRepository:
@@ -100,6 +101,7 @@ class WatchQueueRepository:
                 detected_region=(ch.detected_region if ch else "") or "",
                 detected_quality=(ch.detected_quality if ch else "") or "",
                 detected_year=(ch.detected_year if ch else "") or "",
+                detected_prefix=(ch.detected_prefix if ch else "") or "",
             ))
         return entries
 

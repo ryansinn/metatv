@@ -1,10 +1,11 @@
 """HistorySection and HistoryItemWidget."""
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
+from metatv.gui.chip_row import build_chip_row
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
@@ -88,6 +89,9 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
     def create_content(self):
         self.history_list = QListWidget()
+        # Chip rows fit the sidebar width and elide — never scroll sideways (which
+        # would push the right-aligned year/language chips off behind the scrollbar).
+        self.history_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.itemDoubleClicked.connect(self.on_history_item_clicked)
         self.history_list.currentItemChanged.connect(self.on_history_item_selected)
@@ -120,12 +124,24 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
 
         for dto in dtos:
             item = QListWidgetItem(self.history_list)
-            media_icon = self._media_icon(dto.media_type)
-            if dto.episode_code:
-                item.setText(f"{media_icon} {dto.name}\n   → {dto.episode_code}")
-            else:
-                item.setText(f"{media_icon} {dto.name}")
             item.setData(Qt.ItemDataRole.UserRole, dto.id)
+            # Episode code kept visible as a suffix on the title. Middle-elision
+            # preserves the END of the title, so the "→ S01E02" tail survives even
+            # when the series name is truncated.
+            title = dto.detected_title or dto.name
+            if dto.episode_code:
+                title = f"{title} → {dto.episode_code}"
+            row = build_chip_row(
+                media_icon=self._media_icon(dto.media_type),
+                title=title,
+                year=dto.detected_year,
+                quality=dto.detected_quality,
+                prefix=dto.detected_prefix,
+            )
+            # Width 0 → the item spans the viewport (no sideways scroll); the row's own
+            # height governs the row height.
+            item.setSizeHint(QSize(0, row.sizeHint().height()))
+            self.history_list.setItemWidget(item, row)
 
     def _media_icon(self, media_type) -> str:
         from metatv.core.models import MediaType
