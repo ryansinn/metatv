@@ -7,11 +7,15 @@ chip + quality chip), a stretch, then the language chip pushed to the far right 
 the language chip is the honest ``detected_prefix`` (EN), and the source region must
 NOT appear.
 
-Also guards three polish fixes (PR #344):
-  * the title middle-elides in ``paintEvent`` against the CURRENT width, so a SHORT
-    title ("1983") is never chopped — ``text()``/tooltip always stay the full string;
-  * the quality chip sits BEFORE (left of) the language chip in layout order, so the
-    language chip is the consistent far-right element;
+Also guards the polish fixes (PR #344):
+  * the title label gets an Expanding horizontal policy + layout stretch 1, so it
+    fills the left space and pushes the fixed chip cluster to the right edge (no
+    separate spacer). Guaranteed the full left width, a SHORT title ("1983") is never
+    chopped — ``elidedText`` returns the full string, and only a genuinely-too-long
+    title elides. The title also middle-elides in ``paintEvent`` against the current
+    width, and ``text()``/tooltip always stay the full string;
+  * the right-aligned cluster order is year → quality (if 4K) → language, with the
+    language chip the consistent far-right element;
   * the year renders as its own ``YEAR_CHIP``-styled chip.
 
 Calls the row builder with a stub ``self`` (it only needs ``config`` icons), so no
@@ -118,11 +122,45 @@ def test_short_title_is_preserved_full_not_chopped(qtbot):
     assert elided != long_title and "…" in elided  # middle-elided at this width
 
 
-def test_quality_chip_is_left_of_language_chip(qtbot):
-    # Every row has a language chip, so it must be the consistent far-right element;
-    # the quality chip lives in the LEFT cluster, before it.
+def test_title_label_expands_to_fill_left_space(qtbot):
+    # THE fix mechanism: the title label is given an Expanding horizontal policy and a
+    # non-zero layout stretch, so it fills the left space and pushes the fixed chip
+    # cluster to the right edge. Guaranteed the full left width, short titles never chop.
+    from PyQt6.QtWidgets import QSizePolicy
+    row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
+    title = row.findChild(_MiddleElideLabel)
+    assert title is not None
+    assert title.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    layout = row.layout()
+    idx = next(i for i in range(layout.count()) if layout.itemAt(i).widget() is title)
+    assert layout.stretch(idx) > 0, "title must carry the flexible layout stretch"
+    # And there is no separate spacer item stealing the flexible space.
+    assert all(layout.itemAt(i).spacerItem() is None for i in range(layout.count()))
+
+
+def test_short_title_not_elided_at_wide_width(qtbot):
+    # With the title guaranteed the full left width, elidedText returns the FULL string
+    # for a short title — no chop ("1983" must NOT become "1…3").
+    from PyQt6.QtCore import Qt
+    label = _MiddleElideLabel("1983")
+    qtbot.addWidget(label)
+    fm = label.fontMetrics()
+    wide = fm.horizontalAdvance("1983") + 50
+    assert fm.elidedText("1983", Qt.TextElideMode.ElideMiddle, wide) == "1983"
+    label.resize(wide, 20)
+    label.grab()  # force a real paint at that width; stored text stays full
+    assert label.text() == "1983"
+    assert label.toolTip() == "1983"
+
+
+def test_chip_order_year_quality_language(qtbot):
+    # Right-aligned cluster order: year → quality (if 4K) → language (far-right).
     row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
     widgets = _ordered_widgets(row)
+    year_idx = next(
+        i for i, w in enumerate(widgets)
+        if isinstance(w, QLabel) and w.text() == "1998"
+    )
     quality_idx = next(
         i for i, w in enumerate(widgets)
         if isinstance(w, QPushButton) and w.text() == "4K"
@@ -131,7 +169,24 @@ def test_quality_chip_is_left_of_language_chip(qtbot):
         i for i, w in enumerate(widgets)
         if isinstance(w, QLabel) and w.text() == "EN"
     )
-    assert quality_idx < lang_idx, [type(w).__name__ + ":" + w.text() for w in widgets]
+    order = [type(w).__name__ + ":" + w.text() for w in widgets]
+    assert year_idx < quality_idx < lang_idx, order
+
+
+def test_chip_order_year_then_language_when_no_quality(qtbot):
+    # Quality chip present only when set; without it the cluster is year → language.
+    row = RecommendedSection._build_rec_row(_stub_self(), _sc(detected_quality=""), "1998")
+    widgets = _ordered_widgets(row)
+    assert not any(isinstance(w, QPushButton) and w.text() == "4K" for w in widgets)
+    year_idx = next(
+        i for i, w in enumerate(widgets)
+        if isinstance(w, QLabel) and w.text() == "1998"
+    )
+    lang_idx = next(
+        i for i, w in enumerate(widgets)
+        if isinstance(w, QLabel) and w.text() == "EN"
+    )
+    assert year_idx < lang_idx
 
 
 def test_year_renders_as_year_chip_and_no_region(qtbot):

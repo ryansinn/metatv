@@ -227,17 +227,20 @@ class RecommendedSection(CollapsibleSection):
         self.set_empty(False)
 
     def _build_rec_row(self, sc, year: str) -> QWidget:
-        """Recommendation row: ``[icon] Title [Year][Quality] … [Lang]``.
+        """Recommendation row: ``[icon] Title(expanding) [Year][Quality][Lang]``.
 
         Mirrors the mouse-transparent ``setItemWidget`` pattern of ``_VodAlertRow``.
-        Layout, left→right: an icon, the middle-eliding title, then the LEFT facet
-        cluster hugging it — the year as a subtle bordered chip (``YEAR_CHIP``) and,
-        when present, the quality badge (``QUALITY_CHIP``) — then a stretch, then the
-        audio-language chip pushed to the far right (``LANG_CHIP``). The language chip
-        is the CONSISTENT rightmost element on every row (never displaced by the
-        quality chip), so the right edge stays aligned. Language is ``detected_prefix``
-        — the honest language, NOT the source ``detected_region`` that used to leak
-        into the title. So the title reads as a title, and facets read as chips.
+        Layout, left→right: an icon, then the middle-eliding title given an Expanding
+        horizontal policy and layout stretch 1 — it is the flexible element that fills
+        the left space and pushes the fixed right-aligned chip cluster to the edge (no
+        separate spacer). Because the title is guaranteed the full left width, a short
+        title shows in full and only a genuinely-too-long one elides. The cluster, in
+        order: the year as a subtle bordered chip (``YEAR_CHIP``), the quality badge
+        (``QUALITY_CHIP``) when present, then the audio-language chip (``LANG_CHIP``) as
+        the CONSISTENT rightmost element on every row, so the right edge stays aligned.
+        Language is ``detected_prefix`` — the honest language, NOT the source
+        ``detected_region`` that used to leak into the title. So the title reads as a
+        title, and facets read as chips.
         """
         media_icon = (
             self.config.movie_icon if sc.media_type == "movie"
@@ -257,17 +260,24 @@ class RecommendedSection(CollapsibleSection):
 
         title_lbl = _MiddleElideLabel(title)
         title_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — legible title
-        layout.addWidget(title_lbl)
+        # Expanding + stretch 1 makes the title the flexible element that fills the
+        # left space and pushes the fixed chip cluster to the right edge (no separate
+        # spacer). Guaranteed the full left width, paintEvent's elidedText returns the
+        # full string for short titles — only a genuinely-too-long title elides.
+        title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout.addWidget(title_lbl, 1)
 
+        # Right-aligned chip cluster — fixed (stretch 0); the title's stretch above is
+        # what pushes it to the right edge (no separate spacer). Order: year, then the
+        # quality badge (if 4K), then the language chip as the CONSISTENT far-right
+        # element on every row.
         if yr:
             year_lbl = QLabel(str(yr))
             year_lbl.setStyleSheet(_theme.YEAR_CHIP)  # subtle bordered chip
             layout.addWidget(year_lbl)
 
-        # Quality chip sits in the LEFT cluster (after the year) so the language chip
-        # below stays the consistent far-right element. Reuse the existing QUALITY_CHIP
-        # badge — it is QPushButton-scoped, so it must live on a (flat, non-focusable)
-        # QPushButton to render as a chip.
+        # Quality chip: reuse the existing QUALITY_CHIP badge — it is QPushButton-scoped,
+        # so it must live on a (flat, non-focusable) QPushButton to render as a chip.
         if sc.detected_quality:
             quality_chip = QPushButton(sc.detected_quality)
             quality_chip.setFlat(True)
@@ -275,10 +285,8 @@ class RecommendedSection(CollapsibleSection):
             quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
             layout.addWidget(quality_chip)
 
-        layout.addStretch(1)  # the space between the left cluster and the far-right lang chip
-
         # Language chip (QLabel — LANG_CHIP is label-friendly). Every row has one, so it
-        # is the CONSISTENT far-right element (never displaced by the quality chip).
+        # stays the consistent far-right element.
         if sc.detected_prefix:
             lang_chip = QLabel(sc.detected_prefix)
             lang_chip.setStyleSheet(_theme.LANG_CHIP)

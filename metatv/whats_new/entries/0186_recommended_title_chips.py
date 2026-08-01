@@ -26,9 +26,10 @@ ENTRY = WhatsNewEntry(
         "stray region code appears in the title.",
         "Find a short title (e.g. '1983', 'Danger Mouse'): it shows in FULL, not "
         "chopped mid-word — only a genuinely-too-long title truncates in the middle.",
-        "Scan the right edge of the list: the language chip lines up as the last "
-        "element on every row, even on rows that also carry a 4K/quality chip (the "
-        "quality chip sits just after the year, on the left).",
+        "Scan the right edge of the list: the chips form a right-aligned cluster "
+        "(year, then 4K/quality when present, then language) with the language chip "
+        "the last element on every row — the title fills the left and the right edge "
+        "stays aligned even on rows that carry a quality chip.",
         "Confirm the row still selects on click, opens on double-click, and shows "
         "its context menu on right-click (the chips don't swallow those).",
     ),
