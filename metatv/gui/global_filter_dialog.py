@@ -15,10 +15,12 @@ excluded prefix codes, e.g. ["AR", "KU"]).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -26,6 +28,40 @@ from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
 from metatv.gui import theme as _theme
+
+
+@dataclass
+class _FilterBlock:
+    """One filterable unit of the exclusion list: a top-level type (Languages,
+    Platforms, Content Types, …) plus everything needed to show/hide it as the
+    realtime search query changes.
+
+    ``containers`` are child widgets that know how to filter themselves
+    (``_GroupSection`` / ``_ContentTypeSection`` — they own nested checkboxes
+    behind a lazy expand/collapse). ``leaf_rows`` are flat checkbox rows with
+    precomputed lowercase match text. ``header_widgets`` (the type's title row
+    + separator) are shown only while the block still has ≥1 visible member —
+    a filterable type may have neither (e.g. the bare "Uncategorized" prefix
+    group has no wrapping type header of its own).
+    """
+
+    header_widgets: list[QWidget] = field(default_factory=list)
+    containers: list[object] = field(default_factory=list)
+    leaf_rows: list[tuple[QWidget, list[str]]] = field(default_factory=list)
+
+    def apply(self, query: str) -> bool:
+        """Filter this block for *query* (already lowercased); return True if anything is visible."""
+        visible = False
+        for container in self.containers:
+            if container.apply_filter(query):
+                visible = True
+        for row, texts in self.leaf_rows:
+            matched = not query or any(query in t for t in texts)
+            row.setVisible(matched)
+            visible = visible or matched
+        for w in self.header_widgets:
+            w.setVisible(visible)
+        return visible
 
 
 def _load_source_category_counts(db: Database) -> list[tuple[str, int]]:
@@ -166,6 +202,7 @@ class _GroupSection(QWidget):
         self._checkboxes: dict[str, QCheckBox] = {}    # built lazily
         self._body_built = False
         self._expanded = False
+        self._pre_search_expanded: bool | None = None  # expand state to restore when search clears
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -273,12 +310,60 @@ class _GroupSection(QWidget):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _toggle_expand(self, _event=None) -> None:
-        self._expanded = not self._expanded
-        if self._expanded and not self._body_built:
+        self._set_expanded(not self._expanded)
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+        if expanded and not self._body_built:
             self._build_body()
-        self._body.setVisible(self._expanded)
-        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
+        self._body.setVisible(expanded)
+        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
         self._expand_lbl.setText(glyph)
+
+    def apply_filter(self, query: str) -> bool:
+        """Realtime-search this group for *query* (already stripped + lowercased).
+
+        Matches each prefix's own code, its ``REGION_FULL_NAMES`` human-readable
+        name, OR the group's own name (so "french" matches the French group and
+        therefore shows its FR member even though FR's full name is "France").
+        Forces the lazily-built body so individual rows exist to filter, and
+        auto-expands the group while it has a match. An empty *query* restores
+        every row and the expand state captured when the search began.
+        Returns True if the group has ≥1 visible row (itself hidden otherwise).
+        """
+        from metatv.core.channel_name_utils import REGION_FULL_NAMES
+
+        if not self._body_built:
+            self._build_body()
+
+        if not query:
+            for cb in self._checkboxes.values():
+                cb.parentWidget().setVisible(True)
+            if self._pre_search_expanded is not None:
+                self._set_expanded(self._pre_search_expanded)
+                self._pre_search_expanded = None
+            self.setVisible(True)
+            return True
+
+        if self._pre_search_expanded is None:
+            self._pre_search_expanded = self._expanded
+
+        whole_group_match = query in self._group_name.lower()
+        any_match = False
+        for prefix, cb in self._checkboxes.items():
+            full_name = REGION_FULL_NAMES.get(prefix.upper(), "")
+            matched = bool(
+                whole_group_match
+                or query in prefix.lower()
+                or (full_name and query in full_name.lower())
+            )
+            cb.parentWidget().setVisible(matched)
+            any_match = any_match or matched
+
+        if any_match and not self._expanded:
+            self._set_expanded(True)
+        self.setVisible(any_match)
+        return any_match
 
     def _update_group_state(self) -> None:
         total = len(self._prefix_data)
@@ -352,6 +437,7 @@ class _ContentTypeSection(QWidget):
         self._checkboxes: dict[str, QCheckBox] = {}
         self._body_built = False
         self._expanded = False
+        self._pre_search_expanded: bool | None = None  # expand state to restore when search clears
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -448,12 +534,48 @@ class _ContentTypeSection(QWidget):
         self._update_state()
 
     def _toggle_expand(self, _event=None) -> None:
-        self._expanded = not self._expanded
-        if self._expanded and not self._body_built:
+        self._set_expanded(not self._expanded)
+
+    def _set_expanded(self, expanded: bool) -> None:
+        self._expanded = expanded
+        if expanded and not self._body_built:
             self._build_body()
-        self._body.setVisible(self._expanded)
-        glyph = self._config.collapse_icon if self._expanded else self._config.expand_icon
+        self._body.setVisible(expanded)
+        glyph = self._config.collapse_icon if expanded else self._config.expand_icon
         self._expand_lbl.setText(glyph)
+
+    def apply_filter(self, query: str) -> bool:
+        """Realtime-search this section's item labels for *query* (stripped + lowercased).
+
+        Same contract as ``_GroupSection.apply_filter`` — items here are raw
+        provider ``source_category`` labels (already human-readable, no
+        separate full-name lookup applies).
+        """
+        if not self._body_built:
+            self._build_body()
+
+        if not query:
+            for cb in self._checkboxes.values():
+                cb.parentWidget().setVisible(True)
+            if self._pre_search_expanded is not None:
+                self._set_expanded(self._pre_search_expanded)
+                self._pre_search_expanded = None
+            self.setVisible(True)
+            return True
+
+        if self._pre_search_expanded is None:
+            self._pre_search_expanded = self._expanded
+
+        any_match = False
+        for label, cb in self._checkboxes.items():
+            matched = query in label.lower()
+            cb.parentWidget().setVisible(matched)
+            any_match = any_match or matched
+
+        if any_match and not self._expanded:
+            self._set_expanded(True)
+        self.setVisible(any_match)
+        return any_match
 
     def _update_state(self) -> None:
         total = len(self._items)
@@ -531,6 +653,21 @@ class GlobalFilterDialog(QDialog):
         self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
         # Content-provenance rows: list of (content_type_slug, checkbox, row_widget)
         self._content_provenance_rows: list[tuple[str, QCheckBox, QWidget]] = []
+        # The bare "Uncategorized" prefix group (no wrapping type header of its own)
+        self._uncategorized_section: _GroupSection | None = None
+        # Header widgets scoped to a single type — used both by _clear_groups()
+        # (bulk teardown before a repopulate) and by the realtime search filter
+        # below (a type header hides once none of its members match).
+        self._lang_header_widgets: list[QWidget] = []
+        self._content_types_only_header_widgets: list[QWidget] = []
+        self._content_provenance_header_widgets: list[QWidget] = []
+        self._user_categories_header_widgets: list[QWidget] = []
+        # Realtime search — one _FilterBlock per top-level type, rebuilt whenever
+        # the group list is (re)populated. See _apply_search_filter().
+        self._filter_blocks: list[_FilterBlock] = []
+        self._search_active = False
+        self._pre_search_scroll_value: int | None = None
+        self._scroll_area: QScrollArea | None = None
 
         self.setWindowTitle("Exclusions")
         self.setMinimumSize(420, 540)
@@ -566,16 +703,31 @@ class GlobalFilterDialog(QDialog):
         hint.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
         vl.addWidget(hint)
 
+        # ── Realtime search — narrows every section below by prefix/name ───────
+        self._search_box = QLineEdit()
+        self._search_box.setClearButtonEnabled(True)
+        self._search_box.setPlaceholderText("Search exclusions — prefix, language, region…")
+        self._search_box.textChanged.connect(self._apply_search_filter)
+        vl.addWidget(self._search_box)
+
         # ── Scrollable group list ──────────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area = scroll
 
         inner = QWidget()
         self._inner_vl = QVBoxLayout(inner)
         self._inner_vl.setSpacing(0)
         self._inner_vl.setContentsMargins(4, 4, 4, 4)
+
+        self._empty_state_label = QLabel()
+        self._empty_state_label.setStyleSheet(_theme.LABEL_MUTED)
+        self._empty_state_label.setWordWrap(True)
+        self._empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_state_label.setVisible(False)
+        self._inner_vl.addWidget(self._empty_state_label)
 
         self._populate_groups()
 
@@ -652,6 +804,8 @@ class GlobalFilterDialog(QDialog):
         buttons.rejected.connect(self.reject)
         vl.addWidget(buttons)
 
+        self._search_box.setFocus()
+
     # ── Hidden categories management ──────────────────────────────────────────
 
     def _rebuild_hidden_chips(self) -> None:
@@ -722,6 +876,7 @@ class GlobalFilterDialog(QDialog):
             lang_w = QWidget()
             lang_w.setLayout(lang_row)
             self._inner_vl.addWidget(lang_w)
+            self._lang_header_widgets.append(lang_w)
 
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
@@ -786,10 +941,12 @@ class GlobalFilterDialog(QDialog):
             other_section = _GroupSection("Uncategorized", other_entries, initial, config=self._config)
             self._inner_vl.addWidget(other_section)
             self._sections.append(other_section)
+            self._uncategorized_section = other_section
 
         self._populate_content_types()
         self._populate_content_provenance()
         self._populate_user_categories()
+        self._rebuild_filter_blocks()
 
     def _populate_user_categories(self) -> None:
         """Build the User Categories section at the bottom of the filter list."""
@@ -811,6 +968,7 @@ class GlobalFilterDialog(QDialog):
         sep.setStyleSheet(_theme.SEP_DARK)
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
+        self._user_categories_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("User Categories")
@@ -831,6 +989,7 @@ class GlobalFilterDialog(QDialog):
         hdr_w.setLayout(hdr_row)
         self._inner_vl.addWidget(hdr_w)
         self._content_type_header_widgets.append(hdr_w)
+        self._user_categories_header_widgets.append(hdr_w)
 
         for cat in all_cats:
             name  = cat["name"]
@@ -878,6 +1037,7 @@ class GlobalFilterDialog(QDialog):
         sep.setStyleSheet(_theme.SEP_DARK)
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
+        self._content_types_only_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         type_hdr = QLabel("Content Types")
@@ -901,6 +1061,7 @@ class GlobalFilterDialog(QDialog):
         hdr_container.setLayout(hdr_row)
         self._inner_vl.addWidget(hdr_container)
         self._content_type_header_widgets.append(hdr_container)
+        self._content_types_only_header_widgets.append(hdr_container)
 
         # Blacklist model: checked = excluded; start unchecked unless currently excluded.
         excluded_types = set(self._config.global_filter_excluded_content_types)
@@ -973,6 +1134,7 @@ class GlobalFilterDialog(QDialog):
         sep.setStyleSheet(_theme.SEP_DARK)
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
+        self._content_provenance_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("Content Provenance")
@@ -998,6 +1160,7 @@ class GlobalFilterDialog(QDialog):
         hdr_w.setLayout(hdr_row)
         self._inner_vl.addWidget(hdr_w)
         self._content_type_header_widgets.append(hdr_w)
+        self._content_provenance_header_widgets.append(hdr_w)
 
         for value in visible:
             count = counts.get(value, 0)
@@ -1025,6 +1188,12 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.removeWidget(section)
             section.deleteLater()
         self._sections.clear()
+        self._uncategorized_section = None
+
+        for w in self._lang_header_widgets:
+            self._inner_vl.removeWidget(w)
+            w.deleteLater()
+        self._lang_header_widgets.clear()
 
         for w in self._platform_header_widgets:
             self._inner_vl.removeWidget(w)
@@ -1048,6 +1217,12 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.removeWidget(w)
             w.deleteLater()
         self._content_type_header_widgets.clear()
+        # These three lists alias widgets already deleted just above — just drop the refs.
+        self._content_types_only_header_widgets.clear()
+        self._content_provenance_header_widgets.clear()
+        self._user_categories_header_widgets.clear()
+
+        self._filter_blocks = []
 
     # ── Re-scan ────────────────────────────────────────────────────────────────
 
@@ -1070,6 +1245,7 @@ class GlobalFilterDialog(QDialog):
         self._clear_groups()
         self._populate_groups()
         self._inner_vl.addStretch()
+        self._apply_search_filter(self._search_box.text())  # keep any active search applied
 
     # ── Actions ────────────────────────────────────────────────────────────────
 
@@ -1082,6 +1258,7 @@ class GlobalFilterDialog(QDialog):
         self._clear_groups()
         self._populate_groups()
         self._inner_vl.addStretch()
+        self._apply_search_filter(self._search_box.text())  # keep any active search applied
         logger.info("User category overrides reset to defaults")
 
     def _select_all(self, checked: bool) -> None:
@@ -1128,6 +1305,93 @@ class GlobalFilterDialog(QDialog):
             lnk.linkActivated.connect(lambda _, c=checked: select_fn(c))
             row.addWidget(lnk)
         return w
+
+    # ── Realtime search ──────────────────────────────────────────────────────
+
+    def _rebuild_filter_blocks(self) -> None:
+        """(Re)build the search index — one ``_FilterBlock`` per top-level type.
+
+        Called at the end of ``_populate_groups()`` (initial build and every
+        re-scan/reset repopulate) so the search box always filters whatever is
+        currently on screen.
+        """
+        from metatv.core.channel_name_utils import content_type_display
+
+        blocks: list[_FilterBlock] = [
+            _FilterBlock(
+                header_widgets=list(self._lang_header_widgets),
+                containers=list(self._language_sections),
+            ),
+            _FilterBlock(
+                header_widgets=list(self._platform_header_widgets),
+                containers=list(self._platform_sections),
+            ),
+        ]
+        if self._uncategorized_section is not None:
+            blocks.append(_FilterBlock(containers=[self._uncategorized_section]))
+
+        if self._content_type_rows or self._content_type_other_section is not None:
+            containers = (
+                [self._content_type_other_section] if self._content_type_other_section is not None else []
+            )
+            leaf_rows = [(row, [name.lower()]) for name, _cb, row in self._content_type_rows]
+            blocks.append(_FilterBlock(
+                header_widgets=list(self._content_types_only_header_widgets),
+                containers=containers,
+                leaf_rows=leaf_rows,
+            ))
+
+        if self._content_provenance_rows:
+            leaf_rows = [
+                (row, [slug.lower(), content_type_display(slug).lower()])
+                for slug, _cb, row in self._content_provenance_rows
+            ]
+            blocks.append(_FilterBlock(
+                header_widgets=list(self._content_provenance_header_widgets),
+                leaf_rows=leaf_rows,
+            ))
+
+        if self._user_category_rows:
+            leaf_rows = [(row, [name.lower()]) for name, _cb, row in self._user_category_rows]
+            blocks.append(_FilterBlock(
+                header_widgets=list(self._user_categories_header_widgets),
+                leaf_rows=leaf_rows,
+            ))
+
+        self._filter_blocks = blocks
+
+    def _apply_search_filter(self, raw_query: str) -> None:
+        """Realtime, case-insensitive substring filter over every exclusion list.
+
+        Matches an entry's displayed token AND, where the canonical
+        ``REGION_FULL_NAMES`` lookup (``channel_name_utils.py``) has one, its
+        human-readable name — or, for a language/platform group, the group's
+        own name (so "french" matches the French group and therefore shows its
+        FR member even though FR's own full name is "France"). A type header
+        stays visible only while it still has ≥1 visible match; clearing the
+        box restores every row plus the expand/scroll state captured when the
+        search began.
+        """
+        query = raw_query.strip().lower()
+        entering_search = bool(query) and not self._search_active
+        self._search_active = bool(query)
+        if entering_search and self._scroll_area is not None:
+            self._pre_search_scroll_value = self._scroll_area.verticalScrollBar().value()
+
+        any_visible = False
+        for block in self._filter_blocks:
+            visible = block.apply(query)
+            any_visible = any_visible or visible
+
+        if query and not any_visible:
+            self._empty_state_label.setText(f"No exclusions match '{raw_query.strip()}'")
+            self._empty_state_label.setVisible(True)
+        else:
+            self._empty_state_label.setVisible(False)
+
+        if not query and self._pre_search_scroll_value is not None and self._scroll_area is not None:
+            self._scroll_area.verticalScrollBar().setValue(self._pre_search_scroll_value)
+            self._pre_search_scroll_value = None
 
     def _save_and_accept(self) -> None:
         # Blacklist model: save checked prefixes as excluded (checked = hidden).
