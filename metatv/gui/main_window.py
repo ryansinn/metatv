@@ -468,9 +468,19 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Deferred 1 s so channels load and the UI paints before the worker starts.
         QTimer.singleShot(1000, self.migration_manager.run_pending)
 
-        # No TMDb enrichment sweep at launch: it is now lazy/on-demand — result
+        # No TMDb *id* enrichment sweep at launch: it is now lazy/on-demand — result
         # surfaces feed tmdb_enrichment_manager.enqueue() with the rows they load
         # (see _enqueue_tmdb_enrichment), so we only fetch what the user is viewing.
+        #
+        # Genre backfill IS proactive: movies get a metadata row (on view) but empty
+        # genres (the list raw_data omits them), and a genreless movie scores 0 in the
+        # genre-driven recommender — so it never appears. This fills those genres from
+        # each movie's get_vod_info detail blob. Off-thread, batched, capped per launch,
+        # resumable; a safe no-op once drained. Deferred 3 s so it never competes with
+        # the initial channel load / paint or blocks launch.
+        QTimer.singleShot(
+            3000, self.tmdb_enrichment_manager.backfill_missing_genres
+        )
 
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False

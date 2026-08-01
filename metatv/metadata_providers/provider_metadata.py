@@ -5,6 +5,7 @@ import re
 from loguru import logger
 
 from metatv.metadata_providers.base import MetadataProviderPlugin, MetadataResult
+from metatv.metadata_providers.raw_parse import parse_cast_string, parse_genres
 
 
 class ProviderMetadataProvider(MetadataProviderPlugin):
@@ -152,29 +153,20 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
         return (True, None)
     
     def _parse_cast_string(self, cast_str: str) -> List[Dict[str, Any]]:
-        """Parse comma-separated cast string into structured list
-        
-        Args:
-            cast_str: "Actor1, Actor2, Actor3" format
-        
-        Returns:
-            List of dicts with 'name' key
+        """Parse comma-separated cast string into structured list.
+
+        Thin wrapper over the shared parser so there is one cast parser in the
+        codebase (also used by the enrichment sweep — see raw_parse.py).
         """
-        if not cast_str:
-            return []
-        
-        # Split by comma and clean
-        names = [name.strip() for name in cast_str.split(',') if name.strip()]
-        
-        # Return as list of dicts for consistency with TMDb format
-        return [{"name": name, "character": None, "photo_url": None} for name in names]
-    
+        return parse_cast_string(cast_str)
+
     def _parse_genres(self, genre_str: str) -> List[str]:
-        if not genre_str:
-            return []
-        # Some providers use " / " (Xtream/TREX style), others use "," — handle both.
-        # Do NOT split on "&" since "Action & Adventure" is a single genre.
-        return [g.strip() for g in re.split(r'\s*/\s*|,\s*', genre_str) if g.strip()]
+        """Parse a provider genre string into a list.
+
+        Thin wrapper over the shared parser so there is one genre parser in the
+        codebase (also used by the enrichment sweep — see raw_parse.py).
+        """
+        return parse_genres(genre_str)
     
     def _parse_rating(self, rating_value) -> Optional[float]:
         """Parse rating value from various formats

@@ -2175,6 +2175,141 @@ class ChannelRepository(_ChannelStatsMixin):
         )
         return sum(1 for key in new_keys.values() if key_counts.get(key, 0) >= 2)
 
+    def select_genre_backfill_candidates(
+        self,
+        limit: int,
+        excluded_provider_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, str]]:
+        """Return MOVIE rows whose linked metadata row has **empty genres**.
+
+        The list ``raw_data`` for movies is sparse (no genre), so a movie that has
+        already been given a MetadataDB row (viewed at least once) still shows empty
+        ``genres`` — which makes it invisible to the genre-driven recommendation
+        scorer.  This selects those movies so the enrichment sweep can fetch their
+        ``get_vod_info`` detail blob and harvest the real genres.
+
+        Candidate predicate: ``media_type == 'movie'``, has a linked ``MetadataDB``
+        row whose ``genres`` is NULL or ``[]``, is visible, on a non-excluded
+        provider, and has **not** been attempted (``genre_enrich_state IS NULL``) —
+        the persistent marker that makes the pass resumable and hits each row once.
+
+        Args:
+            limit: Hard cap on rows returned (a bounded drain batch).
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+
+        Returns:
+            List of ``{"id", "provider_id", "source_id", "media_type"}`` dicts (plain
+            dicts — no ORM objects escape the session).
+        """
+        # ``MetadataDB.genres == []`` binds through JSONEncoded to the stored TEXT
+        # '[]' (the empty-list form), matching how empty genres are persisted.
+        q = (
+            self.session.query(
+                ChannelDB.id,
+                ChannelDB.provider_id,
+                ChannelDB.source_id,
+                ChannelDB.media_type,
+            )
+            .join(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+            .filter(ChannelDB.media_type == "movie")
+            .filter(ChannelDB.is_hidden.is_(False))
+            .filter(ChannelDB.genre_enrich_state.is_(None))
+            .filter(or_(MetadataDB.genres.is_(None), MetadataDB.genres == []))
+        )
+        if excluded_provider_ids:
+            q = q.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        q = q.order_by(ChannelDB.provider_id).limit(limit)
+        return [
+            {"id": cid, "provider_id": pid, "source_id": sid, "media_type": mt}
+            for (cid, pid, sid, mt) in q.all()
+        ]
+
+    def apply_metadata_harvest(self, harvest: Dict[str, dict]) -> int:
+        """Fill EMPTY metadata fields for fetched titles from their detail blob.
+
+        ``harvest`` maps ``channel_id → {genres, plot, cast, director}`` parsed from
+        the channel's ``get_vod_info`` / ``get_series_info`` response (see
+        :func:`metatv.metadata_providers.raw_parse.harvest_detail_metadata`).  For
+        each channel that HAS a linked ``MetadataDB`` row, only fields that are
+        currently empty (generated data) are filled — a populated field (a better
+        provider's value, or a user edit) is never overwritten (mirror-not-cage).
+
+        For **movie** rows it also stamps the ``genre_enrich_state`` fetch-once
+        marker: ``'fetched'`` when the detail blob carried a genre, ``'none'`` when
+        it did not — so the one-time genre backfill never re-fetches the same title.
+        Rows that errored during fetch are simply absent from *harvest*, so they are
+        left unmarked and retried on a later pass (defer-on-error).
+
+        Args:
+            harvest: ``{channel_id: {genres, plot, cast, director}}``.
+
+        Returns:
+            The number of metadata rows whose ``genres`` were populated this call.
+        """
+        cids = list(harvest.keys())
+        if not cids:
+            return 0
+
+        # channel_id → (metadata_id, media_type) for the fetched rows.
+        chan_rows = (
+            self.session.query(
+                ChannelDB.id, ChannelDB.metadata_id, ChannelDB.media_type
+            )
+            .filter(ChannelDB.id.in_(cids))
+            .all()
+        )
+        meta_id_by_cid = {cid: mid for (cid, mid, _mt) in chan_rows if mid}
+        media_by_cid = {cid: mt for (cid, _mid, mt) in chan_rows}
+
+        meta_ids = list(set(meta_id_by_cid.values()))
+        meta_by_id: Dict[str, MetadataDB] = {}
+        if meta_ids:
+            for meta in (
+                self.session.query(MetadataDB)
+                .filter(MetadataDB.id.in_(meta_ids))
+                .all()
+            ):
+                meta_by_id[meta.id] = meta
+
+        filled = 0
+        movie_fetched: List[str] = []  # got a genre → mark 'fetched'
+        movie_none: List[str] = []     # attempted, no genre → mark 'none'
+
+        for cid, h in harvest.items():
+            has_genre = bool(h.get("genres"))
+            if media_by_cid.get(cid) == "movie":
+                (movie_fetched if has_genre else movie_none).append(cid)
+
+            meta = meta_by_id.get(meta_id_by_cid.get(cid))
+            if meta is None:
+                continue  # no metadata row to fill (not a scoring candidate anyway)
+
+            if not meta.genres and h.get("genres"):
+                meta.genres = h["genres"]
+                filled += 1
+            if not meta.plot and h.get("plot"):
+                meta.plot = h["plot"]
+            if not meta.cast and h.get("cast"):
+                meta.cast = h["cast"]
+            if not meta.director and h.get("director"):
+                meta.director = h["director"]
+
+        if movie_fetched:
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id.in_(movie_fetched))
+                .values(genre_enrich_state="fetched")
+            )
+        if movie_none:
+            self.session.execute(
+                update(ChannelDB)
+                .where(ChannelDB.id.in_(movie_none))
+                .values(genre_enrich_state="none")
+            )
+        self.session.commit()
+        return filled
+
     def reset_tmdb_enrich_state(self, provider_id: str) -> int:
         """Clear the attempt marker for one provider's rows **that are still idless**.
 
