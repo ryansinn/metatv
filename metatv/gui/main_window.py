@@ -2133,7 +2133,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # in history would hit this path, so skip the main-splitter write outright.
         # (collapse_panel's setSizes() does not emit splitterMoved, so the auto-collapse
         # itself never triggers a save — this guards the manual-drag / closeEvent cases.)
-        if getattr(self, "view_mode", None) == "history":
+        # Plain __dict__ lookup (the codebase's existence-guard convention): `getattr`
+        # on a PyQt object whose C++ __init__ was skipped (the persistence unit-test
+        # shell) raises "super-class __init__() never called" instead of the default.
+        if self.__dict__.get("view_mode") == "history":
             return
         try:
             sizes = self.main_splitter.sizes()
