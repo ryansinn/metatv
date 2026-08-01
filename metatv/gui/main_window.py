@@ -2124,6 +2124,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if _dev_mode_enabled():
             return
 
+        # First launch on a fresh config (cursor 0): don't replay the entire
+        # historical changelog — fast-forward silently. A cursor of 0 in normal
+        # mode can only mean a just-created config, because dismissing the dialog
+        # always advances the cursor. Upgrades keep showing their delta as before.
+        if self.config.last_seen_whats_new_id == 0:
+            self.config.last_seen_whats_new_id = _whats_new.latest_id()
+            self.config.save()
+            return
+
         unseen = self._whats_new_unseen()
         if not unseen:
             return

@@ -37,8 +37,35 @@ def test_auto_dialog_suppressed_in_dev_mode(monkeypatch):
 
 def test_auto_dialog_shows_for_real_users_when_unseen(monkeypatch):
     win = _bare_window()
+    # A real user mid-upgrade: non-zero cursor with unseen entries above it.
+    # (Cursor 0 is now the fresh-install fast-forward case — tested below.)
+    win.config.last_seen_whats_new_id = 1
     monkeypatch.setattr("metatv.gui.main_window._dev_mode_enabled", lambda: False)
     with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
         Dlg.return_value.exec = MagicMock()
         win.maybe_show_whats_new()
     Dlg.assert_called_once()  # a genuine unseen cursor still surfaces the dialog
+
+
+def test_fresh_config_fast_forwards_without_dialog(monkeypatch):
+    """Normal mode + cursor 0 (just-created config) → no replay; cursor jumps to latest."""
+    monkeypatch.delenv("METATV_DEV", raising=False)
+    win = _bare_window()
+    with patch("metatv.gui.main_window.WhatsNewDialog") as dlg, \
+         patch("metatv.gui.main_window._whats_new.latest_id", return_value=213):
+        win.maybe_show_whats_new()
+    dlg.assert_not_called()
+    assert win.config.last_seen_whats_new_id == 213
+    win.config.save.assert_called_once()
+
+
+def test_upgrade_delta_still_shows(monkeypatch):
+    """Non-zero cursor with unseen entries keeps showing the delta dialog."""
+    monkeypatch.delenv("METATV_DEV", raising=False)
+    win = _bare_window()
+    win.config.last_seen_whats_new_id = 200
+    win._whats_new_unseen = MagicMock(return_value=[MagicMock()])
+    with patch("metatv.gui.main_window.WhatsNewDialog") as dlg:
+        dlg.return_value.exec.return_value = None
+        win.maybe_show_whats_new()
+    dlg.assert_called_once()
