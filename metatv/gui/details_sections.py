@@ -1621,17 +1621,19 @@ class _TagsSection(QWidget):
         lbl.setStyleSheet(_theme.TAG_FACET_LABEL)
         self._content_layout.addWidget(lbl)
 
-        # Chip row — wrapped with QHBoxLayout + stretch to left-align
+        # Chip row — a wrapping _FlowLayout, NEVER a QHBoxLayout.  A facet with many
+        # chips (a long GENRE or LANGUAGE list) must wrap onto additional rows at the
+        # panel width; a non-wrapping QHBoxLayout instead crushes every chip below its
+        # text width (center-elided "tion & Adver", "Animatio") to fit one row.  A flow
+        # packs left-to-right and left-aligns on its own, so no trailing stretch.
         row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(4)
+        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        row_layout = _FlowLayout(row, h_spacing=4, v_spacing=4)
 
         for tag in tags:
             chip = self._make_chip(tag)
             row_layout.addWidget(chip)
 
-        row_layout.addStretch()
         self._content_layout.addWidget(row)
 
     def _make_chip(self, tag) -> QPushButton:

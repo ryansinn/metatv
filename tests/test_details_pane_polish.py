@@ -281,14 +281,21 @@ def test_comma_joined_genres_do_not_force_wide_minimum(qapp):
 
 def test_ampersand_genre_not_split(qapp):
     """'Sci-Fi & Fantasy' / 'Action & Adventure' are single TMDB genres — '&'
-    must never split them, only ',' and '/' do."""
+    must never split them, only ',' and '/' do.
+
+    The chip text is escaped for display ('&' → '&&' so a QPushButton does not
+    treat it as a mnemonic); normalise that back before comparing so this test
+    stays about the *split* behaviour, not the display escaping."""
     from PyQt6.QtWidgets import QPushButton
     from metatv.gui.details_sections import _MetadataSection
     from metatv.metadata_providers.base import MetadataResult
 
     section = _MetadataSection(_make_config())
     section.load_metadata(MetadataResult(genres=["Sci-Fi & Fantasy, Action"]))
-    chip_texts = {c.text() for c in section._genres_container.findChildren(QPushButton)}
+    chip_texts = {
+        c.text().replace("&&", "&")
+        for c in section._genres_container.findChildren(QPushButton)
+    }
     assert chip_texts == {"Sci-Fi & Fantasy", "Action"}, (
         f"'&' must not split a genre; got {chip_texts}"
     )

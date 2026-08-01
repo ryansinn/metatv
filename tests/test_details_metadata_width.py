@@ -176,6 +176,47 @@ def test_tag_chip_escapes_ampersand_but_emits_raw(qapp):
     )
 
 
+def test_tags_facet_row_wraps_not_crushes(qapp):
+    """Each Tags-section facet sub-row (GENRE, LANGUAGE, …) lays its chips in a
+    WRAPPING _FlowLayout, not a crushing QHBoxLayout.  A long GENRE list must wrap
+    to more rows at a narrow width — a QHBoxLayout would keep one row and squeeze
+    every chip below its text width (center-elided "tion & Adver")."""
+    from metatv.core.repositories.dtos import ChannelTagDTO
+    from metatv.gui.details_sections import _TagsSection
+    from metatv.gui.details_versions import _FlowLayout
+
+    genres = [
+        "Action & Adventure", "Sci-Fi & Fantasy", "Animation", "Comedy", "Drama",
+        "Documentary", "Family", "Kids", "War & Politics", "Reality",
+    ]
+    section = _TagsSection(_make_config())
+    section.load([
+        ChannelTagDTO(facet_type="genre", value=g, source_given=True,
+                      confidence=1.0, feeders=("genre",))
+        for g in genres
+    ])
+
+    # Locate the facet chip row — the widget whose layout is a _FlowLayout.
+    layout = section._content_layout
+    flow_rows = [
+        layout.itemAt(i).widget().layout()
+        for i in range(layout.count())
+        if layout.itemAt(i).widget() is not None
+        and isinstance(layout.itemAt(i).widget().layout(), _FlowLayout)
+    ]
+    assert flow_rows, (
+        "the GENRE sub-row must use a wrapping _FlowLayout, not a QHBoxLayout that "
+        "crushes/truncates each chip"
+    )
+    flow = flow_rows[0]
+    assert flow.count() == len(genres)
+    narrow = flow.heightForWidth(150)
+    wide = flow.heightForWidth(2000)
+    assert narrow > wide, (
+        f"GENRE chips must wrap to more rows when narrow (narrow={narrow}, wide={wide})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # BUG 2 — genre chips must WRAP at the pane width and never truncate, even when
 # a SIBLING section (here: a version chip with a very long unbreakable label)

@@ -12,17 +12,19 @@ ENTRY = WhatsNewEntry(
         "(a stray underscore) and 'Sci-Fi & Fantasy' as 'Sci-Fi _Fantasy'.",
         "Filtering is unchanged — clicking a genre still filters by the real "
         "'Action & Adventure'; only the on-screen label is corrected.",
-        "The genre chips wrap onto additional rows at the pane width and never "
-        "truncate, even when another section (like a long version-source label) "
-        "tries to widen the column.",
+        "The Tags panel's facet rows (GENRE, LANGUAGE, REGION, DECADE, COLLECTION) "
+        "now WRAP onto additional lines at the panel width instead of crushing every "
+        "chip onto one row (which cut the text down to fragments like 'tion & Adver' "
+        "or 'Animatio'). The details header genres wrap the same way.",
     ),
     test_steps=(
         "Select a title whose genres include 'Action & Adventure' or 'Sci-Fi & "
-        "Fantasy' (e.g. a TMDB-tagged movie/series) → each genre chip shows a real "
-        "'&' with no stray underscore.",
-        "Click the 'Action & Adventure' chip → the channel list filters to that "
-        "genre (the click uses the real value, not the escaped display text).",
-        "Narrow the details pane → the genre chips wrap onto more rows and stay "
-        "within the pane; no chip's text is cut off.",
+        "Fantasy' (e.g. a TMDB-tagged movie/series) → in both the header and the "
+        "'\U0001f3f7 Tags' panel GENRE row, each chip shows a real '&' with no stray "
+        "underscore.",
+        "With several genres shown, look at the Tags panel GENRE row → the chips wrap "
+        "onto multiple rows; none is squished/truncated ('tion & Adver' / 'Animatio').",
+        "Click the 'Action & Adventure' chip → the channel list filters to that genre "
+        "(the click uses the real value, not the escaped display text).",
     ),
 )
