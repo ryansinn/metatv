@@ -1075,6 +1075,8 @@ class _ChannelListMixin:
                             getattr(channel, "watch_completed", False)
                         ),
                         channel_name=channel.name or "",
+                        # Stored field, computed at ingestion — never parsed here.
+                        detected_title=getattr(channel, "detected_title", "") or "",
                         user_category=channel.user_category,
                         entry_id=entry_id,
                         channel_found=True,
@@ -1217,6 +1219,11 @@ class _ChannelListMixin:
                 else (lambda: self._mark_channel_watched(cid))
             ),
             "track": lambda: self._prompt_track_from_list(ctx.channel_name),
+            # Title actions — both read ctx.title (stored detected_title, falling
+            # back to the raw name) so they can never disagree.  Search reuses the
+            # existing search_for_title seam rather than poking search_input.
+            "search_title": lambda: self.search_for_title(ctx.title),
+            "copy_title": lambda: self._copy_title_to_clipboard(ctx.title),
             "unhide": lambda: self._unhide_channel(cid),
             "hide": hide_fn,
             "remove_history": lambda: self.remove_from_history(cid),
@@ -1256,6 +1263,22 @@ class _ChannelListMixin:
             handlers["clear_unavailable"] = fav_section.clearUnavailableClicked.emit
 
         return handlers
+
+    def _copy_title_to_clipboard(self, title: str) -> None:
+        """Put *title* on the system clipboard and confirm in the status bar.
+
+        Handler for the context menu's "Copy title".  The title is resolved by
+        ``ChannelMenuContext.title`` (stored ``detected_title``, falling back to the
+        raw channel name), so this never re-derives it.
+        """
+        from PyQt6.QtWidgets import QApplication
+
+        text = (title or "").strip()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        if hasattr(self, "status_bar"):
+            self.status_bar.showMessage(f"Copied '{text}' to clipboard")
 
     # ---- Context menu entry points (thin wrappers) ---------------------------
 
