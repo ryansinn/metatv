@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=191,
-    version="0.14.2",
+    version="0.15.0",
     date="2026-07-31",
     title="Cleaner movie titles + search now finds cast and directors",
     items=(

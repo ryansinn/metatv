@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=190,
-    version="0.14.2",
+    version="0.15.0",
     date="2026-07-31",
     title="Movies can finally appear in Recommendations (their genres are backfilled)",
     items=(

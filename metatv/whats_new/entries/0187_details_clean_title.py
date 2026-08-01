@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=187,
-    version="0.14.2",
+    version="0.15.0",
     date="2026-07-31",
     title="Cleaner titles everywhere, not just the details pane",
     items=(

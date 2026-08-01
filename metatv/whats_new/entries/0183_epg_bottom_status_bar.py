@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=183,
-    version="0.14.2",
+    version="0.15.0",
     date="2026-07-31",
     title="EPG source status + Refresh now sit on the programmes-count line",
     items=(

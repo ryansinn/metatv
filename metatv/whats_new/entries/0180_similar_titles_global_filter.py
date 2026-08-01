@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=180,
-    version="0.14.1",
+    version="0.15.0",
     date="2026-07-31",
     title="Similar Titles now respects your Global Filter",
     items=(

@@ -159,6 +159,7 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 
 - [ ] **M3U playlist support**
 - [ ] **Windows / macOS packaging** (AppImage / Flatpak for Linux too)
+- [ ] **Linux release build in CI (owner steer 2026-07-31)** — `release.yml` is macOS-only (arm64 DMG). Add a Linux job on the same tag trigger that PyInstaller-builds MetaTV, vendors mpv (external binary spawned over IPC — `_resolve_mpv_binary()` finds it when frozen, else `$MPV_BINARY`/PATH), and packages an **AppImage** (memory: "Linux AppImage easy/unbuilt"). Upload it to the same GitHub Release (separate job, `fail-fast: false`, so a Linux failure never blocks the macOS DMG). Deferred out of v0.15.0 to avoid holding the launch on untested CI.
 - [ ] **Multi-language UI** — i18n via Qt Linguist / gettext; RTL layout support for Arabic/Hebrew; locale-aware date/time formatting
 - [ ] **Plugin system** for community providers
 

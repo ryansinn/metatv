@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=188,
-    version="0.14.2",
+    version="0.15.0",
     date="2026-07-31",
     title="Details pane: genres like 'Action & Adventure' show a real '&' and wrap cleanly",
     items=(

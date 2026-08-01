@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=185,
-    version="0.14.1",
+    version="0.15.0",
     date="2026-07-31",
     title="Watch History fills the window · splitter handles show a grip",
     items=(

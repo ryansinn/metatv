@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=181,
-    version="0.14.1",
+    version="0.15.0",
     date="2026-07-31",
     title="EPG tabs now get the full width — all of them fit",
     items=(
