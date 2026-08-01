@@ -173,8 +173,13 @@ class MigrationManager(QObject):
                     logger.exception(
                         "MigrationManager: task {} raised an exception", task.id
                     )
-                    # Emit finished anyway so the widget updates; the version
-                    # was not bumped so the task will retry next launch.
+                    # Emit finished so the widget updates, but SKIP on_completed —
+                    # a crashed task must NOT bump its version, so it retries next
+                    # launch. (This block previously fell through to on_completed,
+                    # marking crashed runs complete — the 2026-07-31 reparse-v8
+                    # "database is locked" run was burned exactly this way.)
+                    self._task_finished.emit(task.id)
+                    continue
 
                 # Only mark complete if the task finished (not cancelled). The
                 # task owns its own completion bookkeeping (version bump + save),
