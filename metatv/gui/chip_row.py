@@ -90,22 +90,24 @@ def build_chip_row(
     year: str = "",
     quality: str = "",
     prefix: str = "",
+    new_badge: bool = False,
 ) -> QWidget:
-    """Build a sidebar content row: ``[icon] Title [4K] … [Year] [Lang]``.
+    """Build a sidebar content row: ``[icon] [NEW] Title [4K] … [Year] [Lang]``.
 
     The canonical chip row shared by Recommended, Watch Queue, Favorites and
     History.  Mirrors the mouse-transparent ``setItemWidget`` pattern: the row is
     ``WA_TransparentForMouseEvents`` so the hosting ``QListWidget`` item keeps
     ownership of click / double-click / context-menu / selection.
 
-    Layout, left→right: an icon (with an optional 👍 like glyph prefixed), then the
-    middle-eliding title sized to its content (Preferred policy, no stretch,
-    buffered ``sizeHint`` — see :class:`MiddleElideLabel` — so a title that fits is
-    never clipped), then the quality badge (``QUALITY_CHIP``) hugging the title
-    TEXT when present, then a stretch, then the right-aligned cluster: the year as a
-    subtle bordered chip (``YEAR_CHIP``) and the audio-language chip (``LANG_CHIP``)
-    as the CONSISTENT rightmost element on every row, so the right edge stays
-    aligned.  Each chip is added only when its value is non-empty.
+    Layout, left→right: an icon (with an optional 👍 like glyph prefixed), an
+    optional "NEW" pill (``new_badge``), then the middle-eliding title sized to
+    its content (Preferred policy, no stretch, buffered ``sizeHint`` — see
+    :class:`MiddleElideLabel` — so a title that fits is never clipped), then the
+    quality badge (``QUALITY_CHIP``) hugging the title TEXT when present, then a
+    stretch, then the right-aligned cluster: the year as a subtle bordered chip
+    (``YEAR_CHIP``) and the audio-language chip (``LANG_CHIP``) as the CONSISTENT
+    rightmost element on every row, so the right edge stays aligned.  Each chip is
+    added only when its value is non-empty.
 
     Args:
         media_icon: The resolved media-type glyph (movie/series/live/unknown).
@@ -115,6 +117,9 @@ def build_chip_row(
         quality: The quality token (e.g. "4K") — rendered as a ``QUALITY_CHIP``.
         prefix: The audio-language prefix (e.g. "EN") — the honest language, NEVER
             the source region — rendered as the far-right ``LANG_CHIP``.
+        new_badge: When True, show a small green "NEW" pill after the icon (e.g.
+            the Watch Queue's "Alerts Matched" rows) — the word "NEW" itself is
+            the cue, never colour alone.
 
     Returns:
         A mouse-transparent ``QWidget`` ready for ``QListWidget.setItemWidget``.
@@ -128,6 +133,11 @@ def build_chip_row(
 
     icon_lbl = QLabel(f"{liked_prefix}{media_icon}")
     layout.addWidget(icon_lbl)
+
+    if new_badge:
+        new_lbl = QLabel("NEW")
+        new_lbl.setStyleSheet(_theme.QUEUE_MATCHED_NEW_TAG)
+        layout.addWidget(new_lbl)
 
     title_lbl = MiddleElideLabel(title)
     title_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — legible title

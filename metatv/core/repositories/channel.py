@@ -2422,11 +2422,14 @@ class ChannelRepository(_ChannelStatsMixin):
 
         Returns:
             List of plain dicts — safe to cross the Qt thread boundary:
-            ``{id, name, stream_url, provider_id, provider_name, provider_icon,
-               provider_color, detected_quality, detected_region, detected_prefix,
-               is_active}`` (``is_active``/``provider_name``/``provider_icon``/
-               ``provider_color`` come from the joined ``ProviderDB`` — the lightbox's
-               "Other Versions" chips render the icon/colour as a compact source badge).
+            ``{id, name, stream_url, provider_id, source_id, media_type,
+               provider_name, provider_icon, provider_color, detected_quality,
+               detected_region, detected_prefix, is_active}`` (``is_active``/
+               ``provider_name``/``provider_icon``/``provider_color`` come from
+               the joined ``ProviderDB`` — the lightbox's "Other Versions" chips
+               render the icon/colour as a compact source badge; ``source_id``/
+               ``media_type`` let series-monitor mirror discovery resolve a
+               fetchable (provider, source_id) pair without a second query).
         """
         from metatv.core.database import ProviderDB  # local import avoids circular
 
@@ -2465,6 +2468,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 "name": ch.name,
                 "stream_url": ch.stream_url,
                 "provider_id": ch.provider_id,
+                "source_id": ch.source_id,
+                "media_type": ch.media_type,
                 "provider_name": provider_name,
                 # Source badge data for the lightbox "Other Versions" chips.
                 "provider_icon": provider_icon or "",

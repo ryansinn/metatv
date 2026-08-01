@@ -496,6 +496,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Series monitor startup check — runs after channels are loaded (deferred 0ms
         # yields to the event loop so channel load and UI paint happen first).
         QTimer.singleShot(0, self.series_monitor.check_all)
+        # Recurring background recheck (config.series_monitor_interval_minutes,
+        # default 60; 0 = off) — keeps long-running sessions current without
+        # requiring a provider refresh or app restart.
+        self.series_monitor.start_scheduler()
 
         # VOD watch-alert startup check — same deferred strategy as series_monitor.
         QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
@@ -820,6 +824,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.series_monitor.new_episodes_found.connect(
                 lambda _cid, _n: self._refresh_vod_alerts_section()
             )
+            # Subtle "checking…" hint on the Movies & Series header while a monitor
+            # check (startup / recurring timer / post-refresh) is in flight.
+            self.series_monitor.checking_started.connect(
+                lambda: section.set_series_checking(True)
+            )
+            self.series_monitor.checking_finished.connect(
+                lambda: section.set_series_checking(False)
+            )
             # Populate rules + series on startup; backfill any missing cleaned titles
             # first (bounded off-thread lookup), then render (rules are synchronous).
             QTimer.singleShot(0, self._backfill_series_display_titles)
@@ -875,6 +887,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.clearUnavailableClicked.connect(
                 lambda: self._clear_unavailable_queue(section)
             )
+            # Alerts Matched (topmost group) — a channel row opens details AND acks
+            # the match; a series row reuses the same "open series" seam as the
+            # Watch Alerts section's seriesClicked (no unseen-count clearing here).
+            section.alertsMatchedClicked.connect(self._on_alerts_matched_clicked)
+            section.alertsMatchedSeriesClicked.connect(self.show_channel_details_by_id)
             return section
 
         return None
@@ -992,8 +1009,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 "region": channel.detected_region or "",
                 "language": channel.detected_prefix or "",
                 "source": (provider.name if provider else "") or "",
-                "baseline_episode_count": None,  # None = not yet established (set by set_baseline)
+                # {} = no provider baseline established yet; set_baseline() below
+                # fills in this (primary) provider's entry. Any OTHER provider
+                # mirroring this series gets baselined silently on its first
+                # check_all()/timer pass.
+                "baselines": {},
                 "unseen_new": 0,
+                "growth_providers": [],
                 "last_checked": None,
             }
 
@@ -1049,6 +1071,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             ab = getattr(pane, "_action_bar", None)
             if ab is not None and hasattr(ab, "set_new_match"):
                 ab.set_new_match(self.config.is_vod_match_unviewed(current.id))
+
+    def _on_alerts_matched_clicked(self, channel_id: str) -> None:
+        """Watch Queue 'Alerts Matched' row click: open details AND ack the match.
+
+        Reuses the existing per-match "viewed" chokepoint
+        (``Config.mark_vod_alert_match_viewed`` — marks the channel viewed across
+        every rule that alerted it) rather than adding a parallel method, then
+        re-runs the single alert-visibility refresh so the Alerts Matched rows,
+        the pinned banner count, and every other alert-visibility surface can't
+        disagree.
+        """
+        self.show_channel_details_by_id(channel_id)
+        if self.config.mark_vod_alert_match_viewed(channel_id):
+            self._refresh_alert_visibility()
 
     def _clear_vod_alert(self, channel_id: str) -> None:
         """Acknowledge a single matched channel (per-item 'Clear alert')."""

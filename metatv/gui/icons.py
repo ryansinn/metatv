@@ -49,6 +49,7 @@ split_icon: str = "⧉"       # U+29C9 TWO JOINED SQUARES — split-streams togg
 new_window_icon: str = "❐"  # U+2750 UPPER-RIGHT DROP-SHADOWED SQUARE — window-over-window (separate per-source window)
 close_icon: str = "×"
 delete_icon: str = "🗑"
+undo_icon: str = "↩"   # U+21A9 LEFTWARDS ARROW WITH HOOK — "Undo" a pending recoverable-remove
 watch_later_icon: str = "👀"  # Watch Later quick-pick category
 refresh_icon: str = "⟳"
 settings_icon: str = "⚙"

@@ -145,6 +145,14 @@ class ManageVodAlertsDialog(QDialog):
       "Stop" button that removes it from ``monitored_series``.
 
     Absorbs everything the retired ``MonitoredSeriesDialog`` did.
+
+    Remove/Stop are RECOVERABLE (mirror-not-cage), not immediate: clicking either
+    flips the row to strikethrough with the button swapped for "Undo" — the row
+    stays visible, its stored ``alerted_ids``/``viewed_ids`` history untouched.
+    The actual config mutation (``remove_vod_watch_alert`` / ``remove_monitored_series``)
+    only happens for rows STILL pending when the dialog closes (Close button, Esc,
+    or the window's X — all route through ``reject()``); see
+    :meth:`_finalize_pending_removals`.
     """
 
     # Emitted when a rule OR series is removed so the host can refresh dependent views.
@@ -155,6 +163,11 @@ class ManageVodAlertsDialog(QDialog):
     def __init__(self, config, parent=None) -> None:
         super().__init__(parent)
         self._config = config
+        # Recoverable-remove: rows flipped to pending-remove (rule "created" id /
+        # series_channel_id) — nothing is actually deleted from config until the
+        # dialog closes with the row still pending (see _finalize_pending_removals).
+        self._pending_remove_rules: set[str] = set()
+        self._pending_remove_series: set[str] = set()
         self.setWindowTitle("Manage Watch Alerts")
         self.setMinimumSize(480, 420)
         self._setup_ui()
@@ -270,20 +283,37 @@ class ManageVodAlertsDialog(QDialog):
         match_type = rule.get("match_type", "any")
         alerted_count = len(rule.get("alerted_ids") or [])
 
-        type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
-        type_lbl = type_icons.get(match_type, "")
-        type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
-
         row = QWidget()
-        cursor_affordance.set_clickable(row)
         hl = QHBoxLayout(row)
         hl.setContentsMargins(4, 2, 4, 2)
         hl.setSpacing(6)
+
+        # Recoverable remove (mirror-not-cage): a pending row collapses to just its
+        # (strikethrough) name + "Undo" — nothing else is actionable until restored.
+        if rule_created in self._pending_remove_rules:
+            name_lbl = QLabel(f"{_icons.alert_icon} {text}")
+            name_lbl.setStyleSheet(_theme.DIALOG_PENDING_REMOVE_NAME)
+            hl.addWidget(name_lbl, 1)
+
+            undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
+            undo_btn.setFlat(True)
+            undo_btn.setStyleSheet(_theme.LINK_BTN_SM)
+            undo_btn.setToolTip(f"Keep the watch-for rule for '{text}'")
+            undo_btn.clicked.connect(
+                lambda _checked=False, rc=rule_created: self._undo_rule(rc)
+            )
+            hl.addWidget(undo_btn)
+            return row
+
+        cursor_affordance.set_clickable(row)
 
         name_lbl = QLabel(f"{_icons.alert_icon} {text}")
         name_lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};")
         hl.addWidget(name_lbl, 1)
 
+        type_icons = {"movie": _icons.movie_icon, "series": _icons.series_icon}
+        type_lbl = type_icons.get(match_type, "")
+        type_display = f"{type_lbl} {match_type.capitalize()}" if type_lbl else "Any"
         type_badge = QLabel(type_display)
         type_badge.setStyleSheet(
             f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_SM};"
@@ -342,6 +372,23 @@ class ManageVodAlertsDialog(QDialog):
         hl.setContentsMargins(4, 2, 4, 2)
         hl.setSpacing(6)
 
+        # Recoverable remove (mirror-not-cage): a pending row collapses to just its
+        # (strikethrough) name + "Undo" — nothing else is actionable until restored.
+        if cid in self._pending_remove_series:
+            name_lbl = QLabel(f"{_icons.series_icon} {title}")
+            name_lbl.setStyleSheet(_theme.DIALOG_PENDING_REMOVE_NAME)
+            hl.addWidget(name_lbl, 1)
+
+            undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
+            undo_btn.setFlat(True)
+            undo_btn.setStyleSheet(_theme.LINK_BTN_SM)
+            undo_btn.setToolTip(f"Keep monitoring {title} for new episodes")
+            undo_btn.clicked.connect(
+                lambda _checked=False, c=cid: self._undo_series(c)
+            )
+            hl.addWidget(undo_btn)
+            return row
+
         # Always-on identity tooltip so any series is fully identifiable on hover,
         # even when two share a cleaned title.
         identity_tip = _series_identity.identity_lines(
@@ -392,13 +439,60 @@ class ManageVodAlertsDialog(QDialog):
         self.accept()
 
     def _remove(self, rule_created: str) -> None:
-        self._config.remove_vod_watch_alert(rule_created)
-        logger.info(f"Removed VOD watch-for rule: {rule_created}")
+        """Flip the rule to pending-remove (strikethrough + Undo).
+
+        No config mutation yet — ``alerted_ids``/``viewed_ids`` history stays
+        intact until :meth:`_finalize_pending_removals` runs at dialog close, so
+        an Undo before then restores the rule exactly as it was.
+        """
+        self._pending_remove_rules.add(rule_created)
+        logger.info(f"VOD watch-for rule marked pending-remove: {rule_created}")
         self._load()
-        self.changed.emit()
+
+    def _undo_rule(self, rule_created: str) -> None:
+        """Restore a rule flipped to pending-remove."""
+        self._pending_remove_rules.discard(rule_created)
+        self._load()
 
     def _stop_series(self, series_channel_id: str) -> None:
-        self._config.remove_monitored_series(series_channel_id)
-        logger.info(f"Stopped new-episode alerts for series {series_channel_id}")
+        """Flip the series to pending-remove (strikethrough + Undo).
+
+        No config mutation yet — see :meth:`_remove`; the same recoverable-remove
+        standard applies to monitored series.
+        """
+        self._pending_remove_series.add(series_channel_id)
+        logger.info(f"Series marked pending-remove for new-episode alerts: {series_channel_id}")
         self._load()
-        self.changed.emit()
+
+    def _undo_series(self, series_channel_id: str) -> None:
+        """Restore a series flipped to pending-remove."""
+        self._pending_remove_series.discard(series_channel_id)
+        self._load()
+
+    def _finalize_pending_removals(self) -> None:
+        """Actually delete anything still flipped to pending-remove.
+
+        Called from :meth:`reject` — the Close button, Esc, and the window's X
+        button all route through ``QDialog.reject()`` (Qt's default ``closeEvent``
+        delegates to it), so this is the single finalize chokepoint regardless of
+        how the dialog closes.  Idempotent: clears both pending sets, so a second
+        call (e.g. reject() invoked more than once) is a no-op.
+        """
+        changed = False
+        for rule_created in self._pending_remove_rules:
+            self._config.remove_vod_watch_alert(rule_created)
+            logger.info(f"Removed VOD watch-for rule: {rule_created}")
+            changed = True
+        for series_channel_id in self._pending_remove_series:
+            self._config.remove_monitored_series(series_channel_id)
+            logger.info(f"Stopped new-episode alerts for series {series_channel_id}")
+            changed = True
+        self._pending_remove_rules.clear()
+        self._pending_remove_series.clear()
+        if changed:
+            self.changed.emit()
+
+    def reject(self) -> None:
+        """Esc / Close button / window X — finalize any still-pending removals first."""
+        self._finalize_pending_removals()
+        super().reject()

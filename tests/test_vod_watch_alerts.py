@@ -857,8 +857,13 @@ class TestVodRuleInteractiveActions:
         assert emitted[0] == ("Blade Runner", "movie"), \
             "view_matches_requested must carry the rule text and match_type"
 
-    def test_manage_dialog_remove_emits_changed(self, qapp):
-        """ManageVodAlertsDialog _remove emits changed and removes the rule from config."""
+    def test_manage_dialog_remove_is_recoverable_until_close(self, qapp):
+        """ManageVodAlertsDialog _remove only marks pending — no delete/changed until close.
+
+        Recoverable-remove (mirror-not-cage): Remove flips the row to pending, the
+        rule survives (with its alerted_ids history) until the dialog actually
+        closes; only then does the config mutation + `changed` signal land.
+        """
         from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
 
         cfg = _FakeConfig()
@@ -867,7 +872,7 @@ class TestVodRuleInteractiveActions:
             "text": "Arrival",
             "match_type": "movie",
             "created": created,
-            "alerted_ids": [],
+            "alerted_ids": ["ch1"],
         })
 
         changed_calls: list = []
@@ -876,5 +881,40 @@ class TestVodRuleInteractiveActions:
 
         dlg._remove(created)
 
-        assert changed_calls, "changed signal must fire after removal"
-        assert len(cfg.get_vod_watch_alerts()) == 0, "Rule must be deleted from config"
+        assert not changed_calls, "changed must NOT fire yet — removal is pending, not final"
+        assert len(cfg.get_vod_watch_alerts()) == 1, \
+            "Rule must survive (with its alerted_ids history) until the dialog closes"
+        assert created in dlg._pending_remove_rules
+
+        dlg.reject()  # Close/Esc/window-X all route through reject()
+
+        assert changed_calls, "changed signal must fire once the pending removal finalizes"
+        assert len(cfg.get_vod_watch_alerts()) == 0, "Rule must be deleted from config on close"
+
+    def test_manage_dialog_undo_restores_rule_with_history_intact(self, qapp):
+        """Undo before close discards the pending-remove — rule + its match history survive."""
+        from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
+
+        cfg = _FakeConfig()
+        created = _now_iso()
+        cfg.add_vod_watch_alert({
+            "text": "Arrival",
+            "match_type": "movie",
+            "created": created,
+            "alerted_ids": ["ch1", "ch2"],
+            "viewed_ids": ["ch1"],
+        })
+
+        dlg = ManageVodAlertsDialog(cfg)
+        dlg._remove(created)
+        assert created in dlg._pending_remove_rules
+
+        dlg._undo_rule(created)
+        assert created not in dlg._pending_remove_rules
+
+        dlg.reject()  # finalize — nothing pending, so nothing is deleted
+
+        rules = cfg.get_vod_watch_alerts()
+        assert len(rules) == 1, "Undone rule must survive finalize"
+        assert rules[0]["alerted_ids"] == ["ch1", "ch2"], "alerted_ids history must be untouched"
+        assert rules[0]["viewed_ids"] == ["ch1"], "viewed_ids history must be untouched"
