@@ -458,6 +458,79 @@ QUALITY_TOKENS: frozenset[str] = frozenset({
     "HD", "SD", "HQ", "LQ", "RAW", "CAM",
 })
 
+# ── quality token → viewer-facing label + explanation (single source of truth) ─ #
+# Not every QUALITY_TOKEN a provider stamps on a name is a picture-quality TIER.
+# ``HEVC`` / ``H265`` / ``H264`` are *codecs* and ``RAW`` is a *bitrate/processing*
+# descriptor — a viewer reading them in the On Now Quality column or a filter chip
+# has no way to rank them against 4K/HD/SD.  These two maps translate the stored
+# token for DISPLAY ONLY: the DB value, the filter key, and every query keep the
+# original token as identity (exactly like CONTENT_TYPE_DISPLAY_NAMES below).
+#
+# Only tokens that actually mislead get an entry — a plain resolution tier (4K, HD,
+# SD…) is already self-explanatory and falls through to its uppercased self.
+QUALITY_DISPLAY_NAMES: dict[str, str] = {
+    # RAW is the one token whose label is genuinely wrong to a viewer: it reads as
+    # "unfinished/bad" when it means an untranscoded high-bitrate feed.
+    "RAW": "Uncompressed",
+    # The codec tokens keep their short form (they ARE the recognizable name) and
+    # carry their explanation in the tooltip instead — see QUALITY_TOOLTIPS.
+}
+
+QUALITY_TOOLTIPS: dict[str, str] = {
+    "RAW":  "Uncompressed — an untranscoded, high-bitrate source feed (not a resolution tier)",
+    "HEVC": "HEVC (H.265) — an efficient video codec, not a picture-quality tier",
+    "H265": "H.265 / HEVC — an efficient video codec, not a picture-quality tier",
+    "H264": "H.264 / AVC — a video codec, not a picture-quality tier",
+}
+
+
+def quality_display(token: str) -> str:
+    """Return the viewer-facing label for a stored quality *token*.
+
+    The single chokepoint that turns a stored ``detected_quality`` token — or a
+    filter GROUP name, which shares the namespace (``"RAW"``, ``"4K / UHD"``) —
+    into the string shown in a chip, column or list row.  Known misleading tokens
+    map via :data:`QUALITY_DISPLAY_NAMES` (``"RAW"`` → ``"Uncompressed"``).
+
+    An unknown value is returned **unchanged apart from stripping** — deliberately
+    NOT uppercased, so a mixed-case group name (``"CAM / Pre-release"``) survives
+    intact.  A caller that wants the uppercased tier convention (the badge chips)
+    uppercases before calling.
+
+    Args:
+        token: A stored quality token or filter group name (e.g. ``"HEVC"``).
+
+    Returns:
+        The display label.  Never mutates identity — callers keep the original
+        token for queries, filter keys and DB writes.
+    """
+    raw = (token or "").strip()
+    known = QUALITY_DISPLAY_NAMES.get(raw.upper())
+    return known if known is not None else raw
+
+
+def quality_tooltip(token: str) -> str:
+    """Return the hover explanation for a stored quality *token*.
+
+    Pairs with :func:`quality_display`: a codec/bitrate descriptor gets a sentence
+    saying what it actually means (and that it is *not* a quality tier), while a
+    plain tier falls back to the generic ``"4K quality"`` phrasing.
+
+    Args:
+        token: A stored quality token (e.g. ``"HEVC"``).
+
+    Returns:
+        Tooltip text; never empty for a non-empty token.
+    """
+    upper = (token or "").strip().upper()
+    if not upper:
+        return ""
+    known = QUALITY_TOOLTIPS.get(upper)
+    if known is not None:
+        return known
+    return f"{upper} quality"
+
+
 # Bracket content that isn't a bare QUALITY_TOKEN but maps to one — typically
 # compound cam-rip variants. Keys are uppercased bracket contents.
 _BRACKET_QUALITY_ALIASES: dict[str, str] = {

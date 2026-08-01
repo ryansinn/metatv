@@ -65,10 +65,25 @@ class ChannelMenuContext:
     watch_progress: int = 0           # saved resume position in seconds (0 = unwatched/completed)
     watch_completed: bool = False     # True when VOD has been watched to completion
     playback_resume_mode: str = "resume"  # mirrors config.playback_resume_mode at menu-build time
+    # Stored detected_title, read straight off ChannelDB in the DB pass.  NEVER derived
+    # by calling parse_channel_name() here — name-derived fields are computed at
+    # ingestion and read at render (CLAUDE.md).  Empty when unset; use `title`.
+    detected_title: str = ""
 
     @property
     def is_single(self) -> bool:
         return len(self.channel_ids) == 1
+
+    @property
+    def title(self) -> str:
+        """The clean title for title-based actions (search / copy).
+
+        One definition shared by every title action so "Search this title" and
+        "Copy title" can never disagree: the stored ``detected_title`` (prefix,
+        quality and suffix already stripped at ingestion), falling back to the raw
+        channel name when the channel has no detected title yet.
+        """
+        return (self.detected_title or self.channel_name or "").strip()
 
     @property
     def is_multi(self) -> bool:
@@ -289,6 +304,24 @@ ACTIONS: dict[str, ChannelAction] = {
         checkable=True,
         checked=lambda c: c.rating == -1,
         applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
+    ),
+    # ── Title actions ───────────────────────────────────────────────────────
+    # Both read ctx.title (the stored detected_title, falling back to the raw name)
+    # so they always agree on what "this title" means.  Hidden when the channel has
+    # no resolvable title at all — an action that would search/copy "" is noise.
+    "search_title": ChannelAction(
+        id="search_title",
+        label=lambda c: "Search this title",
+        icon=_icons.search_icon,
+        tooltip="Find every version of this title in the channel list",
+        applies=lambda c: c.is_single and c.channel_found and bool(c.title),
+    ),
+    "copy_title": ChannelAction(
+        id="copy_title",
+        label=lambda c: "Copy title",
+        icon=_icons.copy_icon,
+        tooltip="Copy this title to the clipboard",
+        applies=lambda c: c.is_single and c.channel_found and bool(c.title),
     ),
     # ── Series monitor ──────────────────────────────────────────────────────
     "monitor_series": ChannelAction(
@@ -563,6 +596,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "watch", "track", "unhide", "hide",
         "sep",
+        "search_title", "copy_title",
+        "sep",
         "category",
         # Multi-select extras (applies = is_multi; single-select actions apply = is_single)
         "sep",
@@ -586,6 +621,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_alert",
         "sep",
+        "search_title", "copy_title",
+        "sep",
         "remove_history", "hide",
     ],
     "favorites": [
@@ -601,6 +638,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "monitor_series",
         "sep",
         "clear_alert",
+        "sep",
+        "search_title", "copy_title",
         "sep",
         "category",
         "sep",
@@ -619,6 +658,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "monitor_series",
         "sep",
         "clear_alert",
+        "sep",
+        "search_title", "copy_title",
         "sep",
         "category", "hide",
         "sep",
@@ -644,6 +685,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_alert",
         "sep",
+        "search_title", "copy_title",
+        "sep",
         "not_interested", "category", "hide",
     ],
     "alerts": [
@@ -656,6 +699,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "watch",
         "sep",
         "clear_alert",
+        "sep",
+        "search_title", "copy_title",
         "sep",
         "hide",
     ],

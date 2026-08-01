@@ -53,6 +53,8 @@ watch_later_icon: str = "👀"  # Watch Later quick-pick category
 refresh_icon: str = "⟳"
 settings_icon: str = "⚙"
 search_icon: str = "🔍"
+copy_icon: str = "📄"       # U+1F4C4 PAGE FACING UP — "copy this text to the clipboard"
+                            # (📋 is the Watch Queue; ⧉ is the split-streams toggle)
 filter_icon: str = "⚡"
 global_exclusion_icon: str = "🔒"   # U+1F512 LOCK — content held back by Global Exclusions
 search_filter_icon: str = "🔎"      # U+1F50E MAGNIFIER TILTED RIGHT — content held back by search/Tier-1 filters

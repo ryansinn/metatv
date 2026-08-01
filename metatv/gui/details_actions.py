@@ -41,9 +41,14 @@ class _ActionBar(QWidget):
       ``resume_button`` — the most-used actions.  Play always starts from the
       beginning; Resume continues from the saved position and is the visually
       dominant of the two when both are shown.
+    * **Secondary row** (one line, under Play/Resume): ``queue_button`` ("Watch
+      Later") on the LEFT, then ``like_button`` / ``not_interested_button`` /
+      ``dislike_button`` right-aligned.  Position separates the collection action
+      from the judgment cluster, so neither side needs a caption — and rating is
+      *findable* in the main column rather than unlabelled over the poster art.
     * **Rail** (slim icon-only column left of the poster): the infrequent set —
-      favorite / queue / sentiment / alert / watchlist / hide.  State is conveyed
-      via icon-swap, ``:checked`` and tooltips (no labels), so the rail stays narrow.
+      favorite / alert / watchlist / hide.  State is conveyed via icon-swap,
+      ``:checked`` and tooltips (no labels), so the rail stays narrow.
 
     The watched state is no longer a rail button — it is a clickable poster badge
     owned by ``_PosterSection`` (the ``watched_toggled`` path lives there).

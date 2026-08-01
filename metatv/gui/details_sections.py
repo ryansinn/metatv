@@ -13,6 +13,7 @@ from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
+    quality_display, quality_tooltip,
 )
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
@@ -182,14 +183,19 @@ class _PosterSection(QWidget):
     _BADGE_MARGIN: int = 8
 
     # Rail spacing (structural px).  G = the Monitor↔Hide gap; the top pair
-    # (Favorite↔Monitor) is G/2.  The TOP group (Favorite · Monitor/Watchlist · Hide)
-    # stays tight, but Hide↔sentiment is a much LARGER gap (_RAIL_SENTIMENT_GAP) so the
-    # sentiment trio (Like/Not-Interested/Dislike) drops LOW — down near the Play/Resume
-    # row — instead of bunching under Hide.  The trio itself stays a tight, equal cluster.
+    # (Favorite↔Monitor) is G/2, so the whole rail group (Favorite · Monitor/Watchlist
+    # · Hide) reads as one tight cluster bracketed by stretches.  The sentiment trio
+    # no longer lives here — it graduated to the right end of the secondary
+    # ("Watch Later") row below the poster, so the old Hide↔sentiment drop gap is
+    # gone with it.
     _RAIL_GAP: int = 20
-    _RAIL_TRIO_GAP: int = 4
-    _RAIL_SENTIMENT_GAP: int = 80   # 4×G — pushes the sentiment trio down toward Play
     _RAIL_W: int = 48   # slim icon rail in the left gutter; poster content is inset by this
+    # Secondary row: [Watch Later …] ⟶ stretch ⟶ [👍][🙅][👎].  The sentiment chips
+    # keep the rail's 48px footprint so they read as the same control set, just
+    # relocated.  Watch Later absorbs all slack and yields it back first, so the row's
+    # minimum is (3 × chip) + spacing — never the button's text width.
+    _SECONDARY_ROW_SPACING: int = 6
+    _SENTIMENT_BTN_W: int = _RAIL_W
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -350,15 +356,24 @@ class _PosterSection(QWidget):
         self._primary_action_row.hide()
         layout.addWidget(self._primary_action_row)
 
-        # Secondary action row — full-width "Watch Later" (queue), directly under the
-        # primary Play/Resume row and likewise full-width / title-aligned.  Promoted out
-        # of the rail (it is the most-likely "not right now" follow-up).  The queue
-        # button is reparented in by set_action_buttons(); hidden until a channel is
-        # shown (set_mode).
+        # Secondary action row — ONE line, split by position:
+        #
+        #     [ 📋 Watch Later ..................... ] [👍] [🙅] [👎]
+        #
+        # LEFT = the collection action (put this somewhere), RIGHT = the judgment
+        # cluster (what I think of this).  Position does the separating, so neither
+        # side needs a caption.
+        #
+        # The 👍/🙅/👎 trio used to sit at the BOTTOM of the slim rail as unlabelled
+        # 48×24 chips floating over the poster's left edge, 80px below everything
+        # else — present, but reported as MISSING.  They are MOVED here (never
+        # duplicated); _ActionBar still owns the buttons, their state and signals.
+        # They hide themselves for live channels (_ActionBar.set_mode), leaving
+        # Watch Later spanning the row exactly as it did before.
         self._secondary_action_row = QWidget()
-        self._secondary_row_layout = QVBoxLayout(self._secondary_action_row)
+        self._secondary_row_layout = QHBoxLayout(self._secondary_action_row)
         self._secondary_row_layout.setContentsMargins(0, 6, 0, 0)
-        self._secondary_row_layout.setSpacing(0)
+        self._secondary_row_layout.setSpacing(self._SECONDARY_ROW_SPACING)
         self._secondary_action_row.hide()
         layout.addWidget(self._secondary_action_row)
 
@@ -372,8 +387,10 @@ class _PosterSection(QWidget):
         # _ActionBar.set_mode()/set_monitorable().
         self._action_rail.setVisible(True)
         self._live_header.setVisible(is_live)
-        # Primary action row (Play / Resume) + secondary "Watch Later" show for ALL
-        # channel types.
+        # Primary action row (Play / Resume) + the secondary "Watch Later" +
+        # sentiment line show for ALL channel types.  The rating chips on the right
+        # of that line gate themselves (VOD-only, _ActionBar.set_mode); with them
+        # hidden, Watch Later simply spans the whole row.
         self._primary_action_row.setVisible(True)
         self._secondary_action_row.setVisible(True)
         # Watched badge is a VOD-only affordance — track mode and refresh visibility.
@@ -414,14 +431,16 @@ class _PosterSection(QWidget):
         * **Primary row** (below the poster): play + resume, full-size and labeled,
           each with equal stretch (50/50 when both show; Play full-width when Resume
           is hidden).  Resume is the dominant one when present.
-        * **Secondary row** (under the primary row): the full-width labeled "Watch
-          Later" (queue) button.
+        * **Secondary row** (one line under the primary row): the labeled "Watch
+          Later" (queue) button on the LEFT, absorbing all slack, then the
+          like · not-interested · dislike trio right-aligned.  Position separates
+          collection (left) from judgment (right), so neither side needs a caption.
+          The trio was promoted out of the rail so the rating controls sit legibly
+          in the main column instead of over the poster art — there is only ONE set
+          of them, moved not duplicated.
         * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
-          shares this slot) · hide · like · not-interested · dislike.  The group is
-          bracketed by a leading + trailing stretch; the TOP group (favorite ·
-          monitor/watchlist · hide) is tight, then a much LARGER Hide↔sentiment gap
-          drops the sentiment trio LOW (near the Play/Resume row), so the trio no longer
-          bunches under Hide.  The trio itself stays a tight cluster.
+          shares this slot) · hide.  Bracketed by a leading + trailing stretch and
+          kept tight (favorite↔monitor = G/2, monitor/watchlist↔hide = G).
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -433,26 +452,41 @@ class _PosterSection(QWidget):
         prow.addWidget(play, 1)
         prow.addWidget(resume, 1)
 
-        # Secondary row: full-width "Watch Later" (queue).
+        # Secondary row, ONE line: "Watch Later" on the left, the sentiment trio
+        # right-aligned.  Position separates them — collection action left, judgment
+        # cluster right — so neither side carries a caption.
+        #
+        # WIDTH DISCIPLINE (docs/DETAILS_PANE_DESIGN.md → "Width discipline"): a
+        # QHBoxLayout's minimum width is the SUM of its children's minimums, so a
+        # naive row would floor the pane at (Watch Later's text width + 3 chips) and
+        # clip every other section off the right edge.  The queue button therefore
+        # opts OUT of driving width — horizontal policy Ignored, the same escape
+        # hatch no_width_force() applies to wrapping labels — so it reports a 0
+        # minimum, absorbs all slack via its stretch factor, and yields that space
+        # back FIRST as the pane narrows (its label elides rather than the pane
+        # widening).  The row's true minimum is just 3 × 48px + spacing ≈ 162px,
+        # comfortably under the 300px pane minimum.
         srow = self._secondary_row_layout
         while srow.count():
             srow.takeAt(0)
-        srow.addWidget(queue)
+        q_policy = queue.sizePolicy()
+        q_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        queue.setSizePolicy(q_policy)
+        srow.addWidget(queue, 1)            # stretch 1 — takes every spare pixel
+        for btn in (like, not_interested, dislike):
+            btn.setFixedWidth(self._SENTIMENT_BTN_W)
+            srow.addWidget(btn, 0)          # no stretch — pinned to the right edge
 
-        # Rail: the infrequent icon-only set (queue is NOT here — it graduated to the
-        # secondary row above).  Order top→bottom: favorite · Alert/Monitor (+Watchlist
-        # in the same slot) · hide · like · not-interested · dislike.  Leading + trailing
-        # stretch bracket the group; the TOP group is tight (Favorite↔Monitor = G/2,
-        # Monitor/Watchlist↔Hide = G), then a much LARGER Hide↔sentiment gap
-        # (_RAIL_SENTIMENT_GAP ≫ G) drops the sentiment trio low — near the Play/Resume
-        # row — instead of bunching it under Hide.  The trio stays a tight equal cluster.
+        # Rail: the infrequent icon-only set (queue and the sentiment trio both
+        # graduated to the secondary row).  Order top→bottom: favorite ·
+        # Alert/Monitor (+Watchlist in the same slot) · hide.  Leading + trailing
+        # stretch bracket the group and it stays tight (Favorite↔Monitor = G/2,
+        # Monitor/Watchlist↔Hide = G).
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
         gap = self._RAIL_GAP
-        trio = self._RAIL_TRIO_GAP
-        sentiment_gap = self._RAIL_SENTIMENT_GAP
 
         layout.addStretch()                 # leading stretch — bracket the group
         layout.addWidget(favorite)
@@ -461,12 +495,6 @@ class _PosterSection(QWidget):
         layout.addWidget(watchlist)         # Watchlist shares Monitor's slot (exclusive)
         layout.addSpacing(gap)              # Monitor/Watchlist ↔ Hide = G
         layout.addWidget(hide)
-        layout.addSpacing(sentiment_gap)    # Hide ↔ sentiment ≫ G — drops the trio LOW
-        layout.addWidget(like)
-        layout.addSpacing(trio)             # tight sentiment trio
-        layout.addWidget(not_interested)
-        layout.addSpacing(trio)
-        layout.addWidget(dislike)
         layout.addStretch()                 # trailing stretch — bracket the group
         # NOTE: the rail + primary/secondary rows are left hidden here — they're
         # revealed by set_mode() when a channel is shown, so action controls don't
@@ -804,6 +832,31 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(title_bar)
 
+        # Source badge + adult indicator row — sits DIRECTLY under the title/year
+        # line (not below the metadata block, where it used to live): provenance is
+        # header information, so "which of my sources is this from?" is answerable
+        # without reading past the type/runtime/ratings row.  Structural position is
+        # pinned by tests/test_details_source_position.py.
+        #
+        # Width discipline: a plain QHBoxLayout's minimum width is the SUM of its
+        # children, so this row must never gain a wide/unbreakable child (see
+        # docs/DETAILS_PANE_DESIGN.md → "Width discipline").  Both labels are short
+        # and the trailing stretch absorbs the slack.
+        badge_row = QHBoxLayout()
+        self.source_label = _ClickableLabel()
+        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        self.source_label.hide()
+        badge_row.addWidget(self.source_label)
+        self.adult_indicator = QLabel("🔞 Adult")
+        self.adult_indicator.setStyleSheet(
+            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
+            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
+        )
+        self.adult_indicator.hide()
+        badge_row.addWidget(self.adult_indicator)
+        badge_row.addStretch()
+        layout.addLayout(badge_row)
+
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
@@ -868,21 +921,8 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(self._media_row)
 
-        # Source badge + adult indicator row
-        badge_row = QHBoxLayout()
-        self.source_label = _ClickableLabel()
-        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        self.source_label.hide()
-        badge_row.addWidget(self.source_label)
-        self.adult_indicator = QLabel("🔞 Adult")
-        self.adult_indicator.setStyleSheet(
-            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
-            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
-        )
-        self.adult_indicator.hide()
-        badge_row.addWidget(self.adult_indicator)
-        badge_row.addStretch()
-        layout.addLayout(badge_row)
+        # (The Source + adult badge row used to sit here, below the metadata block.
+        # It now sits directly under the title/year line — see above.)
 
         # Genres — flow-layout row of clickable chip buttons; wraps cleanly at panel width.
         # _genres_loading_lbl is shown while metadata is loading; _genres_container replaces
@@ -960,10 +1000,13 @@ class _MetadataSection(QWidget):
             self._prefix_chip.hide()
 
         # Quality chip — shows detected quality (4K, UHD, HD, etc.) next to language chip.
+        # Label + tooltip come from the shared display map: a codec/bitrate token
+        # (HEVC, RAW) is not a viewer-facing quality tier, so it reads as its
+        # explained form here while detected_quality keeps the stored token.
         quality = getattr(channel, "detected_quality", None)
         if quality:
-            self._quality_chip.setText(quality.upper())
-            self._quality_chip.setToolTip(f"{quality.upper()} quality")
+            self._quality_chip.setText(quality_display(quality.upper()))
+            self._quality_chip.setToolTip(quality_tooltip(quality))
             self._quality_chip.show()
         else:
             self._quality_chip.hide()

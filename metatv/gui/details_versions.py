@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
 from loguru import logger
 
 from metatv.core.channel_name_utils import (
-    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP,
+    normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -437,9 +437,10 @@ class _VersionSection(QWidget):
         if prefix:
             full = resolve_category_name(prefix, self.config)
             parts.append(full or prefix)
-        # Quality tier
+        # Quality tier — viewer-facing label (RAW → "Uncompressed"); the stored
+        # token stays the identity on the ChannelVersion.
         if v.detected_quality:
-            parts.append(v.detected_quality)
+            parts.append(quality_display(v.detected_quality))
         # Fallback: use prefix raw if nothing else resolved
         if not parts:
             parts.append(v.detected_prefix or "?")
@@ -457,7 +458,7 @@ class _VersionSection(QWidget):
         if v.detected_region:
             lines.append(f"Region: {v.detected_region}")
         if v.detected_quality:
-            lines.append(f"Quality: {v.detected_quality}")
+            lines.append(f"Quality: {quality_display(v.detected_quality)}")
         if v.is_inactive:
             lines.append("(source is inactive — right-click to reactivate & play)")
         if suffix:

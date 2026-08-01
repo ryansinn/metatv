@@ -2,7 +2,12 @@
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtCore import Qt
 
-from metatv.core.channel_name_utils import PLATFORM_CODES, REGION_FULL_NAMES
+from metatv.core.channel_name_utils import (
+    PLATFORM_CODES,
+    REGION_FULL_NAMES,
+    quality_display,
+    quality_tooltip,
+)
 from metatv.gui import theme as _theme
 
 _QUALITY_COLORS: dict[str, str] = {
@@ -45,12 +50,19 @@ def make_region_chip(code: str, parent=None) -> QLabel:
 
 
 def make_quality_chip(quality: str, parent=None) -> QLabel:
-    """Colored chip for a quality/codec token (HD, SD, 4K, HEVC, etc.)."""
+    """Colored chip for a quality/codec token (HD, SD, 4K, HEVC, etc.).
+
+    The chip TEXT is the viewer-facing label from ``quality_display`` (so ``RAW``
+    reads "Uncompressed"), and the tooltip explains any token that isn't really a
+    quality tier (HEVC/H265/H264).  The stored token stays the identity — colour
+    lookup and every caller keep using it.
+    """
     upper = quality.upper()
     color = _QUALITY_COLORS.get(upper, _theme.COLOR_FAINT)
-    lbl = QLabel(upper, parent)
+    lbl = QLabel(quality_display(upper), parent)
     lbl.setStyleSheet(_CHIP_BASE.format(bg=color))
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl.setToolTip(quality_tooltip(quality))
     return lbl
 
 

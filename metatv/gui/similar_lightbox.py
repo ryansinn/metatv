@@ -28,6 +28,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
+from metatv.core.channel_name_utils import quality_display
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.similar_lightbox_card import _LightboxCard
@@ -271,11 +272,12 @@ class SimilarTitleLightbox(QWidget):
                     for s in repos.channels.get_content_key_siblings(
                         ch.content_key, channel_id, excluded_provider_ids=hidden,
                     ):
+                        # Version tag prefers quality; route it through the shared
+                        # display map so "RAW" reads "Uncompressed" on the chip.
+                        _qual = s.get("detected_quality")
                         tag = (
-                            s.get("detected_quality")
-                            or s.get("detected_region")
-                            or s.get("detected_prefix")
-                            or ""
+                            quality_display(_qual) if _qual
+                            else (s.get("detected_region") or s.get("detected_prefix") or "")
                         )
                         versions.append({
                             "id": s["id"],
