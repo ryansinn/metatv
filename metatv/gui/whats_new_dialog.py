@@ -43,8 +43,10 @@ class WhatsNewDialog(QDialog):
         parent: Optional parent widget.
     """
 
-    def __init__(self, entries: list[WhatsNewEntry], parent=None) -> None:
+    def __init__(self, entries: list[WhatsNewEntry], parent=None,
+                 footnote: str | None = None) -> None:
         super().__init__(parent)
+        self._footnote = footnote
         self.setWindowTitle("What's New")
         self.setModal(True)
         self.setMinimumWidth(520)
@@ -128,6 +130,13 @@ class WhatsNewDialog(QDialog):
         )
         footer_layout = QVBoxLayout(footer_widget)
         footer_layout.setContentsMargins(16, 10, 16, 10)
+
+        if self._footnote:
+            note = QLabel(self._footnote)
+            note.setObjectName("whatsNewFootnote")
+            note.setWordWrap(True)
+            note.setStyleSheet(_theme.LABEL_MUTED)
+            footer_layout.addWidget(note)
 
         btn_box = QDialogButtonBox()
         got_it_btn = QPushButton("Got it")
