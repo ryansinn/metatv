@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox, QSpinBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent
+from tests.conftest import wire_settings_recommendation_widgets
 
 
 @pytest.fixture(scope="module")
@@ -176,23 +177,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
     dlg._omdb_key_input = QLineEdit()
 
     # Recommendations tab dials — stubs to keep _load_values / _save_values happy
-    from PyQt6.QtWidgets import QDoubleSpinBox
-    dlg._rec_mix_auto_check = QCheckBox()
-    dlg._rec_mix_spin = QSpinBox()
-    dlg._rec_mix_spin.setRange(0, 100)
-    dlg._rec_mix_ratio_label = QLineEdit()   # only setText/setVisible are called
-    for _name in ("_rec_genre_spin", "_rec_director_spin", "_rec_actor_spin",
-                  "_rec_keyword_spin", "_rec_diversity_spin"):
-        _spin = QDoubleSpinBox()
-        _spin.setRange(0.0, 5.0)
-        _spin.setDecimals(2)
-        setattr(dlg, _name, _spin)
-    dlg._rec_actor_support_spin = QSpinBox()
-    dlg._rec_actor_support_spin.setRange(1, 10)
-    dlg._rec_impression_spin = QSpinBox()
-    dlg._rec_impression_spin.setRange(0, 20)
-    dlg._rec_liked_cap_spin = QSpinBox()
-    dlg._rec_liked_cap_spin.setRange(0, 10)
+    wire_settings_recommendation_widgets(dlg)
 
     # Sidebar list widget (needed by _load_values / _save_values)
     from PyQt6.QtWidgets import QListWidget

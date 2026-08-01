@@ -264,6 +264,10 @@ def _wire_minimal_dialog(dlg, qapp):
         QCheckBox, QComboBox, QLineEdit, QListWidget, QSpinBox,
     )
     from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
+    from tests.conftest import wire_settings_recommendation_widgets
+
+    # Recommendations tab dials
+    wire_settings_recommendation_widgets(dlg)
 
     # Playback
     dlg._player_combo = QComboBox()

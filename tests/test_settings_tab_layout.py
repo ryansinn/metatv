@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
+from tests.conftest import wire_settings_recommendation_widgets
 import metatv.core.epg_utils as _epg
 
 
@@ -134,23 +135,7 @@ def _full_dialog(qapp) -> SettingsDialog:
         dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
 
     # -- Recommendations tab widgets (scoring dials + shared media mix) --
-    from PyQt6.QtWidgets import QDoubleSpinBox
-    dlg._rec_mix_auto_check = QCheckBox()
-    dlg._rec_mix_spin = QSpinBox()
-    dlg._rec_mix_spin.setRange(0, 100)
-    dlg._rec_mix_ratio_label = QLineEdit()   # only setText/setVisible are called
-    for _name in ("_rec_genre_spin", "_rec_director_spin", "_rec_actor_spin",
-                  "_rec_keyword_spin", "_rec_diversity_spin"):
-        _spin = QDoubleSpinBox()
-        _spin.setRange(0.0, 5.0)
-        _spin.setDecimals(2)
-        setattr(dlg, _name, _spin)
-    dlg._rec_actor_support_spin = QSpinBox()
-    dlg._rec_actor_support_spin.setRange(1, 10)
-    dlg._rec_impression_spin = QSpinBox()
-    dlg._rec_impression_spin.setRange(0, 20)
-    dlg._rec_liked_cap_spin = QSpinBox()
-    dlg._rec_liked_cap_spin.setRange(0, 10)
+    wire_settings_recommendation_widgets(dlg)
 
     # -- Interface tab widgets (Search + Sources + Sidebar) --
     dlg._remember_search_check = QCheckBox()

@@ -346,6 +346,7 @@ def _bare_split_dialog(qapp, split: bool = False):
     from metatv.gui.settings_dialog import SettingsDialog
     import metatv.core.epg_utils as _epg
     from metatv.core.http_headers import stream_user_agent
+    from tests.conftest import wire_settings_recommendation_widgets
 
     dlg = SettingsDialog.__new__(SettingsDialog)
     dlg.config = _FakeDlgConfig(split=split)
@@ -419,6 +420,9 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
     dlg._sidebar_list = QListWidget()
+
+    # Recommendations tab dials
+    wire_settings_recommendation_widgets(dlg)
 
     return dlg
 

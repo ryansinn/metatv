@@ -482,6 +482,11 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._sidebar_list = MagicMock()
     dialog._sidebar_list.count.return_value = 0
 
+    # Recommendations tab dials — mock flavor: this skeleton is deliberately
+    # Qt-free (no qapp fixture), so real widgets would abort.
+    from tests.conftest import mock_settings_recommendation_widgets
+    mock_settings_recommendation_widgets(dialog)
+
     dialog._save_values()
 
     assert abs(config.watch_partial_threshold - 0.15) < 1e-9, (

@@ -410,3 +410,87 @@ def make_channel(
     session.add(ch)
     session.flush()
     return ch
+
+
+# ---------------------------------------------------------------------------
+# SettingsDialog skeleton stubs
+# ---------------------------------------------------------------------------
+
+def mock_settings_recommendation_widgets(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_recommendation_widgets`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter. Values mirror the shipped defaults via ``RecScoringSettings``
+    so ``_save_values`` records "untouched" (None) for every dial, exactly as a
+    fresh install would.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    from metatv.core.preference_engine import RecScoringSettings
+
+    defaults = RecScoringSettings()
+
+    def _stub(method: str, value):
+        m = MagicMock()
+        getattr(m, method).return_value = value
+        return m
+
+    dlg._rec_mix_auto_check = _stub("isChecked", True)     # Automatic, as shipped
+    dlg._rec_mix_spin = _stub("value", 50)
+    dlg._rec_mix_ratio_label = MagicMock()
+    dlg._rec_genre_spin = _stub("value", defaults.genre_weight)
+    dlg._rec_director_spin = _stub("value", defaults.director_weight)
+    dlg._rec_actor_spin = _stub("value", defaults.actor_weight)
+    dlg._rec_keyword_spin = _stub("value", defaults.keyword_weight)
+    dlg._rec_actor_support_spin = _stub("value", defaults.actor_min_support)
+    dlg._rec_diversity_spin = _stub("value", defaults.people_diversity_decay)
+    dlg._rec_impression_spin = _stub("value", round(defaults.impression_decay * 100))
+    dlg._rec_liked_cap_spin = _stub("value", defaults.liked_cap)
+
+
+def wire_settings_recommendation_widgets(dlg) -> None:
+    """Attach the Settings → Recommendations tab widgets to a skeleton dialog.
+
+    Builds **real** Qt widgets, so the caller must already have a QApplication
+    (the module ``qapp`` fixture). Qt-free skeletons want
+    :func:`mock_settings_recommendation_widgets` instead.
+
+    Six settings tests build ``SettingsDialog`` via ``__new__`` and hand-wire only
+    the widgets ``_load_values``/``_save_values`` touch — so every tab added to the
+    dialog breaks all six at once until each one grows the same stubs. Keeping this
+    group in one factory makes the next tab a single edit here instead of six
+    near-identical copies, and keeps the stubs honest: real Qt widgets with the
+    same ranges as the production tab, so load/save round-trips behave the same.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox, QLineEdit, QSpinBox
+
+    # Stubs open on the production defaults (Automatic mix), so a save-only
+    # skeleton that never calls _load_values still writes what a fresh install
+    # would: rec_media_mix = None rather than an accidental explicit 0%.
+    dlg._rec_mix_auto_check = QCheckBox()
+    dlg._rec_mix_auto_check.setChecked(True)
+    dlg._rec_mix_spin = QSpinBox()
+    dlg._rec_mix_spin.setRange(0, 100)
+    dlg._rec_mix_spin.setValue(50)
+    # Only setText/setVisible are called on the ratio label — a QLineEdit stub
+    # satisfies both without needing the production QLabel.
+    dlg._rec_mix_ratio_label = QLineEdit()
+    for _name in ("_rec_genre_spin", "_rec_director_spin", "_rec_actor_spin",
+                  "_rec_keyword_spin", "_rec_diversity_spin"):
+        _spin = QDoubleSpinBox()
+        _spin.setRange(0.0, 5.0)
+        _spin.setDecimals(2)
+        setattr(dlg, _name, _spin)
+    dlg._rec_actor_support_spin = QSpinBox()
+    dlg._rec_actor_support_spin.setRange(1, 10)
+    dlg._rec_impression_spin = QSpinBox()
+    dlg._rec_impression_spin.setRange(0, 20)
+    dlg._rec_liked_cap_spin = QSpinBox()
+    dlg._rec_liked_cap_spin.setRange(0, 10)
