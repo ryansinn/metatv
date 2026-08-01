@@ -82,3 +82,95 @@ def compute_alert_availability(config, repos) -> AlertAvailability:
         firing_rules=firing,
         unviewed_total=len(unviewed_union),
     )
+
+
+@dataclass(frozen=True)
+class MatchedAlertEntry:
+    """One UNVIEWED watch-for match, resolved to display-ready fields.
+
+    Built by :func:`get_unviewed_matched_entries` for the sidebar Watch Queue's
+    "Alerts Matched" section (the topmost group) — the union of every rule's
+    unviewed matches, deduplicated once per channel even when more than one rule
+    matched it (every matching rule's keyword folds into ``rule_texts`` for the
+    row tooltip).  ``detected_*`` fields are read straight from the stored,
+    ingestion-computed ``ChannelDB`` columns — never re-parsed here.
+
+    Attributes:
+        channel_id: The matched ``ChannelDB.id``.
+        title: ``detected_title`` (falls back to the raw ``name``).
+        media_type: ``ChannelDB.media_type`` ("movie" / "series" / None).
+        detected_year: Stored release year, or "".
+        detected_quality: Stored quality token, or "".
+        detected_prefix: Stored audio-language token, or "".
+        rule_texts: Every distinct rule keyword that matched this channel.
+    """
+
+    channel_id: str
+    title: str
+    media_type: str | None
+    detected_year: str
+    detected_quality: str
+    detected_prefix: str
+    rule_texts: tuple
+
+
+def get_unviewed_matched_entries(
+    config, repos, avail: AlertAvailability | None = None
+) -> list:
+    """Resolve every UNVIEWED watch-for match to a :class:`MatchedAlertEntry`.
+
+    Union across every rule: any channel id in some rule's ``alerted_ids`` and
+    NOT in that rule's ``viewed_ids`` — deduplicated once per channel.  Gated
+    through the same availability check as :func:`compute_alert_availability`
+    (content on a disabled/expired source, a user-hidden channel, or an id whose
+    channel no longer exists is silently dropped, never surfaced — the same
+    top-level gate every other alert-visibility surface honours).
+
+    Args:
+        config: The app config (source of the raw watch-for rules).
+        repos: A ``RepositoryFactory`` bound to an open session.
+        avail: An already-computed :class:`AlertAvailability` to reuse (skips a
+            second ``filter_available_ids`` query when the caller already ran
+            :func:`compute_alert_availability` in the same pass); computed fresh
+            when omitted.
+
+    Returns:
+        A list of :class:`MatchedAlertEntry`, one per unviewed+available match.
+    """
+    rules = config.get_vod_watch_alerts()
+    if not rules:
+        return []
+
+    matched_by_id: dict = {}
+    for r in rules:
+        alerted = set(r.get("alerted_ids") or [])
+        viewed = set(r.get("viewed_ids") or [])
+        text = (r.get("text") or "").strip()
+        for cid in (alerted - viewed):
+            keywords = matched_by_id.setdefault(cid, [])
+            if text and text not in keywords:
+                keywords.append(text)
+
+    if not matched_by_id:
+        return []
+
+    if avail is None:
+        avail = compute_alert_availability(config, repos)
+
+    entries: list = []
+    for cid, keywords in matched_by_id.items():
+        if cid not in avail.available_ids:
+            continue
+        ch = repos.channels.get_by_id(cid)
+        if ch is None:
+            continue
+        entries.append(MatchedAlertEntry(
+            channel_id=cid,
+            title=ch.detected_title or ch.name or "",
+            media_type=ch.media_type,
+            detected_year=ch.detected_year or "",
+            detected_quality=ch.detected_quality or "",
+            detected_prefix=ch.detected_prefix or "",
+            rule_texts=tuple(keywords),
+        ))
+    return entries

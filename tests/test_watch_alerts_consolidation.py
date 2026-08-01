@@ -315,7 +315,13 @@ class TestManageDialogSeriesSection:
         assert any("Rick and Morty" in t for t in texts), texts
         assert not any("EN - Rick And Morty" in t for t in texts), texts
 
-    def test_stop_removes_series_and_emits_changed(self, qapp):
+    def test_stop_is_recoverable_until_close_then_removes_and_emits_changed(self, qapp):
+        """Stop only marks the series pending — the actual removal + `changed` land on close.
+
+        Recoverable-remove (mirror-not-cage): matches the keyword-rule Remove
+        behavior — Stop flips the row to pending, the series survives until the
+        dialog closes, and Undo before then restores it fully.
+        """
         from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
         cfg = _FakeConfig()
         cfg.add_monitored_series(_series("a", "Apple", 0, "Apple"))
@@ -327,9 +333,31 @@ class TestManageDialogSeriesSection:
 
         dlg._stop_series("a")
 
-        assert not cfg.is_series_monitored("a"), "stopped series must be removed"
+        assert not changed, "changed must NOT fire yet — Stop only marks pending"
+        assert cfg.is_series_monitored("a"), "series must survive until the dialog closes"
+        assert "a" in dlg._pending_remove_series
+
+        dlg.reject()  # Close/Esc/window-X all route through reject()
+
+        assert not cfg.is_series_monitored("a"), "stopped series must be removed on close"
         assert cfg.is_series_monitored("b"), "other series must remain"
         assert changed, "changed must emit so the host refreshes dependent views"
+
+    def test_stop_series_undo_restores_it(self, qapp):
+        """Undo before close discards the pending-stop — the series keeps monitoring."""
+        from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog
+        cfg = _FakeConfig()
+        cfg.add_monitored_series(_series("a", "Apple", 0, "Apple"))
+
+        dlg = ManageVodAlertsDialog(cfg)
+        dlg._stop_series("a")
+        assert "a" in dlg._pending_remove_series
+
+        dlg._undo_series("a")
+        assert "a" not in dlg._pending_remove_series
+
+        dlg.reject()  # finalize — nothing pending, so nothing is removed
+        assert cfg.is_series_monitored("a"), "undone series must survive finalize"
 
     def test_empty_state_shows_both_section_hints(self, qapp):
         from metatv.gui.vod_watch_alert_dialog import ManageVodAlertsDialog

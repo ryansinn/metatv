@@ -879,6 +879,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.clearUnavailableClicked.connect(
                 lambda: self._clear_unavailable_queue(section)
             )
+            # Alerts Matched (topmost group) — a channel row opens details AND acks
+            # the match; a series row reuses the same "open series" seam as the
+            # Watch Alerts section's seriesClicked (no unseen-count clearing here).
+            section.alertsMatchedClicked.connect(self._on_alerts_matched_clicked)
+            section.alertsMatchedSeriesClicked.connect(self.show_channel_details_by_id)
             return section
 
         return None
@@ -1058,6 +1063,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             ab = getattr(pane, "_action_bar", None)
             if ab is not None and hasattr(ab, "set_new_match"):
                 ab.set_new_match(self.config.is_vod_match_unviewed(current.id))
+
+    def _on_alerts_matched_clicked(self, channel_id: str) -> None:
+        """Watch Queue 'Alerts Matched' row click: open details AND ack the match.
+
+        Reuses the existing per-match "viewed" chokepoint
+        (``Config.mark_vod_alert_match_viewed`` — marks the channel viewed across
+        every rule that alerted it) rather than adding a parallel method, then
+        re-runs the single alert-visibility refresh so the Alerts Matched rows,
+        the pinned banner count, and every other alert-visibility surface can't
+        disagree.
+        """
+        self.show_channel_details_by_id(channel_id)
+        if self.config.mark_vod_alert_match_viewed(channel_id):
+            self._refresh_alert_visibility()
 
     def _clear_vod_alert(self, channel_id: str) -> None:
         """Acknowledge a single matched channel (per-item 'Clear alert')."""
