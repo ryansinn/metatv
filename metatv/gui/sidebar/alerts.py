@@ -25,13 +25,13 @@ from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 5        # "rule" | "keyword_divider" | "series_divider" | "series"
 _ROLE_SERIES_ID = Qt.ItemDataRole.UserRole + 6   # series_channel_id (series rows)
 
-# Sane maximum height (px) for the EPG alerts_tree — the single budget shared by
-# _fit_alerts_tree_to_content() (clamps the content-sized cap) and _apply_expansion()
-# (the row budget for its expand-all-if-it-fits decision).  Sits above the two smaller
-# capped sibling lists (Stream Monitoring 120 / Movies & Series 200): the EPG list is
-# the primary sub-section, but past this it must SCROLL rather than balloon into — and
-# starve the siblings of — the section's leftover vertical space.
-_ALERTS_TREE_MAX_HEIGHT = 320
+# Row budget (px) for _apply_expansion()'s "expand every group only if the fully
+# expanded list still fits a compact height" decision.  It is NOT a widget maximum:
+# the three sub-lists share the section's height via equal layout stretch (see
+# create_content), so the EPG tree is bounded by its stretch share of the splitter
+# pane, not by a hard cap.  A hard cap was deliberately dropped — capping the tree to
+# its content left the section's surplus space pooling as a blank gap at the bottom.
+_ALERTS_TREE_AUTOEXPAND_BUDGET = 320
 
 
 def _name_with_dim_suffix_html(text: str, suffix: str) -> str:
@@ -330,8 +330,13 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self.alerts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.alerts_tree.customContextMenuRequested.connect(self._on_context_menu)
         _theme.apply_list_selection(self.alerts_tree)
+        # Expanding + equal stretch (shared by all three sub-lists) so the section's
+        # surplus vertical space is DISTRIBUTED among them rather than pooling in one
+        # ballooning list or a dead gap.  No maximumHeight: the stretch share bounds
+        # the tree within the splitter pane, and a long watchlist scrolls internally.
+        self.alerts_tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.alerts_tree.hide()
-        self.content_layout.addWidget(self.alerts_tree)
+        self.content_layout.addWidget(self.alerts_tree, 1)
 
         self._update_epg_toggle_label(0)
         # ── end EPG sub-section ────────────────────────────────────────────
@@ -361,7 +366,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._vod_list = QListWidget()
         self._vod_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self._vod_list.setMaximumHeight(200)
+        # Equal stretch with the EPG tree so Movies & Series always gets its fair share
+        # of the section's height (never starved to a sliver) and grows to help fill the
+        # pane instead of leaving a gap.  A long list scrolls within its share.
+        self._vod_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._vod_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._vod_list)
         cursor_affordance.set_clickable(self._vod_list)
@@ -370,7 +378,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._vod_list.customContextMenuRequested.connect(self._on_vod_context_menu)
         self._vod_list.hide()
-        self.content_layout.addWidget(self._vod_list)
+        self.content_layout.addWidget(self._vod_list, 1)
 
         self._update_vod_toggle_label(0)
         # ── end Movies & Series sub-section ────────────────────────────────
@@ -406,24 +414,24 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._retry_list = QListWidget()
         self._retry_list.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self._retry_list.setMaximumHeight(120)
+        # Matching Expanding + equal stretch so Stream Monitoring shares the pane on the
+        # same footing as the other two sub-lists.
+        self._retry_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._retry_list.setStyleSheet(f"QListWidget {{ font-size: {_theme.FONT_MD}; }}")
         _theme.apply_list_selection(self._retry_list)
         self._retry_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._retry_list.customContextMenuRequested.connect(self._on_retry_context_menu)
         self._retry_list.itemDoubleClicked.connect(self._on_retry_double_clicked)
         self._retry_list.hide()
-        self.content_layout.addWidget(self._retry_list)
+        self.content_layout.addWidget(self._retry_list, 1)
 
         self._update_retry_toggle_label(0)
 
-        # Trailing stretch collects the section's surplus vertical space at the BOTTOM
-        # so no single sub-list balloons to absorb it.  Each list is capped to its own
-        # content (alerts_tree via _fit_alerts_tree_to_content, the two QListWidgets via
-        # setMaximumHeight); without this stretch the leftover space would flow into the
-        # tree (default Expanding policy) and starve Movies & Series / Stream Monitoring.
-        self.content_layout.addStretch()
-
+        # NO trailing stretch: the three sub-lists carry equal layout stretch and an
+        # Expanding vertical policy, so the section's surplus height is shared among the
+        # visible lists (each grows to help fill the pane) instead of pooling as a blank
+        # gap at the bottom.  When a list is hidden its stretch drops out and the
+        # remaining visible list(s) take the space.
         self.set_empty(True)
 
     # ------------------------------------------------------------------
@@ -958,7 +966,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
         self._reveal_epg_subsection()
-        self._fit_alerts_tree_to_content()
         self.set_empty(False)
 
     def show_loading(self, tree, message: str = "Loading…") -> None:
@@ -973,7 +980,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         tree.addTopLevelItem(item)
         self._reveal_epg_subsection()
-        self._fit_alerts_tree_to_content()
         self.set_empty(False)
 
     def _reveal_epg_subsection(self) -> None:
@@ -1200,9 +1206,6 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         self._reveal_epg_subsection()
         self.set_empty(False)
-        # Cap the tree to its collapsed content now (so it never flashes ballooned
-        # this tick); _apply_expansion re-fits once it has set the expansion state.
-        self._fit_alerts_tree_to_content()
         QTimer.singleShot(0, self._apply_expansion)
 
     def refresh_retry(self, entries: list) -> None:
@@ -1268,48 +1271,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         gp = self._retry_list.viewport().mapToGlobal(pos)
         self.retryContextMenuRequested.emit(entry_id, channel_id or "", gp.x(), gp.y())
 
-    def _fit_alerts_tree_to_content(self) -> None:
-        """Cap ``alerts_tree`` to its visible content height so it never balloons.
-
-        A ``QTreeWidget`` defaults to the Expanding vertical policy, so — uncapped —
-        the EPG sub-list would absorb ALL of the section's leftover vertical space and
-        starve the capped Movies & Series / Stream Monitoring lists below it (the bug
-        this fixes).  We size the tree to its currently-visible rows (top-level rows
-        plus the children of any expanded group) using the SAME per-row primitive
-        ``_apply_expansion`` relies on (``sizeHintForRow(0)``, fallback 22), then clamp
-        to ``_ALERTS_TREE_MAX_HEIGHT`` so a long watchlist SCROLLS instead of growing
-        the section unboundedly tall.  Idempotent; safe to call after every populate or
-        expand/collapse change.
-        """
-        # Guarded for __new__ test stubs (no full constructor → no tree widget),
-        # matching this file's other stub-tolerant helpers.
-        tree = self.__dict__.get("alerts_tree")
-        if tree is None:
-            return
-        n = tree.topLevelItemCount()
-        if n == 0:
-            return
-        row_h = tree.sizeHintForRow(0)
-        if row_h <= 0:
-            row_h = 22
-        visible_rows = sum(
-            1 + (tree.topLevelItem(i).childCount()
-                 if tree.topLevelItem(i).isExpanded() else 0)
-            for i in range(n)
-        )
-        # 2×frameWidth for the border; a little slack so the last row is never clipped.
-        content_h = visible_rows * row_h + 2 * tree.frameWidth() + 4
-        tree.setMaximumHeight(min(content_h, _ALERTS_TREE_MAX_HEIGHT))
-
     def _apply_expansion(self) -> None:
-        """Expand all groups if the fully-expanded list fits the tree's cap; else none.
+        """Expand every group if the fully-expanded list stays compact; else expand none.
 
-        The budget is the tree's own height cap (``_ALERTS_TREE_MAX_HEIGHT``), NOT the
-        live ``viewport().height()`` — the viewport is now driven by
-        ``_fit_alerts_tree_to_content``, so reading it here would feed the cap back on
-        itself and progressively suppress expansion.  A fixed budget keeps the
-        "expand-all only when it all fits without scrolling" behaviour stable.  After
-        deciding, we re-fit the tree to the resulting visible rows.
+        The budget is the fixed ``_ALERTS_TREE_AUTOEXPAND_BUDGET`` (in rows via the same
+        ``sizeHintForRow(0)``/fallback-22 primitive), NOT the live ``viewport().height()``
+        — the tree's height now flexes with its stretch share of the pane, so reading the
+        viewport here would make the decision jitter with the pane size.  A fixed budget
+        keeps the "auto-expand only a short watchlist; leave a long one collapsed so it
+        scrolls compactly" behaviour stable regardless of how tall the section is dragged.
         """
         tree = self.alerts_tree
         n = tree.topLevelItemCount()
@@ -1318,7 +1288,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         row_h = tree.sizeHintForRow(0)
         if row_h <= 0:
             row_h = 22
-        max_rows = max(1, _ALERTS_TREE_MAX_HEIGHT // row_h)
+        max_rows = max(1, _ALERTS_TREE_AUTOEXPAND_BUDGET // row_h)
         total_if_expanded = sum(
             1 + tree.topLevelItem(i).childCount()
             for i in range(n)
@@ -1329,4 +1299,3 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             if item.childCount() == 0:
                 continue  # section header — not expandable
             item.setExpanded(expand_all)
-        self._fit_alerts_tree_to_content()
