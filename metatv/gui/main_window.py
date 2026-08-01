@@ -2126,6 +2126,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         ``_persist=False`` updates the in-memory config fields only (the single
         write is done by :meth:`_persist_layout_now`).
         """
+        # Clobber guard: while the Full Watch-History view is active, panels 0 and 2
+        # are auto-collapsed to 0 (so the trail-map gets the full width).  Persisting
+        # then would overwrite the user's remembered sidebar_width / details_pane_width
+        # with 0 (and flip details_pane_visible off).  A user drag or app-close while
+        # in history would hit this path, so skip the main-splitter write outright.
+        # (collapse_panel's setSizes() does not emit splitterMoved, so the auto-collapse
+        # itself never triggers a save — this guards the manual-drag / closeEvent cases.)
+        # Plain __dict__ lookup (the codebase's existence-guard convention): `getattr`
+        # on a PyQt object whose C++ __init__ was skipped (the persistence unit-test
+        # shell) raises "super-class __init__() never called" instead of the default.
+        if self.__dict__.get("view_mode") == "history":
+            return
         try:
             sizes = self.main_splitter.sizes()
             if sizes and len(sizes) >= 3:

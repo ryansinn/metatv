@@ -348,6 +348,181 @@ class TestNavWiring:
 
 
 # ---------------------------------------------------------------------------
+# 4b. History full-width — activating collapses the flanks, leaving restores them
+# ---------------------------------------------------------------------------
+
+def _real_splitter(qapp, sizes=(300, 500, 200), min_widths=(0, 0, 0)):
+    """A REAL CollapsibleSplitter holding 3 real widgets, sized + shown."""
+    from PyQt6.QtWidgets import QWidget
+    from metatv.gui.collapsible_splitter import CollapsibleSplitter
+
+    splitter = CollapsibleSplitter()
+    for mw in min_widths:
+        w = QWidget()
+        if mw:
+            w.setMinimumWidth(mw)
+        splitter.addWidget(w)
+    # Mirror the real main_splitter's stretch: only the middle (content) panel
+    # stretches, so expand_panel restores the flanks to their exact widths.
+    splitter.setStretchFactor(0, 0)
+    splitter.setStretchFactor(1, 1)
+    splitter.setStretchFactor(2, 0)
+    splitter.resize(1000, 400)
+    splitter.setSizes(list(sizes))
+    splitter.show()
+    qapp.processEvents()
+    return splitter
+
+
+class TestHistoryFullWidth:
+    def test_switch_collapses_flanks_and_leaving_restores(self, qapp):
+        """Entering history collapses sidebar(0)+details(2) to 0; leaving restores them."""
+        host = _nav_host()
+        host.full_history_view.isVisible.return_value = False
+        # Real sidebar has a 200px minimum — prove the collapse still reaches 0.
+        splitter = _real_splitter(qapp, min_widths=(200, 400, 0))
+        host.main_splitter = splitter
+
+        before = splitter.sizes()
+        assert before[0] > 0 and before[2] > 0, "both flanks start open"
+
+        host.switch_to_full_history_view()
+        qapp.processEvents()
+        collapsed = splitter.sizes()
+        assert collapsed[0] == 0 and collapsed[2] == 0, \
+            "history activation collapses both flanking panels to zero"
+
+        # Simulate leaving history (switch to any other view runs _hide_all_content_views).
+        host.full_history_view.isVisible.return_value = True
+        host._hide_all_content_views()
+        qapp.processEvents()
+        restored = splitter.sizes()
+        assert restored[0] > 0 and restored[2] > 0, "leaving history reopens both flanks"
+        assert restored[0] == before[0] and restored[2] == before[2], \
+            "flanks restore to their exact pre-collapse widths"
+
+        splitter.hide()
+        splitter.deleteLater()
+
+    def test_leaving_history_does_not_reopen_a_flank_the_user_had_shut(self, qapp):
+        """Only panels WE auto-collapsed are restored — a pre-collapsed details pane
+        (the common ``details_pane_visible=False`` default) stays shut on the way out."""
+        host = _nav_host()
+        host.full_history_view.isVisible.return_value = False
+        splitter = _real_splitter(qapp, min_widths=(200, 400, 0))
+        splitter.collapse_panel(2)          # user already had the details pane shut
+        qapp.processEvents()
+        assert splitter.is_panel_collapsed(2)
+        host.main_splitter = splitter
+
+        host.switch_to_full_history_view()
+        qapp.processEvents()
+        assert splitter.sizes()[0] == 0, "sidebar still auto-collapses"
+
+        host.full_history_view.isVisible.return_value = True
+        host._hide_all_content_views()
+        qapp.processEvents()
+        assert splitter.sizes()[0] > 0, "sidebar (which we collapsed) is restored"
+        assert splitter.is_panel_collapsed(2), \
+            "details pane the user had shut is NOT popped open on the way out"
+
+        splitter.hide()
+        splitter.deleteLater()
+
+    def test_switch_without_main_splitter_does_not_raise(self):
+        """The nav host in TestNavWiring has no main_splitter — the guard must hold."""
+        host = _nav_host()          # no main_splitter attribute set
+        host.full_history_view.isVisible.return_value = False
+        host.switch_to_full_history_view()          # must not AttributeError
+        host.full_history_view.isVisible.return_value = True
+        host._hide_all_content_views()              # nor here
+
+
+# ---------------------------------------------------------------------------
+# 4c. Splitter handle — discoverable grip affordance + collapse round-trip
+# ---------------------------------------------------------------------------
+
+class TestCollapsibleSplitterHandle:
+    def test_handle_is_discoverable_and_round_trips(self, qapp):
+        splitter = _real_splitter(qapp, sizes=(300, 400, 200))
+        handle = splitter.handle(1)
+        assert handle is not None
+
+        # (i) opted into the pointing-hand affordance via cursor_affordance.
+        assert handle.property("clickable") is True
+        # (ii) advertises the gesture with a non-empty tooltip.
+        assert handle.toolTip(), "handle carries a collapse/expand tooltip"
+        # (iii) has real thickness so the grip is visible (was near-zero before).
+        assert handle.sizeHint().width() > 0
+        assert splitter.handleWidth() >= handle.GRIP_THICKNESS
+
+        # (iv) collapse → expand round-trips the panel's pre-collapse size.
+        before = splitter.sizes()[2]
+        assert before > 0
+        splitter.collapse_panel(2)
+        qapp.processEvents()
+        assert splitter.sizes()[2] == 0
+        splitter.expand_panel(2)
+        qapp.processEvents()
+        assert splitter.sizes()[2] == before, "expand restores the exact pre-collapse size"
+
+        splitter.hide()
+        splitter.deleteLater()
+
+    def test_collapse_reaches_zero_despite_min_width(self, qapp):
+        """A min-width panel must still collapse fully to 0 (the sidebar case)."""
+        splitter = _real_splitter(qapp, min_widths=(200, 400, 0))
+        splitter.collapse_panel(0)
+        qapp.processEvents()
+        assert splitter.sizes()[0] == 0, \
+            "collapse lifts childrenCollapsible so a 200px-min panel reaches 0"
+        assert splitter.childrenCollapsible() is False, \
+            "drag-collapse protection restored after the programmatic collapse"
+        splitter.hide()
+        splitter.deleteLater()
+
+
+# ---------------------------------------------------------------------------
+# 4d. Clobber guard — no layout save while history has the flanks collapsed to 0
+# ---------------------------------------------------------------------------
+
+class TestLayoutSaveClobberGuard:
+    def test_save_splitter_sizes_skipped_while_history_active(self):
+        from metatv.gui.main_window import MainWindow
+
+        cfg = SimpleNamespace(
+            sidebar_width=340, details_pane_width=400, details_pane_visible=True,
+            save=MagicMock(),
+        )
+        host = SimpleNamespace(
+            view_mode="history", config=cfg,
+            main_splitter=SimpleNamespace(sizes=lambda: [0, 1200, 0]),
+        )
+        MainWindow.save_splitter_sizes(host)
+        assert cfg.sidebar_width == 340, "history guard must not clobber sidebar_width"
+        assert cfg.details_pane_width == 400, "history guard must not clobber details width"
+        assert cfg.details_pane_visible is True, "history guard must not flip visibility off"
+        cfg.save.assert_not_called()
+
+    def test_save_splitter_sizes_writes_when_not_in_history(self):
+        from metatv.gui.main_window import MainWindow
+
+        cfg = SimpleNamespace(
+            sidebar_width=0, details_pane_width=0, details_pane_visible=False,
+            save=MagicMock(),
+        )
+        host = SimpleNamespace(
+            view_mode="list", config=cfg,
+            main_splitter=SimpleNamespace(sizes=lambda: [340, 1200, 400]),
+        )
+        MainWindow.save_splitter_sizes(host)      # _persist defaults True
+        assert cfg.sidebar_width == 340 and cfg.details_pane_width == 400, \
+            "outside history the real widths are persisted as before"
+        assert cfg.details_pane_visible is True
+        cfg.save.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # 5. What's New entry 178
 # ---------------------------------------------------------------------------
 
@@ -357,5 +532,13 @@ def test_whats_new_entry_178_present_with_test_steps():
     assert entry is not None, "What's New entry id=178 must be registered"
     assert entry.version == "0.14.1"
     assert entry.date == "2026-07-31"
+    assert entry.items, "entry must have items"
+    assert entry.test_steps, "entry must carry a non-empty test_steps tuple"
+
+
+def test_whats_new_entry_185_present_with_test_steps():
+    from metatv.whats_new import WHATS_NEW
+    entry = next((e for e in WHATS_NEW if e.id == 185), None)
+    assert entry is not None, "What's New entry id=185 must be registered"
     assert entry.items, "entry must have items"
     assert entry.test_steps, "entry must carry a non-empty test_steps tuple"

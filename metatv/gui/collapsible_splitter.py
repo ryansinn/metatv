@@ -1,20 +1,83 @@
 """Collapsible splitter widget with click-to-collapse functionality"""
 from PyQt6.QtWidgets import QSplitter, QSplitterHandle
-from PyQt6.QtCore import Qt, QEvent, QPoint, pyqtSignal
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtCore import Qt, QEvent, QPoint, QPointF, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QMouseEvent, QPainter
+
+from metatv.gui import theme as _theme
+from metatv.gui.cursor_affordance import set_clickable
 
 
 class CollapsibleSplitterHandle(QSplitterHandle):
-    """Custom splitter handle that collapses panels on click"""
-    
+    """Custom splitter handle that collapses panels on click.
+
+    The click-to-collapse gesture used to be invisible: a bare, near-zero-width
+    handle with no affordance.  It now advertises itself — a minimum thickness
+    (:data:`GRIP_THICKNESS`), a painted row of muted grip dots
+    (:meth:`paintEvent`), a pointing-hand cursor (via the ``cursor_affordance``
+    chokepoint), and a tooltip — so the collapse gesture is discoverable.
+    """
+
     # Signal when handle is clicked (not dragged)
     clicked = pyqtSignal()
-    
+
+    #: Minimum handle thickness (px) so the grip dots have room to show — a bare
+    #: QSplitterHandle is near-zero-width on most styles.
+    GRIP_THICKNESS = 7
+    #: Number / geometry of the centred grip dots painted on the handle.
+    _GRIP_DOTS = 3
+    _GRIP_DOT_RADIUS = 1.0
+    _GRIP_DOT_GAP = 4.0
+
     def __init__(self, orientation, parent):
         super().__init__(orientation, parent)
         self.drag_started = False
         self.click_pos = None
-    
+        # Discoverability: tooltip + pointing-hand cursor.  A QSplitterHandle is
+        # not a QAbstractButton, so it must opt into the hand via the single
+        # cursor_affordance chokepoint — never a hand-rolled setCursor call here.
+        self.setToolTip("Click to collapse/expand")
+        set_clickable(self)
+
+    def sizeHint(self) -> QSize:
+        """Guarantee enough thickness across the handle to show the grip dots."""
+        hint = super().sizeHint()
+        if self.orientation() == Qt.Orientation.Horizontal:
+            # Horizontal splitter → vertical handle strip: thickness is the WIDTH.
+            hint.setWidth(max(hint.width(), self.GRIP_THICKNESS))
+        else:
+            hint.setHeight(max(hint.height(), self.GRIP_THICKNESS))
+        return hint
+
+    def paintEvent(self, event) -> None:
+        """Draw the default handle, then a centred row of muted grip dots.
+
+        The dots run along the handle's long axis (a horizontal splitter has
+        vertical handle strips → dots stack vertically) so the affordance reads
+        the same on every orientation.
+        """
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(_theme.COLOR_SPLITTER_GRIP))
+
+        rect = self.rect()
+        cx = rect.center().x()
+        cy = rect.center().y()
+        span = self._GRIP_DOT_GAP * (self._GRIP_DOTS - 1)
+        r = self._GRIP_DOT_RADIUS
+        if self.orientation() == Qt.Orientation.Horizontal:
+            # Vertical strip → stack the dots vertically, centred.
+            top = cy - span / 2.0
+            for i in range(self._GRIP_DOTS):
+                painter.drawEllipse(QPointF(cx, top + i * self._GRIP_DOT_GAP), r, r)
+        else:
+            # Horizontal strip → lay the dots out horizontally, centred.
+            left = cx - span / 2.0
+            for i in range(self._GRIP_DOTS):
+                painter.drawEllipse(QPointF(left + i * self._GRIP_DOT_GAP, cy), r, r)
+        painter.end()
+
     def mousePressEvent(self, event: QMouseEvent):
         """Track mouse press for click detection"""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -56,6 +119,10 @@ class CollapsibleSplitter(QSplitter):
         # Prevent Qt from collapsing panels to zero on drag — our click-to-collapse
         # logic calls setSizes() directly and still works with this off.
         self.setChildrenCollapsible(False)
+        # Give handles a real thickness so the discoverable grip (see
+        # CollapsibleSplitterHandle.paintEvent) has room to show; the handle's
+        # sizeHint enforces the same floor.
+        self.setHandleWidth(CollapsibleSplitterHandle.GRIP_THICKNESS)
     
     def createHandle(self):
         """Create custom handle with click detection"""
@@ -100,14 +167,24 @@ class CollapsibleSplitter(QSplitter):
         
         sizes = self.sizes()
         current_size = sizes[index]
-        
+
         if current_size > 0:
             # Remember current size
             self.collapsed_panels[index] = current_size
-            
-            # Collapse by setting size to 0
-            sizes[index] = 0
-            self.setSizes(sizes)
+
+            # Collapse by setting size to 0.  childrenCollapsible is kept False to
+            # stop *drag* from collapsing panels, but that same flag also clamps
+            # setSizes() to a panel's minimumWidth — so a min-width panel (e.g. the
+            # 200px sidebar) would stick at ~200 instead of 0.  Lift the flag only
+            # around this programmatic collapse, then restore it so drag protection
+            # stays intact.
+            was_collapsible = self.childrenCollapsible()
+            self.setChildrenCollapsible(True)
+            try:
+                sizes[index] = 0
+                self.setSizes(sizes)
+            finally:
+                self.setChildrenCollapsible(was_collapsible)
     
     def expand_panel(self, index: int):
         """Expand a collapsed panel to its previous size"""
