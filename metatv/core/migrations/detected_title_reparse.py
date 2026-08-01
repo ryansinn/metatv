@@ -78,7 +78,14 @@ if TYPE_CHECKING:
 #       every existing detected_title and recomputes content_key in the same
 #       update_detected_prefixes pass (only generated fields are written — user
 #       tags/ratings/favorites are never touched).
-CURRENT_VERSION: int = 6
+#   7 — mid-name year pre-cut: parse_channel_name now relocates a "(YYYY)" that has
+#       trailing cast/extra credits after it (e.g. "From Dusk Till Dawn 4K (1996)
+#       HARVEY KEITEL, TARANTINO") so the existing end-anchored year/quality strip
+#       still extracts detected_year and a clean detected_title instead of leaving
+#       the whole cast blob in the title and detected_year empty.  Full re-run
+#       re-parses every row and recomputes content_key in the same
+#       update_detected_prefixes pass.
+CURRENT_VERSION: int = 7
 
 
 class DetectedTitleReparseTask:
