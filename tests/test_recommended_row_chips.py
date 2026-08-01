@@ -1,20 +1,19 @@
-"""Recommended rows: title left, year+quality left-cluster, language chip far-right.
+"""Recommended rows: title + hugging 4K chip left, year + language cluster far-right.
 
 Regression guard for the "why is an English recommendation badged [DE]?" bug: the
 row used to render ``detected_region`` (the source region, e.g. DE) jammed into the
-title text. The row is: icon, a middle-eliding title, then the LEFT cluster (year
-chip + quality chip), a stretch, then the language chip pushed to the far right —
-the language chip is the honest ``detected_prefix`` (EN), and the source region must
-NOT appear.
+title text. The row is: icon, a middle-eliding title, the quality (4K) chip hugging
+the title TEXT, a stretch, then the right-aligned cluster (year chip, then language
+chip). The language chip is the honest ``detected_prefix`` (EN), and the source
+region must NOT appear.
 
 Also guards the polish fixes (PR #344):
-  * the title label gets an Expanding horizontal policy + layout stretch 1, so it
-    fills the left space and pushes the fixed chip cluster to the right edge (no
-    separate spacer). Guaranteed the full left width, a SHORT title ("1983") is never
-    chopped — ``elidedText`` returns the full string, and only a genuinely-too-long
-    title elides. The title also middle-elides in ``paintEvent`` against the current
-    width, and ``text()``/tooltip always stay the full string;
-  * the right-aligned cluster order is year → quality (if 4K) → language, with the
+  * the title sizes to its content (Preferred policy, no layout stretch) so the 4K
+    chip hugs the title text; its ``sizeHint`` carries a small anti-clip buffer and it
+    elides in ``paintEvent`` against its FULL ``width()`` (zero contents margins), so a
+    SHORT title ("1983") is NEVER clipped — only a title too long for the row elides.
+    ``text()``/tooltip always stay the full string;
+  * layout order is title → quality (if 4K) → [stretch] → year → language, with the
     language chip the consistent far-right element;
   * the year renders as its own ``YEAR_CHIP``-styled chip.
 
@@ -50,13 +49,13 @@ def _sc(**over):
 
 
 def _row_texts(row):
-    # Chips can be QLabel (language) or QPushButton (quality); collect both.
+    # Chips can be QLabel (language/year) or QPushButton (quality); collect both.
     widgets = row.findChildren(QLabel) + row.findChildren(QPushButton)
     return [w.text() for w in widgets] + [w.toolTip() for w in row.findChildren(QLabel)]
 
 
 def _ordered_widgets(row):
-    """Widgets in the row's QHBoxLayout, in left→right order."""
+    """Widgets in the row's QHBoxLayout, in left→right order (skips spacers)."""
     layout = row.layout()
     out = []
     for i in range(layout.count()):
@@ -64,6 +63,27 @@ def _ordered_widgets(row):
         if w is not None:
             out.append(w)
     return out
+
+
+def _ordered_items(row):
+    """(kind, obj) per layout item in order — kind is 'w' (widget) or 'spacer'."""
+    layout = row.layout()
+    out = []
+    for i in range(layout.count()):
+        it = layout.itemAt(i)
+        if it.widget() is not None:
+            out.append(("w", it.widget()))
+        elif it.spacerItem() is not None:
+            out.append(("spacer", it.spacerItem()))
+    return out
+
+
+def _widget_index(items, pred):
+    return next(i for i, (k, obj) in enumerate(items) if k == "w" and pred(obj))
+
+
+def _spacer_index(items):
+    return next(i for i, (k, _obj) in enumerate(items) if k == "spacer")
 
 
 def test_row_shows_language_and_quality_chips_not_region(qtbot):
@@ -94,53 +114,41 @@ def test_row_missing_prefix_shows_no_language_chip_and_no_region(qtbot):
     assert not any("DE" in t for t in _row_texts(row))
 
 
-def test_short_title_is_preserved_full_not_chopped(qtbot):
-    # The title middle-elides in paintEvent against the CURRENT width (not by mutating
-    # the stored text in resizeEvent), so a SHORT title that easily fits is never
-    # chopped ("1983" used to render as "1…3"). text()/tooltip stay the full string
-    # regardless of paint width — force paints at wide + narrow widths to prove it.
-    label = _MiddleElideLabel("1983")
-    qtbot.addWidget(label)
-    label.resize(400, 20)
-    label.grab()          # force a paintEvent at a comfortable width
-    label.resize(24, 20)  # a width where the old resize-elide chopped short titles
-    label.grab()          # force a paintEvent at a cramped width
-    assert label.text() == "1983"     # stored text never mutated by paint
-    assert label.toolTip() == "1983"
-
-    # And a genuinely-too-long title still middle-elides (visual only); the stored
-    # full text is preserved for text()/tooltip.
-    long_title = "A Very Long Documentary Title That Cannot Possibly Fit"
-    long_label = _MiddleElideLabel(long_title)
-    qtbot.addWidget(long_label)
-    long_label.resize(60, 20)
-    long_label.grab()
-    assert long_label.text() == long_title
-    elided = long_label.fontMetrics().elidedText(
-        long_title, _theme_elide_middle(), long_label.contentsRect().width()
-    )
-    assert elided != long_title and "…" in elided  # middle-elided at this width
-
-
-def test_title_label_expands_to_fill_left_space(qtbot):
-    # THE fix mechanism: the title label is given an Expanding horizontal policy and a
-    # non-zero layout stretch, so it fills the left space and pushes the fixed chip
-    # cluster to the right edge. Guaranteed the full left width, short titles never chop.
+def test_title_sizes_to_content_with_anti_clip_buffer(qtbot):
+    # The title sizes to its content (Preferred policy, NO layout stretch) so the 4K
+    # chip can hug the title TEXT — and its sizeHint carries an anti-clip buffer plus
+    # zero contents margins, so a title that fits is never clipped by sub-pixel rounding.
     from PyQt6.QtWidgets import QSizePolicy
     row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
     title = row.findChild(_MiddleElideLabel)
     assert title is not None
-    assert title.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert title.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Preferred
     layout = row.layout()
     idx = next(i for i in range(layout.count()) if layout.itemAt(i).widget() is title)
-    assert layout.stretch(idx) > 0, "title must carry the flexible layout stretch"
-    # And there is no separate spacer item stealing the flexible space.
-    assert all(layout.itemAt(i).spacerItem() is None for i in range(layout.count()))
+    assert layout.stretch(idx) == 0, "title sizes to content, not via stretch"
+    fm = title.fontMetrics()
+    assert title.sizeHint().width() > fm.horizontalAdvance(title.text()), "needs anti-clip buffer"
+    margins = title.contentsMargins()
+    assert margins.left() == 0 and margins.right() == 0
+
+
+def test_short_title_not_clipped_at_its_own_hint_width(qtbot):
+    # THE regression: at the width the layout grants (the label's sizeHint), a short
+    # title must render in full — "1983" must NOT become "1…3".
+    from PyQt6.QtCore import Qt
+    label = _MiddleElideLabel("1983")
+    qtbot.addWidget(label)
+    label.resize(label.sizeHint())  # the width a content-sized layout grants it
+    fm = label.fontMetrics()
+    assert label.width() >= fm.horizontalAdvance("1983")
+    assert fm.elidedText("1983", Qt.TextElideMode.ElideMiddle, label.width()) == "1983"
+    label.grab()  # force a real paint; no crash, stored text stays full
+    assert label.text() == "1983"
+    assert label.toolTip() == "1983"
 
 
 def test_short_title_not_elided_at_wide_width(qtbot):
-    # With the title guaranteed the full left width, elidedText returns the FULL string
-    # for a short title — no chop ("1983" must NOT become "1…3").
+    # Belt-and-suspenders: with room to spare, elidedText returns the FULL string.
     from PyQt6.QtCore import Qt
     label = _MiddleElideLabel("1983")
     qtbot.addWidget(label)
@@ -148,45 +156,51 @@ def test_short_title_not_elided_at_wide_width(qtbot):
     wide = fm.horizontalAdvance("1983") + 50
     assert fm.elidedText("1983", Qt.TextElideMode.ElideMiddle, wide) == "1983"
     label.resize(wide, 20)
-    label.grab()  # force a real paint at that width; stored text stays full
+    label.grab()
     assert label.text() == "1983"
-    assert label.toolTip() == "1983"
 
 
-def test_chip_order_year_quality_language(qtbot):
-    # Right-aligned cluster order: year → quality (if 4K) → language (far-right).
+def test_long_title_still_elides_when_too_narrow(qtbot):
+    # A genuinely-too-long title still middle-elides (visual only); the stored full text
+    # is preserved for text()/tooltip.
+    from PyQt6.QtCore import Qt
+    long_title = "A Very Long Documentary Title That Cannot Possibly Fit"
+    label = _MiddleElideLabel(long_title)
+    qtbot.addWidget(label)
+    label.resize(60, 20)
+    label.grab()
+    assert label.text() == long_title
+    assert label.toolTip() == long_title
+    elided = label.fontMetrics().elidedText(
+        long_title, Qt.TextElideMode.ElideMiddle, label.width()
+    )
+    assert elided != long_title and "…" in elided  # middle-elided at this width
+
+
+def test_layout_order_title_quality_stretch_year_language(qtbot):
+    # 4K chip hugs the title TEXT (immediately after it, BEFORE the stretch); the year
+    # and language chips are the right-aligned cluster after the stretch.
     row = RecommendedSection._build_rec_row(_stub_self(), _sc(), "1998")
-    widgets = _ordered_widgets(row)
-    year_idx = next(
-        i for i, w in enumerate(widgets)
-        if isinstance(w, QLabel) and w.text() == "1998"
-    )
-    quality_idx = next(
-        i for i, w in enumerate(widgets)
-        if isinstance(w, QPushButton) and w.text() == "4K"
-    )
-    lang_idx = next(
-        i for i, w in enumerate(widgets)
-        if isinstance(w, QLabel) and w.text() == "EN"
-    )
-    order = [type(w).__name__ + ":" + w.text() for w in widgets]
-    assert year_idx < quality_idx < lang_idx, order
+    items = _ordered_items(row)
+    title_i = _widget_index(items, lambda w: isinstance(w, _MiddleElideLabel))
+    quality_i = _widget_index(items, lambda w: isinstance(w, QPushButton) and w.text() == "4K")
+    year_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "1998")
+    lang_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "EN")
+    spacer_i = _spacer_index(items)
+    order = [(k, getattr(o, "text", lambda: k)()) for k, o in items]
+    assert title_i < quality_i < spacer_i < year_i < lang_i, order
 
 
-def test_chip_order_year_then_language_when_no_quality(qtbot):
-    # Quality chip present only when set; without it the cluster is year → language.
+def test_layout_order_title_stretch_year_language_when_no_quality(qtbot):
+    # Quality chip present only when set; without it: title → [stretch] → year → language.
     row = RecommendedSection._build_rec_row(_stub_self(), _sc(detected_quality=""), "1998")
-    widgets = _ordered_widgets(row)
-    assert not any(isinstance(w, QPushButton) and w.text() == "4K" for w in widgets)
-    year_idx = next(
-        i for i, w in enumerate(widgets)
-        if isinstance(w, QLabel) and w.text() == "1998"
-    )
-    lang_idx = next(
-        i for i, w in enumerate(widgets)
-        if isinstance(w, QLabel) and w.text() == "EN"
-    )
-    assert year_idx < lang_idx
+    items = _ordered_items(row)
+    assert not any(k == "w" and isinstance(o, QPushButton) and o.text() == "4K" for k, o in items)
+    title_i = _widget_index(items, lambda w: isinstance(w, _MiddleElideLabel))
+    year_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "1998")
+    lang_i = _widget_index(items, lambda w: isinstance(w, QLabel) and w.text() == "EN")
+    spacer_i = _spacer_index(items)
+    assert title_i < spacer_i < year_i < lang_i
 
 
 def test_year_renders_as_year_chip_and_no_region(qtbot):
@@ -199,8 +213,3 @@ def test_year_renders_as_year_chip_and_no_region(qtbot):
     ]
     assert year_chips, "year must render as its own YEAR_CHIP-styled chip"
     assert not any("DE" in t for t in _row_texts(row))
-
-
-def _theme_elide_middle():
-    from PyQt6.QtCore import Qt
-    return Qt.TextElideMode.ElideMiddle
