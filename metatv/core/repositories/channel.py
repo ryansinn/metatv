@@ -662,6 +662,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 detected_region=ch.detected_region or "",
                 detected_quality=ch.detected_quality or "",
                 detected_year=ch.detected_year or "",
+                detected_prefix=ch.detected_prefix or "",
             ))
         return result
 

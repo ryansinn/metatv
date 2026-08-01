@@ -2,15 +2,17 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
+    QGraphicsOpacityEffect,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QFont
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
+from metatv.gui.chip_row import build_chip_row
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
-from metatv.gui.sidebar.base import CollapsibleSection, _fmt_channel_name
+from metatv.gui.sidebar.base import CollapsibleSection
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
@@ -53,6 +55,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self.content_layout.addWidget(self._new_matches_btn)
 
         self._list = QListWidget()
+        # Chip rows fit the sidebar width and elide — never scroll sideways (which
+        # would push the right-aligned year/language chips off behind the scrollbar).
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.itemDoubleClicked.connect(self._on_double_click)
         self._list.currentItemChanged.connect(self._on_selection_changed)
@@ -182,18 +187,31 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 self._add_entry_item(e)
 
     def _add_entry_item(self, e) -> None:
-        """Add a single queue entry to the list, dimming unavailable ones."""
-        item = QListWidgetItem(
-            f"{self._media_icon(e.media_type)} "
-            f"{_fmt_channel_name(e.channel_name, detected_title=e.search_title, detected_region=e.detected_region, detected_quality=e.detected_quality, detected_year=e.detected_year)}"
-        )
+        """Add a single queue entry as the shared chip row, dimming unavailable ones."""
+        item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
         item.setData(_ROLE_AVAILABLE, e.available)
         item.setData(_ROLE_SEARCH_TITLE, e.search_title)
+        row = build_chip_row(
+            media_icon=self._media_icon(e.media_type),
+            title=e.search_title or e.channel_name,
+            year=e.detected_year,
+            quality=e.detected_quality,
+            prefix=e.detected_prefix,
+        )
         if not e.available:
-            item.setForeground(QColor(_theme.COLOR_MUTED))
+            # A custom item widget ignores the item's foreground role, so dim the whole
+            # row via a translucency effect (opacity, not a colour literal) and keep the
+            # recovery tooltip on the item (mouse-transparent row → item shows it).
+            effect = QGraphicsOpacityEffect(row)
+            effect.setOpacity(0.45)
+            row.setGraphicsEffect(effect)
             item.setToolTip(_UNAVAILABLE_TOOLTIP)
+        # Width 0 → the item spans the viewport (no sideways scroll); the row's own
+        # height governs the row height.
+        item.setSizeHint(QSize(0, row.sizeHint().height()))
         self._list.addItem(item)
+        self._list.setItemWidget(item, row)
 
     def has_unavailable(self) -> bool:
         """True when at least one entry in the current list is unavailable."""

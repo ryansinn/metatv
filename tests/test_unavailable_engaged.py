@@ -350,16 +350,20 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
             break
 
     assert unavail_item is not None
-    # Foreground is the muted color
-    from PyQt6.QtGui import QColor
-    assert unavail_item.foreground().color() == QColor(_theme.COLOR_MUTED)
-    # Tooltip set
+    # The chip row is now a custom item widget, which ignores the item's foreground
+    # role — so unavailable rows are dimmed via a translucency effect (opacity < 1).
+    from PyQt6.QtWidgets import QGraphicsOpacityEffect
+    unavail_row = obj._list.itemWidget(unavail_item)
+    unavail_effect = unavail_row.graphicsEffect()
+    assert isinstance(unavail_effect, QGraphicsOpacityEffect)
+    assert unavail_effect.opacity() < 1.0
+    # Tooltip set (on the item — the row is mouse-transparent)
     assert "unavailable" in unavail_item.toolTip().lower()
     # Item data
     assert unavail_item.data(_ROLE_AVAILABLE) is False
     assert unavail_item.data(_ROLE_SEARCH_TITLE) == "Gone Title"
 
-    # Available item is NOT dimmed — its foreground is not the muted color
+    # Available item is NOT dimmed — its chip row carries no translucency effect.
     avail_item = None
     for i in range(obj._list.count()):
         item = obj._list.item(i)
@@ -368,6 +372,7 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
             break
     assert avail_item is not None
     assert avail_item.data(_ROLE_AVAILABLE) is True
+    assert obj._list.itemWidget(avail_item).graphicsEffect() is None
 
 
 def test_queue_populate_rows_has_unavailable_false_when_all_available(qapp):
@@ -492,7 +497,12 @@ def test_favorites_populate_rows_dims_unavailable_items(qapp):
             break
 
     assert unavail_item is not None
-    assert unavail_item.foreground().color() == QColor(_theme.COLOR_MUTED)
+    # The chip row is a custom item widget (ignores the item foreground role), so the
+    # unavailable row is dimmed via a translucency effect (opacity < 1).
+    from PyQt6.QtWidgets import QGraphicsOpacityEffect
+    effect = obj.favorites_list.itemWidget(unavail_item).graphicsEffect()
+    assert isinstance(effect, QGraphicsOpacityEffect)
+    assert effect.opacity() < 1.0
     assert "unavailable" in unavail_item.toolTip().lower()
     assert unavail_item.data(_ROLE_AVAILABLE) is False
     assert unavail_item.data(_ROLE_SEARCH_TITLE) == "Beta Title"
