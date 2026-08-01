@@ -67,6 +67,25 @@ STOP_WORDS: frozenset[str] = frozenset({
 
 MAX_CORPUS_FREQ: float = 0.35  # drop words appearing in >35% of all plots
 
+# A single performer/director appearing in one liked title is noise, not taste:
+# an actor must show up across at least this many rated/favorited items before it
+# carries any weight, so the recommendations never become "all about" one face.
+ACTOR_MIN_SUPPORT: int = 2
+# Per-item actor contribution — deliberately small ("just an indication"): genre and
+# director are the load-bearing signals; a matched cast member only nudges.
+ACTOR_WEIGHT: float = 0.35
+
+# Within-a-single-generation diversity: once a recommendation with a given liked
+# performer/director is placed, the NEXT candidate sharing that person is knocked down
+# by this factor per prior appearance, so items *without* that person get room to
+# surface. It is NOT a stored weight — it only shapes THIS list; engaging with the
+# surfaced item (queue / like / dislike) removes it, so the next refresh rotates other
+# same-person content back in.
+PEOPLE_DIVERSITY_DECAY: float = 0.5
+# Only the top slice by score is greedily re-ranked for people-diversity (the tail
+# never surfaces) — bounds the O(n²) pass on large libraries.
+_DIVERSITY_HEAD: int = 120
+
 
 @dataclass
 class AttributeWeights:
@@ -110,6 +129,9 @@ class ScoredChannel:
     detected_quality:  str = ""
     detected_year:     str = ""
     detected_prefix:   str = ""  # honest audio-language token (e.g. "EN") — NOT the region
+    # Liked people (matched actors + director) driving this item's score — read by the
+    # within-generation people-diversity re-rank so the same face doesn't fill the list.
+    score_people:      tuple[str, ...] = ()
 
 
 def version_score(channel, config) -> int:
@@ -196,6 +218,9 @@ def compute_weights(session) -> AttributeWeights:
         liked_count=sum(1 for r in ratings if r.rating > 0),
         disliked_count=sum(1 for r in ratings if r.rating < 0),
     )
+    # How many distinct rated/favorited items each actor appears in — used to prune
+    # single-appearance performers below (corroboration gate).
+    actor_support: Counter = Counter()
 
     # Column-only fetch for plots — avoids loading full ORM rows for ~1,300 metadata rows
     all_plots = [
@@ -240,7 +265,8 @@ def compute_weights(session) -> AttributeWeights:
         for person in (_loads(meta.cast) or [])[:10]:
             name = person.get("name") if isinstance(person, dict) else None
             if name:
-                weights.actors[name] = weights.actors.get(name, 0.0) + sig * 0.5
+                weights.actors[name] = weights.actors.get(name, 0.0) + sig * ACTOR_WEIGHT
+                actor_support[name] += 1
 
         # Level 2 — TF-IDF plot keywords
         if meta.plot:
@@ -254,6 +280,13 @@ def compute_weights(session) -> AttributeWeights:
                         weights.keywords.get(word, 0.0) + sig * tf * idf[word]
                     )
 
+    # Corroboration gate: drop performers seen in only a single rated/favorited item.
+    # One film's worth of cast is noise; taste in an actor shows up across titles.
+    weights.actors = {
+        name: w for name, w in weights.actors.items()
+        if actor_support[name] >= ACTOR_MIN_SUPPORT
+    }
+
     return weights
 
 
@@ -263,7 +296,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      excluded_prefixes: list[str] | None = None,
                      include_uncategorized: bool = True,
                      excluded_provider_ids: list[str] | None = None,
-                     version_scorer=None) -> list[ScoredChannel]:
+                     version_scorer=None,
+                     balance_media_types: bool = False,
+                     diversify_people: bool = False) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
 
     Exclusion rules:
@@ -453,15 +488,21 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         muted_actors = set(_muted.get("actors",    []))
         muted_kws    = set(_muted.get("keywords",  []))
 
-        genre_score   = sum(weights.genres.get(g, 0.0) for g in genres if g not in muted_genres)
-        dir_score     = sum(weights.directors.get(d, 0.0) for d in _split_directors(meta.director)
-                            if d not in muted_dirs) if meta.director else 0.0
-        actor_score   = sum(
+        # Per-field MEAN (not sum): a candidate's score in each field is the average
+        # strength of the affinities it actually has there, so a big cast or a long,
+        # keyword-dense plot can't inflate a field by sheer volume — which is exactly
+        # what let richer-metadata movies out-score thinner-metadata series. Fields
+        # still ADD across each other, so matching on genre+director+cast beats
+        # matching on genre alone (real corroboration), but no single field runs away.
+        genre_score   = _matched_mean(weights.genres.get(g, 0.0) for g in genres if g not in muted_genres)
+        dir_score     = _matched_mean(weights.directors.get(d, 0.0) for d in _split_directors(meta.director)
+                                      if d not in muted_dirs) if meta.director else 0.0
+        actor_score   = _matched_mean(
             weights.actors.get(p.get("name", ""), 0.0)
             for p in cast[:5]
             if isinstance(p, dict) and p.get("name", "") not in muted_actors
         )
-        keyword_score = sum(weights.keywords.get(k, 0.0) for k in kws if k not in muted_kws) * 0.4
+        keyword_score = _matched_mean(weights.keywords.get(k, 0.0) for k in kws if k not in muted_kws) * 0.4
 
         total = genre_score + dir_score + actor_score + keyword_score
         if total <= 0:
@@ -485,6 +526,15 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         if match_kws:
             parts.append("+" + ", ".join(match_kws[:2]))
 
+        # Liked people actually driving this score (positive-weight actors + directors)
+        # — the set the within-generation diversity re-rank spreads out. Pure-genre
+        # matches carry no people, so they surface freely.
+        matched_actors = [
+            p.get("name", "") for p in cast[:5]
+            if isinstance(p, dict) and weights.actors.get(p.get("name", ""), 0.0) > 0
+        ]
+        score_people = tuple(matched_actors + matched_dirs)
+
         sc = ScoredChannel(
             channel_id=channel.id,
             channel_name=channel.name,
@@ -503,6 +553,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             detected_quality=channel.detected_quality or "",
             detected_year=channel.detected_year or "",
             detected_prefix=channel.detected_prefix or "",
+            score_people=score_people,
         )
         explicit_vs = version_scorer(channel) if version_scorer is not None else 0
         impl_vs = _implicit_prefix.get(channel.detected_prefix or "", 0) / _max_impl
@@ -535,7 +586,19 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     )
     fresh_results = [sc for sc in scored if not sc.already_liked]
     liked_cap = min(3, len(liked_results))
-    merged = liked_results[:liked_cap] + fresh_results[:limit - liked_cap]
+    fresh_slots = max(0, limit - liked_cap)
+    # 1) Spread repeated performers/directors across this generation so one liked face
+    #    can't fill the list (re-rank preserves per-type order for the interleave below).
+    if diversify_people:
+        fresh_results = _diversify_people(fresh_results)
+    # 2) Guarantee a movie/series mix even when one type dominates the raw ranking
+    #    (more titles, or richer metadata). Discovery slots only — explicit likes above
+    #    are the user's own picks and stay as-is.
+    if balance_media_types:
+        fresh_selected = _interleave_media_types(fresh_results, fresh_slots)
+    else:
+        fresh_selected = fresh_results[:fresh_slots]
+    merged = liked_results[:liked_cap] + fresh_selected
     return merged[:limit]
 
 
@@ -556,6 +619,83 @@ def record_impressions(session, channel_ids: list[str], cooldown_minutes: int = 
             ch.rec_shown_count = (ch.rec_shown_count or 0) + 1
             ch.rec_last_shown = now
     session.commit()
+
+
+def _matched_mean(values) -> float:
+    """Mean of the non-neutral (matched) contributions in one attribute field.
+
+    Averaging the *strength* of the affinities an item actually has — rather than
+    summing them — stops a big cast list or a long, keyword-dense plot from
+    inflating a field by sheer volume. Neutral (0) entries are ignored so they
+    don't dilute the average; a matched dislike (negative weight) still pulls the
+    field down. Returns 0.0 when nothing matches.
+    """
+    matched = [v for v in values if v != 0.0]
+    return sum(matched) / len(matched) if matched else 0.0
+
+
+def _diversify_people(scored: list[ScoredChannel]) -> list[ScoredChannel]:
+    """Greedily re-rank so the same liked performer/director doesn't fill the list.
+
+    Walks the score-ordered candidates picking, at each step, the highest *effective*
+    score — the base score decayed by ``PEOPLE_DIVERSITY_DECAY`` for each already-placed
+    item that shares one of this candidate's liked people. A pure-genre match (no liked
+    people) is never decayed, so it can leapfrog a third same-actor title. Only the top
+    ``_DIVERSITY_HEAD`` by score are re-ranked (the tail never surfaces); the tail is
+    appended in score order. Input must already be sorted by score, descending.
+    """
+    if len(scored) <= 1:
+        return list(scored)
+    remaining = list(scored[:_DIVERSITY_HEAD])
+    tail = scored[_DIVERSITY_HEAD:]
+    out: list[ScoredChannel] = []
+    seen: Counter = Counter()
+    while remaining:
+        best_idx, best_eff = 0, None
+        for idx, cand in enumerate(remaining):
+            eff = cand.score
+            overlap = sum(seen[p] for p in cand.score_people)
+            if overlap:
+                eff *= PEOPLE_DIVERSITY_DECAY ** overlap
+            if best_eff is None or eff > best_eff:
+                best_idx, best_eff = idx, eff
+        chosen = remaining.pop(best_idx)
+        out.append(chosen)
+        for p in chosen.score_people:
+            seen[p] += 1
+    return out + tail
+
+
+def _interleave_media_types(scored: list[ScoredChannel], slots: int) -> list[ScoredChannel]:
+    """Round-robin movies and series so a capped list never starves one type.
+
+    Each type keeps its own score order; the type with the stronger top match
+    leads. When one type is exhausted the remainder fills from the other. This is
+    what keeps the sidebar from filling entirely with movies just because there
+    are more of them (or their metadata is richer, inflating raw scores). If only
+    one type is present there is nothing to balance — the top ``slots`` are
+    returned unchanged.
+    """
+    if slots <= 0:
+        return []
+    movies = [s for s in scored if s.media_type == "movie"]
+    series = [s for s in scored if s.media_type == "series"]
+    if not movies or not series:
+        return scored[:slots]
+    take_movie = movies[0].score >= series[0].score
+    out: list[ScoredChannel] = []
+    i = j = 0
+    while len(out) < slots and (i < len(movies) or j < len(series)):
+        if take_movie and i < len(movies):
+            out.append(movies[i]); i += 1
+        elif not take_movie and j < len(series):
+            out.append(series[j]); j += 1
+        elif i < len(movies):
+            out.append(movies[i]); i += 1
+        else:
+            out.append(series[j]); j += 1
+        take_movie = not take_movie
+    return out
 
 
 def _split_names(value: str) -> list[str]:
