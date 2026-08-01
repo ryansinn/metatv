@@ -419,6 +419,16 @@ def apply_list_selection(view) -> None:
     existing = view.styleSheet()
     view.setStyleSheet((existing + LIST_SELECTION_QSS) if existing else LIST_SELECTION_QSS)
 
+# Flat inline text action that also has an inert state (Recommendations dashboard:
+# the "Automatic" mix reset, greyed out while the mix already IS automatic).
+# Neutral rather than blue — it sits inside a control row, not beside a heading.
+INLINE_ACTION_BTN = (
+    "QPushButton { color: " + COLOR_DIM + "; font-size: " + FONT_MD
+    + "; border: none; padding: 2px 6px; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; }"
+    "QPushButton:disabled { color: " + COLOR_MUTED_2 + "; }"
+)
+
 # Small flat text link (Alerts "Clear all"/"Manage") — blue, hover lighter.
 LINK_BTN_SM = (
     "QPushButton { border: none; color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_SM + "; padding: 0 2px; }"

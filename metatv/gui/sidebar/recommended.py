@@ -87,16 +87,19 @@ class RecommendedSection(CollapsibleSection):
 
     def _bg_refresh(self) -> None:
         from metatv.core.preference_engine import (
-            compute_weights, score_candidates, record_impressions, version_score,
+            RecScoringSettings, compute_weights, score_candidates, record_impressions,
+            version_score,
         )
         from metatv.core.filter_utils import get_active_category_filter
         from metatv.core.database import MetadataDB
         from metatv.core.repositories import RepositoryFactory
         excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
         _config = self.config
+        # Same steering the Recommendations dashboard uses — one config, one engine.
+        settings = RecScoringSettings.from_config(_config)
         session = self.db.get_session()
         try:
-            weights = compute_weights(session)
+            weights = compute_weights(session, settings=settings)
             if weights.is_empty():
                 self._rec_data_ready.emit(None)
                 return
@@ -108,8 +111,8 @@ class RecommendedSection(CollapsibleSection):
                 include_uncategorized=include_uncategorized,
                 excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
                 version_scorer=lambda ch: version_score(ch, _config),
-                balance_media_types=True,
                 diversify_people=True,
+                settings=settings,
             )
             if recs:
                 record_impressions(session, [sc.channel_id for sc in recs])
