@@ -228,10 +228,14 @@ class _SeriesMixin:
         # placed on the SUCCESS path only (a failed load never shows the tree, so
         # it must not clear the badge).  The toast itself already auto-dismissed
         # on its own timer — this only clears the persistent sidebar badge.
+        # Uses the composite _refresh_alert_visibility chokepoint (not the
+        # narrower _refresh_vod_alerts_section) so a drill-in reached via the
+        # Watch Queue's own "Alerts Matched" matched-series row also clears
+        # that row's badge, not just the separate Watch Alerts section's list.
         series_id = getattr(self.current_series, "id", None)
         if series_id and self.config.is_series_monitored(series_id):
             self.config.clear_unseen(series_id)
-            self._refresh_vod_alerts_section()
+            self._refresh_alert_visibility()
 
         self.switch_to_series_view()
 
