@@ -1,10 +1,10 @@
-"""Settings dialog with Playback, Interaction, Metadata/API Keys, and Interface tabs."""
+"""Settings dialog with Playback, Interaction, Recommendations, Metadata/API Keys, and Interface tabs."""
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
-    QFormLayout, QComboBox, QCheckBox, QSpinBox, QLineEdit,
+    QFormLayout, QComboBox, QCheckBox, QDoubleSpinBox, QSpinBox, QLineEdit,
     QPushButton, QLabel, QDialogButtonBox, QGroupBox, QListWidget, QListWidgetItem,
 )
 from loguru import logger
@@ -12,6 +12,8 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.http_headers import stream_user_agent
+from metatv.core.media_mix import format_media_share
+from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui import theme as _theme
 from metatv.gui.middle_click_actions import (
     DEFAULT_MIDDLE_CLICK_ACTION,
@@ -27,6 +29,16 @@ _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "sources":     "Sources",
 }
 _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
+
+
+def _dial_or_none(value: float, default: float):
+    """Return ``None`` when a dial still sits on its default, else the value.
+
+    Storing ``None`` for an untouched dial keeps config free of numbers the user
+    never chose — and lets a future change to the shipped default reach everyone
+    who never overrode it.
+    """
+    return None if abs(float(value) - float(default)) < 1e-9 else value
 
 
 class SettingsDialog(QDialog):
@@ -51,6 +63,7 @@ class SettingsDialog(QDialog):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_playback_tab(), "Playback")
         self._tabs.addTab(self._build_interaction_tab(), "Interaction")
+        self._tabs.addTab(self._build_recommendations_tab(), "Recommendations")
         self._tabs.addTab(self._build_metadata_tab(), "Metadata & API Keys")
         self._tabs.addTab(self._build_interface_tab(), "Interface")
         layout.addWidget(self._tabs)
@@ -274,6 +287,177 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         return tab
+
+    def _build_recommendations_tab(self) -> QWidget:
+        """Build the Recommendations tab — steering dials for the preference engine.
+
+        Every control ships at the engine's own default (``RecScoringSettings``),
+        so this panel is for steering, not required setup: an untouched tab writes
+        nothing and the engine keeps using its defaults.
+        """
+        defaults = RecScoringSettings()
+
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        # ── Movie / series mix ──────────────────────────────────────────────
+        mix_group = QGroupBox("Movie / series mix")
+        mix_layout = QVBoxLayout(mix_group)
+        mix_layout.setSpacing(8)
+
+        self._rec_mix_auto_check = QCheckBox(
+            "Automatic — follow the balance of what you actually watch"
+        )
+        self._rec_mix_auto_check.setToolTip(
+            "Derives the split from your likes, favorites, queue and plays, damped by\n"
+            "square root so the smaller type is never crowded out: 100 movies to 15\n"
+            "series lands at roughly 72 : 28, not 87 : 13."
+        )
+        self._rec_mix_auto_check.toggled.connect(self._on_rec_mix_auto_toggled)
+        mix_layout.addWidget(self._rec_mix_auto_check)
+
+        mix_row = QHBoxLayout()
+        self._rec_mix_spin = QSpinBox()
+        self._rec_mix_spin.setRange(0, 100)
+        self._rec_mix_spin.setSuffix("% movies")
+        self._rec_mix_spin.setToolTip(
+            "Your own split: the share of recommendation slots given to movies.\n"
+            "The rest go to series. Shared with the slider in the Recommendations dashboard."
+        )
+        self._rec_mix_spin.valueChanged.connect(self._on_rec_mix_value_changed)
+        mix_row.addWidget(self._rec_mix_spin)
+
+        self._rec_mix_ratio_label = QLabel("")
+        self._rec_mix_ratio_label.setStyleSheet(_theme.META_HINT)
+        mix_row.addWidget(self._rec_mix_ratio_label)
+        mix_row.addStretch()
+        mix_layout.addLayout(mix_row)
+
+        mix_hint = QLabel(
+            "The Recommendations dashboard shows the ratio currently in use "
+            "and has the same control as a slider."
+        )
+        mix_hint.setWordWrap(True)
+        mix_hint.setStyleSheet(_theme.META_HINT)
+        mix_layout.addWidget(mix_hint)
+        layout.addWidget(mix_group)
+
+        # ── Attribute weights ───────────────────────────────────────────────
+        weights_group = QGroupBox("Attribute weights")
+        weights_form = QFormLayout(weights_group)
+        weights_form.setSpacing(8)
+
+        def _weight_spin(tooltip: str, default: float) -> QDoubleSpinBox:
+            spin = QDoubleSpinBox()
+            spin.setRange(0.0, 5.0)
+            spin.setSingleStep(0.05)
+            spin.setDecimals(2)
+            spin.setToolTip(f"{tooltip}\nDefault: {default:g}. 0 turns the field off entirely.")
+            return spin
+
+        self._rec_genre_spin = _weight_spin(
+            "How much a shared genre counts. This is the reference unit — the other "
+            "weights are relative to it.", defaults.genre_weight)
+        weights_form.addRow("Genre:", self._rec_genre_spin)
+
+        self._rec_director_spin = _weight_spin(
+            "How much a shared director counts.", defaults.director_weight)
+        weights_form.addRow("Director:", self._rec_director_spin)
+
+        self._rec_actor_spin = _weight_spin(
+            "How much a shared cast member counts. Deliberately small — a matched "
+            "face nudges, it does not decide.", defaults.actor_weight)
+        weights_form.addRow("Cast:", self._rec_actor_spin)
+
+        self._rec_keyword_spin = _weight_spin(
+            "How much shared plot keywords count.", defaults.keyword_weight)
+        weights_form.addRow("Keywords:", self._rec_keyword_spin)
+
+        layout.addWidget(weights_group)
+
+        # ── Tuning ──────────────────────────────────────────────────────────
+        tuning_group = QGroupBox("Tuning")
+        tuning_form = QFormLayout(tuning_group)
+        tuning_form.setSpacing(8)
+
+        self._rec_actor_support_spin = QSpinBox()
+        self._rec_actor_support_spin.setRange(1, 10)
+        self._rec_actor_support_spin.setSuffix(" titles")
+        self._rec_actor_support_spin.setToolTip(
+            "How many liked or favorited titles a performer must appear in before they\n"
+            f"count at all. Default: {defaults.actor_min_support}. 1 lets a single film's\n"
+            "whole cast shape your recommendations."
+        )
+        tuning_form.addRow("Cast needs support of:", self._rec_actor_support_spin)
+
+        self._rec_diversity_spin = QDoubleSpinBox()
+        self._rec_diversity_spin.setRange(0.1, 1.0)
+        self._rec_diversity_spin.setSingleStep(0.05)
+        self._rec_diversity_spin.setDecimals(2)
+        self._rec_diversity_spin.setToolTip(
+            "Knock-down applied to the next candidate sharing a performer or director\n"
+            f"already placed in the list. Default: {defaults.people_diversity_decay:g};\n"
+            "lower spreads faces out harder, 1.00 turns the spreading off."
+        )
+        tuning_form.addRow("People diversity:", self._rec_diversity_spin)
+
+        self._rec_impression_spin = QSpinBox()
+        self._rec_impression_spin.setRange(0, 20)
+        self._rec_impression_spin.setSuffix("% per view")
+        self._rec_impression_spin.setToolTip(
+            "How much an item's score drops each time it has been shown to you, so the\n"
+            f"list rotates. Default: {round(defaults.impression_decay * 100)}%; 0 keeps "
+            "shown items at full strength."
+        )
+        tuning_form.addRow("Impression decay:", self._rec_impression_spin)
+
+        self._rec_liked_cap_spin = QSpinBox()
+        self._rec_liked_cap_spin.setRange(0, 10)
+        self._rec_liked_cap_spin.setSuffix(" slots")
+        self._rec_liked_cap_spin.setToolTip(
+            "How many slots things you have already liked may occupy; the rest go to\n"
+            f"fresh discoveries. Default: {defaults.liked_cap}."
+        )
+        tuning_form.addRow("Already-liked items:", self._rec_liked_cap_spin)
+
+        layout.addWidget(tuning_group)
+
+        reset_row = QHBoxLayout()
+        self._rec_reset_btn = QPushButton("Reset to defaults")
+        self._rec_reset_btn.setToolTip(
+            "Put every recommendation dial on this tab back to its shipped default."
+        )
+        self._rec_reset_btn.clicked.connect(self._reset_recommendation_defaults)
+        reset_row.addStretch()
+        reset_row.addWidget(self._rec_reset_btn)
+        layout.addLayout(reset_row)
+
+        layout.addStretch()
+        return tab
+
+    def _on_rec_mix_auto_toggled(self, checked: bool) -> None:
+        """Automatic owns the split — the manual percentage is inert while it is on."""
+        self._rec_mix_spin.setEnabled(not checked)
+        self._rec_mix_ratio_label.setVisible(not checked)
+
+    def _on_rec_mix_value_changed(self, value: int) -> None:
+        self._rec_mix_ratio_label.setText(f"({format_media_share(value / 100.0)} movies : series)")
+
+    def _reset_recommendation_defaults(self) -> None:
+        """Restore every Recommendations dial to the engine default (mix included)."""
+        defaults = RecScoringSettings()
+        self._rec_mix_auto_check.setChecked(True)
+        self._rec_mix_spin.setValue(50)
+        self._rec_genre_spin.setValue(defaults.genre_weight)
+        self._rec_director_spin.setValue(defaults.director_weight)
+        self._rec_actor_spin.setValue(defaults.actor_weight)
+        self._rec_keyword_spin.setValue(defaults.keyword_weight)
+        self._rec_actor_support_spin.setValue(defaults.actor_min_support)
+        self._rec_diversity_spin.setValue(defaults.people_diversity_decay)
+        self._rec_impression_spin.setValue(int(round(defaults.impression_decay * 100)))
+        self._rec_liked_cap_spin.setValue(defaults.liked_cap)
 
     def _build_metadata_tab(self) -> QWidget:
         tab = QWidget()
@@ -567,6 +751,31 @@ class SettingsDialog(QDialog):
         self._override_all_check.setChecked(getattr(c, "mpv_args_override_all", False))
         self._split_check.setChecked(getattr(c, "split_streams_by_source", False))
 
+        # Recommendations — every dial falls back to the engine's own default.
+        rec = RecScoringSettings.from_config(c)
+        saved_mix = getattr(c, "rec_media_mix", None)
+        for widget, value in (
+            (self._rec_mix_auto_check, saved_mix is None),
+            (self._rec_mix_spin, 50 if saved_mix is None else int(round(float(saved_mix) * 100))),
+            (self._rec_genre_spin, rec.genre_weight),
+            (self._rec_director_spin, rec.director_weight),
+            (self._rec_actor_spin, rec.actor_weight),
+            (self._rec_keyword_spin, rec.keyword_weight),
+            (self._rec_actor_support_spin, rec.actor_min_support),
+            (self._rec_diversity_spin, rec.people_diversity_decay),
+            (self._rec_impression_spin, int(round(rec.impression_decay * 100))),
+            (self._rec_liked_cap_spin, rec.liked_cap),
+        ):
+            widget.blockSignals(True)
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(value)
+            else:
+                widget.setValue(value)
+            widget.blockSignals(False)
+        # Signals were blocked during the restore, so sync the dependent state by hand.
+        self._on_rec_mix_auto_toggled(self._rec_mix_auto_check.isChecked())
+        self._on_rec_mix_value_changed(self._rec_mix_spin.value())
+
         # Search
         self._remember_search_check.blockSignals(True)
         self._remember_search_check.setChecked(getattr(c, "remember_search", True))
@@ -659,6 +868,27 @@ class SettingsDialog(QDialog):
         c.middle_click_action = (
             self._middle_click_combo.currentData() or DEFAULT_MIDDLE_CLICK_ACTION
         )
+
+        # Recommendations — a dial left at its default is stored as None so it keeps
+        # tracking the engine default instead of freezing today's number.
+        defaults = RecScoringSettings()
+        c.rec_media_mix = (
+            None if self._rec_mix_auto_check.isChecked()
+            else self._rec_mix_spin.value() / 100.0
+        )
+        c.rec_weight_genre = _dial_or_none(self._rec_genre_spin.value(), defaults.genre_weight)
+        c.rec_weight_director = _dial_or_none(
+            self._rec_director_spin.value(), defaults.director_weight)
+        c.rec_weight_actor = _dial_or_none(self._rec_actor_spin.value(), defaults.actor_weight)
+        c.rec_weight_keyword = _dial_or_none(
+            self._rec_keyword_spin.value(), defaults.keyword_weight)
+        c.rec_actor_min_support = _dial_or_none(
+            self._rec_actor_support_spin.value(), defaults.actor_min_support)
+        c.rec_people_diversity_decay = _dial_or_none(
+            self._rec_diversity_spin.value(), defaults.people_diversity_decay)
+        c.rec_impression_decay = _dial_or_none(
+            self._rec_impression_spin.value() / 100.0, defaults.impression_decay)
+        c.rec_liked_cap = _dial_or_none(self._rec_liked_cap_spin.value(), defaults.liked_cap)
 
         # Search
         c.remember_search = self._remember_search_check.isChecked()
