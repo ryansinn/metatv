@@ -23,6 +23,23 @@ from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.metadata_providers.base import MetadataResult
 
 
+def _is_stale_polluted_title(clean_title: str, metadata_title: str) -> bool:
+    """True when ``metadata_title`` is a stale provider-fallback copy of an older,
+    less-clean detected_title — the clean base plus a trailing ``(YYYY) CAST`` (e.g.
+    clean=``From Dusk Till Dawn``, metadata=``From Dusk Till Dawn 4K (1996) HARVEY
+    KEITEL, …``). In that one case the details pane keeps the clean detected_title
+    instead of the polluted metadata.title. A genuine distinct provider/TMDb title
+    never embeds a (19xx)/(20xx) after the clean base, so real titles are unaffected.
+    This SELECTS an already-stored field — it never re-parses the name.
+    """
+    return bool(
+        clean_title
+        and metadata_title != clean_title
+        and metadata_title.startswith(clean_title)
+        and re.search(r"\((?:19|20)\d{2}\)", metadata_title)
+    )
+
+
 class _ClickableLabel(QLabel):
     """QLabel that copies its stored channel_id to clipboard on click."""
     clicked = pyqtSignal()
@@ -918,6 +935,7 @@ class _MetadataSection(QWidget):
         """
         # Title — use stored detected_title (prefix/suffix already stripped at ingestion).
         clean_title = getattr(channel, "detected_title", None) or channel.name
+        self._clean_display_title = clean_title  # fallback if metadata.title is a stale polluted copy
         self.title_label.setText(clean_title)
         self.title_label.setToolTip(channel.name)
 
@@ -1025,7 +1043,16 @@ class _MetadataSection(QWidget):
             # parse_channel_name() can also mangle a legit title ending in a
             # parenthetical or (YYYY). The year label is sourced from the stored
             # metadata.year field below.
-            self.title_label.setText(metadata.title)
+            # Exception: a provider-fallback metadata.title can be a STALE copy of an
+            # older, less-clean detected_title — the clean-title base plus a trailing
+            # "(YYYY) CAST" (e.g. "From Dusk Till Dawn 4K (1996) HARVEY KEITEL, …").
+            # A genuine distinct provider/TMDb title never embeds a (19xx)/(20xx) after
+            # the clean base, so in that one case keep the clean detected_title stashed
+            # by load_basic. This SELECTS an already-stored clean field — it does not
+            # re-parse the name.
+            _clean = getattr(self, "_clean_display_title", "")
+            if not _is_stale_polluted_title(_clean, metadata.title):
+                self.title_label.setText(metadata.title)
 
         if metadata.tagline:
             self._tagline_lbl.setText(metadata.tagline)
