@@ -19,6 +19,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.details_versions import _CHANNEL_PREFIX_RE, resolve_category_name, _FlowLayout
 from metatv.gui.qt_size_utils import no_width_force as _no_width_force
+from metatv.gui.qt_text_utils import escape_mnemonic
 from metatv.metadata_providers.base import MetadataResult
 
 
@@ -932,7 +933,9 @@ class _MetadataSection(QWidget):
             name = resolve_category_name(prefix, self.config)
             # Show the human name + code (e.g. "Arabic (AR)") — a language/region is
             # never rendered as a bare, ambiguous code.  Raw code only when unresolved.
-            self._prefix_chip.setText(f"{name} ({prefix})" if name else prefix)
+            # Escape "&" for display — a category like "Kids & Family" would
+            # otherwise render its "&" as a mnemonic underscore.
+            self._prefix_chip.setText(escape_mnemonic(f"{name} ({prefix})" if name else prefix))
             self._prefix_chip.setToolTip(name or prefix)
             self._prefix_chip.show()
         else:
@@ -1129,7 +1132,12 @@ class _MetadataSection(QWidget):
         """Replace the flow layout contents with one chip button per genre."""
         self._clear_genre_chips()
         for g in genres:
-            chip = QPushButton(g)
+            # Escape "&" for DISPLAY only.  A QPushButton treats a lone "&" as a
+            # keyboard mnemonic, so "Action & Adventure" renders as
+            # "Action _Adventure" (the following space underlined → a stray
+            # underscore).  The raw genre `g` is kept for the tooltip and the
+            # emitted signal so filtering still matches "Action & Adventure".
+            chip = QPushButton(escape_mnemonic(g))
             chip.setFlat(True)
             chip.setStyleSheet(_theme.GENRE_CHIP)
             chip.setToolTip(f"Filter by genre: {g}")
@@ -1643,7 +1651,10 @@ class _TagsSection(QWidget):
             display_value = tag.value
         label = f"{prov_icon} {display_value}"
 
-        chip = QPushButton(label)
+        # Escape "&" for display — a facet value like "Kids & Family" or a
+        # collection name would otherwise render its "&" as a mnemonic
+        # underscore.  tag.value (captured above) stays raw for the emit.
+        chip = QPushButton(escape_mnemonic(label))
         chip.setFlat(True)
         chip.setFixedHeight(22)
 
