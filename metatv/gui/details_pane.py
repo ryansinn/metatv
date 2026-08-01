@@ -41,6 +41,8 @@ class DetailsPaneWidget(QWidget):
     favorite_toggled           = pyqtSignal(str)        # channel_id
     monitor_toggled            = pyqtSignal(str)        # channel_id (series monitor toggle)
     queue_toggled              = pyqtSignal(str)        # channel_id
+    episode_favorite_toggled   = pyqtSignal(str)        # episode_id (episode-mode favorite click, Slice 2B)
+    episode_queue_toggled      = pyqtSignal(str)        # episode_id (episode-mode queue click, Slice 2B)
     rating_requested           = pyqtSignal(str, int)   # channel_id, ±1
     suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
     hide_requested             = pyqtSignal(str)        # channel_id
@@ -59,6 +61,7 @@ class DetailsPaneWidget(QWidget):
     similar_titles_requested   = pyqtSignal(str)        # channel_id
     similar_preview_requested  = pyqtSignal(list, int, str)
     action_state_requested     = pyqtSignal(str)        # channel_id — triggers async DB load
+    episode_action_state_requested = pyqtSignal(str)    # episode_id — episode-mode queue/favorite async load (Slice 2B)
     channel_tags_requested     = pyqtSignal(str)        # channel_id — triggers async tags load
     poster_enlarged            = pyqtSignal(QPixmap)    # full-res pixmap — open lightbox
     play_episode_requested     = pyqtSignal()           # play the episode shown in the pane (read current_episode)
@@ -147,6 +150,21 @@ class DetailsPaneWidget(QWidget):
         if not self.current_channel or self.current_channel.id != state.channel_id:
             return  # stale response — user already moved on
         self._action_bar.load(state)
+
+    def apply_episode_action_state(
+        self, episode_id: str, in_queue: bool, is_favorite: bool
+    ) -> None:
+        """Called from main_window when the async per-EPISODE action-state load
+        completes (Slice 2B) — queue/favorite state for the episode shown in
+        episode mode, kept separate from the series-level ``apply_action_state``.
+        """
+        if (
+            not self._in_episode_mode
+            or self.current_episode is None
+            or getattr(self.current_episode, "id", None) != episode_id
+        ):
+            return  # stale response — user already moved on, or left episode mode
+        self._action_bar.set_episode_queue_favorite(in_queue, is_favorite)
 
     def apply_channel_tags(self, channel_id: str, tags: list) -> None:
         """Called from main_window when the async tag load completes.
@@ -317,8 +335,13 @@ class DetailsPaneWidget(QWidget):
         e = getattr(episode, "episode_num", None)
         code = f"S{s:02d}E{e:02d}" if (s and e) else (f"E{e:02d}" if e else "")
 
-        # Primary button → "Play Episode: S##E##"; hide movie-only Resume + Watch Later.
+        # Primary button → "Play Episode: S##E##"; hide the movie-only Resume button
+        # (Watch Later stays visible — Slice 2B — now targeting this episode).
         self._action_bar.enter_episode_mode(code)
+
+        # Async: fetch this EPISODE's own queue/favorite state (separate from the
+        # series-level action_state_requested fired by show_channel above).
+        self.episode_action_state_requested.emit(episode.id)
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #
@@ -581,6 +604,11 @@ class DetailsPaneWidget(QWidget):
             self.resume_requested.emit(self.current_channel.id)
 
     def _on_favorite(self) -> None:
+        # Episode mode (Slice 2B): favorite the EPISODE shown, not the series —
+        # mirrors _on_play's episode-mode branch above.
+        if self._in_episode_mode and self.current_episode is not None:
+            self.episode_favorite_toggled.emit(self.current_episode.id)
+            return
         if self.current_channel:
             self.favorite_toggled.emit(self.current_channel.id)
 
@@ -589,6 +617,10 @@ class DetailsPaneWidget(QWidget):
             self.monitor_toggled.emit(self.current_channel.id)
 
     def _on_queue(self) -> None:
+        # Episode mode (Slice 2B): queue the EPISODE shown, not the series.
+        if self._in_episode_mode and self.current_episode is not None:
+            self.episode_queue_toggled.emit(self.current_episode.id)
+            return
         if self.current_channel:
             self.queue_toggled.emit(self.current_channel.id)
 

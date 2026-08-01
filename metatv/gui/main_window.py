@@ -134,6 +134,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
     _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
+    # episode_id, in_queue, is_favorite — episode-mode action state worker → main thread (Slice 2B)
+    _episode_action_state_loaded = pyqtSignal(str, bool, bool)
     # Episode preflight results — emitted from done callback, connected to main-thread slots.
     # QTimer.singleShot from a non-main thread is unreliable; signals are always safe.
     _episode_ready  = pyqtSignal(str, str, str, object, str)  # notif_id, url, title, queue_episodes, provider_id
@@ -579,6 +581,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.play_version_requested.connect(self.play_channel_by_id)
         self.details_pane.favorite_toggled.connect(self.toggle_favorite_by_id)
         self.details_pane.queue_toggled.connect(self._on_details_queue_toggle)
+        self.details_pane.episode_favorite_toggled.connect(self._on_details_episode_favorite_toggle)
+        self.details_pane.episode_queue_toggled.connect(self._on_details_episode_queue_toggle)
         self.details_pane.rating_requested.connect(self._toggle_rating)
         self.details_pane.suppression_requested.connect(self._on_suppression_requested)
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
@@ -598,10 +602,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.similar_titles_requested.connect(self._fetch_similar_titles)
         self.details_pane.similar_preview_requested.connect(self._show_similar_lightbox)
         self.details_pane.action_state_requested.connect(self._on_action_state_requested)
+        self.details_pane.episode_action_state_requested.connect(self._on_episode_action_state_requested)
         self.details_pane.channel_tags_requested.connect(self._on_channel_tags_requested)
         self._versions_loaded.connect(self._on_versions_loaded)
         self._similar_titles_loaded.connect(self._on_similar_titles_loaded)
         self._action_state_loaded.connect(self._on_action_state_loaded)
+        self._episode_action_state_loaded.connect(self._on_episode_action_state_loaded)
         self.main_splitter.addWidget(self.details_pane)
 
         # Similar titles lightbox — overlay child widget, hidden by default
@@ -846,6 +852,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         elif section_id == "favorites":
             section = FavoritesSection(self.config, self.db, self)
             section.favoriteClicked.connect(self.play_favorite_id)
+            section.episodeFavoriteClicked.connect(self.play_episode_by_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.searchRequested.connect(self.search_for_title)
@@ -870,6 +877,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = WatchQueueSection(self.config, self.db, self)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.itemDoubleClicked.connect(self.play_queue_item_id)
+            section.episodeActivated.connect(self.play_episode_by_id)
             section.channelMiddleClicked.connect(self._dispatch_middle_click)
             section.channelContextMenuRequested.connect(self._on_queue_channel_context_menu)
             section.clearQueueClicked.connect(self._clear_queue)

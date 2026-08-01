@@ -81,13 +81,21 @@ def _chip_title(list_widget, i):
 
 
 def _ids(list_widget):
-    """UserRole ids for non-header rows (headers carry no UserRole data)."""
+    """UserRole ids for non-header rows (headers carry no UserRole data).
+
+    Queue rows carry a dict payload (Wave 2 Slice 2B:
+    ``{"grain": ..., "channel_id"/"episode_id": ...}``); favorites rows still
+    carry a bare id string. Normalize to the row's primary id either way.
+    """
     from PyQt6.QtCore import Qt
     out = []
     for i in range(list_widget.count()):
         data = list_widget.item(i).data(Qt.ItemDataRole.UserRole)
-        if data is not None:
-            out.append(data)
+        if data is None:
+            continue
+        if isinstance(data, dict):
+            data = data.get("episode_id") or data.get("channel_id")
+        out.append(data)
     return out
 
 
@@ -107,6 +115,8 @@ def test_favorites_bg_refresh_returns_favorite_dtos():
     def fake_repos_factory(session):
         repos = MagicMock()
         repos.channels.get_favorites_dto.return_value = dtos
+        # Wave 2 Slice 2B: _load_rows also fetches favorited EPISODES — none here.
+        repos.episodes.get_favorites_dto.return_value = []
         return repos
 
     with patch("metatv.gui.sidebar.favorites.RepositoryFactory", fake_repos_factory):
@@ -116,7 +126,7 @@ def test_favorites_bg_refresh_returns_favorite_dtos():
         obj._data_ready = MagicMock()
         obj._bg_refresh()
 
-    obj._data_ready.emit.assert_called_once_with(dtos)
+    obj._data_ready.emit.assert_called_once_with((dtos, []))
 
 
 def test_favorites_bg_refresh_emits_none_on_error():
@@ -150,7 +160,8 @@ def test_favorites_on_data_ready_splits_sorts_and_maps_icons(qapp):
         FavoriteDTO(id="c2", name="Beta", media_type="series", last_played=datetime(2024, 1, 2)),
         FavoriteDTO(id="c3", name="Gamma", media_type="live", last_played=datetime(2024, 1, 5)),
     ]
-    obj._on_data_ready(dtos)
+    # (channel_dtos, episode_dtos) — Wave 2 Slice 2B; no favorited episodes here.
+    obj._on_data_ready((dtos, []))
 
     # Headers stay plain-text items; content rows are chip-row widgets now.
     texts = _texts(obj.favorites_list)
@@ -174,7 +185,7 @@ def test_favorites_on_data_ready_empty_shows_hint(qapp):
     obj.config = _icon_config()
     obj.set_empty = lambda *_: None
 
-    obj._on_data_ready([])
+    obj._on_data_ready(([], []))
     assert _texts(obj.favorites_list) == [
         "No favorites yet",
         "Right-click any channel to add to favorites",

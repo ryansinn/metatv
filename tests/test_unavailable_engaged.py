@@ -332,20 +332,22 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
     # has_unavailable flag updated
     assert obj._has_unavailable is True
 
-    # Order preserved: Available first, Gone Chan second (both in "Never Watched")
+    # Order preserved: Available first, Gone Chan second (both in "Never Watched").
+    # UserRole is now a dict tagging grain (Wave 2 Slice 2B) — extract channel_id.
     ids = []
     for i in range(obj._list.count()):
         item = obj._list.item(i)
         d = item.data(Qt.ItemDataRole.UserRole)
         if d:
-            ids.append(d)
+            ids.append(d.get("channel_id"))
     assert ids == ["c1", "c2"]
 
     # Find the unavailable item
     unavail_item = None
     for i in range(obj._list.count()):
         item = obj._list.item(i)
-        if item.data(Qt.ItemDataRole.UserRole) == "c2":
+        d = item.data(Qt.ItemDataRole.UserRole)
+        if d and d.get("channel_id") == "c2":
             unavail_item = item
             break
 
@@ -367,7 +369,8 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
     avail_item = None
     for i in range(obj._list.count()):
         item = obj._list.item(i)
-        if item.data(Qt.ItemDataRole.UserRole) == "c1":
+        d = item.data(Qt.ItemDataRole.UserRole)
+        if d and d.get("channel_id") == "c1":
             avail_item = item
             break
     assert avail_item is not None
@@ -450,7 +453,8 @@ def test_queue_double_click_available_emits_play(qapp):
     obj.itemDoubleClicked.emit = lambda cid: play_emitted.append(cid)
 
     item = QListWidgetItem("M Available Chan")
-    item.setData(Qt.ItemDataRole.UserRole, "c_avail")
+    # UserRole is now a dict tagging grain (Wave 2 Slice 2B).
+    item.setData(Qt.ItemDataRole.UserRole, {"grain": "channel", "channel_id": "c_avail"})
     item.setData(_ROLE_AVAILABLE, True)
     item.setData(_ROLE_SEARCH_TITLE, "Available")
 
@@ -484,7 +488,8 @@ def test_favorites_populate_rows_dims_unavailable_items(qapp):
         FavoriteDTO(id="f2", name="Beta",  media_type="movie", last_played=None,
                     available=False, search_title="Beta Title", provider_id="p2"),
     ]
-    obj._populate_rows(dtos)
+    # (channel_dtos, episode_dtos) — Wave 2 Slice 2B; no favorited episodes here.
+    obj._populate_rows((dtos, []))
 
     assert obj._has_unavailable is True
 
@@ -530,7 +535,7 @@ def test_favorites_populate_rows_order_preserved(qapp):
         FavoriteDTO(id="f_b", name="Beta",  media_type="movie", last_played=ts2,
                     available=False, search_title="Beta", provider_id="p"),
     ]
-    obj._populate_rows(dtos)
+    obj._populate_rows((dtos, []))
 
     ids = []
     for i in range(obj.favorites_list.count()):

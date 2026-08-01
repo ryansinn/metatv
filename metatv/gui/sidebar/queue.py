@@ -33,7 +33,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     # Uses the base ``create_header``, which grows the shared "Explore →" link.
     EXPLORE_KEY = "queue"
 
-    itemDoubleClicked             = pyqtSignal(str)        # channel_id
+    itemDoubleClicked             = pyqtSignal(str)        # channel_id (channel-grain entries)
+    episodeActivated              = pyqtSignal(str)        # episode_id — double-click on an episode-grain entry
     itemSelected                  = pyqtSignal(str)        # channel_id
     channelMiddleClicked          = pyqtSignal(str)        # channel_id — configured middle-click play
     channelContextMenuRequested   = pyqtSignal(str, int, int)  # channel_id, gx, gy
@@ -238,14 +239,39 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 self._add_entry_item(e)
 
     def _add_entry_item(self, e) -> None:
-        """Add a single queue entry as the shared chip row, dimming unavailable ones."""
+        """Add a single queue entry as the shared chip row, dimming unavailable ones.
+
+        UserRole carries a dict tagging the entry's grain (Wave 2 Slice 2B) so
+        every reader (double-click, selection, context menu) can branch without a
+        second lookup: channel-grain -> {"grain": "channel", "channel_id": ...};
+        episode-grain -> {"grain": "episode", "episode_id": ..., "channel_id": ...}
+        (channel_id there is still the PARENT SERIES, for the context-menu seam).
+        """
         item = QListWidgetItem()
-        item.setData(Qt.ItemDataRole.UserRole, e.channel_id)
+        if e.is_episode:
+            item.setData(Qt.ItemDataRole.UserRole, {
+                "grain": "episode",
+                "episode_id": e.episode_id,
+                "channel_id": e.channel_id,
+            })
+            code = (
+                f"S{e.season_num:02d}E{e.episode_num:02d}" if e.season_num and e.episode_num
+                else f"E{e.episode_num}" if e.episode_num else ""
+            )
+            title = f"{e.channel_name} — {code}" if code else e.channel_name
+            if e.episode_title:
+                title += f" {e.episode_title}"
+        else:
+            item.setData(Qt.ItemDataRole.UserRole, {
+                "grain": "channel",
+                "channel_id": e.channel_id,
+            })
+            title = e.search_title or e.channel_name
         item.setData(_ROLE_AVAILABLE, e.available)
         item.setData(_ROLE_SEARCH_TITLE, e.search_title)
         row = build_chip_row(
             media_icon=self._media_icon(e.media_type),
-            title=e.search_title or e.channel_name,
+            title=title,
             year=e.detected_year,
             quality=e.detected_quality,
             prefix=e.detected_prefix,
@@ -369,23 +395,32 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def _on_double_click(self, item: QListWidgetItem) -> None:
         if self._route_matched_click(item):
             return
-        channel_id = item.data(Qt.ItemDataRole.UserRole)
-        if not channel_id:
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not payload:
             return
         available = item.data(_ROLE_AVAILABLE)
         if available is False:
             search_title = item.data(_ROLE_SEARCH_TITLE) or ""
             self.searchRequested.emit(search_title)
+            return
+        if payload.get("grain") == "episode":
+            self.episodeActivated.emit(payload["episode_id"])
         else:
-            self.itemDoubleClicked.emit(channel_id)
+            self.itemDoubleClicked.emit(payload["channel_id"])
 
     def _on_selection_changed(self, current: QListWidgetItem, _previous) -> None:
         if not current:
             return
         if self._route_matched_click(current):
             return
-        channel_id = current.data(Qt.ItemDataRole.UserRole)
+        payload = current.data(Qt.ItemDataRole.UserRole)
+        channel_id = payload.get("channel_id") if payload else None
         if channel_id:
+            # Episode-grain rows still resolve to the SERIES channel_id here —
+            # showing the series' own details pane is the closest available
+            # surface; a dedicated episode-detail seam from the queue is
+            # deferred (Slice 2B scope: play/favorite/queue the episode, not
+            # single-click detail routing).
             self.itemSelected.emit(channel_id)
 
     def _on_context_menu(self, pos) -> None:
@@ -395,10 +430,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         if item:
             if item.data(_ROLE_ROW_KIND) in (_KIND_MATCHED_CHANNEL, _KIND_MATCHED_SERIES):
                 return  # no context menu for Alerts Matched rows (out of scope)
-            channel_id = item.data(Qt.ItemDataRole.UserRole)
+            payload = item.data(Qt.ItemDataRole.UserRole)
+            channel_id = payload.get("channel_id") if payload else None
             if channel_id:
                 # Emit signal so main_window builds the per-item context menu,
                 # which will also append "Clear Unavailable" (see main_window_favorites.py).
+                # Episode-grain rows target the PARENT SERIES' channel menu here —
+                # channel_menu.py's registry is ChannelDB-only today (episode
+                # favorite/queue actions live in the series-tree's own menu instead).
                 self.channelContextMenuRequested.emit(channel_id, gp.x(), gp.y())
                 return
 

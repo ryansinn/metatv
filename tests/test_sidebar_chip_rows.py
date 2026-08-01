@@ -102,7 +102,8 @@ def test_favorites_row_is_honest_chip_row(qapp, tmp_path):
     obj.config = _config()
     obj.set_empty = lambda *_: None
     obj._has_unavailable = False
-    obj._populate_rows(dtos)
+    # _populate_rows now takes (channel_dtos, episode_dtos) — Wave 2 Slice 2B.
+    obj._populate_rows((dtos, []))
 
     _assert_honest_chip_row(_first_chip_row(obj.favorites_list))
     db.close()

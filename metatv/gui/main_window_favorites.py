@@ -410,6 +410,58 @@ class _FavoritesMixin:
                 )
         self._refresh_queue_section()
 
+    def _on_details_episode_queue_toggle(self, episode_id: str) -> None:
+        """Handle queue toggle from the details pane button in EPISODE mode (Slice 2B).
+
+        Targets the single episode shown in the pane, not its parent series — the
+        channel-grain mirror of _on_details_queue_toggle above, keyed by episode_id.
+        Denormalizes the series/episode identity onto the WatchQueueDB row so the
+        entry survives an orphaned episode (same rationale as channel_name on
+        channel-grain rows — see WatchQueueDB's docstring).
+        """
+        from metatv.core.database import EpisodeDB
+        with self.db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            if repos.queue.is_episode_queued(episode_id):
+                repos.queue.remove_episode(episode_id)
+            else:
+                ep = session.get(EpisodeDB, episode_id)
+                if ep is not None:
+                    series = repos.channels.get_by_source_id(
+                        provider_id=ep.provider_id, source_id=ep.series_id
+                    )
+                    repos.queue.add_episode(
+                        episode_id,
+                        channel_id=series.id if series else ep.series_id,
+                        channel_name=(series.name if series else ep.series_name) or "",
+                        season_num=ep.season_num,
+                        episode_num=ep.episode_num,
+                        episode_title=ep.title or "",
+                        source_id=series.source_id if series else "",
+                    )
+        self._refresh_queue_section()
+
+    def _on_details_episode_favorite_toggle(self, episode_id: str) -> None:
+        """Toggle favorite for the single EPISODE shown in the details pane (episode mode).
+
+        Direct session_scope() attribute write — the new status is read back INSIDE
+        the block (before commit/expire), so no ORM object crosses the boundary
+        (mirrors _toggle_favorite_by_id's shape for channels).
+        """
+        from metatv.core.database import EpisodeDB
+        new_status = None
+        title = ""
+        with self.db.session_scope() as session:
+            ep = session.get(EpisodeDB, episode_id)
+            if ep is None:
+                return
+            ep.is_favorite = not bool(ep.is_favorite)
+            new_status = ep.is_favorite
+            title = ep.title or "Episode"
+        status = "added to" if new_status else "removed from"
+        self.status_bar.showMessage(f"{title} {status} favorites")
+        self.load_favorites()
+
     def _on_queue_channel_context_menu(self, channel_id: str, gx: int, gy: int) -> None:
         """Thin wrapper → unified channel menu (queue surface)."""
         self._show_channel_menu([channel_id], "queue", gx, gy)
@@ -543,6 +595,12 @@ class _FavoritesMixin:
                 return
         item = list_widget.itemAt(position)
         if not item or not item.data(Qt.ItemDataRole.UserRole):
+            return
+        from metatv.gui.sidebar.favorites import _ROLE_GRAIN
+        if item.data(_ROLE_GRAIN) == "episode":
+            # Favorited-episode rows (Wave 2 Slice 2B) have no channel context menu
+            # yet — channel_menu.py's registry is ChannelDB-only; Favorite/Unfavorite
+            # for an episode lives in the series-tree row's own right-click menu.
             return
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         gp = list_widget.mapToGlobal(position)

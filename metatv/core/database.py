@@ -318,21 +318,25 @@ class AlertMatchDB(Base):
 class SeasonDB(Base):
     """Season database model - for TV series hierarchy"""
     __tablename__ = "seasons"
-    
+
     id = Column(String, primary_key=True)  # {provider_id}_{series_id}_s{season_num} (provider-scoped)
     series_id = Column(String, nullable=False, index=True)  # Links to ChannelDB.id
     provider_id = Column(String, nullable=False, index=True)
-    
+
     season_number = Column(Integer, nullable=False, index=True)
     name = Column(String)  # e.g., "Season 1"
     cover_url = Column(Text)  # For future cover art display
     episode_count = Column(Integer, default=0)
-    
+
     # Series info (denormalized for convenience)
     series_name = Column(String, index=True)
-    
+
+    # Season-grain favorite (Wave 2 Slice 2B). Schema-only for now — no UI writes
+    # this column yet; episode-grain favoriting shipped first (see EpisodeDB.is_favorite).
+    is_favorite = Column(Boolean, default=False)
+
     raw_data = Column(JSON)
-    
+
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -364,12 +368,17 @@ class EpisodeDB(Base):
     last_played = Column(DateTime, index=True)
     play_count = Column(Integer, default=0)
     last_played_via = Column(String)             # how it was played: manual | queue | alert
-    
+
+    # Episode-grain favorite (Wave 2 Slice 2B) — independent of the parent
+    # series' ChannelDB.is_favorite; toggled from the details-pane favorite
+    # button in episode mode and the series-tree row context menu.
+    is_favorite = Column(Boolean, default=False)
+
     # Series info (denormalized for convenience)
     series_name = Column(String, index=True)
-    
+
     raw_data = Column(JSON)
-    
+
     added_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -401,7 +410,14 @@ class UserRatingDB(Base):
 
 
 class WatchQueueDB(Base):
-    """Ordered watch queue — content the user wants to watch soon."""
+    """Ordered watch queue — content the user wants to watch soon.
+
+    Channel-grain rows (movies/live/whole series) leave the ``episode_*``
+    columns NULL. Episode-grain rows (Wave 2 Slice 2B) additionally set them;
+    ``channel_id``/``channel_name`` on an episode-grain row still carry the
+    PARENT SERIES so provider/availability joins (see WatchQueueRepository.get_all)
+    keep working unchanged for both grains.
+    """
     __tablename__ = "watch_queue"
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
@@ -411,6 +427,14 @@ class WatchQueueDB(Base):
     source_id    = Column(String, nullable=False, default="")  # provider's native stream ID (fallback lookup)
     position     = Column(Integer, nullable=False, default=0)
     added_at     = Column(DateTime, default=datetime.utcnow)
+
+    # Episode-grain fields (Wave 2 Slice 2B) — NULL on channel-grain rows.
+    # Denormalized (episode_num/episode_title survive an orphaned EpisodeDB row,
+    # same rationale as channel_name above).
+    episode_id    = Column(String, nullable=True, index=True)  # EpisodeDB.id
+    season_num    = Column(Integer, nullable=True)
+    episode_num   = Column(Integer, nullable=True)
+    episode_title = Column(String, nullable=True)
 
 
 class StreamRetryDB(Base):
@@ -574,6 +598,13 @@ class Database:
             ("channels",     "detected_tmdb_id",           "TEXT"),
             ("channels",     "tmdb_enrich_state",          "TEXT"),
             ("channels",     "genre_enrich_state",         "TEXT"),
+            # Wave 2 Slice 2B — episode-grain watch queue + episode/season favorites.
+            ("episodes",     "is_favorite",                "INTEGER DEFAULT 0"),
+            ("seasons",      "is_favorite",                "INTEGER DEFAULT 0"),
+            ("watch_queue",  "episode_id",                 "TEXT"),
+            ("watch_queue",  "season_num",                 "INTEGER"),
+            ("watch_queue",  "episode_num",                "INTEGER"),
+            ("watch_queue",  "episode_title",              "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -591,6 +622,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_genre_enrich_state ON channels (genre_enrich_state)",
+                "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
             ]
             for idx_sql in index_migrations:
                 try:
