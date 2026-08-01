@@ -72,15 +72,15 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         return "history"
 
     def create_header(self):
-        """Header with a "See all →" link that opens the Full Watch-History view."""
+        """Header with an "Explore →" link that opens the Full Watch-History trail-map."""
         header = self._build_clickable_header()
         hl = header.layout()
         self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
         hl.addWidget(self.title_label)
         hl.addStretch()
-        self.see_all_btn = QPushButton(f"See all {_icons.see_all_arrow_icon}")
+        self.see_all_btn = QPushButton(f"Explore {_icons.see_all_arrow_icon}")
         self.see_all_btn.setFlat(True)
-        self.see_all_btn.setToolTip("Open the full Watch History view")
+        self.see_all_btn.setToolTip("Explore your full Watch History (cascading columns)")
         self.see_all_btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
         # A QPushButton consumes its own click, so it never toggles the header.
         self.see_all_btn.clicked.connect(self.seeAllClicked.emit)
