@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont
+from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import icons as _icons
@@ -16,6 +17,12 @@ from metatv.gui.sidebar.base import CollapsibleSection
 
 _ROLE_AVAILABLE   = Qt.ItemDataRole.UserRole + 1
 _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
+# Alerts Matched (topmost group): distinguishes a matched-channel / matched-series
+# row from a plain queue entry so click routing can special-case it without
+# disturbing the existing channel_id/available/search_title data roles above.
+_ROLE_ROW_KIND     = Qt.ItemDataRole.UserRole + 3
+_KIND_MATCHED_CHANNEL = "matched_channel"
+_KIND_MATCHED_SERIES  = "matched_series"
 
 _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on another source."
 
@@ -34,7 +41,12 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     clearWatchedClicked           = pyqtSignal()
     clearUnavailableClicked       = pyqtSignal()           # request clear-unavailable
     newMatchesClicked             = pyqtSignal()           # open the new matched content
-    searchRequested               = pyqtSignal(str)        # search_title for recovery
+    searchRequested                = pyqtSignal(str)        # search_title for recovery
+    # Alerts Matched (topmost group) — click routing separate from itemSelected
+    # so a click both opens details AND acks the match (channel rows), or just
+    # navigates (series rows — no unseen-count clearing here, out of scope).
+    alertsMatchedClicked           = pyqtSignal(str)        # channel_id
+    alertsMatchedSeriesClicked     = pyqtSignal(str)        # series_channel_id
     _data_ready                   = pyqtSignal(object)     # list[QueueEntry] | None
 
     def __init__(self, config, db, parent=None):
@@ -136,19 +148,40 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         return "Couldn't load watch queue"
 
     def _load_rows(self):
-        from metatv.core.vod_alert_availability import compute_alert_availability
+        from metatv.core.vod_alert_availability import (
+            compute_alert_availability, get_unviewed_matched_entries,
+        )
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             hidden = set(repos.providers.get_hidden_provider_ids())
             entries = repos.queue.get_all(hidden_provider_ids=hidden)
             # Re-validate the pinned banner's count against live source state (same
             # session): matches on disabled/expired sources must not count here either.
+            avail = None
             try:
-                self._available_unviewed = compute_alert_availability(
-                    self.config, repos
-                ).unviewed_total
+                avail = compute_alert_availability(self.config, repos)
+                self._available_unviewed = avail.unviewed_total
             except Exception:  # noqa: BLE001
                 self._available_unviewed = None  # fall back to raw config count
+            # Alerts Matched (topmost group) — carried as side-channel instance
+            # attributes (same pattern as ``_available_unviewed`` above) rather than
+            # widening this method's return value, so every existing caller that
+            # feeds a plain ``entries`` list straight into ``_populate_rows`` keeps
+            # working unchanged.  ``avail`` is reused (no second bounded query).
+            try:
+                self._alerts_matched = get_unviewed_matched_entries(
+                    self.config, repos, avail
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("WatchQueueSection: alerts-matched load failed")
+                self._alerts_matched = []
+            try:
+                self._alerts_matched_series = [
+                    s for s in self.config.get_monitored_series()
+                    if (s.get("unseen_new") or 0) > 0
+                ]
+            except Exception:  # noqa: BLE001
+                self._alerts_matched_series = []
             return entries
 
     def _populate_rows(self, entries) -> None:
@@ -165,11 +198,26 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         except (AttributeError, RuntimeError):
             pass
         self._has_unavailable = any(not e.available for e in entries) if entries else False
-        self.set_empty(len(entries) == 0)
+
+        # Alerts Matched (topmost group) — set by _load_rows (worker thread) as a
+        # side-channel attribute; a direct/legacy caller of _populate_rows that never
+        # ran _load_rows simply sees no matched rows.  Read the instance dict
+        # directly (not getattr-with-default): on a __new__'d QObject test stub
+        # whose C++ super-init never ran, getattr() raises RuntimeError instead of
+        # returning the default (see the identical workaround in
+        # WatchAlertsSection._compute_alert_availability).
+        matched = self.__dict__.get("_alerts_matched") or []
+        series_new = self.__dict__.get("_alerts_matched_series") or []
+        has_content = bool(entries) or bool(matched) or bool(series_new)
+        self.set_empty(not has_content)
+
+        self._add_alerts_matched_section(matched, series_new)
+
         if not entries:
-            item = QListWidgetItem("Queue is empty — right-click any channel to add")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._list.addItem(item)
+            if not matched and not series_new:
+                item = QListWidgetItem("Queue is empty — right-click any channel to add")
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self._list.addItem(item)
             return
 
         continue_watching = sorted(
@@ -216,6 +264,87 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
 
+    # --- Alerts Matched (topmost group) ---------------------------------------
+    # A third, TOPMOST group ahead of "Continue Watching"/"Never Watched": one row
+    # per unviewed watch-for keyword match, plus one row per monitored series with
+    # unseen_new > 0.  Purely derived from config state (alerted_ids/viewed_ids,
+    # monitored_series) — no new table, so it persists across restarts for free.
+
+    def _add_alerts_matched_section(self, matched, series_new) -> None:
+        """Render the Alerts Matched header + rows (no-op when both are empty)."""
+        if not matched and not series_new:
+            return
+        self._add_header(f"{_icons.alert_icon} Alerts Matched")
+        for m in matched:
+            self._add_matched_channel_item(m)
+        for s in series_new:
+            self._add_matched_series_item(s)
+
+    def _add_matched_channel_item(self, m) -> None:
+        """One unviewed keyword-match row — a chip row with the green NEW pill."""
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, m.channel_id)
+        item.setData(_ROLE_ROW_KIND, _KIND_MATCHED_CHANNEL)
+        row = build_chip_row(
+            media_icon=self._media_icon(m.media_type),
+            title=m.title,
+            year=m.detected_year,
+            quality=m.detected_quality,
+            prefix=m.detected_prefix,
+            new_badge=True,
+        )
+        if m.rule_texts:
+            quoted = ", ".join(f"'{t}'" for t in m.rule_texts)
+            item.setToolTip(f"Matched your alert: {quoted}")
+        else:
+            item.setToolTip("Matched your watch-for alert")
+        item.setSizeHint(QSize(0, row.sizeHint().height()))
+        self._list.addItem(item)
+        self._list.setItemWidget(item, row)
+
+    def _add_matched_series_item(self, entry: dict) -> None:
+        """One monitored-series-with-new-episodes row (distinct 🆕 icon + count)."""
+        from metatv.gui.sidebar.alerts import _VodAlertRow  # local: avoid a top-level cycle
+
+        cid = entry.get("series_channel_id", "")
+        title = entry.get("display_title") or entry.get("title") or "Unknown series"
+        unseen = entry.get("unseen_new") or 0
+        ep_word = "ep" if unseen == 1 else "eps"
+
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, cid)
+        item.setData(_ROLE_ROW_KIND, _KIND_MATCHED_SERIES)
+        item.setToolTip(f"{title}: +{unseen} new {ep_word} — click to open")
+        row = _VodAlertRow(
+            _icons.new_episodes_icon, title, f"+{unseen} {ep_word}",
+            _theme.VOD_ALERT_COUNT_NEW,
+        )
+        item.setSizeHint(row.sizeHint())
+        self._list.addItem(item)
+        self._list.setItemWidget(item, row)
+
+    def _route_matched_click(self, item: QListWidgetItem) -> bool:
+        """Route a click on an Alerts Matched row; True if handled (row was matched kind).
+
+        Channel rows both open details AND ack the match (every rule that alerted
+        it) — the host connects ``alertsMatchedClicked`` to both.  Series rows only
+        navigate (reusing the same "open series" seam as the Watch Alerts section's
+        ``seriesClicked``) — no unseen-count clearing here, out of scope for this
+        slice.
+        """
+        kind = item.data(_ROLE_ROW_KIND)
+        if kind == _KIND_MATCHED_CHANNEL:
+            cid = item.data(Qt.ItemDataRole.UserRole)
+            if cid:
+                self.alertsMatchedClicked.emit(cid)
+            return True
+        if kind == _KIND_MATCHED_SERIES:
+            cid = item.data(Qt.ItemDataRole.UserRole)
+            if cid:
+                self.alertsMatchedSeriesClicked.emit(cid)
+            return True
+        return False
+
     def has_unavailable(self) -> bool:
         """True when at least one entry in the current list is unavailable."""
         return self._has_unavailable
@@ -238,6 +367,8 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._list.addItem(item)
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
+        if self._route_matched_click(item):
+            return
         channel_id = item.data(Qt.ItemDataRole.UserRole)
         if not channel_id:
             return
@@ -249,16 +380,21 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             self.itemDoubleClicked.emit(channel_id)
 
     def _on_selection_changed(self, current: QListWidgetItem, _previous) -> None:
-        if current:
-            channel_id = current.data(Qt.ItemDataRole.UserRole)
-            if channel_id:
-                self.itemSelected.emit(channel_id)
+        if not current:
+            return
+        if self._route_matched_click(current):
+            return
+        channel_id = current.data(Qt.ItemDataRole.UserRole)
+        if channel_id:
+            self.itemSelected.emit(channel_id)
 
     def _on_context_menu(self, pos) -> None:
         item = self._list.itemAt(pos)
         gp = self._list.viewport().mapToGlobal(pos)
 
         if item:
+            if item.data(_ROLE_ROW_KIND) in (_KIND_MATCHED_CHANNEL, _KIND_MATCHED_SERIES):
+                return  # no context menu for Alerts Matched rows (out of scope)
             channel_id = item.data(Qt.ItemDataRole.UserRole)
             if channel_id:
                 # Emit signal so main_window builds the per-item context menu,

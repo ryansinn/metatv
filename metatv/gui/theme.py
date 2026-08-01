@@ -460,6 +460,15 @@ DIALOG_DANGER_LINK = (
     "QPushButton:hover { color: " + COLOR_RED_BRIGHT + "; }"
 )
 
+# A rule/series row flipped to pending-remove inside a management dialog (Manage
+# Watch Alerts: "Remove"/"Stop" no longer deletes immediately — the row goes
+# muted + strikethrough in place while the button swaps to "Undo").  Recoverable
+# remove, not immediate — the actual config mutation only lands when the dialog
+# closes with the row still pending (see ManageVodAlertsDialog._finalize_pending_removals).
+DIALOG_PENDING_REMOVE_NAME = (
+    "color: " + COLOR_MUTED_2 + "; text-decoration: line-through;"
+)
+
 # VOD watch-for rule row (Alerts sidebar) — legible name + right-aligned count.
 # The name stays COLOR_TEXT (never tinted); the count goes green only when there
 # are unviewed matches, muted otherwise.  Colour-only (font-size inherits the list).
@@ -482,6 +491,15 @@ QUEUE_NEW_MATCHES_LINE = (
     " border-radius: 4px; padding: 4px 8px; font-weight: bold;"
     " background: " + OVERLAY_GREEN_15 + "; color: " + COLOR_OK + "; }"
     "QPushButton:hover { background: " + OVERLAY_GREEN_40 + "; color: " + COLOR_TEXT_HI + "; }"
+)
+
+# "NEW" tag on an Alerts Matched row (Watch Queue sidebar's topmost group) —
+# a small filled pill.  Paired with the row's tooltip (the matched keyword) —
+# never a colour-alone cue: the word "NEW" itself carries the meaning even for a
+# colourblind reader, the green fill is reinforcement only.
+QUEUE_MATCHED_NEW_TAG = (
+    "background: " + COLOR_OK + "; color: " + COLOR_BG_DEEP + ";"
+    " border-radius: 3px; padding: 0px 4px; font-size: " + FONT_XS + "; font-weight: bold;"
 )
 
 # Details-pane PRIMARY action buttons — full-size, labeled (icon + text), shown in
