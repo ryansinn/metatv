@@ -914,7 +914,10 @@ class TestDrillInClearsUnseen:
         host.status_bar = MagicMock()
         host.sender = lambda: SimpleNamespace()  # no notification_id -> skip dismiss branch
         host.switch_to_series_view = MagicMock()
-        host._refresh_vod_alerts_section = MagicMock()
+        # Composite chokepoint (Wave 3): a drill-in clears the badge everywhere
+        # (Watch Alerts section AND Watch Queue's Alerts Matched matched-series
+        # rows), not just the narrower _refresh_vod_alerts_section.
+        host._refresh_alert_visibility = MagicMock()
         return host
 
     def test_success_clears_unseen_for_monitored_series(self, qapp):
@@ -931,7 +934,7 @@ class TestDrillInClearsUnseen:
 
         entry = cfg.get_monitored_series()[0]
         assert entry["unseen_new"] == 0
-        host._refresh_vod_alerts_section.assert_called_once()
+        host._refresh_alert_visibility.assert_called_once()
         host.switch_to_series_view.assert_called_once()
 
     def test_not_monitored_series_is_noop(self, qapp):
@@ -944,7 +947,7 @@ class TestDrillInClearsUnseen:
         host.on_series_loaded(True, "1 season", {"seasons": []})
 
         assert cfg.get_monitored_series() == []
-        host._refresh_vod_alerts_section.assert_not_called()
+        host._refresh_alert_visibility.assert_not_called()
         host.switch_to_series_view.assert_called_once()
 
     def test_failed_load_does_not_clear_unseen(self, qapp):

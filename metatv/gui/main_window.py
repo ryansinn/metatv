@@ -887,11 +887,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.clearUnavailableClicked.connect(
                 lambda: self._clear_unavailable_queue(section)
             )
-            # Alerts Matched (topmost group) — a channel row opens details AND acks
-            # the match; a series row reuses the same "open series" seam as the
-            # Watch Alerts section's seriesClicked (no unseen-count clearing here).
+            # Alerts Matched (topmost group) — SINGLE click: a channel row opens
+            # details AND acks the match; a series row just opens details.
+            # DOUBLE click (Wave 3 click-semantics fix): both kinds route through
+            # the section's own ``itemDoubleClicked`` (wired above to
+            # play_queue_item_id) to navigate into a series or play a movie/live
+            # leaf — the section resolves that branch itself, so no separate
+            # wiring is needed here for the double-click path.
             section.alertsMatchedClicked.connect(self._on_alerts_matched_clicked)
             section.alertsMatchedSeriesClicked.connect(self.show_channel_details_by_id)
+            section.alertsMatchedSeriesMarkSeenRequested.connect(self._on_mark_series_seen)
             return section
 
         return None
@@ -1036,9 +1041,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self._monitor_series(channel_id)
 
     def _on_mark_series_seen(self, channel_id: str) -> None:
-        """Clear unseen count for the given series (main thread)."""
+        """Clear unseen count for the given series (main thread).
+
+        Uses the composite ``_refresh_alert_visibility`` chokepoint (not the
+        narrower ``_refresh_vod_alerts_section``) so the Watch Queue sidebar's
+        own "Alerts Matched" matched-series rows clear their badge too — not
+        just the separate Watch Alerts section's monitored-series list.
+        """
         self.config.clear_unseen(channel_id)
-        self._refresh_vod_alerts_section()
+        self._refresh_alert_visibility()
 
     # ------------------------------------------------------------------
     # VOD watch-alert helpers

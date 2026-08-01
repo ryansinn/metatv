@@ -16,6 +16,11 @@ Covers:
   channel viewed across every alerting rule, then refreshes alert visibility
   once (reusing the existing chokepoint) — banner count and section can't
   disagree.
+
+Double-click navigate/play semantics for these same rows (Wave 3
+click-semantics fix) are covered here too, plus more thoroughly in
+``tests/test_queue_click_semantics.py`` alongside the context-menu and
+``play_queue_item_id`` branching coverage.
 """
 
 from __future__ import annotations
@@ -258,8 +263,8 @@ class TestAlertsMatchedSectionRendering:
         obj.set_empty.assert_called_with(False)
 
     def test_matched_channel_row_carries_role_and_tooltip(self, qapp):
+        """UserRole is the harmonized grain-dict shape (Wave 3), not a bare id."""
         from PyQt6.QtCore import Qt
-        from metatv.gui.sidebar.queue import _ROLE_ROW_KIND, _KIND_MATCHED_CHANNEL
 
         obj = self._make_section()
         obj._alerts_matched = [self._make_matched_entry(rule_texts=("masters",))]
@@ -268,9 +273,10 @@ class TestAlertsMatchedSectionRendering:
 
         # item(0) is the "Alerts Matched" header; item(1) is the matched row.
         item = obj._list.item(1)
-        assert item.data(_ROLE_ROW_KIND) == _KIND_MATCHED_CHANNEL
-        assert item.data(Qt.ItemDataRole.UserRole) == "c1"
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        assert payload == {"grain": "matched_channel", "channel_id": "c1"}
         assert "masters" in item.toolTip()
+        assert "double-click to play" in item.toolTip()
 
     def test_click_on_matched_channel_emits_alertsMatchedClicked_not_itemSelected(self, qapp):
         obj = self._make_section()
@@ -298,7 +304,11 @@ class TestAlertsMatchedSectionRendering:
         obj.alertsMatchedSeriesClicked.emit.assert_called_once_with("s1")
         obj.itemSelected.emit.assert_not_called()
 
-    def test_double_click_on_matched_row_does_not_play(self, qapp):
+    def test_double_click_on_matched_channel_row_acks_and_navigates(self, qapp):
+        """Wave 3: double-click on a matched CHANNEL row still marks it viewed
+        (alertsMatchedClicked, same as single-click) but ALSO now routes through
+        the same itemDoubleClicked chokepoint a plain queue row double-click
+        uses — the host resolves movie-vs-series there (play_queue_item_id)."""
         obj = self._make_section()
         obj._alerts_matched = [self._make_matched_entry()]
         obj._alerts_matched_series = []
@@ -308,8 +318,26 @@ class TestAlertsMatchedSectionRendering:
         obj._on_double_click(item)
 
         obj.alertsMatchedClicked.emit.assert_called_once_with("c1")
-        obj.itemDoubleClicked.emit.assert_not_called()
+        obj.itemDoubleClicked.emit.assert_called_once_with("c1")
         obj.searchRequested.emit.assert_not_called()
+
+    def test_double_click_on_matched_series_row_navigates_without_details_ack(self, qapp):
+        """Wave 3: double-click on a matched SERIES row navigates (itemDoubleClicked,
+        which the host wires to play_queue_item_id -> drill_into_series) instead of
+        the old details-only behavior. No separate ack signal — drilling in IS the
+        ack (host's on_series_loaded clears unseen_new on success)."""
+        obj = self._make_section()
+        obj._alerts_matched = []
+        obj._alerts_matched_series = [{
+            "series_channel_id": "s1", "display_title": "My Show", "unseen_new": 3,
+        }]
+        obj._populate_rows([])
+
+        item = obj._list.item(1)
+        obj._on_double_click(item)
+
+        obj.itemDoubleClicked.emit.assert_called_once_with("s1")
+        obj.alertsMatchedSeriesClicked.emit.assert_not_called()
 
     def test_no_matched_content_leaves_existing_behavior_unchanged(self, qapp):
         """Regression guard: no _alerts_matched/_alerts_matched_series set at all
