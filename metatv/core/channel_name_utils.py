@@ -1858,3 +1858,83 @@ def parse_channel_name(name: str) -> ParsedChannel:
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
                          _audio_langs, _dub_langs, _sub_langs)
+
+
+# ── EPG TLD compatibility (region-gated fuzzy matching, Wave 3 Slice 3B) ─────── #
+# Maps a normalized region/prefix code (as stored in ChannelDB.detected_prefix /
+# .detected_region — see normalize_region_code above) to the set of EPG-feed
+# TLDs (the lowercase suffix of an XMLTV epg_id, e.g. "UandEden.uk" -> "uk")
+# that are plausible broadcast pairings for that region. Consulted ONLY by
+# EpgManager._build_match_map's tiers 2/3 (same-/cross-provider fuzzy name
+# matching, core/epg_manager.py) to reject cross-region false positives — e.g.
+# an EN-prefixed channel fuzzy-matching a Spanish (.es) guide feed. Tier-1
+# exact epg_channel_id matches are never gated.
+#
+# A code absent from this map, or an EPG feed with no parseable TLD, means the
+# gate ABSTAINS — the match proceeds exactly as it did before this feature
+# existed. This is deliberately partial: only common broadcast-language
+# groupings are covered; an unrecognized region/prefix never blocks a match.
+_EPG_TLD_EN = frozenset({"uk", "us", "ca", "ie", "au", "nz"})
+_EPG_TLD_ES = frozenset({"es", "mx", "ar", "cl", "co"})
+_EPG_TLD_DE = frozenset({"de", "at", "ch"})
+_EPG_TLD_FR = frozenset({"fr", "be", "ca", "ch"})
+_EPG_TLD_IT = frozenset({"it"})
+_EPG_TLD_NL = frozenset({"nl", "be"})
+
+REGION_TLD_COMPATIBILITY: dict[str, frozenset[str]] = {
+    # English-language broadcast regions (2- and 3-letter forms + the "EN"
+    # language-code prefix some providers use)
+    "US": _EPG_TLD_EN, "UK": _EPG_TLD_EN, "GB": _EPG_TLD_EN, "CA": _EPG_TLD_EN,
+    "IE": _EPG_TLD_EN, "AU": _EPG_TLD_EN, "NZ": _EPG_TLD_EN, "EN": _EPG_TLD_EN,
+    "AUS": _EPG_TLD_EN, "IRL": _EPG_TLD_EN, "CAN": _EPG_TLD_EN,
+    # Spanish-language broadcast regions
+    "ES": _EPG_TLD_ES, "ESP": _EPG_TLD_ES, "MX": _EPG_TLD_ES, "MEX": _EPG_TLD_ES,
+    "ARG": _EPG_TLD_ES, "CL": _EPG_TLD_ES, "CHL": _EPG_TLD_ES,
+    "CO": _EPG_TLD_ES, "COL": _EPG_TLD_ES,
+    # German-language broadcast regions (Switzerland is multilingual — also
+    # compatible with the French/Italian TLD groups)
+    "DE": _EPG_TLD_DE, "GER": _EPG_TLD_DE, "AT": _EPG_TLD_DE, "AUT": _EPG_TLD_DE,
+    "CH": _EPG_TLD_DE | _EPG_TLD_FR | _EPG_TLD_IT,
+    "SUI": _EPG_TLD_DE | _EPG_TLD_FR | _EPG_TLD_IT,
+    # French-language broadcast regions (Belgium is multilingual — also
+    # compatible with the Dutch TLD group)
+    "FR": _EPG_TLD_FR, "FRA": _EPG_TLD_FR,
+    "BE": _EPG_TLD_FR | _EPG_TLD_NL, "BEL": _EPG_TLD_FR | _EPG_TLD_NL,
+    # Italian
+    "IT": _EPG_TLD_IT, "ITA": _EPG_TLD_IT,
+    # Dutch
+    "NL": _EPG_TLD_NL, "NED": _EPG_TLD_NL,
+}
+
+
+def epg_tld_compatible(codes: "list[str | None] | tuple[str | None, ...]", epg_tld: str | None) -> bool:
+    """Region-gate for EPG fuzzy matching (tiers 2/3 only — see epg_manager.py).
+
+    Given a channel's detected region/prefix code(s) and an EPG feed's TLD
+    (parsed from the trailing dot-suffix of its ``epg_id``), decide whether a
+    fuzzy name match between them is a plausible broadcast pairing.
+
+    Args:
+        codes: The channel's ``detected_prefix`` / ``detected_region`` values
+            (order doesn't matter; ``None``/empty entries are ignored).
+        epg_tld: The EPG feed's parsed TLD (lowercase, no dot), or ``None``
+            when the feed's epg_id had no parseable suffix.
+
+    Returns:
+        ``True`` whenever the gate can't make a confident call — no TLD, or
+        neither code is in :data:`REGION_TLD_COMPATIBILITY` — so an
+        unrecognized combination never blocks a match that would have
+        succeeded before this feature existed (abstain). ``False`` only when
+        at least one code IS mapped and the TLD is known but not in ANY
+        mapped code's compatible set — an actual region mismatch.
+    """
+    if not epg_tld:
+        return True  # abstain — no TLD to gate on
+    known_sets = [
+        REGION_TLD_COMPATIBILITY[c.strip().upper()]
+        for c in codes
+        if c and c.strip().upper() in REGION_TLD_COMPATIBILITY
+    ]
+    if not known_sets:
+        return True  # abstain — neither code is in the compatibility map
+    return any(epg_tld in s for s in known_sets)

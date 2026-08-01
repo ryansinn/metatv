@@ -47,6 +47,7 @@ class DetailsPaneWidget(QWidget):
     suppression_requested      = pyqtSignal(str, bool)  # channel_id, suppressed
     hide_requested             = pyqtSignal(str)        # channel_id
     unhide_requested           = pyqtSignal(str)        # channel_id
+    clear_epg_link_requested   = pyqtSignal(str)        # channel_id — toggles clear/re-link per current blocked state
     watched_toggled            = pyqtSignal(str, bool)  # channel_id, is_watched (VOD)
     channel_versions_requested = pyqtSignal(str)        # channel_id
     version_selected           = pyqtSignal(str)        # channel_id — show details
@@ -426,6 +427,7 @@ class DetailsPaneWidget(QWidget):
             dislike=self._action_bar.dislike_button,
             watchlist=self._action_bar.watchlist_button,
             monitor=self._action_bar.monitor_button,
+            clear_epg_link=self._action_bar.clear_epg_link_button,
             hide=self._action_bar.hide_button,
         )
 
@@ -510,6 +512,7 @@ class DetailsPaneWidget(QWidget):
         ab.unhide_clicked.connect(self._on_unhide)
         ab.watchlist_clicked.connect(self._on_watchlist)
         ab.monitor_clicked.connect(self._on_monitor)
+        ab.clear_epg_link_clicked.connect(self._on_clear_epg_link)
 
         # Collapse state persistence
         self._tech._toggle_btn.clicked.connect(self._save_tech_state)
@@ -644,6 +647,14 @@ class DetailsPaneWidget(QWidget):
     def _on_unhide(self) -> None:
         if self.current_channel:
             self.unhide_requested.emit(self.current_channel.id)
+
+    def _on_clear_epg_link(self) -> None:
+        # The single click routes to either "Clear EPG link" or its "Re-link EPG
+        # data" inverse, depending on the last-loaded blocked state — the host's
+        # handler (mirroring the channel-menu toggle) checks epg_link_blocklist
+        # itself, so this just re-emits the channel_id.
+        if self.current_channel:
+            self.clear_epg_link_requested.emit(self.current_channel.id)
 
     def _on_watched(self, is_watched: bool) -> None:
         if self.current_channel:

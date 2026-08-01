@@ -420,6 +420,7 @@ class _PosterSection(QWidget):
         dislike,
         watchlist,
         monitor,
+        clear_epg_link,
         hide,
     ) -> None:
         """Reparent action buttons into their tiered visual slots.
@@ -439,8 +440,9 @@ class _PosterSection(QWidget):
           in the main column instead of over the poster art — there is only ONE set
           of them, moved not duplicated.
         * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
-          shares this slot) · hide.  Bracketed by a leading + trailing stretch and
-          kept tight (favorite↔monitor = G/2, monitor/watchlist↔hide = G).
+          shares this slot) · Clear EPG link (live only) · hide.  Bracketed by a
+          leading + trailing stretch and kept tight (favorite↔monitor = G/2,
+          monitor/watchlist↔clear_epg_link = G/2, clear_epg_link↔hide = G).
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -479,9 +481,10 @@ class _PosterSection(QWidget):
 
         # Rail: the infrequent icon-only set (queue and the sentiment trio both
         # graduated to the secondary row).  Order top→bottom: favorite ·
-        # Alert/Monitor (+Watchlist in the same slot) · hide.  Leading + trailing
-        # stretch bracket the group and it stays tight (Favorite↔Monitor = G/2,
-        # Monitor/Watchlist↔Hide = G).
+        # Alert/Monitor (+Watchlist in the same slot) · Clear EPG link (live only,
+        # admin tier) · hide.  Leading + trailing stretch bracket the group and it
+        # stays tight (Favorite↔Monitor = G/2, Monitor/Watchlist↔Clear-EPG-link =
+        # G/2, Clear-EPG-link↔Hide = G).
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
@@ -493,7 +496,9 @@ class _PosterSection(QWidget):
         layout.addSpacing(gap // 2)         # Favorite ↔ Monitor = G/2 (tight top pair)
         layout.addWidget(monitor)
         layout.addWidget(watchlist)         # Watchlist shares Monitor's slot (exclusive)
-        layout.addSpacing(gap)              # Monitor/Watchlist ↔ Hide = G
+        layout.addSpacing(gap // 2)         # Monitor/Watchlist ↔ Clear-EPG-link = G/2
+        layout.addWidget(clear_epg_link)
+        layout.addSpacing(gap)              # Clear-EPG-link ↔ Hide = G
         layout.addWidget(hide)
         layout.addStretch()                 # trailing stretch — bracket the group
         # NOTE: the rail + primary/secondary rows are left hidden here — they're

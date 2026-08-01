@@ -709,6 +709,7 @@ class _EpgBrowseMixin:
                         is_hidden=ch.is_hidden or False,
                         channel_name=ch.name or "",
                         channel_found=True,
+                        epg_link_blocked=cid in (self.config.epg_link_blocklist or []),
                     )
                 else:
                     ctx_kwargs["channel_found"] = False
@@ -765,6 +766,13 @@ class _EpgBrowseMixin:
             # epg_watch: only when not already watched
             if cid not in self.config.epg_watchlist_channels:
                 handlers["epg_watch"] = lambda c=cid: self._watch_channel(c)
+
+            if ctx.media_type == "live":
+                handlers["clear_epg_link"] = (
+                    (lambda c=cid: self.epg_manager.relink_channel_epg(c))
+                    if ctx.epg_link_blocked
+                    else (lambda c=cid: self.epg_manager.clear_channel_epg_link(c))
+                )
 
         # epg_track_show is always offered when there's a title
         if title:

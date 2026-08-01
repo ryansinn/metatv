@@ -11,6 +11,7 @@ from typing import Callable, Optional
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from loguru import logger
 
+from metatv.core.channel_name_utils import epg_tld_compatible
 from metatv.core.config import Config
 from metatv.core.database import ChannelDB, Database, EpgProgramDB, ProviderDB
 from metatv.core.epg_utils import (
@@ -25,6 +26,22 @@ from metatv.core.epg_utils import (
 from metatv.core.repositories import RepositoryFactory
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.core.xmltv_parser import XmltvProgramme, normalize_channel_name, parse_xmltv_url
+
+
+# Matches the trailing dot-suffix of an XMLTV epg_id used as a language/region
+# TLD idiom by some feeds (e.g. "UandEden.uk" -> "uk"; see also the ilike
+# "%.{code}" idiom in repositories/epg.py). Only a 2-3 letter alpha suffix is
+# treated as a TLD — anything else (numeric, longer) is not a TLD and the
+# region gate abstains (see channel_name_utils.epg_tld_compatible).
+_EPG_ID_TLD_RE = re.compile(r"\.([A-Za-z]{2,3})$")
+
+
+def _epg_id_tld(epg_id: str) -> str | None:
+    """Extract the lowercase TLD suffix from an XMLTV epg_id, or None if absent."""
+    if not epg_id:
+        return None
+    m = _EPG_ID_TLD_RE.search(epg_id)
+    return m.group(1).lower() if m else None
 
 
 # ``EPG_FILLER_THRESHOLD`` now lives in ``epg_utils`` (single source of truth) and is
@@ -660,9 +677,28 @@ class EpgManager(QObject):
         Channels belonging to hidden (inactive or expired) providers are excluded from
         the fuzzy candidate pool entirely, so guide data never attaches to a
         disabled/expired source at fetch time.
+
+        Two persistent config-driven guards, both consulted here so they can never
+        be bypassed by ``relink_all()`` (which re-runs this on every EPG view
+        activation) or by a provider re-ingestion rewriting ``ChannelDB.epg_channel_id``:
+
+        * ``config.epg_link_blocklist`` — channel_db_ids the user manually cleared
+          ("Clear EPG link"). Excluded from ALL tiers (1/2/3).
+        * ``config.epg_fuzzy_prefix_blocklist`` — ``detected_prefix`` values (e.g.
+          "24/7") that denote show-loop/rotation feeds, not real broadcasts.
+          Excluded from tiers 2/3 only; tier-1 exact ids still apply.
+
+        Tiers 2/3 are additionally region-gated: a candidate's ``detected_prefix``/
+        ``detected_region`` is checked against the EPG feed's TLD (parsed from its
+        epg_id) via ``channel_name_utils.epg_tld_compatible`` — an unrecognized
+        code/TLD abstains (matches as before); a recognized mismatch is rejected.
         """
         repos = RepositoryFactory(session)
         hidden_ids: set[str] = set(repos.providers.get_hidden_provider_ids())
+        blocked_ids: set[str] = set(self.config.epg_link_blocklist or [])
+        fuzzy_prefix_blocklist: set[str] = {
+            p.strip().upper() for p in (self.config.epg_fuzzy_prefix_blocklist or []) if p
+        }
 
         # ── Tier 1: exact epg_channel_id match ──────────────────────────────
         # Select only the two scalar columns needed — avoids loading raw_data
@@ -676,52 +712,79 @@ class EpgManager(QObject):
         exact: dict[str, str] = {
             epg_id: cid
             for cid, epg_id in db_channels_with_id
-            if epg_id
+            if epg_id and cid not in blocked_ids
         }
 
         # ── Tiers 2 & 3: fuzzy name candidates, excluding hidden providers ──
         # Build two separate dicts so same-provider always beats cross-provider.
         # Last-writer-wins within each dict is fine: duplicate normalized names
-        # are rare and either candidate would be acceptable.
+        # are rare and either candidate would be acceptable. Values carry
+        # (channel_db_id, detected_prefix, detected_region) so the region gate
+        # below can consult them without a second query.
         # yield_per streams results in fixed-size buffers to avoid materialising
         # the full channel table (240k–1M rows) into memory at once.
         all_live = session.query(
             ChannelDB.id, ChannelDB.name, ChannelDB.provider_id,
+            ChannelDB.detected_prefix, ChannelDB.detected_region,
         ).filter(
             ChannelDB.media_type == "live",
             ChannelDB.is_hidden == False,
         ).yield_per(10000)
 
-        same_provider: dict[str, str] = {}   # norm_name → channel_db_id
-        cross_provider: dict[str, str] = {}  # norm_name → channel_db_id
+        same_provider: dict[str, tuple[str, str | None, str | None]] = {}
+        cross_provider: dict[str, tuple[str, str | None, str | None]] = {}
 
-        for cid, name, prov_id in all_live:
+        for cid, name, prov_id, prefix, region in all_live:
             if prov_id in hidden_ids:
                 continue  # never attach guide data to a disabled/expired source
+            if cid in blocked_ids:
+                continue  # manually cleared — never re-enter fuzzy matching
+            if prefix and prefix.strip().upper() in fuzzy_prefix_blocklist:
+                continue  # show-loop/rotation feed — fuzzy name matching is unreliable
             norm = normalize_channel_name(name)
             if not norm:
                 # Placeholder/separator names ('HD', blanks) normalize to "" and
                 # would all collide on the same key (last-writer-wins), attaching a
                 # guide to an unrelated channel. Never key the fuzzy pool on "".
                 continue
+            candidate = (cid, prefix, region)
             if prov_id == provider_id:
-                same_provider[norm] = cid
+                same_provider[norm] = candidate
             else:
-                cross_provider[norm] = cid
+                cross_provider[norm] = candidate
 
         result: dict[str, str] = {}
         for xch in xmltv_channels:
             if xch.epg_id in exact:
-                # Tier 1 — exact epg_channel_id
+                # Tier 1 — exact epg_channel_id (never region-gated)
                 result[xch.epg_id] = exact[xch.epg_id]
-            else:
-                norm = normalize_channel_name(xch.display_name)
-                if norm in same_provider:
-                    # Tier 2 — same-provider fuzzy
-                    result[xch.epg_id] = same_provider[norm]
-                elif norm in cross_provider:
-                    # Tier 3 — cross-provider fuzzy
-                    result[xch.epg_id] = cross_provider[norm]
+                continue
+
+            norm = normalize_channel_name(xch.display_name)
+            epg_tld = _epg_id_tld(xch.epg_id)
+
+            if norm in same_provider:
+                # Tier 2 — same-provider fuzzy
+                cid, prefix, region = same_provider[norm]
+                if epg_tld_compatible((prefix, region), epg_tld):
+                    result[xch.epg_id] = cid
+                else:
+                    logger.debug(
+                        f"EPG region gate: rejected same-provider fuzzy match "
+                        f"{xch.display_name!r} (epg_id={xch.epg_id!r}, tld={epg_tld!r}) "
+                        f"against channel prefix={prefix!r} region={region!r}"
+                    )
+            elif norm in cross_provider:
+                # Tier 3 — cross-provider fuzzy
+                cid, prefix, region = cross_provider[norm]
+                if epg_tld_compatible((prefix, region), epg_tld):
+                    result[xch.epg_id] = cid
+                else:
+                    logger.debug(
+                        f"EPG region gate: rejected cross-provider fuzzy match "
+                        f"{xch.display_name!r} (epg_id={xch.epg_id!r}, tld={epg_tld!r}) "
+                        f"against channel prefix={prefix!r} region={region!r}"
+                    )
 
         matched = len(result)
         logger.info(
@@ -867,6 +930,75 @@ class EpgManager(QObject):
         Alerts reload automatically.
         """
         self._executor.submit(self._relink_worker)
+
+    # ------------------------------------------------------------------
+    # Clear EPG link (persistent block) — inverse of relink
+    # ------------------------------------------------------------------
+
+    def clear_channel_epg_link(self, channel_id: str) -> None:
+        """Unlink *channel_id*'s EPG guide data and block it from re-matching.
+
+        Persists the block first (``config.epg_link_blocklist`` — consulted by
+        ``_build_match_map`` so a later ``relink_all()`` — which runs on every EPG
+        view activation — can never silently re-attach guide data), then nulls the
+        channel's ``epg_channel_id`` and any already-linked ``EpgProgramDB`` rows
+        on the manager's single-worker executor (same one-write-at-a-time rule as
+        fetch/relink, so it never races a concurrent EPG write).
+
+        Args:
+            channel_id: The ``ChannelDB.id`` to unlink and block.
+        """
+        blocklist = list(self.config.epg_link_blocklist or [])
+        if channel_id not in blocklist:
+            blocklist.append(channel_id)
+            self.config.epg_link_blocklist = blocklist
+            self.config.save()
+        self._executor.submit(self._clear_channel_epg_link_worker, channel_id)
+
+    def _clear_channel_epg_link_worker(self, channel_id: str) -> None:
+        """Background worker: null the channel's EPG link + linked programme rows."""
+        provider_id: str | None = None
+        updated = 0
+        try:
+            with self.db.session_scope() as session:
+                channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+                if channel is not None:
+                    provider_id = channel.provider_id
+                    channel.epg_channel_id = None
+                updated = (
+                    session.query(EpgProgramDB)
+                    .filter(EpgProgramDB.channel_db_id == channel_id)
+                    .update({"channel_db_id": None}, synchronize_session=False)
+                )
+            logger.info(
+                f"EPG link cleared for channel {channel_id} "
+                f"({updated} programme row(s) unlinked, provider={provider_id})"
+            )
+        except Exception as exc:
+            logger.warning(f"Clear EPG link failed for channel {channel_id}: {exc}")
+            return
+        if provider_id:
+            # Reuse refresh_finished — the already-wired handlers
+            # (_refresh_watch_alerts + _on_epg_refreshed + sidebar Sources)
+            # reload On Now / Browse / Watch Alerts without new signal plumbing.
+            self.refresh_finished.emit(provider_id, updated)
+
+    def relink_channel_epg(self, channel_id: str) -> None:
+        """Re-allow EPG matching for a previously-blocked channel (inverse of clear).
+
+        Removes *channel_id* from ``config.epg_link_blocklist`` and kicks off a
+        full ``relink_all()`` pass so the channel is re-matched immediately
+        rather than waiting for the next EPG view activation.
+
+        Args:
+            channel_id: The ``ChannelDB.id`` to re-allow.
+        """
+        blocklist = list(self.config.epg_link_blocklist or [])
+        if channel_id in blocklist:
+            blocklist.remove(channel_id)
+            self.config.epg_link_blocklist = blocklist
+            self.config.save()
+        self.relink_all()
 
     # ------------------------------------------------------------------
     # Status

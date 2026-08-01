@@ -211,6 +211,7 @@ def _wire_rail(poster, action_bar):
         dislike=action_bar.dislike_button,
         watchlist=action_bar.watchlist_button,
         monitor=action_bar.monitor_button,
+        clear_epg_link=action_bar.clear_epg_link_button,
         hide=action_bar.hide_button,
     )
 
@@ -233,7 +234,8 @@ def test_infrequent_buttons_reparented_to_rail(qapp):
 
     for btn in (
         action_bar.favorite_button,
-        action_bar.watchlist_button, action_bar.monitor_button, action_bar.hide_button,
+        action_bar.watchlist_button, action_bar.monitor_button,
+        action_bar.clear_epg_link_button, action_bar.hide_button,
     ):
         assert btn.parent() is poster._action_rail, (
             f"{btn!r} must be reparented to _action_rail after set_action_buttons()"

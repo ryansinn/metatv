@@ -54,6 +54,7 @@ class ChannelMenuContext:
     rating: int = 0
     is_hidden: bool = False
     is_watched: bool = False          # channel_id in config.epg_watchlist_channels
+    epg_link_blocked: bool = False    # channel_id in config.epg_link_blocklist (EPG "Clear link")
     is_vod_watched: bool = False      # channel.watch_completed (VOD manual-watched state)
     is_series_monitored: bool = False  # channel_id in config.monitored_series
     has_unviewed_match: bool = False   # channel is an UNVIEWED VOD watch-for match
@@ -145,6 +146,19 @@ def _queue_label(c: ChannelMenuContext) -> str:
 
 def _watch_label(c: ChannelMenuContext) -> str:
     return "Stop watching this channel" if c.is_watched else "Watch this channel (EPG alerts)"
+
+
+def _clear_epg_link_label(c: ChannelMenuContext) -> str:
+    """Toggles between clearing a good link and re-allowing a blocked one."""
+    return "Re-link EPG data" if c.epg_link_blocked else "Clear EPG link"
+
+
+def _clear_epg_link_tooltip(c: ChannelMenuContext) -> str:
+    return (
+        "Remove this channel from the EPG block list — the next relink pass will re-match it"
+        if c.epg_link_blocked
+        else "Unlink this channel's guide data and stop future auto-matching (fixes wrong EPG data)"
+    )
 
 
 def _monitor_label(c: ChannelMenuContext) -> str:
@@ -501,6 +515,15 @@ ACTIONS: dict[str, ChannelAction] = {
         tooltip="Hide this show title from the EPG On Now view",
         applies=lambda c: True,
     ),
+    "clear_epg_link": ChannelAction(
+        id="clear_epg_link",
+        label=_clear_epg_link_label,
+        icon=_icons.clear_epg_link_icon,
+        tooltip=_clear_epg_link_tooltip,
+        # Live channels only — VOD has no XMLTV guide to (mis)link. Single-select
+        # only (the toggle label/behavior depends on ONE channel's blocked state).
+        applies=lambda c: c.is_single and c.media_type == "live",
+    ),
     # ── Multi-select play ───────────────────────────────────────────────────
     "play_all": ChannelAction(
         id="play_all",
@@ -594,7 +617,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "clear_alert",
         "sep",
-        "watch", "track", "unhide", "hide",
+        "watch", "track", "clear_epg_link", "unhide", "hide",
         "sep",
         "search_title", "copy_title",
         "sep",
@@ -725,6 +748,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "epg_assign_category", "epg_remove_override",
         "sep",
         "epg_hide_channel", "epg_hide_show",
+        "sep",
+        "clear_epg_link",
     ],
     "epg_browse": [
         "play", "play_new_window",
@@ -734,6 +759,8 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "like", "dislike",
         "sep",
         "epg_watch", "epg_track_show",
+        "sep",
+        "clear_epg_link",
     ],
 }
 
