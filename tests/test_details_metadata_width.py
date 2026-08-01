@@ -107,3 +107,194 @@ def test_genres_flow_actually_wraps_when_narrow(qapp):
     assert narrow > wide, (
         f"genre flow must wrap to more rows when narrow (narrow={narrow}, wide={wide})"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG 1 — genre/facet chips must escape "&" (mnemonic) for DISPLAY but keep the
+# raw value for the tooltip + emitted signal (so filtering still matches).
+# A QPushButton treats a lone "&" as a keyboard accelerator, so an un-escaped
+# "Action & Adventure" renders as "Action _Adventure" (stray underscore).
+# ---------------------------------------------------------------------------
+
+
+def test_genre_chip_escapes_ampersand_for_display(qapp):
+    """A genre containing "&" renders as the escaped "&&" form on the button —
+    Qt then draws one literal "&" instead of eating it as a mnemonic."""
+    from metatv.gui.details_sections import _MetadataSection
+
+    section = _MetadataSection(_make_config())
+    section._populate_genre_chips(["Action & Adventure", "Drama"])
+
+    first = section._genres_layout.itemAt(0).widget()
+    assert first.text() == "Action && Adventure", (
+        f"genre chip must escape '&' as '&&' for display, got {first.text()!r} — "
+        "an un-escaped '&' renders as a stray underscore mnemonic"
+    )
+
+
+def test_genre_chip_click_emits_raw_unescaped_value(qapp):
+    """Clicking a genre chip emits the ORIGINAL "Action & Adventure" (not the
+    escaped "&&" form) so the downstream genre filter still matches."""
+    from metatv.gui.details_sections import _MetadataSection
+
+    section = _MetadataSection(_make_config())
+    emitted: list[str] = []
+    section.genre_clicked.connect(emitted.append)
+    section._populate_genre_chips(["Action & Adventure", "Drama"])
+
+    section._genres_layout.itemAt(0).widget().click()
+    assert emitted == ["Action & Adventure"], (
+        f"clicking must emit the raw genre, got {emitted!r} — the escaped form "
+        "would break the genre filter lookup"
+    )
+
+
+def test_tag_chip_escapes_ampersand_but_emits_raw(qapp):
+    """The Tags-section facet chips follow the same rule: display escapes "&",
+    the emitted filter value stays raw."""
+    from metatv.core.repositories.dtos import ChannelTagDTO
+    from metatv.gui.details_sections import _TagsSection
+
+    section = _TagsSection(_make_config())
+    tag = ChannelTagDTO(
+        facet_type="collection",
+        value="Fast & Furious",
+        source_given=True,
+        confidence=1.0,
+        feeders=("provider_category",),
+    )
+    chip = section._make_chip(tag)
+    assert "Fast && Furious" in chip.text() and "Fast & Furious" not in chip.text().replace("&&", ""), (
+        f"tag chip must escape '&' as '&&' for display, got {chip.text()!r}"
+    )
+
+    emitted: list[tuple[str, str]] = []
+    section.tag_filter_clicked.connect(lambda ft, v: emitted.append((ft, v)))
+    chip.click()
+    assert emitted == [("collection", "Fast & Furious")], (
+        f"clicking must emit the raw facet value, got {emitted!r}"
+    )
+
+
+def test_tags_facet_row_wraps_not_crushes(qapp):
+    """Each Tags-section facet sub-row (GENRE, LANGUAGE, …) lays its chips in a
+    WRAPPING _FlowLayout, not a crushing QHBoxLayout.  A long GENRE list must wrap
+    to more rows at a narrow width — a QHBoxLayout would keep one row and squeeze
+    every chip below its text width (center-elided "tion & Adver")."""
+    from metatv.core.repositories.dtos import ChannelTagDTO
+    from metatv.gui.details_sections import _TagsSection
+    from metatv.gui.details_versions import _FlowLayout
+
+    genres = [
+        "Action & Adventure", "Sci-Fi & Fantasy", "Animation", "Comedy", "Drama",
+        "Documentary", "Family", "Kids", "War & Politics", "Reality",
+    ]
+    section = _TagsSection(_make_config())
+    section.load([
+        ChannelTagDTO(facet_type="genre", value=g, source_given=True,
+                      confidence=1.0, feeders=("genre",))
+        for g in genres
+    ])
+
+    # Locate the facet chip row — the widget whose layout is a _FlowLayout.
+    layout = section._content_layout
+    flow_rows = [
+        layout.itemAt(i).widget().layout()
+        for i in range(layout.count())
+        if layout.itemAt(i).widget() is not None
+        and isinstance(layout.itemAt(i).widget().layout(), _FlowLayout)
+    ]
+    assert flow_rows, (
+        "the GENRE sub-row must use a wrapping _FlowLayout, not a QHBoxLayout that "
+        "crushes/truncates each chip"
+    )
+    flow = flow_rows[0]
+    assert flow.count() == len(genres)
+    narrow = flow.heightForWidth(150)
+    wide = flow.heightForWidth(2000)
+    assert narrow > wide, (
+        f"GENRE chips must wrap to more rows when narrow (narrow={narrow}, wide={wide})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUG 2 — genre chips must WRAP at the pane width and never truncate, even when
+# a SIBLING section (here: a version chip with a very long unbreakable label)
+# tries to force the details content column wider than the viewport.  The pane's
+# width authority (_sync_content_width caps content to the viewport) plus the
+# wrapping _FlowLayout keep the genres inside the viewport; without either, the
+# genres would lay out in the over-wide column and clip off the right edge.
+# ---------------------------------------------------------------------------
+
+_FORCING_PREFIX = "SuperLongUnbreakableCategoryNameThatForcesWidthXXXXXXXXXXXXXXXX"
+
+
+def _full_pane(qapp, tmp_path):
+    from metatv.core.image_cache import ImageCache
+    from metatv.gui.details_pane import DetailsPaneWidget
+
+    ic = ImageCache(cache_dir=str(tmp_path / "imgcache"))
+    pane = DetailsPaneWidget(_make_config(), ic, None)  # db=None → no EPG agenda
+    for sec in (pane._poster, pane._meta, pane._plot, pane._cast, pane._tech):
+        if hasattr(sec, "set_mode"):
+            sec.set_mode(False)
+    return pane
+
+
+def test_genres_wrap_within_viewport_despite_forcing_sibling(qapp, tmp_path):
+    """Full-composition repro: genres + a width-forcing version chip inside the
+    real details pane.  The genre chips must wrap WITHIN the viewport (never run
+    off the right edge) and each chip must render at its full content width (no
+    per-button truncation)."""
+    from metatv.gui.details_versions import ChannelVersion
+
+    pane = _full_pane(qapp, tmp_path)
+    pane._meta._populate_genre_chips([
+        "Action & Adventure", "Sci-Fi & Fantasy", "Animation", "Comedy",
+        "Drama", "Documentary", "Family", "Kids", "War & Politics",
+    ])
+    # A sibling section that WOULD force the column wider than the pane.
+    pane._versions.load(
+        [ChannelVersion(channel_id="v1", name="v1", in_queue=False,
+                        detected_prefix=_FORCING_PREFIX, detected_quality="4K")],
+        provider_map={},
+    )
+
+    pane.resize(320, 1200)
+    pane.show()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    viewport_w = pane._scroll.viewport().width()
+    container = pane._meta._genres_container
+
+    # Width authority holds: content (and therefore the genre row) stays within
+    # the viewport — the forcing sibling cannot drag it wider.
+    assert pane._content.width() <= viewport_w + 1, (
+        f"content width {pane._content.width()} exceeds viewport {viewport_w} — the "
+        "forcing sibling widened the column; genres would clip off the right edge"
+    )
+    assert container.width() <= viewport_w + 1, (
+        f"genres container {container.width()} exceeds viewport {viewport_w}"
+    )
+
+    # Every genre chip renders at full content width (no squeeze/elision) and sits
+    # entirely within the container (no off-edge clipping).
+    layout = pane._meta._genres_layout
+    assert layout.count() == 9
+    for i in range(layout.count()):
+        chip = layout.itemAt(i).widget()
+        geom = chip.geometry()
+        assert geom.width() >= chip.sizeHint().width(), (
+            f"chip {chip.text()!r} truncated: geom width {geom.width()} < content "
+            f"width {chip.sizeHint().width()}"
+        )
+        assert geom.right() <= container.width() + 1, (
+            f"chip {chip.text()!r} runs off the right edge "
+            f"(right={geom.right()}, container={container.width()})"
+        )
+
+    # And the flow genuinely wraps to more rows when narrower.
+    assert layout.heightForWidth(150) > layout.heightForWidth(2000), (
+        "genre flow must add rows as it narrows (wrap), not truncate on one row"
+    )

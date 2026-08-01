@@ -16,6 +16,7 @@ from metatv.core.channel_name_utils import (
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import enable_height_for_width
+from metatv.gui.qt_text_utils import escape_mnemonic
 
 # ---------------------------------------------------------------------------
 # Lookup tables
@@ -465,7 +466,9 @@ class _VersionSection(QWidget):
 
     def _make_active_chip(self, v: ChannelVersion) -> QPushButton:
         """Build an active-source chip that shows details on left-click."""
-        label = self._chip_label(v) + self._chip_status_suffix(v)
+        # Escape "&" for display — a resolved category name (e.g. "Kids & Family")
+        # would otherwise render its "&" as a mnemonic underscore on the button.
+        label = escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v))
 
         if v.is_inactive:
             # Inactive: dimmed; left-click shows details, right-click offers reactivate & play
@@ -504,7 +507,7 @@ class _VersionSection(QWidget):
         prefix = v.detected_prefix or "?"
         is_hidden_cat = v.is_hidden_category
         extra = "text-decoration: line-through;" if is_hidden_cat else ""
-        chip = QPushButton(self._chip_label(v))
+        chip = QPushButton(escape_mnemonic(self._chip_label(v)))
         chip.setStyleSheet(
             f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
             f" border-radius: 4px; padding: 2px 8px; {extra} }}"
@@ -604,7 +607,7 @@ class _VersionSection(QWidget):
             # and the chip icon reflects the new queue state immediately.
             v.in_queue = not v.in_queue
             if chip is not None:
-                chip.setText(self._chip_label(v) + self._chip_status_suffix(v))
+                chip.setText(escape_mnemonic(self._chip_label(v) + self._chip_status_suffix(v)))
         elif chosen in (filter_act, hide_cat_act):
             self.prefix_block_requested.emit(prefix)
         elif chosen == edit_act:
