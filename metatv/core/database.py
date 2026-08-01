@@ -511,6 +511,7 @@ class Database:
         self._ensure_auto_vacuum()
         self._prune_orphaned_channels()
         self._prune_orphaned_content_tags()
+        self._clean_polluted_metadata_titles()
 
     def _migrate(self):
         """Apply incremental schema migrations (safe to run on every startup)."""
@@ -784,6 +785,105 @@ class Database:
 
         except Exception as exc:
             logger.error(f"Orphaned content_tags cleanup migration failed (startup unblocked): {exc}")
+
+    def _clean_polluted_metadata_titles(self) -> None:
+        """One-time migration: replace raw-channel-name metadata titles with clean ones.
+
+        The provider-metadata fallback used to store the raw channel name
+        (``info.get('name') or channel.name`` — e.g. ``EN - Cowboy Bebop (1998)``) as
+        ``metadata.title`` whenever no real provider title was available.  The details
+        pane then showed that raw name, duplicating the language chip and year rendered
+        beside it.  The ingestion path now stores the clean title going forward (see
+        ``ProviderMetadataProvider``); this heals rows already written.
+
+        Two gated passes, both reusing the shared channel-name parser (never a new
+        hand-rolled one) and both touching only rows that *look* polluted:
+
+        * Pass 1 (preferred, bulk SQL) — where ``metadata.title`` exactly equals a
+          linked channel's raw ``name`` and that channel's ingestion-computed
+          ``detected_title`` differs, copy the stored ``detected_title`` (the single
+          source of truth produced by the shared parser at ingestion) onto the row.
+        * Pass 2 (fallback) — for any remaining *linked* metadata title the shared
+          parser recognises as carrying a language/region prefix or trailing year,
+          replace it with the parsed ``bare_name``.  Gated on the parser actually
+          stripping a prefix/region/year, so genuinely-clean or distinct titles are
+          left untouched.
+
+        A real provider/TMDb title never equals the prefixed raw name and rarely
+        carries a strip-able qualifier, so genuine titles survive.  Runs once per
+        database (gated on ``PRAGMA user_version == 4``) after the orphan cleanups.
+        Any failure is caught and logged — it must never block startup.
+        """
+        try:
+            with self.engine.connect() as conn:
+                version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version >= 4:
+                return  # already ran — fast path
+
+            # ── Pass 1: copy the linked channel's clean detected_title where the
+            # metadata title is exactly that channel's raw name (the common case).
+            with self.engine.connect() as conn:
+                result = conn.execute(text(
+                    "UPDATE metadata SET title = ("
+                    "  SELECT c.detected_title FROM channels c "
+                    "  WHERE c.metadata_id = metadata.id AND c.name = metadata.title "
+                    "    AND c.detected_title IS NOT NULL AND TRIM(c.detected_title) != '' "
+                    "    AND c.detected_title != c.name LIMIT 1"
+                    ") WHERE EXISTS ("
+                    "  SELECT 1 FROM channels c "
+                    "  WHERE c.metadata_id = metadata.id AND c.name = metadata.title "
+                    "    AND c.detected_title IS NOT NULL AND TRIM(c.detected_title) != '' "
+                    "    AND c.detected_title != c.name"
+                    ")"
+                ))
+                conn.commit()
+                pass1 = result.rowcount or 0
+
+            # ── Pass 2: parse-fallback for any remaining polluted linked titles the
+            # exact-name join above could not reach (e.g. the source channel was
+            # renamed/removed but a sibling variant still shares the metadata row).
+            from metatv.core.channel_name_utils import parse_channel_name
+            pass2 = 0
+            with self.engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT id, title FROM metadata WHERE EXISTS "
+                    "(SELECT 1 FROM channels c WHERE c.metadata_id = metadata.id)"
+                )).fetchall()
+                for mid, title in rows:
+                    if not title:
+                        continue
+                    try:
+                        parsed = parse_channel_name(title)
+                    except Exception:
+                        continue
+                    bare = (parsed.bare_name or "").strip()
+                    # Gate: only rewrite when the parser actually stripped a
+                    # language/region prefix or a trailing year (looks polluted).
+                    stripped_qualifier = bool(parsed.region or parsed.lang or parsed.year)
+                    if bare and bare != title.strip() and stripped_qualifier:
+                        conn.execute(
+                            text("UPDATE metadata SET title = :t WHERE id = :i"),
+                            {"t": bare, "i": mid},
+                        )
+                        pass2 += 1
+                conn.commit()
+
+            cleaned = pass1 + pass2
+            if cleaned:
+                logger.info(
+                    f"One-time cleanup: cleaned {cleaned} raw-channel-name metadata "
+                    f"title(s) ({pass1} via detected_title, {pass2} via parse)."
+                )
+            else:
+                logger.debug("Metadata-title cleanup: no polluted titles found — nothing to do.")
+
+            # Stamp version 4 so this never reruns
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA user_version = 4"))
+                conn.commit()
+
+        except Exception as exc:
+            logger.error(f"Metadata-title cleanup migration failed (startup unblocked): {exc}")
 
     def get_session(self) -> Session:
         """Get a new database session"""
