@@ -132,6 +132,17 @@ class ChannelDB(Base):
     # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites an existing marker.
     tmdb_enrich_state = Column(String, nullable=True, index=True)
 
+    # Genre-harvest fetch-once marker (see tmdb_enrichment_manager.py backfill_missing_genres).
+    # The list raw_data for MOVIES is sparse (no genre/plot/cast); their real genres live only
+    # in the per-title get_vod_info response. A one-time background pass fetches that endpoint for
+    # movies whose linked MetadataDB row has empty genres and fills them. This marks the attempt so
+    # a residual (detail blob also carried no genre) is never re-fetched:
+    #   NULL       — not yet attempted (a genre-backfill candidate when metadata.genres is empty)
+    #   'fetched'  — detail endpoint carried a genre; harvested into the metadata row
+    #   'none'     — detail endpoint attempted but carried no genre (leave it be)
+    # Movie-scoped (series list rows already carry genre). NOT in _CATALOG_UPDATE_COLS.
+    genre_enrich_state = Column(String, nullable=True, index=True)
+
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
     # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
     # "form" is one of "Dub", "Original", "Multi", "Dual", "" (unknown).
@@ -562,6 +573,7 @@ class Database:
             ("channels",     "detected_audio",             "TEXT"),
             ("channels",     "detected_tmdb_id",           "TEXT"),
             ("channels",     "tmdb_enrich_state",          "TEXT"),
+            ("channels",     "genre_enrich_state",         "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -578,6 +590,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_content_key ON channels (content_key)",
                 "CREATE INDEX IF NOT EXISTS ix_content_tags_tag_channel ON content_tags (tag_id, channel_id)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_genre_enrich_state ON channels (genre_enrich_state)",
             ]
             for idx_sql in index_migrations:
                 try:

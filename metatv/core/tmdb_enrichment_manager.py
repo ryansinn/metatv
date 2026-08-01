@@ -196,6 +196,33 @@ class TmdbEnrichmentManager(QObject):
             self._shutdown = True
         self._executor.shutdown(wait=False)
 
+    def backfill_missing_genres(self) -> None:
+        """Kick a background pass that fills genres for genre-less MOVIE metadata rows.
+
+        The lazy enqueue path only fetches *idless* rows the user is viewing, so a
+        movie that already has a tmdb id (from the list) but **empty genres** never
+        gets fetched — and a genreless movie scores 0 in the genre-driven recommender,
+        so it never surfaces.  This pass finds those movies
+        (:meth:`ChannelRepository.select_genre_backfill_candidates`) and harvests
+        genre/plot/cast/director from each one's ``get_vod_info`` detail blob into its
+        metadata row (fill-only-empty).
+
+        Runs entirely on the single-worker executor (off the UI thread; SQLite is a
+        single writer).  Batched, throttled and resumable via the persistent
+        ``genre_enrich_state`` marker; capped per launch at
+        ``config.tmdb_enrichment_session_cap`` so a large backlog spreads over several
+        launches.  A safe no-op when disabled, shut down, or already drained — so it is
+        cheap to call unconditionally at startup and failures never block launch.
+        """
+        if self._shutdown:
+            return
+        if not getattr(self.config, "tmdb_enrichment_enabled", True):
+            return
+        remaining = max(0, int(getattr(self.config, "tmdb_enrichment_session_cap", 500)))
+        if remaining <= 0:
+            return
+        self._executor.submit(self._backfill_step, remaining)
+
     # ------------------------------------------------------------------
     # Worker — runs in the single-worker executor (NO widget access)
     # ------------------------------------------------------------------
@@ -265,12 +292,16 @@ class TmdbEnrichmentManager(QObject):
         # 3. (network + write) one provider at a time.
         total_collapses = 0
         for pid, prows in by_provider.items():
-            hits, misses, errors = asyncio.run(
+            hits, misses, meta_by_id, errors = asyncio.run(
                 self._fetch_provider(providers[pid], prows, concurrency, throttle)
             )
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
                 total_collapses += repos.channels.apply_tmdb_enrichment(hits, misses)
+                # Same detail blob carried the movie's genre/plot/cast — fill empty
+                # metadata so an idless movie also becomes recommendable, not just
+                # collapsible (fill-only-empty; never overwrites richer data).
+                repos.channels.apply_metadata_harvest(meta_by_id)
             if errors:
                 logger.info(
                     "tmdb_enrich: provider {} had {} error(s) this batch", pid, errors
@@ -284,6 +315,83 @@ class TmdbEnrichmentManager(QObject):
         #    explains the reflow); emitted only when a real fold happened.
         if total_collapses > 0:
             self.collapses_found.emit(total_collapses)
+
+    # ------------------------------------------------------------------
+    # Genre backfill — proactive, movie-only, capped-per-launch, resumable
+    # ------------------------------------------------------------------
+
+    def _backfill_step(self, remaining: int) -> None:
+        """Process ONE genre-backfill batch, then re-submit while the cap allows.
+
+        Re-submitting (instead of an in-task loop) lets interactive lazy drains
+        already queued on the single-worker executor interleave, so a long backfill
+        never starves the on-demand enrichment the user is actually waiting on.  The
+        pass stops when no candidates remain (batch attempted 0) or the per-launch cap
+        is exhausted; unmarked (errored) rows resume on a later launch.
+        """
+        if self._shutdown or remaining <= 0:
+            return
+        try:
+            attempted = self._process_genre_backfill_batch(remaining)
+        except Exception:
+            logger.exception("tmdb_enrich: genre backfill batch failed")
+            return
+        if attempted > 0 and not self._shutdown:
+            self._executor.submit(self._backfill_step, remaining - attempted)
+
+    def _process_genre_backfill_batch(self, remaining: int) -> int:
+        """Resolve → fetch → harvest one genre-backfill batch; return rows attempted.
+
+        Returns the number of candidate rows drawn this batch (0 once the library is
+        fully backfilled — the drain's stop signal).  Each successfully fetched movie
+        is marked 'fetched'/'none' via ``apply_metadata_harvest`` so the pass is
+        idempotent; a row whose fetch errored stays unmarked and retries next launch.
+        Counting *attempted* (not just marked) toward the return guarantees the drain
+        terminates even against a dead provider.
+        """
+        from metatv.core.repositories import RepositoryFactory
+
+        concurrency = max(1, int(getattr(self.config, "tmdb_enrichment_concurrency", _DEFAULT_CONCURRENCY)))
+        throttle = max(0.0, float(getattr(self.config, "tmdb_enrichment_throttle_ms", _DEFAULT_THROTTLE_MS)) / 1000.0)
+        batch = min(_DRAIN_BATCH, remaining)
+
+        with self.db.session_scope(commit=False) as session:
+            repos = RepositoryFactory(session)
+            excluded = set(repos.providers.get_hidden_provider_ids())
+            rows = repos.channels.select_genre_backfill_candidates(batch, excluded)
+            if not rows:
+                return 0
+
+            by_provider: dict[str, list[dict]] = {}
+            for r in rows:
+                by_provider.setdefault(r["provider_id"], []).append(r)
+
+            providers: dict[str, "Provider"] = {}
+            names: dict[str, str] = {}
+            for pid in list(by_provider):
+                pdb = repos.providers.get_by_id(pid)
+                if pdb is None:
+                    del by_provider[pid]
+                    continue
+                providers[pid] = repos.providers.to_model(pdb)
+                names[pid] = pdb.name
+
+        attempted = sum(len(prows) for prows in by_provider.values())
+        if not by_provider:
+            return attempted  # 0 → stop; candidates (if any) were on gone providers
+
+        for pid, prows in by_provider.items():
+            _hits, _misses, meta_by_id, errors = asyncio.run(
+                self._fetch_provider(providers[pid], prows, concurrency, throttle)
+            )
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                filled = repos.channels.apply_metadata_harvest(meta_by_id)
+            logger.debug(
+                "tmdb_enrich: genre backfill {} — filled {} of {} movie(s), {} error(s)",
+                names.get(pid, pid), filled, len(prows), errors,
+            )
+        return attempted
 
     # ------------------------------------------------------------------
     # In-flight accounting for the coalesced per-source toast
@@ -321,7 +429,7 @@ class TmdbEnrichmentManager(QObject):
         rows: list[dict],
         concurrency: int,
         throttle: float,
-    ) -> tuple[dict[str, str], list[str], int]:
+    ) -> tuple[dict[str, str], list[str], dict[str, dict], int]:
         """Fetch one provider's candidate rows through a single reused session."""
         from metatv.providers.xtream import XtreamAPI
 
@@ -331,7 +439,7 @@ class TmdbEnrichmentManager(QObject):
                 "tmdb_enrich: provider {} has no usable URL (type={}), deferring",
                 provider.name, provider.type,
             )
-            return ({}, [], len(rows))
+            return ({}, [], {}, len(rows))
 
         base_url = base_urls[0]
         try:
@@ -340,7 +448,7 @@ class TmdbEnrichmentManager(QObject):
         except Exception:
             # Session-level failure (rare — connect happens per request): defer all.
             logger.exception("tmdb_enrich: session error for provider {}", provider.name)
-            return ({}, [], len(rows))
+            return ({}, [], {}, len(rows))
 
     async def _run_calls(
         self,
@@ -348,16 +456,31 @@ class TmdbEnrichmentManager(QObject):
         rows: list[dict],
         concurrency: int,
         throttle: float,
-    ) -> tuple[dict[str, str], list[str], int]:
+    ) -> tuple[dict[str, str], list[str], dict[str, dict], int]:
         """Issue the detail calls with a semaphore + throttle; classify each row.
 
         A per-row exception is counted (not fatal); after
         ``_CONSECUTIVE_ERROR_ABORT`` errors in a row the remaining rows are left
         unattempted (deferred) so a dead provider can't drive a retry storm.
+
+        The same detail blob that carries the tmdb id also carries the movie's
+        genre/plot/cast/director (which the sparse list ``raw_data`` omits).  Every
+        row whose fetch **succeeds** contributes its harvested metadata to
+        ``meta_by_id`` — the caller persists it (fill-only-empty) so a genre-less
+        movie finally becomes visible to the recommendation scorer.
+
+        Returns:
+            ``(hits, misses, meta_by_id, errors)`` where ``hits`` maps
+            ``channel_id → tmdb_id``, ``misses`` are attempted-but-idless ids,
+            ``meta_by_id`` maps ``channel_id → harvested-metadata dict`` for every
+            successfully fetched row, and ``errors`` is the failed-call count.
         """
+        from metatv.metadata_providers.raw_parse import harvest_detail_metadata
+
         sem = asyncio.Semaphore(concurrency)
         hits: dict[str, str] = {}
         misses: list[str] = []
+        meta_by_id: dict[str, dict] = {}
         errors = 0
         consecutive = 0
         aborted = asyncio.Event()
@@ -390,6 +513,8 @@ class TmdbEnrichmentManager(QObject):
                         )
                     return
                 consecutive = 0
+                # Salvage the metadata the list row lacks (free — same response).
+                meta_by_id[cid] = harvest_detail_metadata(data)
                 tmdb = _extract_tmdb_id(data)
                 if tmdb:
                     hits[cid] = tmdb
@@ -397,4 +522,4 @@ class TmdbEnrichmentManager(QObject):
                     misses.append(cid)
 
         await asyncio.gather(*(one(r) for r in rows))
-        return hits, misses, errors
+        return hits, misses, meta_by_id, errors
