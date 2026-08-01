@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=199,
-    version="0.15.0",
+    version="0.16.0",
     date="2026-08-01",
     title="The 👍 / 👎 rating controls are findable again",
     items=(

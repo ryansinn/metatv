@@ -1,4 +1,4 @@
-"""Recommendation steering (0.15.0) — proportional media mix + scoring dials.
+"""Recommendation steering (0.16.0) — proportional media mix + scoring dials.
 
 What this proves:
 

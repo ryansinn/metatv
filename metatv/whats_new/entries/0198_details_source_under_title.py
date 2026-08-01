@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=198,
-    version="0.15.0",
+    version="0.16.0",
     date="2026-08-01",
     title="Details pane: 'Source:' now sits right under the title",
     items=(

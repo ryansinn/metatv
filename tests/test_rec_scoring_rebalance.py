@@ -1,4 +1,4 @@
-"""Recommendation-scoring rebalance (0.15.0).
+"""Recommendation-scoring rebalance (0.16.0).
 
 Three defects the rebalance fixes, each with a test that executes the changed path:
 
