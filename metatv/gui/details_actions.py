@@ -192,8 +192,18 @@ class _ActionBar(QWidget):
     # ------------------------------------------------------------------ #
 
     def load(self, state: ChannelActionState) -> None:
-        """Apply a fetched action state to all button checked states/tooltips."""
-        self._in_queue = state.in_queue
+        """Apply a fetched action state to all button checked states/tooltips.
+
+        ``state`` is always SERIES-level (ChannelActionState). In episode mode
+        (Slice 2B) queue state is per-EPISODE instead — set via
+        ``set_episode_queue_favorite`` — so a late-arriving series-level fetch
+        (the two async requests race; either can resolve last) must not clobber it.
+        Rating/suppressed/hidden stay series-scoped even in episode mode by design
+        (see enter_episode_mode / _refresh_series_scope_tooltips), so those always
+        apply.
+        """
+        if self._primary_mode != "episode":
+            self._in_queue = state.in_queue
         self._rating = state.rating
         self._suppressed = state.is_suppressed
         self._is_hidden = state.is_hidden
@@ -283,9 +293,15 @@ class _ActionBar(QWidget):
         """Configure the action bar for an episode selected in the series tree.
 
         The primary button becomes ``▶ Play Episode: S##E##`` (or plain
-        ``▶ Play Episode`` when no coordinate is known); the movie-only affordances
-        (Resume, Watch Later) are hidden because they don't apply to a single
-        episode.  ``exit_episode_mode`` (called from show_channel) restores them.
+        ``▶ Play Episode`` when no coordinate is known); Resume is hidden (movie-only
+        affordance — doesn't apply to a single episode).  Watch Later STAYS VISIBLE
+        and the favorite star stays clickable (Wave 2 Slice 2B) but both now target
+        the EPISODE, not the series — reset to un-queued/un-favorited here so neither
+        flashes the series' stale state (nor an un-suffixed tooltip); the caller's
+        async per-episode fetch (``episode_action_state_requested`` →
+        ``apply_episode_action_state``) corrects both shortly after.
+        ``exit_episode_mode`` (called from show_channel) restores series-scoped
+        behaviour.
 
         Args:
             episode_code: The episode coordinate to show in the caption, e.g.
@@ -295,18 +311,47 @@ class _ActionBar(QWidget):
         self._episode_code = episode_code
         self.set_primary_mode("episode")
         self.resume_button.hide()
-        self.queue_button.hide()
+        self._in_queue = False
+        self._sync_queue_button()
+        self.queue_button.setVisible(True)
+        # Reset the favorite star too (its icon/tooltip were last painted for the
+        # SERIES by show_channel(), before _episode_code existed) — re-render now
+        # that _primary_mode/_episode_code are set, so the tooltip carries the
+        # episode coordinate; the caller's async per-episode fetch corrects the
+        # icon shortly after, same as the queue button above.
+        self.update_favorite(False)
+        self._refresh_series_scope_tooltips()
 
     def exit_episode_mode(self) -> None:
-        """Undo :meth:`enter_episode_mode`'s button-hiding (label handled by caller).
+        """Undo :meth:`enter_episode_mode`'s state (label handled by caller).
 
-        Restores the Watch Later button and clears the stored episode code so a
-        later Browse / Play caption never carries a stale coordinate; Resume
-        visibility is re-derived by the subsequent ``set_resume`` call in
-        ``show_channel``.
+        Clears the stored episode code so a later Browse / Play caption — and the
+        queue/favorite tooltips — never carry a stale coordinate; Resume visibility
+        is re-derived by the subsequent ``set_resume`` call in ``show_channel``.
         """
         self._episode_code = ""
         self.queue_button.setVisible(True)
+        self._refresh_series_scope_tooltips()
+
+    def _refresh_series_scope_tooltips(self) -> None:
+        """Flag like/dislike/not-interested/hide as SERIES-scoped while in episode mode.
+
+        These buttons are never re-targeted to the episode (unlike queue/favorite) —
+        per the "no silent series-scoping" rule, their tooltip must say so instead
+        rather than quietly rating/hiding the whole series while an episode is shown.
+        ``_sync_hide_button`` re-derives its own suffix from ``_primary_mode`` on
+        every call, so only the three static-tooltip buttons need refreshing here.
+        """
+        suffix = (
+            " — applies to the whole series, not just this episode"
+            if self._primary_mode == "episode" else ""
+        )
+        self.like_button.setToolTip(f"Like{suffix}")
+        self.dislike_button.setToolTip(f"Dislike{suffix}")
+        self.not_interested_button.setToolTip(
+            f"Not Interested — suppress from recommendations{suffix}"
+        )
+        self._sync_hide_button()
 
     # ------------------------------------------------------------------ #
     # "Currently playing" indicator (green outline + live elapsed timer)   #
@@ -366,17 +411,33 @@ class _ActionBar(QWidget):
         self.play_button.setToolTip(f"Now playing — {elapsed}")
 
     def update_favorite(self, is_favorite: bool) -> None:
+        """Paint the favorite star. In episode mode (Slice 2B) the tooltip names the
+        episode coordinate, since the click now targets the EPISODE, not the series.
+        """
+        suffix = f" {self._episode_code}" if (self._primary_mode == "episode" and self._episode_code) else ""
         if is_favorite:
             self.favorite_button.setText(self.config.favorite_icon)
-            self.favorite_button.setToolTip("Remove from Favorites")
+            self.favorite_button.setToolTip(f"Remove{suffix} from Favorites")
             # Favorited glows GOLD (the star fills yellow) — the favorite button is
             # NOT :checkable, so the accent :checked rule can't reach it; swap the
             # whole style directly (mirrors the alert/monitor button's style swap).
             self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_FAV)
         else:
             self.favorite_button.setText(self.config.unfavorite_icon)
-            self.favorite_button.setToolTip("Add to Favorites")
+            self.favorite_button.setToolTip(f"Add{suffix} to Favorites")
             self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN)
+
+    def set_episode_queue_favorite(self, in_queue: bool, is_favorite: bool) -> None:
+        """Apply per-EPISODE queue + favorite state (episode mode only, Slice 2B).
+
+        Separate from :meth:`load`, which applies the SERIES-level
+        ``ChannelActionState`` — rating/suppress/hide stay series-scoped even in
+        episode mode (see ``enter_episode_mode``); only queue + favorite become
+        episode-scoped here, driven by the pane's own per-episode DB fetch.
+        """
+        self._in_queue = in_queue
+        self._sync_queue_button()
+        self.update_favorite(is_favorite)
 
     def update_epg_title(self, title: str, watchlist_patterns: list) -> None:
         self._current_epg_title = title
@@ -465,9 +526,18 @@ class _ActionBar(QWidget):
 
     def _sync_queue_button(self) -> None:
         self.queue_button.setChecked(self._in_queue)
-        self.queue_button.setToolTip(
-            "Remove from Watch Later" if self._in_queue else "Add to Watch Later"
-        )
+        if self._primary_mode == "episode" and self._episode_code:
+            # Episode mode (Slice 2B): the button now queues THIS episode, not the
+            # series — say so, and use "Watch Queue" (the episode-grain wording)
+            # rather than the channel-grain "Watch Later" below.
+            self.queue_button.setToolTip(
+                f"Remove {self._episode_code} from Watch Queue" if self._in_queue
+                else f"Add {self._episode_code} to Watch Queue"
+            )
+        else:
+            self.queue_button.setToolTip(
+                "Remove from Watch Later" if self._in_queue else "Add to Watch Later"
+            )
 
     def _sync_rating_buttons(self) -> None:
         self.like_button.setChecked(self._rating == 1)
@@ -478,11 +548,18 @@ class _ActionBar(QWidget):
             self.hide_button.clicked.disconnect()
         except (RuntimeError, TypeError):
             pass
+        # Episode mode (Slice 2B): Hide still targets the whole SERIES — flag it
+        # rather than silently hiding more than what's shown (no silent
+        # series-scoping rule).
+        suffix = (
+            " — hides the whole series, not just this episode"
+            if self._primary_mode == "episode" else ""
+        )
         if self._is_hidden:
-            self.hide_button.setToolTip("Unhide this channel — restore it to all views")
+            self.hide_button.setToolTip(f"Unhide this channel — restore it to all views{suffix}")
             self.hide_button.clicked.connect(self._on_unhide_clicked)
         else:
-            self.hide_button.setToolTip("Hide this channel from all views")
+            self.hide_button.setToolTip(f"Hide this channel from all views{suffix}")
             self.hide_button.clicked.connect(self._on_hide_clicked)
 
     def _sync_monitor_button(self) -> None:

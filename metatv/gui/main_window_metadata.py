@@ -62,6 +62,29 @@ class _MetadataMixin:
     def _on_action_state_loaded(self, state) -> None:
         self.details_pane.apply_action_state(state)
 
+    # ── Episode action state (Wave 2 Slice 2B — episode-mode queue/favorite) ──
+
+    def _on_episode_action_state_requested(self, episode_id: str) -> None:
+        self.executor.submit(self._bg_fetch_episode_action_state, episode_id)
+
+    def _bg_fetch_episode_action_state(self, episode_id: str) -> None:
+        from metatv.core.database import EpisodeDB
+        try:
+            with self.db.session_scope() as session:
+                repos = RepositoryFactory(session)
+                in_queue = repos.queue.is_episode_queued(episode_id)
+                ep = session.get(EpisodeDB, episode_id)
+                is_favorite = bool(ep.is_favorite) if ep else False
+        except Exception:
+            logger.exception(f"Failed to fetch episode action state for {episode_id}")
+            return
+        self._episode_action_state_loaded.emit(episode_id, in_queue, is_favorite)
+
+    def _on_episode_action_state_loaded(
+        self, episode_id: str, in_queue: bool, is_favorite: bool
+    ) -> None:
+        self.details_pane.apply_episode_action_state(episode_id, in_queue, is_favorite)
+
     # ── Other Versions / Other Sources ─────────────────────────────────────
 
     def _fetch_channel_versions(self, channel_id: str) -> None:

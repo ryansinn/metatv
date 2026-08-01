@@ -62,6 +62,66 @@ class EpisodeRepository:
                 watch_completed=bool(getattr(ep, "watch_completed", False)),
                 watch_percent=int(getattr(ep, "watch_percent", 0) or 0),
                 last_played_via=getattr(ep, "last_played_via", None),
+                is_favorite=bool(getattr(ep, "is_favorite", False)),
+            ))
+        return result
+
+    def get_playable_dto(self, episode_id: str) -> "Optional[PlayableEpisodeDTO]":
+        """Return a :class:`PlayableEpisodeDTO` for a single episode by id, or None.
+
+        Shared lookup for surfaces that only know the episode's DB id — the Watch
+        Queue and Favorites sidebar rows (Wave 2 Slice 2B) — so they can resolve a
+        play target without a live ORM object crossing the session boundary.
+        """
+        from metatv.core.repositories.dtos import PlayableEpisodeDTO
+        ep = self.get_by_id(episode_id)
+        if ep is None:
+            return None
+        return PlayableEpisodeDTO(
+            id=ep.id,
+            title=ep.title,
+            stream_url=ep.stream_url,
+            series_id=ep.series_id,
+            provider_id=ep.provider_id,
+            season_id=ep.season_id,
+            episode_num=ep.episode_num,
+            season_num=ep.season_num,
+        )
+
+    def get_favorites_dto(
+        self,
+        hidden_provider_ids: "Optional[set]" = None,
+    ) -> "List[EpisodeFavoriteDTO]":
+        """Return favorited episodes as plain DTOs for the Favorites sidebar (Slice 2B).
+
+        Mirrors ChannelRepository.get_favorites_dto's availability annotation: an
+        episode is available when its OWN provider is not in hidden_provider_ids.
+        Favorited episodes are engaged content (like channel favorites) — kept
+        regardless of source state, just annotated so the sidebar can dim them.
+
+        Args:
+            hidden_provider_ids: If supplied, episodes whose ``provider_id`` is in
+                this set are annotated with ``available=False``.
+        """
+        from metatv.core.repositories.dtos import EpisodeFavoriteDTO
+        hidden = hidden_provider_ids or set()
+        episodes = (
+            self.session.query(EpisodeDB)
+            .filter_by(is_favorite=True)
+            .order_by(EpisodeDB.series_name, EpisodeDB.season_num, EpisodeDB.episode_num)
+            .all()
+        )
+        result: list[EpisodeFavoriteDTO] = []
+        for ep in episodes:
+            result.append(EpisodeFavoriteDTO(
+                id=ep.id,
+                title=ep.title,
+                series_name=ep.series_name or "",
+                season_num=ep.season_num,
+                episode_num=ep.episode_num,
+                provider_id=ep.provider_id,
+                last_played=ep.last_played,
+                available=(not hidden or ep.provider_id not in hidden),
             ))
         return result
     

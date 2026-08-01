@@ -212,6 +212,26 @@ class EpisodeDTO:
     watch_percent: int = 0       # 0–100: % watched at last capture — drives graduated glyph (◔/◐/◕)
     # Provenance — "manual" (user played deliberately) vs "queue" (auto-advanced) vs None (unwatched)
     last_played_via: str | None = None
+    # Episode-grain favorite (Wave 2 Slice 2B) — independent of the parent series' favorite.
+    is_favorite: bool = False
+
+
+@dataclass(frozen=True)
+class EpisodeFavoriteDTO:
+    """One favorited-episode row in the Favorites sidebar section (Wave 2 Slice 2B).
+
+    Episode favorites are a separate, additive sub-list under the Favorites section
+    (rendered "Series — S##E##  Title"); this DTO carries just what that row and its
+    play/availability logic need — no live ORM object crosses the session boundary.
+    """
+    id: str                              # EpisodeDB.id
+    title: str | None
+    series_name: str
+    season_num: int
+    episode_num: int
+    provider_id: str | None = None       # None when orphaned
+    last_played: datetime | None = None
+    available: bool = True               # False when the episode's provider is hidden
 
 
 # ---------------------------------------------------------------------------

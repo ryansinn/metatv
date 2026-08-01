@@ -490,6 +490,22 @@ class _SeriesMixin:
         if episode is not None:
             self.play_episode(episode)
 
+    def play_episode_by_id(self, episode_id: str) -> None:
+        """Resolve an episode_id to a PlayableEpisodeDTO and route through play_episode().
+
+        The single chokepoint for surfaces that only know an episode's DB id — the
+        Watch Queue and Favorites sidebar rows (Wave 2 Slice 2B) — so episode-grain
+        playback never grows a second play path (play_episode already threads
+        provider_id through to player_manager for Split-Streams keying).
+        """
+        episode = None
+        with self.db.session_scope() as session:
+            episode = RepositoryFactory(session).episodes.get_playable_dto(episode_id)
+        if episode is None:
+            self.status_bar.showMessage("This episode is no longer available")
+            return
+        self.play_episode(episode)
+
     def play_episode(self, episode, queue_season: bool | None = None):
         """Play an episode and optionally queue subsequent episodes.
 
@@ -847,6 +863,13 @@ class _SeriesMixin:
                         mark_action,
                         self._make_play_episode_only_action(menu, episode),
                     )
+                # Favorite/Unfavorite — episode-grain (Slice 2B). Single-selection
+                # only, mirroring the Play Episode action's single-select scoping;
+                # this tree builds its own QMenu rather than routing through
+                # channel_menu.py (that registry is ChannelDB-only today).
+                menu.insertAction(
+                    mark_action, self._make_favorite_episode_action(menu, item, episode)
+                )
                 menu.insertSeparator(mark_action)
             else:
                 # Multi-select: offer Play All Selected above the mark action.
@@ -919,6 +942,48 @@ class _SeriesMixin:
         action.setToolTip("Play just this episode without queuing the rest of the season")
         action.triggered.connect(lambda: self.play_episode(episode, queue_season=False))
         return action
+
+    def _make_favorite_episode_action(self, parent_menu, item: "QTreeWidgetItem", episode: "EpisodeDTO"):
+        """Create a Favorite/Unfavorite Episode action for the context menu (Slice 2B).
+
+        Episode-grain favorite — independent of the parent series' own favorite
+        star (that stays reachable via the details-pane rail in series/browse mode).
+        """
+        from PyQt6.QtGui import QAction
+        is_fav = bool(getattr(episode, "is_favorite", False))
+        label = "Unfavorite Episode" if is_fav else "Favorite Episode"
+        glyph = _icons.favorite_icon if is_fav else _icons.unfavorite_icon
+        action = QAction(f"{glyph} {label}", parent_menu)
+        action.triggered.connect(lambda: self._toggle_episode_favorite(item, episode))
+        return action
+
+    def _toggle_episode_favorite(self, item: "QTreeWidgetItem", episode: "EpisodeDTO") -> None:
+        """Flip a single episode's favorite flag; patch the tree UserRole in-place
+        (so a re-opened context menu shows the correct label) and refresh Favorites.
+
+        Direct session_scope() attribute write — the new status is read back INSIDE
+        the block (before commit/expire), so no ORM object crosses the boundary
+        (mirrors _FavoritesMixin._toggle_favorite_by_id's shape for channels).
+        """
+        from dataclasses import replace as _replace
+        from metatv.core.database import EpisodeDB
+
+        new_status = None
+        with self.db.session_scope() as session:
+            ep = session.get(EpisodeDB, episode.id)
+            if ep is None:
+                return
+            ep.is_favorite = not bool(ep.is_favorite)
+            new_status = ep.is_favorite
+        if new_status is None:
+            return
+
+        new_dto = _replace(episode, is_favorite=new_status)
+        item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
+
+        status = "added to" if new_status else "removed from"
+        self.status_bar.showMessage(f"{episode.title} {status} favorites")
+        self.load_favorites()
 
     def _play_all_selected_episodes(
         self,
@@ -1026,6 +1091,9 @@ class _SeriesMixin:
                     # Must match EpisodeRepository.mark_watched_bulk which also sets
                     # last_played_via="manual" — the in-place DTO must not disagree.
                     last_played_via="manual" if watched else None,
+                    # Watched-state toggle never touches favorite — carry it forward
+                    # unchanged (a fresh EpisodeDTO() would silently default it False).
+                    is_favorite=old_dto.is_favorite,
                 )
                 ep_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "episode", "data": new_dto})
                 self._update_episode_item_icon(ep_item, new_dto)
