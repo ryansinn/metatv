@@ -23,6 +23,9 @@ _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on anot
 class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     """Sidebar section showing the user's ordered watch queue."""
 
+    # Uses the base ``create_header``, which grows the shared "Explore →" link.
+    EXPLORE_KEY = "queue"
+
     itemDoubleClicked             = pyqtSignal(str)        # channel_id
     itemSelected                  = pyqtSignal(str)        # channel_id
     channelMiddleClicked          = pyqtSignal(str)        # channel_id — configured middle-click play

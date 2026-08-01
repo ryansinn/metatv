@@ -51,12 +51,17 @@ config, _ = Config.load()
 win = mw.MainWindow(config)
 
 # setup_ui() ran to completion — the crash was create_content_area() ->
-# _connect_trail_map_signals(full_history_view.trail_map) ->
+# _connect_trail_map_signals(<explore view>.trail_map) ->
 # self._poster_lightbox.show_pixmap, before _poster_lightbox existed.
 assert win._poster_lightbox is not None
 assert win._trail_map is not None
-assert win.full_history_view is not None
-assert win.full_history_view.trail_map is not None
+# Explore views are built lazily, so the same init-order hazard now lives in
+# _ensure_explore_view — build one for real to keep it covered.
+assert win.explore_views == {}, "Explore views start unbuilt (lazy)"
+for _key in ("history", "favorites", "queue", "recommended"):
+    _view = win._ensure_explore_view(_key)
+    assert _view.trail_map is not None
+    assert win._ensure_explore_view(_key) is _view, "cached, not rebuilt"
 print("SMOKE_OK")
 """
 

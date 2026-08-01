@@ -6,15 +6,19 @@ boundary — ORM-to-DTO rule).  This module owns that shaping so it is unit-test
 against a real ``Database`` without a running ``QApplication``.
 
 Data-source-agnostic by design (the reuse the feature is built for): the view calls
-:func:`load_seed_rows` for column 0 (the walked trail — the lightbox nav-stack today,
-a Watch-History list tomorrow) and :func:`load_similar_rows` for each drilled column.
-A future History view swaps only the seed loader; the row DTO already carries the
-optional ``watch_count`` / ``last_watched`` fields that mode adds.
+a *seed loader* for column 0 and :func:`load_similar_rows` for each drilled column.
+Every Explore entry point swaps only the seed loader — the lightbox nav-stack
+(:func:`load_seed_rows`), Watch History (:func:`load_history_seed_rows`), Favorites /
+Watch Queue (:func:`load_engaged_seed_rows`) and Recommended (plain seed rows).  The
+row DTO already carries the optional ``watch_count`` / ``last_watched`` fields the
+engaged-record modes add.
 
 Scoping (DR-0007): the *seed* trail is a record of engaged content, so it is shown
-as-walked (exempt).  The *similar* columns are forward-looking discovery, so they go
-through the ``get_similar_channels`` chokepoint with the caller's
-``excluded_provider_ids`` gate (inactive ∪ expired ∪ orphaned).
+as-walked (exempt) — History, Favorites and the Watch Queue are all record views.
+Recommended is forward-looking, so its seed goes through the preference engine WITH
+the ``excluded_provider_ids`` gate.  The *similar* columns are forward-looking
+discovery too, so they go through the ``get_similar_channels`` chokepoint with the
+caller's ``excluded_provider_ids`` gate (inactive ∪ expired ∪ orphaned).
 """
 from __future__ import annotations
 
@@ -155,12 +159,14 @@ def _engagement_maps(session):
     return queue_ids, ratings_map
 
 
-def load_seed_rows(session, ids: list[str]) -> list[TrailRowDTO]:
-    """Hydrate the seed (column 0) rows for *ids*, preserving order.
+def _hydrate_seed_rows(
+    session, ids: list[str], *, history_extras: bool = False
+) -> list[TrailRowDTO]:
+    """Hydrate *ids* → ``TrailRowDTO`` in the given order (the one seed-row core).
 
-    The seed trail is engaged content (walked stops / history), so it is NOT
-    provider-scoped — a stop whose source later went inactive is still part of the
-    record and stays visible (DR-0007 record-view exemption).  Missing ids are
+    Every seed loader in this module funnels through here — one ordered read + the
+    two engagement maps, then per-row mapping.  ``history_extras`` turns on the
+    engaged-record fields (``watch_count`` / ``last_watched``).  Missing ids are
     silently dropped.
     """
     from metatv.core.database import ChannelDB
@@ -174,8 +180,34 @@ def load_seed_rows(session, ids: list[str]) -> list[TrailRowDTO]:
     for cid in ids:
         ch = by_id.get(cid)
         if ch is not None:
-            out.append(_row_from_channel(session, ch, queue_ids, ratings_map))
+            out.append(
+                _row_from_channel(
+                    session, ch, queue_ids, ratings_map, history_extras=history_extras
+                )
+            )
     return out
+
+
+def load_seed_rows(session, ids: list[str]) -> list[TrailRowDTO]:
+    """Hydrate the seed (column 0) rows for *ids*, preserving order.
+
+    The lightbox's walked trail (and the Recommended Explore seed, whose titles are
+    forward-looking so the "watched N×" extras would always be empty).  Not
+    provider-scoped here: the caller decides what belongs in column 0 — the
+    Recommended id loader applies its own ``excluded_provider_ids`` gate.
+    """
+    return _hydrate_seed_rows(session, ids)
+
+
+def load_engaged_seed_rows(session, ids: list[str] | None = None) -> list[TrailRowDTO]:
+    """Hydrate an ENGAGED-record seed (Favorites / Watch Queue) with the watch extras.
+
+    Same core as :func:`load_seed_rows` plus ``watch_count`` / ``last_watched``, so a
+    favorited or queued title shows "watched N× · <when>" exactly as a history stop
+    does.  As record views these are NOT provider-scoped (DR-0007 exemption): a
+    favorite on a since-inactive source is still a favorite.
+    """
+    return _hydrate_seed_rows(session, ids or [], history_extras=True)
 
 
 def load_similar_rows(
@@ -205,9 +237,11 @@ def load_similar_rows(
     return [_row_from_channel(session, ch, queue_ids, ratings_map) for ch in neighbours]
 
 
-# Full Watch-History view seed size.  The trail column scrolls, so this is a
-# generous cap, not a page — it bounds the one ordered read the view issues.
-HISTORY_SEED_LIMIT = 200
+# Explore seed size (History / Favorites / Watch Queue).  The trail column scrolls,
+# so this is a generous cap, not a page — it bounds the one ordered read each view
+# issues.  ``HISTORY_SEED_LIMIT`` is the original name, kept as the alias.
+EXPLORE_SEED_LIMIT = 200
+HISTORY_SEED_LIMIT = EXPLORE_SEED_LIMIT
 
 
 def load_history_ids(
@@ -249,23 +283,100 @@ def load_history_seed_rows(
     As a RECORD view this is NOT provider-scoped: a played title on a since-inactive
     source still appears (DR-0007 record-view exemption).  Missing ids are dropped.
     """
-    from metatv.core.database import ChannelDB
-
     if ids is None:
         ids = load_history_ids(session, limit=limit)
-    if not ids:
+    return load_engaged_seed_rows(session, ids)
+
+
+def load_favorite_ids(
+    session, limit: int = EXPLORE_SEED_LIMIT, adult_mode: str = "all"
+) -> list[str]:
+    """Return favorited channel ids in the SAME order the Favorites rail shows them.
+
+    One ordering source of truth with the sidebar section: the shared
+    ``ChannelRepository.get_favorites_dto`` read, split into "Continue Watching"
+    (``last_played`` desc) then "Never Watched" (by name) exactly as
+    ``FavoritesSection._populate_rows`` does — so Explore's column 0 reads as the
+    rail, made walkable.
+
+    Favorites is a RECORD view (DR-0007 exemption): entries on inactive/expired
+    sources are NOT dropped, they are simply annotated unavailable by the repository.
+    """
+    from metatv.core.repositories import RepositoryFactory
+
+    repos = RepositoryFactory(session)
+    dtos = repos.channels.get_favorites_dto(adult_mode=adult_mode)
+    watched = sorted(
+        [d for d in dtos if d.last_played], key=lambda d: d.last_played, reverse=True
+    )
+    never = sorted([d for d in dtos if not d.last_played], key=lambda d: d.name)
+    return [d.id for d in (*watched, *never)][:limit]
+
+
+def load_queue_ids(session, limit: int = EXPLORE_SEED_LIMIT) -> list[str]:
+    """Return queued channel ids in the user's own queue order (``position``).
+
+    Reads the single ``WatchQueueRepository.get_all`` chokepoint the sidebar uses, so
+    Explore's column 0 is the queue as the user ordered it.  Orphaned entries (no
+    surviving ``ChannelDB`` row) carry an id that hydration then drops — the trail-map
+    can only walk titles that still exist in the corpus.
+
+    The Watch Queue is a RECORD view (DR-0007 exemption): entries on inactive/expired
+    sources stay in the seed.
+    """
+    from metatv.core.repositories import RepositoryFactory
+
+    repos = RepositoryFactory(session)
+    return [e.channel_id for e in repos.queue.get_all() if e.channel_id][:limit]
+
+
+# Recommended Explore seed size.  Matches the sidebar rail's own ``limit=20`` so the
+# Explore column shows the SAME set the rail does (not a deeper, divergent list).
+RECOMMENDED_SEED_LIMIT = 20
+
+
+def load_recommended_ids(
+    session, config, limit: int = RECOMMENDED_SEED_LIMIT
+) -> list[str]:
+    """Return the current recommendations, in engine order — the rail's own call.
+
+    Runs the SAME ``preference_engine`` scoring the Recommended sidebar section runs
+    (``balance_media_types=True, diversify_people=True``, the same muted-attribute /
+    dedupe-override / category-filter / hidden-provider inputs), so "Explore →" opens
+    exactly what the rail is showing rather than a second, differently-tuned list.
+
+    Unlike the rail this does NOT call ``record_impressions``: the rail already
+    counted these titles as shown, and re-counting on every Explore open would decay
+    them twice for one viewing.
+
+    Recommendations are forward-looking (not a record view), so the hidden-provider
+    gate applies — content on an inactive/expired source is never seeded.
+
+    Returns an empty list when the user has no taste weights yet.
+    """
+    from metatv.core.filter_utils import get_active_category_filter
+    from metatv.core.preference_engine import (
+        compute_weights, score_candidates, version_score,
+    )
+    from metatv.core.repositories import RepositoryFactory
+
+    weights = compute_weights(session)
+    if weights.is_empty():
         return []
-    queue_ids, ratings_map = _engagement_maps(session)
-    rows = session.query(ChannelDB).filter(ChannelDB.id.in_(ids)).all()
-    by_id = {ch.id: ch for ch in rows}
-    out: list[TrailRowDTO] = []
-    for cid in ids:
-        ch = by_id.get(cid)
-        if ch is not None:
-            out.append(
-                _row_from_channel(session, ch, queue_ids, ratings_map, history_extras=True)
-            )
-    return out
+    excluded_prefixes, include_uncategorized = get_active_category_filter(config)
+    hidden = RepositoryFactory(session).providers.get_hidden_provider_ids()
+    recs = score_candidates(
+        session, weights, limit=limit,
+        muted_attrs=getattr(config, "muted_attributes", None),
+        dedupe_overrides=set(getattr(config, "rec_dedupe_overrides", []) or []),
+        excluded_prefixes=excluded_prefixes,
+        include_uncategorized=include_uncategorized,
+        excluded_provider_ids=hidden or None,
+        version_scorer=lambda ch: version_score(ch, config),
+        balance_media_types=True,
+        diversify_people=True,
+    )
+    return [sc.channel_id for sc in recs]
 
 
 def metadata_to_detail(meta) -> dict:

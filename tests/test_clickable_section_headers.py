@@ -263,6 +263,19 @@ def test_recommended_header_is_clickable(qapp):
     _make_section(RecommendedSection, qapp=qapp)
 
 
+def test_history_header_is_clickable(qapp):
+    from metatv.gui.sidebar.history import HistorySection
+    _make_section(HistorySection, qapp=qapp)
+
+
+def test_queue_header_is_clickable(qapp):
+    """WatchQueueSection has no create_header override — it uses the BASE one, which
+    grows the shared "Explore →" link.  Building it must not depend on Qt's C++ side
+    being up (the link may not dereference a bound signal at construction time)."""
+    from metatv.gui.sidebar.queue import WatchQueueSection
+    _make_section(WatchQueueSection, qapp=qapp)
+
+
 def test_alerts_header_is_clickable(qapp):
     from metatv.gui.sidebar.alerts import WatchAlertsSection
     _make_section(WatchAlertsSection, qapp=qapp)

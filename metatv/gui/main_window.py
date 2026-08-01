@@ -729,6 +729,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section = self.create_section(section_id)
             if section:
                 self.sidebar_sections[section_id] = section
+                # One wiring site for every "Explore →" header link: a section that
+                # declares an EXPLORE_KEY opens the matching Explore view (cascading
+                # columns seeded with that section's contents).
+                if getattr(section, "EXPLORE_KEY", None):
+                    section.exploreClicked.connect(
+                        lambda key=section.EXPLORE_KEY: self.switch_to_explore_view(key)
+                    )
                 self.sidebar_splitter.addWidget(section)
                 section.setVisible(section_id in visible_ids)
                 section.restore_state()
@@ -817,7 +824,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.historyItemClicked.connect(self.play_from_history_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
-            section.seeAllClicked.connect(self.switch_to_full_history_view)
+            # "Explore →" is wired once for every section in create_sidebar().
             # Connect context menu handler
             section.history_list.customContextMenuRequested.connect(
                 lambda pos: self.show_history_context_menu(pos, section.history_list)
@@ -1615,20 +1622,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.recipe_view.setVisible(False)
         self._list_layout.addWidget(self.recipe_view)
 
-        # Full Watch-History view (hidden by default) — the Explore trail-map reused
-        # in embedded mode, seeded with watch history.  Its per-title intents route
-        # through the SAME shared handlers as the lightbox Explore overlay; ✕ / Esc
-        # (via close_requested) returns to Browse instead of a blank pane.
-        from metatv.gui.full_history_view import FullHistoryView
-        self.full_history_view = FullHistoryView(
-            self, self.config, self.image_cache, self.db,
-            self.metadata_manager, self._run_query,
-        )
-        self._connect_trail_map_signals(self.full_history_view.trail_map)
-        self.full_history_view.trail_map.close_requested.connect(self.switch_to_list_view)
-        self.full_history_view.setVisible(False)
-        self._list_layout.addWidget(self.full_history_view)
-        self._register_cleanable("full_history_view", self.full_history_view.shutdown)
+        # Explore views (History / Favorites / Watch Queue / Recommended) — ONE
+        # embedded trail-map component per sidebar entry point, each seeded from that
+        # section's contents.  Built lazily by _ensure_explore_view on first open (a
+        # trail-map owns a worker pool, so four eager instances would cost four idle
+        # pools for a surface most sessions never open).
+        self.explore_views: dict = {}
 
         self.epg_manager.start_notification_timer()
         # Periodic scheduler: poke refresh_all_if_needed every hour so long-running
@@ -1859,6 +1858,40 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         tm.open_details_requested.connect(self._on_trail_open_details)
         tm.recipe_requested.connect(self._on_trail_recipe_requested)
         tm.poster_expand_requested.connect(self._poster_lightbox.show_pixmap)
+
+    def _ensure_explore_view(self, key: str):
+        """Return the Explore view for *key*, building + wiring it on first use.
+
+        The single construction seam for every Explore entry point: one component
+        (:class:`~metatv.gui.explore_view.ExploreView`) parameterized by its
+        :data:`~metatv.gui.explore_view.EXPLORE_SOURCES` entry.  Per-title intents
+        route through the SAME shared trail-map handlers as the lightbox Explore
+        overlay; ✕ / Esc (via ``close_requested``) returns to Browse instead of
+        leaving a blank pane.
+
+        Args:
+            key: An ``EXPLORE_SOURCES`` key (history | favorites | queue | recommended).
+
+        Returns:
+            The cached-or-new ``ExploreView``.
+        """
+        from metatv.gui.explore_view import EXPLORE_SOURCES, ExploreView
+
+        view = self.explore_views.get(key)
+        if view is not None:
+            return view
+        view = ExploreView(
+            self, self.config, self.image_cache, self.db,
+            self.metadata_manager, self._run_query,
+            source=EXPLORE_SOURCES[key],
+        )
+        self._connect_trail_map_signals(view.trail_map)
+        view.trail_map.close_requested.connect(self.switch_to_list_view)
+        view.setVisible(False)
+        self._list_layout.addWidget(view)
+        self._register_cleanable(f"explore_view_{key}", view.shutdown)
+        self.explore_views[key] = view
+        return view
 
     def _show_trail_map(self, seed_ids: list) -> None:
         """Open the Explore trail-map seeded with the lightbox's walked trail.
@@ -2136,17 +2169,19 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         ``_persist=False`` updates the in-memory config fields only (the single
         write is done by :meth:`_persist_layout_now`).
         """
-        # Clobber guard: while the Full Watch-History view is active, panels 0 and 2
-        # are auto-collapsed to 0 (so the trail-map gets the full width).  Persisting
-        # then would overwrite the user's remembered sidebar_width / details_pane_width
-        # with 0 (and flip details_pane_visible off).  A user drag or app-close while
-        # in history would hit this path, so skip the main-splitter write outright.
+        # Clobber guard: while ANY Explore view (History / Favorites / Watch Queue /
+        # Recommended) is active, panels 0 and 2 are auto-collapsed to 0 (so the
+        # trail-map gets the full width).  Persisting then would overwrite the user's
+        # remembered sidebar_width / details_pane_width with 0 (and flip
+        # details_pane_visible off).  A user drag or app-close while in an Explore
+        # view would hit this path, so skip the main-splitter write outright.
         # (collapse_panel's setSizes() does not emit splitterMoved, so the auto-collapse
         # itself never triggers a save — this guards the manual-drag / closeEvent cases.)
         # Plain __dict__ lookup (the codebase's existence-guard convention): `getattr`
         # on a PyQt object whose C++ __init__ was skipped (the persistence unit-test
         # shell) raises "super-class __init__() never called" instead of the default.
-        if self.__dict__.get("view_mode") == "history":
+        from metatv.gui.explore_view import EXPLORE_VIEW_MODES
+        if self.__dict__.get("view_mode") in EXPLORE_VIEW_MODES:
             return
         try:
             sizes = self.main_splitter.sizes()

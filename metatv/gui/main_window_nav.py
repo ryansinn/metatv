@@ -53,18 +53,22 @@ class _NavMixin:
         if "missing_tmdb_view" in self.__dict__:
             if self.missing_tmdb_view.isVisible():
                 self.missing_tmdb_view.on_deactivate()
-        # Deactivate the Full Watch-History view if it exists and is visible
-        if "full_history_view" in self.__dict__:
-            if self.full_history_view.isVisible():
-                self.full_history_view.on_deactivate()
+        # Deactivate whichever Explore view (History / Favorites / Queue /
+        # Recommended) is currently visible.  They are built lazily, so the dict may
+        # be absent (early call) or empty.
+        if "explore_views" in self.__dict__:
+            for view in self.explore_views.values():
+                if not view.isVisible():
+                    continue
+                view.on_deactivate()
                 # Symmetric restore: re-expand exactly the flanking panels the
-                # history activation auto-collapsed (see switch_to_full_history_view),
-                # so the sidebar + details pane return to their prior widths.
+                # Explore activation auto-collapsed (see switch_to_explore_view), so
+                # the sidebar + details pane return to their prior widths.
                 splitter = getattr(self, "main_splitter", None)
                 if splitter is not None:
-                    for i in getattr(self, "_history_restored_panels", (0, 2)):
+                    for i in getattr(self, "_explore_restored_panels", (0, 2)):
                         splitter.expand_panel(i)
-                    self._history_restored_panels = []
+                    self._explore_restored_panels = []
         # EPG stats-line controls (source status + Refresh) belong to the EPG view
         # only — hide them whenever we blank the content area (guarded: the stats
         # line is built after this mixin's earliest possible call).
@@ -83,8 +87,9 @@ class _NavMixin:
             self.recipe_view.setVisible(False)
         if "missing_tmdb_view" in self.__dict__:
             self.missing_tmdb_view.setVisible(False)
-        if "full_history_view" in self.__dict__:
-            self.full_history_view.setVisible(False)
+        if "explore_views" in self.__dict__:
+            for view in self.explore_views.values():
+                view.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
         if hasattr(self, "filter_panel"):
@@ -228,19 +233,25 @@ class _NavMixin:
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
 
-    def switch_to_full_history_view(self) -> None:
-        """Switch content area to the Full Watch-History view (embedded trail-map).
+    def switch_to_explore_view(self, key: str) -> None:
+        """Switch content area to the Explore view for *key* (embedded trail-map).
 
-        Launched from the sidebar History section's "See all →" link (and the
-        ``navigate_to("view:history")`` deep-link seam).  It is a RECORD view with no
-        nav chip, so every view chip is cleared and none is lit.
+        The ONE switch path behind all four "Explore →" sidebar links (and the
+        ``navigate_to("view:<key>")`` deep-link seam): History, Favorites, Watch
+        Queue and Recommended differ only by their ``ExploreSource``.  None of them
+        has a nav chip, so every view chip is cleared and none is lit.
+
+        Args:
+            key: An ``EXPLORE_SOURCES`` key (history | favorites | queue |
+                recommended).
         """
-        self.view_mode = "history"
+        view = self._ensure_explore_view(key)
+        self.view_mode = view.source.view_mode
         self._hide_all_content_views()
-        self._deactivate_view_chips()  # record view — no chip of its own
-        self.full_history_view.setVisible(True)
-        self.stats_label.setText("Watch History")
-        self.full_history_view.on_activate()
+        self._deactivate_view_chips()  # record/engaged view — no chip of its own
+        view.setVisible(True)
+        self.stats_label.setText(view.source.title)
+        view.on_activate()
         # The embedded trail-map is boxed by the sidebar + details pane, so give it
         # the full window: auto-collapse both flanking panels (reusing the splitter's
         # own remember-and-restore collapse_panel, never snapshotting sizes here).  We
@@ -248,11 +259,16 @@ class _NavMixin:
         # _hide_all_content_views doesn't pop open a details pane the user had shut.
         splitter = getattr(self, "main_splitter", None)
         if splitter is not None:
-            self._history_restored_panels = [
+            self._explore_restored_panels = [
                 i for i in (0, 2) if not splitter.is_panel_collapsed(i)
             ]
-            for i in self._history_restored_panels:
+            for i in self._explore_restored_panels:
                 splitter.collapse_panel(i)
+
+    def switch_to_full_history_view(self) -> None:
+        """Open the Watch-History Explore view — the named entry point kept for the
+        ``view:history`` deep link and the sidebar History section."""
+        self.switch_to_explore_view("history")
 
     def navigate_back(self):
         """Navigate back from series view to the originating view.
@@ -315,8 +331,16 @@ class _NavMixin:
         others, then calls the registered ``switch_to_*`` method.  No-ops
         gracefully when the view/chip isn't built in this session.
         """
-        mapping = _NAV_VIEW_TARGETS.get(name.lower())
+        from metatv.gui.explore_view import EXPLORE_SOURCES
+
+        name = name.lower()
+        mapping = _NAV_VIEW_TARGETS.get(name)
         if mapping is None:
+            # Every Explore entry point is deep-linkable by its source key
+            # (favorites | queue | recommended; "history" is in the table above).
+            if name in EXPLORE_SOURCES:
+                self.switch_to_explore_view(name)
+                return True
             logger.warning("navigate_to: unknown view '{}'", name)
             return False
         method_name, chip_attr = mapping

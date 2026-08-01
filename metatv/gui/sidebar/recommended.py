@@ -26,6 +26,8 @@ _REC_LOAD_ERROR = object()
 class RecommendedSection(CollapsibleSection):
     """Sidebar section showing top VOD recommendations from the preference engine."""
 
+    EXPLORE_KEY = "recommended"
+
     itemSelected              = pyqtSignal(str, str)  # channel_id, reason
     itemDoubleClicked         = pyqtSignal(str)        # channel_id
     channelMiddleClicked      = pyqtSignal(str)        # channel_id — configured middle-click play
@@ -49,6 +51,8 @@ class RecommendedSection(CollapsibleSection):
         self.title_label = QLabel(f"{self.config.preferences_icon} <b>Recommended</b>")
         hl.addWidget(self.title_label)
         hl.addStretch()
+
+        self._add_explore_link(hl)
 
         refresh_btn = QPushButton(self.config.refresh_icon)
         refresh_btn.setFixedSize(22, 20)

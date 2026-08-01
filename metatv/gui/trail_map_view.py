@@ -404,16 +404,29 @@ class TrailMapView(QWidget):
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
-    def open(self, seed_ids: list[str], origin_title: str = "") -> None:
-        """Open (or refresh) the trail-map seeded with *seed_ids* (the walked trail)."""
+    def open(
+        self, seed_ids: list[str], origin_title: str = "", origin_icon: str = ""
+    ) -> None:
+        """Open (or refresh) the trail-map seeded with *seed_ids* (the walked trail).
+
+        Args:
+            seed_ids: Column-0 channel ids, in display order.
+            origin_title: Embedded mode only — the header label ("Watch History",
+                "Favorites", …).  Empty keeps the default "Explore" header.
+            origin_icon: Embedded mode only — the glyph shown beside *origin_title*
+                (from ``icons.py``).  Defaults to the history glyph, the original
+                embedded caller.
+        """
         seed_ids = [s for s in (seed_ids or []) if s]
         if not seed_ids:
             return
         self._seed_ids = seed_ids
         self._origin_title = origin_title
         if self._embedded and origin_title:
-            # Full History view: relabel the header (it is not "Explore" here).
-            self._header_title.setText(f"{_icons.history_icon}  {origin_title}")
+            # Embedded Explore view: relabel the header per entry point (it is not
+            # the generic "Explore" overlay here).
+            icon = origin_icon or _icons.history_icon
+            self._header_title.setText(f"{icon}  {origin_title}")
         self._seed_rows = []
         self._drill = []
         self._selected_id = None

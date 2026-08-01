@@ -1510,14 +1510,16 @@ TRAILMAP_DETAIL_LINK_BTN = (
 )
 TRAILMAP_EMPTY_HINT = "color: " + COLOR_FAINT + "; font-size: " + FONT_LG + ";"
 
-# Full Watch-History view (embedded trail-map): opaque backing so the transient
-# loading / empty state is not a see-through gap over the content area.
-FULL_HISTORY_VIEW_BG = "#fullHistoryView { background: " + COLOR_LIGHTBOX_BG + "; }"
-FULL_HISTORY_STATUS = (
+# Explore views (embedded trail-map: History / Favorites / Watch Queue / Recommended):
+# opaque backing so the transient loading / empty state is not a see-through gap over
+# the content area.  One role constant shared by every Explore entry point.
+EXPLORE_VIEW_BG = "#exploreView { background: " + COLOR_LIGHTBOX_BG + "; }"
+EXPLORE_STATUS = (
     "color: " + COLOR_MUTED + "; font-size: " + FONT_XL + ";"
 )
 
-# Sidebar "See all →" header link (History section → Full Watch-History view).
+# Sidebar "Explore →" header link (History / Favorites / Queue / Recommended → the
+# matching Explore cascading-columns view).
 SIDEBAR_SEE_ALL_BTN = (
     "QPushButton { border: none; background: transparent; color: " + COLOR_ACCENT_BLUE + ";"
     " font-size: " + FONT_MD + "; padding: 0 4px; }"

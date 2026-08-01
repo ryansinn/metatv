@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidg
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
-from metatv.gui import icons as _icons
 from metatv.gui.chip_row import build_chip_row
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
@@ -57,10 +56,13 @@ class HistoryItemWidget(QWidget):
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     """Playback history section"""
 
+    EXPLORE_KEY = "history"
+
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
-    seeAllClicked      = pyqtSignal()      # open the Full Watch-History view
+    # "Explore →" (open the Watch-History trail-map) is the shared base-class
+    # ``exploreClicked`` signal — see CollapsibleSection._add_explore_link.
     _data_ready        = pyqtSignal(object)  # list[HistoryDTO] | None
 
     def __init__(self, config, db, parent=None):
@@ -72,19 +74,13 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         return "history"
 
     def create_header(self):
-        """Header with an "Explore →" link that opens the Full Watch-History trail-map."""
+        """Header with an "Explore →" link that opens the Watch-History trail-map."""
         header = self._build_clickable_header()
         hl = header.layout()
         self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
         hl.addWidget(self.title_label)
         hl.addStretch()
-        self.see_all_btn = QPushButton(f"Explore {_icons.see_all_arrow_icon}")
-        self.see_all_btn.setFlat(True)
-        self.see_all_btn.setToolTip("Explore your full Watch History (cascading columns)")
-        self.see_all_btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
-        # A QPushButton consumes its own click, so it never toggles the header.
-        self.see_all_btn.clicked.connect(self.seeAllClicked.emit)
-        hl.addWidget(self.see_all_btn)
+        self._add_explore_link(hl)
         self.main_layout.addWidget(header)
 
     def create_content(self):

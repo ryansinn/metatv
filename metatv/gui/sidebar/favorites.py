@@ -22,6 +22,8 @@ _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on anot
 class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
     """Favorites section"""
 
+    EXPLORE_KEY = "favorites"
+
     favoriteClicked         = pyqtSignal(str)   # channel_id (double-click, available only)
     itemSelected            = pyqtSignal(str)   # channel_id (single-click)
     channelMiddleClicked    = pyqtSignal(str)   # channel_id — configured middle-click play
@@ -40,6 +42,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         return "favorites"
 
     def create_header(self):
+        """Header with an "Explore →" link that opens the Favorites trail-map."""
         header = self._build_clickable_header()
         hl = header.layout()
         self.title_label = QLabel(
@@ -48,6 +51,7 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         hl.addWidget(self.title_label)
         hl.addStretch()
+        self._add_explore_link(hl)
         self.main_layout.addWidget(header)
 
     def create_content(self):
