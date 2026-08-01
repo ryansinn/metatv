@@ -73,6 +73,7 @@ from metatv.gui.epg_widgets import (
     _REMAIN_ROLE,
     _SORT_ROLE,
     _ProgressBarDelegate,
+    apply_watchlist_highlight as _apply_watchlist_highlight,
 )
 
 
@@ -400,11 +401,7 @@ class _EpgOnNowMixin:
                 item.setToolTip(0, resolve_category_name(category, self.config) or category)
 
             if any(pat in prog.title.lower() for pat in patterns):
-                for col in range(5):
-                    item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
-                font = item.font(3)
-                font.setBold(True)
-                item.setFont(3, font)
+                _apply_watchlist_highlight(item, range(5), 3)
 
             self.on_now_list.addTopLevelItem(item)
 

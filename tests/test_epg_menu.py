@@ -343,10 +343,20 @@ def _make_fake_item(ch_id: str, show_title: str = "My Show") -> object:
 
 
 def _make_fake_browse_item(ch_id: str, show_title: str = "Browse Show") -> object:
-    """Minimal fake QTreeWidgetItem for browse_list."""
+    """Minimal fake QTreeWidgetItem for browse_list.
+
+    Columns are Time/Category/Channel/Quality/Show/Duration (Q1/Q2 makeover) — the
+    Show title lives at column 4. ``data()`` only answers the UserRole channel-id
+    lookup at column 0; every other (col, role) pair — including the Q3
+    ``_SEPARATOR_ROLE`` check — must read back ``None``, or this fake would look
+    like a day-separator row and get silently skipped by the context-menu handler.
+    """
+    from PyQt6.QtCore import Qt as _Qt
     item = MagicMock()
-    item.data.side_effect = lambda col, role: ch_id if col == 0 else None
-    item.text.side_effect = lambda col: show_title if col == 2 else ""
+    item.data.side_effect = (
+        lambda col, role: ch_id if (col == 0 and role == _Qt.ItemDataRole.UserRole) else None
+    )
+    item.text.side_effect = lambda col: show_title if col == 4 else ""
     return item
 
 
