@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QSizePolicy, QListWidget, QListWidgetItem, QWidget, QHBoxLayout,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
 from loguru import logger
 
 from metatv.gui import theme as _theme
@@ -18,14 +19,19 @@ _REC_LOAD_ERROR = object()
 
 
 class _MiddleElideLabel(QLabel):
-    """Single-line title label that middle-elides ('Long ti…tle') to its width.
+    """Single-line title label that middle-elides ('Long ti…tle') to its CURRENT width.
 
-    Keeps the full text as the tooltip and recomputes on every resize, so a title
-    that fits shows in full (no ellipsis) and a longer one truncates in the middle —
-    re-evaluated whenever the sidebar (and thus the row) is resized. Reports a tiny
-    ``minimumSizeHint`` so the layout may shrink it (which is what triggers the
-    elide), while its ``sizeHint`` still prefers the full title when there's room.
-    Promote to a shared widgets module when the search-results list adopts chips.
+    Elides in ``paintEvent`` — computing the elided string against the live
+    ``contentsRect().width()`` on every paint — rather than mutating stored text in
+    ``resizeEvent``. For ``setItemWidget`` rows the resize fires at an intermediate
+    (stale) width and never recomputes at the final one, which chopped SHORT titles that
+    easily fit ("1983" → "1…3", "Danger Mouse" → "Dang…ouse"). Painting against the
+    current width means a title that fits shows in full and only a genuinely-too-long one
+    truncates in the middle. Keeps the full text as the tooltip and as ``text()``; the
+    pen colour comes from the ``COLOR_TEXT`` token (never a literal). Reports a tiny
+    ``minimumSizeHint`` (width of "…") so the layout may shrink it, while ``sizeHint``
+    still prefers the full title when there's room. Promote to a shared widgets module
+    when the search-results list adopts chips.
     """
 
     def __init__(self, text: str = "", parent=None):
@@ -33,12 +39,18 @@ class _MiddleElideLabel(QLabel):
         self._full = text or ""
         self.setTextFormat(Qt.TextFormat.PlainText)
         self.setToolTip(self._full)
+        # Keep QLabel's own text set to the full string so its size-hint machinery
+        # (height) stays correct; the overridden paintEvent draws the elided form, so
+        # QLabel's default (full-text) painter never runs.
         super().setText(self._full)
 
     def setText(self, text: str) -> None:  # keep _full authoritative if reused
         self._full = text or ""
         self.setToolTip(self._full)
-        self._elide()
+        super().setText(self._full)  # updates height hints + text(); paintEvent re-elides
+
+    def text(self) -> str:  # authoritative full text (not the elided paint)
+        return self._full
 
     def minimumSizeHint(self) -> QSize:
         h = super().minimumSizeHint().height()
@@ -48,18 +60,14 @@ class _MiddleElideLabel(QLabel):
         h = super().sizeHint().height()
         return QSize(self.fontMetrics().horizontalAdvance(self._full), h)
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        w = self.width()
-        if w <= 0:
-            super().setText(self._full)
-            return
-        super().setText(
-            self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideMiddle, w)
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        painter = QPainter(self)
+        painter.setPen(QColor(_theme.COLOR_TEXT))  # token, never a literal
+        rect = self.contentsRect()
+        elided = self.fontMetrics().elidedText(
+            self._full, Qt.TextElideMode.ElideMiddle, rect.width()
         )
+        painter.drawText(rect, int(self.alignment().value), elided)
 
 
 class RecommendedSection(CollapsibleSection):
@@ -219,15 +227,17 @@ class RecommendedSection(CollapsibleSection):
         self.set_empty(False)
 
     def _build_rec_row(self, sc, year: str) -> QWidget:
-        """Recommendation row: ``[icon] Title [Year] … [lang][quality]``.
+        """Recommendation row: ``[icon] Title [Year][Quality] … [Lang]``.
 
         Mirrors the mouse-transparent ``setItemWidget`` pattern of ``_VodAlertRow``.
-        Layout: an icon, the middle-eliding title, the year hugging it (one size
-        smaller + a hair dimmer, ``REC_ROW_YEAR``), then a stretch, then the facet
-        chips pushed to the far right — the audio language (``detected_prefix`` — the
-        honest language, NOT the source ``detected_region`` that used to leak into the
-        title) via ``LANG_CHIP`` and the quality via the existing ``QUALITY_CHIP``
-        badge. So the title reads as a title, and facets read as chips.
+        Layout, left→right: an icon, the middle-eliding title, then the LEFT facet
+        cluster hugging it — the year as a subtle bordered chip (``YEAR_CHIP``) and,
+        when present, the quality badge (``QUALITY_CHIP``) — then a stretch, then the
+        audio-language chip pushed to the far right (``LANG_CHIP``). The language chip
+        is the CONSISTENT rightmost element on every row (never displaced by the
+        quality chip), so the right edge stays aligned. Language is ``detected_prefix``
+        — the honest language, NOT the source ``detected_region`` that used to leak
+        into the title. So the title reads as a title, and facets read as chips.
         """
         media_icon = (
             self.config.movie_icon if sc.media_type == "movie"
@@ -251,25 +261,29 @@ class RecommendedSection(CollapsibleSection):
 
         if yr:
             year_lbl = QLabel(str(yr))
-            year_lbl.setStyleSheet(_theme.REC_ROW_YEAR)  # one size smaller + a hair dimmer
+            year_lbl.setStyleSheet(_theme.YEAR_CHIP)  # subtle bordered chip
             layout.addWidget(year_lbl)
 
-        layout.addStretch(1)  # the space between the title/year and the far-right chips
-
-        # Language chip (QLabel — LANG_CHIP is label-friendly).
-        if sc.detected_prefix:
-            lang_chip = QLabel(sc.detected_prefix)
-            lang_chip.setStyleSheet(_theme.LANG_CHIP)
-            lang_chip.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            layout.addWidget(lang_chip)
-        # Quality chip: reuse the existing QUALITY_CHIP badge — it is QPushButton-scoped,
-        # so it must live on a (flat, non-focusable) QPushButton to render as a chip.
+        # Quality chip sits in the LEFT cluster (after the year) so the language chip
+        # below stays the consistent far-right element. Reuse the existing QUALITY_CHIP
+        # badge — it is QPushButton-scoped, so it must live on a (flat, non-focusable)
+        # QPushButton to render as a chip.
         if sc.detected_quality:
             quality_chip = QPushButton(sc.detected_quality)
             quality_chip.setFlat(True)
             quality_chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
             layout.addWidget(quality_chip)
+
+        layout.addStretch(1)  # the space between the left cluster and the far-right lang chip
+
+        # Language chip (QLabel — LANG_CHIP is label-friendly). Every row has one, so it
+        # is the CONSISTENT far-right element (never displaced by the quality chip).
+        if sc.detected_prefix:
+            lang_chip = QLabel(sc.detected_prefix)
+            lang_chip.setStyleSheet(_theme.LANG_CHIP)
+            lang_chip.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(lang_chip)
 
         row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # The item (not this widget) owns click/double-click/context-menu — let mouse

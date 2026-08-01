@@ -451,9 +451,13 @@ DIALOG_DANGER_LINK = (
 # The name stays COLOR_TEXT (never tinted); the count goes green only when there
 # are unviewed matches, muted otherwise.  Colour-only (font-size inherits the list).
 VOD_ALERT_NAME       = "color: " + COLOR_TEXT + ";"
-# Year qualifier sitting right after a list-row title: one size smaller and a
-# hair dimmer than the title, so it reads as a subordinate qualifier not a peer.
-REC_ROW_YEAR         = "color: " + COLOR_TEXT_LOW + "; font-size: " + FONT_LG + ";"
+# Year chip sitting right after a list-row title: a subtle bordered pill (neutral,
+# QLabel-friendly like LANG_CHIP) so the year reads as a facet chip rather than body
+# text — dim text, a faint border, no fill. Composed from tokens only.
+YEAR_CHIP            = (
+    "color: " + COLOR_TEXT_LOW + "; border: 1px solid " + COLOR_BORDER + ";"
+    " border-radius: 8px; padding: 1px 7px; font-size: " + FONT_LG + ";"
+)
 VOD_ALERT_COUNT_NEW  = "color: " + COLOR_OK + ";"
 VOD_ALERT_COUNT_IDLE = "color: " + COLOR_MUTED + ";"
 
