@@ -603,7 +603,26 @@ class Config(BaseModel):
     })
     rec_dedupe_overrides: list = Field(default_factory=list)
     # channel_ids that bypass title-based dedup ("not the same show" user override)
-    
+
+    # Recommendation steering — every dial is None until the user moves it, so an
+    # untouched config uses (and keeps tracking) the shipped defaults in
+    # preference_engine.RecScoringSettings.  Resolved in one place:
+    # RecScoringSettings.from_config().
+    #
+    # Movie/series mix — the ONE key behind both the dashboard slider and the
+    # settings panel.  None = Automatic (√-damped share of your engagement);
+    # a float is an explicit movie share (0.0 = all series … 1.0 = all movies).
+    rec_media_mix: float | None = None
+    rec_weight_genre: float | None = None            # genre affinity multiplier
+    rec_weight_director: float | None = None         # director affinity multiplier
+    rec_weight_actor: float | None = None            # cast affinity multiplier
+    rec_weight_keyword: float | None = None          # plot-keyword field multiplier
+    rec_actor_min_support: int | None = None         # titles a performer must appear in
+    rec_people_diversity_decay: float | None = None  # 1.0 = no people spreading
+    rec_impression_decay: float | None = None        # score drop per impression
+    rec_liked_cap: int | None = None                 # already-liked slots in the list
+
+
     # Notification Icons
     notification_progress_icon: str = "⟳"  # Progress notification
     notification_success_icon: str = "✓"  # Success notification

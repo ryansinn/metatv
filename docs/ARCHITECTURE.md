@@ -8,7 +8,8 @@ metatv/
 ├── core/               # Business logic (no UI dependencies)
 │   ├── config.py            # Pydantic config (~/.config/metatv/config.yaml)
 │   ├── database.py          # SQLAlchemy models + connection
-│   ├── preference_engine.py # Attribute-weight + TF-IDF recommendation scoring
+│   ├── preference_engine.py # Attribute-weight + TF-IDF recommendation scoring; RecScoringSettings dials
+│   ├── media_mix.py         # Movie/series mix for rec lists (√-damped automatic share, or explicit)
 │   ├── discovery_engine.py  # SQL queries for Discovery shelves (genre/decade/actor/director)
 │   ├── content_dedup.py     # Cross-source title normalization + deduplication
 │   ├── epg_manager.py       # EPG fetch/parse/store + watchlist notification timer
