@@ -275,6 +275,7 @@ class _FakeConfig:
     epg_hidden_channels: list = []
     epg_hidden_titles: list = []
     epg_watchlist_patterns: list = []
+    epg_link_blocklist: list = []
 
     def save(self):
         pass

@@ -480,6 +480,7 @@ class _EpgOnNowMixin:
                         is_hidden=ch.is_hidden or False,
                         channel_name=ch.name or "",
                         channel_found=True,
+                        epg_link_blocked=cid in (self.config.epg_link_blocklist or []),
                     )
                 else:
                     ctx_kwargs["channel_found"] = False
@@ -534,6 +535,13 @@ class _EpgOnNowMixin:
 
                 handlers["like"] = _like_h
                 handlers["dislike"] = _dislike_h
+
+            if ctx.media_type == "live":
+                handlers["clear_epg_link"] = (
+                    (lambda c=cid: self.epg_manager.relink_channel_epg(c))
+                    if ctx.epg_link_blocked
+                    else (lambda c=cid: self.epg_manager.clear_channel_epg_link(c))
+                )
 
         # EPG-extra handlers
         watched = [cid for cid in valid_ch_ids if cid in self.config.epg_watchlist_channels]

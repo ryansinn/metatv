@@ -896,6 +896,21 @@ class Config(BaseModel):
     epg_hidden_titles: list = Field(default_factory=list)
     epg_hidden_channels: list = Field(default_factory=list)
     epg_hidden_prefixes: list = Field(default_factory=list)
+    # channel_db_ids whose EPG link has been manually cleared (🧹 "Clear EPG
+    # link" — channel menu + details-pane rail). EpgManager._build_match_map
+    # excludes these from ALL matching tiers (1/2/3) so a persistent bad
+    # guide-data link doesn't get silently re-attached the next time relink_all()
+    # runs — which happens on every EPG view activation (docs/CRITICAL_RULES.md
+    # #epg-manager-internals). Removing a channel_db_id ("Re-link EPG data")
+    # lets the next relink pass re-match it.
+    epg_link_blocklist: list = Field(default_factory=list)
+    # detected_prefix values that never enter fuzzy matching tiers 2/3 (tier-1
+    # exact epg_channel_id matches are unaffected). These denote show-loop /
+    # rotation feeds ("24/7 Movies", generic filler channels) whose names are
+    # too generic for fuzzy name matching to be trustworthy. Case-insensitive.
+    epg_fuzzy_prefix_blocklist: list = Field(
+        default_factory=lambda: ["EAR", "24/7", "24-7"]
+    )
     epg_category_overrides: dict = Field(default_factory=dict)  # channel_db_id → category code
     epg_filter_state: dict = Field(default_factory=dict)
     epg_events_view_mode: str = "timeline"   # "timeline" | "network" — Events tab sub-view toggle

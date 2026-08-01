@@ -27,6 +27,7 @@ class ChannelActionState:
     rating: int = 0          # -1 / 0 / +1
     is_suppressed: bool = False
     is_hidden: bool = False
+    epg_link_blocked: bool = False  # channel_id in config.epg_link_blocklist
 
 
 class _ActionBar(QWidget):
@@ -67,6 +68,7 @@ class _ActionBar(QWidget):
     unhide_clicked          = pyqtSignal()
     watchlist_clicked       = pyqtSignal()
     monitor_clicked         = pyqtSignal()
+    clear_epg_link_clicked  = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -98,6 +100,10 @@ class _ActionBar(QWidget):
         self._playing_base_pos: float = 0.0     # last reported playback position (s)
         self._playing_base_ts: float = 0.0      # monotonic clock when that was reported
         self._playing_timer: QTimer | None = None
+        # True when the shown LIVE channel's EPG link is in config.epg_link_blocklist
+        # (manually cleared via 🧹 "Clear EPG link"). Flips the rail button's
+        # tooltip/behavior to the "Re-link EPG data" inverse — see set_epg_link_blocked.
+        self._epg_link_blocked: bool = False
         self._setup()
 
     def _mk(
@@ -175,6 +181,16 @@ class _ActionBar(QWidget):
         self.watchlist_button.clicked.connect(self.watchlist_clicked)
         self.watchlist_button.hide()
 
+        # Clear EPG link — live only (shown via set_mode); the admin-tier affordance
+        # for a wrong/mismatched guide link. set_epg_link_blocked() flips the tooltip
+        # to the "Re-link EPG data" inverse once the channel is blocked.
+        self.clear_epg_link_button = self._mk(
+            _icons.clear_epg_link_icon,
+            "Clear wrong guide data — unlink this channel's EPG",
+        )
+        self.clear_epg_link_button.clicked.connect(self.clear_epg_link_clicked)
+        self.clear_epg_link_button.hide()
+
         # Alert / monitor — series only (shown via set_monitorable).  Uses the
         # alert style: the siren glows red when alerting (:checked).
         self.monitor_button = self._mk(
@@ -207,14 +223,17 @@ class _ActionBar(QWidget):
         self._rating = state.rating
         self._suppressed = state.is_suppressed
         self._is_hidden = state.is_hidden
+        self.set_epg_link_blocked(state.epg_link_blocked)
         self._sync_all()
 
     def set_mode(self, is_live: bool) -> None:
-        """Show/hide sentiment buttons (VOD only) and watchlist button (live only)."""
+        """Show/hide sentiment buttons (VOD only) and watchlist/clear-EPG-link (live only)."""
         self.like_button.setVisible(not is_live)
         self.not_interested_button.setVisible(not is_live)
         self.dislike_button.setVisible(not is_live)
         self.watchlist_button.setVisible(is_live)
+        # VOD has no XMLTV guide to (mis)link — the admin action is meaningless there.
+        self.clear_epg_link_button.setVisible(is_live)
 
     def set_monitorable(self, is_series: bool, is_monitored: bool) -> None:
         """Show the Alert button for series only; reflect the alert state."""
@@ -448,6 +467,24 @@ class _ActionBar(QWidget):
             else "Add current show to watchlist patterns"
         )
 
+    def set_epg_link_blocked(self, blocked: bool) -> None:
+        """Reflect whether the shown LIVE channel's EPG link is currently blocked.
+
+        Flips the rail button's tooltip between the "Clear EPG link" affordance
+        (unblocked — click unlinks + blocks) and its "Re-link EPG data" inverse
+        (blocked — click removes the block and re-matches). Visibility (live
+        channels only) is governed separately by :meth:`set_mode`.
+        """
+        self._epg_link_blocked = blocked
+        if blocked:
+            self.clear_epg_link_button.setToolTip(
+                "EPG link blocked — click to re-link (re-match guide data)"
+            )
+        else:
+            self.clear_epg_link_button.setToolTip(
+                "Clear wrong guide data — unlink this channel's EPG"
+            )
+
     def clear(self) -> None:
         self._in_queue = False
         self._rating = 0
@@ -456,6 +493,7 @@ class _ActionBar(QWidget):
         self._is_monitored = False
         self._has_new_match = False
         self._current_epg_title = ""
+        self.set_epg_link_blocked(False)
         self.monitor_button.setVisible(False)
         self.resume_button.setVisible(False)
         self.watchlist_button.setChecked(False)
