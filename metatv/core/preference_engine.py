@@ -109,6 +109,7 @@ class ScoredChannel:
     detected_region:   str = ""
     detected_quality:  str = ""
     detected_year:     str = ""
+    detected_prefix:   str = ""  # honest audio-language token (e.g. "EN") — NOT the region
 
 
 def version_score(channel, config) -> int:
@@ -501,6 +502,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             detected_region=channel.detected_region or "",
             detected_quality=channel.detected_quality or "",
             detected_year=channel.detected_year or "",
+            detected_prefix=channel.detected_prefix or "",
         )
         explicit_vs = version_scorer(channel) if version_scorer is not None else 0
         impl_vs = _implicit_prefix.get(channel.detected_prefix or "", 0) / _max_impl
