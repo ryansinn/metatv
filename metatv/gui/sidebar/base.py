@@ -213,7 +213,12 @@ class CollapsibleSection(QFrame):
         btn.setFlat(True)
         btn.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)
         btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
-        btn.clicked.connect(self.exploreClicked.emit)
+        # Resolve the bound signal at CLICK time, not build time.  create_header runs
+        # before Qt's C++ side is guaranteed up in the header unit-tests (sections are
+        # built via __new__ there), and `self.exploreClicked` would raise
+        # "super-class __init__() was never called" the moment it is dereferenced.
+        # The lambda keeps header construction independent of Qt init order.
+        btn.clicked.connect(lambda: self.exploreClicked.emit())
         header_layout.addWidget(btn)
         self.explore_btn = btn
         return btn
