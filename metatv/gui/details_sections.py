@@ -805,6 +805,31 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(title_bar)
 
+        # Source badge + adult indicator row — sits DIRECTLY under the title/year
+        # line (not below the metadata block, where it used to live): provenance is
+        # header information, so "which of my sources is this from?" is answerable
+        # without reading past the type/runtime/ratings row.  Structural position is
+        # pinned by tests/test_details_source_position.py.
+        #
+        # Width discipline: a plain QHBoxLayout's minimum width is the SUM of its
+        # children, so this row must never gain a wide/unbreakable child (see
+        # docs/DETAILS_PANE_DESIGN.md → "Width discipline").  Both labels are short
+        # and the trailing stretch absorbs the slack.
+        badge_row = QHBoxLayout()
+        self.source_label = _ClickableLabel()
+        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        self.source_label.hide()
+        badge_row.addWidget(self.source_label)
+        self.adult_indicator = QLabel("🔞 Adult")
+        self.adult_indicator.setStyleSheet(
+            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
+            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
+        )
+        self.adult_indicator.hide()
+        badge_row.addWidget(self.adult_indicator)
+        badge_row.addStretch()
+        layout.addLayout(badge_row)
+
         # Tagline — italic subtitle line, shown when metadata provides it
         self._tagline_lbl = QLabel()
         self._tagline_lbl.setWordWrap(True)
@@ -869,21 +894,8 @@ class _MetadataSection(QWidget):
 
         layout.addWidget(self._media_row)
 
-        # Source badge + adult indicator row
-        badge_row = QHBoxLayout()
-        self.source_label = _ClickableLabel()
-        self.source_label.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        self.source_label.hide()
-        badge_row.addWidget(self.source_label)
-        self.adult_indicator = QLabel("🔞 Adult")
-        self.adult_indicator.setStyleSheet(
-            f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD}; font-weight: 600;"
-            f" background: {_theme.OVERLAY_ERR2_15}; border-radius: 3px; padding: 1px 5px;"
-        )
-        self.adult_indicator.hide()
-        badge_row.addWidget(self.adult_indicator)
-        badge_row.addStretch()
-        layout.addLayout(badge_row)
+        # (The Source + adult badge row used to sit here, below the metadata block.
+        # It now sits directly under the title/year line — see above.)
 
         # Genres — flow-layout row of clickable chip buttons; wraps cleanly at panel width.
         # _genres_loading_lbl is shown while metadata is loading; _genres_container replaces
