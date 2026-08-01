@@ -24,6 +24,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -39,6 +40,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.core.epg_utils import now_utc as _now_utc
+from metatv.gui import theme as _theme
 
 # ---------------------------------------------------------------------------
 # Qt item-data roles shared across all EPG tree widgets
@@ -102,6 +104,31 @@ class _EpgTreeItem(QTreeWidgetItem):
             if bool(a_text) != bool(b_text):
                 return bool(a_text) > bool(b_text)  # non-empty < empty → non-empty first
         return super().__lt__(other)
+
+
+# ---------------------------------------------------------------------------
+# Watchlist-match highlight — shared by On Now + Browse (Q8, wave3/browse-makeover)
+# ---------------------------------------------------------------------------
+
+def apply_watchlist_highlight(item: QTreeWidgetItem, columns, bold_col: int) -> None:
+    """Apply the shared watchlist-match row treatment: accent foreground across
+    ``columns`` plus a bold font on ``bold_col`` (the Show/title column).
+
+    Single chokepoint for the On Now + Browse tree "this row matches your
+    watchlist" highlight so future accent tweaks land in one place instead of
+    two copy-pasted inline loops. No visual change from the pre-existing
+    per-mixin versions.
+
+    Args:
+        item: The tree row to highlight.
+        columns: Iterable of column indexes to tint (usually ``range(N)``).
+        bold_col: The column to additionally bold (the Show/title column).
+    """
+    for col in columns:
+        item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
+    font = item.font(bold_col)
+    font.setBold(True)
+    item.setFont(bold_col, font)
 
 
 # ---------------------------------------------------------------------------

@@ -130,12 +130,20 @@ def _make_render_host(qapp, *, name_map, title_map):
     host.config = SimpleNamespace(epg_watchlist_patterns=[])
     host._channel_name_map = dict(name_map)
     host._channel_title_map = dict(title_map)
+    host._channel_prefix_map = {}
+    host._channel_quality_map = {}
+    host._channel_provider_map = {}
     host.search_input = SimpleNamespace(text=lambda: "")
     host._filtered_provider_ids = lambda: ["p1"]
     host._provider_ids = ["p1"]
     host.browse_list = QTreeWidget()
-    host.browse_list.setColumnCount(4)
-    host.browse_list.setHeaderLabels(["Time", "Channel", "Show", "Duration"])
+    host.browse_list.setColumnCount(6)
+    host.browse_list.setHeaderLabels(
+        ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+    )
+    # Qt's raw default header sort indicator is (col 0, Descending) — leave it as-is
+    # so these behavior-pinning tests stay separator-free (Q3 coverage lives in its
+    # own test module and opts into ascending explicitly).
     host.browse_placeholder = QLabel()
     host.browse_stats = QLabel()
     host.status_message = SimpleNamespace(emit=MagicMock())
@@ -143,7 +151,8 @@ def _make_render_host(qapp, *, name_map, title_map):
 
 
 def test_render_browse_uses_clean_detected_title(qapp):
-    """Channel column must show the clean detected_title, not the raw prefixed/HD name."""
+    """Channel column (now index 2 — Category/Quality inserted around it) must show
+    the clean detected_title, not the raw prefixed/HD name."""
     host = _make_render_host(
         qapp,
         name_map={"c1": "US| ESPN HD"},
@@ -151,14 +160,14 @@ def test_render_browse_uses_clean_detected_title(qapp):
     )
     _EpgBrowseMixin._render_browse(host, [_FakeProg(channel_db_id="c1", title="SportsCenter")])
     item = host.browse_list.topLevelItem(0)
-    assert item.text(1) == "ESPN", f"Expected clean 'ESPN', got '{item.text(1)}'"
+    assert item.text(2) == "ESPN", f"Expected clean 'ESPN', got '{item.text(2)}'"
 
 
 def test_render_browse_falls_back_to_raw_name_when_no_detected_title(qapp):
     """With no detected_title, fall back to the raw channel name (not the epg id)."""
     host = _make_render_host(qapp, name_map={"c2": "Mystery Channel"}, title_map={})
     _EpgBrowseMixin._render_browse(host, [_FakeProg(channel_db_id="c2", title="Ep 1")])
-    assert host.browse_list.topLevelItem(0).text(1) == "Mystery Channel"
+    assert host.browse_list.topLevelItem(0).text(2) == "Mystery Channel"
 
 
 def test_browse_mixin_does_not_import_parse_channel_name():
@@ -246,6 +255,9 @@ def test_fetch_browse_applies_hidden_provider_scoping(scoped_db):
     host.config = SimpleNamespace(epg_filler_patterns=[], epg_browse_hide_older_than_hours=0)
     host._channel_name_map = {}
     host._channel_title_map = {}
+    host._channel_prefix_map = {}
+    host._channel_quality_map = {}
+    host._channel_provider_map = {}
     host.emitted = []
     host._data_loaded = SimpleNamespace(emit=lambda p: host.emitted.append(p))
 
@@ -296,6 +308,8 @@ def _make_browse_tab_host(qapp, config=None):
     host._browse_selection_changed = lambda *_: None
     host._on_browse_context_menu = lambda *_: None
     host._save_epg_sort = lambda *a: None
+    host._save_browse_header_state = lambda: None
+    host._on_browse_sort_changed = lambda *a: None
     # Phase-2 scrubber signal targets connected during build.
     host._on_anchor_selected = lambda *_: None
     host._on_scrubber_value_changed = lambda *_: None

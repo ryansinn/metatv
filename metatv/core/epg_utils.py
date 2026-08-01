@@ -328,6 +328,38 @@ def scrubber_label(dt: datetime, _now: datetime | None = None) -> str:
     return f"{prefix} {time_str}"
 
 
+def browse_day_separator_label(dt: datetime, _now: datetime | None = None) -> str:
+    """Format a UTC-naive datetime as a Browse day-separator row label.
+
+    The forward-looking Browse list (sorted Time-ascending, the default) inserts a
+    non-selectable spanning row at each local-midnight boundary. This is the single
+    source of truth for that row's label — day naming mirrors :func:`scrubber_label`'s
+    convention (today reads as the more natural "Tonight" given Browse skews to
+    evening viewing; never inline ``strftime`` at a call site):
+
+    - Today's boundary      → ``"Tonight · Fri Aug 1"``
+    - Tomorrow's boundary   → ``"Tomorrow · Sat Aug 2"``
+    - Anything further out  → ``"Sat Aug 2"`` (bare weekday + date, no prefix)
+
+    Args:
+        dt: The day boundary (UTC-naive) — typically ``local_day_window(day)[0]``.
+        _now: Reference "now" (UTC-naive); defaults to :func:`now_utc`.
+
+    Returns:
+        The day-separator row label.
+    """
+    now = _now or now_utc()
+    local = to_local(dt)
+    local_now = to_local(now)
+    day_delta = (local.date() - local_now.date()).days
+    date_str = local.strftime("%a %b %-d")
+    if day_delta == 0:
+        return f"Tonight · {date_str}"
+    if day_delta == 1:
+        return f"Tomorrow · {date_str}"
+    return date_str
+
+
 def fmt_time(dt: datetime) -> str:
     """UTC-naive EPG datetime → local time string like '5:30 PM'."""
     return dt.replace(tzinfo=timezone.utc).astimezone().strftime("%-I:%M %p").lstrip("0") or "12:00 AM"

@@ -22,6 +22,10 @@ Methods here:
     _browse_double_click
     _on_browse_context_menu
     _browse_selection_changed
+    _browse_time_ascending
+    _on_browse_sort_changed
+    _save_browse_header_state
+    _build_browse_separator_item
 
 All other helpers these methods call (``self._save_epg_sort``,
 ``self._filtered_provider_ids``, ``self._on_search_changed``,
@@ -32,9 +36,9 @@ dicts, etc.) remain in ``EpgView`` and resolve via ``self`` / MRO.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QByteArray, QModelIndex
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -51,19 +55,25 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
+from metatv.gui.details_versions import resolve_category_name
 from metatv.gui.epg_widgets import (
     _EpgTreeItem,
     _SORT_ROLE,
+    apply_watchlist_highlight as _apply_watchlist_highlight,
 )
 
 from metatv.core.epg_utils import (
     browse_anchors as _browse_anchors,
+    browse_day_separator_label as _day_separator_label,
     fmt_time as _format_time,
     fmt_duration as _duration_str,
+    local_date as _local_date,
+    local_day_window as _local_day_window,
     to_local as _to_local,
     now_utc as _now_utc,
     scrubber_bounds as _scrubber_bounds,
@@ -79,6 +89,17 @@ _BROWSE_PAGE_SIZE = 200
 # scroll→handle sync to map the topmost visible row back to a scrubber position.
 # (_SORT/_PROGRESS/_REMAIN use UserRole +2/+3/+4 in epg_widgets; +5 is distinct.)
 _START_ROLE = int(Qt.ItemDataRole.UserRole) + 5
+
+# Marks a row as a Q3 day-separator (non-interactive, spanning label row) — every
+# click/selection/context-menu/scroll-sync handler checks this first and no-ops.
+_SEPARATOR_ROLE = int(Qt.ItemDataRole.UserRole) + 6
+
+# Column layout migrated with the Q1 (Category)/Q2 (Quality) columns: old
+# Time/Channel/Show/Duration (0/1/2/3) → new Time/Category/Channel/Quality/Show/
+# Duration (0/1/2/3/4/5). Applied ONCE (guarded by a persisted "migrated" flag —
+# see _build_browse_tab) since the old and new schemes both use column 0 and 2,
+# so a persisted value can't be told apart from an already-migrated one.
+_OLD_TO_NEW_BROWSE_COL = {0: 0, 1: 2, 2: 4, 3: 5}
 
 
 class _EpgBrowseMixin:
@@ -100,6 +121,15 @@ class _EpgBrowseMixin:
         self._browse_exhausted: bool = True         # no more pages to fetch
         self._browse_loading: bool = False          # a fetch is in flight
         self._browse_gen: int = 0                   # reload generation (drops stale async pages)
+
+        # Q3 day-separator state: _browse_last_day tracks grouping across a fresh
+        # load + its subsequent "load more" appends (reset on every fresh load, kept
+        # across an append); _browse_separator_count excludes separator rows from the
+        # footer's programme count; _browse_programs caches the flat fetched pages so
+        # a sort-column/order change can rebuild separators client-side (no re-fetch).
+        self._browse_last_day: "date | None" = None
+        self._browse_separator_count: int = 0
+        self._browse_programs: list = []
 
         # Timeline-scrubber (Phase 2) state. The slider value is in increment units;
         # _scrubber_left/right are the track's UTC-naive bounds (sized from the scoped
@@ -188,32 +218,63 @@ class _EpgBrowseMixin:
         self._scrubber_pos_label.setStyleSheet(_theme.EPG_SCRUBBER_POS)
         layout.addWidget(self._scrubber_pos_label)
 
-        # Programme tree: Time | Channel | Show | Duration
+        # Programme tree: Time | Category | Channel | Quality | Show | Duration
+        # (Q1 Category + Q2 Quality inserted around Channel — see _OLD_TO_NEW_BROWSE_COL.)
         self.browse_list = QTreeWidget()
         self.browse_list.setAlternatingRowColors(True)
         self.browse_list.setRootIsDecorated(False)
         self.browse_list.setUniformRowHeights(True)
         self.browse_list.setSortingEnabled(True)
-        self.browse_list.setColumnCount(4)
-        self.browse_list.setHeaderLabels(["Time", "Channel", "Show", "Duration"])
+        self.browse_list.setColumnCount(6)
+        self.browse_list.setHeaderLabels(
+            ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+        )
         hdr = self.browse_list.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.browse_list.setColumnWidth(3, 44)
+        # Q6: header tooltips (verbatim from On Now) + movable sections.
+        self.browse_list.headerItem().setToolTip(
+            1, "Category / prefix extracted from channel name"
+        )
+        self.browse_list.headerItem().setToolTip(3, "Stream quality (4K / FHD / HD / etc.)")
+        hdr.setSectionsMovable(True)
         self.browse_list.itemDoubleClicked.connect(self._browse_double_click)
         self.browse_list.currentItemChanged.connect(self._browse_selection_changed)
         self.browse_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.browse_list.customContextMenuRequested.connect(self._on_browse_context_menu)
         # Lazy-load the next chronological page when scrolled near the bottom.
         self.browse_list.verticalScrollBar().valueChanged.connect(self._on_browse_scroll)
-        # Restore persisted sort
-        _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
+
+        # Q6: restore persisted column order/widths (base64 header state), guarded —
+        # a stale/absent/corrupt state must no-op, never crash startup.
+        _saved_header = self.config.epg_filter_state.get("browse_header_state")
+        if _saved_header:
+            try:
+                hdr.restoreState(QByteArray.fromBase64(_saved_header.encode("ascii")))
+            except Exception:
+                pass  # corrupt/stale state → keep the default column order
+        hdr.sectionMoved.connect(self._save_browse_header_state)
+
+        # Restore persisted sort — migrate the OLD (pre-Q1/Q2) column index once via
+        # _OLD_TO_NEW_BROWSE_COL: the old and new schemes both use columns 0 and 2, so
+        # a persisted value can't be told apart from an already-migrated one without a
+        # one-time flag. An out-of-range/ambiguous old value resets to the default sort.
+        if not self.config.epg_filter_state.get("browse_col_migrated"):
+            _raw_col = self.config.epg_filter_state.get("browse_sort_col", 0)
+            _bcol = _OLD_TO_NEW_BROWSE_COL.get(_raw_col, 0)
+            self.config.epg_filter_state["browse_sort_col"] = _bcol
+            self.config.epg_filter_state["browse_col_migrated"] = True
+            self.config.save()
+        else:
+            _bcol = self.config.epg_filter_state.get("browse_sort_col", 0)
         _bord = Qt.SortOrder(self.config.epg_filter_state.get("browse_sort_order", 0))
         self.browse_list.sortByColumn(_bcol, _bord)
-        self.browse_list.header().sortIndicatorChanged.connect(
-            lambda col, order: self._save_epg_sort("browse", col, order)
-        )
+        self.browse_list.header().sortIndicatorChanged.connect(self._on_browse_sort_changed)
         self.browse_list.setVisible(False)
         layout.addWidget(self.browse_list)
 
@@ -345,6 +406,54 @@ class _EpgBrowseMixin:
         threshold = max(maximum - sb.pageStep() * 3 // 2, 0)
         if sb.value() >= threshold:
             self._load_more_browse()
+
+    # ── Header/sort persistence + day separators (Q3/Q6) ───────────────────
+
+    def _save_browse_header_state(self) -> None:
+        """Persist Browse column order/widths so they survive restarts (Q6)."""
+        raw = bytes(self.browse_list.header().saveState().toBase64()).decode("ascii")
+        self.config.epg_filter_state["browse_header_state"] = raw
+        self.config.save()
+
+    def _browse_time_ascending(self) -> bool:
+        """True when the tree's live sort indicator is Time (col 0) ascending —
+        the only state that shows Q3 day separators."""
+        hdr = self.browse_list.header()
+        return (
+            hdr.sortIndicatorSection() == 0
+            and hdr.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
+        )
+
+    def _on_browse_sort_changed(self, col: int, order: Qt.SortOrder) -> None:
+        """Header sort changed — persist it, then rebuild day separators (Q3).
+
+        Separators exist ONLY in the default Time-ascending sort; every other
+        column/order drops them (rebuild flat). Rebuilding from the cached
+        ``_browse_programs`` page data is a client-side re-render (no re-fetch):
+        it re-adds the flat rows in chronological order and lets
+        ``setSortingEnabled`` re-apply the just-chosen column/order natively.
+        """
+        self._save_epg_sort("browse", col, order)
+        cached = getattr(self, "_browse_programs", None)
+        if cached:
+            self._render_browse(cached, append=False)
+
+    def _build_browse_separator_item(self, day: date) -> QTreeWidgetItem:
+        """Build a non-selectable spanning row labeling a local-midnight boundary."""
+        day_start, _day_end = _local_day_window(day)
+        label = _day_separator_label(day_start)
+        item = _EpgTreeItem([label, "", "", "", "", ""])
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        # Numeric sort key so a native re-sort (e.g. re-enabling setSortingEnabled)
+        # keeps the separator correctly interleaved with real rows at column 0 —
+        # same convention (naive .timestamp()) as the real rows' _SORT_ROLE below.
+        item.setData(0, _SORT_ROLE, day_start.timestamp())
+        item.setData(0, _SEPARATOR_ROLE, True)
+        item.setForeground(0, QColor(_theme.COLOR_MUTED_2))
+        font = item.font(0)
+        font.setBold(True)
+        item.setFont(0, font)
+        return item
 
     # ── Timeline scrubber (Phase 2) ────────────────────────────────────────
 
@@ -479,7 +588,16 @@ class _EpgBrowseMixin:
             return
         start = item.data(0, _START_ROLE)
         if start is None:
-            return
+            # A Q3 day-separator row (no _START_ROLE) is topmost — skip forward to
+            # the next real programme row so the handle still tracks the content.
+            idx = self.browse_list.indexOfTopLevelItem(item)
+            count = self.browse_list.topLevelItemCount()
+            while start is None and 0 <= idx < count - 1:
+                idx += 1
+                item = self.browse_list.topLevelItem(idx)
+                start = item.data(0, _START_ROLE)
+            if start is None:
+                return
         value = _scrubber_value_for(self._scrubber_left, start, self._scrubber_increment)
         value = min(max(value, scrubber.minimum()), scrubber.maximum())
         if value == scrubber.value():
@@ -567,8 +685,13 @@ class _EpgBrowseMixin:
             # Build channel display maps from stored detected_* fields (computed at
             # ingestion). Render reads the clean detected_title — never parse_channel_name
             # at render time (CLAUDE.md: channel-name fields computed at ingestion).
+            # Mirrors _fetch_on_now: also loads quality/prefix (Q1 Category, Q2 Quality)
+            # and provider_id (Q4 source glyph).
             name_map: dict[str, str] = {}
             title_map: dict[str, str] = {}
+            prefix_map: dict[str, str] = {}
+            quality_map: dict[str, str] = {}
+            provider_map: dict[str, str] = {}
             for p in programs:
                 cid = p.channel_db_id
                 if cid and cid not in name_map:
@@ -576,8 +699,26 @@ class _EpgBrowseMixin:
                     if ch:
                         name_map[cid] = ch.name
                         title_map[cid] = ch.detected_title or ch.name
+                        prefix_map[cid] = ch.detected_prefix or ""
+                        if ch.detected_quality:
+                            quality_map[cid] = ch.detected_quality.upper()
+                        provider_map[cid] = ch.provider_id or ""
             self._channel_name_map.update(name_map)
             self._channel_title_map.update(title_map)
+            self._channel_prefix_map.update(prefix_map)
+            self._channel_quality_map.update(quality_map)
+            self._channel_provider_map.update(provider_map)
+
+            # Q4: the source glyph shows in the Channel cell only when the household
+            # has more than one ENABLED (non-hidden) provider — computed once here per
+            # fetch, never per row. icons.py-sourced fallback (never config.provider_icon
+            # — that's migration debt per CLAUDE.md), mirroring ChannelListModel's badge.
+            all_providers = repos.providers.get_all()
+            enabled_ids = {pr.id for pr in all_providers} - excluded_ch_provider_ids
+            self._browse_show_provider_glyph = len(enabled_ids) > 1
+            self._browse_provider_icon_map = {
+                pr.id: (pr.icon or _icons.provider_icon) for pr in all_providers
+            }
 
             # Keyset cursor = last (start_time, id) of this page; a short page (fewer
             # than the requested limit) means the forward timeline is exhausted.
@@ -612,14 +753,34 @@ class _EpgBrowseMixin:
             self.browse_placeholder.setVisible(True)
             self.browse_stats.clear()
             self.status_message.emit("EPG: 0 programmes")
+            self._browse_programs = []
+            self._browse_last_day = None
+            self._browse_separator_count = 0
             return
         self.browse_placeholder.setVisible(False)
         self.browse_list.setVisible(True)
         self.browse_list.setSortingEnabled(False)
+        # Defensive init for hosts that call _render_browse directly (tests) without
+        # having run _build_browse_tab first.
+        if not hasattr(self, "_browse_last_day"):
+            self._browse_last_day = None
+        if not hasattr(self, "_browse_separator_count"):
+            self._browse_separator_count = 0
         if not append:
             # Fresh load replaces the list; a "load more" page appends to it.
             self.browse_list.clear()
+            self._browse_last_day = None
+            self._browse_separator_count = 0
+            self._browse_programs = list(programs)
+        else:
+            self._browse_programs = list(getattr(self, "_browse_programs", None) or []) + list(programs)
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
+
+        # Q3: day separators show ONLY in the default Time-ascending sort — every
+        # other column/order stays flat (see _on_browse_sort_changed / _browse_time_ascending).
+        show_separators = self._browse_time_ascending()
+        show_glyph = getattr(self, "_browse_show_provider_glyph", False)
+        provider_icon_map = getattr(self, "_browse_provider_icon_map", {})
 
         for prog in programs:
             cid = prog.channel_db_id or ""
@@ -630,6 +791,16 @@ class _EpgBrowseMixin:
                 or self._channel_name_map.get(cid)
                 or prog.channel_epg_id
             )
+            # Q4: source glyph prefix — only when >1 enabled provider exists.
+            if show_glyph:
+                pid = self._channel_provider_map.get(cid, "")
+                glyph = provider_icon_map.get(pid, "") if pid else ""
+                if glyph:
+                    ch_name = f"{glyph} {ch_name}"
+
+            prefix = self._channel_prefix_map.get(cid, "")
+            quality = self._channel_quality_map.get(cid, "")
+
             time_str = _format_time(prog.start_time)
             dur = _duration_str(prog.start_time, prog.stop_time)
             title = prog.title
@@ -638,25 +809,41 @@ class _EpgBrowseMixin:
             if prog.is_new:
                 title += " ᴺᵉʷ"
 
-            item = _EpgTreeItem([time_str, ch_name, title, dur])
+            if show_separators:
+                day = _local_date(prog.start_time)
+                if self._browse_last_day is None or day != self._browse_last_day:
+                    sep_item = self._build_browse_separator_item(day)
+                    self.browse_list.addTopLevelItem(sep_item)
+                    self.browse_list.setFirstColumnSpanned(
+                        self.browse_list.indexOfTopLevelItem(sep_item), QModelIndex(), True
+                    )
+                    self._browse_separator_count += 1
+                    self._browse_last_day = day
+
+            item = _EpgTreeItem(
+                [time_str, prefix, ch_name, quality_display(quality), title, dur]
+            )
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, _SORT_ROLE, prog.start_time.timestamp())
             # Raw UTC-naive start_time for the scroll→scrubber-handle mapping.
             item.setData(0, _START_ROLE, prog.start_time)
+            if prefix:
+                item.setToolTip(1, resolve_category_name(prefix, self.config) or prefix)
+            item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
+            if quality:
+                item.setToolTip(3, quality_tooltip(quality))
 
             if any(pat in prog.title.lower() for pat in patterns):
-                for col in range(4):
-                    item.setForeground(col, QColor(_theme.COLOR_ACCENT_HOVER))
-                font = item.font(2)
-                font.setBold(True)
-                item.setFont(2, font)
+                _apply_watchlist_highlight(item, range(6), 4)
 
             self.browse_list.addTopLevelItem(item)
 
         self.browse_list.setSortingEnabled(True)
-        count = self.browse_list.topLevelItemCount()
+        count = self.browse_list.topLevelItemCount() - self._browse_separator_count
         more = "" if getattr(self, "_browse_exhausted", True) else "+"
-        self.browse_stats.setText(f"{count:,}{more} programmes")
+        self.browse_stats.setText(
+            f"{count:,}{more} programmes · times shown in your local time"
+        )
         self.status_message.emit(f"EPG: {count:,} programmes")
 
     def _browse_placeholder_text(self, guide_end=None) -> str:
@@ -678,16 +865,18 @@ class _EpgBrowseMixin:
         return "No upcoming programmes in the guide."
 
     def _browse_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.data(0, _SEPARATOR_ROLE):
+            return  # Q3 day-separator row — non-interactive
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
 
     def _on_browse_context_menu(self, pos) -> None:
         from metatv.core.repositories import RepositoryFactory
 
         item = self.browse_list.itemAt(pos)
-        if not item:
-            return
+        if not item or item.data(0, _SEPARATOR_ROLE):
+            return  # nothing under the cursor, or a Q3 day-separator row
 
-        title = item.text(2).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
+        title = item.text(4).split(" ᴸᶦᵛᵉ")[0].split(" ᴺᵉʷ")[0].strip()
         cid = item.data(0, Qt.ItemDataRole.UserRole)
 
         # ── Build context ────────────────────────────────────────────────────
@@ -782,6 +971,6 @@ class _EpgBrowseMixin:
         menu.exec(self.browse_list.viewport().mapToGlobal(pos))
 
     def _browse_selection_changed(self, current, _) -> None:
-        if not current:
-            return
+        if not current or current.data(0, _SEPARATOR_ROLE):
+            return  # nothing selected, or a Q3 day-separator row
         self._emit_channel_selected(current.data(0, Qt.ItemDataRole.UserRole))

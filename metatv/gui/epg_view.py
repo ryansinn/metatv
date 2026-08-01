@@ -104,6 +104,8 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # row — no extra query) so the watchlist can rank "previously watched"
         # channels first within a quality tier.
         self._channel_watch_map: dict[str, tuple[int, datetime | None]] = {}
+        # channel_db_id → provider_id — Browse's source-glyph prefix (Q4, wave3/browse-makeover).
+        self._channel_provider_map: dict[str, str] = {}
         # channel_db_ids carrying a globally-excluded content_type tag (AI Generated,
         # AI Voiceover). Resolved off-thread in _fetch_on_now; dropped in _render_on_now.
         self._on_now_excluded_ct_ids: set[str] = set()

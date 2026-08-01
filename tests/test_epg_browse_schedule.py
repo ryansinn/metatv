@@ -196,12 +196,20 @@ def _make_render_host(qapp, *, provider_ids, search_text, name_map, title_map=No
     host.config = SimpleNamespace(epg_watchlist_patterns=[])
     host._channel_name_map = dict(name_map)
     host._channel_title_map = dict(title_map or {})
+    host._channel_prefix_map = {}
+    host._channel_quality_map = {}
+    host._channel_provider_map = {}
     host._provider_ids = list(provider_ids)
     host._filtered_provider_ids = lambda: host._provider_ids
     host.search_input = SimpleNamespace(text=lambda: search_text)
     host.browse_list = QTreeWidget()
-    host.browse_list.setColumnCount(4)
-    host.browse_list.setHeaderLabels(["Time", "Channel", "Show", "Duration"])
+    host.browse_list.setColumnCount(6)
+    host.browse_list.setHeaderLabels(
+        ["Time", "Category", "Channel", "Quality", "Show", "Duration"]
+    )
+    # Qt's raw default header sort indicator is (col 0, Descending) — leave it as-is
+    # so these behavior-pinning tests stay separator-free (Q3 coverage lives in its
+    # own test module and opts into ascending explicitly).
     host.browse_placeholder = QLabel()
     host.browse_stats = QLabel()
     host.status_message = SimpleNamespace(emit=MagicMock())
@@ -228,9 +236,9 @@ def test_render_browse_renders_schedule_rows(qapp, seeded_db):
     _EpgBrowseMixin._render_browse(host, progs)
     assert host.browse_list.topLevelItemCount() == 1
     item = host.browse_list.topLevelItem(0)
-    assert item.text(1) == "ESPN HD"
-    assert "Premier League" in item.text(2)
-    assert host.browse_stats.text() == "1 programmes"
+    assert item.text(2) == "ESPN HD"
+    assert "Premier League" in item.text(4)
+    assert host.browse_stats.text() == "1 programmes · times shown in your local time"
 
 
 def test_render_browse_empty_schedule_shows_placeholder(qapp):
