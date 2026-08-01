@@ -92,8 +92,22 @@ class ProviderMetadataProvider(MetadataProviderPlugin):
 
                 logger.debug(f"Available fields in raw_data: {list(info.keys())}")
 
+                # Title — prefer a real provider-supplied name, but when the
+                # provider only echoes the raw channel name back (the common
+                # Xtream case, or no name at all), fall back to the clean
+                # detected_title computed at ingestion (single source of truth).
+                # Storing the raw name here re-introduced the language prefix +
+                # (YYYY) that detected_title already stripped, which the details
+                # pane then rendered — duplicating the chips shown beside it.
+                info_name = info.get('name')
+                clean_title = channel.detected_title or channel.name
+                if info_name and info_name.strip().casefold() != channel.name.strip().casefold():
+                    resolved_title = info_name
+                else:
+                    resolved_title = clean_title
+
                 result = MetadataResult(
-                    title=info.get('name') or channel.name,
+                    title=resolved_title,
                     plot=info.get('plot') or info.get('description'),
                     tagline=info.get('tagline'),
 
