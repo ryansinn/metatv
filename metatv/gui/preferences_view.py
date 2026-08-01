@@ -533,6 +533,8 @@ class PreferencesView(QWidget):
                 include_uncategorized=include_uncategorized,
                 excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
                 version_scorer=lambda ch: version_score(ch, _config),
+                balance_media_types=True,
+                diversify_people=True,
             )
         except Exception:
             logger.exception("PreferencesView bg refresh error")

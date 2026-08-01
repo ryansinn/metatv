@@ -108,6 +108,8 @@ class RecommendedSection(CollapsibleSection):
                 include_uncategorized=include_uncategorized,
                 excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
                 version_scorer=lambda ch: version_score(ch, _config),
+                balance_media_types=True,
+                diversify_people=True,
             )
             if recs:
                 record_impressions(session, [sc.channel_id for sc in recs])
