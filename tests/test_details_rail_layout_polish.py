@@ -3,12 +3,10 @@
 Covers the meticulously-designed rail/layout pass on _PosterSection:
 
 1. Rail button order (top→bottom): Favorite · Alert/Monitor (Watchlist shares the
-   slot) · Hide · Like · Not-Interested · Dislike.  Queue is NOT in the rail (it is
-   the Watch Later button); Watched is NOT in the rail (it is the poster badge).
-2. Rail spacing: G = Monitor↔Hide gap; Favorite↔Monitor = G/2 (tight top pair); the
-   Hide↔sentiment gap is MUCH larger (_RAIL_SENTIMENT_GAP ≫ G) so the sentiment trio
-   drops LOW toward the Play row (not equidistant under Hide); Like/Not-Interested/
-   Dislike stay a tight, equal trio.
+   slot) · Hide.  Queue is NOT in the rail (it is the Watch Later button); Watched is
+   NOT in the rail (it is the poster badge); the sentiment trio is NOT in the rail —
+   it graduated to the labelled "Rate:" row (see tests/test_details_rating_row.py).
+2. Rail spacing: G = Monitor↔Hide gap; Favorite↔Monitor = G/2 (tight top pair).
 3. Rail group bracketed by a leading + trailing STRETCH (not top-anchored).
 4. Play + Watch Later rows live in the OUTER column (full-width, title-aligned), NOT
    indented under the poster (i.e. not parented to _content_col).
@@ -118,7 +116,7 @@ def _gap_after(layout, widget):
 # ---------------------------------------------------------------------------
 
 def test_rail_button_order_top_to_bottom(qapp):
-    """Rail order must be Favorite · Monitor · Watchlist · Hide · Like · NI · Dislike."""
+    """Rail order must be Favorite · Monitor · Watchlist · Hide (sentiment moved out)."""
     poster, ab = _build(qapp)
 
     assert _rail_widgets(poster._action_rail_layout) == [
@@ -126,9 +124,6 @@ def test_rail_button_order_top_to_bottom(qapp):
         ab.monitor_button,
         ab.watchlist_button,
         ab.hide_button,
-        ab.like_button,
-        ab.not_interested_button,
-        ab.dislike_button,
     ], "rail order must match the designed top→bottom sequence"
 
 
@@ -149,36 +144,41 @@ def test_queue_and_watched_not_in_rail(qapp):
         assert btn not in widgets, f"{btn.text()!r} must not be in the rail"
 
 
+def test_sentiment_trio_not_in_rail(qapp):
+    """The rating controls graduated to the labelled "Rate:" row — not the rail.
+
+    Regression guard for the fix: they must live in exactly ONE place, so finding
+    them back in the rail means they were duplicated rather than moved.
+    """
+    poster, ab = _build(qapp)
+    widgets = _rail_widgets(poster._action_rail_layout)
+    for btn in (ab.like_button, ab.not_interested_button, ab.dislike_button):
+        assert btn not in widgets, f"{btn.text()!r} must not be in the rail"
+
+
 # ---------------------------------------------------------------------------
 # 2. Rail spacing (G geometry, Hide as the pivot)
 # ---------------------------------------------------------------------------
 
 def test_rail_spacing_geometry(qapp):
-    """Top group is tight (Favorite↔Monitor = G/2, slot↔Hide = G); the Hide↔sentiment
-    gap is MUCH larger so the trio sits LOW (not equidistant); the trio is tight & equal."""
+    """The rail group is tight: Favorite↔Monitor = G/2, Monitor/Watchlist↔Hide = G.
+
+    Hide is now the LAST rail button (the sentiment trio moved to its own row), so
+    nothing follows it — the trailing stretch does.
+    """
     poster, ab = _build(qapp)
     lay = poster._action_rail_layout
     G = poster._RAIL_GAP
-    SENT = poster._RAIL_SENTIMENT_GAP
 
     fav_gap = _gap_after(lay, ab.favorite_button)        # Favorite ↔ Monitor
     slot_gap = _gap_after(lay, ab.watchlist_button)      # Monitor/Watchlist ↔ Hide
-    hide_gap = _gap_after(lay, ab.hide_button)           # Hide ↔ Like (above the trio)
-    trio_a = _gap_after(lay, ab.like_button)             # Like ↔ Not-Interested
-    trio_b = _gap_after(lay, ab.not_interested_button)   # Not-Interested ↔ Dislike
+    hide_gap = _gap_after(lay, ab.hide_button)           # Hide ↔ (trailing stretch)
 
     # Top group unchanged: tight pair + a single G to Hide.
     assert fav_gap == G // 2, "Favorite↔Monitor must be the tight G/2 top pair"
     assert slot_gap == G, "Monitor/Watchlist↔Hide must be G"
-    # The gap ABOVE the sentiment trio is the dedicated (much larger) sentiment gap.
-    assert hide_gap == SENT, "Hide↔sentiment must use the larger _RAIL_SENTIMENT_GAP"
-    # Trio sits LOW, not equidistant: the gap above it is strictly LARGER than both the
-    # Favorite↔Monitor and the Monitor↔Hide gaps (regression guard vs the old G-pivot).
-    assert hide_gap > slot_gap, "Hide↔sentiment must be larger than Monitor↔Hide (trio drops low)"
-    assert hide_gap > fav_gap, "Hide↔sentiment must be larger than the Favorite↔Monitor gap"
-    # The sentiment trio is tight and equal, far smaller than the drop above it.
-    assert trio_a == trio_b, "the sentiment trio must use equal gaps"
-    assert 0 < trio_a < hide_gap, "the trio gaps must be tight (smaller than the drop above)"
+    # Hide is last: _gap_after returns None when the next item is the stretch.
+    assert hide_gap is None, "Hide must be the last rail button (stretch follows)"
 
 
 # ---------------------------------------------------------------------------

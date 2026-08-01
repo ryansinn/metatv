@@ -183,14 +183,16 @@ class _PosterSection(QWidget):
     _BADGE_MARGIN: int = 8
 
     # Rail spacing (structural px).  G = the Monitor↔Hide gap; the top pair
-    # (Favorite↔Monitor) is G/2.  The TOP group (Favorite · Monitor/Watchlist · Hide)
-    # stays tight, but Hide↔sentiment is a much LARGER gap (_RAIL_SENTIMENT_GAP) so the
-    # sentiment trio (Like/Not-Interested/Dislike) drops LOW — down near the Play/Resume
-    # row — instead of bunching under Hide.  The trio itself stays a tight, equal cluster.
+    # (Favorite↔Monitor) is G/2, so the whole rail group (Favorite · Monitor/Watchlist
+    # · Hide) reads as one tight cluster bracketed by stretches.  The sentiment trio
+    # no longer lives here — it graduated to the labelled _sentiment_row below the
+    # poster, so the old Hide↔sentiment drop gap is gone with it.
     _RAIL_GAP: int = 20
-    _RAIL_TRIO_GAP: int = 4
-    _RAIL_SENTIMENT_GAP: int = 80   # 4×G — pushes the sentiment trio down toward Play
     _RAIL_W: int = 48   # slim icon rail in the left gutter; poster content is inset by this
+    # Sentiment row (👍/🙅/👎) — promoted OUT of the rail into a labelled tier-2 row.
+    # The chips keep the rail's 48px footprint so they read as the same control set.
+    _SENTIMENT_SPACING: int = 6
+    _SENTIMENT_BTN_W: int = _RAIL_W
 
     def __init__(self, config, image_cache, parent=None):
         super().__init__(parent)
@@ -363,6 +365,32 @@ class _PosterSection(QWidget):
         self._secondary_action_row.hide()
         layout.addWidget(self._secondary_action_row)
 
+        # Sentiment row — the 👍 / 🙅 / 👎 trio, LABELLED and in the main column.
+        #
+        # These used to live at the bottom of the slim rail, as unlabelled 48×24
+        # emoji chips floating over the poster's left edge and separated from the
+        # rest of the rail by an 80px gap.  They worked, but on a real poster they
+        # sat on top of the artwork with nothing naming them, and users reported the
+        # rating controls as MISSING.  Rating is a deliberate, low-frequency action
+        # that deserves a named affordance, so it graduates to its own tier-2 row
+        # under "Watch Later" — the tier already reserved for labelled follow-ups.
+        #
+        # There is exactly ONE set of rating controls: they are moved here, not
+        # duplicated.  _ActionBar still owns the buttons, their state and signals.
+        # VOD-only, like the buttons themselves (_ActionBar.set_mode); the row is
+        # hidden wholesale for live so the "Rate:" caption never orphans.
+        self._sentiment_row = QWidget()
+        self._sentiment_row_layout = QHBoxLayout(self._sentiment_row)
+        self._sentiment_row_layout.setContentsMargins(0, 8, 0, 0)
+        self._sentiment_row_layout.setSpacing(self._SENTIMENT_SPACING)
+        self._sentiment_label = QLabel("Rate:")
+        self._sentiment_label.setStyleSheet(_theme.META_DIM)
+        self._sentiment_label.setToolTip(
+            "Rate this title — your ratings tune Recommendations"
+        )
+        self._sentiment_row.hide()
+        layout.addWidget(self._sentiment_row)
+
     def set_mode(self, is_live: bool) -> None:
         # set_mode runs only when a channel is actually being shown (via
         # _configure_for), so this is where the rail first becomes visible — it
@@ -374,9 +402,12 @@ class _PosterSection(QWidget):
         self._action_rail.setVisible(True)
         self._live_header.setVisible(is_live)
         # Primary action row (Play / Resume) + secondary "Watch Later" show for ALL
-        # channel types.
+        # channel types.  The sentiment row is VOD-only (matching the buttons'
+        # own set_mode gate) — hidden wholesale for live so its "Rate:" caption
+        # never orphans above an empty row.
         self._primary_action_row.setVisible(True)
         self._secondary_action_row.setVisible(True)
+        self._sentiment_row.setVisible(not is_live)
         # Watched badge is a VOD-only affordance — track mode and refresh visibility.
         self._is_live = is_live
         if is_live:
@@ -417,12 +448,13 @@ class _PosterSection(QWidget):
           is hidden).  Resume is the dominant one when present.
         * **Secondary row** (under the primary row): the full-width labeled "Watch
           Later" (queue) button.
+        * **Sentiment row** (under the secondary row): a "Rate:" caption then the
+          like · not-interested · dislike trio.  Promoted out of the rail so the
+          rating controls are named and legible instead of floating unlabelled over
+          the poster art — there is only ONE set of them, moved not duplicated.
         * **Rail** (slim icon column, top→bottom): favorite · Alert/Monitor (Watchlist
-          shares this slot) · hide · like · not-interested · dislike.  The group is
-          bracketed by a leading + trailing stretch; the TOP group (favorite ·
-          monitor/watchlist · hide) is tight, then a much LARGER Hide↔sentiment gap
-          drops the sentiment trio LOW (near the Play/Resume row), so the trio no longer
-          bunches under Hide.  The trio itself stays a tight cluster.
+          shares this slot) · hide.  Bracketed by a leading + trailing stretch and
+          kept tight (favorite↔monitor = G/2, monitor/watchlist↔hide = G).
 
         Mode-conditional buttons (resume=has-progress, sentiment=VOD, watchlist=live,
         alert=series) keep their slot but are shown/hidden by _ActionBar.
@@ -440,20 +472,31 @@ class _PosterSection(QWidget):
             srow.takeAt(0)
         srow.addWidget(queue)
 
-        # Rail: the infrequent icon-only set (queue is NOT here — it graduated to the
-        # secondary row above).  Order top→bottom: favorite · Alert/Monitor (+Watchlist
-        # in the same slot) · hide · like · not-interested · dislike.  Leading + trailing
-        # stretch bracket the group; the TOP group is tight (Favorite↔Monitor = G/2,
-        # Monitor/Watchlist↔Hide = G), then a much LARGER Hide↔sentiment gap
-        # (_RAIL_SENTIMENT_GAP ≫ G) drops the sentiment trio low — near the Play/Resume
-        # row — instead of bunching it under Hide.  The trio stays a tight equal cluster.
+        # Sentiment row: "Rate:" caption + the like · not-interested · dislike trio,
+        # left-aligned with a trailing stretch.  The chips keep the rail's 48px
+        # footprint so the control set reads unchanged, just named and on the pane
+        # background instead of over the poster.  A trailing stretch (not per-chip
+        # stretch) keeps the minimum width at caption + 3 chips, well under the 300px
+        # pane minimum — this row must never become a width forcer.
+        strow = self._sentiment_row_layout
+        while strow.count():
+            strow.takeAt(0)
+        strow.addWidget(self._sentiment_label)
+        for btn in (like, not_interested, dislike):
+            btn.setFixedWidth(self._SENTIMENT_BTN_W)
+            strow.addWidget(btn)
+        strow.addStretch()
+
+        # Rail: the infrequent icon-only set (queue graduated to the secondary row,
+        # the sentiment trio to the sentiment row).  Order top→bottom: favorite ·
+        # Alert/Monitor (+Watchlist in the same slot) · hide.  Leading + trailing
+        # stretch bracket the group and it stays tight (Favorite↔Monitor = G/2,
+        # Monitor/Watchlist↔Hide = G).
         layout = self._action_rail_layout
         while layout.count():
             layout.takeAt(0)
 
         gap = self._RAIL_GAP
-        trio = self._RAIL_TRIO_GAP
-        sentiment_gap = self._RAIL_SENTIMENT_GAP
 
         layout.addStretch()                 # leading stretch — bracket the group
         layout.addWidget(favorite)
@@ -462,16 +505,10 @@ class _PosterSection(QWidget):
         layout.addWidget(watchlist)         # Watchlist shares Monitor's slot (exclusive)
         layout.addSpacing(gap)              # Monitor/Watchlist ↔ Hide = G
         layout.addWidget(hide)
-        layout.addSpacing(sentiment_gap)    # Hide ↔ sentiment ≫ G — drops the trio LOW
-        layout.addWidget(like)
-        layout.addSpacing(trio)             # tight sentiment trio
-        layout.addWidget(not_interested)
-        layout.addSpacing(trio)
-        layout.addWidget(dislike)
         layout.addStretch()                 # trailing stretch — bracket the group
-        # NOTE: the rail + primary/secondary rows are left hidden here — they're
-        # revealed by set_mode() when a channel is shown, so action controls don't
-        # appear in the empty/no-selection state.
+        # NOTE: the rail + primary/secondary/sentiment rows are left hidden here —
+        # they're revealed by set_mode() when a channel is shown, so action controls
+        # don't appear in the empty/no-selection state.
 
     def set_provider_urls(self, urls: list) -> None:
         self._provider_urls = urls

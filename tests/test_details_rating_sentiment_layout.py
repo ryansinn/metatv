@@ -218,8 +218,9 @@ def _wire_rail(poster, action_bar):
 def test_infrequent_buttons_reparented_to_rail(qapp):
     """After set_action_buttons(), the infrequent action buttons live in _action_rail.
 
-    Play and Resume graduate to the primary row below the poster, and Queue ("Watch
-    Later") graduates to the secondary row — none of those three are in the rail.
+    Play and Resume graduate to the primary row below the poster, Queue ("Watch
+    Later") graduates to the secondary row, and the sentiment trio graduates to the
+    labelled "Rate:" row — none of those are in the rail.
     """
     from metatv.gui.details_sections import _PosterSection
     from metatv.gui.details_actions import _ActionBar
@@ -232,11 +233,18 @@ def test_infrequent_buttons_reparented_to_rail(qapp):
 
     for btn in (
         action_bar.favorite_button,
-        action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
         action_bar.watchlist_button, action_bar.monitor_button, action_bar.hide_button,
     ):
         assert btn.parent() is poster._action_rail, (
             f"{btn!r} must be reparented to _action_rail after set_action_buttons()"
+        )
+
+    # The rating trio is reparented to the labelled sentiment row instead.
+    for btn in (
+        action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
+    ):
+        assert btn.parent() is poster._sentiment_row, (
+            f"{btn!r} must be reparented to the labelled 'Rate:' row"
         )
 
     # Play/Resume/Queue must NOT be in the rail.
