@@ -85,7 +85,14 @@ if TYPE_CHECKING:
 #       the whole cast blob in the title and detected_year empty.  Full re-run
 #       re-parses every row and recomputes content_key in the same
 #       update_detected_prefixes pass.
-CURRENT_VERSION: int = 7
+#   8 — heal stale metadata.title: #345 copied the then-current detected_title into
+#       metadata.title for provider-fallback rows; v7's pre-cut then made
+#       detected_title cleaner, leaving those stored metadata.title copies stale —
+#       and the details pane shows metadata.title, so it regressed to the raw-looking
+#       "(YYYY) CAST" form. After the re-parse, refresh metadata.title from the clean
+#       detected_title for exactly the polluted rows (metadata.title = clean title +
+#       a trailing parenthesized year). Re-runs for users already at v7.
+CURRENT_VERSION: int = 8
 
 
 class DetectedTitleReparseTask:
@@ -155,6 +162,48 @@ class DetectedTitleReparseTask:
                 progress_cb=progress_cb,
                 is_cancelled=is_cancelled,
             )
+
+        # Heal stale metadata.title copies (must run AFTER the re-parse above).
+        # The #345 cleanup copied the then-current detected_title into
+        # metadata.title for provider-fallback rows; a later parser improvement
+        # (v7 mid-name-year pre-cut) makes detected_title cleaner but leaves the
+        # stored metadata.title with the old "(YYYY) CAST" tail — and the details
+        # pane shows metadata.title, so it regresses to the raw-looking form.
+        # Refresh it from the now-clean detected_title, but ONLY for the exact
+        # polluted rows: metadata.title starts with detected_title and its trailing
+        # remainder still carries a parenthesized year "(19xx)"/"(20xx)" — the
+        # pollution signature. A genuine distinct provider/TMDb title never embeds
+        # a "(1996)" after the clean title, so real titles are left untouched.
+        from sqlalchemy import text
+        _stale = (
+            "SELECT 1 FROM channels c "
+            "WHERE c.metadata_id = metadata.id "
+            "  AND c.detected_title IS NOT NULL AND TRIM(c.detected_title) != '' "
+            "  AND c.detected_title != c.name "
+            "  AND metadata.title != c.detected_title "
+            "  AND substr(metadata.title, 1, length(c.detected_title)) = c.detected_title "
+            "  AND (metadata.title LIKE '%(19__)%' OR metadata.title LIKE '%(20__)%')"
+        )
+        try:
+            with self._db.engine.connect() as conn:
+                res = conn.execute(text(
+                    "UPDATE metadata SET title = ("
+                    "  SELECT c.detected_title FROM channels c "
+                    "  WHERE c.metadata_id = metadata.id "
+                    "    AND c.detected_title IS NOT NULL AND TRIM(c.detected_title) != '' "
+                    "    AND c.detected_title != c.name "
+                    "    AND substr(metadata.title, 1, length(c.detected_title)) = c.detected_title "
+                    "    AND (metadata.title LIKE '%(19__)%' OR metadata.title LIKE '%(20__)%') "
+                    "  LIMIT 1"
+                    f") WHERE EXISTS ({_stale})"
+                ))
+                conn.commit()
+                logger.info(
+                    "DetectedTitleReparseTask: healed {} stale metadata.title copies",
+                    res.rowcount or 0,
+                )
+        except Exception as e:  # never block the migration on the heal
+            logger.warning("DetectedTitleReparseTask: metadata.title heal skipped: {}", e)
 
         logger.info("DetectedTitleReparseTask: completed")
 
