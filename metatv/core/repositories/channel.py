@@ -114,6 +114,48 @@ def _looks_tmdb_addressable(detected_title, media_type, detected_year) -> bool:
     return True
 
 
+def _channel_text_search_predicate(search_term: str):
+    """Shared free-text search predicate: channel name OR linked metadata director/cast.
+
+    Single chokepoint for every "search box" filter over ``ChannelDB`` — every call
+    site (``_apply_channel_filters``, ``search``, ``get_similar_channels``,
+    ``get_hidden_channels``) routes through this instead of hand-rolling
+    ``ChannelDB.name.ilike(...)`` alone, so a search for a cast member or director
+    ("Nicole Kidman") also matches even when the channel *name* doesn't contain it.
+
+    ``MetadataDB.cast`` is a ``JSONEncoded`` (``Text``-backed) column storing
+    ``[{"name": ..., "character": ..., "photo_url": ...}]`` — matched with a plain
+    substring ``ILIKE`` against the serialized JSON text, which is sufficient for a
+    name lookup without a ``json_each`` split. ``MetadataDB.director`` is matched the
+    same way. Both comparisons wrap the column in ``type_coerce(..., Text)`` first —
+    without it, SQLAlchemy runs the ``JSONEncoded`` bind-processor on the search
+    pattern too (JSON-encoding it into a quoted string literal), which silently
+    never matches. Joins to ``MetadataDB`` via a correlated ``EXISTS`` (not a real
+    JOIN) so callers can ``.filter()`` this onto any existing ``Query(ChannelDB)``
+    without altering row cardinality or interacting with joins the caller already
+    applied.
+
+    Args:
+        search_term: Raw (non-empty) user search text; wildcards are added here.
+
+    Returns:
+        A SQLAlchemy boolean clause suitable for ``query.filter(...)``.
+    """
+    from sqlalchemy import exists as _exists, select as _sa_select, type_coerce as _type_coerce, Text as _Text
+
+    pattern = f"%{search_term}%"
+    metadata_match = _exists(
+        _sa_select(MetadataDB.id).where(
+            MetadataDB.id == ChannelDB.metadata_id,
+            or_(
+                MetadataDB.director.ilike(pattern),
+                _type_coerce(MetadataDB.cast, _Text).ilike(pattern),
+            ),
+        )
+    )
+    return or_(ChannelDB.name.ilike(pattern), metadata_match)
+
+
 class ChannelRepository(_ChannelStatsMixin):
     """Repository for channel data access"""
     
@@ -503,9 +545,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 )
             query = query.filter(or_(*genre_like_conds))
 
-        # SQL text search pushdown (case-insensitive LIKE on channel name)
+        # SQL text search pushdown (case-insensitive LIKE on channel name, director, cast)
         if search_query:
-            query = query.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+            query = query.filter(_channel_text_search_predicate(search_query))
 
         # Strict genre filter — from details-pane genre chip clicks. No passthrough:
         # only movies/series whose raw_data genre field contains the requested genre.
@@ -884,7 +926,7 @@ class ChannelRepository(_ChannelStatsMixin):
         else:
             hidden_filter = (ChannelDB.is_hidden == False)  # noqa: E712
         db_query = self.session.query(ChannelDB).filter(
-            ChannelDB.name.ilike(f"%{query}%"),
+            _channel_text_search_predicate(query),
             hidden_filter,
         )
 
@@ -2521,7 +2563,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 ChannelDB.media_type == channel.media_type,
                 ChannelDB.id != channel_id,
                 ChannelDB.is_hidden == False,  # noqa: E712 — per-channel hide gate
-                ChannelDB.name.ilike(f"%{words[0]}%"),
+                _channel_text_search_predicate(words[0]),
             )
         )
         if excluded:
@@ -2687,7 +2729,7 @@ class ChannelRepository(_ChannelStatsMixin):
             q = q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
 
         if search_query:
-            q = q.filter(ChannelDB.name.ilike(f"%{search_query}%"))
+            q = q.filter(_channel_text_search_predicate(search_query))
 
         return q.order_by(ChannelDB.name).all()
 

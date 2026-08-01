@@ -198,14 +198,18 @@ def test_reparse_backfill_repairs_preexisting_corrupted_row(db):
     assert key == "alita ingel de combate|movie|", key
 
 
-def test_reparse_task_version_is_six(tmp_path: Path):
-    """The reparse migration is bumped to version 6 (control-char strip) and gates on it."""
+def test_reparse_task_version_is_at_least_six(tmp_path: Path):
+    """The reparse migration is bumped at least to version 6 (control-char strip)
+    and gates on the control-char-strip transition. A later fix (mid-name year
+    pre-cut, #78 follow-up) bumps CURRENT_VERSION further — this only asserts the
+    monotonic floor, not the exact current value, so it doesn't need updating on
+    every subsequent reparse-triggering fix."""
     from metatv.core.config import Config
     from metatv.core.migrations.detected_title_reparse import (
         DetectedTitleReparseTask, CURRENT_VERSION,
     )
 
-    assert CURRENT_VERSION == 6, "control-char strip requires a full re-run (version 6)"
+    assert CURRENT_VERSION >= 6, "control-char strip requires a full re-run (version 6+)"
 
     config = Config(config_dir=tmp_path / "config")
     # A user already at version 5 must be re-run for the control-char strip.
@@ -214,7 +218,7 @@ def test_reparse_task_version_is_six(tmp_path: Path):
     assert task.needs_run(config) is True
 
     task.on_completed(config)
-    assert config.detected_reparse_version == 6
+    assert config.detected_reparse_version == CURRENT_VERSION
     assert task.needs_run(config) is False
 
 
