@@ -1042,14 +1042,37 @@ class Config(BaseModel):
 
     # Series monitor — user-opted series tracked for new episode arrivals.
     # Each entry is a plain dict:
-    #   {"series_channel_id": str,   # ChannelDB.id of the series
-    #    "source_id": str,           # xtream series id, for fetch_series_info
-    #    "provider_id": str,
+    #   {"series_channel_id": str,   # ChannelDB.id of the PRIMARY (add-time) channel
+    #    "source_id": str,           # PRIMARY provider's xtream series id
+    #    "provider_id": str,         # PRIMARY provider — kept for back-compat +
+    #                                # get_monitored_for_provider() filtering
     #    "title": str,
-    #    "baseline_episode_count": int | None,  # None = baseline not yet established
-    #    "unseen_new": int,          # new episodes since last cleared
+    #    "baselines": dict[str, int],  # {provider_id: episode_count} — one entry
+    #                                   # per provider currently mirroring this
+    #                                   # series (primary + any content_key
+    #                                   # siblings discovered at check time).  A
+    #                                   # provider absent from this dict has no
+    #                                   # baseline yet (established silently on
+    #                                   # its first check — never alerts on the
+    #                                   # whole back-catalog).
+    #    "unseen_new": int,          # new episodes since last cleared (summed
+    #                                 # across every provider that grew)
+    #    "growth_providers": list[str],  # display names credited for the most
+    #                                     # recent unseen growth (toast + row
+    #                                     # tooltip attribution); cleared
+    #                                     # alongside unseen_new
     #    "last_checked": str | None} # ISO timestamp
+    # Legacy shape (pre-per-provider-baselines upgrade): a scalar
+    # "baseline_episode_count" instead of "baselines" — tolerated on read,
+    # migrated to the per-provider shape (and the migrated list written back)
+    # by get_monitored_series().  See series_monitor.normalize_monitored_entry().
     monitored_series: list = Field(default_factory=list)
+
+    # Series monitor — recurring background recheck interval, in minutes.
+    # SeriesMonitorManager.start_scheduler() reads this to arm a QTimer that
+    # re-runs check_all() while the app stays open (in addition to the startup
+    # check and the post-provider-refresh check_provider() call).  0 = off.
+    series_monitor_interval_minutes: int = 60
 
     # Search state persistence — "Remember last search" feature.
     # When remember_search is True, last_search_state is written on every search
@@ -1098,14 +1121,41 @@ class Config(BaseModel):
         )
 
     def get_monitored_series(self) -> list:
-        """Return a copy of the monitored series list."""
+        """Return a copy of the monitored series list.
+
+        Migrates any legacy entry (scalar ``baseline_episode_count``, from
+        before the per-provider baselines upgrade) to the per-provider
+        ``baselines`` shape on first read and writes the
+        migrated list back — a one-time, idempotent upgrade (see
+        ``series_monitor.normalize_monitored_entry``).  Entries already on the
+        new shape pass through unchanged.
+        """
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        changed = False
+        migrated = []
+        for e in self.monitored_series:
+            m = normalize_monitored_entry(e)
+            if m is not e:
+                changed = True
+            migrated.append(m)
+        if changed:
+            self.monitored_series = migrated
+            self.save()
         return list(self.monitored_series)
 
     def get_monitored_for_provider(self, provider_id: str) -> list:
-        """Return monitored series entries belonging to the given provider."""
+        """Return monitored series entries that involve the given provider.
+
+        Matches the entry's PRIMARY provider (the source the user clicked
+        "Alert me" from) OR any provider already recorded in its per-provider
+        ``baselines`` dict — so a call after THAT mirror's refresh also finds
+        entries discovered as siblings by a prior full ``check_all()`` pass.
+        """
         return [
-            e for e in self.monitored_series
+            e for e in self.get_monitored_series()
             if e.get("provider_id") == provider_id
+            or provider_id in (e.get("baselines") or {})
         ]
 
     def update_monitored_series(self, series_channel_id: str, **fields) -> None:
@@ -1122,8 +1172,12 @@ class Config(BaseModel):
         self.save()
 
     def clear_unseen(self, series_channel_id: str) -> None:
-        """Reset unseen_new to 0 for the given series."""
-        self.update_monitored_series(series_channel_id, unseen_new=0)
+        """Reset unseen_new to 0 (and its provider attribution) for the given series.
+
+        Called both by the explicit "Mark seen" action and by drilling into the
+        series' season/episode tree (opening it is itself an acknowledgment).
+        """
+        self.update_monitored_series(series_channel_id, unseen_new=0, growth_providers=[])
 
     # ── VOD Watch Alert helpers ───────────────────────────────────────────────
 

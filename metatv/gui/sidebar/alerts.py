@@ -490,7 +490,22 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         new_total = firing + self.__dict__.get("_series_new_count", 0)
         if new_total > 0:
             label += f"  ·  {new_total} new"
+        if self.__dict__.get("_series_checking"):
+            label += f"  {_icons.loading_icon} checking…"
         self._vod_toggle.setText(f"{arrow}  {label}")
+
+    def set_series_checking(self, busy: bool) -> None:
+        """Show/clear a subtle busy hint on the Movies & Series header.
+
+        Wired to ``SeriesMonitorManager.checking_started``/``checking_finished``
+        so a startup, recurring-timer, or post-provider-refresh recheck pass is
+        visible instead of silently changing state underfoot. Same
+        ``icons.loading_icon`` idiom as the per-row spinners in
+        ``sidebar/sources.py`` (``set_busy``/``set_epg_refreshing``), applied to
+        this section's sub-header instead of a per-row button.
+        """
+        self._series_checking = busy
+        self._update_vod_toggle_label(self._vod_list.count())
 
     def _series_display_entries(self) -> list[dict]:
         """Monitored-series rows for render: cleaned title + unseen count, sorted.
@@ -523,6 +538,10 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     "region": (e.get("region") or "").strip(),
                     "source": (e.get("source") or "").strip(),
                     "raw_title": e.get("title") or "",
+                    # Provider(s) credited for the current unseen count (toast +
+                    # row-tooltip attribution) — persisted on the config entry,
+                    # cleared alongside unseen_new.  Never re-derived at render.
+                    "growth_providers": list(e.get("growth_providers") or []),
                 },
                 e,
             ))
@@ -699,7 +718,15 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                     # cleaned title.
                     tip = f"{title}"
                     if has_new:
-                        tip += f"\n{unseen} new {ep_word} — click to open, right-click to mark seen / stop"
+                        # Name the provider(s) that gained episodes (e.g. "2 new
+                        # eps on ProSat") — a monitored series is often mirrored
+                        # across sources, and growth can land on any of them.
+                        growers = s.get("growth_providers") or []
+                        provider_note = f" on {', '.join(growers)}" if growers else ""
+                        tip += (
+                            f"\n{unseen} new {ep_word}{provider_note} — click to "
+                            "open, right-click to mark seen / stop"
+                        )
                     else:
                         tip += "\nMonitoring for new episodes — right-click to stop"
                     tip += "\n\n" + _series_identity.identity_lines(
