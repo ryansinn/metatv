@@ -57,6 +57,12 @@ class _NavMixin:
         if "full_history_view" in self.__dict__:
             if self.full_history_view.isVisible():
                 self.full_history_view.on_deactivate()
+        # EPG stats-line controls (source status + Refresh) belong to the EPG view
+        # only — hide them whenever we blank the content area (guarded: the stats
+        # line is built after this mixin's earliest possible call).
+        if "epg_status_label" in self.__dict__:
+            self.epg_status_label.setVisible(False)
+            self.epg_refresh_btn.setVisible(False)
         self.channels_list.setVisible(False)
         self.series_tree.setVisible(False)
         self.epg_view.setVisible(False)
@@ -149,6 +155,12 @@ class _NavMixin:
         self.view_mode = "epg"
         self._hide_all_content_views()
         self.epg_view.setVisible(True)
+        # Source status + Refresh ride on the stats line, only while EPG is active.
+        # on_activate → _update_status_label emits epg_status_changed, which fills
+        # epg_status_label (below).
+        if "epg_status_label" in self.__dict__:
+            self.epg_status_label.setVisible(True)
+            self.epg_refresh_btn.setVisible(True)
         self.epg_view.on_activate()
         self.stats_label.setText("EPG — counting…")
         provider_ids = list(self.epg_view._provider_ids)
@@ -170,6 +182,19 @@ class _NavMixin:
         if self.view_mode != "epg":
             return
         self.stats_label.setText("EPG — count unavailable")
+
+    def _on_epg_status_changed(self, text: str, tooltip: str) -> None:
+        """Main-thread slot: mirror the EPG view's source-freshness status onto the
+        stats line (``epg_status_label``), right-aligned beside the programme count.
+
+        The EPG view owns the status *text* (computed in ``_update_status_label``);
+        it only lives on the stats line because that reads as one status strip with
+        the "###,### EPG programmes" count.
+        """
+        if "epg_status_label" not in self.__dict__:
+            return
+        self.epg_status_label.setText(text)
+        self.epg_status_label.setToolTip(tooltip)
 
     def switch_to_preferences_view(self) -> None:
         """Switch content area to the Taste / Preferences dashboard."""

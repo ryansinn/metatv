@@ -72,6 +72,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
     play_channel_requested = pyqtSignal(object)  # ChannelDB
     watchlist_changed = pyqtSignal()             # patterns or channels modified
+    # Source-freshness status (text, tooltip). The status text does NOT live in
+    # the EPG view — the host mirrors it onto the "###,### EPG programmes" stats
+    # line (right-aligned) so status + count read as one strip. Emitted whenever
+    # _update_status_label recomputes (on_activate, _on_epg_refreshed).
+    epg_status_changed = pyqtSignal(str, str)    # (status text, tooltip)
 
     # Internal thread-safe signals
     _data_loaded = pyqtSignal(object)  # payload dict keyed by tab
@@ -122,21 +127,17 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         root.setSpacing(0)
 
         # ── Header ─────────────────────────────────────────────────────
-        # Two stacked rows so the long status text + Refresh button no longer
-        # share the tab row — that combination ate ~500px and forced the QTabBar
-        # into a ‹ › overflow-scroll state, hiding tabs.  Row 1 gives the tab bar
-        # the full header width; row 2 is a slim right-aligned status/refresh line
-        # underneath it.
+        # A single row: the tab bar owns the full header width so every tab fits
+        # without a ‹ › overflow-scroll state.  The source-freshness status text +
+        # Refresh button do NOT live here — the host renders them right-aligned on
+        # the "###,### EPG programmes" stats line (status via the epg_status_changed
+        # signal; Refresh wired to _on_force_refresh).
         header_widget = QWidget()
         header_widget.setObjectName("epgHeader")
-        header_layout = QVBoxLayout(header_widget)
+        header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(6)
+        header_layout.setSpacing(8)
 
-        # Row 1: tab bar spans the full header width (trailing stretch keeps tabs left)
-        tab_row = QHBoxLayout()
-        tab_row.setContentsMargins(0, 0, 0, 0)
-        tab_row.setSpacing(8)
         self.tab_bar = QTabBar()
         self.tab_bar.addTab(f"{self.config.watchlist_icon} Watchlist")      # 0
         self.tab_bar.addTab(f"{self.config.series_icon} My Channels")      # 1
@@ -146,28 +147,8 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self.tab_bar.addTab(f"{self.config.hide_icon} Manage")             # 5
         self.tab_bar.addTab(f"{_icons.events_icon} Events")                # 6
         self.tab_bar.currentChanged.connect(self._on_tab_changed)
-        tab_row.addWidget(self.tab_bar)
-        tab_row.addStretch()
-        header_layout.addLayout(tab_row)
-
-        # Row 2: slim right-aligned status + Refresh line, under the tabs
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.setSpacing(8)
-        status_row.addStretch()
-
-        # Status label
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        status_row.addWidget(self.status_label)
-
-        # Refresh button
-        self.refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
-        self.refresh_btn.setToolTip("Refresh EPG data from all providers")
-        self.refresh_btn.clicked.connect(self._on_force_refresh)
-        status_row.addWidget(self.refresh_btn)
-
-        header_layout.addLayout(status_row)
+        header_layout.addWidget(self.tab_bar)
+        header_layout.addStretch()
 
         root.addWidget(header_widget)
 
@@ -712,15 +693,16 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             session.close()
 
     def _update_status_label(self) -> None:
-        """Header EPG status: source names + freshness/staleness (flagged c3e1aaf3).
+        """EPG source status: source names + freshness/staleness (flagged c3e1aaf3).
 
         Compact label (single source → its freshness; multiple → "N sources" plus a
         stale count when any guide is stale) with a per-source tooltip naming each
         source and its freshness via the ``EpgManager.get_status_text`` chokepoint.
+        The text does not live in the view — it is emitted via ``epg_status_changed``
+        so the host renders it on the "###,### EPG programmes" stats line.
         """
         if not self._provider_ids:
-            self.status_label.setText("No EPG sources")
-            self.status_label.setToolTip("")
+            self.epg_status_changed.emit("No EPG sources", "")
             return
 
         info = self._epg_source_info()
@@ -734,15 +716,16 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                 lines.append(f"{name}: {status}  (stale)")
             else:
                 lines.append(f"{name}: {status}")
-        self.status_label.setToolTip("\n".join(lines))
+        tooltip = "\n".join(lines)
 
         if len(self._provider_ids) == 1:
             pid = self._provider_ids[0]
             name, _end = info.get(pid, (pid, None))
-            self.status_label.setText(f"{name} · {self.epg_manager.get_status_text(pid)}")
+            text = f"{name} · {self.epg_manager.get_status_text(pid)}"
         else:
             suffix = f" · {stale_count} stale" if stale_count else ""
-            self.status_label.setText(f"{len(self._provider_ids)} sources{suffix}")
+            text = f"{len(self._provider_ids)} sources{suffix}"
+        self.epg_status_changed.emit(text, tooltip)
 
     # ── Watchlist management ───────────────────────────────────────────
 

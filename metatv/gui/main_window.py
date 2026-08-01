@@ -1562,6 +1562,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.epg_view.status_message.connect(lambda msg: self.status_bar.showMessage(msg))
         self.epg_view.channel_selected.connect(self._on_view_channel_selected)
         self.epg_view.watchlist_changed.connect(self._refresh_watch_alerts)
+        # EPG source-freshness status is rendered on the stats line (epg_status_label),
+        # not inside the EPG view — the view emits its computed status text + tooltip.
+        self.epg_view.epg_status_changed.connect(self._on_epg_status_changed)
         self.epg_view.setVisible(False)
         self._list_layout.addWidget(self.epg_view)
 
@@ -1671,6 +1674,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
+
+        # EPG-only trailing controls, right-aligned on the SAME line as the
+        # "###,### EPG programmes" count (stats_label): source-freshness status
+        # then Refresh, so status + count + Refresh read as one strip. Both are
+        # shown only while the EPG view is active (switch_to_epg_view) and hidden
+        # by _hide_all_content_views. epg_view already exists (built above), so the
+        # Refresh button wires straight to its force-refresh seam.
+        self.epg_status_label = QLabel("")
+        self.epg_status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        self.epg_status_label.setVisible(False)
+        stats_layout.addWidget(self.epg_status_label)
+
+        self.epg_refresh_btn = QPushButton(f"{self.config.refresh_icon} Refresh")
+        self.epg_refresh_btn.setToolTip("Refresh EPG data from all providers")
+        self.epg_refresh_btn.clicked.connect(self.epg_view._on_force_refresh)
+        self.epg_refresh_btn.setVisible(False)
+        stats_layout.addWidget(self.epg_refresh_btn)
+
         self.content_layout.addWidget(stats_container)
 
         return content

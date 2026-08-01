@@ -221,6 +221,9 @@ class _EpgBrowseMixin:
         self.browse_placeholder.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;")
         layout.addWidget(self.browse_placeholder)
 
+        # Browse-only "###,### programmes" count — it belongs to this tab page, not
+        # the global stats line (that line carries the whole-guide EPG count + the
+        # source status/Refresh). _render_browse sets/clears it.
         self.browse_stats = QLabel("")
         self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
         layout.addWidget(self.browse_stats)
