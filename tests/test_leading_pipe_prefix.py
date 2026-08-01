@@ -81,3 +81,24 @@ def test_region_paren_rejects_bare_year():
     p = parse_channel_name("FBI (2024) Reboot")
     assert p.region == ""
     assert p.bare_name == "FBI (2024) Reboot"
+
+
+def test_parse_pipe_prefix_strips_separator_residue():
+    # "|MULTI|. Title" — some feeds put the separator AFTER the closing pipe;
+    # the ". " must not survive into the title (user report, 2026-08-01).
+    p = parse_channel_name("|MULTI|. SpiderMan: Far from Home")
+    assert p.region == "MULTI"
+    assert p.bare_name == "SpiderMan: Far from Home"
+
+
+def test_parse_pipe_prefix_strips_dash_residue():
+    p = parse_channel_name("|EN|- The Bear")
+    assert p.bare_name == "The Bear"
+
+
+def test_parse_pipe_prefix_keeps_bare_leading_dot_title():
+    # A punctuation run only counts as residue when followed by whitespace —
+    # a real leading-dot title survives.
+    p = parse_channel_name("|EN| .hack//Sign")
+    assert p.region == "EN"
+    assert p.bare_name == ".hack//Sign"

@@ -54,6 +54,12 @@ _LEADING_PIPE_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Separator residue left at the start of a title after a prefix strip: some feeds
+# put punctuation AFTER the closing pipe ("|MULTI|. Title" → ". Title").  Requires
+# trailing whitespace so a genuine leading-punctuation title (".hack//Sign") is
+# never touched.
+_POST_PREFIX_RESIDUE_RE = re.compile(r'^[.\-:|,;]+\s+')
+
 # EPG-embedded event feed: "REGION (NETWORK [CHAN#]) | TITLE (TIMESTAMP)".
 # Some providers (TREX/Ninja) encode a scheduled programme directly in the channel
 # name: a known region, a broadcaster/network in parens (optionally with a feed
@@ -1561,6 +1567,11 @@ def parse_channel_name(name: str) -> ParsedChannel:
     if lpm:
         region = normalize_region_code(lpm.group(1).upper())
         bare = lpm.group(2).strip()
+        # Some feeds put a separator AFTER the closing pipe ("|MULTI|. Title"),
+        # which survives the prefix strip as a leading ". " on the title.  Only a
+        # punctuation run FOLLOWED BY whitespace is residue — a bare leading dot
+        # can be a real title (".hack//Sign").
+        bare = _POST_PREFIX_RESIDUE_RE.sub("", bare)
         _prefix_consumed = True
 
     # 0b. EPG-embedded event feed: "US (Peacock 01) | Title (timestamp)" — set the

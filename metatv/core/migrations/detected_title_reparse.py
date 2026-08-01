@@ -85,7 +85,12 @@ if TYPE_CHECKING:
 #       the whole cast blob in the title and detected_year empty.  Full re-run
 #       re-parses every row and recomputes content_key in the same
 #       update_detected_prefixes pass.
-CURRENT_VERSION: int = 7
+#   8 — leading-pipe separator residue: "|MULTI|. Title" left ". " at the start of
+#       detected_title after the pipe-wrapped prefix was stripped; parse_channel_name
+#       now removes a leading punctuation-run-plus-whitespace after the prefix strip
+#       (a bare leading dot with no space — ".hack//Sign" — is preserved).  Full
+#       re-run re-parses every row and recomputes content_key.
+CURRENT_VERSION: int = 8
 
 
 class DetectedTitleReparseTask:
