@@ -268,6 +268,10 @@ def _on_now_host():
     host._render_on_now = lambda progs: EpgView._render_on_now(host, progs)
     host._on_now_hidden_prefixes = EpgView._on_now_hidden_prefixes
     host._apply_on_now_filters = lambda: None
+    # Slice 3C: the tree is grouped by prefix — this file only cares about the
+    # Quality column on a rendered row, not group/type-dropdown behavior (that's
+    # covered in tests/test_epg_on_now_display.py), so stub the type-dropdown sync.
+    host._sync_on_now_type_dropdown = lambda type_counts: None
     host._update_filler_btn_label = lambda: None
     return host
 
@@ -293,7 +297,9 @@ def test_on_now_quality_column_shows_translated_label(qapp):
 
     host._render_on_now([_FakeProgram()])
 
-    item = host.on_now_list.topLevelItem(0)
+    # Slice 3C: top-level rows are now prefix-group headers; the programme row is
+    # the first (only) child.
+    item = host.on_now_list.topLevelItem(0).child(0)
     assert item.text(2) == "Uncompressed"
     assert "uncompressed" in item.toolTip(2).lower()
     # The map (the view's keying data) still holds the stored token
@@ -308,7 +314,7 @@ def test_on_now_hevc_column_keeps_short_form_with_tooltip(qapp):
 
     host._render_on_now([_FakeProgram()])
 
-    item = host.on_now_list.topLevelItem(0)
+    item = host.on_now_list.topLevelItem(0).child(0)
     assert item.text(2) == "HEVC"
     assert "codec" in item.toolTip(2).lower()
 
@@ -321,7 +327,7 @@ def test_on_now_plain_tier_is_unchanged_and_untooltipped_beyond_generic(qapp):
 
     host._render_on_now([_FakeProgram()])
 
-    item = host.on_now_list.topLevelItem(0)
+    item = host.on_now_list.topLevelItem(0).child(0)
     assert item.text(2) == "4K"
     assert item.toolTip(2) == "4K quality"
 

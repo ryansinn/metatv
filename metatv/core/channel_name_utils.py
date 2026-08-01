@@ -1,6 +1,7 @@
 """Shared channel name parsing — prefix extraction, region normalization, quality/year/audio detection."""
 import re
 from datetime import datetime
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 
@@ -1241,6 +1242,103 @@ def detect_ai_provenance(name: str) -> Optional[AiProvenance]:
 CONTENT_DESCRIPTOR_GROUPS: frozenset[str] = frozenset({
     "Adult", "Sports", "Kids", "Music", "News", "Religious", "24/7",
 })
+
+# ── EPG "On Now" viewing content-type classifier (Slice 3C) ────────────────────── #
+# A *lighter*, distinct namespace from CONTENT_DESCRIPTOR_GROUPS/CONTENT_TYPE_DISPLAY_NAMES
+# above — those classify the channel CORPUS (facet tagging / dedup provenance); this
+# classifies a channel for the EPG "On Now" viewing-content-type filter ("All Types ▼").
+# "Movies" is deliberately new here — it has no CONTENT_DESCRIPTOR_GROUPS/prefix-group
+# equivalent, so it is keyword-only (never a direct prefix-group hit).
+EPG_CONTENT_TYPES: tuple[str, ...] = ("Sports", "News", "Kids", "Movies", "Music")
+
+# Keyword tables for the keyword-scan fallback (case-insensitive substring match against
+# the channel name).  "Sports" is deliberately absent — its keywords are loaded from
+# special_content.py's load_sports_definitions() (bundled sports_definitions.yaml + any
+# user override) via _sports_keywords_flat() below, so the sport/league keyword list has
+# exactly one home instead of a second, drifting copy here.
+EPG_CONTENT_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "News": (
+        "news", "cnn", "bbc news", "sky news", "msnbc", "fox news", "nbc news",
+        "cbs news", "abc news", "al jazeera", "euronews", "france24", "reuters",
+    ),
+    "Kids": (
+        "kids", "cartoon", "nick", "disney", "cbeebies", "junior", "baby",
+        "nickelodeon", "boomerang", "cbbc", "toon",
+    ),
+    "Movies": (
+        "movies", "cinema", "film", "hbo", "cinemax", "starz", "showtime",
+    ),
+    "Music": (
+        "music", "mtv", "vh1", "hits", "radio", "trace", "vevo",
+    ),
+}
+
+
+@lru_cache(maxsize=1)
+def _sports_keywords_flat() -> tuple[str, ...]:
+    """Flattened sport + league keywords from special_content.py (single source of truth).
+
+    Deferred import: ``special_content.py`` imports ``parse_platform_event`` from this
+    module at module scope, so importing it back here at module level would be a
+    circular import — this local import breaks the cycle by deferring it to call time.
+
+    Cached for the process lifetime: ``load_sports_definitions()`` reads a YAML file
+    from disk, and this classifier runs once per On-Now row per render — re-reading the
+    file per channel would be wasteful for a table that is effectively static per
+    session (a settings-UI edit to the user override file takes effect next launch).
+    """
+    from metatv.core.special_content import load_sports_definitions
+
+    sport_kw, league_kw = load_sports_definitions()
+    flat: list[str] = []
+    for keywords in sport_kw.values():
+        flat.extend(k.lower() for k in keywords)
+    for keywords in league_kw.values():
+        flat.extend(k.lower() for k in keywords)
+    return tuple(flat)
+
+
+def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> Optional[str]:
+    """Classify a channel's EPG viewing content type for the On Now "All Types" filter.
+
+    Priority (cheapest/most-confident first):
+      1. ``detected_prefix`` already denotes a content-descriptor group that is also
+         in :data:`EPG_CONTENT_TYPES` (e.g. a channel whose stored prefix IS "Sports" /
+         "Kids" / "Music" / "News") — no keyword scan needed, no ambiguity.
+      2. Keyword scan over the lowercased channel *name* — Sports keywords come from
+         special_content.py's sport/league loader (:func:`_sports_keywords_flat`);
+         News/Kids/Movies/Music from :data:`EPG_CONTENT_TYPE_KEYWORDS`.
+      3. ``None`` — the caller displays this as "Other".
+
+    Pure — no DB, no Qt.  ``detected_prefix`` must be the channel's already-stored
+    ``detected_prefix`` field (ingestion-computed) — never re-derive it by parsing the
+    name here (CLAUDE.md "channel-name fields" rule).
+
+    Args:
+        name: The channel's raw name.
+        detected_prefix: The channel's stored ``detected_prefix``, or ``None``/``""``.
+
+    Returns:
+        One of :data:`EPG_CONTENT_TYPES`, or ``None`` if nothing matched.
+    """
+    if detected_prefix:
+        prefix_titled = detected_prefix.strip().title()
+        if prefix_titled in CONTENT_DESCRIPTOR_GROUPS and prefix_titled in EPG_CONTENT_TYPES:
+            return prefix_titled
+
+    name_lower = (name or "").lower()
+    if not name_lower:
+        return None
+
+    if any(kw in name_lower for kw in _sports_keywords_flat()):
+        return "Sports"
+
+    for content_type, keywords in EPG_CONTENT_TYPE_KEYWORDS.items():
+        if any(kw in name_lower for kw in keywords):
+            return content_type
+
+    return None
+
 
 # ── Dual-facet code table (DR-0006) ─────────────────────────────────────────── #
 # Maps a normalized IPTV prefix code → one or more (facet_type, value, confidence)

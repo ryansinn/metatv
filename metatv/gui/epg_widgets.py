@@ -10,6 +10,7 @@ Exports
 _SORT_ROLE
 _PROGRESS_ROLE
 _REMAIN_ROLE
+_CONTENT_TYPE_ROLE
 _ProgressBarDelegate
 _EpgTreeItem
 _progress_bar
@@ -43,9 +44,10 @@ from metatv.core.epg_utils import now_utc as _now_utc
 # Qt item-data roles shared across all EPG tree widgets
 # ---------------------------------------------------------------------------
 
-_SORT_ROLE     = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
-_PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
-_REMAIN_ROLE   = Qt.ItemDataRole.UserRole + 4  # "10m left" tooltip string
+_SORT_ROLE         = Qt.ItemDataRole.UserRole + 2  # numeric sort key (seconds)
+_PROGRESS_ROLE     = Qt.ItemDataRole.UserRole + 3  # 0–100 progress pct for progress bar
+_REMAIN_ROLE       = Qt.ItemDataRole.UserRole + 4  # "10m left" tooltip string
+_CONTENT_TYPE_ROLE = Qt.ItemDataRole.UserRole + 5  # On Now: classify_channel_content_type() result
 
 
 # ---------------------------------------------------------------------------
