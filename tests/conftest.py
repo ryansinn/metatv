@@ -1,6 +1,13 @@
 """Shared fixtures for MetaTV tests."""
 
 import os
+
+# Headless by default: without this, every pytest-qt widget/dialog renders on the
+# developer's live display — a full-suite run flashed real windows (including the
+# What's New dialog paging all ~211 entries) on the owner's screen for 5-15s per
+# run. Must be set before ANY Qt import. setdefault so an explicit
+# QT_QPA_PLATFORM=xcb still allows deliberate windowed debugging.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 import threading
 import uuid
