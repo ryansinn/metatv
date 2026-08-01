@@ -153,8 +153,7 @@ def _bare_dialog(qapp):
     """Build a bare SettingsDialog skeleton for load/save testing."""
     from PyQt6.QtWidgets import QComboBox, QCheckBox, QSpinBox, QLineEdit, QListWidget
     from metatv.gui.settings_dialog import SettingsDialog
-    from tests.conftest import wire_settings_recommendation_widgets
-    import metatv.core.epg_utils as _epg
+    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
 
     dlg = SettingsDialog.__new__(SettingsDialog)
 
@@ -198,14 +197,7 @@ def _bare_dialog(qapp):
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._update_check_enabled_check = QCheckBox()
-    dlg._epg_interval_combo = QComboBox()
-    for value, label in _epg.EPG_INTERVAL_CHOICES:
-        dlg._epg_interval_combo.addItem(label, value)
-    dlg._epg_hide_older_spin = QSpinBox()
-    dlg._epg_hide_older_spin.setRange(0, 168)
-    dlg._epg_scrubber_increment_combo = QComboBox()
-    for _mins in _epg.EPG_SCRUBBER_INCREMENTS:
-        dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
+    wire_settings_epg_widgets(dlg)
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()
     dlg._cache_ttl_spin = QSpinBox()

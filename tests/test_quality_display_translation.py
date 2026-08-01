@@ -324,3 +324,35 @@ def test_on_now_plain_tier_is_unchanged_and_untooltipped_beyond_generic(qapp):
     item = host.on_now_list.topLevelItem(0)
     assert item.text(2) == "4K"
     assert item.toolTip(2) == "4K quality"
+
+
+# ---------------------------------------------------------------------------
+# quality_tier_rank — the single canonical sortable-rank lookup (Wave 3 slice
+# 3A: used by the EPG watchlist to rank channels within a match group).
+# ---------------------------------------------------------------------------
+
+def test_quality_tier_rank_orders_resolution_tiers_descending():
+    from metatv.core.channel_name_utils import quality_tier_rank
+
+    assert quality_tier_rank("8K") > quality_tier_rank("4K")
+    assert quality_tier_rank("4K") == quality_tier_rank("UHD")  # 4K/UHD synonyms
+    assert quality_tier_rank("4K") > quality_tier_rank("FHD")
+    assert quality_tier_rank("FHD") > quality_tier_rank("HD")
+    assert quality_tier_rank("HD") > quality_tier_rank("SD")
+    assert quality_tier_rank("SD") > quality_tier_rank("LQ")
+
+
+def test_quality_tier_rank_is_case_insensitive():
+    from metatv.core.channel_name_utils import quality_tier_rank
+    assert quality_tier_rank("hd") == quality_tier_rank("HD")
+    assert quality_tier_rank(" 4k ") == quality_tier_rank("4K")
+
+
+def test_quality_tier_rank_unknown_and_missing_fall_to_default_between_sd_and_hd():
+    from metatv.core.channel_name_utils import quality_tier_rank
+
+    default = quality_tier_rank(None)
+    assert default == quality_tier_rank("")
+    assert default == quality_tier_rank("HEVC")   # codec, not a resolution tier
+    assert default == quality_tier_rank("RAW")    # bitrate descriptor, not a tier
+    assert quality_tier_rank("HD") > default > quality_tier_rank("SD")

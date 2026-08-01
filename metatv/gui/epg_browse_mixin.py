@@ -143,12 +143,13 @@ class _EpgBrowseMixin:
         # (and seek there) — it stays as a fast way to leap to Now/Tonight/Tomorrow.
         self.anchor_combo.currentIndexChanged.connect(self._on_anchor_selected)
 
-        self.hide_filler_btn = QPushButton("Hide Filler ✓")
+        self.hide_filler_btn = QPushButton()
         self.hide_filler_btn.setCheckable(True)
         self.hide_filler_btn.setChecked(self.config.epg_hide_filler)
         self.hide_filler_btn.setFixedWidth(100)
         self.hide_filler_btn.setToolTip("Hide placeholder / off-air filler programmes.")
-        self.hide_filler_btn.clicked.connect(self._reload_browse)
+        self.hide_filler_btn.clicked.connect(self._on_hide_filler_toggled)
+        self._update_hide_filler_btn_label()
 
         filter_row.addWidget(self.anchor_combo)
         filter_row.addStretch()
@@ -246,6 +247,28 @@ class _EpgBrowseMixin:
         if 0 <= prev < self.anchor_combo.count():
             self.anchor_combo.setCurrentIndex(prev)
         self.anchor_combo.blockSignals(False)
+
+    def _on_hide_filler_toggled(self) -> None:
+        """Persist the Browse "Hide Filler" toggle and refresh its label + list.
+
+        ``epg_hide_filler`` previously only SEEDED the button's initial checked
+        state (``setChecked`` at build) — a click reloaded Browse but never wrote
+        the new state back, so it reverted to the config default on the next
+        launch/activation. Adopts the On Now "Hide"/"Show All" label idiom
+        (``_update_filler_btn_label`` in ``epg_view.py``) so the button itself also
+        reflects current state instead of a hardcoded "✓" that never changed.
+        """
+        self.config.epg_hide_filler = self.hide_filler_btn.isChecked()
+        self.config.save()
+        self._update_hide_filler_btn_label()
+        self._reload_browse()
+
+    def _update_hide_filler_btn_label(self) -> None:
+        """Set the Hide Filler button's text to reflect its current checked state."""
+        if self.hide_filler_btn.isChecked():
+            self.hide_filler_btn.setText("Hide Filler ✓")
+        else:
+            self.hide_filler_btn.setText("Hide Filler")
 
     def _reload_browse(self) -> None:
         # Forward-looking schedule browser. A fresh reload (anchor change, search

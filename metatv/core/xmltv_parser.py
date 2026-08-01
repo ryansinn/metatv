@@ -1,7 +1,10 @@
 """Streaming XMLTV parser — never loads the full file into RAM."""
 
+import gzip
+import io
 import re
 import urllib.request
+import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Iterator, Optional
@@ -15,6 +18,9 @@ _NEW_BADGE  = "ᴺᵉʷ"
 
 # Matches the XMLTV datetime format: "20260512153000 +0200"
 _DT_RE = re.compile(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s*([+-]\d{4})")
+
+# Gzip magic number — the first two bytes of any gzip stream (RFC 1952).
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 @dataclass
@@ -66,7 +72,23 @@ def parse_xmltv_url(
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "MetaTV/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            context = ET.iterparse(response, events=("end",))
+            # Wrap in a BufferedReader so we can peek the first two bytes for the
+            # gzip magic number without consuming them — ET.iterparse still reads
+            # the SAME stream from the start afterward.
+            buffered = io.BufferedReader(response)
+            content_encoding = (response.headers.get("Content-Encoding", "") or "").lower()
+            is_gzip = (
+                buffered.peek(2)[:2] == _GZIP_MAGIC
+                or url.lower().endswith(".gz")
+                or content_encoding == "gzip"
+            )
+            if is_gzip:
+                logger.info("XMLTV feed is gzip-compressed; decompressing on the fly")
+                stream = gzip.GzipFile(fileobj=buffered)
+            else:
+                stream = buffered
+
+            context = ET.iterparse(stream, events=("end",))
             try:
                 for event, elem in context:
                     if elem.tag == "channel":
@@ -83,10 +105,13 @@ def parse_xmltv_url(
                                 on_progress(len(programmes))
                         elem.clear()
 
-            except ET.ParseError as e:
-                # Truncated/incomplete XML — use whatever we collected so far
+            except (ET.ParseError, gzip.BadGzipFile, EOFError, zlib.error) as e:
+                # Truncated/incomplete XML, or a corrupt/truncated gzip stream — use
+                # whatever we collected so far. A gzip decode failure degrades
+                # exactly like a plain-XML truncation: best-effort partial guide
+                # rather than losing the whole fetch.
                 logger.warning(
-                    f"XMLTV XML truncated or malformed ({e}); "
+                    f"XMLTV feed truncated, malformed, or corrupt gzip ({e}); "
                     f"using {len(programmes)} programmes collected before the error"
                 )
 

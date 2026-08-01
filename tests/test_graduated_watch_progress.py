@@ -459,12 +459,12 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._refresh_all_inactive_check.isChecked.return_value = True
     dialog._update_check_enabled_check = MagicMock()
     dialog._update_check_enabled_check.isChecked.return_value = True
-    dialog._epg_interval_combo = MagicMock()
-    dialog._epg_interval_combo.currentData.return_value = "3d"
-    dialog._epg_hide_older_spin = MagicMock()
+
+    # EPG widgets — mock flavor: this skeleton is deliberately Qt-free.
+    from tests.conftest import mock_settings_epg_widgets
+    mock_settings_epg_widgets(dialog)
     dialog._epg_hide_older_spin.value.return_value = 24
-    dialog._epg_scrubber_increment_combo = MagicMock()
-    dialog._epg_scrubber_increment_combo.currentData.return_value = 30
+
     dialog._meta_enabled_check = MagicMock()
     dialog._meta_enabled_check.isChecked.return_value = True
     dialog._meta_autofetch_check = MagicMock()
