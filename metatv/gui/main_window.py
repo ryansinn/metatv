@@ -494,6 +494,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Series monitor startup check — runs after channels are loaded (deferred 0ms
         # yields to the event loop so channel load and UI paint happen first).
         QTimer.singleShot(0, self.series_monitor.check_all)
+        # Recurring background recheck (config.series_monitor_interval_minutes,
+        # default 60; 0 = off) — keeps long-running sessions current without
+        # requiring a provider refresh or app restart.
+        self.series_monitor.start_scheduler()
 
         # VOD watch-alert startup check — same deferred strategy as series_monitor.
         QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
@@ -814,6 +818,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.series_monitor.new_episodes_found.connect(
                 lambda _cid, _n: self._refresh_vod_alerts_section()
             )
+            # Subtle "checking…" hint on the Movies & Series header while a monitor
+            # check (startup / recurring timer / post-refresh) is in flight.
+            self.series_monitor.checking_started.connect(
+                lambda: section.set_series_checking(True)
+            )
+            self.series_monitor.checking_finished.connect(
+                lambda: section.set_series_checking(False)
+            )
             # Populate rules + series on startup; backfill any missing cleaned titles
             # first (bounded off-thread lookup), then render (rules are synchronous).
             QTimer.singleShot(0, self._backfill_series_display_titles)
@@ -984,8 +996,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 "region": channel.detected_region or "",
                 "language": channel.detected_prefix or "",
                 "source": (provider.name if provider else "") or "",
-                "baseline_episode_count": None,  # None = not yet established (set by set_baseline)
+                # {} = no provider baseline established yet; set_baseline() below
+                # fills in this (primary) provider's entry. Any OTHER provider
+                # mirroring this series gets baselined silently on its first
+                # check_all()/timer pass.
+                "baselines": {},
                 "unseen_new": 0,
+                "growth_providers": [],
                 "last_checked": None,
             }
 

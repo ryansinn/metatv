@@ -183,12 +183,12 @@ def _make_file_backed_db(tmp_path: Path):
     return db
 
 
-def _make_provider_db(session, provider_id: str = "p1"):
+def _make_provider_db(session, provider_id: str = "p1", name: str = "Test Provider"):
     """Insert a minimal ProviderDB row."""
     from metatv.core.database import ProviderDB
     provider = ProviderDB(
         id=provider_id,
-        name="Test Provider",
+        name=name,
         type="xtream",
         url="http://test.example.com",  # NOT NULL in the schema
         urls='[{"url": "http://test.example.com", "primary": true}]',
@@ -202,7 +202,7 @@ def _make_provider_db(session, provider_id: str = "p1"):
 
 
 def _make_series_channel(session, channel_id: str = "ch1", provider_id: str = "p1",
-                          source_id: str = "s1"):
+                          source_id: str = "s1", content_key: str | None = None):
     """Insert a minimal series ChannelDB row."""
     from metatv.core.database import ChannelDB
     ch = ChannelDB(
@@ -211,6 +211,7 @@ def _make_series_channel(session, channel_id: str = "ch1", provider_id: str = "p
         provider_id=provider_id,
         name="Test Series",
         media_type="series",
+        content_key=content_key,
     )
     session.add(ch)
     session.flush()
@@ -260,7 +261,7 @@ class TestSeriesMonitorWorker:
 
             manager = SeriesMonitorManager(db, cfg, notifications=None)
             manager._notify_new.connect(
-                lambda cid, delta, title, total: notify_args.append((cid, delta, title, total))
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
             )
 
             entries = cfg.get_monitored_for_provider("p1")
@@ -271,10 +272,11 @@ class TestSeriesMonitorWorker:
                 QCoreApplication.processEvents()
 
         assert len(notify_args) == 1, f"Expected 1 notification, got: {notify_args}"
-        cid, delta, title, new_total = notify_args[0]
+        cid, delta, title, payload = notify_args[0]
         assert cid == "ch1"
         assert delta == 5, f"Expected delta=5 (15-10), got {delta}"
-        assert new_total == 15
+        assert payload["baselines"]["p1"] == 15
+        assert payload["grown_provider_names"] == ["Test Provider"]
         assert "My Series" in title
 
         manager.shutdown()
@@ -312,7 +314,7 @@ class TestSeriesMonitorWorker:
 
             manager = SeriesMonitorManager(db, cfg, notifications=None)
             manager._notify_new.connect(
-                lambda cid, delta, title, total: notify_args.append((cid, delta, title, total))
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
             )
 
             entries = cfg.get_monitored_for_provider("p1")
@@ -323,8 +325,10 @@ class TestSeriesMonitorWorker:
 
         # Should still emit (delta=0 branch) but with delta=0
         assert len(notify_args) == 1
-        _, delta, _, _ = notify_args[0]
+        _, delta, _, payload = notify_args[0]
         assert delta == 0
+        assert payload["baselines"]["p1"] == 10
+        assert payload["grown_provider_names"] == []
 
         manager.shutdown()
 
@@ -366,7 +370,7 @@ class TestSeriesMonitorWorker:
 
             manager = SeriesMonitorManager(db, cfg, notifications=None)
             manager._notify_new.connect(
-                lambda cid, delta, title, total: notify_args.append((cid, delta, title, total))
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
             )
 
             manager._worker_check_entries(cfg.get_monitored_for_provider("p1"))
@@ -376,9 +380,9 @@ class TestSeriesMonitorWorker:
 
         # Establishes the baseline (delta=0) — must NOT report 42 "new" episodes.
         assert len(notify_args) == 1
-        _cid, delta, _title, new_total = notify_args[0]
+        _cid, delta, _title, payload = notify_args[0]
         assert delta == 0, f"None-baseline must establish (delta 0), got {delta}"
-        assert new_total == 42
+        assert payload["baselines"]["p1"] == 42
 
         manager.shutdown()
 
@@ -407,22 +411,25 @@ class TestSeriesMonitorWorker:
         )
 
         # Call the main-thread slot directly (delta > 0)
-        manager._on_new_episodes("ch1", 5, "Growing Series", 15)
+        payload = {"baselines": {"p1": 15}, "grown_provider_names": ["Test Provider"]}
+        manager._on_new_episodes("ch1", 5, "Growing Series", payload)
 
         # Config was updated
         entries = cfg.get_monitored_series()
         assert len(entries) == 1
         entry = entries[0]
-        assert entry["baseline_episode_count"] == 15, \
-            f"baseline should be 15, got {entry['baseline_episode_count']}"
+        assert entry["baselines"]["p1"] == 15, \
+            f"baseline should be 15, got {entry.get('baselines')}"
         assert entry["unseen_new"] == 5, \
             f"unseen_new should be 5, got {entry['unseen_new']}"
+        assert entry["growth_providers"] == ["Test Provider"]
         assert entry["last_checked"] is not None
 
-        # Notification was shown
+        # Notification was shown and names the provider that grew
         assert notif_mock.show.called, "NotificationManager.show() should have been called"
         call_kwargs = notif_mock.show.call_args
         assert "new episode" in str(call_kwargs).lower()
+        assert "Test Provider" in str(call_kwargs)
 
         # Signal was emitted
         assert len(found_signal_args) == 1
@@ -454,11 +461,14 @@ class TestSeriesMonitorWorker:
             lambda cid, n: found_signal_args.append((cid, n))
         )
 
-        manager._on_new_episodes("ch1", 0, "Stable Series", 10)
+        manager._on_new_episodes(
+            "ch1", 0, "Stable Series",
+            {"baselines": {"p1": 10}, "grown_provider_names": []},
+        )
 
         # Baseline updated, last_checked set
         entry = cfg.get_monitored_series()[0]
-        assert entry["baseline_episode_count"] == 10
+        assert entry["baselines"]["p1"] == 10
         assert entry["last_checked"] is not None
 
         # No notification for delta=0
@@ -489,12 +499,15 @@ class TestSeriesMonitorWorker:
         manager = SeriesMonitorManager(db, cfg, notifications=MagicMock())
 
         # Now 3 more appear
-        manager._on_new_episodes("ch1", 3, "Accumulating Series", 15)
+        manager._on_new_episodes(
+            "ch1", 3, "Accumulating Series",
+            {"baselines": {"p1": 15}, "grown_provider_names": ["Test Provider"]},
+        )
 
         entry = cfg.get_monitored_series()[0]
         assert entry["unseen_new"] == 5, \
             f"Expected 2+3=5 unseen, got {entry['unseen_new']}"
-        assert entry["baseline_episode_count"] == 15
+        assert entry["baselines"]["p1"] == 15
 
         manager.shutdown()
 
@@ -683,3 +696,391 @@ class TestActionBarMonitorButton:
 # (the "Series — new-episode alerts" section) — see
 # tests/test_watch_alerts_consolidation.py.  MonitoredSeriesDialog was retired.
 # ===========================================================================
+
+
+# ===========================================================================
+# Part 7: Per-provider baseline migration (legacy scalar -> baselines dict)
+# ===========================================================================
+
+class TestBaselineMigration:
+    """normalize_monitored_entry / Config.get_monitored_series migrate a
+    legacy single-provider ``baseline_episode_count`` entry to the
+    per-provider ``baselines`` shape — old key tolerated, migrated shape
+    written back on first read."""
+
+    def test_normalize_migrates_legacy_scalar_baseline(self):
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        entry = {
+            "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
+            "title": "Old Shape", "baseline_episode_count": 7,
+            "unseen_new": 0, "last_checked": None,
+        }
+        migrated = normalize_monitored_entry(entry)
+        assert migrated["baselines"] == {"p1": 7}
+        assert migrated is not entry, "migration must not mutate the original dict"
+        assert entry["baseline_episode_count"] == 7, "old key tolerated, left intact"
+
+    def test_normalize_tolerates_none_legacy_baseline(self):
+        """A never-established legacy baseline (None) migrates to {} — NOT to
+        {provider_id: None}, which would look like an established zero-count
+        baseline and mis-trigger on the whole back-catalog."""
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        entry = {"series_channel_id": "ch1", "provider_id": "p1",
+                  "baseline_episode_count": None}
+        migrated = normalize_monitored_entry(entry)
+        assert migrated["baselines"] == {}
+
+    def test_normalize_passthrough_when_already_migrated(self):
+        """An entry that already carries baselines is returned unchanged (same
+        object) — no needless copy on every read."""
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        entry = {"series_channel_id": "ch1", "baselines": {"p1": 3, "p2": 4}}
+        migrated = normalize_monitored_entry(entry)
+        assert migrated is entry
+
+    def test_config_get_monitored_series_migrates_and_persists(self, tmp_path):
+        """Config.get_monitored_series() migrates a legacy entry on first read
+        AND writes the migrated shape back to the stored list — not just the
+        returned copy — so a second read sees the new shape without a second
+        migration pass."""
+        from metatv.core.config import Config
+
+        cfg = Config(config_dir=tmp_path / "cfg")
+        cfg.monitored_series = [{
+            "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
+            "title": "Legacy Entry", "baseline_episode_count": 9,
+            "unseen_new": 0, "last_checked": None,
+        }]
+
+        result = cfg.get_monitored_series()
+        assert result[0]["baselines"] == {"p1": 9}
+        # Written back to the raw stored field, not just the returned copy.
+        assert cfg.monitored_series[0]["baselines"] == {"p1": 9}
+
+    def test_config_get_monitored_for_provider_matches_baseline_providers(self, tmp_path):
+        """get_monitored_for_provider matches both the PRIMARY provider_id and
+        any provider already recorded in the entry's baselines dict (a mirror
+        discovered by a prior check_all pass)."""
+        from metatv.core.config import Config
+
+        cfg = Config(config_dir=tmp_path / "cfg")
+        cfg.monitored_series = [{
+            "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
+            "title": "Mirrored", "baselines": {"p1": 10, "p2": 10},
+            "unseen_new": 0, "last_checked": None,
+        }]
+
+        assert len(cfg.get_monitored_for_provider("p1")) == 1
+        assert len(cfg.get_monitored_for_provider("p2")) == 1, \
+            "a provider known only via baselines (not the primary) must still match"
+        assert len(cfg.get_monitored_for_provider("p3")) == 0
+
+
+# ===========================================================================
+# Part 8: New-episode detection when only ONE of several providers grows
+# ===========================================================================
+
+class TestPerProviderMirrorDetection:
+    """A series monitored via its PRIMARY provider also detects growth landing
+    on any OTHER provider mirroring the same content (content_key sibling) —
+    the core behavior of the per-provider-baselines upgrade."""
+
+    def test_growth_on_sibling_provider_triggers_primary_unaffected(self, tmp_path):
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1",
+            "source_id": "s1",
+            "provider_id": "p1",
+            "title": "Mirrored Show",
+            "baselines": {"p1": 10, "p2": 10},
+            "unseen_new": 0,
+            "last_checked": None,
+        })
+
+        with db.session_scope() as session:
+            _make_provider_db(session, "p1", name="ProSat")
+            _make_provider_db(session, "p2", name="IPTV Ninja")
+            _make_series_channel(session, "ch1", "p1", "s1", content_key="mirrored show|series")
+            _make_series_channel(session, "ch2", "p2", "s2", content_key="mirrored show|series")
+
+        class _FakePlugin:
+            async def fetch_series_info(self, provider, source_id):
+                if source_id == "s2":
+                    return {"episodes": {"1": [{}] * 12}}  # p2 grew 10 -> 12
+                return {"episodes": {"1": [{}] * 10}}       # p1 unchanged
+
+        notify_args: list[tuple] = []
+
+        with patch("metatv.providers.factory.get_provider", return_value=_FakePlugin()):
+            manager = SeriesMonitorManager(db, cfg, notifications=None)
+            manager._notify_new.connect(
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
+            )
+            manager._worker_check_entries(cfg.get_monitored_series())
+            if QCoreApplication.instance():
+                QCoreApplication.processEvents()
+            manager.shutdown()
+
+        assert len(notify_args) == 1, f"expected exactly one notify, got {notify_args}"
+        cid, delta, title, payload = notify_args[0]
+        assert cid == "ch1"
+        assert delta == 2, f"only p2's +2 should count toward the total, got delta={delta}"
+        assert payload["baselines"] == {"p1": 10, "p2": 12}
+        assert payload["grown_provider_names"] == ["IPTV Ninja"], \
+            "the toast/tooltip attribution must name the provider that actually grew"
+
+    def test_hidden_sibling_provider_is_never_checked(self, tmp_path):
+        """A content_key sibling on a DISABLED provider is excluded (the same
+        absolute gate as get_content_key_siblings' other callers) — its growth
+        must never trigger an alert."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.database import ProviderDB
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1",
+            "source_id": "s1",
+            "provider_id": "p1",
+            "title": "Mirrored Show",
+            "baselines": {"p1": 10, "p2": 10},
+            "unseen_new": 0,
+            "last_checked": None,
+        })
+
+        with db.session_scope() as session:
+            _make_provider_db(session, "p1", name="ProSat")
+            disabled = ProviderDB(
+                id="p2", name="Disabled Source", type="xtream",
+                url="http://h", urls='[{"url": "http://h", "primary": true}]',
+                username="u", password="p", is_active=False,
+            )
+            session.add(disabled)
+            _make_series_channel(session, "ch1", "p1", "s1", content_key="mirrored show|series")
+            _make_series_channel(session, "ch2", "p2", "s2", content_key="mirrored show|series")
+
+        class _FakePlugin:
+            async def fetch_series_info(self, provider, source_id):
+                # p2 (disabled) claims growth — must never be fetched at all.
+                return {"episodes": {"1": [{}] * (99 if source_id == "s2" else 10)}}
+
+        notify_args: list[tuple] = []
+        with patch("metatv.providers.factory.get_provider", return_value=_FakePlugin()):
+            manager = SeriesMonitorManager(db, cfg, notifications=None)
+            manager._notify_new.connect(
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
+            )
+            manager._worker_check_entries(cfg.get_monitored_series())
+            if QCoreApplication.instance():
+                QCoreApplication.processEvents()
+            manager.shutdown()
+
+        assert len(notify_args) == 1
+        _, delta, _, payload = notify_args[0]
+        assert delta == 0, "the disabled sibling's growth must never surface"
+        # p2's baseline stays at its pre-existing value (10) — proof it was
+        # never fetched/re-baselined while hidden (the fake plugin would have
+        # returned 99, which must never make it into the payload).
+        assert payload["baselines"].get("p2") == 10, \
+            f"a hidden provider must never be (re)checked; got {payload['baselines']}"
+
+
+# ===========================================================================
+# Part 9: Drill-in clears the sticky unseen badge
+# ===========================================================================
+
+class TestDrillInClearsUnseen:
+    """Opening a monitored series' season/episode tree (main_window_series.py
+    on_series_loaded, success path) clears its sticky 'unseen' badge — the
+    same effect as the explicit 'Mark seen' action — via config.clear_unseen.
+    """
+
+    def _host(self, config, current_series):
+        from metatv.gui.main_window_series import _SeriesMixin
+
+        host = _SeriesMixin.__new__(_SeriesMixin)
+        host.config = config
+        host.current_series = current_series
+        host.notification_manager = MagicMock()
+        host.active_threads = []
+        host.status_bar = MagicMock()
+        host.sender = lambda: SimpleNamespace()  # no notification_id -> skip dismiss branch
+        host.switch_to_series_view = MagicMock()
+        host._refresh_vod_alerts_section = MagicMock()
+        return host
+
+    def test_success_clears_unseen_for_monitored_series(self, qapp):
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1", "source_id": "s1", "provider_id": "p1",
+            "title": "Show", "baselines": {"p1": 10}, "unseen_new": 3,
+            "last_checked": None,
+        })
+        channel = SimpleNamespace(id="ch1", name="Show")
+        host = self._host(cfg, channel)
+
+        host.on_series_loaded(True, "2 seasons", {"seasons": []})
+
+        entry = cfg.get_monitored_series()[0]
+        assert entry["unseen_new"] == 0
+        host._refresh_vod_alerts_section.assert_called_once()
+        host.switch_to_series_view.assert_called_once()
+
+    def test_not_monitored_series_is_noop(self, qapp):
+        """Drilling into a series that isn't monitored never touches config
+        (the is_series_monitored gate) but still opens normally."""
+        cfg = _FakeConfig()
+        channel = SimpleNamespace(id="ch-unmonitored", name="Other Show")
+        host = self._host(cfg, channel)
+
+        host.on_series_loaded(True, "1 season", {"seasons": []})
+
+        assert cfg.get_monitored_series() == []
+        host._refresh_vod_alerts_section.assert_not_called()
+        host.switch_to_series_view.assert_called_once()
+
+    def test_failed_load_does_not_clear_unseen(self, qapp):
+        """A failed load never shows the tree, so the badge must survive."""
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1", "source_id": "s1", "provider_id": "p1",
+            "title": "Show", "baselines": {"p1": 10}, "unseen_new": 3,
+            "last_checked": None,
+        })
+        channel = SimpleNamespace(id="ch1", name="Show")
+        host = self._host(cfg, channel)
+
+        host.on_series_loaded(False, "network error", None)
+
+        entry = cfg.get_monitored_series()[0]
+        assert entry["unseen_new"] == 3, "a failed load must not clear the badge"
+        host.switch_to_series_view.assert_not_called()
+
+
+# ===========================================================================
+# Part 10: Recurring recheck timer — 0 = off
+# ===========================================================================
+
+class TestRecurringScheduler:
+    """SeriesMonitorManager.start_scheduler arms a recurring QTimer per
+    config.series_monitor_interval_minutes; 0 (or falsy) disables it."""
+
+    def test_zero_interval_disables_timer(self, tmp_path, qapp):
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.series_monitor_interval_minutes = 0
+
+        manager = SeriesMonitorManager(db, cfg, notifications=None)
+        manager.start_scheduler()
+        assert not manager._timer.isActive()
+        manager.shutdown()
+
+    def test_positive_interval_arms_timer(self, tmp_path, qapp):
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.series_monitor_interval_minutes = 30
+
+        manager = SeriesMonitorManager(db, cfg, notifications=None)
+        manager.start_scheduler()
+        assert manager._timer.isActive()
+        assert manager._timer.interval() == 30 * 60 * 1000
+        manager.shutdown()
+
+    def test_default_interval_is_sixty_minutes(self, tmp_path, qapp):
+        """A config stub that doesn't define the field at all falls back to 60."""
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()  # no series_monitor_interval_minutes attribute
+
+        manager = SeriesMonitorManager(db, cfg, notifications=None)
+        manager.start_scheduler()
+        assert manager._timer.isActive()
+        assert manager._timer.interval() == 60 * 60 * 1000
+        manager.shutdown()
+
+    def test_shutdown_stops_the_timer(self, tmp_path, qapp):
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.series_monitor_interval_minutes = 15
+
+        manager = SeriesMonitorManager(db, cfg, notifications=None)
+        manager.start_scheduler()
+        assert manager._timer.isActive()
+        manager.shutdown()
+        assert not manager._timer.isActive()
+
+
+# ===========================================================================
+# Part 11: Ingestion parser warning for non-numeric episode-group keys
+# ===========================================================================
+
+class TestNonNumericSeasonKeyWarning:
+    """provider_loader.SeriesLoadThread warns (once per series listing) when an
+    episode-group key can't be mapped to a numeric season — those episodes are
+    otherwise silently dropped.  Mirrors the ``--live`` dump's "NON-NUMERIC keys
+    DROPPED" diagnostic at ingestion time, so the drop is greppable instead of
+    an invisible season gap.
+
+    Loguru doesn't route through stdlib ``logging`` by default, so pytest's
+    ``caplog`` fixture can't see it — a temporary loguru sink achieves the same
+    "capture the warning" goal.
+    """
+
+    def test_warns_once_for_nonnumeric_episode_group_keys(self, tmp_path, qapp):
+        import asyncio
+        from loguru import logger as _loguru_logger
+
+        from metatv.core.database import Database
+        from metatv.core.models import Provider
+        from metatv.core.provider_loader import SeriesLoadThread
+
+        class _FakePlugin:
+            async def fetch_series_info(self, provider, series_id):
+                return {
+                    "info": {"name": "Weird Show"},
+                    "seasons": [],
+                    "episodes": {
+                        "1": [{"id": "1", "episode_num": 1, "title": "a",
+                               "container_extension": "mp4", "info": {}}],
+                        "Temporada 2": [{"id": "2", "episode_num": 1, "title": "b",
+                                          "container_extension": "mp4", "info": {}}],
+                    },
+                }
+
+        db = Database(f"sqlite:///{tmp_path / 'warn.db'}")
+        db.create_tables()
+
+        messages: list[str] = []
+        sink_id = _loguru_logger.add(
+            lambda msg: messages.append(msg.record["message"]), level="WARNING"
+        )
+        try:
+            provider = Provider(id="provW", name="W", type="xtream",
+                                 url="http://h", username="u", password="p")
+            with patch("metatv.core.provider_loader.get_provider", return_value=_FakePlugin()):
+                thread = SeriesLoadThread(provider=provider, series_id="99",
+                                          series_name="Weird Show", db=db)
+                asyncio.run(thread.load_series())
+        finally:
+            _loguru_logger.remove(sink_id)
+            db.close()
+
+        warnings = [m for m in messages if "non-numeric" in m.lower()]
+        assert len(warnings) == 1, f"expected exactly one warning, got: {messages}"
+        assert "Temporada 2" in warnings[0], "the dropped key must be listed by name"
+        assert "Weird Show" in warnings[0]

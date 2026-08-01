@@ -220,6 +220,19 @@ class _SeriesMixin:
 
         # Store series data and switch to series view
         self.series_data = series_data
+
+        # Opening a monitored series' season/episode tree is itself an
+        # acknowledgment — clear its sticky "unseen" badge the same as the
+        # explicit "Mark seen" action (config.clear_unseen).  Gated on
+        # is_series_monitored so a non-monitored series drill-in is a no-op, and
+        # placed on the SUCCESS path only (a failed load never shows the tree, so
+        # it must not clear the badge).  The toast itself already auto-dismissed
+        # on its own timer — this only clears the persistent sidebar badge.
+        series_id = getattr(self.current_series, "id", None)
+        if series_id and self.config.is_series_monitored(series_id):
+            self.config.clear_unseen(series_id)
+            self._refresh_vod_alerts_section()
+
         self.switch_to_series_view()
 
     # ── Episode / season watch-state helpers ──────────────────────────────────
