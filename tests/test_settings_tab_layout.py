@@ -24,8 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
-from tests.conftest import wire_settings_recommendation_widgets
-import metatv.core.epg_utils as _epg
+from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
 
 
 @pytest.fixture(scope="module")
@@ -125,14 +124,7 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._tmdb_key_input = QLineEdit()
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
-    dlg._epg_interval_combo = QComboBox()
-    for value, label in _epg.EPG_INTERVAL_CHOICES:
-        dlg._epg_interval_combo.addItem(label, value)
-    dlg._epg_hide_older_spin = QSpinBox()
-    dlg._epg_hide_older_spin.setRange(0, 168)
-    dlg._epg_scrubber_increment_combo = QComboBox()
-    for _mins in _epg.EPG_SCRUBBER_INCREMENTS:
-        dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
+    wire_settings_epg_widgets(dlg)
 
     # -- Recommendations tab widgets (scoring dials + shared media mix) --
     wire_settings_recommendation_widgets(dlg)

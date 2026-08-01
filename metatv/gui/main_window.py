@@ -1626,6 +1626,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # EPG source-freshness status is rendered on the stats line (epg_status_label),
         # not inside the EPG view — the view emits its computed status text + tooltip.
         self.epg_view.epg_status_changed.connect(self._on_epg_status_changed)
+        # Watchlist card "Show all in Search" — same seam sidebar Queue/Favorites
+        # sections use (searchRequested → search_for_title).
+        self.epg_view.search_requested.connect(self.search_for_title)
         self.epg_view.setVisible(False)
         self._list_layout.addWidget(self.epg_view)
 

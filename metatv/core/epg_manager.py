@@ -70,6 +70,13 @@ def _compute_honest_guide_end(
     return real_end if real_end is not None else filler_end
 
 
+# Floor for Config.epg_retention_hours — enforced in prune_expired() (not on the
+# Config field itself) so a stray tiny value can never wipe data still needed for
+# "on now" / near-term watchlist matches.
+_MIN_EPG_RETENTION_HOURS = 6
+_DEFAULT_EPG_RETENTION_HOURS = 24
+
+
 class EpgManager(QObject):
     """Manages EPG data lifecycle: fetching, parsing, storing, and notifications.
 
@@ -425,6 +432,59 @@ class EpgManager(QObject):
             if own_session:
                 session.close()
 
+    def prune_expired(self, session=None) -> int:
+        """Delete ``EpgProgramDB`` rows across ALL providers whose ``stop_time`` has
+        aged past the retention window.
+
+        Runs after every successful fetch (see ``_fetch_worker``, right after the
+        provider-timestamp commit) so age-based hygiene sweeps the WHOLE table, not
+        just the provider that just refreshed — a source that has stopped refreshing
+        still gets its stale rows cleared out whenever ANY other provider fetches.
+        Without this, ``epg_programmes`` only ever grows (each fetch replaces one
+        provider's rows but never reclaims programmes that simply expired).
+
+        Retention is ``Config.epg_retention_hours`` (default 24h), floored at
+        ``_MIN_EPG_RETENTION_HOURS`` (6h) so a stray small value can never prune
+        programmes still relevant to "on now" / near-term watchlist matches.
+
+        Args:
+            session: An open SQLAlchemy session to reuse (e.g. the one
+                ``_fetch_worker`` already holds — the single-worker executor
+                invariant, CLAUDE.md#epg-manager-internals, guarantees no other EPG
+                write is in flight to race this delete). If ``None``, a new session
+                is opened and closed by this method.
+
+        Returns:
+            Number of ``EpgProgramDB`` rows deleted.
+        """
+        own_session = session is None
+        if own_session:
+            session = self.db.get_session()
+        try:
+            configured = getattr(self.config, "epg_retention_hours", _DEFAULT_EPG_RETENTION_HOURS)
+            hours = max(_MIN_EPG_RETENTION_HOURS, configured or _DEFAULT_EPG_RETENTION_HOURS)
+            cutoff = now_utc() - timedelta(hours=hours)
+            deleted = (
+                session.query(EpgProgramDB)
+                .filter(EpgProgramDB.stop_time < cutoff)
+                .delete()
+            )
+            if own_session:
+                session.commit()
+            if deleted:
+                logger.info(
+                    f"EPG: pruned {deleted:,} expired programmes "
+                    f"(older than {hours}h retention, cutoff {cutoff:%Y-%m-%d %H:%M} UTC)"
+                )
+            return deleted
+        except Exception:
+            if own_session:
+                session.rollback()
+            raise
+        finally:
+            if own_session:
+                session.close()
+
     def _start_refresh(self, provider_id: str, epg_url: str,
                        provider_name: str, force: bool) -> None:
         self._active_refreshes.add(provider_id)
@@ -554,6 +614,18 @@ class EpgManager(QObject):
                     )
 
             session.commit()
+
+            # Age-based EPG hygiene: sweep expired programmes across ALL providers
+            # now that this fetch's write lock is released. Reuses this already-open
+            # session — safe under the single-worker executor invariant (no other
+            # EPG write can be in flight). Catches providers that stopped refreshing
+            # too, since this runs on every SUCCESSFUL fetch, not just this provider's.
+            # prune_expired(session) reuses the passed-in session and does NOT commit
+            # for us (own_session=False) — commit explicitly or the delete rolls back
+            # on session.close() below.
+            self.prune_expired(session)
+            session.commit()
+
             count = session.query(EpgProgramDB).filter_by(provider_id=provider_id).count()
             logger.info(f"EPG: stored {count:,} programmes for {provider_name}")
 

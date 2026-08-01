@@ -489,6 +489,41 @@ QUALITY_TOOLTIPS: dict[str, str] = {
     "H264": "H.264 / AVC — a video codec, not a picture-quality tier",
 }
 
+# ── quality token → sortable tier rank (single source of truth) ────────────────
+# Higher is better picture quality: 8K > 4K/UHD > FHD > HD > (codec/other) > SD > LQ.
+# Only true resolution TIERS are ranked; codec tokens (HEVC/H265/H264) and
+# bitrate/processing descriptors (RAW, HQ, CAM) are not comparable to a resolution
+# tier, so they fall back to _QUALITY_TIER_RANK_DEFAULT (between SD and HD) rather
+# than a made-up position. Used to rank channels within a match group (e.g. the EPG
+# watchlist) so the best surviving stream leads before a display cap trims the rest
+# — never a parallel/local tier dict elsewhere (Lookup tables single-source-of-truth
+# rule, CLAUDE.md).
+QUALITY_TIER_RANK: dict[str, int] = {
+    "8K": 6,
+    "4K": 5,
+    "UHD": 5,
+    "FHD": 4,
+    "HD": 3,
+    "SD": 1,
+    "LQ": 0,
+}
+_QUALITY_TIER_RANK_DEFAULT = 2  # unranked tokens (HEVC, RAW, HQ, CAM, unknown…)
+
+
+def quality_tier_rank(token: str | None) -> int:
+    """Return a sortable tier rank for a stored ``detected_quality`` token.
+
+    Args:
+        token: A stored ``ChannelDB.detected_quality`` token (may be ``None``/empty).
+
+    Returns:
+        An integer rank, higher = better picture quality. Unknown or missing
+        tokens fall back to :data:`_QUALITY_TIER_RANK_DEFAULT`.
+    """
+    if not token:
+        return _QUALITY_TIER_RANK_DEFAULT
+    return QUALITY_TIER_RANK.get(token.strip().upper(), _QUALITY_TIER_RANK_DEFAULT)
+
 
 def quality_display(token: str) -> str:
     """Return the viewer-facing label for a stored quality *token*.

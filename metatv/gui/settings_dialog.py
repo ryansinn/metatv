@@ -578,6 +578,23 @@ class SettingsDialog(QDialog):
         )
         epg_form.addRow("Scrubber snap:", self._epg_scrubber_increment_combo)
 
+        self._epg_notify_minutes_spin = QSpinBox()
+        self._epg_notify_minutes_spin.setRange(5, 120)
+        self._epg_notify_minutes_spin.setSuffix(" min")
+        self._epg_notify_minutes_spin.setToolTip(
+            "How many minutes before a Watchlist programme starts MetaTV shows a "
+            "notification toast."
+        )
+        epg_form.addRow("Notify before show:", self._epg_notify_minutes_spin)
+
+        self._epg_auto_refresh_check = QCheckBox("Auto-refresh guides on launch and interval")
+        self._epg_auto_refresh_check.setToolTip(
+            "When on, MetaTV automatically fetches new EPG guide data on launch and "
+            "at each source's refresh interval. Turn off to only refresh EPG "
+            "manually (the Refresh button on the EPG screen still works)."
+        )
+        epg_form.addRow("", self._epg_auto_refresh_check)
+
         layout.addWidget(epg_group)
 
         layout.addStretch()
@@ -806,6 +823,12 @@ class SettingsDialog(QDialog):
         if scrub_idx < 0:
             scrub_idx = self._epg_scrubber_increment_combo.findData(30)
         self._epg_scrubber_increment_combo.setCurrentIndex(max(scrub_idx, 0))
+        self._epg_notify_minutes_spin.setValue(
+            getattr(c, "epg_notification_minutes_before", 15)
+        )
+        self._epg_auto_refresh_check.setChecked(
+            getattr(c, "epg_auto_refresh", True)
+        )
 
         # Metadata
         self._meta_enabled_check.setChecked(c.metadata_enabled)
@@ -907,6 +930,8 @@ class SettingsDialog(QDialog):
         scrub_inc_val = self._epg_scrubber_increment_combo.currentData()
         if scrub_inc_val:
             c.epg_scrubber_increment_minutes = scrub_inc_val
+        c.epg_notification_minutes_before = self._epg_notify_minutes_spin.value()
+        c.epg_auto_refresh = self._epg_auto_refresh_check.isChecked()
 
         # Metadata
         c.metadata_enabled = self._meta_enabled_check.isChecked()

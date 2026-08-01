@@ -888,6 +888,11 @@ class Config(BaseModel):
     epg_notification_minutes_before: int = 15
     epg_auto_refresh: bool = True
     epg_refresh_interval_hours: int = 24
+    # Age-based EPG hygiene: how long (hours) an EXPIRED programme (stop_time in the
+    # past) is kept before EpgManager.prune_expired() sweeps it, run after every
+    # successful fetch. Floor of 6h is enforced in prune_expired(), not here, so a
+    # stray small value can never wipe data still needed for "on now".
+    epg_retention_hours: int = 24
     epg_hide_filler: bool = True
     epg_filler_patterns: list = Field(default_factory=lambda: [
         "No Game Today", "No Event Today", "Off Air",

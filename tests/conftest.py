@@ -494,3 +494,63 @@ def wire_settings_recommendation_widgets(dlg) -> None:
     dlg._rec_impression_spin.setRange(0, 20)
     dlg._rec_liked_cap_spin = QSpinBox()
     dlg._rec_liked_cap_spin.setRange(0, 10)
+
+
+def mock_settings_epg_widgets(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_epg_widgets`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    def _stub(method: str, value):
+        m = MagicMock()
+        getattr(m, method).return_value = value
+        return m
+
+    dlg._epg_interval_combo = _stub("currentData", "3d")
+    dlg._epg_hide_older_spin = _stub("value", 0)
+    dlg._epg_scrubber_increment_combo = _stub("currentData", 30)
+    dlg._epg_notify_minutes_spin = _stub("value", 15)
+    dlg._epg_auto_refresh_check = _stub("isChecked", True)
+
+
+def wire_settings_epg_widgets(dlg) -> None:
+    """Attach the Settings → Metadata tab's EPG group widgets to a skeleton dialog.
+
+    Builds **real** Qt widgets, so the caller must already have a QApplication
+    (the module ``qapp`` fixture). Qt-free skeletons want
+    :func:`mock_settings_epg_widgets` instead.
+
+    Seven settings tests build ``SettingsDialog`` via ``__new__`` and hand-wire only
+    the widgets ``_load_values``/``_save_values`` touch — so every widget added to
+    the EPG group breaks all seven at once until each one grows the same stubs.
+    Keeping this group in one factory (mirrors ``wire_settings_recommendation_widgets``)
+    makes the next EPG widget a single edit here instead of seven near-identical
+    copies.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QCheckBox, QComboBox, QSpinBox
+
+    import metatv.core.epg_utils as _epg
+
+    dlg._epg_interval_combo = QComboBox()
+    for value, label in _epg.EPG_INTERVAL_CHOICES:
+        dlg._epg_interval_combo.addItem(label, value)
+    dlg._epg_hide_older_spin = QSpinBox()
+    dlg._epg_hide_older_spin.setRange(0, 168)
+    dlg._epg_scrubber_increment_combo = QComboBox()
+    for _mins in _epg.EPG_SCRUBBER_INCREMENTS:
+        dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
+    dlg._epg_notify_minutes_spin = QSpinBox()
+    dlg._epg_notify_minutes_spin.setRange(5, 120)
+    dlg._epg_notify_minutes_spin.setValue(15)
+    dlg._epg_auto_refresh_check = QCheckBox()
+    dlg._epg_auto_refresh_check.setChecked(True)
