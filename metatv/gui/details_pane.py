@@ -520,10 +520,12 @@ class DetailsPaneWidget(QWidget):
         if not self._db:
             return None
         try:
-            from metatv.core.preference_engine import compute_weights
+            from metatv.core.preference_engine import RecScoringSettings, compute_weights
             session = self._db.get_session()
             try:
-                w = compute_weights(session)
+                w = compute_weights(
+                    session, settings=RecScoringSettings.from_config(self.config)
+                )
                 return None if w.is_empty() else w
             finally:
                 session.close()

@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from metatv.core.media_mix import (
+    MEDIA_MIX_AUTOMATIC, mix_media_types, resolve_media_share,
+)
+
 
 STOP_WORDS: frozenset[str] = frozenset({
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
@@ -85,6 +89,93 @@ PEOPLE_DIVERSITY_DECAY: float = 0.5
 # Only the top slice by score is greedily re-ranked for people-diversity (the tail
 # never surfaces) — bounds the O(n²) pass on large libraries.
 _DIVERSITY_HEAD: int = 120
+
+# Per-field multipliers applied when a signal is accumulated (genre/director/actor)
+# or when a candidate's field is scored (keyword). Genre is the reference unit at
+# 1.0; a director match is worth more than a genre match, a cast match much less.
+GENRE_WEIGHT: float = 1.0
+DIRECTOR_WEIGHT: float = 1.5
+KEYWORD_WEIGHT: float = 0.4
+
+# Impression decay — every time an item is shown, its score is knocked down by
+# this fraction, never below IMPRESSION_DECAY_FLOOR of the original.
+IMPRESSION_DECAY: float = 0.04
+IMPRESSION_DECAY_FLOOR: float = 0.4
+
+# How many already-liked items may occupy the capped list; the rest of the slots
+# go to fresh discoveries.
+LIKED_CAP: int = 3
+
+
+@dataclass(frozen=True)
+class RecScoringSettings:
+    """User-tunable dials for the recommendation scorer.
+
+    Every field defaults to the module constant it steers, so the bare
+    ``RecScoringSettings()`` reproduces the shipped behavior exactly — the panel
+    is for steering, not required setup. Frozen and passed by parameter: there is
+    no global mutable scoring state.
+
+    Attributes:
+        genre_weight: Multiplier on genre affinity accumulated from a signal.
+        director_weight: Multiplier on director affinity.
+        actor_weight: Multiplier on cast affinity ("just an indication").
+        keyword_weight: Multiplier on the plot-keyword field when scoring.
+        actor_min_support: How many rated/favorited titles a performer must appear
+            in before carrying any weight (corroboration gate).
+        people_diversity_decay: Per prior appearance knock-down applied by the
+            within-generation people-diversity re-rank (1.0 = no spreading).
+        impression_decay: Score reduction per recorded impression.
+        liked_cap: Maximum already-liked items in the returned list.
+        media_mix: ``None`` (rank order stands — the bare-engine default), the
+            string ``"automatic"`` (√-damped share of the user's engagement), or
+            an explicit movie share in 0.0–1.0.
+    """
+
+    genre_weight:           float = GENRE_WEIGHT
+    director_weight:        float = DIRECTOR_WEIGHT
+    actor_weight:           float = ACTOR_WEIGHT
+    keyword_weight:         float = KEYWORD_WEIGHT
+    actor_min_support:      int   = ACTOR_MIN_SUPPORT
+    people_diversity_decay: float = PEOPLE_DIVERSITY_DECAY
+    impression_decay:       float = IMPRESSION_DECAY
+    liked_cap:              int   = LIKED_CAP
+    media_mix: str | float | None = None
+
+    @classmethod
+    def from_config(cls, config) -> "RecScoringSettings":
+        """Build settings from the user's config, falling back to the defaults.
+
+        Every ``rec_*`` config field is ``None`` until the user actually moves a
+        dial, so an untouched config yields the shipped defaults and a later
+        change to a default flows through automatically. The one inversion is the
+        media mix: ``rec_media_mix = None`` means **Automatic** (the app default),
+        while a float is the user's explicit movie share.
+        """
+        defaults = cls()
+
+        def _dial(name: str, default):
+            value = getattr(config, name, None)
+            return default if value is None else value
+
+        raw_mix = getattr(config, "rec_media_mix", None)
+        return cls(
+            genre_weight=float(_dial("rec_weight_genre", defaults.genre_weight)),
+            director_weight=float(_dial("rec_weight_director", defaults.director_weight)),
+            actor_weight=float(_dial("rec_weight_actor", defaults.actor_weight)),
+            keyword_weight=float(_dial("rec_weight_keyword", defaults.keyword_weight)),
+            actor_min_support=int(_dial("rec_actor_min_support", defaults.actor_min_support)),
+            people_diversity_decay=float(
+                _dial("rec_people_diversity_decay", defaults.people_diversity_decay)
+            ),
+            impression_decay=float(_dial("rec_impression_decay", defaults.impression_decay)),
+            liked_cap=int(_dial("rec_liked_cap", defaults.liked_cap)),
+            media_mix=MEDIA_MIX_AUTOMATIC if raw_mix is None else float(raw_mix),
+        )
+
+
+# The shipped dials — used whenever a caller passes no settings.
+DEFAULT_REC_SETTINGS: RecScoringSettings = RecScoringSettings()
 
 
 @dataclass
@@ -184,13 +275,20 @@ def build_idf(all_plots: list[str]) -> dict[str, float]:
     }
 
 
-def compute_weights(session) -> AttributeWeights:
+def compute_weights(session, settings: RecScoringSettings | None = None) -> AttributeWeights:
     """Load all ratings, join to MetadataDB, and accumulate attribute weights.
 
     Level 1 — genre, director, cast (structured fields).
     Level 2 — TF-IDF weighted keywords from plot text.
+
+    Args:
+        session: Open SQLAlchemy session.
+        settings: User-tuned scoring dials (attribute weights + the actor
+            corroboration gate); ``None`` uses the shipped defaults.
     """
     from metatv.core.database import UserRatingDB, ChannelDB, MetadataDB
+
+    dials = settings or DEFAULT_REC_SETTINGS
 
     ratings = session.query(UserRatingDB).all()
 
@@ -255,17 +353,17 @@ def compute_weights(session) -> AttributeWeights:
 
         # Level 1 — structured attributes
         for genre in _split_genres(_loads(meta.genres) or []):
-            weights.genres[genre] = weights.genres.get(genre, 0.0) + sig
+            weights.genres[genre] = weights.genres.get(genre, 0.0) + sig * dials.genre_weight
 
         for director in _split_directors(meta.director) if meta.director else []:
             weights.directors[director] = (
-                weights.directors.get(director, 0.0) + sig * 1.5
+                weights.directors.get(director, 0.0) + sig * dials.director_weight
             )
 
         for person in (_loads(meta.cast) or [])[:10]:
             name = person.get("name") if isinstance(person, dict) else None
             if name:
-                weights.actors[name] = weights.actors.get(name, 0.0) + sig * ACTOR_WEIGHT
+                weights.actors[name] = weights.actors.get(name, 0.0) + sig * dials.actor_weight
                 actor_support[name] += 1
 
         # Level 2 — TF-IDF plot keywords
@@ -284,7 +382,7 @@ def compute_weights(session) -> AttributeWeights:
     # One film's worth of cast is noise; taste in an actor shows up across titles.
     weights.actors = {
         name: w for name, w in weights.actors.items()
-        if actor_support[name] >= ACTOR_MIN_SUPPORT
+        if actor_support[name] >= dials.actor_min_support
     }
 
     return weights
@@ -298,8 +396,16 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      excluded_provider_ids: list[str] | None = None,
                      version_scorer=None,
                      balance_media_types: bool = False,
-                     diversify_people: bool = False) -> list[ScoredChannel]:
+                     diversify_people: bool = False,
+                     media_mix: str | float | None = None,
+                     settings: RecScoringSettings | None = None) -> list[ScoredChannel]:
     """Score movies/series by user preference weights.
+
+    Movie/series mix (``media_mix``, or ``settings.media_mix`` when the parameter
+    is omitted): ``None`` leaves the raw ranking alone, ``"automatic"`` derives a
+    √-damped share from the user's engagement, and a float is an explicit movie
+    share. It supersedes the legacy fixed 50/50 ``balance_media_types`` flag,
+    which still works when no mix is given.
 
     Exclusion rules:
     - From an inactive/expired source (excluded_provider_ids) → excluded
@@ -323,6 +429,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
 
     if weights.is_empty():
         return []
+
+    dials = settings or DEFAULT_REC_SETTINGS
 
     disliked_ids: set[str] = {
         r.channel_id for r in session.query(UserRatingDB)
@@ -502,7 +610,9 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             for p in cast[:5]
             if isinstance(p, dict) and p.get("name", "") not in muted_actors
         )
-        keyword_score = _matched_mean(weights.keywords.get(k, 0.0) for k in kws if k not in muted_kws) * 0.4
+        keyword_score = _matched_mean(
+            weights.keywords.get(k, 0.0) for k in kws if k not in muted_kws
+        ) * dials.keyword_weight
 
         total = genre_score + dir_score + actor_score + keyword_score
         if total <= 0:
@@ -510,7 +620,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
 
         shown = getattr(channel, 'rec_shown_count', 0) or 0
         if shown > 0:
-            total *= max(0.4, 1.0 - shown * 0.04)  # -4% per impression, floor at 40%
+            # Default: -4% per impression, floor at 40% of the original score.
+            total *= max(IMPRESSION_DECAY_FLOOR, 1.0 - shown * dials.impression_decay)
 
         match_genres = [g for g in genres if weights.genres.get(g, 0.0) > 0]
         match_kws = sorted(
@@ -585,16 +696,20 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         reverse=True,
     )
     fresh_results = [sc for sc in scored if not sc.already_liked]
-    liked_cap = min(3, len(liked_results))
+    liked_cap = min(dials.liked_cap, len(liked_results))
     fresh_slots = max(0, limit - liked_cap)
     # 1) Spread repeated performers/directors across this generation so one liked face
     #    can't fill the list (re-rank preserves per-type order for the interleave below).
     if diversify_people:
-        fresh_results = _diversify_people(fresh_results)
+        fresh_results = _diversify_people(fresh_results, decay=dials.people_diversity_decay)
     # 2) Guarantee a movie/series mix even when one type dominates the raw ranking
     #    (more titles, or richer metadata). Discovery slots only — explicit likes above
     #    are the user's own picks and stay as-is.
-    if balance_media_types:
+    mix_spec = media_mix if media_mix is not None else dials.media_mix
+    movie_share = resolve_media_share(session, mix_spec)
+    if movie_share is not None:
+        fresh_selected = mix_media_types(fresh_results, fresh_slots, movie_share)
+    elif balance_media_types:
         fresh_selected = _interleave_media_types(fresh_results, fresh_slots)
     else:
         fresh_selected = fresh_results[:fresh_slots]
@@ -634,15 +749,17 @@ def _matched_mean(values) -> float:
     return sum(matched) / len(matched) if matched else 0.0
 
 
-def _diversify_people(scored: list[ScoredChannel]) -> list[ScoredChannel]:
+def _diversify_people(scored: list[ScoredChannel],
+                      decay: float = PEOPLE_DIVERSITY_DECAY) -> list[ScoredChannel]:
     """Greedily re-rank so the same liked performer/director doesn't fill the list.
 
     Walks the score-ordered candidates picking, at each step, the highest *effective*
-    score — the base score decayed by ``PEOPLE_DIVERSITY_DECAY`` for each already-placed
-    item that shares one of this candidate's liked people. A pure-genre match (no liked
-    people) is never decayed, so it can leapfrog a third same-actor title. Only the top
-    ``_DIVERSITY_HEAD`` by score are re-ranked (the tail never surfaces); the tail is
-    appended in score order. Input must already be sorted by score, descending.
+    score — the base score decayed by ``decay`` (default ``PEOPLE_DIVERSITY_DECAY``)
+    for each already-placed item that shares one of this candidate's liked people. A
+    pure-genre match (no liked people) is never decayed, so it can leapfrog a third
+    same-actor title. Only the top ``_DIVERSITY_HEAD`` by score are re-ranked (the
+    tail never surfaces); the tail is appended in score order. Input must already be
+    sorted by score, descending.
     """
     if len(scored) <= 1:
         return list(scored)
@@ -656,7 +773,7 @@ def _diversify_people(scored: list[ScoredChannel]) -> list[ScoredChannel]:
             eff = cand.score
             overlap = sum(seen[p] for p in cand.score_people)
             if overlap:
-                eff *= PEOPLE_DIVERSITY_DECAY ** overlap
+                eff *= decay ** overlap
             if best_eff is None or eff > best_eff:
                 best_idx, best_eff = idx, eff
         chosen = remaining.pop(best_idx)
@@ -667,7 +784,11 @@ def _diversify_people(scored: list[ScoredChannel]) -> list[ScoredChannel]:
 
 
 def _interleave_media_types(scored: list[ScoredChannel], slots: int) -> list[ScoredChannel]:
-    """Round-robin movies and series so a capped list never starves one type.
+    """Strict 50/50 round-robin — the legacy ``balance_media_types`` behavior.
+
+    Superseded by ``media_mix`` (see ``metatv.core.media_mix.mix_media_types``),
+    which both call sites now use: a fixed half-and-half split ignores that most
+    users lean one way. Kept for callers that explicitly ask for an even list.
 
     Each type keeps its own score order; the type with the stronger top match
     leads. When one type is exhausted the remainder fills from the other. This is

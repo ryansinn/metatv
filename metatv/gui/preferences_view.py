@@ -4,19 +4,23 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from PyQt6.QtCore import QSize, pyqtSignal, Qt
+from PyQt6.QtCore import QSize, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QContextMenuEvent, QColor, QPalette
 from PyQt6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider,
     QVBoxLayout, QWidget,
 )
 from loguru import logger
 
 from metatv.core.config import Config
 from metatv.core.database import Database
+from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import AttributeWeights, ScoredChannel
 from metatv.gui import theme as _theme
+
+# Debounce before a dragged mix slider is persisted + the list re-scored.
+_MIX_APPLY_DELAY_MS: int = 300
 
 
 class _AttrRow(QWidget):
@@ -201,7 +205,8 @@ class _RecRow(QWidget):
 
 
 class PreferencesView(QWidget):
-    _pref_data_ready = pyqtSignal(object, object)  # (AttributeWeights, list[ScoredChannel])
+    # (AttributeWeights, list[ScoredChannel], movie share float | None)
+    _pref_data_ready = pyqtSignal(object, object, object)
     """Dashboard: rated-item attribute weights + ranked recommendations."""
 
     playRequested               = pyqtSignal(str)       # channel_id
@@ -270,10 +275,14 @@ class PreferencesView(QWidget):
         vl.addWidget(self._attrs_container, stretch=2)
 
         # Recommendations list
+        rec_header = QHBoxLayout()
         rec_label = QLabel(f"<b>{self.config.discover_icon} Recommended for you</b>  "
                            "<small>(double-click to play)</small>")
         rec_label.setTextFormat(Qt.TextFormat.RichText)
-        vl.addWidget(rec_label)
+        rec_header.addWidget(rec_label)
+        rec_header.addStretch()
+        self._build_mix_controls(rec_header)
+        vl.addLayout(rec_header)
 
         self._rec_list = QListWidget()
         self._rec_list.itemDoubleClicked.connect(self._on_rec_double_click)
@@ -314,6 +323,97 @@ class PreferencesView(QWidget):
         self._toggle_attrs_btn.setToolTip(
             "Hide attribute breakdown" if expanded else "Show attribute breakdown"
         )
+
+    def _build_mix_controls(self, row: QHBoxLayout) -> None:
+        """Build the movie/series mix slider + Automatic reset into ``row``.
+
+        The slider is the user's override of the automatic (√-damped) share; the
+        Automatic button hands the decision back to the engine. Both write the one
+        ``rec_media_mix`` config key immediately (UI state persistence) and are
+        restored from it here, with signals blocked during the restore.
+        """
+        mix_caption = QLabel("Mix")
+        mix_caption.setStyleSheet(_theme.META_HINT)
+        row.addWidget(mix_caption)
+
+        self._mix_slider = QSlider(Qt.Orientation.Horizontal)
+        self._mix_slider.setRange(0, 100)  # value = % of slots given to movies
+        self._mix_slider.setFixedWidth(120)
+        self._mix_slider.setToolTip(
+            "Share of movies vs series in your recommendations.\n"
+            "Drag to override the automatic mix; press Automatic to hand it back."
+        )
+        row.addWidget(self._mix_slider)
+
+        self._mix_label = QLabel("")
+        self._mix_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        self._mix_label.setToolTip("Movies : series split of the list below")
+        row.addWidget(self._mix_label)
+
+        self._mix_auto_btn = QPushButton("Automatic")
+        self._mix_auto_btn.setFlat(True)
+        self._mix_auto_btn.setStyleSheet(_theme.INLINE_ACTION_BTN)
+        self._mix_auto_btn.setToolTip(
+            "Match the balance of what you actually watch (square-root damped, so the\n"
+            "smaller type is never crowded out)."
+        )
+        row.addWidget(self._mix_auto_btn)
+
+        # Restore persisted state with signals blocked, then wire handlers.
+        saved = getattr(self.config, "rec_media_mix", None)
+        self._mix_slider.blockSignals(True)
+        self._mix_slider.setValue(50 if saved is None else int(round(float(saved) * 100)))
+        self._mix_slider.blockSignals(False)
+        self._update_mix_controls(None if saved is None else float(saved))
+
+        self._mix_timer = QTimer(self)
+        self._mix_timer.setSingleShot(True)
+        self._mix_timer.timeout.connect(self._apply_mix_override)
+        self._mix_slider.valueChanged.connect(self._on_mix_slider_changed)
+        self._mix_auto_btn.clicked.connect(self._on_mix_automatic)
+
+    def _on_mix_slider_changed(self, value: int) -> None:
+        """Preview the dragged ratio; persist + re-score once dragging settles."""
+        self._mix_label.setText(format_media_share(value / 100.0))
+        self._mix_auto_btn.setEnabled(True)
+        self._mix_timer.start(_MIX_APPLY_DELAY_MS)
+
+    def _apply_mix_override(self) -> None:
+        self.config.rec_media_mix = self._mix_slider.value() / 100.0
+        self.config.save()
+        self.refresh()
+
+    def _on_mix_automatic(self) -> None:
+        self.config.rec_media_mix = None
+        self.config.save()
+        self._mix_auto_btn.setEnabled(False)
+        self.refresh()
+
+    def _update_mix_controls(self, media_share: float | None) -> None:
+        """Sync the mix label/slider to the effective share.
+
+        Args:
+            media_share: The share the engine actually used, or ``None`` when it
+                is not known yet (pre-load) — the label then falls back to the
+                saved override, or a bare "Automatic".
+        """
+        if "_mix_label" not in self.__dict__:
+            return
+        saved = getattr(self.config, "rec_media_mix", None)
+        automatic = saved is None
+        share = media_share if media_share is not None else saved
+        if share is None:
+            self._mix_label.setText("Automatic")
+        else:
+            ratio = format_media_share(float(share))
+            self._mix_label.setText(f"Automatic ({ratio})" if automatic else ratio)
+            if automatic:
+                # Park the handle on the computed share so dragging starts from
+                # what the user is actually seeing.
+                self._mix_slider.blockSignals(True)
+                self._mix_slider.setValue(int(round(float(share) * 100)))
+                self._mix_slider.blockSignals(False)
+        self._mix_auto_btn.setEnabled(not automatic)
 
     def _setup_version_prefs_section(self, vl: QVBoxLayout) -> None:
         """Build the collapsible Version Preferences section."""
@@ -517,14 +617,21 @@ class PreferencesView(QWidget):
         self._executor.submit(self._bg_refresh)
 
     def _bg_refresh(self) -> None:
-        from metatv.core.preference_engine import compute_weights, score_candidates, version_score
+        from metatv.core.preference_engine import (
+            RecScoringSettings, compute_weights, score_candidates, version_score,
+        )
         from metatv.core.filter_utils import get_active_category_filter
+        from metatv.core.media_mix import resolve_media_share
         from metatv.core.repositories import RepositoryFactory
         excluded_prefixes, include_uncategorized = get_active_category_filter(self.config)
         _config = self.config
+        settings = RecScoringSettings.from_config(_config)
         session = self.db.get_session()
         try:
-            weights = compute_weights(session)
+            weights = compute_weights(session, settings=settings)
+            # Resolve the mix here (not inside the scorer) so the dashboard can
+            # show the ratio the list was actually built with.
+            media_share = resolve_media_share(session, settings.media_mix)
             recs = score_candidates(
                 session, weights,
                 muted_attrs=getattr(self.config, 'muted_attributes', None),
@@ -533,22 +640,24 @@ class PreferencesView(QWidget):
                 include_uncategorized=include_uncategorized,
                 excluded_provider_ids=RepositoryFactory(session).providers.get_hidden_provider_ids() or None,
                 version_scorer=lambda ch: version_score(ch, _config),
-                balance_media_types=True,
+                media_mix=media_share,
                 diversify_people=True,
+                settings=settings,
             )
         except Exception:
             logger.exception("PreferencesView bg refresh error")
             return
         finally:
             session.close()
-        self._pref_data_ready.emit(weights, recs)
+        self._pref_data_ready.emit(weights, recs, media_share)
 
-    def _on_pref_data_ready(self, weights, recs) -> None:
+    def _on_pref_data_ready(self, weights, recs, media_share=None) -> None:
         if not self._active:
             return
-        self._render(weights, recs)
+        self._render(weights, recs, media_share)
 
-    def _render(self, weights: AttributeWeights, recs: list[ScoredChannel]) -> None:
+    def _render(self, weights: AttributeWeights, recs: list[ScoredChannel],
+                media_share: float | None = None) -> None:
         # Header
         if weights.is_empty():
             self._header_label.setText(
@@ -561,6 +670,9 @@ class PreferencesView(QWidget):
                 f"{self.config.like_icon} {weights.liked_count}  "
                 f"{self.config.dislike_icon} {weights.disliked_count}"
             )
+
+        # Show the movie/series ratio this list was actually built with.
+        self._update_mix_controls(media_share)
 
         # Rebuild attribute columns with mute buttons
         while self._attr_layout.count():

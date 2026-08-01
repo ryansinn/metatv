@@ -3,8 +3,9 @@
 Pins three regressions that would break if the tabs were mis-arranged or a
 widget's load/save wiring was dropped during the reorg:
 
-1. Tab structure: exactly 4 tabs named
-   ["Playback", "Interaction", "Metadata & API Keys", "Interface"]; no "Sidebar" tab.
+1. Tab structure: exactly 5 tabs named
+   ["Playback", "Interaction", "Recommendations", "Metadata & API Keys", "Interface"];
+   no "Sidebar" tab.
 2. EPG under Metadata: _epg_interval_combo is built inside _build_metadata_tab, so the
    Metadata tab widget tree contains it.
 3. Interface tab persistence: remember_search and sidebar_sections round-trip correctly
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
+from tests.conftest import wire_settings_recommendation_widgets
 import metatv.core.epg_utils as _epg
 
 
@@ -132,6 +134,9 @@ def _full_dialog(qapp) -> SettingsDialog:
     for _mins in _epg.EPG_SCRUBBER_INCREMENTS:
         dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
 
+    # -- Recommendations tab widgets (scoring dials + shared media mix) --
+    wire_settings_recommendation_widgets(dlg)
+
     # -- Interface tab widgets (Search + Sources + Sidebar) --
     dlg._remember_search_check = QCheckBox()
     dlg._refresh_all_inactive_check = QCheckBox()
@@ -145,23 +150,25 @@ def _full_dialog(qapp) -> SettingsDialog:
 # 1. Tab structure: 3 tabs, correct names, no "Sidebar" tab                   #
 # --------------------------------------------------------------------------- #
 
-def test_settings_dialog_has_exactly_four_tabs(qapp):
-    """The dialog must have exactly 4 tabs after the Interaction tab was added."""
+def test_settings_dialog_has_exactly_five_tabs(qapp):
+    """The dialog must have exactly 5 tabs after the Recommendations tab was added."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    assert dlg._tabs.count() == 4
+    assert dlg._tabs.count() == 5
 
     dlg.close()
 
 
 def test_settings_dialog_tab_names(qapp):
-    """Tabs must be named Playback, Interaction, Metadata & API Keys, Interface in order."""
+    """Tabs must be named Playback, Interaction, Recommendations, Metadata & API Keys,
+    Interface in order."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
     tab_titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-    assert tab_titles == ["Playback", "Interaction", "Metadata & API Keys", "Interface"]
+    assert tab_titles == ["Playback", "Interaction", "Recommendations",
+                          "Metadata & API Keys", "Interface"]
 
     dlg.close()
 

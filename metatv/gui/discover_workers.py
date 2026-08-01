@@ -431,8 +431,10 @@ class _LoaderWorker(QObject):
             if self._cancelled:
                 return
             try:
-                from metatv.core.preference_engine import compute_weights
-                weights = compute_weights(session)
+                from metatv.core.preference_engine import RecScoringSettings, compute_weights
+                weights = compute_weights(
+                    session, settings=RecScoringSettings.from_config(self._config)
+                )
             except Exception:
                 weights = None
             actor, cards = get_featured_actor(session, weights, **sk, **fk, **af, **ek)

@@ -1981,6 +1981,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.config, self)
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
+        dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             tabs = getattr(dialog, "_tabs", None)
@@ -1992,6 +1993,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                         break
         dialog.exec()
         self._apply_sidebar_visibility()
+        # The Recommendations tab's dials change how the engine scores, so both
+        # recommendation surfaces have to be re-scored, not just repainted.
+        self._refresh_recommendation_views()
         # Re-sync the nav-bar Split toggle in case the user changed the setting
         # via the Settings dialog's Playback tab checkbox.
         if hasattr(self, "_split_toggle_btn"):
@@ -2000,6 +2004,19 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 getattr(self.config, "split_streams_by_source", False)
             )
             self._split_toggle_btn.blockSignals(False)
+
+    def _refresh_recommendation_views(self) -> None:
+        """Re-score every recommendation surface after the scoring dials change.
+
+        One seam for both consumers of ``RecScoringSettings`` — the sidebar
+        section (via the canonical ``_refresh_recommended_section``) and the
+        Recommendations dashboard, which is only refreshed while it is active so
+        an off-screen view doesn't burn a background query.
+        """
+        self._refresh_recommended_section()
+        view = getattr(self, "preferences_view", None)
+        if view is not None and getattr(view, "_active", False):
+            view.refresh()
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""

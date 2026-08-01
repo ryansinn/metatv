@@ -113,6 +113,7 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     )
     from metatv.gui.settings_dialog import SettingsDialog
     import metatv.core.epg_utils as _epg
+    from tests.conftest import wire_settings_recommendation_widgets
 
     dlg = SettingsDialog.__new__(SettingsDialog)
     dlg.config = _FakeThresholdConfig(threshold=threshold)
@@ -175,6 +176,9 @@ def _make_threshold_dialog(qapp, threshold: float = 0.9):
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
     dlg._sidebar_list = QListWidget()
+
+    # Recommendations tab dials
+    wire_settings_recommendation_widgets(dlg)
     return dlg
 
 
