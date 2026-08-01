@@ -7,8 +7,8 @@ Executes the changed paths and asserts the outcomes that would break:
    ``last_played`` order with ``watch_count`` / ``last_watched`` / watch-state
    populated, and — as a RECORD view — are NOT provider-gated (a row on an inactive
    provider still appears; a never-played row does not).
-2. **View lifecycle** — ``FullHistoryView.on_activate`` seeds the embedded trail-map
-   from history; ``on_deactivate`` releases it; the empty history shows a status.
+2. **View lifecycle** — ``ExploreView.on_activate`` (history source) seeds the embedded
+   trail-map from history; ``on_deactivate`` releases it; empty history shows a status.
 3. **Drill** — expanding a history stop fetches its similars through the SAME
    provider-scoped ``load_similar_rows`` chokepoint (inactive-provider neighbour gated
    out even though it is a valid *history* row).
@@ -215,7 +215,7 @@ def _cleanup(qapp):
 
 def _make_full_history_view(db, qapp):
     from metatv.core.repositories import RepositoryFactory
-    from metatv.gui.full_history_view import FullHistoryView
+    from metatv.gui.explore_view import EXPLORE_SOURCES, ExploreView
 
     def _inline_run_query(query_fn, on_result, *, token_ref=None, on_error=None):
         """Mirror MainWindow._run_query inline (bump token, run query_fn(repos))."""
@@ -230,9 +230,9 @@ def _make_full_history_view(db, qapp):
             return
         on_result(data)
 
-    view = FullHistoryView(
+    view = ExploreView(
         None, _fake_config(), _FakeImageCache(), db, _FakeMetadataManager(),
-        _inline_run_query,
+        _inline_run_query, source=EXPLORE_SOURCES["history"],
     )
     # Swap the inner trail-map's real pool for an inline one so open()/expand run sync.
     view.trail_map._executor.shutdown(wait=False)
@@ -308,8 +308,13 @@ class TestHistoryDrill:
 # 4. Nav wiring — switch + _hide_all_content_views registration + deep-link seam
 # ---------------------------------------------------------------------------
 
-def _nav_host():
-    """A bare ``_NavMixin`` with just the attributes the two nav methods touch."""
+def _nav_host(key: str = "history"):
+    """A bare ``_NavMixin`` with just the attributes the two nav methods touch.
+
+    ``host.explore_view`` is the mocked Explore view for *key*; the host's lazy
+    construction seam (``_ensure_explore_view``) hands it back.
+    """
+    from metatv.gui.explore_view import EXPLORE_SOURCES
     from metatv.gui.main_window_nav import _NavMixin
 
     host = _NavMixin()
@@ -320,26 +325,30 @@ def _nav_host():
         "search_chip", "epg_chip", "prefs_chip", "discover_chip",
     ):
         setattr(host, name, MagicMock())
-    host.full_history_view = MagicMock()
+    view = MagicMock()
+    view.source = EXPLORE_SOURCES[key]
+    host.explore_view = view
+    host.explore_views = {key: view}
+    host._ensure_explore_view = lambda k: host.explore_views[k]
     return host
 
 
 class TestNavWiring:
     def test_hide_all_deactivates_and_hides_full_history(self):
         host = _nav_host()
-        host.full_history_view.isVisible.return_value = True
+        host.explore_view.isVisible.return_value = True
         host._hide_all_content_views()
-        host.full_history_view.on_deactivate.assert_called_once()
-        host.full_history_view.setVisible.assert_called_with(False)
+        host.explore_view.on_deactivate.assert_called_once()
+        host.explore_view.setVisible.assert_called_with(False)
 
     def test_switch_activates_history_view(self):
         host = _nav_host()
-        host.full_history_view.isVisible.return_value = False
+        host.explore_view.isVisible.return_value = False
         host.switch_to_full_history_view()
         assert host.view_mode == "history"
         # _hide_all first (setVisible False), then this view is shown (last call True).
-        host.full_history_view.setVisible.assert_called_with(True)
-        host.full_history_view.on_activate.assert_called_once()
+        host.explore_view.setVisible.assert_called_with(True)
+        host.explore_view.on_activate.assert_called_once()
         host.stats_label.setText.assert_called_with("Watch History")
 
     def test_navigate_to_seam_knows_history(self):
@@ -378,7 +387,7 @@ class TestHistoryFullWidth:
     def test_switch_collapses_flanks_and_leaving_restores(self, qapp):
         """Entering history collapses sidebar(0)+details(2) to 0; leaving restores them."""
         host = _nav_host()
-        host.full_history_view.isVisible.return_value = False
+        host.explore_view.isVisible.return_value = False
         # Real sidebar has a 200px minimum — prove the collapse still reaches 0.
         splitter = _real_splitter(qapp, min_widths=(200, 400, 0))
         host.main_splitter = splitter
@@ -393,7 +402,7 @@ class TestHistoryFullWidth:
             "history activation collapses both flanking panels to zero"
 
         # Simulate leaving history (switch to any other view runs _hide_all_content_views).
-        host.full_history_view.isVisible.return_value = True
+        host.explore_view.isVisible.return_value = True
         host._hide_all_content_views()
         qapp.processEvents()
         restored = splitter.sizes()
@@ -408,7 +417,7 @@ class TestHistoryFullWidth:
         """Only panels WE auto-collapsed are restored — a pre-collapsed details pane
         (the common ``details_pane_visible=False`` default) stays shut on the way out."""
         host = _nav_host()
-        host.full_history_view.isVisible.return_value = False
+        host.explore_view.isVisible.return_value = False
         splitter = _real_splitter(qapp, min_widths=(200, 400, 0))
         splitter.collapse_panel(2)          # user already had the details pane shut
         qapp.processEvents()
@@ -419,7 +428,7 @@ class TestHistoryFullWidth:
         qapp.processEvents()
         assert splitter.sizes()[0] == 0, "sidebar still auto-collapses"
 
-        host.full_history_view.isVisible.return_value = True
+        host.explore_view.isVisible.return_value = True
         host._hide_all_content_views()
         qapp.processEvents()
         assert splitter.sizes()[0] > 0, "sidebar (which we collapsed) is restored"
@@ -432,9 +441,9 @@ class TestHistoryFullWidth:
     def test_switch_without_main_splitter_does_not_raise(self):
         """The nav host in TestNavWiring has no main_splitter — the guard must hold."""
         host = _nav_host()          # no main_splitter attribute set
-        host.full_history_view.isVisible.return_value = False
+        host.explore_view.isVisible.return_value = False
         host.switch_to_full_history_view()          # must not AttributeError
-        host.full_history_view.isVisible.return_value = True
+        host.explore_view.isVisible.return_value = True
         host._hide_all_content_views()              # nor here
 
 

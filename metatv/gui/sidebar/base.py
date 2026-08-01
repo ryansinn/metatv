@@ -107,6 +107,14 @@ class CollapsibleSection(QFrame):
 
     # Signal when section wants to update its size
     sizeChanged = pyqtSignal()
+    # "Explore →" header link clicked — the host opens this section's Explore view
+    # (cascading columns seeded with the section's contents).  Only sections that
+    # set EXPLORE_KEY grow the link, so only they emit it.
+    exploreClicked = pyqtSignal()
+
+    # EXPLORE_SOURCES key whose Explore view this section's header link opens.
+    # None (the default) → no "Explore →" link on this section.
+    EXPLORE_KEY: str | None = None
 
     def __init__(self, title: str, icon: str, config, parent=None):
         super().__init__(parent)
@@ -174,6 +182,42 @@ class CollapsibleSection(QFrame):
 
         return header
 
+    def _add_explore_link(self, header_layout: QHBoxLayout) -> QPushButton | None:
+        """Append the shared "Explore →" header link, when this section has one.
+
+        The ONE definition of the affordance (label, glyph, style, tooltip, signal):
+        History, Favorites, Watch Queue and Recommended all get their link from here
+        rather than each building its own.  Sections opt in by setting
+        :attr:`EXPLORE_KEY` to their :data:`~metatv.gui.explore_view.EXPLORE_SOURCES`
+        key — the tooltip comes from that source, so the rail and the view it opens
+        can never describe themselves differently.
+
+        A ``QPushButton`` consumes its own click, so the link never toggles the
+        collapsible header underneath it.
+
+        Args:
+            header_layout: The header's layout, from ``_build_clickable_header()``.
+
+        Returns:
+            The button (stored as ``self.explore_btn``), or None when the section
+            has no ``EXPLORE_KEY``.
+        """
+        if not self.EXPLORE_KEY:
+            return None
+        # Local imports: explore_view pulls in the trail-map widget, and the sidebar
+        # package is imported while MainWindow is still being built.
+        from metatv.gui import icons as _icons
+        from metatv.gui.explore_view import EXPLORE_SOURCES
+
+        btn = QPushButton(f"Explore {_icons.see_all_arrow_icon}")
+        btn.setFlat(True)
+        btn.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)
+        btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
+        btn.clicked.connect(self.exploreClicked.emit)
+        header_layout.addWidget(btn)
+        self.explore_btn = btn
+        return btn
+
     def create_header(self):
         """Create collapsible header with title and toggle button."""
         header = self._build_clickable_header()
@@ -183,6 +227,7 @@ class CollapsibleSection(QFrame):
         self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
+        self._add_explore_link(header_layout)
 
         self.main_layout.addWidget(header)
 
