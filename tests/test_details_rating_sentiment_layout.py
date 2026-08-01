@@ -239,12 +239,12 @@ def test_infrequent_buttons_reparented_to_rail(qapp):
             f"{btn!r} must be reparented to _action_rail after set_action_buttons()"
         )
 
-    # The rating trio is reparented to the labelled sentiment row instead.
+    # The rating trio is reparented to the secondary row (right of Watch Later).
     for btn in (
         action_bar.like_button, action_bar.not_interested_button, action_bar.dislike_button,
     ):
-        assert btn.parent() is poster._sentiment_row, (
-            f"{btn!r} must be reparented to the labelled 'Rate:' row"
+        assert btn.parent() is poster._secondary_action_row, (
+            f"{btn!r} must be reparented to the secondary 'Watch Later' row"
         )
 
     # Play/Resume/Queue must NOT be in the rail.
@@ -297,9 +297,13 @@ def test_queue_in_secondary_zone_full_width_button(qapp):
     )
     assert action_bar.queue_button.isCheckable(), "Queue button must stay checkable"
     assert action_bar.queue_button.toolTip(), "Queue button must keep a tooltip"
-    # In the secondary row it is the sole, full-width widget.
+    # In the secondary row it is the LEFTMOST widget and the only one that stretches
+    # (the rating trio shares the line, pinned to the right).
     srow = poster._secondary_row_layout
-    assert srow.count() == 1 and srow.itemAt(0).widget() is action_bar.queue_button
+    assert srow.itemAt(0).widget() is action_bar.queue_button, (
+        "Watch Later must be the leftmost widget on the secondary row"
+    )
+    assert srow.stretch(0) == 1, "Watch Later must absorb the row's spare width"
 
 
 def test_primary_row_play_full_width_when_no_resume(qapp):
