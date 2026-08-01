@@ -550,7 +550,7 @@ def test_maybe_show_whats_new_advances_cursor_and_saves(qapp):
     import metatv.gui.main_window as _mw_mod
 
     host = MainWindow.__new__(MainWindow)
-    host.config = _FakeConfig(last_seen_whats_new_id=0)
+    host.config = _FakeConfig(last_seen_whats_new_id=1)
     host._whats_new_checked = False
 
     exec_calls = []
@@ -579,7 +579,7 @@ def test_maybe_show_whats_new_does_not_show_twice(qapp):
     import metatv.gui.main_window as _mw_mod
 
     host = MainWindow.__new__(MainWindow)
-    host.config = _FakeConfig(last_seen_whats_new_id=0)
+    host.config = _FakeConfig(last_seen_whats_new_id=1)
     host._whats_new_checked = False
 
     exec_calls = []

@@ -63,6 +63,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.channel_name_utils import quality_tier_rank
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.epg_utils import (
     now_utc as _now_utc,
@@ -481,6 +482,34 @@ class _EpgWatchlistMixin:
                     self._make_recommendation_item(channel_db_id, channel_name, count)
                 )
 
+    def _watchlist_rank_key(self, prog: EpgProgramDB) -> tuple[int, int, str]:
+        """Sort key ranking a channel within a watchlist title-match group.
+
+        Order: quality tier desc (4K > FHD > HD > SD, via the canonical
+        :func:`quality_tier_rank`), then previously-watched channels
+        (``play_count > 0``) first, then a stable name tiebreak — so the
+        ``_MAX_VISIBLE`` / ``[:2]`` display caps in ``_make_watchlist_item`` keep
+        the best surviving streams instead of an arbitrary raw-SQL-order subset.
+
+        Reads the ``_channel_quality_map`` / ``_channel_watch_map`` /
+        ``_channel_title_map`` dicts populated by ``_build_name_map`` — no
+        per-row query and no ``parse_channel_name()`` call (ingestion-only rule,
+        CLAUDE.md).
+
+        Args:
+            prog: An ``EpgProgramDB`` row from a live or upcoming match group.
+
+        Returns:
+            A tuple sortable ascending (lower sorts first): ``(-tier, -watched,
+            name)``.
+        """
+        cid = prog.channel_db_id or ""
+        tier = quality_tier_rank(self._channel_quality_map.get(cid, ""))
+        play_count = self._channel_watch_map.get(cid, (0, None))[0]
+        watched = 1 if play_count > 0 else 0
+        name = self._channel_title_map.get(cid) or self._channel_name_map.get(cid, "")
+        return (-tier, -watched, name.casefold())
+
     def _make_watchlist_item(self, pattern: str, live: list[EpgProgramDB],
                               upcoming: list[EpgProgramDB]) -> QWidget:
         from collections import defaultdict
@@ -497,16 +526,29 @@ class _EpgWatchlistMixin:
         is_live = bool(live)
         icon = self.config.live_indicator_icon if is_live else self.config.watchlist_icon
 
-        # Group live programmes by show title (most channels = most popular first)
+        # Group live programmes by show title (most channels = most popular first).
+        # Within each group, rank channels (best quality tier, then previously-
+        # watched, then name) so the _MAX_VISIBLE display cap below keeps the best
+        # surviving streams, not an arbitrary raw-SQL-order subset.
         title_groups: dict[str, list] = defaultdict(list)
         for prog in live:
             title_groups[prog.title].append(prog)
+        for progs in title_groups.values():
+            progs.sort(key=self._watchlist_rank_key)
         title_groups = dict(sorted(title_groups.items(), key=lambda kv: -len(kv[1])))
 
         header = QHBoxLayout()
         pattern_lbl = QLabel(f"{icon}  {pattern}")
         pattern_lbl.setStyleSheet(_theme.LIST_TITLE)
         header.addWidget(pattern_lbl)
+
+        search_btn = QPushButton("Show all in Search")
+        search_btn.setFlat(True)
+        search_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        search_btn.setToolTip(f'Search all channels for "{pattern}"')
+        search_btn.clicked.connect(lambda _=False, p=pattern: self.search_requested.emit(p))
+        header.addWidget(search_btn)
+
         header.addStretch()
 
         if is_live:
@@ -675,13 +717,22 @@ class _EpgWatchlistMixin:
             sep.setMaximumHeight(1)
             layout.addWidget(sep)
 
-        # Group upcoming by title (up to 3 title groups, up to 2 channels each)
+        # Group upcoming by title (up to 3 title groups, up to 2 channels each).
+        # Rank channels within each group (same key as the live groups above) so
+        # the [:2] display cap keeps the best surviving streams.
         up_title_groups: dict[str, list] = defaultdict(list)
         for prog in upcoming:
             up_title_groups[prog.title].append(prog)
-        # Sort by earliest start time per group
+        for progs in up_title_groups.values():
+            progs.sort(key=self._watchlist_rank_key)
+        # Sort title groups by earliest start time (independent of the intra-group
+        # channel ranking above — use min() rather than index [0], which no longer
+        # points at the earliest-start row after the rank sort).
         up_title_groups = dict(
-            sorted(up_title_groups.items(), key=lambda kv: kv[1][0].start_time)
+            sorted(
+                up_title_groups.items(),
+                key=lambda kv: min(p.start_time for p in kv[1]),
+            )
         )
 
         def _up_row(prog):

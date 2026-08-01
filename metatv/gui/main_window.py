@@ -588,6 +588,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.details_pane.hide_requested.connect(self._on_hide_from_details_pane)
         self.details_pane.monitor_toggled.connect(self._on_details_monitor_toggled)
         self.details_pane.unhide_requested.connect(self._unhide_channel)
+        self.details_pane.clear_epg_link_requested.connect(self._on_details_clear_epg_link)
         self.details_pane.watched_toggled.connect(self._on_details_watched_toggled)
         self.details_pane.channel_versions_requested.connect(self._fetch_channel_versions)
         self.details_pane.version_selected.connect(self.show_channel_details_by_id)
@@ -918,6 +919,38 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.config.epg_watchlist_channels.remove(channel_id)
             self.config.save()
             self._refresh_watch_alerts()
+
+    def _clear_epg_link(self, channel_id: str) -> None:
+        """Unlink this channel's EPG guide data and block it from re-matching.
+
+        Handler for the channel-menu "Clear EPG link" action and the details-pane
+        rail's 🧹 button. Delegates to ``EpgManager.clear_channel_epg_link`` — the
+        single chokepoint that persists the block (``config.epg_link_blocklist``)
+        and nulls the DB link on its single-worker executor.
+        """
+        self.epg_manager.clear_channel_epg_link(channel_id)
+
+    def _relink_epg_channel(self, channel_id: str) -> None:
+        """Re-allow EPG matching for a previously-blocked channel ("Re-link EPG data").
+
+        Handler for the channel-menu toggle's blocked state. Delegates to
+        ``EpgManager.relink_channel_epg`` — removes the channel from the block
+        list and triggers an immediate ``relink_all()`` pass.
+        """
+        self.epg_manager.relink_channel_epg(channel_id)
+
+    def _on_details_clear_epg_link(self, channel_id: str) -> None:
+        """Details-pane rail 🧹 click — toggles clear/re-link by current blocked state.
+
+        The single rail button mirrors the channel-menu action's toggle: check
+        ``config.epg_link_blocklist`` (the same source of truth the pane's own
+        ``ChannelActionState.epg_link_blocked`` was populated from) to decide
+        which half of the pair applies.
+        """
+        if channel_id in (self.config.epg_link_blocklist or []):
+            self._relink_epg_channel(channel_id)
+        else:
+            self._clear_epg_link(channel_id)
 
     # ------------------------------------------------------------------
     # Series monitor helpers
@@ -1626,6 +1659,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # EPG source-freshness status is rendered on the stats line (epg_status_label),
         # not inside the EPG view — the view emits its computed status text + tooltip.
         self.epg_view.epg_status_changed.connect(self._on_epg_status_changed)
+        # Watchlist card "Show all in Search" — same seam sidebar Queue/Favorites
+        # sections use (searchRequested → search_for_title).
+        self.epg_view.search_requested.connect(self.search_for_title)
         self.epg_view.setVisible(False)
         self._list_layout.addWidget(self.epg_view)
 
@@ -2122,6 +2158,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # that would replay the ENTIRE historical changelog every launch. Skip the
         # auto-dialog under METATV_DEV (the Help ▸ What's New menu still works).
         if _dev_mode_enabled():
+            return
+
+        # First launch on a fresh config (cursor 0): don't replay the entire
+        # historical changelog — fast-forward silently. A cursor of 0 in normal
+        # mode can only mean a just-created config, because dismissing the dialog
+        # always advances the cursor. Upgrades keep showing their delta as before.
+        if self.config.last_seen_whats_new_id == 0:
+            self.config.last_seen_whats_new_id = _whats_new.latest_id()
+            self.config.save()
             return
 
         unseen = self._whats_new_unseen()

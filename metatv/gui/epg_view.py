@@ -77,6 +77,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
     # line (right-aligned) so status + count read as one strip. Emitted whenever
     # _update_status_label recomputes (on_activate, _on_epg_refreshed).
     epg_status_changed = pyqtSignal(str, str)    # (status text, tooltip)
+    # "Show all in Search" clicked on a watchlist card — MainWindow connects this
+    # to the existing search_for_title(title) seam (main_window_favorites.py),
+    # which switches to the channel list, enables the Search chip, and pre-fills
+    # the query with the watchlist pattern.
+    search_requested = pyqtSignal(str)           # pattern
 
     # Internal thread-safe signals
     _data_loaded = pyqtSignal(object)  # payload dict keyed by tab
@@ -94,6 +99,11 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         self._channel_region_map: dict[str, str] = {}   # channel_db_id → detected_region
         self._channel_year_map: dict[str, str] = {}     # channel_db_id → detected_year
         self._channel_audio_map: dict[str, str] = {}    # channel_db_id → audio form (from detected_audio)
+        # channel_db_id → (play_count, last_played). Populated alongside the other
+        # _channel_*_map dicts by _build_name_map (same already-fetched ChannelDB
+        # row — no extra query) so the watchlist can rank "previously watched"
+        # channels first within a quality tier.
+        self._channel_watch_map: dict[str, tuple[int, datetime | None]] = {}
         # channel_db_id → provider_id — Browse's source-glyph prefix (Q4, wave3/browse-makeover).
         self._channel_provider_map: dict[str, str] = {}
         # channel_db_ids carrying a globally-excluded content_type tag (AI Generated,
@@ -510,11 +520,15 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         """Build channel display maps from stored detected_* fields.
 
         Populates _channel_quality_map, _channel_prefix_map, _channel_title_map,
-        _channel_region_map, _channel_year_map, and _channel_audio_map as a
-        side-effect.  Returns the raw name map for backwards compatibility.
+        _channel_region_map, _channel_year_map, _channel_audio_map, and
+        _channel_watch_map as a side-effect.  Returns the raw name map for
+        backwards compatibility.
 
         Reads stored detected_* fields written at ingestion time — no parse_channel_name
-        call here (ingestion-only rule, CLAUDE.md).
+        call here (ingestion-only rule, CLAUDE.md). _channel_watch_map reuses this
+        SAME per-channel ``ch`` row already fetched for the other maps — no extra
+        query — so ``_render_watchlist``'s ranking pass (quality tier + previously
+        watched) has the data it needs without a per-row lookup.
         """
         name_map: dict[str, str] = {}
         quality_map: dict[str, str] = {}
@@ -523,6 +537,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         region_map: dict[str, str] = {}
         year_map: dict[str, str] = {}
         audio_map: dict[str, str] = {}
+        watch_map: dict[str, tuple[int, datetime | None]] = {}
         all_progs: list[EpgProgramDB] = []
         for progs in watchlist_data.values():
             all_progs.extend(progs)
@@ -541,12 +556,14 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                     year_map[p.channel_db_id] = ch.detected_year or ""
                     if ch.detected_audio:
                         audio_map[p.channel_db_id] = ch.detected_audio.get("form", "") or ""
+                    watch_map[p.channel_db_id] = (ch.play_count or 0, ch.last_played)
         self._channel_quality_map.update(quality_map)
         self._channel_prefix_map.update(prefix_map)
         self._channel_title_map.update(title_map)
         self._channel_region_map.update(region_map)
         self._channel_year_map.update(year_map)
         self._channel_audio_map.update(audio_map)
+        self._channel_watch_map.update(watch_map)
         return name_map
 
     # ------------------------------------------------------------------

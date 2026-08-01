@@ -570,6 +570,7 @@ def test_missing_handler_skips_action(qapp):
 class _FakeConfig:
     epg_watchlist_channels: list = []
     epg_watchlist_patterns: list = []
+    epg_link_blocklist: list = []
     save_calls: int = 0
 
     def save(self):

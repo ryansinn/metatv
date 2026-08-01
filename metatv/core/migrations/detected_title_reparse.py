@@ -90,7 +90,13 @@ if TYPE_CHECKING:
 #       now removes a leading punctuation-run-plus-whitespace after the prefix strip
 #       (a bare leading dot with no space — ".hack//Sign" — is preserved).  Full
 #       re-run re-parses every row and recomputes content_key.
-CURRENT_VERSION: int = 8
+#   9 — re-run of 8. The only v8 run on the owner's machine (2026-07-31) crashed
+#       mid-pass on a transient "database is locked", and a MigrationManager bug
+#       (fixed alongside this bump) marked the crashed run complete anyway — so
+#       stored version 8 is burned without the pipe-residue strip ever applying.
+#       No parser change beyond v8; this bump makes the fixed parse actually run
+#       to completion.
+CURRENT_VERSION: int = 9
 
 
 class DetectedTitleReparseTask:

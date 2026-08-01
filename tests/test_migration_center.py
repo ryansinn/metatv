@@ -646,3 +646,39 @@ class TestMigrationCompletionRefreshWiring:
             me.load_channels.assert_not_called()
         finally:
             mgr.shutdown()
+
+
+def test_crashed_task_does_not_bump_version(qapp):
+    """A task whose run() raises must NOT get on_completed — it retries next launch.
+
+    Regression: the 2026-07-31 detected_title_reparse v8 run died on a transient
+    'database is locked' and was still marked complete, permanently burning the
+    version so the re-parse never retried.
+    """
+    from unittest.mock import MagicMock
+    from metatv.core.migration_manager import MigrationManager
+
+    mgr = MigrationManager.__new__(MigrationManager)
+    mgr.config = MagicMock()
+    import threading
+    mgr._cancel_event = threading.Event()
+    finished = []
+    mgr._task_finished = MagicMock(emit=lambda tid: finished.append(tid))
+    mgr._task_started = MagicMock(emit=lambda *a: None)
+    mgr._task_progress = MagicMock(emit=lambda *a: None)
+    mgr._all_finished = MagicMock(emit=lambda *a: None)
+
+    crashing = MagicMock()
+    crashing.id = "crashy"
+    crashing.label = "Crashy task"
+    crashing.run.side_effect = RuntimeError("database is locked")
+
+    healthy = MagicMock()
+    healthy.id = "healthy"
+    healthy.label = "Healthy task"
+
+    mgr._run_all([crashing, healthy])
+
+    crashing.on_completed.assert_not_called()   # crashed → version NOT bumped
+    healthy.on_completed.assert_called_once()   # later tasks still run + complete
+    assert finished == ["crashy", "healthy"]    # widget got both finish signals

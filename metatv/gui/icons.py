@@ -90,6 +90,9 @@ status_dot_icon: str = "●"      # filled status dot; colored by state (ok/err)
 watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"
+# "Clear EPG link" — unlink a channel's wrong/mismatched guide data and block it
+# from future auto-matching (channel menu + details-pane rail, live channels only).
+clear_epg_link_icon: str = "🧹"   # U+1F9F9 BROOM
 
 # Alerts (siren — used for the Alerts sidebar section AND the new-episode alert action;
 # not 📡, which is live/provider/events, nor ⚠, which stays for warnings)

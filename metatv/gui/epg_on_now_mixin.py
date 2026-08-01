@@ -55,7 +55,7 @@ from PyQt6.QtWidgets import (
 from loguru import logger
 
 from metatv.core.channel_name_utils import (
-    REGION_FULL_NAMES, quality_display, quality_tooltip,
+    REGION_FULL_NAMES, classify_channel_content_type, quality_display, quality_tooltip,
 )
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
@@ -68,6 +68,7 @@ from metatv.gui.channel_menu import ChannelMenuContext, build_channel_menu
 from metatv.gui.details_versions import resolve_category_name
 from metatv.gui.epg_widgets import (
     _AssignCategoryDialog,
+    _CONTENT_TYPE_ROLE,
     _EpgTreeItem,
     _PROGRESS_ROLE,
     _REMAIN_ROLE,
@@ -75,6 +76,36 @@ from metatv.gui.epg_widgets import (
     _ProgressBarDelegate,
     apply_watchlist_highlight as _apply_watchlist_highlight,
 )
+
+# Bump this when the On Now header's column layout changes (count/order/roles). A
+# persisted ``on_now_header_state`` saved under an older version is discarded instead
+# of being fed to QHeaderView.restoreState(), which can silently scramble columns on
+# a mismatch rather than raise. Slice 3C (prefix grouping) does not itself change the
+# 6-column layout, but the version key is added defensively alongside that change so
+# a future layout change has somewhere to invalidate old state safely.
+_ON_NOW_HEADER_STATE_VERSION = 1
+
+# Category value used for rows that classify_channel_content_type() couldn't place —
+# the catch-all bucket surfaced in the "All Types ▼" dropdown.
+_OTHER_CONTENT_TYPE = "Other"
+
+
+class _EpgGroupItem(QTreeWidgetItem):
+    """Top-level prefix-group header row in the On Now tree (Slice 3C).
+
+    Distinct from :class:`~metatv.gui.epg_widgets._EpgTreeItem` (used for the child
+    programme rows, and also by ``epg_browse_mixin.py``'s flat top-level list) so
+    overriding ``__lt__`` here can never affect that other, ungrouped tree: Qt only
+    ever compares *siblings* (same parent), and group rows are only ever siblings of
+    other group rows.
+
+    Always sorts by its own group-name text (column 0), regardless of which column
+    the user clicked — group order stays stable/alphabetical while child rows sort by
+    whatever column is active, without fighting Qt's per-level recursive sort.
+    """
+
+    def __lt__(self, other: QTreeWidgetItem) -> bool:
+        return self.text(0).lower() < other.text(0).lower()
 
 
 class _EpgOnNowMixin:
@@ -155,6 +186,12 @@ class _EpgOnNowMixin:
         self.on_now_prefix_dropdown.filter_changed.connect(self._apply_on_now_filters)
         filter_row.addWidget(self.on_now_prefix_dropdown)
 
+        # Slice 3C: viewing content-type filter (Sports/News/Kids/Movies/Music/Other),
+        # composes with search + the Category dropdown above in _apply_on_now_filters.
+        self.on_now_type_dropdown = FilterDropdown("All Types", {}, all_selected=True)
+        self.on_now_type_dropdown.filter_changed.connect(self._on_now_type_filter_changed)
+        filter_row.addWidget(self.on_now_type_dropdown)
+
         filter_row.addStretch()
 
         self.filler_check_btn = QPushButton("Show All")
@@ -168,9 +205,12 @@ class _EpgOnNowMixin:
 
         # Programme tree: Category | Channel | Quality | Show | Progress | [hide]
         # Logical columns: 0=Category(""), 1=Channel, 2=Quality, 3=Show, 4=Progress, 5=Hide
+        # Slice 3C: top-level rows are now prefix-GROUP headers (spanned, non-selectable);
+        # programme rows are children one level down — setRootIsDecorated(True) shows the
+        # expand/collapse arrow for groups (leaf/child rows show none, same as before).
         self.on_now_list = QTreeWidget()
         self.on_now_list.setAlternatingRowColors(True)
-        self.on_now_list.setRootIsDecorated(False)
+        self.on_now_list.setRootIsDecorated(True)
         self.on_now_list.setUniformRowHeights(True)
         self.on_now_list.setSortingEnabled(True)
         self.on_now_list.setColumnCount(6)
@@ -199,15 +239,27 @@ class _EpgOnNowMixin:
         self.on_now_list.itemDoubleClicked.connect(self._on_now_double_click)
         self.on_now_list.itemClicked.connect(self._on_now_item_clicked)
         self.on_now_list.currentItemChanged.connect(self._on_now_selection_changed)
+        # Slice 3C: persist each prefix-group's expand/collapse state. Both signals fire
+        # on any expand/collapse — programmatic (during _render_on_now's rebuild) or user
+        # click; _render_on_now blocks the tree's signals while it rebuilds, so only real
+        # user toggles reach _on_now_group_toggled.
+        self.on_now_list.itemExpanded.connect(self._on_now_group_toggled)
+        self.on_now_list.itemCollapsed.connect(self._on_now_group_toggled)
         # Restore persisted header state (column order + widths) or apply default visual order.
         # Default visual order: [Category(0), Progress(4), Show(3), Channel(1), Hide(5), Quality(2)]
+        # Gated on a version key (_ON_NOW_HEADER_STATE_VERSION): a state saved under a
+        # different/missing version is discarded rather than fed to restoreState(), which
+        # can silently scramble columns on a layout mismatch instead of raising.
         _saved_header = self.config.epg_filter_state.get("on_now_header_state")
-        if _saved_header:
+        _saved_header_version = self.config.epg_filter_state.get("on_now_header_state_version")
+        if _saved_header and _saved_header_version == _ON_NOW_HEADER_STATE_VERSION:
             try:
                 hdr.restoreState(QByteArray.fromBase64(_saved_header.encode("ascii")))
                 hdr.setStretchLastSection(False)  # re-assert after restoreState
             except Exception:
                 _saved_header = None  # fall through to default order
+        else:
+            _saved_header = None
         if not _saved_header:
             # Apply default visual order: logical indices [0, 4, 3, 1, 5, 2]
             # moveSection(from_visual, to_visual) — apply in order to avoid conflicts
@@ -329,12 +381,19 @@ class _EpgOnNowMixin:
         return epg_hidden, global_exclusion_set(config)
 
     def _render_on_now(self, programs: list[EpgProgramDB]) -> None:
+        # Slice 3C: the tree is rebuilt into prefix-GROUP top-level rows with programme
+        # rows as children. blockSignals() prevents the itemExpanded/itemCollapsed
+        # persistence handler from firing (and writing config) for the programmatic
+        # setExpanded() calls below — only a real user toggle should persist.
         self.on_now_list.setSortingEnabled(False)
+        self.on_now_list.blockSignals(True)
         self.on_now_list.clear()
         patterns = [p.lower() for p in self.config.epg_watchlist_patterns]
         epg_hidden, global_excluded = self._on_now_hidden_prefixes(self.config)
         now = _now_utc()
         prefix_counts: dict[str, int] = {}
+        type_counts: dict[str, int] = {}
+        groups: dict[str, list[_EpgTreeItem]] = {}
 
         for prog in programs:
             ch_name = self._channel_name_map.get(prog.channel_db_id or "", prog.channel_epg_id)
@@ -403,41 +462,144 @@ class _EpgOnNowMixin:
             if any(pat in prog.title.lower() for pat in patterns):
                 _apply_watchlist_highlight(item, range(5), 3)
 
-            self.on_now_list.addTopLevelItem(item)
+            # Slice 3C: classify once at render, store on the item — filtering reads
+            # the stored role, never re-classifies per filter pass. detected_prefix
+            # argument is the row's *effective* category (override-aware — the same
+            # value already driving the Category dropdown/grouping above).
+            content_type = classify_channel_content_type(ch_name, category) or _OTHER_CONTENT_TYPE
+            item.setData(0, _CONTENT_TYPE_ROLE, content_type)
+            type_counts[content_type] = type_counts.get(content_type, 0) + 1
+
+            groups.setdefault(category, []).append(item)
+
+        collapsed_map: dict = self.config.epg_filter_state.get("on_now_group_collapsed", {})
+        for group_key in sorted(groups.keys(), key=str.lower):
+            children = groups[group_key]
+            label = f"{group_key or '(No Category)'} ({len(children)})"
+            group_item = _EpgGroupItem([label, "", "", "", "", ""])
+            group_item.setFirstColumnSpanned(True)
+            font = group_item.font(0)
+            font.setBold(True)
+            group_item.setFont(0, font)
+            group_item.setForeground(0, QColor(_theme.COLOR_TEXT))
+            group_item.setFlags(group_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            group_item.setData(0, Qt.ItemDataRole.UserRole + 1, group_key)  # raw prefix key
+            if group_key:
+                group_item.setToolTip(0, resolve_category_name(group_key, self.config) or group_key)
+            self.on_now_list.addTopLevelItem(group_item)
+            for child in children:
+                group_item.addChild(child)
+            # Default expanded (spec) — collapsed only if explicitly persisted True.
+            group_item.setExpanded(not collapsed_map.get(group_key, False))
 
         self.on_now_prefix_dropdown.update_groups(prefix_counts)
+        self._sync_on_now_type_dropdown(type_counts)
+        self.on_now_list.blockSignals(False)
         self.on_now_list.setSortingEnabled(True)
         self._apply_on_now_filters()
         self._update_filler_btn_label()
-        count = self.on_now_list.topLevelItemCount()
+        count = sum(len(v) for v in groups.values())
         self.on_now_stats.setText(f"{count:,} channels on now")
         self.status_message.emit(f"EPG: {count:,} on now")
 
+    def _sync_on_now_type_dropdown(self, type_counts: dict[str, int]) -> None:
+        """Populate the "All Types" dropdown, preserving/restoring its selection.
+
+        First population restores the persisted ``on_now_type_filter`` selection
+        (empty list / missing = "all"); subsequent reloads preserve whatever the user
+        currently has selected, intersected with the types present in this reload —
+        mirrors the established FilterDropdown reload pattern in ``sports_filter_bar.py``.
+        """
+        is_first_load = not bool(self.on_now_type_dropdown.groups)
+        prev_selected = set(self.on_now_type_dropdown.get_selected())
+
+        self.on_now_type_dropdown.blockSignals(True)
+        self.on_now_type_dropdown.update_groups(type_counts)
+
+        existing = set(type_counts.keys())
+        if is_first_load:
+            saved = set(self.config.epg_filter_state.get("on_now_type_filter", []))
+            to_restore = (saved & existing) if saved else existing
+        else:
+            to_restore = (prev_selected & existing) or existing
+        to_restore = to_restore or existing
+
+        self.on_now_type_dropdown.selected_groups = set(to_restore)
+        for key, cb in self.on_now_type_dropdown.checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(key in to_restore)
+            cb.blockSignals(False)
+        self.on_now_type_dropdown.update_button_label()
+        self.on_now_type_dropdown.blockSignals(False)
+
+    def _on_now_type_filter_changed(self) -> None:
+        """Persist the "All Types" selection to config, then re-apply filters."""
+        selected = self.on_now_type_dropdown.get_selected()
+        all_types = set(self.on_now_type_dropdown.groups.keys())
+        # Empty-list sentinel = "all selected" (mirrors sports_filter_bar.get_filter_state
+        # convention) so a future type absent from a stale save still defaults to visible.
+        to_store = [] if (not selected or set(selected) == all_types) else selected
+        self.config.epg_filter_state["on_now_type_filter"] = to_store
+        self.config.save()
+        self._apply_on_now_filters()
+
+    def _on_now_group_toggled(self, item: QTreeWidgetItem) -> None:
+        """Persist a prefix-group's expand/collapse state (Slice 3C)."""
+        if item.parent() is not None:
+            return  # only top-level group rows are collapsible
+        group_key = item.data(0, Qt.ItemDataRole.UserRole + 1) or ""
+        collapsed_map = dict(self.config.epg_filter_state.get("on_now_group_collapsed", {}))
+        collapsed_map[group_key] = not item.isExpanded()
+        self.config.epg_filter_state["on_now_group_collapsed"] = collapsed_map
+        self.config.save()
+
     def _apply_on_now_filters(self) -> None:
-        """Client-side filter on the On Now tree: search text + region prefix."""
+        """Client-side filter on the On Now tree: search text + Category + All Types.
+
+        Slice 3C: the tree is grouped by prefix — iterate group (top-level) rows, then
+        their child programme rows. A group is hidden entirely once none of its
+        children remain visible, so no empty header lingers.
+        """
         q = self.on_now_search.text().strip().lower()
-        selected = set(self.on_now_prefix_dropdown.get_selected())
+
+        selected_prefixes = set(self.on_now_prefix_dropdown.get_selected())
         all_prefixes = set(self.on_now_prefix_dropdown.groups.keys())
-        filter_prefix = bool(selected) and selected != all_prefixes
+        filter_prefix = bool(selected_prefixes) and selected_prefixes != all_prefixes
 
-        for i in range(self.on_now_list.topLevelItemCount()):
-            item = self.on_now_list.topLevelItem(i)
-            visible = True
+        selected_types = set(self.on_now_type_dropdown.get_selected())
+        all_types = set(self.on_now_type_dropdown.groups.keys())
+        filter_type = bool(selected_types) and selected_types != all_types
 
-            if q:
-                region = item.text(0).lower()
-                ch = item.text(1).lower()
-                show = item.text(3).lower()
-                if q not in region and q not in ch and q not in show:
-                    visible = False
+        for gi in range(self.on_now_list.topLevelItemCount()):
+            group_item = self.on_now_list.topLevelItem(gi)
+            group_key = group_item.data(0, Qt.ItemDataRole.UserRole + 1) or ""
+            group_hidden_by_prefix = filter_prefix and group_key not in selected_prefixes
 
-            if visible and filter_prefix:
-                if item.text(0) not in selected:
-                    visible = False
+            any_visible = False
+            for ci in range(group_item.childCount()):
+                item = group_item.child(ci)
+                visible = not group_hidden_by_prefix
 
-            item.setHidden(not visible)
+                if visible and q:
+                    region = item.text(0).lower()
+                    ch = item.text(1).lower()
+                    show = item.text(3).lower()
+                    if q not in region and q not in ch and q not in show:
+                        visible = False
+
+                if visible and filter_type:
+                    ctype = item.data(0, _CONTENT_TYPE_ROLE) or _OTHER_CONTENT_TYPE
+                    if ctype not in selected_types:
+                        visible = False
+
+                item.setHidden(not visible)
+                any_visible = any_visible or visible
+
+            group_item.setHidden(not any_visible)
 
     def _on_now_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        if item.parent() is None:
+            return  # Slice 3C: group header row — no hide action, not a programme
         if column == 5 and len(self.on_now_list.selectedItems()) == 1:
             title = item.data(5, Qt.ItemDataRole.UserRole)
             ch_id = item.data(0, Qt.ItemDataRole.UserRole)
@@ -449,7 +611,9 @@ class _EpgOnNowMixin:
     def _on_now_context_menu(self, pos) -> None:
         from metatv.core.repositories import RepositoryFactory
 
-        items = self.on_now_list.selectedItems()
+        # Slice 3C: group header rows carry no channel and aren't ItemIsSelectable,
+        # but filter defensively in case a future Qt version selects them anyway.
+        items = [i for i in self.on_now_list.selectedItems() if i.parent() is not None]
         if not items:
             return
 
@@ -477,6 +641,7 @@ class _EpgOnNowMixin:
                         is_hidden=ch.is_hidden or False,
                         channel_name=ch.name or "",
                         channel_found=True,
+                        epg_link_blocked=cid in (self.config.epg_link_blocklist or []),
                     )
                 else:
                     ctx_kwargs["channel_found"] = False
@@ -531,6 +696,13 @@ class _EpgOnNowMixin:
 
                 handlers["like"] = _like_h
                 handlers["dislike"] = _dislike_h
+
+            if ctx.media_type == "live":
+                handlers["clear_epg_link"] = (
+                    (lambda c=cid: self.epg_manager.relink_channel_epg(c))
+                    if ctx.epg_link_blocked
+                    else (lambda c=cid: self.epg_manager.clear_channel_epg_link(c))
+                )
 
         # EPG-extra handlers
         watched = [cid for cid in valid_ch_ids if cid in self.config.epg_watchlist_channels]
@@ -619,17 +791,22 @@ class _EpgOnNowMixin:
 
     def _known_categories(self) -> list[str]:
         existing = set(self.config.epg_category_overrides.values())
+        # Slice 3C: top-level rows are now GROUP headers whose text(0) is the display
+        # label "{prefix} (count)", not the raw prefix — read the raw value stored in
+        # UserRole + 1 instead (set on every group row in _render_on_now).
         visible = {
-            self.on_now_list.topLevelItem(i).text(0)
+            self.on_now_list.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole + 1)
             for i in range(self.on_now_list.topLevelItemCount())
-            if self.on_now_list.topLevelItem(i).text(0)
         }
+        visible.discard(None)
+        visible.discard("")
         return sorted(existing | visible | set(REGION_FULL_NAMES.keys()))
 
     def _save_on_now_header_state(self) -> None:
         """Persist On Now column order/widths so they survive restarts."""
         raw = bytes(self.on_now_list.header().saveState().toBase64()).decode("ascii")
         self.config.epg_filter_state["on_now_header_state"] = raw
+        self.config.epg_filter_state["on_now_header_state_version"] = _ON_NOW_HEADER_STATE_VERSION
         self.config.save()
 
     def _track_shows_from_items(self, items: list[QTreeWidgetItem]) -> None:
@@ -647,9 +824,11 @@ class _EpgOnNowMixin:
             self._add_pattern(text.strip())
 
     def _on_now_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
+        if item.parent() is None:
+            return  # Slice 3C: group header row — nothing to play
         self._play_channel(item.data(0, Qt.ItemDataRole.UserRole))
 
     def _on_now_selection_changed(self, current, _) -> None:
-        if not current:
-            return
+        if not current or current.parent() is None:
+            return  # Slice 3C: group header row — no channel to emit
         self._emit_channel_selected(current.data(0, Qt.ItemDataRole.UserRole))

@@ -299,6 +299,10 @@ def _make_browse_tab_host(qapp, config=None):
     host._on_search_changed = lambda *_: None
     host._reload_browse = lambda *_: None
     host._load_more_browse = lambda *_: None
+    # Hide-Filler toggle handler + its label refresh (called directly at build,
+    # then again on click) — see epg_browse_mixin._on_hide_filler_toggled.
+    host._on_hide_filler_toggled = lambda *_: None
+    host._update_hide_filler_btn_label = lambda: None
     host._on_browse_scroll = lambda *_: None
     host._browse_double_click = lambda *_: None
     host._browse_selection_changed = lambda *_: None

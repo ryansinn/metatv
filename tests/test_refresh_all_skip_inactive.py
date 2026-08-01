@@ -263,8 +263,7 @@ def _wire_minimal_dialog(dlg, qapp):
     from PyQt6.QtWidgets import (
         QCheckBox, QComboBox, QLineEdit, QListWidget, QSpinBox,
     )
-    from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
-    from tests.conftest import wire_settings_recommendation_widgets
+    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
 
     # Recommendations tab dials
     wire_settings_recommendation_widgets(dlg)
@@ -313,14 +312,7 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._tmdb_key_input = QLineEdit()
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
-    dlg._epg_interval_combo = QComboBox()
-    for value, label in EPG_INTERVAL_CHOICES:
-        dlg._epg_interval_combo.addItem(label, value)
-    dlg._epg_hide_older_spin = QSpinBox()
-    dlg._epg_hide_older_spin.setRange(0, 168)
-    dlg._epg_scrubber_increment_combo = QComboBox()
-    for _mins in EPG_SCRUBBER_INCREMENTS:
-        dlg._epg_scrubber_increment_combo.addItem(f"{_mins} minutes", _mins)
+    wire_settings_epg_widgets(dlg)
 
     # Interface
     dlg._remember_search_check = QCheckBox()

@@ -888,6 +888,11 @@ class Config(BaseModel):
     epg_notification_minutes_before: int = 15
     epg_auto_refresh: bool = True
     epg_refresh_interval_hours: int = 24
+    # Age-based EPG hygiene: how long (hours) an EXPIRED programme (stop_time in the
+    # past) is kept before EpgManager.prune_expired() sweeps it, run after every
+    # successful fetch. Floor of 6h is enforced in prune_expired(), not here, so a
+    # stray small value can never wipe data still needed for "on now".
+    epg_retention_hours: int = 24
     epg_hide_filler: bool = True
     epg_filler_patterns: list = Field(default_factory=lambda: [
         "No Game Today", "No Event Today", "Off Air",
@@ -896,6 +901,21 @@ class Config(BaseModel):
     epg_hidden_titles: list = Field(default_factory=list)
     epg_hidden_channels: list = Field(default_factory=list)
     epg_hidden_prefixes: list = Field(default_factory=list)
+    # channel_db_ids whose EPG link has been manually cleared (🧹 "Clear EPG
+    # link" — channel menu + details-pane rail). EpgManager._build_match_map
+    # excludes these from ALL matching tiers (1/2/3) so a persistent bad
+    # guide-data link doesn't get silently re-attached the next time relink_all()
+    # runs — which happens on every EPG view activation (docs/CRITICAL_RULES.md
+    # #epg-manager-internals). Removing a channel_db_id ("Re-link EPG data")
+    # lets the next relink pass re-match it.
+    epg_link_blocklist: list = Field(default_factory=list)
+    # detected_prefix values that never enter fuzzy matching tiers 2/3 (tier-1
+    # exact epg_channel_id matches are unaffected). These denote show-loop /
+    # rotation feeds ("24/7 Movies", generic filler channels) whose names are
+    # too generic for fuzzy name matching to be trustworthy. Case-insensitive.
+    epg_fuzzy_prefix_blocklist: list = Field(
+        default_factory=lambda: ["EAR", "24/7", "24-7"]
+    )
     epg_category_overrides: dict = Field(default_factory=dict)  # channel_db_id → category code
     epg_filter_state: dict = Field(default_factory=dict)
     epg_events_view_mode: str = "timeline"   # "timeline" | "network" — Events tab sub-view toggle

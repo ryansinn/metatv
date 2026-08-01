@@ -279,6 +279,7 @@ def _make_watchlist_host() -> SimpleNamespace:
     host._channel_region_map = {}
     host._channel_year_map = {}
     host._channel_audio_map = {}   # added in tasks #82/#24 (detected_audio.form)
+    host._channel_watch_map = {}   # channel_db_id → (play_count, last_played), watchlist ranking
     host.config = SimpleNamespace(play_icon="▶", close_icon="×")
     # Stubs for signal / play handler / watchlist mutation
     host._emit_channel_selected = MagicMock()
@@ -420,6 +421,9 @@ class TestChRowStoredMaps:
         host._channel_year_map[cid] = ""
         host._channel_name_map[cid] = "US ★ SportsCenter"
         host._channel_audio_map[cid] = ""
+        # Bind the real ranking key method to the SimpleNamespace host — it only
+        # reads the _channel_*_map dicts already seeded above.
+        host._watchlist_rank_key = lambda prog: EpgView._watchlist_rank_key(host, prog)
 
         # Expand config stub to cover everything _make_watchlist_item reads.
         host.config = SimpleNamespace(

@@ -77,6 +77,7 @@ def _build(qapp):
         dislike=action_bar.dislike_button,
         watchlist=action_bar.watchlist_button,
         monitor=action_bar.monitor_button,
+        clear_epg_link=action_bar.clear_epg_link_button,
         hide=action_bar.hide_button,
     )
     return poster, action_bar
@@ -116,13 +117,15 @@ def _gap_after(layout, widget):
 # ---------------------------------------------------------------------------
 
 def test_rail_button_order_top_to_bottom(qapp):
-    """Rail order must be Favorite · Monitor · Watchlist · Hide (sentiment moved out)."""
+    """Rail order must be Favorite · Monitor · Watchlist · Clear-EPG-link · Hide
+    (sentiment moved out; Clear EPG link is the Wave 3 Slice 3B admin action)."""
     poster, ab = _build(qapp)
 
     assert _rail_widgets(poster._action_rail_layout) == [
         ab.favorite_button,
         ab.monitor_button,
         ab.watchlist_button,
+        ab.clear_epg_link_button,
         ab.hide_button,
     ], "rail order must match the designed top→bottom sequence"
 
@@ -161,7 +164,8 @@ def test_sentiment_trio_not_in_rail(qapp):
 # ---------------------------------------------------------------------------
 
 def test_rail_spacing_geometry(qapp):
-    """The rail group is tight: Favorite↔Monitor = G/2, Monitor/Watchlist↔Hide = G.
+    """The rail group is tight: Favorite↔Monitor = G/2, Monitor/Watchlist↔Clear-EPG-
+    link = G/2, Clear-EPG-link↔Hide = G.
 
     Hide is now the LAST rail button (the sentiment trio moved to its own row), so
     nothing follows it — the trailing stretch does.
@@ -170,13 +174,15 @@ def test_rail_spacing_geometry(qapp):
     lay = poster._action_rail_layout
     G = poster._RAIL_GAP
 
-    fav_gap = _gap_after(lay, ab.favorite_button)        # Favorite ↔ Monitor
-    slot_gap = _gap_after(lay, ab.watchlist_button)      # Monitor/Watchlist ↔ Hide
-    hide_gap = _gap_after(lay, ab.hide_button)           # Hide ↔ (trailing stretch)
+    fav_gap = _gap_after(lay, ab.favorite_button)               # Favorite ↔ Monitor
+    slot_gap = _gap_after(lay, ab.watchlist_button)             # Monitor/Watchlist ↔ Clear-EPG-link
+    clear_gap = _gap_after(lay, ab.clear_epg_link_button)       # Clear-EPG-link ↔ Hide
+    hide_gap = _gap_after(lay, ab.hide_button)                  # Hide ↔ (trailing stretch)
 
-    # Top group unchanged: tight pair + a single G to Hide.
+    # Top group unchanged: tight pair + a single G before Hide.
     assert fav_gap == G // 2, "Favorite↔Monitor must be the tight G/2 top pair"
-    assert slot_gap == G, "Monitor/Watchlist↔Hide must be G"
+    assert slot_gap == G // 2, "Monitor/Watchlist↔Clear-EPG-link must be the tight G/2"
+    assert clear_gap == G, "Clear-EPG-link↔Hide must be G"
     # Hide is last: _gap_after returns None when the next item is the stretch.
     assert hide_gap is None, "Hide must be the last rail button (stretch follows)"
 
@@ -282,7 +288,8 @@ def test_play_anchored_below_live_logo_footprint(qapp):
         favorite=ab.favorite_button, play=ab.play_button, resume=ab.resume_button,
         queue=ab.queue_button, like=ab.like_button,
         not_interested=ab.not_interested_button, dislike=ab.dislike_button,
-        watchlist=ab.watchlist_button, monitor=ab.monitor_button, hide=ab.hide_button,
+        watchlist=ab.watchlist_button, monitor=ab.monitor_button,
+        clear_epg_link=ab.clear_epg_link_button, hide=ab.hide_button,
     )
     poster.set_mode(is_live=True)
     poster.load_live_logo("http://logo/x.png")

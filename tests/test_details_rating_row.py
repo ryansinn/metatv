@@ -63,6 +63,7 @@ def _wired_poster(cfg):
         dislike=ab.dislike_button,
         watchlist=ab.watchlist_button,
         monitor=ab.monitor_button,
+        clear_epg_link=ab.clear_epg_link_button,
         hide=ab.hide_button,
     )
     return poster, ab

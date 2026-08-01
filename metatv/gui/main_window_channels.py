@@ -1127,6 +1127,7 @@ class _ChannelListMixin:
         cid = ctx.channel_id
         if cid:
             ctx.is_watched = cid in self.config.epg_watchlist_channels
+            ctx.epg_link_blocked = cid in (self.config.epg_link_blocklist or [])
             _is_mon = getattr(self.config, "is_series_monitored", None)
             ctx.is_series_monitored = bool(_is_mon(cid)) if callable(_is_mon) else False
             _unviewed = getattr(self.config, "is_vod_match_unviewed", None)
@@ -1211,6 +1212,11 @@ class _ChannelListMixin:
                 (lambda: self._unmonitor_series(cid))
                 if ctx.is_series_monitored
                 else (lambda: self._monitor_series(cid))
+            ),
+            "clear_epg_link": (
+                (lambda: self._relink_epg_channel(cid))
+                if ctx.epg_link_blocked
+                else (lambda: self._clear_epg_link(cid))
             ),
             "clear_alert": lambda: self._clear_vod_alert(cid),
             "mark_watched": (
