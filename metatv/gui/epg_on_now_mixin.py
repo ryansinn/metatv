@@ -54,7 +54,9 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
-from metatv.core.channel_name_utils import REGION_FULL_NAMES
+from metatv.core.channel_name_utils import (
+    REGION_FULL_NAMES, quality_display, quality_tooltip,
+)
 from metatv.core.database import ChannelDB, EpgProgramDB
 from metatv.core.filter_utils import global_exclusion_set, is_channel_excluded
 from metatv.core.epg_utils import (
@@ -375,10 +377,17 @@ class _EpgOnNowMixin:
 
             quality = self._channel_quality_map.get(prog.channel_db_id or "", "")
             # Columns: Category | Channel | Quality | Show | Progress bar | 🚫
-            item = _EpgTreeItem([category, bare_name, quality, title, "", self.config.hide_icon])
+            # The Quality cell shows the viewer-facing label (RAW → "Uncompressed")
+            # and explains codec tokens (HEVC) in its tooltip — the stored token is
+            # untouched in _channel_quality_map, which the rest of the view keys on.
+            item = _EpgTreeItem(
+                [category, bare_name, quality_display(quality), title, "", self.config.hide_icon]
+            )
             item.setData(0, Qt.ItemDataRole.UserRole, prog.channel_db_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, category)  # store category for dialog
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
+            if quality:
+                item.setToolTip(2, quality_tooltip(quality))
             item.setData(4, _SORT_ROLE, secs_remaining)
             item.setData(4, _PROGRESS_ROLE, pct)
             item.setData(4, _REMAIN_ROLE, remaining_text)

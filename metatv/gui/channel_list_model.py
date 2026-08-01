@@ -30,6 +30,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QBrush, QColor
 from loguru import logger
 
+from metatv.core.channel_name_utils import quality_display
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -755,7 +756,10 @@ class ChannelListModel(QAbstractListModel):
         prefix_str = f"[{channel.detected_prefix}] " if channel.detected_prefix else ""
         lang_str = f"[{channel.detected_region}] " if channel.detected_region else ""
         prefix_group = prefix_str + lang_str
-        quality_str = f" · {channel.detected_quality}" if channel.detected_quality else ""
+        quality_str = (
+            f" · {quality_display(channel.detected_quality)}"
+            if channel.detected_quality else ""
+        )
         year_str = f" · {channel.detected_year}" if channel.detected_year else ""
         bare = channel.detected_title or channel.name
 

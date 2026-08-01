@@ -13,6 +13,7 @@ from PyQt6.QtGui import QPixmap
 
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
+    quality_display, quality_tooltip,
 )
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
@@ -960,10 +961,13 @@ class _MetadataSection(QWidget):
             self._prefix_chip.hide()
 
         # Quality chip — shows detected quality (4K, UHD, HD, etc.) next to language chip.
+        # Label + tooltip come from the shared display map: a codec/bitrate token
+        # (HEVC, RAW) is not a viewer-facing quality tier, so it reads as its
+        # explained form here while detected_quality keeps the stored token.
         quality = getattr(channel, "detected_quality", None)
         if quality:
-            self._quality_chip.setText(quality.upper())
-            self._quality_chip.setToolTip(f"{quality.upper()} quality")
+            self._quality_chip.setText(quality_display(quality.upper()))
+            self._quality_chip.setToolTip(quality_tooltip(quality))
             self._quality_chip.show()
         else:
             self._quality_chip.hide()

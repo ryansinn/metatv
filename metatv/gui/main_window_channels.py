@@ -27,6 +27,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer
 from loguru import logger
 
+from metatv.core.channel_name_utils import quality_display
 from metatv.core.filter_utils import is_channel_excluded
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import theme as _theme
@@ -695,7 +696,8 @@ class _ChannelListMixin:
             lang_str     = f"[{channel.detected_region}] " if channel.detected_region else ""
             prefix_group = prefix_str + lang_str
             dot_sep      = "· " if prefix_group.strip() else ""
-            quality_str  = f" · {channel.detected_quality}" if channel.detected_quality else ""
+            quality_str  = (f" · {quality_display(channel.detected_quality)}"
+                            if channel.detected_quality else "")
             year_str     = f" · {channel.detected_year}" if channel.detected_year else ""
             bare         = channel.detected_title or channel.name
             display_text = f"{src_badge}{media_icon}{fav_icon} {prefix_group}{dot_sep}{bare}{quality_str}{year_str}"

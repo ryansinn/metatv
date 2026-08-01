@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 from loguru import logger
 
+from metatv.core.channel_name_utils import quality_display
 from metatv.gui import theme as _theme
 from metatv.gui.filter_group_row import _ACCENT, _fmt, _TriCheckbox, _ItemRow, _GroupRow, _Section
 
@@ -420,13 +421,16 @@ class FilterPanel(QWidget):
         quality_order = ["RAW", "4K / UHD", "HD", "HQ", "SD", "LQ",
                          "CAM / Pre-release"]
         quality_values: dict[str, int] = tag_counts.get('quality', {})
+        # (key, LABEL, count): the key stays the stored group name (it is the filter
+        # identity); only the label goes through the shared display map, so the
+        # "RAW" group chip reads "Uncompressed" without changing what it selects.
         qual_items = [
-            (n, n, quality_values[n]) for n in quality_order
+            (n, quality_display(n), quality_values[n]) for n in quality_order
             if n in quality_values and quality_values[n] > 0
         ]
         for n, v in quality_values.items():
             if n not in quality_order and v > 0:
-                qual_items.append((n, n, v))
+                qual_items.append((n, quality_display(n), v))
         prev_qual = set(self._quality_sec.get_selected_keys())
         self._quality_sec.set_flat_items(qual_items)
         _restore(self._quality_sec, prev_qual)

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 
+from metatv.core.channel_name_utils import quality_display, quality_tooltip
 from metatv.gui import theme as _theme
 from metatv.gui import icons as _icons
 
@@ -139,10 +140,11 @@ def build_chip_row(
     # Quality (4K) chip hugs the title TEXT — reuse the existing QUALITY_CHIP badge
     # (QPushButton-scoped, so a flat non-focusable QPushButton renders it as a chip).
     if quality:
-        quality_chip = QPushButton(quality)
+        quality_chip = QPushButton(quality_display(quality.upper()))
         quality_chip.setFlat(True)
         quality_chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
+        quality_chip.setToolTip(quality_tooltip(quality))
         layout.addWidget(quality_chip)
 
     layout.addStretch(1)  # pushes the year + language chips to the far right
