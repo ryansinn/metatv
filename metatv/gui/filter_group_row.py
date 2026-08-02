@@ -64,6 +64,10 @@ class _TriCheckbox(QCheckBox):
         self.setTristate(True)
         self.setStyleSheet(_theme.FILTER_CHECKBOX)
 
+    def refresh_theme(self) -> None:
+        """Re-apply the current theme's :data:`theme.FILTER_CHECKBOX` role."""
+        self.setStyleSheet(_theme.FILTER_CHECKBOX)
+
     def mousePressEvent(self, event):
         state = self.checkState()
         if state == Qt.CheckState.Checked:
@@ -94,18 +98,19 @@ class _ItemRow(QWidget):
         self._cb.setStyleSheet(_theme.FILTER_CHECKBOX)
         layout.addWidget(self._cb)
 
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
-        lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        lbl.setMinimumWidth(0)   # prevent RTL/long text from forcing the panel wider
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
+        self._label = QLabel(label)
+        self._label.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
+        self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._label.setMinimumWidth(0)   # prevent RTL/long text from forcing the panel wider
+        self._label.setWordWrap(True)
+        layout.addWidget(self._label)
 
+        self._count_lbl: QLabel | None = None
         if count > 0:
-            cnt = QLabel(_fmt(count))
-            cnt.setStyleSheet(_theme.ITEM_COUNT)
-            cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            layout.addWidget(cnt)
+            self._count_lbl = QLabel(_fmt(count))
+            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+            self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this item across all facet sections
         self._only_btn = QPushButton(_icons.filter_only_icon)
@@ -119,6 +124,14 @@ class _ItemRow(QWidget):
             lambda state: self.toggled.emit(self._key,
                                             state == Qt.CheckState.Checked.value)
         )
+
+    def refresh_theme(self) -> None:
+        """Re-apply this row's tokens (checkbox, label, count, "Only" button)."""
+        self._cb.setStyleSheet(_theme.FILTER_CHECKBOX)
+        self._label.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
+        if self._count_lbl is not None:
+            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -181,25 +194,26 @@ class _GroupRow(QWidget):
         self._tri.stateChanged.connect(self._on_tri_changed)
         hl.addWidget(self._tri)
 
-        name_lbl = QLabel(group_name)
-        name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
-        name_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                QSizePolicy.Policy.Preferred)
-        hl.addWidget(name_lbl)
+        self._name_lbl = QLabel(group_name)
+        self._name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
+        self._name_lbl.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Preferred)
+        hl.addWidget(self._name_lbl)
 
+        self._count_lbl: QLabel | None = None
         if total_count > 0:
-            cnt = QLabel(_fmt(total_count))
-            cnt.setStyleSheet(_theme.ITEM_COUNT)
-            cnt.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            hl.addWidget(cnt)
+            self._count_lbl = QLabel(_fmt(total_count))
+            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+            self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            hl.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this group's channels across all facet sections
-        only_btn = QPushButton(_icons.filter_only_icon)
-        only_btn.setFixedSize(16, 16)
-        only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
-        only_btn.setToolTip("Show only this group")
-        only_btn.clicked.connect(lambda: self.only_clicked.emit(self._group_name))
-        hl.addWidget(only_btn)
+        self._only_btn = QPushButton(_icons.filter_only_icon)
+        self._only_btn.setFixedSize(16, 16)
+        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        self._only_btn.setToolTip("Show only this group")
+        self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._group_name))
+        hl.addWidget(self._only_btn)
 
         outer.addWidget(header)
 
@@ -267,6 +281,20 @@ class _GroupRow(QWidget):
             row.set_checked(row.key() in selected_keys)
         self._update_tri()
 
+    def refresh_theme(self) -> None:
+        """Re-apply this group's tokens (expand button, tri-checkbox, name,
+        count, "Only" button) and recurse into every child :class:`_ItemRow`.
+        """
+        self._expand_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XS}; }}")
+        self._tri.refresh_theme()
+        self._name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
+        if self._count_lbl is not None:
+            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        for row in self._children:
+            row.refresh_theme()
+
 
 # ── Section widget ─────────────────────────────────────────────────────────────
 
@@ -298,22 +326,18 @@ class _Section(QWidget):
         self._show_all_btn: QPushButton | None = None
         self._show_all_expanded: bool = False
 
-        accent = _accent_colors().get(section_key, _theme.COLOR_ACCENT_BLUE)
+        self._and_axis = and_axis
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
         # Header — full row is clickable to expand/collapse
-        header = QWidget()
-        header.setObjectName("sectionHeader")
-        header.setStyleSheet(
-            f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
-            f"border-left: 3px solid {accent}; }}"
-        )
-        header.setFixedHeight(30)
-        cursor_affordance.set_clickable(header)
-        header.mousePressEvent = lambda _e: self._toggle_collapse()
-        hl = QHBoxLayout(header)
+        self._header = QWidget()
+        self._header.setObjectName("sectionHeader")
+        self._header.setFixedHeight(30)
+        cursor_affordance.set_clickable(self._header)
+        self._header.mousePressEvent = lambda _e: self._toggle_collapse()
+        hl = QHBoxLayout(self._header)
         hl.setContentsMargins(6, 0, 6, 0)
         hl.setSpacing(4)
 
@@ -321,48 +345,35 @@ class _Section(QWidget):
         self._collapse_btn = QPushButton(_init_glyph)
         self._collapse_btn.setFixedSize(16, 16)
         self._collapse_btn.setFlat(True)
-        self._collapse_btn.setStyleSheet(
-            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
-            " background: transparent; }")
         self._collapse_btn.clicked.connect(self._toggle_collapse)
         hl.addWidget(self._collapse_btn)
 
-        title_lbl = QLabel(title.upper())
-        title_lbl.setStyleSheet(
-            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
-            "letter-spacing: 1px;")
-        hl.addWidget(title_lbl)
+        self._title_lbl = QLabel(title.upper())
+        hl.addWidget(self._title_lbl)
 
+        self._narrows_lbl: QLabel | None = None
         if and_axis:
-            narrows = QLabel("— filter")
-            narrows.setStyleSheet(
-                f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
-                " font-style: italic;")
-            hl.addWidget(narrows)
+            self._narrows_lbl = QLabel("— filter")
+            hl.addWidget(self._narrows_lbl)
 
+        self._info_btn: QPushButton | None = None
         if info_text:
-            info_btn = QPushButton(info_icon)
-            info_btn.setFixedSize(16, 16)
-            info_btn.setFlat(True)
-            info_btn.setStyleSheet(
-                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
-                " background: transparent; }"
-                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}"
-            )
-            info_btn.setToolTip(info_text)
+            self._info_btn = QPushButton(info_icon)
+            self._info_btn.setFixedSize(16, 16)
+            self._info_btn.setFlat(True)
+            self._info_btn.setToolTip(info_text)
             # Also show on click for touch / keyboard users
-            info_btn.clicked.connect(
-                lambda _checked=False, btn=info_btn, txt=info_text:
+            self._info_btn.clicked.connect(
+                lambda _checked=False, btn=self._info_btn, txt=info_text:
                     QToolTip.showText(
                         btn.mapToGlobal(btn.rect().center()), txt, btn
                     )
             )
-            hl.addWidget(info_btn)
+            hl.addWidget(self._info_btn)
 
         hl.addStretch()
 
         self._summary_lbl = QLabel("")
-        self._summary_lbl.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
         hl.addWidget(self._summary_lbl)
 
         self._select_all = _TriCheckbox()
@@ -371,12 +382,13 @@ class _Section(QWidget):
         self._select_all.stateChanged.connect(self._on_select_all)
         hl.addWidget(self._select_all)
 
-        outer.addWidget(header)
+        outer.addWidget(self._header)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
-        outer.addWidget(sep)
+        self._sep = QFrame()
+        self._sep.setFrameShape(QFrame.Shape.HLine)
+        outer.addWidget(self._sep)
+
+        self.refresh_theme()
 
         # Content
         self._content = QWidget()
@@ -399,6 +411,45 @@ class _Section(QWidget):
         self._content.setVisible(expanded)
         glyph = self._config.collapse_icon if expanded else self._config.expand_icon
         self._collapse_btn.setText(glyph)
+
+    def refresh_theme(self) -> None:
+        """Re-apply this section's tokens (header, collapse/info buttons, title,
+        separator) and recurse into every row/group currently populated.
+
+        Safe to call from ``__init__`` before any rows exist (``self._rows``/
+        ``self._groups`` start empty) — used there to avoid duplicating the
+        style computation between construction and a live theme switch.
+        """
+        accent = _accent_colors().get(self._key, _theme.COLOR_ACCENT_BLUE)
+        self._header.setStyleSheet(
+            f"QWidget#sectionHeader {{ background: {_theme.COLOR_BG_SECTION}; "
+            f"border-left: 3px solid {accent}; }}"
+        )
+        self._collapse_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_XS};"
+            " background: transparent; }")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {_theme.FONT_MD}; font-weight: bold; color: {_theme.COLOR_TEXT}; "
+            "letter-spacing: 1px;")
+        if self._narrows_lbl is not None:
+            self._narrows_lbl.setStyleSheet(
+                f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_ACCENT_ORANGE_FADED};"
+                " font-style: italic;")
+        if self._info_btn is not None:
+            self._info_btn.setStyleSheet(
+                f"QPushButton {{ color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};"
+                " background: transparent; }"
+                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_3}; }}"
+            )
+        self._summary_lbl.setStyleSheet(f"font-size: {_theme.FONT_SM}; color: {_theme.COLOR_MUTED_2};")
+        self._select_all.refresh_theme()
+        self._sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
+        if self._show_all_btn is not None:
+            self._show_all_btn.setStyleSheet(_theme.FILTER_SHOW_ALL_BTN)
+        for row in self._rows:
+            row.refresh_theme()
+        for group in self._groups:
+            group.refresh_theme()
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
         """Populate the section with a sorted flat list of (key, label, count) tuples.
