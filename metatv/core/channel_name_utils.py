@@ -1358,33 +1358,45 @@ def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> 
 # "Malcolm X" style titles) but a confirmed adult marker when it IS the channel's
 # entire leading prefix token (mirrors BASE_PREFIX_GROUPS["Adult"] =
 # ["X", "XXX", "ADULT"] in config.py — the existing "Adult" content-descriptor group).
-# Prefix codes that denote restricted/explicit content. Matched ONLY against a
-# channel's already-extracted ``detected_prefix`` (the provider's own prefix /
-# category convention) — NEVER free-scanned against title text. Owner steer
-# 2026-08-02: "that is done through a flag is_adult or through prefixes defined
-# as adult, not through matching keywords in titles." Title scanning was tried
-# and removed: it hid legitimate content (Sex Education, Adult Swim).
-RESTRICTED_PREFIX_TOKENS: frozenset[str] = frozenset({
-    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA", "SEX", "X",
-})
+def is_restricted(detected_prefix: Optional[str], name: str, config=None) -> bool:
+    """True when a channel is restricted, per the USER's own configuration.
 
+    Deliberately makes no judgement of its own about what counts as restricted.
+    Two signals, both user-owned:
 
-def is_restricted_prefix(detected_prefix: Optional[str]) -> bool:
-    """True when a channel's stored prefix denotes restricted/explicit content.
+    1. ``detected_prefix`` resolves to the user's "Adult" prefix GROUP — the same
+       group shown in Global Exclusions and editable via prefix-group overrides.
+       Whatever codes that group contains is what counts; this function ships no
+       token list of its own. (Real libraries carry codes nobody would guess —
+       one provider uses ``PORNBOX``.)
+    2. ``config.restricted_keywords`` — an empty-by-default list the user fills
+       in. Matched case-insensitively against the channel name. Empty means no
+       name matching happens at all.
 
-    Detection is deliberately **prefix-only** (owner steer 2026-08-02): the
-    provider's ``is_adult`` flag and the channel's own prefix/category code are
-    the signals; channel TITLES are never keyword-scanned, because words like
-    "adult"/"sex" appear in legitimate titles (Sex Education, Adult Swim) and
-    hiding a user's real content is a worse failure than missing one mislabeled
-    channel — curatorial, never censorial.
+    The provider's own ``is_adult`` flag is handled separately at the query gate.
 
-    Called at ingestion only (``update_detected_prefixes()``); the result is
-    stored on ``ChannelDB.detected_restricted`` and read everywhere else.
+    Called at ingestion only; the result is stored on
+    ``ChannelDB.detected_restricted`` and read everywhere else.
     """
-    if not detected_prefix:
-        return False
-    return detected_prefix.strip().upper() in RESTRICTED_PREFIX_TOKENS
+    if detected_prefix:
+        try:
+            # base groups + the user's own overrides; falls back to the shipped
+            # base map when no config is threaded (migrations without one).
+            if config is not None:
+                groups = config.filter_language_groups
+            else:
+                from metatv.core.config import BASE_PREFIX_GROUPS as groups
+            adult_codes = {c.upper() for c in (groups.get("Adult") or [])}
+        except Exception:
+            adult_codes = set()
+        if detected_prefix.strip().upper() in adult_codes:
+            return True
+
+    keywords = getattr(config, "restricted_keywords", None) or []
+    if keywords and name:
+        lowered = name.lower()
+        return any(k.strip().lower() in lowered for k in keywords if k and k.strip())
+    return False
 
 
 
