@@ -414,7 +414,17 @@ class EpisodeDB(Base):
     container_extension = Column(String, default="mp4")
     stream_url = Column(Text)  # Cached playback URL
     cover_url = Column(Text)  # Episode thumbnail for future use
-    
+
+    # Episode-grain metadata lifted from raw_data at ingestion (Wave 4 — #247).
+    # raw_data always carried this verbatim from the provider; these columns are
+    # the ONE place it's parsed out (compute-once-at-ingestion, CLAUDE.md) so
+    # render code never re-reads raw_data. All nullable, no masking defaults —
+    # NULL means "the provider didn't send it", not "unrated"/"no plot".
+    plot = Column(Text)        # Episode-specific overview/plot (falls back to the series plot in the UI)
+    air_date = Column(String)  # Provider's ISO date verbatim, e.g. "1968-09-20" — never parsed to a date type
+    rating = Column(Float)     # Episode rating (typically 0-10); junk source values coerce to None, never raise
+    still_url = Column(Text)   # Episode-specific still image, distinct from cover_url's movie_image fallback
+
     # Playback tracking
     is_watched = Column(Boolean, default=False, index=True)  # sticky "finished" flag
     watch_progress = Column(Integer, default=0)  # resume position, seconds
@@ -703,6 +713,14 @@ class Database:
             ("channels",     "detected_collection",          "TEXT"),
             ("channels",     "detected_collection_language", "TEXT"),
             ("channels",     "detected_collection_subdub",   "TEXT"),
+            # Wave 4 — episode-grain metadata lifted from raw_data at ingestion
+            # (#247); computed at ingestion, see EpisodeDB.plot/air_date/rating/
+            # still_url above. Pre-existing rows backfilled by
+            # EpisodeMetadataBackfillTask (no network access — reads stored raw_data).
+            ("episodes",     "plot",                         "TEXT"),
+            ("episodes",     "air_date",                     "TEXT"),
+            ("episodes",     "rating",                       "FLOAT"),
+            ("episodes",     "still_url",                    "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

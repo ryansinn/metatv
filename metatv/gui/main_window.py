@@ -428,6 +428,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.migration_manager.register(TmdbSiblingPropagationTask(self.db))
         from metatv.core.migrations.tag_backfill import TagBackfillTask
         self.migration_manager.register(TagBackfillTask(self.db, config=self.config))
+        # Free (no-network) episode-metadata backfill (Wave 4 — #247) — lifts
+        # plot/air_date/rating/still_url out of each episode's already-stored
+        # raw_data blob. No ordering dependency on the tasks around it.
+        from metatv.core.migrations.episode_metadata_backfill import EpisodeMetadataBackfillTask
+        self.migration_manager.register(EpisodeMetadataBackfillTask(self.db))
         from metatv.core.migrations.category_facet_refacet import CategoryFacetRefacetTask
         self.migration_manager.register(CategoryFacetRefacetTask(self.db, config=self.config))
         self._register_cleanable("migration_manager", self.migration_manager.shutdown)
