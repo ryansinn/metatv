@@ -33,12 +33,20 @@ def _is_stale_polluted_title(clean_title: str, metadata_title: str) -> bool:
     never embeds a (19xx)/(20xx) after the clean base, so real titles are unaffected.
     This SELECTS an already-stored field — it never re-parses the name.
     """
-    return bool(
-        clean_title
-        and metadata_title != clean_title
-        and metadata_title.startswith(clean_title)
-        and re.search(r"\((?:19|20)\d{2}\)", metadata_title)
-    )
+    if not clean_title or metadata_title == clean_title:
+        return False
+    # Trailing pollution: the clean base plus "(YYYY) CAST…".
+    if (metadata_title.startswith(clean_title)
+            and re.search(r"\((?:19|20)\d{2}\)", metadata_title)):
+        return True
+    # Leading pollution: separator residue before the clean base ("|MULTI|. Title"
+    # cached ". Title" into metadata.title before the v0.16-v0.18 re-parses fixed
+    # detected_title; same punctuation-run-plus-whitespace class the ingestion
+    # parser strips). A real alternate title never differs ONLY by leading
+    # punctuation, so genuine provider/TMDb titles are unaffected.
+    if re.sub(r"^[.\-:|,;]+\s+", "", metadata_title) == clean_title:
+        return True
+    return False
 
 
 class _ClickableLabel(QLabel):
