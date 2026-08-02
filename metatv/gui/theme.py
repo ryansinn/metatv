@@ -1579,3 +1579,17 @@ SIDEBAR_SEE_ALL_BTN = (
     " font-size: " + FONT_MD + "; padding: 0 4px; }"
     "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
 )
+
+# Sources status strip (Wave 6) — compact, always-clickable footer row pinned above
+# the sidebar Settings button, replacing the old collapsible Sources section. Mirrors
+# FLAT_NAV_BTN's footer-bar treatment (top hairline + bar background) so the two read
+# as one continuous footer; the whole strip is clickable (opens the Sources manager
+# view), so it brightens on hover like a nav button even though it isn't one.
+SOURCES_STRIP = (
+    "QWidget#sourcesStatusStrip { background: " + COLOR_BG_BAR + ";"
+    " border-top: 1px solid " + COLOR_LINE + "; }"
+    "QWidget#sourcesStatusStrip:hover { background: " + COLOR_LINE_DARK + "; }"
+)
+SOURCES_STRIP_TITLE = (
+    "color: " + COLOR_TEXT_LOW + "; font-size: " + FONT_XL + "; font-weight: bold;"
+)

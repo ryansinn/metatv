@@ -165,6 +165,29 @@ def _has_epg_steps(steps: list[tuple[str, StepStatus]]) -> bool:
 class _ProviderMixin:
     """Provider/source lifecycle methods mixed into :class:`MainWindow`."""
 
+    def _sources_status_target(self):
+        """Resolve the current per-provider "Sources" UI surface.
+
+        Wave 6: Sources no longer lives in the sidebar section stack — the
+        per-row busy/EPG-spinner state now lives on
+        :class:`~metatv.gui.sources_manager_view.SourcesManagerView`'s provider
+        rows (built once, always present after ``setup_ui()``). Falls back to
+        the legacy ``sidebar_sections["sources"]`` entry when the manager view
+        isn't present in ``__dict__`` (transitional/test doubles that still
+        stub the old sidebar section) — ONE chokepoint, never a parallel
+        lookup per call site.
+
+        ``__dict__.get`` (not ``hasattr``/``getattr``): on a bare-host test
+        double built via ``MainWindow.__new__``, PyQt can raise
+        ``RuntimeError`` on attribute access before ``setup_ui()`` runs, and
+        ``hasattr`` only swallows ``AttributeError`` (see #351 / sidebar/alerts.py).
+        """
+        mgr = self.__dict__.get("sources_manager_view")
+        if mgr is not None:
+            return mgr
+        sections = self.__dict__.get("sidebar_sections")
+        return sections.get("sources") if sections else None
+
     def add_provider(self):
         """Show add provider dialog"""
         dialog = AddProviderDialog(self, self.config, self.db, self.notification_manager)
@@ -218,7 +241,7 @@ class _ProviderMixin:
 
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh all affected views."""
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         # Re-entrancy guard: the canonical refresh below can take many seconds
         # (recommendations recompute over the whole library), so ignore repeat
         # clicks while one is in flight rather than stacking them.
@@ -255,7 +278,7 @@ class _ProviderMixin:
 
         Called when a provider-triggered refresh completes (via _on_channels_loaded)
         and as a safety timeout from toggle_provider_active."""
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         had_busy = sources is not None and sources.has_busy()
         if sources is not None:
             sources.clear_busy()
@@ -264,7 +287,7 @@ class _ProviderMixin:
 
     def _on_provider_epg_refresh(self, provider_id: str) -> None:
         """Sidebar EPG indicator clicked — refresh that source's EPG feed."""
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         if sources is not None:
             sources.set_provider_epg_refreshing(provider_id, True)
             # Safety net: clear the spinner if the fetch never signals back (e.g. the
@@ -277,7 +300,7 @@ class _ProviderMixin:
         self.epg_manager.force_refresh_provider(provider_id)
 
     def _epg_refresh_spinner_off(self, provider_id: str) -> None:
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         if sources is not None:
             sources.set_provider_epg_refreshing(provider_id, False)
 
@@ -311,7 +334,7 @@ class _ProviderMixin:
     def _on_provider_epg_refreshed(self, provider_id: str, *_args) -> None:
         """EPG fetch finished/errored — rebuild Sources so the indicator recolors with
         the new date range and the spinner clears."""
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         if sources is not None:
             sources.refresh()
 
@@ -350,7 +373,7 @@ class _ProviderMixin:
         editor = getattr(self, "provider_editor", None)
         if editor is not None:
             editor.setEnabled(False)
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         if sources is not None:
             sources.set_provider_busy(provider_id, True)
 
@@ -389,7 +412,7 @@ class _ProviderMixin:
         editor = getattr(self, "provider_editor", None)
         if editor is not None:
             editor.setEnabled(True)
-        sources = self.sidebar_sections.get("sources")
+        sources = self._sources_status_target()
         if sources is not None:
             sources.set_provider_busy(provider_id, False)
 
@@ -407,14 +430,21 @@ class _ProviderMixin:
             logger.error(f"Provider {provider_id} delete failed: {error}")
 
     def _on_account_info_updated(self, provider_id: str):
-        """Refresh sources sidebar when account info is updated.
+        """Refresh the Sources UI when account info is updated.
 
         Called when account info is refreshed in the provider editor so the
-        sidebar color/display reflects the updated expiration date.
+        status strip's summary AND the manager view's row (if built) reflect
+        the updated expiration date. Deliberately sources-only — the ONE
+        sidebar-only exception to the canonical
+        ``_refresh_provider_dependent_views`` chokepoint (unchanged by Wave 6,
+        just retargeted from the old sidebar section to the strip + manager).
         """
-        sources_section = self.sidebar_sections.get("sources")
-        if sources_section:
-            sources_section.refresh()
+        target = self._sources_status_target()
+        if target is not None:
+            target.refresh()
+        strip = self.__dict__.get("sources_strip")
+        if strip is not None:
+            strip.refresh()
 
     def _refresh_provider_dependent_views(self) -> None:
         """Canonical refresh for everything derived from provider/channel data.
@@ -470,9 +500,18 @@ class _ProviderMixin:
         pass
 
     def load_providers(self):
-        """Load providers from database into sidebar"""
-        if "sources" in self.sidebar_sections:
-            self.sidebar_sections["sources"].refresh()
+        """Refresh the Sources status strip + manager view from the database.
+
+        The single per-mutation refresh step for Sources — reached via the
+        canonical ``_refresh_provider_dependent_views`` chokepoint for every
+        add/edit/delete/toggle, and directly after ``add_provider``'s dialog.
+        """
+        target = self._sources_status_target()
+        if target is not None:
+            target.refresh()
+        strip = self.__dict__.get("sources_strip")
+        if strip is not None:
+            strip.refresh()
         self._refresh_details_provider_map()
 
     def _refresh_details_provider_map(self):
@@ -841,7 +880,7 @@ class _ProviderMixin:
             self.selected_provider_id = None
             self._save_search_state()
             self.load_channels(None)
-            src = self.sidebar_sections.get("sources")
+            src = self._sources_status_target()
             if src is not None and hasattr(src, "clear_selection"):
                 src.clear_selection()
             logger.info("Cleared source filter (toggled off)")
@@ -877,14 +916,15 @@ class _ProviderMixin:
             session.close()
 
     def update_provider_status(self, provider_id: str, status: str):
-        """Update provider status indicator in sidebar
+        """Update provider status indicator in the Sources UI.
 
         Args:
             provider_id: Provider ID
             status: 'disabled', 'testing', 'online', 'offline'
         """
-        if "sources" in self.sidebar_sections:
-            self.sidebar_sections["sources"].update_provider_status(provider_id, status)
+        target = self._sources_status_target()
+        if target is not None:
+            target.update_provider_status(provider_id, status)
 
     def test_all_providers(self):
         """Test connection for all active providers on startup"""

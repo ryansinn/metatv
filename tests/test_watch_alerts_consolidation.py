@@ -418,9 +418,15 @@ class TestRealSectionConstruction:
 class TestSidebarMigration:
 
     def test_inject_new_sections_strips_stale_new_episodes(self, tmp_path):
+        """"new_episodes" (folded into Watch Alerts) is stripped; "alerts" is kept.
+
+        Note: "sources" is ALSO retired from these lists as of Wave 6 (Sources
+        moved out of the sidebar section stack into the status strip + Sources
+        manager view) — see TestSourcesSidebarRetirement below for that migration.
+        """
         from metatv.core.config import Config
         cfg = Config()
-        cfg.sidebar_sections = ["new_episodes", "alerts", "sources"]
+        cfg.sidebar_sections = ["new_episodes", "alerts"]
         cfg.sidebar_visible_sections = ["new_episodes", "alerts"]
 
         cfg._inject_new_sections()
@@ -428,4 +434,3 @@ class TestSidebarMigration:
         assert "new_episodes" not in cfg.sidebar_sections
         assert "new_episodes" not in cfg.sidebar_visible_sections
         assert "alerts" in cfg.sidebar_sections
-        assert "sources" in cfg.sidebar_sections
