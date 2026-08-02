@@ -85,6 +85,12 @@ POSTER_URL_ROLE = Qt.ItemDataRole.UserRole + 20    # MetadataDB.poster_url or ""
 # when Settings → Interface → "Collapse quality/language versions" is on AND
 # this row represents a collapsed content_key group). 1 (no badge) otherwise.
 VARIANT_COUNT_ROLE = Qt.ItemDataRole.UserRole + 21
+# Category-marker cleanup roles (Comfy/Comfy+ line 1 right-group + collection chip).
+# See ChannelDB.detected_collection(_language|_subdub) in database.py for provenance.
+PRIMARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 21    # detected_prefix or "" — the channel's OWN (honest) language
+SECONDARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 22  # detected_collection_language or "" — category's disagreeing language marker
+SUBTITLE_MARKER_ROLE = Qt.ItemDataRole.UserRole + 23     # detected_collection_subdub or "" — e.g. "AR-SUB"
+COLLECTION_ROLE = Qt.ItemDataRole.UserRole + 24          # detected_collection or "" — clean category (marker stripped)
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -256,6 +262,14 @@ class ChannelListModel(QAbstractListModel):
             return channel.poster_url or ""
         if role == VARIANT_COUNT_ROLE:
             return channel.variant_count
+        if role == PRIMARY_LANGUAGE_ROLE:
+            return channel.detected_prefix or ""
+        if role == SECONDARY_LANGUAGE_ROLE:
+            return channel.detected_collection_language or ""
+        if role == SUBTITLE_MARKER_ROLE:
+            return channel.detected_collection_subdub or ""
+        if role == COLLECTION_ROLE:
+            return channel.detected_collection or ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

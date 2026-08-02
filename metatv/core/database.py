@@ -181,6 +181,31 @@ class ChannelDB(Base):
     # RestrictedBackfillTask (metatv/core/migrations/restricted_backfill.py).
     detected_restricted = Column(Boolean, default=False, index=True)
 
+    # Category-marker cleanup (owner-reported gap): provider category strings often
+    # carry a leading pipe-delimited marker that duplicates channel-name language
+    # info (e.g. "|EN| ANIME", "|AR-SUB| AMAZON PRIME", "|DE| FILME 1990-2023").
+    # Computed once at ingestion via channel_name_utils.parse_category_marker() in
+    # the same update_detected_prefixes() pass that computes the other detected_*
+    # fields; the raw ``category`` column is NEVER modified (keeps provenance).
+    #   detected_collection: the CLEAN category with the marker stripped and
+    #     whitespace collapsed (e.g. "ANIME", "AMAZON PRIME"). NULL when the
+    #     channel has no category.
+    #   detected_collection_language: a plain-code marker (e.g. "EN") that
+    #     DISAGREES with the channel's own detected_prefix — kept as its own
+    #     "other language" chip value rather than silently dropped. NULL when
+    #     the marker was adopted as/matches the channel's prefix, or there
+    #     was no plain marker.
+    #   detected_collection_subdub: a compound "CODE-SUB"/"CODE-DUB" marker's
+    #     chip-ready display text (e.g. "AR-SUB") — the same marker also feeds
+    #     the existing detected_audio sub/dub facet (queryable data); this
+    #     field is purely the pre-formatted display value for its own chip.
+    # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never
+    # overwrites these. Backfilled for pre-existing rows by
+    # CategoryMarkerBackfillTask (metatv/core/migrations/category_marker_backfill.py).
+    detected_collection          = Column(String, index=True, nullable=True)
+    detected_collection_language = Column(String, nullable=True)
+    detected_collection_subdub   = Column(String, nullable=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -673,6 +698,11 @@ class Database:
             # Wave 6 — restricted-content name/prefix detection (owner-reported
             # gap); computed at ingestion, see ChannelDB.detected_restricted above.
             ("channels",     "detected_restricted",         "INTEGER DEFAULT 0"),
+            # Wave 7 — category-marker cleanup (owner-reported gap); computed at
+            # ingestion, see ChannelDB.detected_collection(_language|_subdub) above.
+            ("channels",     "detected_collection",          "TEXT"),
+            ("channels",     "detected_collection_language", "TEXT"),
+            ("channels",     "detected_collection_subdub",   "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -693,6 +723,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
             ]
             for idx_sql in index_migrations:
                 try:

@@ -15,8 +15,14 @@ Two responsibilities:
      left-aligned, then ``[year][language chip][rating chip]`` right-aligned
      flush to the row's right edge.
    - ``"comfy"`` (default) — two lines: line 1 is
-     ``[media icon][fav][glyph][🚨][title]`` + a right-aligned ``[year]``; line 2 is the
-     muted badge row ``[language][quality][category]`` + a rating glyph.
+     ``[media icon][fav][glyph][🚨][title][quality chip]`` (the quality chip hugs
+     the title — no stretch between them) left, then right-aligned flush to the
+     row's right edge, in this order: ``[year][region chip][subtitle marker
+     chip][secondary language chip][primary language chip]`` — the channel's
+     OWN (honest) language always sits furthest right. Line 2 is the muted
+     badge row: a rating glyph left, then the clean collection chip
+     (``detected_collection`` — the category with its leading marker stripped)
+     right-aligned.
    - ``"comfy_plus"`` — comfy's line 1, PLUS a middle line of the channel's plot
      text (elided to one line, muted token) when ``PLOT_ROLE`` is non-empty,
      PLUS comfy's badge-row line. A row with no plot renders IDENTICALLY to
@@ -90,8 +96,8 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_colors
 from metatv.gui.channel_list_model import (
-    CATEGORY_ROLE,
     CHANNEL_HTML_ROLE,
+    COLLECTION_ROLE,
     FAV_GLYPH_ROLE,
     LANGUAGE_ROLE,
     MATCH_MARKER_ROLE,
@@ -100,9 +106,12 @@ from metatv.gui.channel_list_model import (
     PLAYBACK_GLYPH_ROLE,
     PLOT_ROLE,
     POSTER_URL_ROLE,
+    PRIMARY_LANGUAGE_ROLE,
     QUALITY_TOKEN_ROLE,
     RATING_ROLE,
     ROW_KIND_ROLE,
+    SECONDARY_LANGUAGE_ROLE,
+    SUBTITLE_MARKER_ROLE,
     TITLE_ROLE,
     VARIANT_COUNT_ROLE,
     YEAR_ROLE,
@@ -538,8 +547,19 @@ class ChannelRowDelegate(QStyledItemDelegate):
     # these per-line painters so the layout logic lives in exactly one place.
 
     def _paint_title_year_line(self, painter, line: QRect, index, default_color, font) -> None:
-        """Line 1: media icon + fav + playback glyph + 🚨 + title (elided) left,
-        year right-aligned flush to ``line``'s right edge."""
+        """Line 1: media icon + fav + playback glyph + 🚨 + title (elided) +
+        quality chip — left, with the quality chip hugging the title (no
+        stretch between them, same idiom as the compact density: measure the
+        chip's width and subtract it from the title's box BEFORE eliding, so
+        it sits immediately after the title rather than floating).
+
+        Right-aligned flush to ``line``'s right edge, left-to-right:
+        ``[year][region chip][subtitle marker chip][secondary language
+        chip][primary language chip]`` — the channel's OWN (honest) language
+        (``detected_prefix``) always sits furthest right (owner spec); the
+        region chip (``detected_region``) sits leftmost of the group since it
+        answers a different question (where, not what language).
+        """
         fm = QFontMetrics(font)
         media_icon = index.data(MEDIA_ICON_ROLE) or ""
         fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
@@ -547,10 +567,25 @@ class ChannelRowDelegate(QStyledItemDelegate):
         playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
         match_marker = index.data(MATCH_MARKER_ROLE) or ""
         title = index.data(TITLE_ROLE) or ""
-        year_cell = _year_cell(index.data(YEAR_ROLE) or "")
+        quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
 
-        year_w = self._cell_width(fm, year_cell) if year_cell else 0
-        year_rects = right_aligned_rects(line, [year_w], _CELL_GAP) if year_cell else []
+        # _language_cell is a generic "code chip" builder (region, language, or
+        # a compound sub/dub marker like "AR-SUB" are all short code-shaped
+        # tokens) — reused here for every right-group cell but the year so all
+        # four chips share the exact same chip styling.
+        right_cells = [c for c in (
+            _year_cell(index.data(YEAR_ROLE) or ""),
+            _language_cell(index.data(LANGUAGE_ROLE) or ""),            # region
+            _language_cell(index.data(SUBTITLE_MARKER_ROLE) or ""),     # e.g. "AR-SUB"
+            _language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or ""),  # category's disagreeing language
+            _language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or ""),    # channel's own — furthest right
+        ) if c is not None]
+        right_widths = [self._cell_width(fm, c) for c in right_cells]
+        right_rects = right_aligned_rects(line, right_widths, _CELL_GAP)
+        right_group_left = (
+            right_rects[0].left() - _CELL_GAP if right_rects
+            else line.left() + line.width()
+        )
 
         x = line.left()
         for glyph in (media_icon, fav_glyph):
@@ -573,33 +608,48 @@ class ChannelRowDelegate(QStyledItemDelegate):
             self._draw_text(painter, QRect(x, line.top(), w, line.height()), match_marker, default_color, font)
             x += w
 
-        title_right = year_rects[0].left() - _CELL_GAP if year_rects else line.left() + line.width()
+        quality_w = self._cell_width(fm, quality_cell) if quality_cell else 0
+        title_right = right_group_left - (quality_w + _CELL_GAP if quality_cell else 0)
         title_box_w = max(0, title_right - x)
         title_box = QRect(x, line.top(), title_box_w, line.height())
         elided = fm.elidedText(title, Qt.TextElideMode.ElideRight, title_box_w)
         self._draw_text(painter, title_box, elided, default_color, font)
 
-        if year_cell:
-            self._paint_cell(painter, year_rects[0], year_cell, font)
+        if quality_cell:
+            q_rect = QRect(x + title_box_w + _CELL_GAP, line.top(), quality_w, line.height())
+            self._paint_cell(painter, q_rect, quality_cell, font)
+
+        for cell, r in zip(right_cells, right_rects):
+            self._paint_cell(painter, r, cell, font)
 
     def _paint_badge_line(self, painter, line: QRect, index, font) -> None:
-        """Badge row — variant-count badge, language, quality, category chips
-        + rating glyph, all in the muted/secondary token family. Used as
-        comfy's line 2 and comfy_plus's final line."""
+        """Badge row — a rating glyph left, the clean collection chip
+        (``detected_collection`` — the category with its leading marker
+        stripped) right-aligned. Used as comfy's line 2 and comfy_plus's
+        final line. Region/subtitle/language chips and the quality chip now
+        live on line 1 (owner spec) — this line no longer carries them."""
         fm = QFontMetrics(font)
-        cells = [c for c in (
+        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "")
+        collection_w = self._cell_width(fm, collection_cell) if collection_cell else 0
+        collection_rects = (
+            right_aligned_rects(line, [collection_w], _CELL_GAP) if collection_cell else []
+        )
+
+        left_cells = [c for c in (
+            # variant-count badge (#387) keeps its place on the badge row;
+            # the chips it used to sit beside moved to line 1 (owner spec).
             _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
-            _language_cell(index.data(LANGUAGE_ROLE) or ""),
-            _quality_cell(index.data(QUALITY_TOKEN_ROLE) or ""),
-            _category_cell(index.data(CATEGORY_ROLE) or ""),
             _rating_glyph_cell(index.data(RATING_ROLE) or 0),
         ) if c is not None]
         lx = line.left()
-        for cell in cells:
+        for cell in left_cells:
             w = self._cell_width(fm, cell)
             c_rect = QRect(lx, line.top(), w, line.height())
             self._paint_cell(painter, c_rect, cell, font)
             lx += w + _CELL_GAP
+
+        if collection_cell:
+            self._paint_cell(painter, collection_rects[0], collection_cell, font)
 
     def _paint_plot_line(self, painter, line: QRect, plot: str, font) -> None:
         """comfy_plus's middle line — the plot, elided to fit, muted token."""

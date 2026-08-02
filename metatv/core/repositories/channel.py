@@ -20,7 +20,7 @@ from metatv.core.filter_utils import (
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
-    AI_VOICEOVER_VALUE, is_restricted,
+    AI_VOICEOVER_VALUE, is_restricted, parse_category_marker, AUDIO_LANG_WORD_MAP,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -1707,6 +1707,47 @@ class ChannelRepository(_ChannelStatsMixin):
             if not region and channel.category:
                 region = region_code_from_category(channel.category, config=config)
 
+            # ── Category marker (owner report: "|EN| ANIME" style leading
+            # marker duplicates channel-name language/subtitle info and
+            # crowds the title). Strips the marker into the clean
+            # detected_collection text and routes the token by kind — never
+            # guessing beyond a plain language code or a recognized SUB/DUB
+            # compound (see parse_category_marker):
+            #   - plain language code: adopted as detected_prefix ONLY when
+            #     the channel has none of its own (mirrors the detected_region
+            #     fill-empty-only pattern above); when the channel already has
+            #     its own prefix, the marker is kept — UNLESS it merely
+            #     repeats that same prefix — as detected_collection_language
+            #     so it can render its own "other language" chip. Nothing is
+            #     silently dropped on disagreement.
+            #   - compound "CODE-SUB"/"CODE-DUB": routed to the EXISTING
+            #     detected_audio sub/dub facet (below) AND kept as its own
+            #     chip-ready display value (detected_collection_subdub, e.g.
+            #     "AR-SUB") — never treated as a language.
+            new_collection: str | None = None
+            new_collection_language: str | None = None
+            new_collection_subdub: str | None = None
+            _marker_sub_lang: str | None = None
+            _marker_dub_lang: str | None = None
+            if channel.category:
+                clean_category, category_marker = parse_category_marker(channel.category)
+                new_collection = clean_category or None
+                if category_marker is not None:
+                    if category_marker.kind == "language":
+                        if prefix is None:
+                            prefix = category_marker.code
+                        elif category_marker.code != prefix:
+                            new_collection_language = category_marker.code
+                    else:
+                        new_collection_subdub = f"{category_marker.code}-{category_marker.kind.upper()}"
+                        _lang_name = AUDIO_LANG_WORD_MAP.get(
+                            category_marker.code, category_marker.code
+                        )
+                        if category_marker.kind == "sub":
+                            _marker_sub_lang = _lang_name
+                        else:
+                            _marker_dub_lang = _lang_name
+
             new_title = parsed.bare_name or None
             new_year  = parsed.year or None
 
@@ -1737,16 +1778,27 @@ class ChannelRepository(_ChannelStatsMixin):
                 if _ai_title is not None and _ai_title.value == AI_VOICEOVER_VALUE:
                     new_title = _ai_title.cleaned_name or None
 
-            # Compute detected_audio from parsed audio fields.
+            # Compute detected_audio from parsed audio fields, merging in any
+            # sub/dub language the category marker above contributed (its own
+            # display chip is separate — detected_collection_subdub — but the
+            # underlying language must ALSO land in the existing queryable
+            # sub/dub facet, never fold in silently as a language).
             # Store None when there is no audio annotation so the column is cheap
             # (no JSON blob for the vast majority of channels with no sub/dub tag).
             new_detected_audio = None
-            if parsed.audio_langs or parsed.dub_langs or parsed.sub_langs or parsed.audio:
+            _audio_langs = list(parsed.audio_langs)
+            _dub_langs = list(parsed.dub_langs)
+            _sub_langs = list(parsed.sub_langs)
+            if _marker_sub_lang and _marker_sub_lang not in _sub_langs:
+                _sub_langs.append(_marker_sub_lang)
+            if _marker_dub_lang and _marker_dub_lang not in _dub_langs:
+                _dub_langs.append(_marker_dub_lang)
+            if parsed.audio or _audio_langs or _dub_langs or _sub_langs:
                 new_detected_audio = {
                     "form":  parsed.audio or "",
-                    "audio": list(parsed.audio_langs),
-                    "dub":   list(parsed.dub_langs),
-                    "sub":   list(parsed.sub_langs),
+                    "audio": _audio_langs,
+                    "dub":   _dub_langs,
+                    "sub":   _sub_langs,
                 }
                 # Normalize: drop all-empty dict to None
                 if (not new_detected_audio["form"]
@@ -1811,6 +1863,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 or new_detected_genre != channel.detected_genre
                 or new_detected_genres != channel.detected_genres
                 or new_restricted != bool(channel.detected_restricted)
+                or new_collection != channel.detected_collection
+                or new_collection_language != channel.detected_collection_language
+                or new_collection_subdub != channel.detected_collection_subdub
             )
             if changed:
                 channel.detected_prefix = prefix
@@ -1823,6 +1878,9 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel.detected_genre  = new_detected_genre
                 channel.detected_genres = new_detected_genres
                 channel.detected_restricted = new_restricted
+                channel.detected_collection = new_collection
+                channel.detected_collection_language = new_collection_language
+                channel.detected_collection_subdub = new_collection_subdub
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 
