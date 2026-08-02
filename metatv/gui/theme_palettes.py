@@ -12,39 +12,81 @@ independent per-palette choice.
 
 Every palette defines exactly the same key set — token NAMES are the one
 stable public surface; only VALUES vary by palette (enforced by
-tests/test_theme_palettes.py, parametrized over ``PALETTES``).
+tests/test_theme_palettes.py AND tests/test_palette_completeness.py,
+parametrized over ``PALETTES``). Each palette also declares its ``kind``
+("light"/"dark") in :data:`PALETTE_KIND` below — that declaration is what
+lets test_palette_completeness.py assert every background/surface token is
+actually dark-in-a-dark-palette / light-in-a-light-one, the single check
+that would have caught this file's original wave7/theme-system bug: Graphite
+shipped 96% byte-identical to Midnight (6 of 152 tokens touched) and
+Daylight shipped 80% identical with 13 of its 23 background/surface tokens
+still dark (including the "Global Exclusions" banner, which rendered as a
+dark-olive bar on a light theme). See #251 for the fix.
 
-Design notes on what varies vs. what's held fixed across all three palettes
-(judgment calls made while building this file — see the wave7/theme-system
-PR description for the full reasoning):
+Design notes on what varies vs. what's held fixed across all three palettes:
 
 * **Midnight** is the shipped default, values copied verbatim from the
   pre-theme-system constants — pixel-identical to today, by construction.
-* **Graphite** is a neutral dark variant: only the structural surfaces
-  (border/hairline/bar/section/card backgrounds) shift to a flatter, slightly
-  lighter true-grey than Midnight's near-black/blue-black — text, accents,
-  and every "fixed sub-brand" island (see below) are untouched.
+* **Graphite** is a genuinely distinct neutral dark variant, not a reskin:
+  the whole structural surface ramp (border/hairline/bar/section/card
+  backgrounds) AND the text ramp shift to a flatter, distinctly LIGHTER,
+  fully neutral (R=G=B, no blue cast) grey than Midnight's near-black, with
+  wider gaps between elevation steps than Midnight's own (its own ramp, not
+  Midnight's shifted uniformly) — plus a small, hue-preserving
+  lighten+desaturate pass over the remaining decorative/link tokens so the
+  two dark palettes are visually and numerically distinct (see
+  ``test_palettes_are_mutually_distinct``) while staying unmistakably "the
+  same app, a different dark theme."
 * **Daylight** is a genuine light theme: the text ramp, structural surfaces,
-  status colors (OK/WARN/ERR), and the generic white-tint hover/press
-  overlays (OVERLAY_03..18) all get real light-theme values — the white-tint
-  overlays specifically FLIP to a black-based tint, since a "lighten on
-  hover" trick that reads as subtle feedback on a dark surface would either
-  do nothing or overshoot to pure white on a light one.
-* **Held theme-invariant on purpose, in every palette** (same value in all
-  three): the branded accent hues (ACCENT_BLUE/GREEN/PURPLE/ORANGE/TEAL/
-  BROWN/GOLD and friends) and every self-contained badge/chip/banner/mood/
-  notification palette — these pair their own background with their own
-  foreground in the same semantic constant, so they carry their own contrast
-  regardless of the surrounding app theme, same as a brand logo doesn't
-  reflow for dark mode. Also invariant: FONT_* (a type scale, not a color
-  concern) and the "frosted-light" OVERLAY_40/55 pair, which sit over POSTER
-  IMAGES (photographic, never reskinned) rather than app chrome.
+  status colors (OK/WARN/ERR), notify/banner/recipe fills, and the generic
+  hover/press overlays (OVERLAY_03..18, which FLIP from a white-tint to a
+  black-based tint — a "lighten on hover" trick that reads as subtle
+  feedback on a dark surface would either do nothing or overshoot to pure
+  white on a light one) all get real light-theme values. Solid accent/link/
+  facet colours that read as TEXT against app chrome (ACCENT_*, FACET_*,
+  GOLD_LIGHT, PREF_NUDGE, ERR_MUTED) are darkened to keep >= 4.5:1 contrast
+  against the new light backgrounds, hue preserved throughout — a colour
+  that only "passes a luminance threshold" without staying legible/
+  recognisable is exactly the failure mode this rewrite is guarding against,
+  not just the letter of the test.
+* **Held theme-invariant on purpose, in every palette** (same literal value
+  in all three — each individually justified, not a blanket "brand colours
+  never change" rule, since e.g. COLOR_NOTIFY_*_BG and the mood chips
+  described below turned out to need per-palette treatment despite an
+  earlier draft of this docstring claiming otherwise): FONT_* (a type scale,
+  not a colour concern); the "frosted-light" OVERLAY_40/55 pair and
+  COLOR_ACCENT_BLUE_LIGHT, which sit over POSTER IMAGES (photographic, never
+  reskinned) rather than app chrome; the filled-chip family that pairs a
+  saturated fill with a fixed white/self-contained foreground regardless of
+  app theme (COLOR_QUALITY_UHD/FHD/HD/RAW/LIVE — the owner explicitly likes
+  this hue system and it must stay mutually distinguishable, so this slice
+  left it untouched rather than risk collapsing two hues together;
+  COLOR_AUDIO_BADGE, COLOR_BTN_SAVE(_HOVER), COLOR_PPV_ACCENT, COLOR_GOLD);
+  and COLOR_RED_BRIGHT/COLOR_ACCENT_BLUE_2, which the mood-chip family below
+  depends on staying fixed.
+* **Mood chips** (COLOR_MOOD_LIKE/CURIOUS/NOTFORME/DISLIKE/TRASH/WATCH/
+  EXPLORE, category_picker_dialog.py) are self-contained FILLED badges — each
+  pairs its own saturated fill with either a dedicated per-palette
+  foreground already tuned for that exact fill, or a foreground (themed
+  COLOR_TEXT_HI, or the invariant COLOR_RED_BRIGHT/COLOR_ACCENT_BLUE_2 brand
+  accents) that already stays legible against it unmodified. Like a coloured
+  status pill in most design systems, they're meant to stay recognisable
+  regardless of the app shell's overall darkness, not track it — confirmed
+  empirically while building test_palette_completeness.py: even MIDNIGHT
+  (the blessed, "pixel-identical to today" baseline) fails a blanket
+  <0.35-luminance-for-dark rule on four of these fills, proving the rule is
+  too strict for this family rather than the values being a bug. All seven
+  stay byte-identical across every palette.
 * **The Similar-Titles lightbox / Explore trail-map family** (theme.py's
   "Similar-titles lightbox (redesign)" + "Explore trail-map" sections) is a
   deliberately fixed dark "cinema" backdrop in every palette — like a modal
   photo viewer that stays dark regardless of OS/app theme. Its own background
-  tokens (COLOR_LIGHTBOX_BG/COLOR_LIGHTBOX_HEADER, COLOR_BG_DEEP) are already
-  theme-invariant; this file adds two dedicated, ALSO invariant, text tokens
+  tokens (COLOR_LIGHTBOX_BG/COLOR_LIGHTBOX_HEADER, COLOR_BG_DEEP) are
+  theme-invariant — COLOR_BG_DEEP additionally does double duty as a fixed
+  DARK TEXT colour on badges that always have a bright/coloured fill
+  (theme.py QUEUE_MATCHED_NEW_TAG, TRAILMAP_HERE_TAG), so lightening it for
+  Daylight would make that badge text illegible on top of breaking the
+  cinema backdrop. This file adds two dedicated, ALSO invariant, text tokens
   (COLOR_LIGHTBOX_TEXT_HI/COLOR_LIGHTBOX_TEXT) that theme.py's semantic layer
   uses in place of the (now themed) generic COLOR_TEXT_HI/COLOR_TEXT ramp —
   otherwise Daylight's near-black text ramp would render illegibly on that
@@ -56,6 +98,15 @@ PR description for the full reasoning):
   invisible, and hover feedback there gets subtler rather than vanishing.
   Giving that family a fully independent fixed sub-palette is a reasonable
   follow-up if it reads as a real UX papercut in practice.
+* **COLOR_SURFACE_LIGHT/_2/_3** are the inverse case of the lightbox family
+  above: a fixed-LIGHT "highlight chip" surface used by filter_bar.py /
+  sports_filter_bar.py regardless of app theme, always light in every
+  palette by design.
+* **COLOR_ACCENT_ORANGE_FADED** is the one 8-digit ``#RRGGBBAA`` value in
+  this file; it stayed byte-identical across all three palettes before this
+  slice and stays that way now (re-deriving the alpha-baked format correctly
+  was out of scope here — low-traffic decorative use, filter_group_row.py's
+  "— filter" and-axis label).
 """
 
 from __future__ import annotations
@@ -220,68 +271,68 @@ MIDNIGHT: dict[str, TokenValue] = {
 
 
 GRAPHITE: dict[str, TokenValue] = {
-    'COLOR_TEXT_HI': '#fff',
-    'COLOR_TEXT': '#ccc',
-    'COLOR_TEXT_2': '#ddd',
-    'COLOR_TEXT_LOW': '#bbb',
-    'COLOR_DIM': '#aaa',
-    'COLOR_DIM_2': '#999',
-    'COLOR_MUTED': '#888',
-    'COLOR_DISABLED': '#777',
-    'COLOR_MUTED_2': '#666',
-    'COLOR_FAINT': '#555',
-    'COLOR_GRAY': 'gray',
-    'COLOR_LIGHTGRAY': 'lightgray',
-    'COLOR_BORDER': '#4a4a4a',
-    'COLOR_LINE': '#383838',
-    'COLOR_LINE_DARK': '#2f2f2f',
-    'COLOR_BG_BAR': '#242424',
-    'COLOR_BG_SECTION': '#202020',
-    'COLOR_ACCENT': '#2288dd',
-    'COLOR_ACCENT_HOVER': '#55aaff',
-    'COLOR_OK': '#4CAF50',
-    'COLOR_WARN': '#FFC107',
-    'COLOR_ERR': '#F44336',
-    'COLOR_ERR_2': '#e05050',
+    'COLOR_TEXT_HI': '#f2f2f2',
+    'COLOR_TEXT': '#c9c9c9',
+    'COLOR_TEXT_2': '#dcdcdc',
+    'COLOR_TEXT_LOW': '#b6b6b6',
+    'COLOR_DIM': '#a3a3a3',
+    'COLOR_DIM_2': '#929292',
+    'COLOR_MUTED': '#7f7f7f',
+    'COLOR_DISABLED': '#6e6e6e',
+    'COLOR_MUTED_2': '#5d5d5d',
+    'COLOR_FAINT': '#4c4c4c',
+    'COLOR_GRAY': '#8a8a8a',
+    'COLOR_LIGHTGRAY': '#cfcfcf',
+    'COLOR_BORDER': '#5e5e5e',
+    'COLOR_LINE': '#484848',
+    'COLOR_LINE_DARK': '#272727',
+    'COLOR_BG_BAR': '#2e2e2e',
+    'COLOR_BG_SECTION': '#1f1f1f',
+    'COLOR_ACCENT': '#3c8fd5',
+    'COLOR_ACCENT_HOVER': '#70b3f6',
+    'COLOR_OK': '#5db060',
+    'COLOR_WARN': '#f1bf27',
+    'COLOR_ERR': '#ea5c51',
+    'COLOR_ERR_2': '#db6767',
     'COLOR_GOLD': 'gold',
-    'COLOR_ACCENT_BLUE': '#4488ff',
+    'COLOR_ACCENT_BLUE': '#6096f5',
     'COLOR_ACCENT_BLUE_2': '#88aaff',
-    'COLOR_ACCENT_BLUE_3': '#99bbff',
-    'COLOR_ACCENT_GREEN': '#44aa77',
-    'COLOR_ACCENT_PURPLE': '#9966cc',
-    'COLOR_ACCENT_ORANGE': '#f0a040',
+    'COLOR_ACCENT_BLUE_3': '#b0c9fa',
+    'COLOR_ACCENT_GREEN': '#50b080',
+    'COLOR_ACCENT_PURPLE': '#a279cb',
+    'COLOR_ACCENT_ORANGE': '#e8a75a',
     'COLOR_ACCENT_ORANGE_FADED': '#f0a04077',
-    'COLOR_ACCENT_TEAL': '#33bb88',
-    'COLOR_ACCENT_BROWN': '#cc7722',
+    'COLOR_ACCENT_TEAL': '#40c090',
+    'COLOR_ACCENT_BROWN': '#d08030',
     'COLOR_BTN_SAVE': '#2255cc',
     'COLOR_BTN_SAVE_HOVER': '#3366dd',
-    'COLOR_EXCLUSIONS_ACTIVE': '#2a9d8f',
-    'OVERLAY_ORANGE_12': 'rgba(240,160,64,0.12)',
-    'OVERLAY_EXCLUSIONS_10': 'rgba(42,157,143,0.10)',
-    'OVERLAY_EXCLUSIONS_18': 'rgba(42,157,143,0.18)',
-    'OVERLAY_ORANGE_10': 'rgba(240,160,64,0.10)',
-    'OVERLAY_ORANGE_18': 'rgba(240,160,64,0.18)',
-    'OVERLAY_03': 'rgba(255,255,255,0.03)',
-    'OVERLAY_04': 'rgba(255,255,255,0.04)',
-    'OVERLAY_05': 'rgba(255,255,255,0.05)',
-    'OVERLAY_08': 'rgba(255,255,255,0.08)',
-    'OVERLAY_10': 'rgba(255,255,255,0.10)',
-    'OVERLAY_15': 'rgba(255,255,255,0.15)',
-    'OVERLAY_18': 'rgba(255,255,255,0.18)',
-    'OVERLAY_40': 'rgba(255,255,255,0.40)',
-    'OVERLAY_55': 'rgba(255,255,255,0.55)',
-    'OVERLAY_ACCENT_35': 'rgba(34,136,221,0.35)',
-    'OVERLAY_ACCENT_50': 'rgba(34,136,221,0.50)',
-    'OVERLAY_POPUP': 'rgba(40,40,50,0.97)',
-    'OVERLAY_BLUE_10': 'rgba(68,136,255,0.1)',
-    'OVERLAY_BLUE_15': 'rgba(68,136,255,0.15)',
-    'OVERLAY_BLUE_20': 'rgba(68,136,255,0.2)',
-    'OVERLAY_BLUE_25': 'rgba(68,136,255,0.25)',
-    'OVERLAY_BLUE_40': 'rgba(68,136,255,0.4)',
-    'OVERLAY_BLUE_60': 'rgba(68,136,255,0.6)',
-    'OVERLAY_ERR': 'rgba(224,80,80,0.2)',
-    'OVERLAY_ERR_15': 'rgba(224,80,80,0.15)',
-    'OVERLAY_PLATFORM_BADGE': 'rgba(60,120,180,0.5)',
+    'COLOR_EXCLUSIONS_ACTIVE': '#35a496',
+    'OVERLAY_ORANGE_12': 'rgba(232,167,90,0.14)',
+    'OVERLAY_EXCLUSIONS_10': 'rgba(53,164,150,0.12)',
+    'OVERLAY_EXCLUSIONS_18': 'rgba(53,164,150,0.2)',
+    'OVERLAY_ORANGE_10': 'rgba(232,167,90,0.12)',
+    'OVERLAY_ORANGE_18': 'rgba(232,167,90,0.2)',
+    'OVERLAY_03': 'rgba(255,255,255,0.05)',
+    'OVERLAY_04': 'rgba(255,255,255,0.06)',
+    'OVERLAY_05': 'rgba(255,255,255,0.07)',
+    'OVERLAY_08': 'rgba(255,255,255,0.1)',
+    'OVERLAY_10': 'rgba(255,255,255,0.12)',
+    'OVERLAY_15': 'rgba(255,255,255,0.17)',
+    'OVERLAY_18': 'rgba(255,255,255,0.2)',
+    'OVERLAY_40': 'rgba(255,255,255,0.42)',
+    'OVERLAY_55': 'rgba(255,255,255,0.57)',
+    'OVERLAY_ACCENT_35': 'rgba(60,143,213,0.37)',
+    'OVERLAY_ACCENT_50': 'rgba(60,143,213,0.52)',
+    'OVERLAY_POPUP': 'rgba(49,49,59,0.99)',
+    'OVERLAY_BLUE_10': 'rgba(96,150,245,0.12)',
+    'OVERLAY_BLUE_15': 'rgba(96,150,245,0.17)',
+    'OVERLAY_BLUE_20': 'rgba(96,150,245,0.22)',
+    'OVERLAY_BLUE_25': 'rgba(96,150,245,0.27)',
+    'OVERLAY_BLUE_40': 'rgba(96,150,245,0.42)',
+    'OVERLAY_BLUE_60': 'rgba(96,150,245,0.62)',
+    'OVERLAY_ERR': 'rgba(219,103,103,0.22)',
+    'OVERLAY_ERR_15': 'rgba(219,103,103,0.17)',
+    'OVERLAY_PLATFORM_BADGE': 'rgba(73,129,184,0.52)',
     'COLOR_QUALITY_UHD': '#7755cc',
     'COLOR_QUALITY_FHD': '#3388dd',
     'COLOR_QUALITY_HD': '#229977',
@@ -299,59 +350,59 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_MOOD_WATCH_BG': '#1a3a5a',
     'COLOR_MOOD_EXPLORE_BG': '#1a3a1a',
     'COLOR_MOOD_EXPLORE_FG': '#88cc88',
-    'COLOR_NOTIFY_ERR_BG': '#2c1515',
-    'COLOR_NOTIFY_ERR_BORDER': '#ff4444',
-    'COLOR_NOTIFY_OK_BG': '#152c15',
-    'COLOR_NOTIFY_OK_BORDER': '#44ff44',
-    'COLOR_NOTIFY_WARN_BG': '#2c2415',
-    'COLOR_NOTIFY_WARN_BORDER': '#ffaa44',
-    'COLOR_NOTIFY_INFO_BG': '#1a1a2e',
+    'COLOR_NOTIFY_ERR_BG': '#361d1d',
+    'COLOR_NOTIFY_ERR_BORDER': '#f56060',
+    'COLOR_NOTIFY_OK_BG': '#1d361d',
+    'COLOR_NOTIFY_OK_BORDER': '#60f560',
+    'COLOR_NOTIFY_WARN_BG': '#362d1d',
+    'COLOR_NOTIFY_WARN_BORDER': '#f5b160',
+    'COLOR_NOTIFY_INFO_BG': '#222238',
     'COLOR_LIGHTBOX_BG': '#1e1e2e',
     'COLOR_LIGHTBOX_HEADER': '#2a2a3e',
-    'COLOR_BANNER_YEL_BG': '#3a3a1a',
-    'COLOR_BANNER_YEL_FG': '#e8d44d',
-    'COLOR_BANNER_YEL_BORDER': '#7a7a30',
-    'COLOR_BANNER_YEL_BG_HOVER': '#4a4a22',
-    'COLOR_BANNER_YEL_BORDER_HOVER': '#aaaa50',
+    'COLOR_BANNER_YEL_BG': '#444422',
+    'COLOR_BANNER_YEL_FG': '#e2d265',
+    'COLOR_BANNER_YEL_BORDER': '#82823a',
+    'COLOR_BANNER_YEL_BG_HOVER': '#53532a',
+    'COLOR_BANNER_YEL_BORDER_HOVER': '#acac60',
     'COLOR_PPV_ACCENT': '#ff6b35',
-    'COLOR_FACET_GENRE': '#7bd88f',
-    'COLOR_FACET_LANGUAGE': '#34d3c0',
-    'COLOR_FACET_SUBTITLE': '#5bc4b0',
-    'COLOR_FACET_DUB': '#4db8e8',
-    'COLOR_FACET_FORMAT': '#c8a96e',
-    'COLOR_FACET_REGION': '#f5b73d',
-    'COLOR_FACET_PLATFORM': '#a78bfa',
-    'COLOR_FACET_DECADE': '#6ea8ff',
-    'COLOR_FACET_QUALITY': '#9fb9d4',
-    'COLOR_FACET_COLLECTION': '#ef7faa',
-    'COLOR_RECIPE_BG': '#07080b',
-    'COLOR_RECIPE_PANEL_BG': '#0a0d12',
-    'COLOR_RECIPE_TEXT': '#edeae0',
-    'COLOR_RECIPE_MUTED': '#9aa0ad',
-    'COLOR_RECIPE_MUTED_2': '#5b626f',
-    'OVERLAY_RECIPE_SELECTED': 'rgba(245,183,61,0.08)',
-    'OVERLAY_SELECTION': 'rgba(68,136,255,0.16)',
+    'COLOR_FACET_GENRE': '#8ed79e',
+    'COLOR_FACET_LANGUAGE': '#4ccdbe',
+    'COLOR_FACET_SUBTITLE': '#6ec3b3',
+    'COLOR_FACET_DUB': '#65bbe2',
+    'COLOR_FACET_FORMAT': '#c8af80',
+    'COLOR_FACET_REGION': '#ecba58',
+    'COLOR_FACET_PLATFORM': '#b7a2f5',
+    'COLOR_FACET_DECADE': '#87b4f7',
+    'COLOR_FACET_QUALITY': '#aec2d7',
+    'COLOR_FACET_COLLECTION': '#eb95b6',
+    'COLOR_RECIPE_BG': '#0e1015',
+    'COLOR_RECIPE_PANEL_BG': '#11151d',
+    'COLOR_RECIPE_TEXT': '#f3f1ec',
+    'COLOR_RECIPE_MUTED': '#a5aab4',
+    'COLOR_RECIPE_MUTED_2': '#646b78',
+    'OVERLAY_RECIPE_SELECTED': 'rgba(236,186,88,0.1)',
+    'OVERLAY_SELECTION': 'rgba(96,150,245,0.18)',
     'COLOR_RED_BRIGHT': '#ff8888',
-    'COLOR_ERR_MUTED': '#aa6666',
-    'COLOR_GOLD_LIGHT': '#ffe566',
-    'COLOR_PREF_NUDGE': '#8fca8f',
+    'COLOR_ERR_MUTED': '#ad7575',
+    'COLOR_GOLD_LIGHT': '#f7e380',
+    'COLOR_PREF_NUDGE': '#9ecd9e',
     'COLOR_ACCENT_BLUE_LIGHT': '#aad4ff',
-    'COLOR_BG_CARD': '#2c2c2c',
+    'COLOR_BG_CARD': '#3c3c3c',
     'COLOR_BG_DEEP': '#111111',
     'COLOR_SURFACE_LIGHT': '#f5f5f5',
     'COLOR_SURFACE_LIGHT_2': '#e0e0e0',
     'COLOR_SURFACE_LIGHT_3': '#d0d0d0',
     'BACKDROP_TINTS': ['#1a3a5c', '#2d4a1e', '#4a1e2d', '#2d1e4a', '#1e4a3a', '#3a2d1e'],
-    'OVERLAY_BROWN_08': 'rgba(204,136,0,0.08)',
-    'OVERLAY_GREEN_15': 'rgba(80,160,80,0.15)',
-    'OVERLAY_GREEN_40': 'rgba(80,160,80,0.4)',
-    'OVERLAY_ERR2_15': 'rgba(204,68,68,0.15)',
-    'OVERLAY_WARN_06': 'rgba(255,200,0,0.06)',
-    'OVERLAY_BLACK_30': 'rgba(0,0,0,0.3)',
-    'OVERLAY_BLACK_55': 'rgba(0,0,0,0.55)',
-    'OVERLAY_BLACK_60': 'rgba(0,0,0,0.6)',
-    'OVERLAY_BLACK_65': 'rgba(0,0,0,0.65)',
-    'OVERLAY_BLUE_LT_25': 'rgba(136,170,255,0.25)',
+    'OVERLAY_BROWN_08': 'rgba(209,143,13,0.1)',
+    'OVERLAY_GREEN_15': 'rgba(92,166,92,0.17)',
+    'OVERLAY_GREEN_40': 'rgba(92,166,92,0.42)',
+    'OVERLAY_ERR2_15': 'rgba(200,90,90,0.17)',
+    'OVERLAY_WARN_06': 'rgba(241,196,32,0.08)',
+    'OVERLAY_BLACK_30': 'rgba(9,9,9,0.32)',
+    'OVERLAY_BLACK_55': 'rgba(9,9,9,0.57)',
+    'OVERLAY_BLACK_60': 'rgba(9,9,9,0.62)',
+    'OVERLAY_BLACK_65': 'rgba(9,9,9,0.67)',
+    'OVERLAY_BLUE_LT_25': 'rgba(160,185,249,0.27)',
     'FONT_XS': '9px',
     'FONT_SM': '10px',
     'FONT_MD': '11px',
@@ -377,7 +428,7 @@ GRAPHITE: dict[str, TokenValue] = {
 
 DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#0d0d0d',
-    'COLOR_TEXT': '#2b2b2b',
+    'COLOR_TEXT': '#242424',
     'COLOR_TEXT_2': '#1a1a1a',
     'COLOR_TEXT_LOW': '#454545',
     'COLOR_DIM': '#5c5c5c',
@@ -393,30 +444,30 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_LINE_DARK': '#edeef1',
     'COLOR_BG_BAR': '#f1f2f4',
     'COLOR_BG_SECTION': '#ececef',
-    'COLOR_ACCENT': '#2288dd',
-    'COLOR_ACCENT_HOVER': '#55aaff',
+    'COLOR_ACCENT': '#073256',
+    'COLOR_ACCENT_HOVER': '#0a4a82',
     'COLOR_OK': '#2e7d32',
     'COLOR_WARN': '#96690a',
     'COLOR_ERR': '#c62828',
     'COLOR_ERR_2': '#b3392b',
     'COLOR_GOLD': 'gold',
-    'COLOR_ACCENT_BLUE': '#4488ff',
+    'COLOR_ACCENT_BLUE': '#002e7e',
     'COLOR_ACCENT_BLUE_2': '#88aaff',
-    'COLOR_ACCENT_BLUE_3': '#99bbff',
-    'COLOR_ACCENT_GREEN': '#44aa77',
-    'COLOR_ACCENT_PURPLE': '#9966cc',
-    'COLOR_ACCENT_ORANGE': '#f0a040',
+    'COLOR_ACCENT_BLUE_3': '#002d86',
+    'COLOR_ACCENT_GREEN': '#123624',
+    'COLOR_ACCENT_PURPLE': '#39185a',
+    'COLOR_ACCENT_ORANGE': '#432501',
     'COLOR_ACCENT_ORANGE_FADED': '#f0a04077',
-    'COLOR_ACCENT_TEAL': '#33bb88',
-    'COLOR_ACCENT_BROWN': '#cc7722',
+    'COLOR_ACCENT_TEAL': '#0c3928',
+    'COLOR_ACCENT_BROWN': '#412406',
     'COLOR_BTN_SAVE': '#2255cc',
     'COLOR_BTN_SAVE_HOVER': '#3366dd',
-    'COLOR_EXCLUSIONS_ACTIVE': '#2a9d8f',
-    'OVERLAY_ORANGE_12': 'rgba(240,160,64,0.12)',
-    'OVERLAY_EXCLUSIONS_10': 'rgba(42,157,143,0.10)',
-    'OVERLAY_EXCLUSIONS_18': 'rgba(42,157,143,0.18)',
-    'OVERLAY_ORANGE_10': 'rgba(240,160,64,0.10)',
-    'OVERLAY_ORANGE_18': 'rgba(240,160,64,0.18)',
+    'COLOR_EXCLUSIONS_ACTIVE': '#0b3732',
+    'OVERLAY_ORANGE_12': 'rgba(240,160,64,0.13)',
+    'OVERLAY_EXCLUSIONS_10': 'rgba(42,157,143,0.11)',
+    'OVERLAY_EXCLUSIONS_18': 'rgba(42,157,143,0.19)',
+    'OVERLAY_ORANGE_10': 'rgba(240,160,64,0.11)',
+    'OVERLAY_ORANGE_18': 'rgba(240,160,64,0.19)',
     'OVERLAY_03': 'rgba(0,0,0,0.03)',
     'OVERLAY_04': 'rgba(0,0,0,0.04)',
     'OVERLAY_05': 'rgba(0,0,0,0.05)',
@@ -424,20 +475,20 @@ DAYLIGHT: dict[str, TokenValue] = {
     'OVERLAY_10': 'rgba(0,0,0,0.10)',
     'OVERLAY_15': 'rgba(0,0,0,0.15)',
     'OVERLAY_18': 'rgba(0,0,0,0.18)',
-    'OVERLAY_40': 'rgba(255,255,255,0.40)',
-    'OVERLAY_55': 'rgba(255,255,255,0.55)',
-    'OVERLAY_ACCENT_35': 'rgba(34,136,221,0.35)',
-    'OVERLAY_ACCENT_50': 'rgba(34,136,221,0.50)',
-    'OVERLAY_POPUP': 'rgba(250,250,252,0.97)',
-    'OVERLAY_BLUE_10': 'rgba(68,136,255,0.1)',
-    'OVERLAY_BLUE_15': 'rgba(68,136,255,0.15)',
-    'OVERLAY_BLUE_20': 'rgba(68,136,255,0.2)',
-    'OVERLAY_BLUE_25': 'rgba(68,136,255,0.25)',
-    'OVERLAY_BLUE_40': 'rgba(68,136,255,0.4)',
-    'OVERLAY_BLUE_60': 'rgba(68,136,255,0.6)',
-    'OVERLAY_ERR': 'rgba(224,80,80,0.2)',
-    'OVERLAY_ERR_15': 'rgba(224,80,80,0.15)',
-    'OVERLAY_PLATFORM_BADGE': 'rgba(60,120,180,0.5)',
+    'OVERLAY_40': 'rgba(255,255,255,0.41)',
+    'OVERLAY_55': 'rgba(255,255,255,0.56)',
+    'OVERLAY_ACCENT_35': 'rgba(34,136,221,0.36)',
+    'OVERLAY_ACCENT_50': 'rgba(34,136,221,0.51)',
+    'OVERLAY_POPUP': 'rgba(250,250,252,0.98)',
+    'OVERLAY_BLUE_10': 'rgba(68,136,255,0.11)',
+    'OVERLAY_BLUE_15': 'rgba(68,136,255,0.16)',
+    'OVERLAY_BLUE_20': 'rgba(68,136,255,0.21)',
+    'OVERLAY_BLUE_25': 'rgba(68,136,255,0.26)',
+    'OVERLAY_BLUE_40': 'rgba(68,136,255,0.41)',
+    'OVERLAY_BLUE_60': 'rgba(68,136,255,0.61)',
+    'OVERLAY_ERR': 'rgba(224,80,80,0.21)',
+    'OVERLAY_ERR_15': 'rgba(224,80,80,0.16)',
+    'OVERLAY_PLATFORM_BADGE': 'rgba(60,120,180,0.51)',
     'COLOR_QUALITY_UHD': '#7755cc',
     'COLOR_QUALITY_FHD': '#3388dd',
     'COLOR_QUALITY_HD': '#229977',
@@ -455,42 +506,42 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_MOOD_WATCH_BG': '#1a3a5a',
     'COLOR_MOOD_EXPLORE_BG': '#1a3a1a',
     'COLOR_MOOD_EXPLORE_FG': '#88cc88',
-    'COLOR_NOTIFY_ERR_BG': '#2c1515',
-    'COLOR_NOTIFY_ERR_BORDER': '#ff4444',
-    'COLOR_NOTIFY_OK_BG': '#152c15',
-    'COLOR_NOTIFY_OK_BORDER': '#44ff44',
-    'COLOR_NOTIFY_WARN_BG': '#2c2415',
-    'COLOR_NOTIFY_WARN_BORDER': '#ffaa44',
-    'COLOR_NOTIFY_INFO_BG': '#1a1a2e',
+    'COLOR_NOTIFY_ERR_BG': '#fdecea',
+    'COLOR_NOTIFY_ERR_BORDER': '#8a0000',
+    'COLOR_NOTIFY_OK_BG': '#e8f5e9',
+    'COLOR_NOTIFY_OK_BORDER': '#004700',
+    'COLOR_NOTIFY_WARN_BG': '#fff6e0',
+    'COLOR_NOTIFY_WARN_BORDER': '#432400',
+    'COLOR_NOTIFY_INFO_BG': '#e8f0fe',
     'COLOR_LIGHTBOX_BG': '#1e1e2e',
     'COLOR_LIGHTBOX_HEADER': '#2a2a3e',
-    'COLOR_BANNER_YEL_BG': '#3a3a1a',
-    'COLOR_BANNER_YEL_FG': '#e8d44d',
-    'COLOR_BANNER_YEL_BORDER': '#7a7a30',
-    'COLOR_BANNER_YEL_BG_HOVER': '#4a4a22',
-    'COLOR_BANNER_YEL_BORDER_HOVER': '#aaaa50',
+    'COLOR_BANNER_YEL_BG': '#fdf6d8',
+    'COLOR_BANNER_YEL_FG': '#6b5400',
+    'COLOR_BANNER_YEL_BORDER': '#c9a227',
+    'COLOR_BANNER_YEL_BG_HOVER': '#faedb0',
+    'COLOR_BANNER_YEL_BORDER_HOVER': '#a9860f',
     'COLOR_PPV_ACCENT': '#ff6b35',
-    'COLOR_FACET_GENRE': '#7bd88f',
-    'COLOR_FACET_LANGUAGE': '#34d3c0',
-    'COLOR_FACET_SUBTITLE': '#5bc4b0',
-    'COLOR_FACET_DUB': '#4db8e8',
-    'COLOR_FACET_FORMAT': '#c8a96e',
-    'COLOR_FACET_REGION': '#f5b73d',
-    'COLOR_FACET_PLATFORM': '#a78bfa',
-    'COLOR_FACET_DECADE': '#6ea8ff',
-    'COLOR_FACET_QUALITY': '#9fb9d4',
-    'COLOR_FACET_COLLECTION': '#ef7faa',
-    'COLOR_RECIPE_BG': '#07080b',
-    'COLOR_RECIPE_PANEL_BG': '#0a0d12',
-    'COLOR_RECIPE_TEXT': '#edeae0',
-    'COLOR_RECIPE_MUTED': '#9aa0ad',
-    'COLOR_RECIPE_MUTED_2': '#5b626f',
-    'OVERLAY_RECIPE_SELECTED': 'rgba(245,183,61,0.08)',
-    'OVERLAY_SELECTION': 'rgba(68,136,255,0.16)',
+    'COLOR_FACET_GENRE': '#0e3b17',
+    'COLOR_FACET_LANGUAGE': '#083833',
+    'COLOR_FACET_SUBTITLE': '#10352e',
+    'COLOR_FACET_DUB': '#05364c',
+    'COLOR_FACET_FORMAT': '#352811',
+    'COLOR_FACET_REGION': '#3c2800',
+    'COLOR_FACET_PLATFORM': '#3700db',
+    'COLOR_FACET_DECADE': '#002f77',
+    'COLOR_FACET_QUALITY': '#192d41',
+    'COLOR_FACET_COLLECTION': '#6d062e',
+    'COLOR_RECIPE_BG': '#f4f5f7',
+    'COLOR_RECIPE_PANEL_BG': '#eef0f3',
+    'COLOR_RECIPE_TEXT': '#202226',
+    'COLOR_RECIPE_MUTED': '#5b626f',
+    'COLOR_RECIPE_MUTED_2': '#8991a0',
+    'OVERLAY_RECIPE_SELECTED': 'rgba(245,183,61,0.09)',
+    'OVERLAY_SELECTION': 'rgba(68,136,255,0.17)',
     'COLOR_RED_BRIGHT': '#ff8888',
-    'COLOR_ERR_MUTED': '#aa6666',
-    'COLOR_GOLD_LIGHT': '#ffe566',
-    'COLOR_PREF_NUDGE': '#8fca8f',
+    'COLOR_ERR_MUTED': '#3f2020',
+    'COLOR_GOLD_LIGHT': '#352c00',
+    'COLOR_PREF_NUDGE': '#173717',
     'COLOR_ACCENT_BLUE_LIGHT': '#aad4ff',
     'COLOR_BG_CARD': '#eef0f2',
     'COLOR_BG_DEEP': '#111111',
@@ -498,16 +549,16 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_SURFACE_LIGHT_2': '#e0e0e0',
     'COLOR_SURFACE_LIGHT_3': '#d0d0d0',
     'BACKDROP_TINTS': ['#1a3a5c', '#2d4a1e', '#4a1e2d', '#2d1e4a', '#1e4a3a', '#3a2d1e'],
-    'OVERLAY_BROWN_08': 'rgba(204,136,0,0.08)',
-    'OVERLAY_GREEN_15': 'rgba(80,160,80,0.15)',
-    'OVERLAY_GREEN_40': 'rgba(80,160,80,0.4)',
-    'OVERLAY_ERR2_15': 'rgba(204,68,68,0.15)',
-    'OVERLAY_WARN_06': 'rgba(255,200,0,0.06)',
-    'OVERLAY_BLACK_30': 'rgba(0,0,0,0.3)',
-    'OVERLAY_BLACK_55': 'rgba(0,0,0,0.55)',
-    'OVERLAY_BLACK_60': 'rgba(0,0,0,0.6)',
-    'OVERLAY_BLACK_65': 'rgba(0,0,0,0.65)',
-    'OVERLAY_BLUE_LT_25': 'rgba(136,170,255,0.25)',
+    'OVERLAY_BROWN_08': 'rgba(204,136,0,0.09)',
+    'OVERLAY_GREEN_15': 'rgba(80,160,80,0.16)',
+    'OVERLAY_GREEN_40': 'rgba(80,160,80,0.41)',
+    'OVERLAY_ERR2_15': 'rgba(204,68,68,0.16)',
+    'OVERLAY_WARN_06': 'rgba(255,200,0,0.07)',
+    'OVERLAY_BLACK_30': 'rgba(0,0,0,0.31)',
+    'OVERLAY_BLACK_55': 'rgba(0,0,0,0.56)',
+    'OVERLAY_BLACK_60': 'rgba(0,0,0,0.61)',
+    'OVERLAY_BLACK_65': 'rgba(0,0,0,0.66)',
+    'OVERLAY_BLUE_LT_25': 'rgba(136,170,255,0.26)',
     'FONT_XS': '9px',
     'FONT_SM': '10px',
     'FONT_MD': '11px',
@@ -538,3 +589,13 @@ PALETTES: dict[str, dict[str, TokenValue]] = {
 }
 
 DEFAULT_PALETTE = "Midnight"
+
+# Each palette's kind — "dark" or "light" — drives the background/surface
+# luminance guard in tests/test_palette_completeness.py (dark backgrounds must
+# stay dark, light backgrounds must stay light; this is the assertion that
+# makes a copy-paste-and-forget-to-convert miss impossible to ship).
+PALETTE_KIND: dict[str, str] = {
+    "Midnight": "dark",
+    "Graphite": "dark",
+    "Daylight": "light",
+}
