@@ -1,6 +1,6 @@
-"""HistorySection and HistoryItemWidget."""
+"""HistorySection."""
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QLabel, QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from metatv.core.repositories import RepositoryFactory
@@ -8,49 +8,6 @@ from metatv.gui.chip_row import build_chip_row
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
 from metatv.gui.sidebar.base import CollapsibleSection
 from metatv.gui import theme as _theme
-
-
-class HistoryItemWidget(QWidget):
-    """Custom widget for history list items with play next button"""
-
-    playNextClicked = pyqtSignal(str)  # channel_id
-
-    def __init__(self, channel_id, text, has_next_episode=False, parent=None):
-        super().__init__(parent)
-        self.channel_id = channel_id
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
-
-        text_label = QLabel(text)
-        text_label.setWordWrap(False)
-        layout.addWidget(text_label, 1)
-
-        if has_next_episode:
-            next_btn = QPushButton(">>")
-            next_btn.setFixedSize(30, 20)
-            next_btn.setToolTip("Play next episode")
-            next_btn.clicked.connect(lambda: self.playNextClicked.emit(self.channel_id))
-            next_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {_theme.OVERLAY_BLUE_20};
-                    border: 1px solid {_theme.COLOR_ACCENT_BLUE};
-                    border-radius: 3px;
-                    font-size: {_theme.FONT_MD};
-                    font-weight: bold;
-                    color: {_theme.COLOR_ACCENT_BLUE};
-                }}
-                QPushButton:hover {{
-                    background-color: {_theme.OVERLAY_BLUE_40};
-                }}
-                QPushButton:pressed {{
-                    background-color: {_theme.OVERLAY_BLUE_60};
-                }}
-            """)
-            layout.addWidget(next_btn)
-
-        self.setLayout(layout)
 
 
 class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
@@ -61,6 +18,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
     historyItemClicked = pyqtSignal(str)   # channel_id (double-click)
     itemSelected       = pyqtSignal(str)   # channel_id (single-click)
     clearHistoryClicked = pyqtSignal()
+    playNextClicked     = pyqtSignal(str)  # episode_id — the row's ">>" "Play Next Episode" button
     # "Explore →" (open the Watch-History trail-map) is the shared base-class
     # ``exploreClicked`` signal — see CollapsibleSection._add_explore_link.
     _data_ready        = pyqtSignal(object)  # list[HistoryDTO] | None
@@ -127,17 +85,38 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             title = dto.detected_title or dto.name
             if dto.episode_code:
                 title = f"{title} → {dto.episode_code}"
+            trailing_button = self._build_play_next_button(dto) if dto.has_next else None
             row = build_chip_row(
                 media_icon=self._media_icon(dto.media_type),
                 title=title,
                 year=dto.detected_year,
                 quality=dto.detected_quality,
                 prefix=dto.detected_prefix,
+                trailing_button=trailing_button,
             )
             # Width 0 → the item spans the viewport (no sideways scroll); the row's own
             # height governs the row height.
             item.setSizeHint(QSize(0, row.sizeHint().height()))
             self.history_list.setItemWidget(item, row)
+
+    def _build_play_next_button(self, dto) -> QPushButton:
+        """Build the row's ">>" "Play Next Episode" button (Wave 5).
+
+        Only called for rows where ``dto.has_next`` is True (a series with a
+        resolved smart-ladder resume target — see
+        ``EpisodeRepository.get_resume_dto``). Emits :attr:`playNextClicked` with
+        the resume target's episode id; MainWindow wires that straight into the
+        existing :meth:`~metatv.gui.main_window_series.play_episode_by_id`
+        chokepoint, so this row never grows its own play path.
+        """
+        next_btn = QPushButton(">>")
+        next_btn.setFixedSize(30, 20)
+        next_btn.setToolTip(f"Play next episode: {dto.next_episode_code}")
+        next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        next_btn.setStyleSheet(_theme.HISTORY_PLAY_NEXT_BUTTON)
+        episode_id = dto.next_episode_id
+        next_btn.clicked.connect(lambda: self.playNextClicked.emit(episode_id))
+        return next_btn
 
     def _media_icon(self, media_type) -> str:
         from metatv.core.models import MediaType

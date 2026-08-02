@@ -502,6 +502,18 @@ QUEUE_MATCHED_NEW_TAG = (
     " border-radius: 3px; padding: 0px 4px; font-size: " + FONT_XS + "; font-weight: bold;"
 )
 
+# History sidebar row's ">>" "Play Next Episode" trailing button (Wave 5) — a small
+# blue-tinted chip button that sits outside the row's mouse-transparent pass-through
+# area (see chip_row.build_chip_row's trailing_button slot), so it stays independently
+# clickable rather than falling through to list-item selection like the rest of the row.
+HISTORY_PLAY_NEXT_BUTTON = (
+    "QPushButton { background-color: " + OVERLAY_BLUE_20 + ";"
+    " border: 1px solid " + COLOR_ACCENT_BLUE + "; border-radius: 3px;"
+    " font-size: " + FONT_MD + "; font-weight: bold; color: " + COLOR_ACCENT_BLUE + "; }"
+    "QPushButton:hover { background-color: " + OVERLAY_BLUE_40 + "; }"
+    "QPushButton:pressed { background-color: " + OVERLAY_BLUE_60 + "; }"
+)
+
 # Details-pane PRIMARY action buttons — full-size, labeled (icon + text), shown in
 # a row directly below the poster (the most-used actions get the prominent slot).
 # Play is the SECONDARY/outline action (always starts from the beginning); Resume

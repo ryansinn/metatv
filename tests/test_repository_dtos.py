@@ -363,7 +363,18 @@ def test_history_dto_episode_code_none_when_no_episode_played(session):
 
 def test_history_dtos_batched_equals_per_row_and_one_query(session):
     """B8-1: batched build_history_dtos equals the per-row reference AND issues
-    exactly one episodes query regardless of how many series are in the history."""
+    exactly one episodes query for the episode_code lookup regardless of how many
+    series are in the history (the N+1 this test originally pinned).
+
+    Wave 5 added a second batched lookup alongside it — get_resume_targets_for_series
+    (the "Play Next Episode" resume-ladder target) — which is NOT reducible to one
+    SQL statement (get_resume_dto's ladder branches per series: get_last_engaged,
+    then a conditional fallback/next-after query), so the total query count grows
+    by 2 per UNIQUE series (still O(series), never O(history rows) — see
+    test_history_play_next.py's dedup test for that guarantee). With 3 series here,
+    none manually engaged, each falls back to get_last_played_dto (get_last_engaged +
+    get_last_played = 2 queries), so total = 1 (code_map) + 3*2 (resume ladder) = 7.
+    """
     from metatv.core.models import MediaType
 
     # Three series; each with several episodes at different last_played times.
@@ -409,4 +420,4 @@ def test_history_dtos_batched_equals_per_row_and_one_query(session):
     assert got["series_b"] == "S03E04"
     assert got["series_c"] is None
     assert got == expected           # byte-identical to the per-row reference
-    assert counter["n"] == 1         # ONE episodes query for all three series (was N+1)
+    assert counter["n"] == 7         # see docstring: 1 (code_map) + 3 series * 2 (resume ladder)

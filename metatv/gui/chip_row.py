@@ -91,8 +91,9 @@ def build_chip_row(
     quality: str = "",
     prefix: str = "",
     new_badge: bool = False,
+    trailing_button: QPushButton | None = None,
 ) -> QWidget:
-    """Build a sidebar content row: ``[icon] [NEW] Title [4K] … [Year] [Lang]``.
+    """Build a sidebar content row: ``[icon] [NEW] Title [4K] … [Year] [Lang] [▶]``.
 
     The canonical chip row shared by Recommended, Watch Queue, Favorites and
     History.  Mirrors the mouse-transparent ``setItemWidget`` pattern: the row is
@@ -106,8 +107,25 @@ def build_chip_row(
     quality badge (``QUALITY_CHIP``) hugging the title TEXT when present, then a
     stretch, then the right-aligned cluster: the year as a subtle bordered chip
     (``YEAR_CHIP``) and the audio-language chip (``LANG_CHIP``) as the CONSISTENT
-    rightmost element on every row, so the right edge stays aligned.  Each chip is
-    added only when its value is non-empty.
+    rightmost element on every row, so the right edge stays aligned, and finally
+    an optional interactive ``trailing_button`` (e.g. History's "Play next
+    episode" ``>>``) as the very last element.  Each chip is added only when its
+    value is non-empty.
+
+    ``trailing_button`` and row-wide transparency are mutually exclusive: a
+    ``QPushButton`` consumes its own mouse press (it never bubbles up, unlike a
+    plain unhandled ``QLabel``, which ignores the event and lets it bubble to the
+    hosting ``QListWidget`` for selection) — but ``WA_TransparentForMouseEvents``
+    on an ANCESTOR hides its entire subtree from hit-testing, including any
+    non-transparent button inside it, so a button embedded in the current
+    all-or-nothing transparent row would never receive a click at all. So when
+    ``trailing_button`` is given, the row is left at Qt's default (untransparent)
+    instead: every plain label still bubbles unhandled clicks up to the list item
+    exactly as before (no behavior change there), while the button — landed on
+    directly — now consumes its own click instead of bubbling, which is exactly
+    what makes it independently clickable. Rows with no ``trailing_button`` are
+    completely unaffected — the row stays ``WA_TransparentForMouseEvents`` exactly
+    as before, pixel-identical to every existing caller.
 
     Args:
         media_icon: The resolved media-type glyph (movie/series/live/unknown).
@@ -120,9 +138,16 @@ def build_chip_row(
         new_badge: When True, show a small green "NEW" pill after the icon (e.g.
             the Watch Queue's "Alerts Matched" rows) — the word "NEW" itself is
             the cue, never colour alone.
+        trailing_button: An optional, already-built, already-styled/tooltipped
+            ``QPushButton`` (the caller owns its click wiring) appended as the
+            row's rightmost element. When present, the row does NOT get the
+            blanket ``WA_TransparentForMouseEvents`` treatment (see above) so the
+            button stays clickable.
 
     Returns:
-        A mouse-transparent ``QWidget`` ready for ``QListWidget.setItemWidget``.
+        A ``QWidget`` ready for ``QListWidget.setItemWidget`` — mouse-transparent
+        when ``trailing_button`` is ``None`` (the default, existing behavior),
+        otherwise left untransparent so the trailing button can receive clicks.
     """
     liked_prefix = f"{_icons.like_icon} " if liked else ""
 
@@ -174,8 +199,15 @@ def build_chip_row(
         lang_chip.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(lang_chip)
 
+    if trailing_button is not None:
+        layout.addWidget(trailing_button)
+
     row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-    # The item (not this widget) owns click/double-click/context-menu — let mouse
-    # events pass through to the QListWidget viewport.
-    row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+    if trailing_button is None:
+        # The item (not this widget) owns click/double-click/context-menu — let mouse
+        # events pass through to the QListWidget viewport. Skipped when a
+        # trailing_button is present — see the docstring: this attribute would hide
+        # the button's whole subtree from hit-testing too, so it would never be
+        # clickable.
+        row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
     return row

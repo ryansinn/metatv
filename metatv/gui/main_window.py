@@ -910,6 +910,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.historyItemClicked.connect(self.play_from_history_id)
             section.itemSelected.connect(self.show_channel_details_by_id)
             section.clearHistoryClicked.connect(self.clear_history)
+            # "Play Next Episode" >> button (Wave 5) — routes through the existing
+            # play_episode_by_id chokepoint (same as Watch Queue / Favorites episode rows).
+            section.playNextClicked.connect(self.play_episode_by_id)
             # "Explore →" is wired once for every section in create_sidebar().
             # Connect context menu handler
             section.history_list.customContextMenuRequested.connect(

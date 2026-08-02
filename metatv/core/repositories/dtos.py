@@ -180,6 +180,14 @@ class HistoryDTO:
     detected_year: str = ""
     detected_quality: str = ""
     detected_prefix: str = ""          # audio-language token — the honest chip-row language
+    # "Play Next Episode" (Wave 5) — the smart-ladder resume target (see
+    # EpisodeRepository.get_resume_dto), pre-resolved in build_history_dtos via the
+    # batched EpisodeRepository.get_resume_targets_for_series. next_episode_id is None
+    # (has_next False) for non-series rows and for series with no resume target (no
+    # episode ever played, or the series is complete).
+    has_next: bool = False
+    next_episode_id: str | None = None
+    next_episode_code: str | None = None    # e.g. "S02E05" — the >> button's tooltip target
 
 
 # ---------------------------------------------------------------------------
@@ -500,11 +508,21 @@ def build_history_dtos(
         if ch.media_type == MediaType.SERIES
     ]
     code_map = repos.episodes.get_last_played_codes_for_series(series_keys)
+    # Batch the "Play Next Episode" resume-target lookup alongside it (Wave 5) — same
+    # keys, sibling helper (see EpisodeRepository.get_resume_targets_for_series).
+    resume_map = repos.episodes.get_resume_targets_for_series(series_keys)
     result: list[HistoryDTO] = []
     for ch in channels:
         episode_code: str | None = None
+        next_episode_id: str | None = None
+        next_episode_code: str | None = None
         if ch.media_type == MediaType.SERIES:
-            episode_code = code_map.get((ch.source_id, ch.provider_id))
+            key = (ch.source_id, ch.provider_id)
+            episode_code = code_map.get(key)
+            resume = resume_map.get(key)
+            if resume is not None:
+                next_episode_id = resume.id
+                next_episode_code = f"S{resume.season_num:02d}E{resume.episode_num:02d}"
         result.append(HistoryDTO(
             id=ch.id,
             name=ch.name,
@@ -516,5 +534,8 @@ def build_history_dtos(
             detected_year=ch.detected_year or "",
             detected_quality=ch.detected_quality or "",
             detected_prefix=ch.detected_prefix or "",
+            has_next=next_episode_id is not None,
+            next_episode_id=next_episode_id,
+            next_episode_code=next_episode_code,
         ))
     return result
