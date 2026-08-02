@@ -944,12 +944,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         outer_layout.addWidget(self.sources_strip)
 
-        settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
-        settings_btn.setFlat(True)
-        settings_btn.setToolTip("Open application settings (Ctrl+,)")
-        settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
-        settings_btn.clicked.connect(self.open_settings)
-        outer_layout.addWidget(settings_btn)
+        self._settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
+        self._settings_btn.setFlat(True)
+        self._settings_btn.setToolTip("Open application settings (Ctrl+,)")
+        self._settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        self._settings_btn.clicked.connect(self.open_settings)
+        outer_layout.addWidget(self._settings_btn)
 
         return outer
 
@@ -1445,7 +1445,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
     def _create_bottom_nav_bar(self) -> QWidget:
         """Build the full-width bottom tab bar with nav chips and Exclusions control."""
-        bar = QWidget()
+        bar = self._bottom_nav_bar = QWidget()
         bar.setObjectName("bottomNavBar")
         bar.setStyleSheet(
             f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR}; border-top: 1px solid {_theme.COLOR_LINE}; }}"
@@ -1628,13 +1628,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._context_filter_label = QLabel()
         self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
         _cfc_layout.addWidget(self._context_filter_label)
-        _cfc_dismiss = QPushButton("✕")
-        _cfc_dismiss.setFixedSize(16, 16)
-        _cfc_dismiss.setFlat(True)
-        _cfc_dismiss.setToolTip("Clear filter")
-        _cfc_dismiss.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
-        _cfc_dismiss.clicked.connect(self._clear_context_filter)
-        _cfc_layout.addWidget(_cfc_dismiss)
+        self._context_filter_dismiss_btn = QPushButton("✕")
+        self._context_filter_dismiss_btn.setFixedSize(16, 16)
+        self._context_filter_dismiss_btn.setFlat(True)
+        self._context_filter_dismiss_btn.setToolTip("Clear filter")
+        self._context_filter_dismiss_btn.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
+        self._context_filter_dismiss_btn.clicked.connect(self._clear_context_filter)
+        _cfc_layout.addWidget(self._context_filter_dismiss_btn)
         controls_layout.addWidget(self._context_filter_chip)
 
         self.search_input = QLineEdit()
@@ -1676,11 +1676,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         _hb_layout = QHBoxLayout(self._hidden_banner)
         _hb_layout.setContentsMargins(8, 4, 8, 4)
         _hb_layout.setSpacing(8)
-        _hb_lbl = QLabel(
+        self._hidden_banner_lbl = QLabel(
             f"{self.config.hide_icon}  Showing hidden and excluded channels — right-click to unhide"
         )
-        _hb_lbl.setStyleSheet(f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
-        _hb_layout.addWidget(_hb_lbl)
+        self._hidden_banner_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};")
+        _hb_layout.addWidget(self._hidden_banner_lbl)
         _hb_layout.addStretch()
         self._manage_cats_btn = QPushButton("📁 Manage Categories")
         self._manage_cats_btn.setFlat(True)
@@ -2372,19 +2373,41 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         row delegate reads ``theme.COLOR_*`` fresh on every ``paint()`` call
         already, so it only needs to be told to repaint, not re-themed).
 
-        A handful of small widgets built as local variables in ``setup_ui()``
-        (never kept as ``self.*`` — the sidebar Settings button, the bottom
-        nav bar's own background, the "showing hidden" label, the context
-        filter chip's dismiss button) aren't reachable here and still need a
-        restart to pick up a new palette — low-traffic chrome, acceptable
-        gap for this slice. Filter/provider/recipe dialogs, the EPG view, and
-        other views not in the sweep list below are the same: correct next
-        time they're opened (they read theme tokens fresh at build time),
-        just not repainted while already on screen.
+        The sidebar Settings button, the bottom nav bar's own background, the
+        "showing hidden" label, and the context filter chip's dismiss button
+        used to be local variables in ``setup_ui()`` that this sweep couldn't
+        reach — they're now promoted to ``self.*`` and swept below, same as
+        ``self.filter_panel`` (the middle filter column), which now has its
+        own ``refresh_theme()`` that recurses through every facet section and
+        row it built at construction.
+
+        Still NOT reached, and still needing a restart to pick up a new
+        palette (each is a large, independently-constructed view/dialog with
+        its own tree of cached stylesheets — wiring a full ``refresh_theme()``
+        through all of them is a bigger job than this sweep, not attempted
+        here): the embedded EPG view, Preferences/Recommended view, Discover
+        view, Recipe view, Provider editor, and Sources manager view (all
+        persistent, ``setVisible()``-toggled widgets built once in
+        ``create_content_area()``), plus the Similar-titles lightbox, poster
+        lightbox, and Explore trail-map (their dark "cinema" backdrop is
+        deliberately theme-invariant by design — see theme_palettes.py — but
+        the handful of tokens they DO read from the general ramp would still
+        need a sweep to update live). Actual ``QDialog`` popups (Categories,
+        Global Exclusions, category picker, new-facet-values, etc.) are each
+        constructed fresh on open and read theme tokens at build time, so
+        those already open correctly themed without needing to be in this
+        sweep at all.
         """
         if not _theme.apply_theme(self.config.theme_name):
             return
 
+        if hasattr(self, "_settings_btn"):
+            self._settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        if hasattr(self, "_bottom_nav_bar"):
+            self._bottom_nav_bar.setStyleSheet(
+                f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR};"
+                f" border-top: 1px solid {_theme.COLOR_LINE}; }}"
+            )
         if hasattr(self, "_diagnose_btn"):
             self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         if hasattr(self, "_split_toggle_btn"):
@@ -2413,6 +2436,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if hasattr(self, "_context_filter_chip"):
             self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
             self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
+        if hasattr(self, "_context_filter_dismiss_btn"):
+            self._context_filter_dismiss_btn.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
 
         if hasattr(self, "_manage_cats_btn"):
             self._manage_cats_btn.setStyleSheet(
@@ -2423,6 +2448,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if hasattr(self, "_hidden_banner"):
             self._hidden_banner.setStyleSheet(
                 f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;"
+            )
+        if hasattr(self, "_hidden_banner_lbl"):
+            self._hidden_banner_lbl.setStyleSheet(
+                f"color: {_theme.COLOR_ACCENT_BROWN}; font-size: {_theme.FONT_MD};"
             )
         if hasattr(self, "_channel_banner"):
             self._channel_banner.setStyleSheet(
@@ -2451,6 +2480,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         if hasattr(self, "details_pane"):
             self.details_pane.refresh_theme()
+
+        if hasattr(self, "filter_panel"):
+            self.filter_panel.refresh_theme()
 
         # The row delegate already reads theme.COLOR_* fresh inside paint(),
         # so a repaint is all the channel list needs (same trigger as
