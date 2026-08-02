@@ -871,6 +871,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             section.vodRuleClearAlertRequested.connect(self._clear_vod_rule_alert)
             # Monitored-series wiring (folded in from the retired New Episodes section)
             section.seriesClicked.connect(self.show_channel_details_by_id)
+            # seriesActivated (double-click / "Open series" menu action) drills into
+            # the series — the SAME chokepoint the Watch Queue / Alerts Matched
+            # matched_series row double-click uses (#365), never a parallel
+            # details-only path. Owner-reported bug fix (wave5).
+            section.seriesActivated.connect(self.play_queue_item_id)
             section.seriesMarkSeenRequested.connect(self._on_mark_series_seen)
             section.seriesStopRequested.connect(self._unmonitor_series)
             self.vod_watch_alert_manager.new_matches_found.connect(

@@ -222,7 +222,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
     vodRuleClearAlertRequested = pyqtSignal(str)  # rule_created → ack just this rule's matches
     clearAllAlertsClicked = pyqtSignal()     # header "Clear all" → ack every new match
     # Monitored-series signals (folded in from the retired New Episodes section)
+    # seriesClicked: SINGLE click only — DETAILS ONLY (loads the series into the
+    # details pane, no navigation). seriesActivated is the separate DRILL-IN
+    # signal (double-click / "Open series" menu action) — the two must never be
+    # merged, mirroring the queue.py Alerts Matched precedent (#365) where a
+    # matched_series row's single click and double-click/menu-open are likewise
+    # distinct chokepoints.
     seriesClicked = pyqtSignal(str)          # series_channel_id → open series details
+    seriesActivated = pyqtSignal(str)        # series_channel_id → drill into series (browse)
     seriesMarkSeenRequested = pyqtSignal(str)  # series_channel_id → clear unseen count
     seriesStopRequested = pyqtSignal(str)    # series_channel_id → stop monitoring
     _data_ready = pyqtSignal(object)         # dict | None (None = load failure)
@@ -724,11 +731,14 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
                         growers = s.get("growth_providers") or []
                         provider_note = f" on {', '.join(growers)}" if growers else ""
                         tip += (
-                            f"\n{unseen} new {ep_word}{provider_note} — click to "
-                            "open, right-click to mark seen / stop"
+                            f"\n{unseen} new {ep_word}{provider_note} — double-click "
+                            "to browse the series, right-click to mark seen / stop"
                         )
                     else:
-                        tip += "\nMonitoring for new episodes — right-click to stop"
+                        tip += (
+                            "\nMonitoring for new episodes — double-click to browse "
+                            "the series, right-click to stop"
+                        )
                     tip += "\n\n" + _series_identity.identity_lines(
                         language=s["language"], region=s["region"], source=s["source"]
                     )
@@ -828,12 +838,19 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
             self.vodRuleShowMatchesRequested.emit(rule_created)
 
     def _on_vod_item_double_clicked(self, item: "QListWidgetItem") -> None:
-        """Double-click: series opens its details; a rule opens the manage dialog."""
+        """Double-click: series DRILLS IN (season/episode tree); a rule opens the manage dialog.
+
+        Owner-reported bug: double-click on a monitored-series row used to emit
+        the same details-only ``seriesClicked`` as a single click, so it never
+        actually browsed the series. Drilling in is itself the "seen" ack
+        (mirrors the matched_series row in Watch Queue / Alerts Matched, #365) —
+        no separate mark-viewed emission needed here.
+        """
         kind = item.data(_ROLE_KIND)
         if kind == "series":
             cid = item.data(_ROLE_SERIES_ID)
             if cid:
-                self.seriesClicked.emit(cid)
+                self.seriesActivated.emit(cid)
             return
         if kind == "series_divider":
             return  # single-click already toggles it
@@ -891,10 +908,29 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _show_series_context_menu(self, item: "QListWidgetItem", pos) -> None:
         """Right-click on a monitored-series row → Open / Mark seen / Stop / Manage."""
-        from PyQt6.QtWidgets import QMenu
         cid = item.data(_ROLE_SERIES_ID)
         if not cid:
             return
+        menu = self._build_series_context_menu(cid)
+        menu.exec(self._vod_list.viewport().mapToGlobal(pos))
+
+    def _build_series_context_menu(self, cid: str) -> "QMenu":
+        """Build (does not exec) a monitored-series row's right-click menu.
+
+        Hand-rolled (not the channel_menu.py registry): a monitored-series entry
+        is a config-only aggregate, not a ChannelDB row the registry models
+        (play/favorite/queue/etc.) — the identical rationale queue.py's
+        ``_build_matched_series_menu`` documents for the sibling Alerts Matched
+        series row (#365). "Open series" reuses the SAME drill chokepoint as
+        double-click (``seriesActivated``) — never the details-only
+        ``seriesClicked`` (that was the owner-reported bug: right-click "Open
+        series" only loaded the details pane instead of browsing in). Building
+        the menu never mutates/navigates anything — only a triggered action does
+        (mirrors queue.py's ``_build_matched_series_menu`` — opening the menu is
+        never itself a mark-viewed/navigate side effect), and splitting build
+        from exec lets tests trigger an action without a blocking ``exec()``.
+        """
+        from PyQt6.QtWidgets import QMenu
         unseen = 0
         for e in getattr(self.config, "get_monitored_series", lambda: [])():
             if e.get("series_channel_id") == cid:
@@ -903,8 +939,8 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
 
         menu = QMenu(self._vod_list)
         open_action = menu.addAction(f"{_icons.series_icon}  Open series")
-        open_action.setToolTip("Show this series in the details pane")
-        open_action.triggered.connect(lambda _=False, c=cid: self.seriesClicked.emit(c))
+        open_action.setToolTip("Browse this series' seasons and episodes")
+        open_action.triggered.connect(lambda _=False, c=cid: self.seriesActivated.emit(c))
 
         if unseen > 0:
             seen_action = menu.addAction(f"{_icons.watched_icon}  Mark seen")
@@ -925,7 +961,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         manage_action.setToolTip("Manage watch alerts — keyword rules and monitored series")
         manage_action.triggered.connect(self.manageWatchForClicked.emit)
 
-        menu.exec(self._vod_list.viewport().mapToGlobal(pos))
+        return menu
 
     def _rule_info_for_created(self, rule_created: str) -> tuple[str, str]:
         """Return (text, match_type) for the rule identified by rule_created, or ('', 'any')."""
