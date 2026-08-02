@@ -1743,10 +1743,39 @@ _COLLECTION_NOISE_TOKENS: frozenset[str] = (
     QUALITY_TOKENS | _SUB_DUB_TOKENS | _MULTI_TRACK_TOKENS | MEDIA_TYPE_TOKENS
 )
 
+# Restricted vocabulary for the TRAILING-token pass in
+# strip_collection_noise_tokens() — deliberately excludes MEDIA_TYPE_TOKENS.
+# Measured against the owner's real 486,588-row library: the whole-span gate
+# above only fully/partially cleans ~5.2% of noisy rows because real feeds
+# routinely tack a single quality/sub-dub/multi word onto an otherwise-real
+# name ("HINDI SUBS", "FILMOVI 4K UHD") rather than making the WHOLE string
+# noise. Those trailing words are safe to peel one at a time regardless of
+# what remains. Media-type words are NOT safe to peel this way — "TAMIL
+# MOVIES" / "NORDIC FILMS" are legitimate collection names where the media
+# word IS part of the name, and a media word can lead too ("MOVIES
+# 2018-2021"), so MEDIA_TYPE_TOKENS never participates in the trailing pass
+# (only the whole-span gate above, where "every token is noise" already
+# proves the media word isn't naming anything real).
+_TRAILING_NOISE_TOKENS: frozenset[str] = (
+    QUALITY_TOKENS | _SUB_DUB_TOKENS | _MULTI_TRACK_TOKENS
+)
+
+# Matches the last whitespace/hyphen/slash-delimited leaf of a string, plus
+# any separator run immediately before it — group 1 is the leaf itself;
+# slicing the source string at m.start() drops that leaf (and its leading
+# separator) while leaving every character before it untouched, so a kept
+# prefix is never reformatted/rejoined.
+_TRAILING_TOKEN_RE = re.compile(r'[\s\-/]*([^\s\-/]+)\s*$')
+
 
 def _is_collection_noise_token(token: str) -> bool:
     """Return True when *token* (any case) is in :data:`_COLLECTION_NOISE_TOKENS`."""
     return token.upper() in _COLLECTION_NOISE_TOKENS
+
+
+def _is_trailing_noise_token(token: str) -> bool:
+    """Return True when *token* (any case) is in :data:`_TRAILING_NOISE_TOKENS`."""
+    return token.upper() in _TRAILING_NOISE_TOKENS
 
 
 def strip_collection_noise_tokens(collection: str | None) -> str | None:
@@ -1763,11 +1792,12 @@ def strip_collection_noise_tokens(collection: str | None) -> str | None:
     (e.g. ``"|MULTI| APPLE+ KIDS"`` -> ``"APPLE+ KIDS"``).
 
     Mirrors :func:`_is_all_qualifier_tokens`'s established "strip only when
-    the WHOLE span is noise" idiom — never remove a single noise word out of
-    otherwise-meaningful running text, since that risks mangling a real
-    collection name that merely *contains* a noise-vocabulary word (e.g.
-    ``"SERIES MANIA"`` must survive intact: "MANIA" alone is not the
-    collection's name, "SERIES MANIA" together is). Two passes:
+    the WHOLE span is noise" idiom for its first two passes — never remove a
+    single noise word out of otherwise-meaningful running text that way,
+    since that risks mangling a real collection name that merely *contains*
+    a noise-vocabulary word (e.g. ``"SERIES MANIA"`` must survive intact:
+    "MANIA" alone is not the collection's name, "SERIES MANIA" together is).
+    Three passes:
 
     1. **Leading bracket marker** — a leading ``|TOKEN|`` (or multi-word
        ``|TOKEN TOKEN|``) group left behind by :func:`parse_category_marker`
@@ -1775,10 +1805,25 @@ def strip_collection_noise_tokens(collection: str | None) -> str | None:
        (e.g. ``"|MULTI|"`` — 5 chars) is stripped whenever every token
        inside the brackets is noise. Repeats for consecutive leading
        brackets.
-    2. **Free-text body** — the remaining text is cleared to ``""`` only
-       when EVERY token in it is noise (e.g. ``"MULTISUB SERIES 4K"`` — all
-       three tokens are noise, so the whole chip disappears). A single
-       non-noise token anywhere in the body means nothing is touched.
+    2. **Free-text body, whole-span** — the remaining text is cleared to
+       ``""`` only when EVERY token in it is noise (e.g. ``"MULTISUB SERIES
+       4K"`` — all three tokens are noise, so the whole chip disappears). A
+       single non-noise token anywhere in the body means this pass leaves
+       it untouched.
+    3. **Free-text body, trailing run** — when pass 2 didn't clear
+       everything, peel a *trailing* run of quality/sub-dub/multi-track
+       tokens one at a time (looping — ``"FILMOVI 4K UHD"`` -> ``"FILMOVI"``)
+       from :data:`_TRAILING_NOISE_TOKENS`. Deliberately excludes
+       :data:`MEDIA_TYPE_TOKENS`: measured against the owner's real
+       library, real collection names routinely lead OR end with a bare
+       media word that is part of the name — ``"TAMIL MOVIES"``, ``"NORDIC
+       FILMS"``, ``"MOVIES 2018-2021"`` — so a media word never gets peeled
+       here (only pass 2's whole-span check can remove one, and only when
+       every other token is *also* noise). Never peels past the last
+       remaining token — pass 2 already guarantees at least one non-noise
+       (full-vocabulary) token survives by the time this pass runs, so a
+       single noise token alone always resolves via pass 2's ``""``, never
+       via this pass leaving it behind.
 
     Token matching is whole-token only (never a substring) — the body is
     split on whitespace/hyphen/slash and each leaf is compared by exact
@@ -1792,8 +1837,9 @@ def strip_collection_noise_tokens(collection: str | None) -> str | None:
 
     Returns:
         The cleaned string; ``None``/``""`` input is returned unchanged;
-        stripping every token yields ``""`` (the caller normalizes that to
-        ``None`` so no empty chip renders — never re-run at paint time).
+        stripping every token in pass 2 yields ``""`` (the caller normalizes
+        that to ``None`` so no empty chip renders — never re-run at paint
+        time); pass 3 always leaves at least one token.
     """
     if not collection:
         return collection
@@ -1811,6 +1857,17 @@ def strip_collection_noise_tokens(collection: str | None) -> str | None:
     body_tokens = [t for t in re.split(r"[\s\-/]+", working.strip()) if t]
     if body_tokens and all(_is_collection_noise_token(t) for t in body_tokens):
         return ""
+
+    # Pass 3: peel a trailing run of quality/sub-dub/multi tokens — never
+    # media-type (see docstring) — one leaf at a time, never past the last
+    # remaining token.
+    while True:
+        leaves = [t for t in re.split(r"[\s\-/]+", working.strip()) if t]
+        if len(leaves) <= 1 or not _is_trailing_noise_token(leaves[-1]):
+            break
+        m = _TRAILING_TOKEN_RE.search(working)
+        working = working[: m.start()].rstrip()
+
     return working
 
 

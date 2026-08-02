@@ -1794,9 +1794,12 @@ class ChannelRepository(_ChannelStatsMixin):
             # quality tier (the quality chip), a media-type word (the media
             # icon), or a multi/sub marker (the subtitle-marker chip), e.g.
             # "MULTISUB SERIES 4K" -> "" (every token redundant) or
-            # "|MULTI| APPLE+ KIDS" -> "APPLE+ KIDS". Only ever clears a
-            # SPAN that is entirely noise — never touches a real name that
-            # merely contains a noise word ("SERIES MANIA" survives intact).
+            # "|MULTI| APPLE+ KIDS" -> "APPLE+ KIDS". A whole-noise SPAN
+            # clears entirely ("SERIES MANIA" survives intact — MANIA isn't
+            # noise); a TRAILING quality/sub-dub/multi word also gets peeled
+            # off a real name even when the rest is kept ("FILMOVI 4K UHD"
+            # -> "FILMOVI"), but a media-type word never is ("TAMIL MOVIES"
+            # stays — see strip_collection_noise_tokens()'s docstring).
             new_collection: str | None = None
             new_collection_language: str | None = None
             new_collection_subdub: str | None = None

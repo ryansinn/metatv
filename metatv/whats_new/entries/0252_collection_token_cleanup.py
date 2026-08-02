@@ -13,10 +13,17 @@ ENTRY = WhatsNewEntry(
         "subtitle-marker chip — e.g. \"MULTISUB SERIES 4K\" now renders no "
         "chip at all (every token was a duplicate) and \"|MULTI| APPLE+ "
         "KIDS\" renders as just \"APPLE+ KIDS\".",
-        "A collection whose name merely contains a quality/media/sub word — "
-        "like \"SERIES MANIA\" — is left untouched; only a chip that is "
-        "ENTIRELY redundant noise, or a leading bracket marker that's "
-        "entirely noise, gets cleaned up.",
+        "A trailing quality or subtitle/dub/multi-track word is also peeled "
+        "off a real collection name (looping through more than one, e.g. "
+        "\"FILMOVI 4K UHD\" -> \"FILMOVI\", \"HINDI SUBS\" -> \"HINDI\") — "
+        "even when the rest of the name is kept.",
+        "A media-type word (MOVIES, FILMS, SERIES, …) is never peeled off "
+        "the edge of an otherwise-real name — \"TAMIL MOVIES\", \"NORDIC "
+        "FILMS\", and \"MOVIES 2018-2021\" are left exactly as they are, "
+        "since the media word is part of the collection's actual name "
+        "there, not a duplicate tag. It's only removed as part of a chip "
+        "that's entirely redundant noise (like \"MULTISUB SERIES 4K\") or a "
+        "leading bracket marker that's entirely noise.",
         "Existing channels are backfilled automatically on next launch; new "
         "channels get the clean value immediately at ingestion.",
     ),
@@ -34,8 +41,12 @@ ENTRY = WhatsNewEntry(
         "Find a row whose collection value starts with a bracketed marker "
         "like \"|MULTI|\" — the chip now shows just the remaining text after "
         "the marker (e.g. \"APPLE+ KIDS\"), not the bracket.",
-        "Find a row whose collection name legitimately contains a word like "
-        "\"SERIES\" as part of a real name (not just a redundant tag) — the "
-        "full name is still shown unchanged.",
+        "Find a row whose collection value is a real name with a trailing "
+        "quality/sub/dub word (e.g. something like \"HINDI SUBS\" or "
+        "\"FILMOVI 4K UHD\") — the trailing noise word(s) are gone, the real "
+        "name stays.",
+        "Find a row whose collection name legitimately contains a media-type "
+        "word as part of the name (e.g. something like \"TAMIL MOVIES\" or "
+        "\"NORDIC FILMS\") — the full name is still shown unchanged.",
     ),
 )

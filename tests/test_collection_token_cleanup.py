@@ -9,11 +9,25 @@ duplicating the subtitle-marker chip. Real examples: "MULTISUB SERIES 4K"
 (every token redundant -> no chip at all) and "|MULTI| APPLE+ KIDS" (->
 "APPLE+ KIDS").
 
+Follow-up (measured against the owner's real 486,588-row library): the
+whole-span-only rule above is safe but under-delivers — most noisy rows
+carry a real name PLUS a single trailing quality/sub-dub/multi word
+("HINDI SUBS", "FILMOVI 4K UHD"), not an all-noise string. A trailing-only
+pass, restricted to quality/sub-dub/multi tokens (never media-type — see
+TAMIL MOVIES / MOVIES 2018-2021 below), was added on top of the whole-span
+gate to peel those off while leaving zero values collapsed to empty.
+
 Coverage:
 1. ``strip_collection_noise_tokens`` — the pure function (channel_name_utils.py):
-   both real examples, token-boundary safety (24K / SERIES MANIA survive
-   intact), a byte-identical passthrough for a clean collection, and
-   None/empty passthrough.
+   both original real examples, token-boundary safety (24K / SERIES MANIA
+   survive intact), a byte-identical passthrough for a clean collection,
+   None/empty passthrough, the trailing-strip real examples (HINDI SUBS,
+   GREECE MOVIES SUB, FILMY 4K, HINDI ENGLISH DUBBED, TAMIL DUBBED,
+   FILMOVI 4K UHD — repeat-until-clean, NORDIC FILMS 4K), the
+   never-strip-media-type-trailing guard (TAMIL MOVIES, PERSIAN MOVIES,
+   MOVIES 2018-2021, FILM 2019 - 2026 all unchanged), and that a
+   single-token noise value clears via the whole-span path rather than
+   being left behind by the trailing path.
 2. Ingestion routing (``update_detected_prefixes``, real Database on
    tmp_path) — asserts against the STORED ``detected_collection`` field,
    proving the cleanup is resolved at ingestion, not at render time.
@@ -72,6 +86,52 @@ class TestStripCollectionNoiseTokens:
     def test_none_and_empty_passthrough(self):
         assert strip_collection_noise_tokens(None) is None
         assert strip_collection_noise_tokens("") == ""
+
+
+class TestTrailingNoiseStrip:
+    """Follow-up rule (measured against the owner's real library): peel a
+    TRAILING run of quality/sub-dub/multi tokens even when the rest of the
+    string is a real name — but never a media-type token, and never below
+    one remaining token."""
+
+    @pytest.mark.parametrize("collection,expected", [
+        ("HINDI SUBS", "HINDI"),
+        ("GREECE MOVIES SUB", "GREECE MOVIES"),
+        ("FILMY 4K", "FILMY"),
+        ("HINDI ENGLISH DUBBED", "HINDI ENGLISH"),
+        ("TAMIL DUBBED", "TAMIL"),
+        ("NORDIC FILMS 4K", "NORDIC FILMS"),
+    ])
+    def test_real_library_examples(self, collection, expected):
+        assert strip_collection_noise_tokens(collection) == expected
+
+    def test_repeats_until_no_trailing_noise(self):
+        # Two trailing noise tokens in a row ("4K UHD") — must loop, not
+        # stop after a single strip.
+        assert strip_collection_noise_tokens("FILMOVI 4K UHD") == "FILMOVI"
+
+    @pytest.mark.parametrize("collection", [
+        "SERIES MANIA",
+        "MOVIES 2018-2021",
+        "FILM 2019 - 2026",
+        "TAMIL MOVIES",
+        "PERSIAN MOVIES",
+        "NORDIC FILMS",
+        "24K",
+    ])
+    def test_media_type_and_boundary_cases_never_touched_by_trailing_pass(self, collection):
+        # MEDIA_TYPE_TOKENS never participates in the trailing pass — a
+        # leading OR trailing media word is part of the real name
+        # ("TAMIL MOVIES", "MOVIES 2018-2021"), never noise to peel.
+        assert strip_collection_noise_tokens(collection) == collection
+
+    def test_single_token_noise_value_clears_via_whole_span_not_trailing(self):
+        # A collection that IS just one noise word must resolve to "" via
+        # the whole-span gate — the trailing pass's "never below one token"
+        # floor must never be the reason a bare noise word survives.
+        assert strip_collection_noise_tokens("4K") == ""
+        assert strip_collection_noise_tokens("SUB") == ""
+        assert strip_collection_noise_tokens("MULTI") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +259,18 @@ class TestIngestionStripsCollectionNoise:
 
         ch = _get(file_db, cid)
         assert ch.detected_collection == "NETFLIX"
+
+    def test_trailing_noise_stripped_media_type_kept_stored(self, file_db):
+        # Trailing-pass wiring: a real name plus a trailing quality/sub-dub
+        # word gets peeled ("FILMOVI 4K UHD" -> "FILMOVI", looped), while a
+        # trailing media-type word never does ("TAMIL MOVIES" unchanged).
+        _add_provider(file_db)
+        peeled_id = _add_channel(file_db, name="Some Channel", category="FILMOVI 4K UHD")
+        kept_id = _add_channel(file_db, name="Some Channel", category="TAMIL MOVIES")
+        _run_ingestion(file_db)
+
+        assert _get(file_db, peeled_id).detected_collection == "FILMOVI"
+        assert _get(file_db, kept_id).detected_collection == "TAMIL MOVIES"
 
 
 # ---------------------------------------------------------------------------
