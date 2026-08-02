@@ -33,6 +33,7 @@ _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 _CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
     ("Comfy (two lines)", "comfy"),
+    ("Comfy+ (with description)", "comfy_plus"),
     ("Compact (one line)", "compact"),
 )
 
@@ -672,8 +673,9 @@ class SettingsDialog(QDialog):
             self._channel_density_combo.addItem(label, value)
         self._channel_density_combo.setToolTip(
             "Comfy shows two lines per row (title + a badge row of language/\n"
-            "quality/category). Compact fits everything on one line. Applies\n"
-            "immediately when you click OK or Apply."
+            "quality/category). Comfy+ adds a third line with the title's\n"
+            "description, when one is available. Compact fits everything on\n"
+            "one line. Applies immediately when you click OK or Apply."
         )
         channel_list_form.addRow("Row density:", self._channel_density_combo)
 
