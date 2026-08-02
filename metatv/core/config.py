@@ -644,12 +644,24 @@ class Config(BaseModel):
     font_size: int = 0  # 0 = system default
     
     # Sidebar Configuration
-    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
-    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
+    # "sources" retired from this list (Wave 6, #<pending>) — Sources moved out of
+    # the sidebar section stack into the always-visible status strip + Sources
+    # manager view (see gui/sidebar/sources_strip.py, gui/sources_manager_view.py).
+    # Existing configs are migrated by _inject_new_sections().
+    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
+    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
     sidebar_section_sizes: list = Field(default_factory=list)  # Heights of sidebar sections in pixels
+
+    # Settings dialog — three-panel layout (left-nav section list, right help
+    # panel).  settings_dialog_section is the index of the last-selected
+    # left-nav row; width/height are the dialog's last size.  All three are UI
+    # state (persist on close regardless of OK/Cancel), never a setting value.
+    settings_dialog_section: int = 0
+    settings_dialog_width: int = 900
+    settings_dialog_height: int = 600
 
     # Recipe view legacy splitter geometry (pre-redesign two-column layout).
     # Retained so older config.yaml files still load cleanly; the current
@@ -811,7 +823,16 @@ class Config(BaseModel):
     # media_types whose grouped section is collapsed (header only). Persisted so
     # collapse state survives restarts.
     group_collapsed_types: list = Field(default_factory=list)
-    
+    # Channel-list row density (Settings → Interface → Channel List): "compact"
+    # (one line), "comfy" (two lines, default), or "comfy_plus" (comfy plus a
+    # middle plot line — collapses to comfy's two lines when a row has no
+    # plot). One global key — not per-view.
+    channel_list_density: str = "comfy"
+    # Show poster thumbnails at the left of comfy/comfy_plus channel-list rows
+    # (never compact). Lazy, viewport-only: only rows currently on screen ever
+    # request a download (see channel_list_thumbnails.py). Default on.
+    channel_list_thumbnails: bool = True
+
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching
     metadata_cache_ttl_days: int = 30  # Fresh content cache lifetime
@@ -1021,7 +1042,7 @@ class Config(BaseModel):
     # provider's is_adult flag misses).  Bump CURRENT_VERSION in
     # metatv/core/migrations/restricted_backfill.py to trigger a one-time pass
     # populating ChannelDB.detected_restricted (computed at ingestion via
-    # channel_name_utils.is_restricted_name()) for pre-existing rows.
+    # channel_name_utils.is_restricted_prefix()) for pre-existing rows.
     restricted_backfill_version: int = 0
 
     # What's New dialog — cursor tracking which entries the user has seen.
@@ -1474,13 +1495,18 @@ class Config(BaseModel):
                 idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
                 self.sidebar_visible_sections.insert(idx, sid)
                 changed = True
-        # Retire the orphaned "new_episodes" section — its role folded into the
-        # always-visible Watch Alerts section.  Strip any stale saved reference so
-        # the create loop never tries to build a section that no longer exists.
+        # Retire orphaned sections whose UI no longer exists in the sidebar section
+        # stack — strip any stale saved reference so the create loop never tries to
+        # build a section that no longer exists:
+        #   "new_episodes" — folded into the always-visible Watch Alerts section.
+        #   "sources"      — moved out of the sidebar entirely (Wave 6) into the
+        #                    status strip + Sources manager view.
+        _retired_sections = {"new_episodes", "sources"}
         for _attr in ("sidebar_sections", "sidebar_visible_sections"):
             _lst = getattr(self, _attr)
-            if "new_episodes" in _lst:
-                setattr(self, _attr, [s for s in _lst if s != "new_episodes"])
+            _filtered = [s for s in _lst if s not in _retired_sections]
+            if _filtered != _lst:
+                setattr(self, _attr, _filtered)
                 changed = True
         if changed:
             self.save()

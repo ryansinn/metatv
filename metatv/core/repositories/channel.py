@@ -20,7 +20,7 @@ from metatv.core.filter_utils import (
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
-    AI_VOICEOVER_VALUE, is_restricted_name,
+    AI_VOICEOVER_VALUE, is_restricted_prefix,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -184,14 +184,20 @@ def _metadata_person_exists(pattern: str):
     """
     from sqlalchemy import exists as _exists, select as _sa_select, type_coerce as _type_coerce, Text as _Text
 
+    # correlate(ChannelDB) is REQUIRED: get_all() now outerjoins MetadataDB (for
+    # the list DTO's plot/poster columns), so without an explicit correlation
+    # SQLAlchemy auto-correlates MetadataDB out of this subquery too and raises
+    # "returned no FROM clauses due to auto-correlation".
     return _exists(
-        _sa_select(MetadataDB.id).where(
+        _sa_select(MetadataDB.id)
+        .where(
             MetadataDB.id == ChannelDB.metadata_id,
             or_(
                 MetadataDB.director.ilike(pattern),
                 _type_coerce(MetadataDB.cast, _Text).ilike(pattern),
             ),
         )
+        .correlate(ChannelDB)
     )
 
 
@@ -309,6 +315,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 context_category_filter: Optional[str] = None,
                 channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
+                include_dead: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -347,6 +354,12 @@ class ChannelRepository(_ChannelStatsMixin):
                 not a re-derived query on the lossy 'collection' residual.
             exclude_watched: When True, exclude channels where ``watch_completed=True``.
                 Default False (show everything, filter is opt-in).
+            include_dead: When True, lift the dead-stream gate (channels whose
+                ``StreamRetryDB.reliability_state == "dead"``) so those rows are
+                returned alongside the rest — used both to reveal them on demand
+                (mirror-not-cage) and to measure how many the gate is hiding.
+                Default False (gate stays applied, same as today). No effect when
+                ``include_hidden``/``hidden_only`` already bypass the whole block.
 
         Returns:
             List of channels matching all filters.
@@ -387,15 +400,35 @@ class ChannelRepository(_ChannelStatsMixin):
             context_category_filter=context_category_filter,
             channel_ids=channel_ids,
             exclude_watched=exclude_watched,
+            include_dead=include_dead,
         )
 
         query = query.order_by(ChannelDB.name)
 
+        # Comfy+ density's plot line (and the channel-list thumbnail's poster
+        # URL): outerjoin MetadataDB and select ONLY its plot + poster_url
+        # columns in this SAME paginated round-trip — never a per-row lookup.
+        # metadata_id is a FK-by-convention onto MetadataDB's primary key, so the
+        # join is 1:0-or-1 per channel row (no fan-out). add_columns() turns each
+        # result into a (ChannelDB, plot, poster_url) tuple; we unpack immediately
+        # and stash the values on transient (non-mapped, non-persisted) instance
+        # attributes so get_all() keeps returning List[ChannelDB] — every existing
+        # caller (get_hidden_channels, count, _apply_python_exclusions, ...) is
+        # unaffected. ChannelListDTO.from_orm reads them back via ``_joined_plot``
+        # / ``_joined_poster_url``.
+        query = query.outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        query = query.add_columns(MetadataDB.plot, MetadataDB.poster_url)
+
         if offset is not None:
             query = query.offset(offset)
-        if limit is not None:
-            return query.limit(limit).all()
-        return query.all()
+        rows = query.limit(limit).all() if limit is not None else query.all()
+
+        result = []
+        for ch, plot, poster_url in rows:
+            ch._joined_plot = plot or ""
+            ch._joined_poster_url = poster_url or ""
+            result.append(ch)
+        return result
 
     def _apply_channel_filters(
         self,
@@ -427,6 +460,7 @@ class ChannelRepository(_ChannelStatsMixin):
         context_category_filter: Optional[str] = None,
         channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
+        include_dead: bool = False,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
 
@@ -464,21 +498,33 @@ class ChannelRepository(_ChannelStatsMixin):
             # (see channel_list_model.py). Engaged/record views (Favorites,
             # History, Queue) don't route through get_all(), so they stay exempt
             # per DR-0007, same as the is_hidden gate above.
-            dead_channel_ids = (
-                self.session.query(StreamRetryDB.channel_id)
-                .filter(StreamRetryDB.reliability_state == "dead")
-                .scalar_subquery()
-            )
-            query = query.filter(~ChannelDB.id.in_(dead_channel_ids))
+            #
+            # include_dead lifts this one gate on request — the list-query path's
+            # mirror-not-cage reveal (wave6/hidden-accounting): the caller can
+            # re-run the identical query with the gate off to count/show exactly
+            # what it is hiding, without touching is_hidden or the junk filters
+            # below.
+            if not include_dead:
+                dead_channel_ids = (
+                    self.session.query(StreamRetryDB.channel_id)
+                    .filter(StreamRetryDB.reliability_state == "dead")
+                    .scalar_subquery()
+                )
+                query = query.filter(~ChannelDB.id.in_(dead_channel_ids))
 
         # Exclude provider category-header rows (e.g. "##### BEIN SPORTS #####").
         # These are label-only separators injected by some providers — not playable
-        # streams.  The SQL pattern "##%" matches any name starting with ≥2 '#'.
+        # streams.  Deliberate provider-junk drops, not user content: they are NOT
+        # part of the user-facing hidden accounting (no count, no reveal — there is
+        # nothing for the user to recover) and this predicate is unconditional.
+        # The SQL pattern "##%" matches any name starting with ≥2 '#'.
         query = query.filter(ChannelDB.name.notlike("##%"))
 
         # Exclude PPV/event placeholder rows (e.g.
         # "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 ...").
         # These slots have no actual event scheduled — they are not playable.
+        # Same as the "##%" filter above: deliberate provider-junk, not content —
+        # intentionally excluded from the hidden-by-* accounting/reveal surfaces.
         # The "NO EVENT STREAMING" substring is the universal provider marker.
         query = query.filter(ChannelDB.name.notlike("%NO EVENT STREAMING%"))
 
@@ -1609,8 +1655,8 @@ class ChannelRepository(_ChannelStatsMixin):
             # conventions it misses. Reads the UPDATED prefix (this batch's computed
             # value, not the old ORM one) so a channel whose prefix changes in this
             # same pass is judged on its new prefix. Separate provenance from
-            # is_adult — never overwrites it. See channel_name_utils.is_restricted_name.
-            new_restricted = is_restricted_name(channel.name, prefix)
+            # is_adult — never overwrites it. See channel_name_utils.is_restricted_prefix (prefix-only: titles are never scanned).
+            new_restricted = is_restricted_prefix(prefix)
 
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.

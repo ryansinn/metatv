@@ -1358,74 +1358,35 @@ def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> 
 # "Malcolm X" style titles) but a confirmed adult marker when it IS the channel's
 # entire leading prefix token (mirrors BASE_PREFIX_GROUPS["Adult"] =
 # ["X", "XXX", "ADULT"] in config.py — the existing "Adult" content-descriptor group).
-RESTRICTED_NAME_TOKENS: frozenset[str] = frozenset({
-    # Unambiguous markers only. "SEX" was deliberately REMOVED from the free
-    # name scan: legitimate titles carry it ("Sex Education", "Sex and the
-    # City", "Sex Lives of College Girls") and silently hiding a user's real
-    # content is a worse failure than missing one mislabeled channel — the
-    # product tenet is curatorial, never censorial. It still counts via the
-    # provider's Adult prefix-GROUP path (RESTRICTED_PREFIX_TOKENS below).
-    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA",
+# Prefix codes that denote restricted/explicit content. Matched ONLY against a
+# channel's already-extracted ``detected_prefix`` (the provider's own prefix /
+# category convention) — NEVER free-scanned against title text. Owner steer
+# 2026-08-02: "that is done through a flag is_adult or through prefixes defined
+# as adult, not through matching keywords in titles." Title scanning was tried
+# and removed: it hid legitimate content (Sex Education, Adult Swim).
+RESTRICTED_PREFIX_TOKENS: frozenset[str] = frozenset({
+    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA", "SEX", "X",
 })
 
-# Phrases that contain a restricted token but are legitimate content. Checked
-# BEFORE the token scan. Extend as real false positives surface.
-RESTRICTED_NAME_ALLOWLIST: frozenset[str] = frozenset({
-    "ADULT SWIM",
-})
 
-RESTRICTED_PREFIX_TOKENS: frozenset[str] = RESTRICTED_NAME_TOKENS | {"X", "SEX"}
+def is_restricted_prefix(detected_prefix: Optional[str]) -> bool:
+    """True when a channel's stored prefix denotes restricted/explicit content.
 
-_RESTRICTED_NAME_RE = re.compile(
-    r"\b(?:" + "|".join(sorted(RESTRICTED_NAME_TOKENS, key=len, reverse=True)) + r")\b",
-    re.IGNORECASE,
-)
+    Detection is deliberately **prefix-only** (owner steer 2026-08-02): the
+    provider's ``is_adult`` flag and the channel's own prefix/category code are
+    the signals; channel TITLES are never keyword-scanned, because words like
+    "adult"/"sex" appear in legitimate titles (Sex Education, Adult Swim) and
+    hiding a user's real content is a worse failure than missing one mislabeled
+    channel — curatorial, never censorial.
 
-
-def is_restricted_name(name: str, detected_prefix: Optional[str]) -> bool:
-    """Detect restricted (explicit/adult) content from name/prefix convention.
-
-    Owner-reported gap: the provider's ``is_adult`` API flag is unreliable —
-    some providers never set it even when the channel name is unambiguously
-    marked as explicit content by naming convention. This pure helper is the
-    single detection chokepoint for that gap; it must be called only at
-    ingestion (``update_detected_prefixes()`` in ``core/repositories/channel.py``)
-    and the result stored (``ChannelDB.detected_restricted``) — never re-derived
-    at render/query time (CLAUDE.md "compute once at ingestion" rule).
-
-    Priority:
-      1. Prefix-group match — ``detected_prefix`` (the channel's already-stored,
-         ingestion-computed prefix; never re-derived here) equals one of
-         :data:`RESTRICTED_PREFIX_TOKENS`. This is the only path a bare "X"
-         can match — standalone, as the entire prefix.
-      2. Word-boundary token scan of the full name against
-         :data:`RESTRICTED_NAME_TOKENS`. Word-boundary (never substring), so an
-         embedded hit inside an ordinary word never false-positives — "Essex"
-         contains the "SEX" token as a substring but is one unbroken word (no
-         boundary before the embedded "sex"), and "Maxxx" contains "XXX" the
-         same way — neither matches ``\\bSEX\\b`` / ``\\bXXX\\b``.
-
-    Pure — no DB, no Qt.
-
-    Args:
-        name: The channel's raw name.
-        detected_prefix: The channel's stored ``detected_prefix``, or ``None``.
-
-    Returns:
-        True when the name/prefix marks the channel as restricted content.
+    Called at ingestion only (``update_detected_prefixes()``); the result is
+    stored on ``ChannelDB.detected_restricted`` and read everywhere else.
     """
-    if detected_prefix and detected_prefix.strip().upper() in RESTRICTED_PREFIX_TOKENS:
-        return True
-
-    if not name:
+    if not detected_prefix:
         return False
+    return detected_prefix.strip().upper() in RESTRICTED_PREFIX_TOKENS
 
-    # False-positive guard: a legitimate title that merely contains a token
-    # (e.g. "Adult Swim") must never be hidden — checked before the scan.
-    _upper = (name or "").upper()
-    if any(phrase in _upper for phrase in RESTRICTED_NAME_ALLOWLIST):
-        return False
-    return bool(_RESTRICTED_NAME_RE.search(name))
+
 
 
 # ── Dual-facet code table (DR-0006) ─────────────────────────────────────────── #
