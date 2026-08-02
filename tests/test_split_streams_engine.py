@@ -69,8 +69,8 @@ def _make_manager(config: _FakeConfig | None = None) -> PlayerManager:
     cfg = config or _FakeConfig()
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
-    mgr.running_instances = []
     mgr._key_provider = {}
+    mgr._init_connection_accounting()
     mgr.player = _make_player(cfg)
     return mgr
 
@@ -394,3 +394,95 @@ def test_split_off_socket_path_unchanged():
     mgr = _make_manager(cfg)
     key = mgr._resolve_instance_key("any-provider")
     assert mgr.player._socket_path_for(key) == "/tmp/mpv-metatv-socket"
+
+
+# ---------------------------------------------------------------------------
+# 7. send_command — thin wrapper over MPVPlayer._send_ipc_command
+# ---------------------------------------------------------------------------
+
+def test_mpv_send_command_resolves_last_key_and_delivers(monkeypatch):
+    """MPVPlayer.send_command targets _last_key and delivers via _send_ipc_command."""
+    player = _make_player()
+    delivered = []
+    monkeypatch.setattr(
+        MPVPlayer, "_send_ipc_command",
+        lambda self, cmd, key: delivered.append((cmd, key)) or True,
+    )
+    player._last_key = "p1"
+
+    result = player.send_command(["cycle", "pause"])
+
+    assert result is True
+    assert delivered == [({"command": ["cycle", "pause"], "request_id": 1}, "p1")]
+
+
+def test_mpv_send_command_explicit_key_overrides_last_key(monkeypatch):
+    player = _make_player()
+    delivered = []
+    monkeypatch.setattr(
+        MPVPlayer, "_send_ipc_command",
+        lambda self, cmd, key: delivered.append((cmd, key)) or True,
+    )
+    player._last_key = "p1"
+
+    player.send_command(["cycle", "pause"], key="p2")
+
+    assert delivered[0][1] == "p2"
+
+
+def test_mpv_send_command_no_resolvable_key_returns_false():
+    """Multiple-instances mode with no prior play() has no key to resolve."""
+    player = _make_player(_FakeConfig(player_mode="multiple-instances"))
+    assert player.send_command(["cycle", "pause"]) is False
+
+
+def test_player_manager_send_command_delegates_to_player():
+    """PlayerManager.send_command is a thin wrapper — the sanctioned non-play IPC seam."""
+    mgr = _make_manager()
+    mgr.player = MagicMock()
+    mgr.player.send_command.return_value = True
+
+    result = mgr.send_command(["cycle", "pause"], key="p1")
+
+    assert result is True
+    mgr.player.send_command.assert_called_once_with(["cycle", "pause"], key="p1")
+
+
+def test_player_manager_send_command_no_player_returns_false():
+    mgr = _make_manager()
+    mgr.player = None
+    assert mgr.send_command(["cycle", "pause"]) is False
+
+
+def test_player_plugin_base_default_send_command_returns_false():
+    """Non-abstract base default — a player without a raw-command channel is a safe no-op."""
+    from metatv.core.players.base import PlayerPlugin
+
+    class _NoOpPlugin(PlayerPlugin):
+        def __init__(self, config):
+            pass
+
+        @property
+        def name(self):
+            return "noop"
+
+        def is_available(self):
+            return True
+
+        def play(self, url, title, instance_key="__shared__"):
+            return True
+
+        def queue(self, url, title, mode=None, instance_key="__shared__"):
+            return True
+
+        def stop(self):
+            return True
+
+        def is_running(self):
+            return False
+
+        def cleanup(self):
+            pass
+
+    plugin = _NoOpPlugin(None)
+    assert plugin.send_command(["cycle", "pause"]) is False

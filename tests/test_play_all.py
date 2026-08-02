@@ -353,6 +353,9 @@ def test_do_launch_episode_play_all_items_no_episode_num(db):
     host.player_manager.play.return_value = True
     host.player_manager.queue.return_value = True
     host._start_playback_health = MagicMock()
+    # _play_checked lives on _StreamingMixin (not mixed into this bare
+    # _SeriesMixin test host) — stub it like _start_playback_health above.
+    host._play_checked = MagicMock(return_value=True)
 
     queue_items = [
         _make_play_all_item("http://x/2.mp4", "A Christmas Carol 1977", "c2", media_type="movie"),

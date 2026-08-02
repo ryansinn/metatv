@@ -35,7 +35,7 @@ class StreamRetryManager(QObject):
     whenever the pending list changes so the sidebar can refresh.
     """
 
-    stream_online      = pyqtSignal(str, str)   # channel_id, channel_name
+    stream_online      = pyqtSignal(str, str, str)   # channel_id, channel_name, stream_url
     retry_list_changed = pyqtSignal()
 
     # Poll interval — only fires when there's at least one pending entry due
@@ -90,19 +90,34 @@ class StreamRetryManager(QObject):
     def get_all_pending(self) -> list[StreamRetryEntry]:
         with self._db.session_scope() as session:
             rows = StreamRetryRepository(session).get_all_pending()
-            return [
-                StreamRetryEntry(
-                    id=r.id,
-                    channel_id=r.channel_id,
-                    channel_name=r.channel_name,
-                    stream_url=r.stream_url,
-                    status=r.status,
-                    attempt_count=r.attempt_count or 0,
-                    last_error=r.last_error,
-                    next_check_at=r.next_check_at,
-                )
-                for r in rows
-            ]
+            return self._to_entries(rows)
+
+    def get_all_display(self) -> list[StreamRetryEntry]:
+        """Pending + online rows for the sidebar — see StreamRetryRepository.get_all_display.
+
+        The checker (``_run_checks``/``check_all_now``) must keep using
+        ``get_all_pending`` so a recovered "online" row is never re-probed;
+        this method is for the UI display path only.
+        """
+        with self._db.session_scope() as session:
+            rows = StreamRetryRepository(session).get_all_display()
+            return self._to_entries(rows)
+
+    @staticmethod
+    def _to_entries(rows) -> list[StreamRetryEntry]:
+        return [
+            StreamRetryEntry(
+                id=r.id,
+                channel_id=r.channel_id,
+                channel_name=r.channel_name,
+                stream_url=r.stream_url,
+                status=r.status,
+                attempt_count=r.attempt_count or 0,
+                last_error=r.last_error,
+                next_check_at=r.next_check_at,
+            )
+            for r in rows
+        ]
 
     def check_all_now(self) -> None:
         """Force-check all pending entries regardless of schedule (e.g. after source refresh)."""
@@ -135,7 +150,7 @@ class StreamRetryManager(QObject):
                         changed = True
                         if ok:
                             logger.info(f"StreamRetry: {entry.channel_name} is back online")
-                            self.stream_online.emit(entry.channel_id, entry.channel_name)
+                            self.stream_online.emit(entry.channel_id, entry.channel_name, entry.stream_url)
                     except Exception as exc:
                         logger.warning(f"StreamRetry check error for {entry.channel_name}: {exc}")
                         repo.mark_checked(entry, False, str(exc))

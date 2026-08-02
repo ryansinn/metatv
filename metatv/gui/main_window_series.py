@@ -785,7 +785,7 @@ class _SeriesMixin:
         """
         self.notification_manager.dismiss(notif_id)
         logger.info(f"Playing first episode: {title}")
-        if self.player_manager.play(stream_url, title, provider_id=provider_id):
+        if self._play_checked(stream_url, title, provider_id=provider_id):
             # Begin polling mpv for the live playback-health readout (the episode
             # path doesn't go through play_media, so it must arm the readout too).
             self._start_playback_health()

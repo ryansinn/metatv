@@ -71,6 +71,22 @@ class StreamRetryRepository:
             .all()
         )
 
+    def get_all_display(self) -> list[StreamRetryDB]:
+        """Return pending + online rows for sidebar display.
+
+        Unlike :meth:`get_all_pending`, this INCLUDES rows the checker just
+        marked ``status == "online"`` — the recovered entry stays visible
+        (green icon, "Back online!" tooltip) until the user removes it via
+        the existing remove/clear paths. The checker itself must keep using
+        ``get_all_pending`` (it must never re-probe an already-online row).
+        """
+        return (
+            self._session.query(StreamRetryDB)
+            .filter(StreamRetryDB.status.in_(("pending", "online")))
+            .order_by(StreamRetryDB.first_failed_at)
+            .all()
+        )
+
     def mark_checked(self, entry: StreamRetryDB, ok: bool, error: str | None) -> None:
         entry.last_checked_at = datetime.utcnow()
         entry.attempt_count = (entry.attempt_count or 0) + 1

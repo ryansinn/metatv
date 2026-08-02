@@ -560,7 +560,7 @@ class _StreamingMixin:
             actions.append((
                 "Play Anyway",
                 lambda _url=original_url, _name=channel_name, _p=_pid, _fnw=_fnw:
-                    self.player_manager.play(
+                    self._play_checked(
                         _url, _name,
                         provider_id=_p,
                         force_new_window=_fnw,
@@ -579,7 +579,7 @@ class _StreamingMixin:
                 actions.append((
                     sib_label,
                     lambda _u=sib_url, _n=channel_name, _p=sib_pid, _fnw=_fnw:
-                        self.player_manager.play(
+                        self._play_checked(
                             _u, _n,
                             provider_id=_p,
                             force_new_window=_fnw,
@@ -643,7 +643,7 @@ class _StreamingMixin:
             logger.info(f"Resuming {channel_name} at {start_seconds}s")
         if open_ended_buffer:
             logger.info(f"Open-ended buffer mode for {channel_name}")
-        if self.player_manager.play(
+        if self._play_checked(
             final_url, channel_name,
             provider_id=data.get("provider_id"),
             force_new_window=force_new_window,
@@ -728,7 +728,7 @@ class _StreamingMixin:
         # stay stale until the next refresh trigger.
         if reactivated:
             self._refresh_provider_dependent_views()
-        self.player_manager.play(
+        self._play_checked(
             stream_url, channel_name,
             provider_id=provider_id,
             force_new_window=force_new_window,
@@ -1060,6 +1060,148 @@ class _StreamingMixin:
         if not pid:
             return ""
         return self._provider_icons.get(pid, "")
+
+    # ---- Connection-limit enforcement (single chokepoint for every play call) --
+
+    def _provider_max_connections(self, provider_id: str) -> int:
+        """Resolve a provider's stream capacity for the connection accountant.
+
+        Trivial single-row PK lookup — safe to run inline per the async-DB-
+        reads rule (docs/CRITICAL_RULES.md#async-background-db-reads). Falls
+        back to 1 (the ``ProviderDB.max_connections`` column default) on any
+        lookup failure so a missing/errored provider never silently grants
+        unlimited connections.
+
+        This is the ONE helper every play-launch call site uses to fetch
+        ``provider_max_connections`` — never re-query it per call site.
+
+        Args:
+            provider_id: The provider whose ``max_connections`` to fetch.
+
+        Returns:
+            The provider's configured max_connections, or 1 on any error.
+        """
+        try:
+            with self.db.session_scope(commit=False) as session:
+                provider = RepositoryFactory(session).providers.get_by_id(provider_id)
+                if provider is not None and provider.max_connections:
+                    return int(provider.max_connections)
+        except Exception as e:
+            logger.debug(f"provider-max-connections lookup failed for {provider_id}: {e}")
+        return 1
+
+    def _provider_display_name(self, provider_id: str) -> str:
+        """Return a provider's display name for the capacity-warning toast (trivial PK read)."""
+        try:
+            with self.db.session_scope(commit=False) as session:
+                provider = RepositoryFactory(session).providers.get_by_id(provider_id)
+                if provider is not None:
+                    return provider.name or provider_id
+        except Exception as e:
+            logger.debug(f"provider-name lookup failed for {provider_id}: {e}")
+        return provider_id
+
+    def _play_checked(
+        self,
+        url: str,
+        title: str,
+        *,
+        provider_id: str | None = None,
+        force_new_window: bool = False,
+        start_seconds: int = 0,
+        open_ended_buffer: bool = False,
+    ) -> bool:
+        """Single chokepoint every play-launch call site routes through.
+
+        Resolves the provider's real ``max_connections`` via
+        ``_provider_max_connections`` (one helper, not a copy at each call
+        site), pre-flights the connection accountant via
+        ``PlayerManager.check_capacity``, and either plays immediately or
+        shows a "connection limit reached" warning with a "Play anyway
+        (replace oldest)" escape hatch instead of silently failing — this is
+        the only place today that path is reachable (force_new_window opening
+        a second window for a provider already playing in the shared window,
+        or ``player_mode == "multiple-instances"``; see
+        ``connection_accountant.py`` module docstring).
+
+        Same bool return contract as ``player_manager.play()`` — a drop-in
+        replacement at every call site.
+        """
+        max_conn = self._provider_max_connections(provider_id) if provider_id else 1
+        preview = self.player_manager.check_capacity(
+            provider_id, max_conn, force_new_window=force_new_window
+        )
+        if preview is not None and not preview.granted:
+            self._show_capacity_warning(
+                provider_id, preview, url, title, force_new_window,
+                start_seconds, open_ended_buffer,
+            )
+            return False
+
+        return self.player_manager.play(
+            url, title,
+            provider_id=provider_id,
+            provider_max_connections=max_conn,
+            force_new_window=force_new_window,
+            start_seconds=start_seconds,
+            open_ended_buffer=open_ended_buffer,
+        )
+
+    def _show_capacity_warning(
+        self,
+        provider_id: str,
+        preview,
+        url: str,
+        title: str,
+        force_new_window: bool,
+        start_seconds: int,
+        open_ended_buffer: bool,
+    ) -> None:
+        """Show the "connection limit reached" toast with a replace-oldest escape hatch.
+
+        Args:
+            provider_id: The provider whose limit would be exceeded.
+            preview: The ``AcquireResult`` from ``PlayerManager.check_capacity``
+                (``granted=False``) — carries capacity + current holder keys.
+            url: The stream URL the blocked play would have used.
+            title: Display title for the blocked play.
+            force_new_window: Same meaning as in ``play()`` — re-threaded into
+                the "Play anyway" retry.
+            start_seconds: Resume position — re-threaded into the retry.
+            open_ended_buffer: Buffer mode — re-threaded into the retry.
+        """
+        provider_name = self._provider_display_name(provider_id)
+        oldest_key = preview.holders[0] if preview.holders else None
+
+        def _replace_oldest(
+            _oldest=oldest_key, _url=url, _title=title, _pid=provider_id,
+            _fnw=force_new_window, _ss=start_seconds, _oeb=open_ended_buffer,
+        ):
+            if _oldest:
+                # Frees the slot _replace_oldest's play() below needs.
+                self.player_manager.stop(key=_oldest)
+            self.player_manager.play(
+                _url, _title,
+                provider_id=_pid,
+                provider_max_connections=self._provider_max_connections(_pid),
+                force_new_window=_fnw, start_seconds=_ss, open_ended_buffer=_oeb,
+            )
+
+        plural = "s" if preview.capacity != 1 else ""
+        self.notification_manager.show(
+            title="Connection Limit Reached",
+            message=(
+                f"{provider_name} allows {preview.capacity} simultaneous stream{plural}; "
+                f"{len(preview.holders)} already in use."
+            ),
+            type="warning",
+            dismissible=True,
+            auto_dismiss_seconds=None,
+            actions=[
+                ("Play anyway (replace oldest)", _replace_oldest),
+                ("Cancel", lambda: None),
+            ],
+        )
 
     # ---- Live playback-health indicator -------------------------------------
     #

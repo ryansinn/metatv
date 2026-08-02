@@ -159,6 +159,8 @@ mpv runs as a per-source instance registry (Split Streams). `PlayerManager.play(
 
 - Every play path **threads the channel's `provider_id`**: `play_media` → `_bg_validate_and_play` → `_stream_ready` payload → `_on_stream_ready` → `player_manager.play(provider_id=…)`. Dropping it breaks Split Streams.
 - `is_running`/`stop`/`get_properties`/`active_keys` go through `PlayerManager(..., key=…)`. Never touch `MPVPlayer`'s process/socket directly.
+- Ad-hoc mpv IPC that doesn't fit play/queue/stop (hotkeys, mini-player controls) goes through `PlayerManager.send_command(cmd, key=…)` — a thin wrapper over `MPVPlayer.send_command`. Never call `MPVPlayer._send_ipc_command` directly.
+- **Connection accounting (Wave 5):** every play call site resolves the provider's real `max_connections` via the single `_StreamingMixin._provider_max_connections()` helper and routes through `_StreamingMixin._play_checked()` (not `player_manager.play()` directly) — it pre-flights `PlayerManager.check_capacity()` against `metatv/core/connection_accountant.py`'s `ConnectionAccountant` (per-provider holder registry, DB/Qt-agnostic) and shows a "Connection Limit Reached" warning with a "Play anyway (replace oldest)" escape hatch instead of silently failing. `PlayerManager.play()`/`stop()` register/release holders and reconcile dead ones (via `active_keys()`) on every call — see the module docstring for why exceeding capacity is rare under the current one-window-per-provider keying scheme.
 
 ## View lifecycle
 

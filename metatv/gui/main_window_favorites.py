@@ -243,7 +243,11 @@ class _FavoritesMixin:
     def _refresh_alerts_retry_section(self) -> None:
         section = self.sidebar_sections.get("alerts")
         if section and hasattr(section, "refresh_retry"):
-            entries = self.stream_retry_manager.get_all_pending()
+            # Display path includes recovered "online" rows (green icon, "Back
+            # online!" tooltip) so they stay visible until the user removes
+            # them — get_all_pending() (checker-only) would drop them the
+            # instant they recover. See StreamRetryRepository.get_all_display.
+            entries = self.stream_retry_manager.get_all_display()
             section.refresh_retry(entries)
 
     def _on_retry_play_requested(self, channel_id: str, stream_url: str, channel_name: str) -> None:
@@ -262,14 +266,26 @@ class _FavoritesMixin:
         ids = [channel_id] if channel_id else []
         self._show_channel_menu(ids, "retry", x, y, entry_id=entry_id)
 
-    def _on_stream_back_online(self, channel_id: str, channel_name: str) -> None:
-        from PyQt6.QtWidgets import QApplication
+    def _on_stream_back_online(self, channel_id: str, channel_name: str, stream_url: str = "") -> None:
+        """A previously-failed stream is back online — toast with a Play action.
+
+        Wired to ``StreamRetryManager.stream_online``. The Play action routes
+        through the existing retry-play seam (``_on_retry_play_requested`` —
+        the same handler double-clicking the Stream Monitoring row uses) so
+        it resolves the ChannelDB row when there is one, or falls back to the
+        episode-launch path otherwise.
+        """
         self.notification_manager.show(
             title="Stream Available",
             message=f"{channel_name} is back online.",
             type="success",
             dismissible=True,
             auto_dismiss_seconds=30,
+            actions=[(
+                "Play",
+                lambda _cid=channel_id, _url=stream_url, _name=channel_name:
+                    self._on_retry_play_requested(_cid, _url, _name)
+            )],
         )
         self._refresh_alerts_retry_section()
 
