@@ -69,3 +69,41 @@ def test_upgrade_delta_still_shows(monkeypatch):
         dlg.return_value.exec.return_value = None
         win.maybe_show_whats_new()
     dlg.assert_called_once()
+
+
+def _entries(n, version):
+    out = []
+    for i in range(n):
+        e = MagicMock()
+        e.version = version
+        out.append(e)
+    return out
+
+
+def test_auto_dialog_caps_huge_backlog(monkeypatch):
+    """>cap unseen → only the newest release's entries show, footnote says the rest."""
+    monkeypatch.delenv("METATV_DEV", raising=False)
+    win = _bare_window()
+    win.config.last_seen_whats_new_id = 1
+    unseen = _entries(4, "0.18.1") + _entries(30, "0.15.0")  # newest-first
+    win._whats_new_unseen = MagicMock(return_value=unseen)
+    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+        Dlg.return_value.exec = MagicMock()
+        win.maybe_show_whats_new()
+    args, kwargs = Dlg.call_args
+    assert len(args[0]) == 4 and all(e.version == "0.18.1" for e in args[0])
+    assert "30 earlier entries" in kwargs["footnote"]
+
+
+def test_auto_dialog_small_backlog_uncapped(monkeypatch):
+    monkeypatch.delenv("METATV_DEV", raising=False)
+    win = _bare_window()
+    win.config.last_seen_whats_new_id = 1
+    unseen = _entries(3, "0.18.1") + _entries(2, "0.18.0")
+    win._whats_new_unseen = MagicMock(return_value=unseen)
+    with patch("metatv.gui.main_window.WhatsNewDialog") as Dlg:
+        Dlg.return_value.exec = MagicMock()
+        win.maybe_show_whats_new()
+    args, kwargs = Dlg.call_args
+    assert len(args[0]) == 5
+    assert kwargs["footnote"] is None

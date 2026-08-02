@@ -222,6 +222,146 @@ class TestUpdateDetectedPrefixesProgressAndCancel:
 
 
 # ---------------------------------------------------------------------------
+# 1b. update_detected_prefixes — transient lock retry
+# ---------------------------------------------------------------------------
+
+class TestUpdateDetectedPrefixesLockRetry:
+    """Behavioral tests for the OperationalError('database is locked') retry
+    in ChannelRepository._commit_prefix_batch_with_retry / _process_prefix_batch.
+
+    Regression: the owner's 2026-07-31 and 2026-08-01 detected_title_reparse
+    runs crash-looped on a transient 'database is locked' raised mid-batch by
+    a concurrent EPG-refresh / series-monitor writer — one lock collision
+    aborted the ENTIRE multi-batch run (already-committed batches stayed
+    durable, but the whole pass restarted from scratch on the next launch,
+    repeating the progress strip every launch). These tests drive the real
+    batch-commit path against a real tmp_path Database and force a fake lock
+    error via a patched ``Session.commit``.
+    """
+
+    def test_lock_error_retries_then_succeeds(self, db, monkeypatch):
+        """Two transient lock errors, then a real commit succeeds: the batch
+        is NOT aborted and the channel IS updated (not lost to the retry)."""
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            cid = _make_channel(session, "EN - Test Channel")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _flaky_commit():
+                calls["n"] += 1
+                if calls["n"] <= 2:
+                    raise OperationalError(
+                        "UPDATE channels ...", {}, Exception("database is locked")
+                    )
+                real_commit()
+
+            monkeypatch.setattr(session, "commit", _flaky_commit)
+            try:
+                count = repos.channels.update_detected_prefixes()
+            finally:
+                # Restore the real bound method before this `with` block exits —
+                # session_scope() itself commits on success, and that exit-commit
+                # must not also run through the flaky stub (it already did its
+                # job inside update_detected_prefixes).
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert count == 1, f"expected the channel to be updated, got count={count}"
+        assert calls["n"] == 3, f"expected 2 failed attempts + 1 success, got {calls['n']}"
+        assert len(sleeps) == 2, f"expected a sleep between each of the 2 retries, got {sleeps}"
+
+        with db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=cid).first()
+            assert ch.detected_prefix == "EN", (
+                f"expected the retried batch to actually persist; got {ch.detected_prefix!r}"
+            )
+
+    def test_lock_error_exhausts_retries_and_raises(self, db, monkeypatch):
+        """A lock error on every attempt re-raises after the retry budget —
+        it does not retry forever."""
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            _make_channel(session, "EN - Test Channel")
+
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: None)
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _always_locked():
+                calls["n"] += 1
+                raise OperationalError(
+                    "UPDATE channels ...", {}, Exception("database is locked")
+                )
+
+            monkeypatch.setattr(session, "commit", _always_locked)
+            try:
+                with pytest.raises(OperationalError):
+                    repos.channels.update_detected_prefixes()
+            finally:
+                # Restore before the `with` block's own exit-commit fires — the
+                # aborted run already rolled itself back; let session_scope's
+                # exit run against the real (harmless, nothing-pending) commit.
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert calls["n"] == channel_mod._LOCK_RETRY_ATTEMPTS, (
+            f"expected exactly {channel_mod._LOCK_RETRY_ATTEMPTS} attempts, got {calls['n']}"
+        )
+
+    def test_non_lock_operational_error_aborts_without_retry(self, db, monkeypatch):
+        """A non-'locked' OperationalError aborts immediately — no retry, no
+        sleep. Extends the #364 contract at the layer the lock/non-lock
+        distinction now lives in: only lock contention retries, every other
+        failure still aborts the run so the caller (MigrationManager) leaves
+        the version unbumped."""
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            _make_channel(session, "EN - Test Channel")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _broken_commit():
+                calls["n"] += 1
+                raise OperationalError(
+                    "UPDATE channels ...", {}, Exception("no such table: channels")
+                )
+
+            monkeypatch.setattr(session, "commit", _broken_commit)
+            try:
+                with pytest.raises(OperationalError):
+                    repos.channels.update_detected_prefixes()
+            finally:
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert calls["n"] == 1, "a non-lock error must not be retried"
+        assert sleeps == [], "must not sleep on a non-lock error"
+
+
+# ---------------------------------------------------------------------------
 # 2. MigrationManager — skip, signal ordering, cancellation
 # ---------------------------------------------------------------------------
 
@@ -682,3 +822,158 @@ def test_crashed_task_does_not_bump_version(qapp):
     crashing.on_completed.assert_not_called()   # crashed → version NOT bumped
     healthy.on_completed.assert_called_once()   # later tasks still run + complete
     assert finished == ["crashy", "healthy"]    # widget got both finish signals
+
+
+def test_crashed_task_still_triggers_canonical_refresh(qapp, monkeypatch):
+    """UX repair: a crashed migration task's already-committed batches must
+    not leave the UI stale for the rest of the session.
+
+    ``MigrationManager._run_all`` emits ``_all_finished`` from its outer
+    ``finally`` regardless of whether a task crashed (the except-Exception
+    branch ``continue``s rather than returning), and ``setup_notifications``
+    wires that signal straight to
+    ``MainWindow._refresh_provider_dependent_views`` — so the crash path
+    already triggers the canonical refresh today. This test proves the
+    combination end-to-end: a REAL crashing task run through REAL
+    ``run_pending()``/``_run_all``, driving the REAL ``setup_notifications``
+    wiring, waited out on a real Qt event loop (not a manual ``.emit()``).
+    """
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from PyQt6.QtCore import QEventLoop, QTimer
+    from metatv.gui import main_window as mw_mod
+    from metatv.gui.main_window import MainWindow
+    from metatv.core.migration_manager import MigrationManager
+
+    monkeypatch.setattr(mw_mod, "NotificationWidget", MagicMock())
+    monkeypatch.setattr(mw_mod, "MigrationProgressWidget", MagicMock())
+
+    mgr = MigrationManager(config=_FakeConfig(), db=MagicMock())
+    crashing = MagicMock()
+    crashing.id = "crashy"
+    crashing.label = "Crashy task"
+    crashing.needs_run.return_value = True
+    crashing.run.side_effect = RuntimeError("database is locked")
+    mgr.register(crashing)
+
+    me = SimpleNamespace(
+        migration_manager=mgr,
+        notification_manager=MagicMock(),
+        config=MagicMock(),
+        centralWidget=MagicMock(),
+        update_notifications=MagicMock(),
+        load_channels=MagicMock(),
+        _refresh_provider_dependent_views=MagicMock(),
+    )
+    try:
+        MainWindow.setup_notifications(me)
+
+        loop = QEventLoop()
+        mgr.all_finished.connect(loop.quit)
+        guard = QTimer()
+        guard.setSingleShot(True)
+        guard.setInterval(3000)
+        guard.timeout.connect(loop.quit)
+        guard.start()
+
+        mgr.run_pending()
+        loop.exec()
+        guard.stop()
+
+        crashing.on_completed.assert_not_called()  # crashed → version NOT bumped (#364)
+        me._refresh_provider_dependent_views.assert_called_once()  # UI still refreshes
+    finally:
+        mgr.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# 4. MainWindow startup fetch gate — sequencing behind pending migrations
+# ---------------------------------------------------------------------------
+
+class TestStartupFetchGate:
+    """Regression tests for ``MainWindow._gate_startup_fetches``.
+
+    ``series_monitor.check_all``, ``vod_watch_alert_manager.check_all``, and
+    ``epg_manager.refresh_all_if_needed`` are bulk DB writers with no
+    lock-retry of their own. Firing them unconditionally at startup let them
+    race a heavy Migration Center run's batched commits — the root cause of
+    the 2026-07-31 / 2026-08-01 'database is locked' crash-loops. These tests
+    drive the real unbound ``_gate_startup_fetches`` against a
+    ``SimpleNamespace`` host + a REAL ``MigrationManager`` (so
+    ``all_finished`` is a genuine ``pyqtSignal`` we can emit), spying on
+    ``_start_deferred_fetches`` rather than the ``QTimer.singleShot``
+    plumbing inside it (unchanged, pre-existing timing).
+    """
+
+    def test_no_pending_migrations_fires_immediately(self, qapp):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from metatv.gui.main_window import MainWindow
+        from metatv.core.migration_manager import MigrationManager
+
+        mgr = MigrationManager(config=_FakeConfig(), db=MagicMock())
+        # No tasks registered → has_pending_tasks() is False.
+        me = SimpleNamespace(
+            migration_manager=mgr,
+            _start_deferred_fetches=MagicMock(),
+        )
+        try:
+            MainWindow._gate_startup_fetches(me)
+            me._start_deferred_fetches.assert_called_once()
+        finally:
+            mgr.shutdown()
+
+    def test_pending_migrations_defer_until_all_finished(self, qapp):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from metatv.gui.main_window import MainWindow
+        from metatv.core.migration_manager import MigrationManager
+
+        mgr = MigrationManager(config=_FakeConfig(), db=MagicMock())
+        pending_task = MagicMock()
+        pending_task.needs_run.return_value = True
+        mgr.register(pending_task)
+
+        me = SimpleNamespace(
+            migration_manager=mgr,
+            _start_deferred_fetches=MagicMock(),
+        )
+        try:
+            MainWindow._gate_startup_fetches(me)
+
+            assert me._start_deferred_fetches.call_count == 0, (
+                "must not fire the fetch storm while migrations are pending"
+            )
+
+            mgr.all_finished.emit()
+
+            me._start_deferred_fetches.assert_called_once()
+        finally:
+            mgr.shutdown()
+
+    def test_gate_handler_disconnects_after_firing_once(self, qapp):
+        """Guards against a future all_finished emission (e.g. a later
+        manual re-trigger in the same session) re-running the startup
+        kickoffs a second time — 'connected once', per the design."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from metatv.gui.main_window import MainWindow
+        from metatv.core.migration_manager import MigrationManager
+
+        mgr = MigrationManager(config=_FakeConfig(), db=MagicMock())
+        pending_task = MagicMock()
+        pending_task.needs_run.return_value = True
+        mgr.register(pending_task)
+
+        me = SimpleNamespace(
+            migration_manager=mgr,
+            _start_deferred_fetches=MagicMock(),
+        )
+        try:
+            MainWindow._gate_startup_fetches(me)
+            mgr.all_finished.emit()
+            mgr.all_finished.emit()  # simulate a second completion signal
+
+            assert me._start_deferred_fetches.call_count == 1
+        finally:
+            mgr.shutdown()

@@ -557,7 +557,7 @@ def test_maybe_show_whats_new_advances_cursor_and_saves(qapp):
 
     # Patch WhatsNewDialog in the main_window module so the ctor receives None parent
     class _FakeDialog:
-        def __init__(self_d, entries, parent=None):
+        def __init__(self_d, entries, parent=None, footnote=None):
             pass
         def exec(self_d):
             exec_calls.append(1)
@@ -585,7 +585,7 @@ def test_maybe_show_whats_new_does_not_show_twice(qapp):
     exec_calls = []
 
     class _FakeDialog:
-        def __init__(self_d, entries, parent=None):
+        def __init__(self_d, entries, parent=None, footnote=None):
             pass
         def exec(self_d):
             exec_calls.append(1)
@@ -609,7 +609,7 @@ def test_maybe_show_whats_new_skips_when_all_seen(qapp):
     exec_calls = []
 
     class _FakeDialog:
-        def __init__(self_d, entries, parent=None):
+        def __init__(self_d, entries, parent=None, footnote=None):
             pass
         def exec(self_d):
             exec_calls.append(1)
