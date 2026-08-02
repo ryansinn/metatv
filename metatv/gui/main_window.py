@@ -236,6 +236,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # setting. View-scoped: cleared on the next search / filter change.
         self._bypass_global_exclusions: bool = False
         self._currently_bypassing_exclusions: bool = False  # set after load, read by filter_channels
+        # When True, the dead-stream gate (StreamRetryDB.reliability_state == "dead")
+        # is lifted for one load — so the user can see channels hidden by repeated
+        # play failures for THIS view without changing anything. View-scoped:
+        # cleared on the next search / filter change, same as the exclusions reveal.
+        self._bypass_dead_gate: bool = False
+        self._currently_bypassing_dead: bool = False  # set after load, read by filter_channels
 
         # Details-pane context filters — set when user clicks a genre/person/tag chip.
         # At most one is active at a time; all are cleared by the chip's dismiss button.
@@ -1613,12 +1619,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._list_layout.addWidget(self._channel_banner)
 
-        # Filter-transparency bar: up to two clickable "N hidden by <layer> — show"
-        # segments, one per filter layer (Global Exclusions / search filters).  Each
-        # segment is a QPushButton (keyboard-focusable, theme pointer cursor); the
-        # bar shows only the segments whose hidden-count is > 0.  Reveals are
-        # view-scoped — clicking never changes the user's stored settings.  Hidden by
-        # default; _ChannelListMixin shows/hides it via _show_channel_filter_breakdown.
+        # Filter-transparency bar: up to three clickable "N hidden by <layer> — show"
+        # segments, one per filter layer (Global Exclusions / search filters /
+        # dead-stream gate).  Each segment is a QPushButton (keyboard-focusable,
+        # theme pointer cursor); the bar shows only the segments whose hidden-count
+        # is > 0.  Reveals are view-scoped — clicking never changes the user's
+        # stored settings.  Hidden by default; _ChannelListMixin shows/hides it via
+        # _show_channel_filter_breakdown.
         from PyQt6.QtWidgets import QWidget as _QWidget, QHBoxLayout as _QHBoxLayout
         self._channel_filter_bar = _QWidget()
         self._channel_filter_bar.setVisible(False)
@@ -1654,6 +1661,17 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._channel_filter_btn.clicked.connect(self._show_filtered_results)
         _cfb_layout.addWidget(self._channel_filter_btn)
+        # Segment 3 — dead-stream gate (repeated play failures).
+        self._channel_dead_btn = QPushButton()
+        self._channel_dead_btn.setVisible(False)
+        self._channel_dead_btn.setStyleSheet(_seg_style)
+        self._channel_dead_btn.setToolTip(
+            "These channels have repeatedly failed to play and are held back from "
+            "the list.\nClick to temporarily show them for this view only.\n"
+            "Nothing is deleted; searching or changing filters restores the view."
+        )
+        self._channel_dead_btn.clicked.connect(self._show_dead_hidden)
+        _cfb_layout.addWidget(self._channel_dead_btn)
         _cfb_layout.addStretch(1)
         self._list_layout.addWidget(self._channel_filter_bar)
 

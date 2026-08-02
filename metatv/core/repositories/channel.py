@@ -309,6 +309,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 context_category_filter: Optional[str] = None,
                 channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
+                include_dead: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -347,6 +348,12 @@ class ChannelRepository(_ChannelStatsMixin):
                 not a re-derived query on the lossy 'collection' residual.
             exclude_watched: When True, exclude channels where ``watch_completed=True``.
                 Default False (show everything, filter is opt-in).
+            include_dead: When True, lift the dead-stream gate (channels whose
+                ``StreamRetryDB.reliability_state == "dead"``) so those rows are
+                returned alongside the rest — used both to reveal them on demand
+                (mirror-not-cage) and to measure how many the gate is hiding.
+                Default False (gate stays applied, same as today). No effect when
+                ``include_hidden``/``hidden_only`` already bypass the whole block.
 
         Returns:
             List of channels matching all filters.
@@ -387,6 +394,7 @@ class ChannelRepository(_ChannelStatsMixin):
             context_category_filter=context_category_filter,
             channel_ids=channel_ids,
             exclude_watched=exclude_watched,
+            include_dead=include_dead,
         )
 
         query = query.order_by(ChannelDB.name)
@@ -446,6 +454,7 @@ class ChannelRepository(_ChannelStatsMixin):
         context_category_filter: Optional[str] = None,
         channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
+        include_dead: bool = False,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
 
@@ -483,21 +492,33 @@ class ChannelRepository(_ChannelStatsMixin):
             # (see channel_list_model.py). Engaged/record views (Favorites,
             # History, Queue) don't route through get_all(), so they stay exempt
             # per DR-0007, same as the is_hidden gate above.
-            dead_channel_ids = (
-                self.session.query(StreamRetryDB.channel_id)
-                .filter(StreamRetryDB.reliability_state == "dead")
-                .scalar_subquery()
-            )
-            query = query.filter(~ChannelDB.id.in_(dead_channel_ids))
+            #
+            # include_dead lifts this one gate on request — the list-query path's
+            # mirror-not-cage reveal (wave6/hidden-accounting): the caller can
+            # re-run the identical query with the gate off to count/show exactly
+            # what it is hiding, without touching is_hidden or the junk filters
+            # below.
+            if not include_dead:
+                dead_channel_ids = (
+                    self.session.query(StreamRetryDB.channel_id)
+                    .filter(StreamRetryDB.reliability_state == "dead")
+                    .scalar_subquery()
+                )
+                query = query.filter(~ChannelDB.id.in_(dead_channel_ids))
 
         # Exclude provider category-header rows (e.g. "##### BEIN SPORTS #####").
         # These are label-only separators injected by some providers — not playable
-        # streams.  The SQL pattern "##%" matches any name starting with ≥2 '#'.
+        # streams.  Deliberate provider-junk drops, not user content: they are NOT
+        # part of the user-facing hidden accounting (no count, no reveal — there is
+        # nothing for the user to recover) and this predicate is unconditional.
+        # The SQL pattern "##%" matches any name starting with ≥2 '#'.
         query = query.filter(ChannelDB.name.notlike("##%"))
 
         # Exclude PPV/event placeholder rows (e.g.
         # "- NO EVENT STREAMING - | 8K EXCLUSIVE | DE: DYN PPV 13 ...").
         # These slots have no actual event scheduled — they are not playable.
+        # Same as the "##%" filter above: deliberate provider-junk, not content —
+        # intentionally excluded from the hidden-by-* accounting/reveal surfaces.
         # The "NO EVENT STREAMING" substring is the universal provider marker.
         query = query.filter(ChannelDB.name.notlike("%NO EVENT STREAMING%"))
 

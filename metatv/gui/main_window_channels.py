@@ -96,6 +96,7 @@ class _ChannelListMixin:
             return  # programmatic restore — caller issues the load; skip debounce/save
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
         self._bypass_global_exclusions = False  # …including the exclusions reveal
+        self._bypass_dead_gate = False  # …and the dead-stream-gate reveal
         self._clear_id_filter()             # a new search drops the ephemeral alert id-filter
         self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
@@ -112,6 +113,7 @@ class _ChannelListMixin:
             True if an id-filter was active and cleared, else False.
         """
         self._bypass_global_exclusions = False  # any id-filter change drops the exclusions reveal
+        self._bypass_dead_gate = False  # …and the dead-stream-gate reveal
         if getattr(self, "_details_id_filter", None) is None:
             return False
         self._details_id_filter = None
@@ -368,6 +370,10 @@ class _ChannelListMixin:
             # load so the user can see exactly what those exclusions hide (mirror-not-
             # cage). Never mutates the stored settings; reset on next search/filter change.
             bypass_global_exclusions=self._bypass_global_exclusions,
+            # View-scoped reveal: lift the dead-stream gate for this one load so the
+            # user can see channels held back by repeated play failures (mirror-not-
+            # cage). Never mutates stored settings; reset on next search/filter change.
+            bypass_dead_gate=self._bypass_dead_gate,
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
             person_filter=self._details_person_filter,
@@ -422,6 +428,11 @@ class _ChannelListMixin:
         # hide-watched, tag-includes, and the Python-side exclusions below.
         _id_filter = params.get('context_id_filter')
         id_filter_show_all = bool(_id_filter) and bool(params.get('id_filter_show_all'))
+        # View-scoped reveal: lift the dead-stream gate for this one load (mirrors
+        # bypass_global_exclusions below). Only meaningful on the main branch — the
+        # hidden_only/id_filter_show_all branches already set include_hidden=True,
+        # which bypasses the whole is_hidden/dead block in _apply_channel_filters.
+        bypass_dead_gate = bool(params.get('bypass_dead_gate'))
         if hidden_only:
             channels = repos.channels.get_hidden_channels(
                 excluded_user_categories=params.get('excluded_user_categories'),
@@ -461,6 +472,7 @@ class _ChannelListMixin:
                 include_uncategorized_content_types=True,
                 hidden_only=False,
                 include_hidden=False,
+                include_dead=bypass_dead_gate,
                 search_query=params.get('search_query'),
                 strict_genre_filter=params.get('strict_genre_filter'),
                 person_filter=params.get('person_filter'),
@@ -552,6 +564,57 @@ class _ChannelListMixin:
             hidden_by_search = max(0, len(unfiltered) - len(channels))
             filtered_out_count = hidden_by_search
 
+        # ── Filter layer 3 — dead-stream gate (repeated play failures) ─────────────
+        # Channels whose reliability_state has graduated to "dead" (StreamRetryDB —
+        # 6+ consecutive user-initiated play failures) are gated out by
+        # _apply_channel_filters right beside is_hidden.  Re-run the SAME query with
+        # ONLY that gate lifted (include_dead=True, every other axis held equal,
+        # same bounded page_size as the layers above — no unbounded scan) and diff
+        # against the surviving set: hidden_by_dead is exactly what this layer
+        # removes.  Skipped when hidden_only/id_filter_show_all already bypass the
+        # whole block (nothing to measure), or when the user already revealed this
+        # layer for the view (bypass_dead_gate) — the main query above already
+        # returned the dead rows, so there is nothing further hidden to report.
+        hidden_by_dead = 0
+        dead_active = not hidden_only and not id_filter_show_all and not bypass_dead_gate
+        if dead_active:
+            with_dead = repos.channels.get_all(
+                provider_id=params['provider_id'],
+                media_types=params['media_types'],
+                language_prefixes=params.get('language_prefixes'),
+                region_prefixes=params.get('region_prefixes'),
+                quality_prefixes=params.get('quality_prefixes'),
+                platform_prefixes=params.get('platform_prefixes'),
+                genre_filters=params.get('genre_filters'),
+                invert_prefix_filters=params['invert_prefix_filters'],
+                include_untagged=params['include_untagged'],
+                include_untagged_quality=params.get('include_untagged_quality', True),
+                adult_mode=params['adult_mode'],
+                force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
+                hidden_only=False,
+                include_hidden=False,
+                include_dead=True,  # the axis being measured
+                search_query=params.get('search_query'),
+                strict_genre_filter=params.get('strict_genre_filter'),
+                person_filter=params.get('person_filter'),
+                context_tag_filter=params.get('context_tag_filter'),
+                context_category_filter=params.get('context_category_filter'),
+                channel_ids=params.get('context_id_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
+                tag_includes=params.get('tag_includes'),
+                exclude_watched=params.get('hide_watched', False),
+                limit=_page_size,
+            )
+            # Mirror the exclusion filtering applied to `channels` so the diff isolates
+            # ONLY the dead-stream gate (never the exclusion layer counted above).
+            if exclusions_applied:
+                with_dead = _apply_python_exclusions(
+                    with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                )
+            hidden_by_dead = max(0, len(with_dead) - len(channels))
+
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
         watched_hidden_count = 0
@@ -600,6 +663,7 @@ class _ChannelListMixin:
         # Per-layer transparency counts read by _show_channel_filter_breakdown.
         params['hidden_by_exclusions'] = hidden_by_exclusions
         params['hidden_by_search']     = hidden_by_search
+        params['hidden_by_dead']       = hidden_by_dead
         params['id_filter_active']  = id_filter_active
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
@@ -653,10 +717,12 @@ class _ChannelListMixin:
         # reflected correctly.
         self._currently_bypassing = params.get('bypassing_tier1', False)
         self._currently_bypassing_exclusions = params.get('bypass_global_exclusions', False)
+        self._currently_bypassing_dead = params.get('bypass_dead_gate', False)
 
         # Per-layer transparency counts (0 for a layer that is bypassed/revealed).
         hidden_excl   = params.get('hidden_by_exclusions', 0)
         hidden_search = params.get('hidden_by_search', 0)
+        hidden_dead   = params.get('hidden_by_dead', 0)
 
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
@@ -677,11 +743,11 @@ class _ChannelListMixin:
                 else:
                     self.status_bar.showMessage("No channels match — try a different search or check filter settings")
                     self.stats_label.setText(f"Showing 0 of {total_channels:,}")
-            elif hidden_excl or hidden_search:
-                # Results exist but are hidden by one or both filter layers — show the
+            elif hidden_excl or hidden_search or hidden_dead:
+                # Results exist but are hidden by one or more filter layers — show the
                 # per-layer breakdown so the user can reveal each independently.
-                self._show_channel_filter_breakdown(hidden_excl, hidden_search)
-                total_hidden = hidden_excl + hidden_search
+                self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead)
+                total_hidden = hidden_excl + hidden_search + hidden_dead
                 self.status_bar.showMessage(
                     f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
                 )
@@ -772,8 +838,8 @@ class _ChannelListMixin:
                 id_hidden = params.get('filtered_out_count', 0)
                 if id_hidden > 0:
                     self._show_channel_filter_breakdown(0, id_hidden)
-        elif hidden_excl or hidden_search:
-            self._show_channel_filter_breakdown(hidden_excl, hidden_search)
+        elif hidden_excl or hidden_search or hidden_dead:
+            self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead)
 
     def _refresh_channel_stats_label(self) -> None:
         """Set the stats label from the current loaded row count.
@@ -833,6 +899,12 @@ class _ChannelListMixin:
                 "normally hide — exclusions suspended for this view. "
                 "Change search or filters to restore."
             )
+        elif getattr(self, '_currently_bypassing_dead', False):
+            self._show_channel_banner(
+                f"{_icons.dead_stream_icon}  Showing channels held back by repeated "
+                "play failures — the dead-stream gate is suspended for this view. "
+                "Change search or filters to restore."
+            )
         else:
             self._hide_channel_banners()
 
@@ -855,15 +927,19 @@ class _ChannelListMixin:
             self._channel_filter_bar.setVisible(False)
 
     def _show_channel_filter_breakdown(
-        self, hidden_by_exclusions: int = 0, hidden_by_search: int = 0
+        self,
+        hidden_by_exclusions: int = 0,
+        hidden_by_search: int = 0,
+        hidden_by_dead: int = 0,
     ) -> None:
-        """Render the per-layer filter-transparency bar (up to two clickable segments).
+        """Render the per-layer filter-transparency bar (up to three clickable segments).
 
         Each segment appears only when its hidden-count is > 0 and links to a
         view-scoped reveal that never changes the user's stored settings:
 
-        * 🔒 Global Exclusions  → :meth:`_show_exclusion_hidden`
-        * 🔎 search / Tier-1     → :meth:`_show_filtered_results`
+        * 🔒 Global Exclusions            → :meth:`_show_exclusion_hidden`
+        * 🔎 search / Tier-1               → :meth:`_show_filtered_results`
+        * ⚠ dead-stream gate (play fails) → :meth:`_show_dead_hidden`
 
         Coexists with the suspend banner (``_channel_banner``): after revealing one
         layer its count is 0, so only the still-hidden layer's segment remains.
@@ -871,12 +947,15 @@ class _ChannelListMixin:
         Args:
             hidden_by_exclusions: Results this view dropped via Global Exclusions.
             hidden_by_search: Results this view dropped via search / Tier-1 filters.
+            hidden_by_dead: Results this view dropped via the dead-stream gate
+                (channels with repeated play failures).
         """
         from metatv.gui import icons as _icons
         if not hasattr(self, '_channel_filter_bar'):
             return
         show_excl = hidden_by_exclusions > 0
         show_search = hidden_by_search > 0
+        show_dead = hidden_by_dead > 0
         if hasattr(self, '_channel_exclusion_btn'):
             if show_excl:
                 self._channel_exclusion_btn.setText(
@@ -891,7 +970,14 @@ class _ChannelListMixin:
                     f"search filters  —  show"
                 )
             self._channel_filter_btn.setVisible(show_search)
-        self._channel_filter_bar.setVisible(show_excl or show_search)
+        if hasattr(self, '_channel_dead_btn'):
+            if show_dead:
+                self._channel_dead_btn.setText(
+                    f"{_icons.dead_stream_icon} {hidden_by_dead:,} unavailable "
+                    f"(repeated play failures)  —  show"
+                )
+            self._channel_dead_btn.setVisible(show_dead)
+        self._channel_filter_bar.setVisible(show_excl or show_search or show_dead)
 
     def _hide_channel_banners(self) -> None:
         """Hide the info banner and the filter-transparency bar."""
@@ -983,6 +1069,19 @@ class _ChannelListMixin:
         Exclusions are never changed — the next search or filter change restores them.
         """
         self._bypass_global_exclusions = True
+        self.load_channels()
+
+    def _show_dead_hidden(self) -> None:
+        """Reveal channels held back by repeated play failures — clicked on the ⚠ segment.
+
+        View-scoped: sets the one-load ``_bypass_dead_gate`` flag and reloads, so
+        channels whose ``reliability_state`` has graduated to "dead" surface in
+        THIS view only (mirror-not-cage — nothing is deleted, just held back from
+        the default list). Revealed rows keep their existing degraded/dim styling
+        (``ChannelListDTO.reliability_state`` drives that, unchanged here). The
+        next search or filter change restores the default (gated) view.
+        """
+        self._bypass_dead_gate = True
         self.load_channels()
 
     def on_filter_changed(self):
@@ -1481,6 +1580,10 @@ class _ChannelListMixin:
                 include_uncategorized_content_types=True,
                 hidden_only=False,
                 include_hidden=False,
+                # Keep page N consistent with page 1: if the user revealed the
+                # dead-stream gate for this view (_show_dead_hidden), every
+                # subsequent page must keep returning those rows too.
+                include_dead=bool(query_params.get('bypass_dead_gate')),
                 search_query=query_params.get('search_query'),
                 strict_genre_filter=query_params.get('strict_genre_filter'),
                 person_filter=query_params.get('person_filter'),
