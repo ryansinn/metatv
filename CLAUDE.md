@@ -128,6 +128,9 @@ The coordinator PLANS COMPLETELY; agents only execute. Model ladder: **Haiku + `
 ### The owner's checkout is sacred
 The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here.
 
+### Local Python 3.14 hides annotation errors that CI's 3.12 catches
+This machine runs Python 3.14, where annotations are evaluated lazily (PEP 649); CI runs 3.12, which evaluates them eagerly. A function annotated with a name the module never imports passes the local gate and fails CI at import time. When a slice moves code between modules, verify every annotation's name is imported in its new home — the local suite will not tell you.
+
 ### Shell discipline for gates
 Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it.
 
