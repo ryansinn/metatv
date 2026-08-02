@@ -607,8 +607,14 @@ class _ProviderMixin:
             # re-probes every pending retry-ledger row (flagged/degraded/dead all
             # keep status="pending" until they resolve), restoring recovered ones
             # to reliability_state="ok" via the mark_checked(ok=True) seam.
-            if hasattr(self, "stream_retry_manager") and getattr(
-                self.config, "recheck_failed_on_refresh", True
+            # __dict__.get, not hasattr/getattr: on a MainWindow built via
+            # __new__ (the bare-host test idiom) PyQt raises RuntimeError for
+            # attribute access, and hasattr only swallows AttributeError — the
+            # same trap fixed in #351 and documented in sidebar/alerts.py.
+            _retry_mgr = self.__dict__.get("stream_retry_manager")
+            _cfg = self.__dict__.get("config")
+            if _retry_mgr is not None and getattr(
+                _cfg, "recheck_failed_on_refresh", True
             ):
                 self.stream_retry_manager.check_all_now()
 
