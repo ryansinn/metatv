@@ -476,6 +476,13 @@ class _MetadataMixin:
         self.details_pane.show_channel(channel, metadata=None)
         logger.debug(f"Showing basic info for: {channel.name}")
 
+        # metadata_auto_fetch (Settings → Metadata & API Keys) gates ONLY this
+        # automatic on-select fetch — basic info from the channel row above always
+        # shows. A manual "Refresh metadata" action is unaffected by this switch.
+        if not getattr(self.config, "metadata_auto_fetch", True):
+            logger.debug(f"metadata_auto_fetch=False — skipping fetch for {channel.name}")
+            return
+
         def fetch_metadata():
             logger.debug(f"=== fetch_metadata() thread started for {channel.name}")
             try:

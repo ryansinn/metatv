@@ -72,6 +72,8 @@ from metatv.core.migration_manager import MigrationManager
 from metatv.core.image_cache import ImageCache
 from metatv.core.metadata_manager import MetadataManager, MetadataProviderRegistry
 from metatv.metadata_providers.provider_metadata import ProviderMetadataProvider
+from metatv.metadata_providers.tmdb import TMDbProvider
+from metatv.metadata_providers.omdb import OMDbProvider
 from metatv.gui.migration_progress_widget import MigrationProgressWidget
 from metatv.gui.refresh_queue_manager import RefreshQueueManager
 
@@ -311,13 +313,21 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._register_cleanable("image_cache", self.image_cache.shutdown)
 
-        # Initialize metadata provider registry
-        self.metadata_registry = MetadataProviderRegistry()
-        
-        # Register provider metadata plugin (extracts from raw_data)
+        # Initialize metadata provider registry — config-aware so metadata_enabled/
+        # metadata_enabled_providers/metadata_provider_priority (Settings → Metadata
+        # & API Keys) are enforced at the one chokepoint (get_enabled()).
+        self.metadata_registry = MetadataProviderRegistry(config)
+
+        # Register provider metadata plugin (extracts from raw_data) — free, already
+        # cached, always tried first (priority=1).
         provider_metadata = ProviderMetadataProvider(self.db)
         self.metadata_registry.register(provider_metadata)
-        
+
+        # Register the external API providers. Each is a no-op (is_enabled() False)
+        # until its API key is set in Settings — see metadata_providers/tmdb.py,omdb.py.
+        self.metadata_registry.register(TMDbProvider(config, self.db))
+        self.metadata_registry.register(OMDbProvider(config, self.db))
+
         # Initialize metadata manager
         self.metadata_manager = MetadataManager(self.metadata_registry, self.db)
 
@@ -2222,7 +2232,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 tab as before (backward-compatible).
         """
         from metatv.gui.settings_dialog import SettingsDialog
-        dialog = SettingsDialog(self.config, self)
+        dialog = SettingsDialog(self.config, self, executor=self.executor)
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.settings_applied.connect(self._apply_channel_list_density)

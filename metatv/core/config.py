@@ -860,7 +860,10 @@ class Config(BaseModel):
     
     # Metadata provider configuration
     metadata_provider_priority: list = Field(default_factory=lambda: ["provider", "tmdb", "omdb"])  # Provider priority order
-    metadata_enabled_providers: list = Field(default_factory=lambda: ["provider"])  # Which providers are enabled
+    # Allow-list consulted by MetadataProviderRegistry.get_enabled() (wave4/external-metadata-providers).
+    # Defaults to every shipped provider — TMDb/OMDb are still independently gated by their
+    # own is_enabled() (empty API key), so listing them here is a no-op until a key is set.
+    metadata_enabled_providers: list = Field(default_factory=lambda: ["provider", "tmdb", "omdb"])  # Which providers are enabled
     
     # Provider-specific API keys and settings
     metadata_tmdb_api_key: str = ""  # TMDb API key

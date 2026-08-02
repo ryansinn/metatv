@@ -1,6 +1,6 @@
 """Metadata provider management and coordination"""
 import asyncio
-from typing import Optional, Dict, List, Tuple
+from typing import Any, Optional, Dict, List, Tuple
 from datetime import datetime, timedelta
 from collections import deque
 
@@ -54,15 +54,35 @@ class RateLimiter:
 
 
 class MetadataProviderRegistry:
-    """Registry for metadata provider plugins"""
-    
-    def __init__(self):
+    """Registry for metadata provider plugins.
+
+    Config-aware (wave4/external-metadata-providers): when constructed with a
+    ``config`` (the app ``Config``, or any object exposing the same
+    ``metadata_*`` attributes), :meth:`get_enabled` additionally honors three
+    previously-dead settings — this is their single enforcement chokepoint,
+    so no other call site needs to re-check them:
+
+    - ``metadata_enabled`` — master switch; ``False`` means "consult nobody".
+    - ``metadata_enabled_providers`` — allow-list by ``name``; when non-empty,
+      only listed providers are consulted (each still also gated by its own
+      ``is_enabled()``, e.g. an empty API key).
+    - ``metadata_provider_priority`` — an explicit ``name`` order that wins
+      over :meth:`MetadataProviderPlugin.get_priority`; a provider absent from
+      the list keeps its own priority and sorts after every listed provider.
+
+    ``config=None`` (the default) preserves the original behavior exactly —
+    every provider is priority-ordered by its own ``get_priority()`` and
+    gated only by its own ``is_enabled()``.
+    """
+
+    def __init__(self, config: Any = None):
         self.providers: Dict[str, MetadataProviderPlugin] = {}
         self.priority_order: List[str] = []
-    
+        self.config = config
+
     def register(self, provider: MetadataProviderPlugin):
         """Register a metadata provider
-        
+
         Args:
             provider: MetadataProviderPlugin instance
         """
@@ -70,31 +90,64 @@ class MetadataProviderRegistry:
         self._update_priority_order()
         logger.info(f"Registered metadata provider: {provider.display_name} "
                    f"(priority={provider.get_priority()})")
-    
+
     def unregister(self, name: str):
         """Unregister a provider by name"""
         if name in self.providers:
             del self.providers[name]
             self._update_priority_order()
             logger.info(f"Unregistered metadata provider: {name}")
-    
+
     def get(self, name: str) -> Optional[MetadataProviderPlugin]:
         """Get provider by name"""
         return self.providers.get(name)
-    
+
     def get_all(self) -> List[MetadataProviderPlugin]:
         """Get all registered providers in priority order"""
-        return [self.providers[name] for name in self.priority_order 
+        self._update_priority_order()  # config's priority list can change between calls
+        return [self.providers[name] for name in self.priority_order
                 if name in self.providers]
-    
+
     def get_enabled(self) -> List[MetadataProviderPlugin]:
-        """Get enabled providers in priority order"""
-        return [p for p in self.get_all() if p.is_enabled()]
-    
+        """Get enabled providers in priority order.
+
+        Applies the config gates documented on the class, then each
+        provider's own :meth:`MetadataProviderPlugin.is_enabled` (e.g. an
+        empty API key) — a provider must pass both to be consulted.
+        """
+        if self.config is not None and not getattr(self.config, "metadata_enabled", True):
+            logger.debug("metadata_enabled=False — no metadata provider will be consulted")
+            return []
+
+        allowed: Optional[set] = None
+        if self.config is not None:
+            raw = getattr(self.config, "metadata_enabled_providers", None)
+            if raw:
+                allowed = set(raw)
+
+        return [
+            p for p in self.get_all()
+            if (allowed is None or p.name in allowed) and p.is_enabled()
+        ]
+
+    def _effective_priority(self, name: str, provider: MetadataProviderPlugin) -> tuple[int, int]:
+        """Sort key: config's explicit order first, provider's own priority as tiebreak.
+
+        A provider named in ``config.metadata_provider_priority`` sorts by its
+        (0-based) position in that list, ahead of every unlisted provider;
+        unlisted providers keep relative order via their own ``get_priority()``.
+        """
+        priority_list: List[str] = []
+        if self.config is not None:
+            priority_list = list(getattr(self.config, "metadata_provider_priority", None) or [])
+        if name in priority_list:
+            return (priority_list.index(name), provider.get_priority())
+        return (len(priority_list), provider.get_priority())
+
     def _update_priority_order(self):
-        """Sort providers by priority (lower = higher priority)"""
+        """Sort providers by config priority override, then own priority (lower = higher)."""
         items = list(self.providers.items())
-        items.sort(key=lambda x: x[1].get_priority())
+        items.sort(key=lambda x: self._effective_priority(x[0], x[1]))
         self.priority_order = [name for name, _ in items]
         logger.debug(f"Provider priority order: {self.priority_order}")
 

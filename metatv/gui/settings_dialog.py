@@ -119,14 +119,32 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
 
     settings_applied = pyqtSignal()  # emitted on Apply (not OK — OK closes the dialog)
     check_updates_requested = pyqtSignal()  # "Check for updates now" clicked (Interface → Updates)
+    # Metadata tab TMDb/OMDb "Test" buttons: (provider_name, (success, message)) —
+    # emitted by the executor worker (metatv/gui/settings_dialog_tabs.py), the
+    # connected slot is the only code that touches the result-badge widgets
+    # (Qt threading rule — signals only, main thread renders).
+    _provider_test_ready = pyqtSignal(str, object)
 
-    def __init__(self, config: Config, parent=None):
+    def __init__(self, config: Config, parent=None, executor=None):
+        """Construct the dialog.
+
+        Args:
+            config: App config (read/written in place by ``_load_values``/``_save_values``).
+            parent: Parent widget.
+            executor: Shared ``ThreadPoolExecutor`` (``MainWindow.executor``) used by
+                the TMDb/OMDb "Test" buttons (Metadata tab) to run
+                ``test_connection()`` off the UI thread. ``None`` disables the Test
+                buttons (they show a tooltip explaining why) rather than crashing —
+                covers callers/tests that construct the dialog without one.
+        """
         super().__init__(parent)
         self.config = config
+        self._executor = executor
         self.setWindowTitle("Settings")
         self.setMinimumWidth(900)
         self.setModal(True)
         self._setup_ui()
+        self._provider_test_ready.connect(self._on_provider_test_ready)
         self._load_values()
         self._restore_dialog_geometry()
 
