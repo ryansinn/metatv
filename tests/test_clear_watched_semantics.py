@@ -38,7 +38,7 @@ def test_clear_watched_series_partial_watched(test_db):
         ep1 = EpisodeDB(
             id="ep_1",
             episode_id="ep_1_api",
-            series_id="series_1",
+            series_id="series_1_src",
             provider_id="test_provider",
             season_id="s1_1",
             season_num=1,
@@ -50,7 +50,7 @@ def test_clear_watched_series_partial_watched(test_db):
         ep2 = EpisodeDB(
             id="ep_2",
             episode_id="ep_2_api",
-            series_id="series_1",
+            series_id="series_1_src",
             provider_id="test_provider",
             season_id="s1_1",
             season_num=1,
@@ -62,7 +62,7 @@ def test_clear_watched_series_partial_watched(test_db):
         ep3 = EpisodeDB(
             id="ep_3",
             episode_id="ep_3_api",
-            series_id="series_1",
+            series_id="series_1_src",
             provider_id="test_provider",
             season_id="s1_1",
             season_num=1,
@@ -114,7 +114,7 @@ def test_clear_watched_series_all_watched(test_db):
             ep = EpisodeDB(
                 id=f"ep_w{i}",
                 episode_id=f"ep_w{i}_api",
-                series_id="series_2",
+                series_id="series_2_src",
                 provider_id="test_provider",
                 season_id="s2_1",
                 season_num=1,
@@ -198,7 +198,7 @@ def test_clear_watched_episode_grain_unwatched(test_db):
         ep = EpisodeDB(
             id="ep_unwatched",
             episode_id="ep_unwatched_api",
-            series_id="series_4",
+            series_id="series_4_src",
             provider_id="test_provider",
             season_id="s4_1",
             season_num=1,
@@ -250,7 +250,7 @@ def test_clear_watched_episode_grain_watched(test_db):
         ep = EpisodeDB(
             id="ep_watched",
             episode_id="ep_watched_api",
-            series_id="series_5",
+            series_id="series_5_src",
             provider_id="test_provider",
             season_id="s5_1",
             season_num=1,

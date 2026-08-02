@@ -316,10 +316,13 @@ class WatchQueueRepository:
                 continue
 
             if ch.media_type == "series":
-                # Series: remove only if ALL episodes are watched
+                # Series: remove only if ALL episodes are watched.
+                # EpisodeDB.series_id holds the PROVIDER's series id — i.e.
+                # ChannelDB.source_id, NOT ChannelDB.id (verified against real
+                # data: episodes.series_id='45505' vs channels.id='<uuid>_45505').
                 episodes = (
                     self.session.query(EpisodeDB)
-                    .filter_by(series_id=ch.id, provider_id=ch.provider_id)
+                    .filter_by(series_id=ch.source_id, provider_id=ch.provider_id)
                     .all()
                 )
                 # Zero episodes = conservatively keep the row (never clear what we can't prove is finished)
