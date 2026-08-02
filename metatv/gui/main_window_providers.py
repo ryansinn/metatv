@@ -239,6 +239,24 @@ class _ProviderMixin:
         self.missing_tmdb_view.on_deactivate()
         self.switch_to_list_view()
 
+    def enter_reconnect_engaged_mode(self):
+        """Switch center panel to the Reconnect Engaged Content view.
+
+        Lists orphaned favorite/history/queue rows (their source was removed)
+        alongside a proposed live replacement, so the user can explicitly move
+        the engagement back onto an active source.
+        """
+        self._hide_all_content_views()
+        self.reconnect_engaged_view.setVisible(True)
+        self.reconnect_engaged_view.on_activate()
+        self.stats_label.setText("Reconnecting engaged content")
+        self._deactivate_view_chips()
+
+    def exit_reconnect_engaged_mode(self):
+        """Return to the normal channel list view."""
+        self.reconnect_engaged_view.on_deactivate()
+        self.switch_to_list_view()
+
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh all affected views."""
         sources = self._sources_status_target()
@@ -487,6 +505,10 @@ class _ProviderMixin:
         # idless counts + samples should settle down. reload() self-guards on visible.
         if "missing_tmdb_view" in self.__dict__:
             self.missing_tmdb_view.reload()
+        # Reconnect Engaged Content: the orphan set is entirely provider-hidden-state
+        # derived, so any provider mutation can change it. reload() self-guards on visible.
+        if "reconnect_engaged_view" in self.__dict__:
+            self.reconnect_engaged_view.reload()
         # EPG scope (get_epg_active_provider_ids) shifts with source active/hidden
         # state. Re-resolve provider ids + reload live only when EPG is on screen;
         # a hidden EPG view re-resolves its scope on its next on_activate().

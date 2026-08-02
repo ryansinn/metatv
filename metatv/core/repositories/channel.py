@@ -21,10 +21,12 @@ from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
     AI_VOICEOVER_VALUE, is_restricted, parse_category_marker, AUDIO_LANG_WORD_MAP,
+    quality_tier_rank,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
     TmdbFunnelDTO, MissingTmdbRowDTO, MissingTmdbSourceDTO,
+    ReconnectCandidateDTO, ReconnectMatchDTO,
 )
 from metatv.core.repositories.channel_stats import _ChannelStatsMixin
 from metatv.core.content_identity import content_key_for, valid_tmdb_id
@@ -3496,4 +3498,242 @@ class ChannelRepository(_ChannelStatsMixin):
             f"engaged channels preserved."
         )
         return counts
+
+    # ── Reconnect Engaged Content (Wave 4) ──────────────────────────────────────
+
+    def get_reconnect_candidates(
+        self,
+        hidden_provider_ids: Optional[Set[str]] = None,
+    ) -> List["ReconnectCandidateDTO"]:
+        """Return orphaned *engaged* channels + their proposed live replacement.
+
+        An orphan is an engaged channel (:meth:`_engaged_channel_predicate` —
+        favorited, played, or queued; the same gate ``prune_provider_content``
+        uses to decide what a source delete KEEPS) whose provider is hidden
+        (inactive/expired/orphaned — see
+        ``ProviderRepository.get_hidden_provider_ids``).
+
+        For each orphan the proposed match is the best-quality live channel
+        (not on a hidden provider, not itself hidden) sharing the SAME stored
+        ``content_key`` — ranked via
+        ``channel_name_utils.quality_tier_rank(detected_quality)``, the single
+        quality-tier ranking (never a second one).  A NULL ``content_key`` or
+        no live sibling yields ``match=None`` — the row is still returned so
+        the view can list it plainly as unmatched (mirror-not-cage). Never
+        matches across different ``content_key``s and never falls back to a
+        title heuristic — ``content_key`` is the one identity field.
+
+        Batched (no N+1): one query for the orphans, one for every live
+        candidate sharing any orphan's content_key, one for ratings, one for
+        queue membership, one for provider names.
+
+        Args:
+            hidden_provider_ids: Hidden provider ids (inactive ∪ expired ∪
+                orphaned) — see ``ProviderRepository.get_hidden_provider_ids``.
+                An empty/None set returns ``[]`` immediately (nothing can be
+                orphaned when nothing is hidden).
+
+        Returns:
+            List of :class:`ReconnectCandidateDTO`, ordered by orphan name.
+        """
+        hidden = set(hidden_provider_ids or ())
+        if not hidden:
+            return []
+
+        engaged = self._engaged_channel_predicate()
+        orphans = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.provider_id.in_(hidden))
+            .filter(engaged)
+            .order_by(ChannelDB.name)
+            .all()
+        )
+        if not orphans:
+            return []
+
+        orphan_ids = {o.id for o in orphans}
+        provider_names = {
+            p.id: p.name for p in self.session.query(ProviderDB.id, ProviderDB.name).all()
+        }
+
+        # Batch-fetch every live (non-hidden-provider, non-hidden-flag) channel
+        # sharing a content_key with ANY orphan — one query, never N+1.
+        keys = {o.content_key for o in orphans if o.content_key}
+        candidates_by_key: Dict[str, List[ChannelDB]] = {}
+        if keys:
+            live_rows = (
+                self.session.query(ChannelDB)
+                .filter(ChannelDB.content_key.in_(keys))
+                .filter(~ChannelDB.provider_id.in_(hidden))
+                .filter(ChannelDB.is_hidden.is_(False))
+                .all()
+            )
+            for row in live_rows:
+                candidates_by_key.setdefault(row.content_key, []).append(row)
+
+        rating_map = {
+            r.channel_id: r.rating
+            for r in (
+                self.session.query(UserRatingDB)
+                .filter(UserRatingDB.channel_id.in_(orphan_ids))
+                .all()
+            )
+        }
+        queued_ids = {
+            row[0]
+            for row in (
+                self.session.query(WatchQueueDB.channel_id)
+                .filter(WatchQueueDB.channel_id.in_(orphan_ids))
+                .distinct()
+                .all()
+            )
+        }
+
+        result: List[ReconnectCandidateDTO] = []
+        for orphan in orphans:
+            match_dto: Optional[ReconnectMatchDTO] = None
+            if orphan.content_key:
+                live_candidates = [
+                    c for c in candidates_by_key.get(orphan.content_key, ())
+                    if c.id != orphan.id
+                ]
+                if live_candidates:
+                    # Best quality tier wins; tie-break on id for determinism.
+                    best = max(
+                        live_candidates,
+                        key=lambda c: (quality_tier_rank(c.detected_quality), c.id),
+                    )
+                    match_dto = ReconnectMatchDTO(
+                        channel_id=best.id,
+                        name=best.name,
+                        detected_title=best.detected_title,
+                        detected_quality=best.detected_quality,
+                        provider_id=best.provider_id,
+                        provider_name=provider_names.get(best.provider_id, best.provider_id),
+                    )
+            result.append(ReconnectCandidateDTO(
+                orphan_id=orphan.id,
+                orphan_name=orphan.name,
+                detected_title=orphan.detected_title,
+                detected_year=orphan.detected_year,
+                media_type=orphan.media_type,
+                provider_id=orphan.provider_id,
+                provider_name=provider_names.get(orphan.provider_id, "Removed source"),
+                content_key=orphan.content_key,
+                is_favorite=bool(orphan.is_favorite),
+                last_played=orphan.last_played,
+                play_count=int(orphan.play_count or 0),
+                watch_progress=int(orphan.watch_progress or 0),
+                watch_completed=bool(orphan.watch_completed),
+                watch_percent=int(orphan.watch_percent or 0),
+                user_rating=rating_map.get(orphan.id, 0),
+                in_queue=orphan.id in queued_ids,
+                match=match_dto,
+            ))
+        return result
+
+    def reconnect_engaged_content(self, orphan_id: str, live_channel_id: str) -> None:
+        """Move engagement from an orphaned channel onto its live replacement.
+
+        Moves ``is_favorite``, ``last_played``, ``play_count``,
+        ``watch_progress``, ``watch_completed``, ``watch_percent``,
+        ``last_played_via`` (the resume-position fields), the ``UserRatingDB``
+        row, and ``WatchQueueDB`` membership from ``orphan_id`` onto
+        ``live_channel_id`` — then clears every one of those fields on the
+        orphan. Caller MUST invoke this inside ``Database.session_scope()`` so
+        the whole move commits or rolls back as ONE transaction — a
+        half-moved engagement is worse than none (CLAUDE.md).
+
+        Refuses to move across ``content_key``s (including when either side
+        has no stored key) — ``content_key`` is the one identity field, never
+        a title heuristic; this is a defense-in-depth check even though
+        :meth:`get_reconnect_candidates` never proposes a mismatched pair.
+
+        Watch-queue membership: every ``WatchQueueDB`` row referencing
+        ``orphan_id`` (both channel-grain and episode-grain — an episode-grain
+        row still carries the parent series' ``channel_id``) is re-pointed at
+        ``live_channel_id``. A channel-grain row (``episode_id IS NULL``) is
+        dropped instead of moved when the live channel already has one — so
+        reconnecting never duplicates a queue row.
+
+        Args:
+            orphan_id: ``ChannelDB.id`` of the orphaned engaged channel.
+            live_channel_id: ``ChannelDB.id`` of the live replacement.
+
+        Raises:
+            ValueError: orphan/live channel not found, the same row, or a
+                ``content_key`` mismatch.
+        """
+        if orphan_id == live_channel_id:
+            raise ValueError("Reconnect refused: orphan and live channel are the same row")
+
+        orphan = self.session.get(ChannelDB, orphan_id)
+        live = self.session.get(ChannelDB, live_channel_id)
+        if orphan is None:
+            raise ValueError(f"Reconnect failed: orphan channel not found ({orphan_id!r})")
+        if live is None:
+            raise ValueError(f"Reconnect failed: live channel not found ({live_channel_id!r})")
+        if not orphan.content_key or orphan.content_key != live.content_key:
+            raise ValueError(
+                "Reconnect refused: content_key mismatch "
+                f"(orphan={orphan.content_key!r}, live={live.content_key!r})"
+            )
+
+        now = datetime.now()
+
+        # Move the simple scalar engagement fields (all live on ChannelDB).
+        for field in (
+            "is_favorite", "last_played", "play_count",
+            "watch_progress", "watch_completed", "watch_percent",
+            "last_played_via",
+        ):
+            setattr(live, field, getattr(orphan, field))
+        orphan.is_favorite = False
+        orphan.last_played = None
+        orphan.play_count = 0
+        orphan.watch_progress = 0
+        orphan.watch_completed = False
+        orphan.watch_percent = 0
+        orphan.last_played_via = None
+        live.updated_at = now
+        orphan.updated_at = now
+
+        # Rating — UserRatingDB is 1:1 keyed by channel_id (the PK), so "move"
+        # is delete-from-orphan + upsert-onto-live rather than a column write.
+        rating_row = self.session.get(UserRatingDB, orphan_id)
+        if rating_row is not None:
+            self.session.merge(UserRatingDB(
+                channel_id=live_channel_id,
+                rating=rating_row.rating,
+                rated_at=rating_row.rated_at,
+            ))
+            self.session.delete(rating_row)
+
+        # Watch-queue membership — re-point every row referencing the orphan.
+        queue_rows = (
+            self.session.query(WatchQueueDB)
+            .filter(WatchQueueDB.channel_id == orphan_id)
+            .all()
+        )
+        if queue_rows:
+            live_has_channel_grain = (
+                self.session.query(WatchQueueDB)
+                .filter_by(channel_id=live_channel_id, episode_id=None)
+                .first() is not None
+            )
+            for row in queue_rows:
+                if row.episode_id is None and live_has_channel_grain:
+                    # Live channel already has a channel-grain entry — drop the
+                    # orphan's redundant one rather than duplicating it.
+                    self.session.delete(row)
+                    continue
+                row.channel_id = live_channel_id
+                row.channel_name = live.name
+                row.media_type = live.media_type or row.media_type
+                row.source_id = live.source_id
+                if row.episode_id is None:
+                    live_has_channel_grain = True
+
+        self.session.flush()
+        logger.info(f"Reconnected engaged content: {orphan_id!r} -> {live_channel_id!r}")
 

@@ -789,7 +789,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         missing_tmdb_action.triggered.connect(self.enter_missing_tmdb_mode)
         tools_menu.addAction(missing_tmdb_action)
-        
+        reconnect_action = QAction(
+            f"{_icons.reconnect_icon}  Reconnect Engaged Content", self
+        )
+        reconnect_action.setToolTip(
+            "Recover favorites/history/queue rows stranded by a removed source "
+            "onto a live copy"
+        )
+        reconnect_action.triggered.connect(self.enter_reconnect_engaged_mode)
+        tools_menu.addAction(reconnect_action)
+
         # Help menu
         help_menu = menubar.addMenu("&Help")
         whats_new_action = QAction(f"{_icons.whats_new_icon}  What's New", self)
@@ -1906,6 +1915,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.missing_tmdb_view.done.connect(self.exit_missing_tmdb_mode)
         self.missing_tmdb_view.setVisible(False)
         self._list_layout.addWidget(self.missing_tmdb_view)
+
+        # Reconnect Engaged Content view (hidden by default; Tools menu) — recover
+        # orphaned favorites/history/queue rows onto a live same-content_key copy.
+        from metatv.gui.reconnect_engaged_view import ReconnectEngagedView
+        self.reconnect_engaged_view = ReconnectEngagedView(self)
+        self.reconnect_engaged_view.done.connect(self.exit_reconnect_engaged_mode)
+        self.reconnect_engaged_view.setVisible(False)
+        self._list_layout.addWidget(self.reconnect_engaged_view)
 
         # Inner splitter: filter panel (left) | list area (right)
         self._inner_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)
