@@ -129,6 +129,10 @@ def test_open_settings_tab_selects_interface_section(qapp, tmp_path, monkeypatch
         def __init__(self, config):
             super().__init__()
             self.config = config
+            # #395 passes executor= into SettingsDialog so the TMDb/OMDb
+            # "Test" buttons can call test_connection() off the UI thread.
+            from concurrent.futures import ThreadPoolExecutor
+            self.executor = ThreadPoolExecutor(max_workers=1)
 
         def _apply_sidebar_visibility(self):
             pass

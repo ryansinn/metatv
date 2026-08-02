@@ -70,7 +70,7 @@ def _make_season(session, series_id="s1", provider_id="prov1", season_number=1,
 def _make_episode(session, season_id="s1_s1", series_id="s1", provider_id="prov1",
                   episode_num=1, season_num=1, title="Episode 1",
                   stream_url="http://test/ep1.ts", is_watched=False,
-                  raw_data=None) -> EpisodeDB:
+                  raw_data=None, rating=None) -> EpisodeDB:
     ep = EpisodeDB(
         id=str(uuid.uuid4()),
         season_id=season_id,
@@ -83,6 +83,7 @@ def _make_episode(session, season_id="s1_s1", series_id="s1", provider_id="prov1
         stream_url=stream_url,
         is_watched=is_watched,
         raw_data=raw_data,
+        rating=rating,
     )
     session.add(ep)
     session.flush()
@@ -265,8 +266,31 @@ def test_episode_dto_attributes_after_session_close(session):
     assert isinstance(dto, EpisodeDTO)
 
 
-def test_episode_dto_rating_extracted_from_raw_data(session):
-    """EpisodeDTO.rating must be pre-extracted from raw_data['info']['rating']."""
+def test_episode_dto_rating_read_from_stored_column(session):
+    """EpisodeDTO.rating reads the STORED EpisodeDB.rating column.
+
+    #247 moved this from runtime ``raw_data['info']['rating']`` parsing to a
+    float column resolved at ingestion (compute-at-ingestion / read-at-render),
+    so the DTO no longer re-parses the JSON blob and the value is a float.
+    Pre-existing rows are populated by EpisodeMetadataBackfillTask.
+    """
+    _make_episode(session, raw_data={"info": {"rating": "9.1"}}, rating=9.1)
+    session.commit()
+
+    repo = EpisodeRepository(session)
+    dtos = repo.get_episodes_dto_by_season(season_id="s1_s1")
+    session.close()
+
+    assert dtos[0].rating == 9.1
+
+
+def test_episode_dto_rating_not_reparsed_from_raw_data(session):
+    """raw_data alone must NOT populate rating — the stored column is the source.
+
+    Guards the compute-at-ingestion contract: a row whose blob still carries a
+    rating but whose column was never populated (pre-backfill) reads as None
+    rather than silently re-parsing at render time.
+    """
     _make_episode(session, raw_data={"info": {"rating": "9.1"}})
     session.commit()
 
@@ -274,7 +298,7 @@ def test_episode_dto_rating_extracted_from_raw_data(session):
     dtos = repo.get_episodes_dto_by_season(season_id="s1_s1")
     session.close()
 
-    assert dtos[0].rating == "9.1"
+    assert dtos[0].rating is None
 
 
 def test_episode_dto_rating_none_when_absent(session):
