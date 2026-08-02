@@ -233,6 +233,8 @@ def test_on_stream_ready_play_anyway_calls_player_manager():
         force_new_window=False,
         start_seconds=0,
         open_ended_buffer=False,
+        deep_buffer=False,
+        channel_id="",
     )
 
 

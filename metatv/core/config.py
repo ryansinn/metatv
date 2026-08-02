@@ -690,6 +690,13 @@ class Config(BaseModel):
     prebuffer_before_play: bool = False  # pause at startup until the cache pre-fills (mpv --cache-pause-initial)
     prebuffer_wait_secs: int = 10        # seconds of cache to buffer before unpausing (--cache-pause-wait)
     mpv_args_override_all: bool = False  # when True, _compose_extra_args returns ONLY mpv_extra_args (skips UA/reconnect/buffer/prebuffer)
+    # Deep-cache ("Buffer without limit", VOD-only, ephemeral): per-play mode that
+    # relaunches mpv with --stream-record into a scratch dir so the buffer can grow
+    # past mpv's in-memory/disk cache. See MPVPlayer's "deep" buffer profile and
+    # _compose_deep_cache_args(). Str (not Path) + tilde literal, expanded at the
+    # consumer — same pattern as image_cache_dir below.
+    deep_cache_dir: str = "~/.cache/metatv/deepcache"  # scratch dir for deep-cache .ts recordings
+    deep_cache_max_gb: int = 20  # soft cap; oldest files purged before it's exceeded
     network_timeout: int = 30  # seconds
     reconnect_attempts: int = 3
     autoplay_season_episodes: bool = True  # Auto-queue subsequent episodes when playing from season

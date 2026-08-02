@@ -309,6 +309,8 @@ def test_on_stream_ready_passes_start_seconds():
         force_new_window=False,
         start_seconds=720,
         open_ended_buffer=False,
+        deep_buffer=False,
+        channel_id="ch1",
     )
 
 
@@ -336,6 +338,8 @@ def test_on_stream_ready_defaults_start_seconds_to_zero():
         force_new_window=False,
         start_seconds=0,
         open_ended_buffer=False,
+        deep_buffer=False,
+        channel_id="ch1",
     )
 
 
@@ -365,6 +369,8 @@ def test_player_manager_play_threads_start_seconds():
         instance_key="__shared__",
         start_seconds=360,
         open_ended_buffer=False,
+        deep_buffer=False,
+        channel_id="",
     )
 
 

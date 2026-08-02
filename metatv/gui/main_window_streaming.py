@@ -271,6 +271,7 @@ class _StreamingMixin:
         channel,
         force_new_window: bool = False,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
         start_override: int | None = None,
     ):
         """Play a media item (live stream or movie) in external player.
@@ -289,6 +290,12 @@ class _StreamingMixin:
                 cache (up to 2 GiB, 3600 s readahead) instead of the configured
                 bounded buffer profile.  Use this to build a big buffer lead to
                 ride out an unstable stream.
+            deep_buffer: When True (VOD-only — the menu action gates this),
+                the player also records the raw stream to disk via
+                ``--stream-record`` ("Buffer without limit" / deep-cache mode)
+                on top of the open-ended cache. Mutually exclusive in practice
+                with ``open_ended_buffer`` (deep-cache wins if both are set —
+                see ``MPVPlayer.play``).
             start_override: When set, forces the seek position regardless of
                 ``config.playback_resume_mode`` and the channel's saved progress.
                 ``0`` forces start from the beginning; a positive int forces resume
@@ -365,6 +372,7 @@ class _StreamingMixin:
             force_new_window,
             start_seconds,
             open_ended_buffer,
+            deep_buffer,
         )
 
     # ── Auth/gating HTTP codes that are treated as uncertain (advisory, not hard) ──
@@ -403,6 +411,7 @@ class _StreamingMixin:
         force_new_window: bool = False,
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
     ) -> None:
         """Worker: validate + failover (same-source, then cross-source siblings).
 
@@ -447,6 +456,7 @@ class _StreamingMixin:
                 "force_new_window": force_new_window,
                 "start_seconds": start_seconds,
                 "open_ended_buffer": open_ended_buffer,
+                "deep_buffer": deep_buffer,
                 "advisory": False,
                 "siblings": [],
             })
@@ -490,6 +500,7 @@ class _StreamingMixin:
                                 "force_new_window": force_new_window,
                                 "start_seconds": start_seconds,
                                 "open_ended_buffer": open_ended_buffer,
+                                "deep_buffer": deep_buffer,
                                 "advisory": False,
                                 "siblings": [],
                                 "sibling_failover": True,   # for status-bar annotation
@@ -514,6 +525,7 @@ class _StreamingMixin:
             "force_new_window": force_new_window,
             "start_seconds": start_seconds,
             "open_ended_buffer": open_ended_buffer,
+            "deep_buffer": deep_buffer,
             "advisory": is_advisory,
             "siblings": siblings,   # list of dicts for the failure toast
         })
@@ -643,17 +655,22 @@ class _StreamingMixin:
 
         force_new_window = data.get("force_new_window", False)
         open_ended_buffer = bool(data.get("open_ended_buffer", False))
+        deep_buffer = bool(data.get("deep_buffer", False))
         start_seconds = int(data.get("start_seconds", 0) or 0)
         if start_seconds:
             logger.info(f"Resuming {channel_name} at {start_seconds}s")
         if open_ended_buffer:
             logger.info(f"Open-ended buffer mode for {channel_name}")
+        if deep_buffer:
+            logger.info(f"Deep-cache buffer mode for {channel_name}")
         if self._play_checked(
             final_url, channel_name,
             provider_id=data.get("provider_id"),
             force_new_window=force_new_window,
             start_seconds=start_seconds,
             open_ended_buffer=open_ended_buffer,
+            deep_buffer=deep_buffer,
+            channel_id=channel_id,
         ):
             # Record playback — mark_played is a DB write; run off-thread. The same
             # worker registers this instance for watch-progress capture (it already
@@ -693,6 +710,18 @@ class _StreamingMixin:
         else:
             logger.error(f"Failed to play: {channel_name}")
             self.status_bar.showMessage(f"Error playing: {channel_name}")
+            # Deep-cache can refuse the launch outright (cap/disk preflight) rather
+            # than falling back silently — surface that specific reason as a toast
+            # when one was set, instead of the generic "Error playing" status text.
+            if deep_buffer:
+                refusal = getattr(self.player_manager.player, "last_deep_cache_message", "")
+                if refusal:
+                    self.notification_manager.show(
+                        title="Buffer Without Limit Unavailable",
+                        message=refusal,
+                        type="warning",
+                        auto_dismiss_ms=8000,
+                    )
 
         QTimer.singleShot(3000, lambda: self.loading_channels.discard(channel_id))
 
@@ -1115,6 +1144,8 @@ class _StreamingMixin:
         force_new_window: bool = False,
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
+        channel_id: str = "",
     ) -> bool:
         """Single chokepoint every play-launch call site routes through.
 
@@ -1139,7 +1170,7 @@ class _StreamingMixin:
         if preview is not None and not preview.granted:
             self._show_capacity_warning(
                 provider_id, preview, url, title, force_new_window,
-                start_seconds, open_ended_buffer,
+                start_seconds, open_ended_buffer, deep_buffer, channel_id,
             )
             return False
 
@@ -1150,6 +1181,8 @@ class _StreamingMixin:
             force_new_window=force_new_window,
             start_seconds=start_seconds,
             open_ended_buffer=open_ended_buffer,
+            deep_buffer=deep_buffer,
+            channel_id=channel_id,
         )
 
     def _show_capacity_warning(
@@ -1161,6 +1194,8 @@ class _StreamingMixin:
         force_new_window: bool,
         start_seconds: int,
         open_ended_buffer: bool,
+        deep_buffer: bool = False,
+        channel_id: str = "",
     ) -> None:
         """Show the "connection limit reached" toast with a replace-oldest escape hatch.
 
@@ -1174,6 +1209,9 @@ class _StreamingMixin:
                 the "Play anyway" retry.
             start_seconds: Resume position — re-threaded into the retry.
             open_ended_buffer: Buffer mode — re-threaded into the retry.
+            deep_buffer: Deep-cache buffer mode — re-threaded into the retry.
+            channel_id: Channel id for the deep-cache recording filename —
+                re-threaded into the retry.
         """
         provider_name = self._provider_display_name(provider_id)
         oldest_key = preview.holders[0] if preview.holders else None
@@ -1181,6 +1219,7 @@ class _StreamingMixin:
         def _replace_oldest(
             _oldest=oldest_key, _url=url, _title=title, _pid=provider_id,
             _fnw=force_new_window, _ss=start_seconds, _oeb=open_ended_buffer,
+            _deep=deep_buffer, _cid=channel_id,
         ):
             if _oldest:
                 # Frees the slot _replace_oldest's play() below needs.
@@ -1190,6 +1229,7 @@ class _StreamingMixin:
                 provider_id=_pid,
                 provider_max_connections=self._provider_max_connections(_pid),
                 force_new_window=_fnw, start_seconds=_ss, open_ended_buffer=_oeb,
+                deep_buffer=_deep, channel_id=_cid,
             )
 
         plural = "s" if preview.capacity != 1 else ""
