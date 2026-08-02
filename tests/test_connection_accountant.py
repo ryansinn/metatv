@@ -226,7 +226,7 @@ class _StubPlayer:
         self._keys: set[str] = set()
         self.play_calls: list[dict] = []
 
-    def play(self, url, title, instance_key="__shared__", start_seconds=0, open_ended_buffer=False):
+    def play(self, url, title, instance_key="__shared__", start_seconds=0, open_ended_buffer=False, **kwargs):
         self._keys.add(instance_key)
         self.play_calls.append({"url": url, "title": title, "instance_key": instance_key})
         return True
@@ -406,6 +406,8 @@ def test_play_checked_threads_real_provider_max_into_player_manager_play(db):
         force_new_window=False,
         start_seconds=0,
         open_ended_buffer=False,
+        deep_buffer=False,
+        channel_id="",
     )
 
 
