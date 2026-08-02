@@ -35,3 +35,19 @@ def test_genuine_titles_are_not_flagged():
     assert not _is_stale_polluted_title("Blade Runner", "Blade Runner 2049")        # bare number, no parens
     assert not _is_stale_polluted_title("Cowboy Bebop", "Bebop Cowboy (1998)")      # not a prefix
     assert not _is_stale_polluted_title("", "Anything (1996)")                      # no clean base
+
+
+def test_leading_residue_metadata_title_is_stale():
+    """metadata.title cached as '. Title' before the pipe-residue re-parse → stale."""
+    from metatv.gui.details_sections import _is_stale_polluted_title
+    assert _is_stale_polluted_title(
+        "SpiderMan: Far from Home", ". SpiderMan: Far from Home") is True
+    assert _is_stale_polluted_title("The Bear", "- The Bear") is True
+
+
+def test_genuinely_different_titles_are_not_stale():
+    from metatv.gui.details_sections import _is_stale_polluted_title
+    assert _is_stale_polluted_title(
+        "SpiderMan: Far from Home", "Spider-Man: Lejos de Casa") is False
+    # A real leading-dot title compared with itself is not stale.
+    assert _is_stale_polluted_title(".hack//Sign", ".hack//Sign") is False
