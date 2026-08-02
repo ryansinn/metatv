@@ -98,6 +98,19 @@ class MigrationManager(QObject):
         """
         self._tasks.append(task)
 
+    @property
+    def is_running(self) -> bool:
+        """True while a background migration pass is actively executing.
+
+        Plain attribute read — no lock needed for this soft, best-effort check
+        (a bulk writer elsewhere uses it to yield the SQLite write turn rather
+        than race a migration's batched commits; see
+        ``TmdbEnrichmentManager._defer_for_migration``). A missed transition
+        by a beat or two is harmless — the retry helpers on both sides are the
+        actual correctness backstop.
+        """
+        return self._running
+
     def has_pending_tasks(self) -> bool:
         """Return True if any registered task's ``needs_run(config)`` is True.
 

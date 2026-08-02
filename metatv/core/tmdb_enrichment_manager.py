@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
@@ -66,6 +67,7 @@ from metatv.core.content_identity import valid_tmdb_id
 if TYPE_CHECKING:
     from metatv.core.config import Config
     from metatv.core.database import Database
+    from metatv.core.migration_manager import MigrationManager
     from metatv.core.models import Provider
 
 
@@ -74,6 +76,14 @@ _DEFAULT_CONCURRENCY = 4        # max concurrent requests per provider
 _DEFAULT_THROTTLE_MS = 150      # sleep before each request
 _CONSECUTIVE_ERROR_ABORT = 10   # abort a provider after this many errors in a row
 _DRAIN_BATCH = 40               # candidates resolved + fetched per drain iteration
+
+# Migration-defer tuning (owner log 2026-08-01: a details-pane browse enqueued
+# a drain batch that wrote mid-migration, "database is locked" 90s after an
+# earlier migration crash). Both this manager's bulk write phases yield the
+# single-worker turn to a running Migration Center pass rather than race its
+# batched commits — see _defer_for_migration.
+_MIGRATION_DEFER_POLL_S = 1.0
+_MIGRATION_DEFER_MAX_WAIT_S = 600.0  # 10 min ceiling — courtesy, not a hard guarantee
 
 
 def _extract_tmdb_id(data: Any) -> str | None:
@@ -126,6 +136,7 @@ class TmdbEnrichmentManager(QObject):
         db: "Database",
         config: "Config",
         parent=None,
+        migration_manager: "MigrationManager | None" = None,
     ) -> None:
         """
         Args:
@@ -133,10 +144,17 @@ class TmdbEnrichmentManager(QObject):
             config: Application config (toggle + politeness knobs).
             parent: Qt parent (keeps the QObject on the main thread so its signals
                 auto-queue back onto it).
+            migration_manager: Optional ``MigrationManager`` this manager polls
+                (``.is_running``) before a bulk write phase, so an enrichment
+                drain yields to a running Migration Center pass instead of
+                racing its batched commits. ``None`` (default, and every
+                existing test construction) disables the check — no behavior
+                change for callers that don't wire it.
         """
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._migration_manager = migration_manager
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="tmdb_enrich"
         )
@@ -252,9 +270,47 @@ class TmdbEnrichmentManager(QObject):
             # Clear every source's toast now the drain is done (queue drained).
             self._clear_all_inflight()
 
+    def _defer_for_migration(self) -> None:
+        """Best-effort: pause before a bulk write while a MigrationManager pass runs.
+
+        A migration's bulk commits (``update_detected_prefixes`` and its
+        propagation phases — see ``ChannelRepository._retry_on_lock``) and this
+        manager's bulk writes (``apply_tmdb_enrichment`` / ``apply_metadata_harvest``)
+        are the same shape of SQLite single-writer contention that produced the
+        2026-08-01 crash chain: a details-pane browse enqueued a drain batch
+        whose write raced a running migration's commit. Rather than adding a
+        second retry site here, this manager just yields its single-worker
+        turn until the migration's own lock-retry-covered pass finishes — a
+        plain polled ``is_running`` check, not a scheduler. Bounded by
+        ``_MIGRATION_DEFER_MAX_WAIT_S`` so a stuck/misreporting
+        ``MigrationManager`` can't wedge enrichment forever; a ``shutdown()``
+        also breaks the wait immediately.
+
+        Called at the TOP of each bulk-write batch method (before its read
+        query even runs) — deferring the whole batch, not just the write, so a
+        migrator-crowded batch never wastes a network round trip only to then
+        wait to persist it.
+        """
+        if self._migration_manager is None:
+            return
+        waited = 0.0
+        while (
+            not self._shutdown
+            and self._migration_manager.is_running
+            and waited < _MIGRATION_DEFER_MAX_WAIT_S
+        ):
+            time.sleep(_MIGRATION_DEFER_POLL_S)
+            waited += _MIGRATION_DEFER_POLL_S
+        if waited > 0:
+            logger.debug(
+                "tmdb_enrich: deferred {:.0f}s for a running migration pass", waited
+            )
+
     def _process_batch(self, batch_ids: list[str]) -> None:
         """Resolve → fetch → persist one drain batch; signal progress + collapses."""
         from metatv.core.repositories import RepositoryFactory
+
+        self._defer_for_migration()
 
         concurrency = max(1, int(getattr(self.config, "tmdb_enrichment_concurrency", _DEFAULT_CONCURRENCY)))
         throttle = max(0.0, float(getattr(self.config, "tmdb_enrichment_throttle_ms", _DEFAULT_THROTTLE_MS)) / 1000.0)
@@ -350,6 +406,8 @@ class TmdbEnrichmentManager(QObject):
         terminates even against a dead provider.
         """
         from metatv.core.repositories import RepositoryFactory
+
+        self._defer_for_migration()
 
         concurrency = max(1, int(getattr(self.config, "tmdb_enrichment_concurrency", _DEFAULT_CONCURRENCY)))
         throttle = max(0.0, float(getattr(self.config, "tmdb_enrichment_throttle_ms", _DEFAULT_THROTTLE_MS)) / 1000.0)

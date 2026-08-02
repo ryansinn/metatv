@@ -338,6 +338,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "vod_watch_alert_manager", self.vod_watch_alert_manager.shutdown
         )
 
+        # Migration manager — runs one-time background migrations sequentially.
+        # Registered for clean cancellation on closeEvent before the pool drains.
+        # Constructed BEFORE tmdb_enrichment_manager (below) so the enrichment
+        # manager can be handed a live reference and poll `.is_running` to defer
+        # its own bulk writes while a migration pass is active (see
+        # TmdbEnrichmentManager._defer_for_migration) — same lock-contention
+        # hazard as the migration's own bulk commits, just a different writer.
+        self.migration_manager = MigrationManager(self.config, self.db, parent=self)
+
         # Lazy provider-native TMDb enrichment — backfills detected_tmdb_id for the
         # idless VOD rows the user is actually viewing (result surfaces feed
         # enqueue()) via the provider's own detail endpoint, so cross-language/quality
@@ -347,6 +356,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.core.tmdb_enrichment_manager import TmdbEnrichmentManager
         self.tmdb_enrichment_manager = TmdbEnrichmentManager(
             self.db, self.config, parent=self,
+            migration_manager=self.migration_manager,
         )
         # Connect to MainWindow bound methods (QObject receivers on the main thread)
         # — NOT bare lambdas — so worker-thread emits are delivered via a queued
@@ -363,9 +373,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "tmdb_enrichment_manager", self.tmdb_enrichment_manager.shutdown
         )
 
-        # Migration manager — runs one-time background migrations sequentially.
-        # Registered for clean cancellation on closeEvent before the pool drains.
-        self.migration_manager = MigrationManager(self.config, self.db, parent=self)
         from metatv.core.migrations.prefix_rescan import PrefixRescanTask
         self.migration_manager.register(PrefixRescanTask(self.db))
         from metatv.core.migrations.metadata_rescan import MetadataRescanTask
