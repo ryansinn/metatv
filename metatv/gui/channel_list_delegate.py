@@ -11,12 +11,20 @@ Two responsibilities:
    (persisted at ``Config.channel_list_density``, wired from Settings →
    Interface → Channel List):
 
-   - ``"compact"`` — one line: ``[media icon][fav][title][quality chip]``
+   - ``"compact"`` — one line: ``[media icon][fav][glyph][🚨][title][quality chip]``
      left-aligned, then ``[year][language chip][rating chip]`` right-aligned
      flush to the row's right edge.
    - ``"comfy"`` (default) — two lines: line 1 is
-     ``[media icon][fav][title]`` + a right-aligned ``[year]``; line 2 is the
+     ``[media icon][fav][glyph][🚨][title]`` + a right-aligned ``[year]``; line 2 is the
      muted badge row ``[language][quality][category]`` + a rating glyph.
+
+   The playback-state separator glyph (·/▶/✓) appears immediately before the
+   title; its colour is determined per the original logic (watched-green for
+   completed, Resume-orange for in-progress, None/neutral for unwatched/live).
+   The unviewed watch-for marker (🚨) appears immediately before the title text
+   when the channel is an unviewed match. Both glyphs are painted from structured
+   ``PLAYBACK_GLYPH_ROLE``/``PLAYBACK_GLYPH_COLOR_ROLE``/``MATCH_MARKER_ROLE``
+   roles populated by the model.
 
    Chips are painted as rounded rects using the same colour logic as
    ``badge_utils`` (quality via the shared ``_QUALITY_COLORS`` map, region via
@@ -29,10 +37,7 @@ Both densities read the structured per-field roles added to
 ``ChannelListModel`` (``TITLE_ROLE``, ``YEAR_ROLE``, ...) rather than the
 composed ``DisplayRole``/``CHANNEL_HTML_ROLE`` strings — those two roles stay
 available unchanged for header rows and any other reader (tests,
-accessibility). The playback-state separator glyph (·/▶/✓) and the unviewed
-watch-for marker (🚨) that ``CHANNEL_HTML_ROLE`` carries are NOT part of either
-density's fixed field arrangement (owner-locked spec) — a later slice can add
-them back to the comfy badge row if wanted.
+accessibility).
 
 The row-math is factored into pure functions (``right_aligned_rects``,
 ``stacked_line_rects``) that take/return plain ``QRect`` — no painter or style
@@ -69,7 +74,10 @@ from metatv.gui.channel_list_model import (
     CHANNEL_HTML_ROLE,
     FAV_GLYPH_ROLE,
     LANGUAGE_ROLE,
+    MATCH_MARKER_ROLE,
     MEDIA_ICON_ROLE,
+    PLAYBACK_GLYPH_COLOR_ROLE,
+    PLAYBACK_GLYPH_ROLE,
     QUALITY_TOKEN_ROLE,
     RATING_ROLE,
     ROW_KIND_ROLE,
@@ -319,6 +327,9 @@ class ChannelRowDelegate(QStyledItemDelegate):
         fm = QFontMetrics(font)
         media_icon = index.data(MEDIA_ICON_ROLE) or ""
         fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
+        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
+        playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
+        match_marker = index.data(MATCH_MARKER_ROLE) or ""
         title = index.data(TITLE_ROLE) or ""
         quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
 
@@ -341,6 +352,19 @@ class ChannelRowDelegate(QStyledItemDelegate):
             w = fm.horizontalAdvance(glyph)
             self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), glyph, default_color, font)
             x += w + _CELL_GAP
+
+        # Paint playback-state glyph (·/▶/✓) with optional color
+        if playback_glyph:
+            w = fm.horizontalAdvance(playback_glyph)
+            glyph_color = playback_color if playback_color else default_color
+            self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), playback_glyph, glyph_color, font)
+            x += w + _CELL_GAP
+
+        # Paint unviewed match marker (🚨)
+        if match_marker:
+            w = fm.horizontalAdvance(match_marker)
+            self._draw_text(painter, QRect(x, rect.top(), w, rect.height()), match_marker, default_color, font)
+            x += w
 
         quality_w = self._cell_width(fm, quality_cell) if quality_cell else 0
         title_box_w = max(
@@ -365,10 +389,13 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
         media_icon = index.data(MEDIA_ICON_ROLE) or ""
         fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
+        playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
+        playback_color = index.data(PLAYBACK_GLYPH_COLOR_ROLE)
+        match_marker = index.data(MATCH_MARKER_ROLE) or ""
         title = index.data(TITLE_ROLE) or ""
         year_cell = _year_cell(index.data(YEAR_ROLE) or "")
 
-        # Line 1: media icon + fav + title (elided) left, year right-aligned.
+        # Line 1: media icon + fav + glyph + 🚨 + title (elided) left, year right-aligned.
         year_w = self._cell_width(fm, year_cell) if year_cell else 0
         year_rects = right_aligned_rects(line1, [year_w], _CELL_GAP) if year_cell else []
 
@@ -379,6 +406,19 @@ class ChannelRowDelegate(QStyledItemDelegate):
             w = fm.horizontalAdvance(glyph)
             self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), glyph, default_color, font)
             x += w + _CELL_GAP
+
+        # Paint playback-state glyph (·/▶/✓) with optional color
+        if playback_glyph:
+            w = fm.horizontalAdvance(playback_glyph)
+            glyph_color = playback_color if playback_color else default_color
+            self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), playback_glyph, glyph_color, font)
+            x += w + _CELL_GAP
+
+        # Paint unviewed match marker (🚨)
+        if match_marker:
+            w = fm.horizontalAdvance(match_marker)
+            self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), match_marker, default_color, font)
+            x += w
 
         title_right = year_rects[0].left() - _CELL_GAP if year_rects else line1.left() + line1.width()
         title_box_w = max(0, title_right - x)

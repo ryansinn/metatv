@@ -70,6 +70,9 @@ RATING_ROLE = Qt.ItemDataRole.UserRole + 12       # user_rating: -1, 0, or 1 (in
 CATEGORY_ROLE = Qt.ItemDataRole.UserRole + 13     # category or "" (str)
 MEDIA_ICON_ROLE = Qt.ItemDataRole.UserRole + 14   # resolved media-type glyph (str)
 FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # resolved favorite/unfavorite glyph (str)
+PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback state glyph: ·/▶/✓ (str)
+PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
+MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -227,6 +230,14 @@ class ChannelListModel(QAbstractListModel):
             )
         if role == FAV_GLYPH_ROLE:
             return self._favorite_icon if channel.is_favorite else self._unfavorite_icon
+        if role == PLAYBACK_GLYPH_ROLE:
+            glyph, _ = self._playback_indicator(channel)
+            return glyph
+        if role == PLAYBACK_GLYPH_COLOR_ROLE:
+            _, color = self._playback_indicator(channel)
+            return color
+        if role == MATCH_MARKER_ROLE:
+            return f"{_icons.new_match_icon} " if channel.id in self._new_match_ids else ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]
