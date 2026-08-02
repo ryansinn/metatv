@@ -5,7 +5,7 @@ from typing import Optional
 from loguru import logger
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QFrame, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame, QLabel,
 )
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QPixmap
@@ -204,6 +204,9 @@ class DetailsPaneWidget(QWidget):
         self._in_episode_mode = False
         self.current_episode = None
         self._byline.hide()
+        self._episode_rating_lbl.hide()
+        self._episode_air_date_lbl.hide()
+        self._episode_meta_row.hide()
         self._action_bar.exit_episode_mode()
 
         # Tier 1: instant display from channel attributes
@@ -317,14 +320,38 @@ class DetailsPaneWidget(QWidget):
         self._byline.setToolTip(ep_title)
         self._byline.show()
 
+        # Rating + air date — episode-grain fields computed at ingestion (Wave 4 —
+        # #247, EpisodeDB.rating/air_date). A rating of 0/None means "no rating
+        # shipped" — hidden rather than showing "0.0 of 10" (mirrors
+        # _MetadataSection.load_basic's raw_rating treatment). Star formatting
+        # matches that same series-level treatment exactly (same config icon,
+        # same "X.X of 10" caption) so ratings read identically pane-wide.
+        ep_rating = getattr(episode, "rating", None)
+        if ep_rating:
+            stars = self.config.rating_star_icon * int(min(10.0, ep_rating) / 2)
+            self._episode_rating_lbl.setText(f"{stars} {ep_rating:.1f} of 10")
+            self._episode_rating_lbl.show()
+        else:
+            self._episode_rating_lbl.hide()
+
+        ep_air_date = getattr(episode, "air_date", None)
+        if ep_air_date:
+            self._episode_air_date_lbl.setText(f"Aired: {ep_air_date}")
+            self._episode_air_date_lbl.show()
+        else:
+            self._episode_air_date_lbl.hide()
+
+        self._episode_meta_row.show()
+
         # Plot — episode plot if the DTO carries one, else keep the series plot.
         ep_plot = getattr(episode, "plot", None)
         if ep_plot:
             self._plot.load(ep_plot)
 
-        # Poster — episode image if the DTO carries one, else keep the series poster.
+        # Poster — episode still image if the DTO carries one, else keep the series poster.
         ep_image = (
-            getattr(episode, "image_url", None)
+            getattr(episode, "still_url", None)
+            or getattr(episode, "image_url", None)
             or getattr(episode, "poster_url", None)
             or getattr(episode, "image", None)
         )
@@ -386,6 +413,27 @@ class DetailsPaneWidget(QWidget):
         self._byline.setStyleSheet(_theme.DETAIL_EPISODE_BYLINE)
         _no_width_force(self._byline)
         self._byline.hide()
+
+        # Episode meta row — rating (stars, matching the series-level treatment in
+        # _MetadataSection.rating_label) + air date, shown only alongside the byline
+        # in episode mode.  A plain QHBoxLayout is fine here (mirrors the badge_row
+        # pattern in details_sections.py): both chips are short so the row never
+        # drives the pane wider (docs/DETAILS_PANE_DESIGN.md → "Width discipline").
+        self._episode_meta_row = QWidget()
+        _episode_meta_layout = QHBoxLayout(self._episode_meta_row)
+        _episode_meta_layout.setContentsMargins(0, 0, 0, 0)
+        _episode_meta_layout.setSpacing(8)
+        self._episode_rating_lbl = QLabel()
+        self._episode_rating_lbl.setStyleSheet(_theme.DETAIL_EPISODE_RATING)
+        self._episode_rating_lbl.hide()
+        _episode_meta_layout.addWidget(self._episode_rating_lbl)
+        self._episode_air_date_lbl = QLabel()
+        self._episode_air_date_lbl.setStyleSheet(_theme.DETAIL_EPISODE_AIR_DATE)
+        self._episode_air_date_lbl.hide()
+        _episode_meta_layout.addWidget(self._episode_air_date_lbl)
+        _episode_meta_layout.addStretch()
+        self._episode_meta_row.hide()
+
         self._versions = _VersionSection(self.config)
         self._action_bar = _ActionBar(self.config)
         self._plot     = _PlotSection()
@@ -403,7 +451,7 @@ class DetailsPaneWidget(QWidget):
         # the logical owner of the action buttons, which are reparented into the
         # poster's left rail by set_action_buttons() below.
         for widget in (
-            self._poster, self._meta, self._byline, self._versions,
+            self._poster, self._meta, self._byline, self._episode_meta_row, self._versions,
             self._plot, self._cast, self._tech, self._tags, self._similar,
         ):
             self._content_layout.addWidget(widget)

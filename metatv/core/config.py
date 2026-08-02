@@ -1092,6 +1092,12 @@ class Config(BaseModel):
     # rows (new channels get them at ingestion).
     category_marker_backfill_version: int = 0
 
+    # Internal migration version for the episode metadata backfill (Wave 4 — #247).
+    # Bump CURRENT_VERSION in metatv/core/migrations/episode_metadata_backfill.py to
+    # trigger a one-time pass populating EpisodeDB.plot/air_date/rating/still_url from
+    # each row's already-stored raw_data blob (new episodes get these at ingestion).
+    episode_metadata_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

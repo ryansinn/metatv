@@ -10,6 +10,7 @@ from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
 from metatv.core.models import Provider, MediaType
 from metatv.core.database import Database, ChannelDB, SeasonDB, EpisodeDB, ProviderDB
+from metatv.core.episode_metadata_extract import extract_episode_metadata_fields
 from metatv.core.repositories.provider import parse_provider_urls
 from metatv.providers.factory import get_provider
 
@@ -1119,6 +1120,11 @@ class SeriesLoadThread(QThread):
                     info = info_raw
                     duration = info.get("duration", "") or episode_data.get("duration", "")
 
+                    # Episode-grain metadata (plot/air_date/rating/still_url) — lifted
+                    # once here at ingestion via the shared chokepoint so render code
+                    # never re-parses raw_data (Wave 4 — #247, CLAUDE.md ingestion rule).
+                    ep_fields = extract_episode_metadata_fields(episode_data)
+
                     if existing_episode:
                         # Update existing
                         existing_episode.title = episode_data.get("title", f"Episode {episode_num}")
@@ -1127,6 +1133,10 @@ class SeriesLoadThread(QThread):
                         existing_episode.cover_url = info.get("movie_image", "")
                         existing_episode.container_extension = container
                         existing_episode.raw_data = episode_data
+                        existing_episode.plot = ep_fields["plot"]
+                        existing_episode.air_date = ep_fields["air_date"]
+                        existing_episode.rating = ep_fields["rating"]
+                        existing_episode.still_url = ep_fields["still_url"]
                         # Re-link to the (now provider-scoped) season id so episodes stored
                         # under a pre-fix non-scoped season key follow the season on reload.
                         existing_episode.season_id = season_id
@@ -1146,7 +1156,11 @@ class SeriesLoadThread(QThread):
                             stream_url=stream_url,
                             cover_url=info.get("movie_image", ""),
                             series_name=self.series_name,
-                            raw_data=episode_data
+                            raw_data=episode_data,
+                            plot=ep_fields["plot"],
+                            air_date=ep_fields["air_date"],
+                            rating=ep_fields["rating"],
+                            still_url=ep_fields["still_url"],
                         )
                         session.add(episode)
             

@@ -36,15 +36,16 @@ class EpisodeRepository:
         ).order_by(EpisodeDB.episode_num).all()
 
     def get_episodes_dto_by_season(self, season_id: str) -> "List[EpisodeDTO]":
-        """Return episodes as plain DTOs — thread-safe, no live session required."""
+        """Return episodes as plain DTOs — thread-safe, no live session required.
+
+        ``rating``/``plot``/``air_date``/``still_url`` are read directly from
+        the stored ``EpisodeDB`` columns (populated at ingestion — Wave 4,
+        #247) rather than re-parsing ``raw_data`` here on every read
+        (compute-once-at-ingestion, CLAUDE.md).
+        """
         episodes = self.get_by_season(season_id=season_id)
         result: list[EpisodeDTO] = []
         for ep in episodes:
-            rating: str | None = None
-            if ep.raw_data and isinstance(ep.raw_data, dict):
-                info = ep.raw_data.get("info", {})
-                if isinstance(info, dict):
-                    rating = info.get("rating") or None
             result.append(EpisodeDTO(
                 id=ep.id,
                 episode_num=ep.episode_num,
@@ -54,7 +55,7 @@ class EpisodeRepository:
                 stream_url=ep.stream_url,
                 duration=ep.duration,
                 is_watched=ep.is_watched,
-                rating=rating,
+                rating=getattr(ep, "rating", None),
                 series_id=ep.series_id,
                 provider_id=ep.provider_id,
                 season_id=ep.season_id,
@@ -63,6 +64,9 @@ class EpisodeRepository:
                 watch_percent=int(getattr(ep, "watch_percent", 0) or 0),
                 last_played_via=getattr(ep, "last_played_via", None),
                 is_favorite=bool(getattr(ep, "is_favorite", False)),
+                plot=getattr(ep, "plot", None),
+                air_date=getattr(ep, "air_date", None),
+                still_url=getattr(ep, "still_url", None),
             ))
         return result
 

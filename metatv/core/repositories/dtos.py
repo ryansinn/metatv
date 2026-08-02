@@ -255,7 +255,7 @@ class EpisodeDTO:
     stream_url: str | None
     duration: str | None
     is_watched: bool
-    rating: str | None           # pre-extracted from raw_data["info"]["rating"]
+    rating: float | None         # stored EpisodeDB.rating — computed at ingestion (Wave 4 — #247)
     # Play-side fields (needed by play_episode to look up parent channel + queue season)
     series_id: str = ""
     provider_id: str = ""
@@ -268,6 +268,11 @@ class EpisodeDTO:
     last_played_via: str | None = None
     # Episode-grain favorite (Wave 2 Slice 2B) — independent of the parent series' favorite.
     is_favorite: bool = False
+    # Episode-grain metadata (Wave 4 — #247) — stored EpisodeDB columns, computed at
+    # ingestion; the pane reads these directly, never re-parsing raw_data at render.
+    plot: str | None = None
+    air_date: str | None = None  # provider's ISO date verbatim — never parsed to a date type here
+    still_url: str | None = None  # episode-specific still image, distinct from cover_url
 
 
 @dataclass(frozen=True)

@@ -478,6 +478,12 @@ def _build_semantic_constants() -> dict[str, object]:
     # Episode byline — the episode title shown under the series title in episode mode.
     # Subordinate to the series title (smaller than DETAIL_TITLE) but still emphasized.
     DETAIL_EPISODE_BYLINE = "font-size: " + FONT_2XL + "; font-weight: 600; color: " + COLOR_TEXT_HI + ";"
+    # Episode-mode rating chip (Wave 4 — #247) — mirrors the gold/bold star treatment
+    # used for the series-level rating (_MetadataSection.rating_label in
+    # details_sections.py) so per-episode and series-level ratings render identically.
+    DETAIL_EPISODE_RATING = "color: " + COLOR_GOLD + "; font-weight: bold;"
+    # Episode-mode air-date chip — small and muted, sits beside the rating.
+    DETAIL_EPISODE_AIR_DATE = "color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
     DETAIL_TEXT  = "color: " + COLOR_LIGHTGRAY + ";"
     META_DIM     = "color: " + COLOR_GRAY + ";"
     LOADING_TEXT = "color: " + COLOR_GRAY + "; font-style: italic;"
