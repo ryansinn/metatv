@@ -461,6 +461,28 @@ class MPVPlayer(PlayerPlugin):
         resolved = self._resolve_key(key)
         return {n: self.get_property(n, key=resolved) for n in names}
 
+    def send_command(self, cmd: list, key: str | None = None) -> bool:
+        """Send a raw mpv IPC command to the instance for *key*.
+
+        Public entry point for ad-hoc IPC commands (hotkeys, mini-player
+        controls) that don't fit the existing play/queue/stop/get_property
+        surface. Resolves *key* the same way as ``get_property``/``stop``
+        (explicit key, else ``_last_key``, else the shared key in
+        single-instance mode).
+
+        Args:
+            cmd: mpv JSON IPC command list, e.g. ``["cycle", "pause"]``.
+            key: Instance key to target; defaults to the most-recently-used key.
+
+        Returns:
+            True if the command was delivered, False if no instance could be
+            resolved or delivery failed.
+        """
+        resolved = self._resolve_key(key)
+        if resolved is None:
+            return False
+        return self._send_ipc_command({"command": cmd, "request_id": 1}, resolved)
+
     # ── Playback ─────────────────────────────────────────────────────────────
 
     def play(

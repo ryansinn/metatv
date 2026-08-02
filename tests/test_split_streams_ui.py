@@ -47,8 +47,8 @@ def _make_manager(split: bool = False) -> PlayerManager:
     cfg = _FakeConfig(split_streams_by_source=split)
     mgr = PlayerManager.__new__(PlayerManager)
     mgr.config = cfg
-    mgr.running_instances = []
     mgr._key_provider = {}
+    mgr._init_connection_accounting()
     mgr.player = None  # overridden per-test as needed
     return mgr
 

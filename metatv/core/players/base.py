@@ -119,3 +119,18 @@ class PlayerPlugin(ABC):
             ``{name: value-or-None}`` for each requested name.
         """
         return {n: None for n in names}
+
+    def send_command(self, cmd: list, key: str | None = None) -> bool:
+        """Send a raw IPC/control command to the player.
+
+        Concrete (non-abstract) default so players without a raw-command
+        channel inherit a safe no-op returning False.
+
+        Args:
+            cmd: Player-specific raw command payload.
+            key: Instance key to target (player-specific; None = default/last).
+
+        Returns:
+            True if delivered, False if unsupported/failed.
+        """
+        return False

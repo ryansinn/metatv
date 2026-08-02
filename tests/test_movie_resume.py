@@ -305,6 +305,7 @@ def test_on_stream_ready_passes_start_seconds():
     host.player_manager.play.assert_called_once_with(
         "http://stream.mp4", "My Movie",
         provider_id="p1",
+        provider_max_connections=1,
         force_new_window=False,
         start_seconds=720,
         open_ended_buffer=False,
@@ -331,6 +332,7 @@ def test_on_stream_ready_defaults_start_seconds_to_zero():
     host.player_manager.play.assert_called_once_with(
         "http://stream.mp4", "My Movie",
         provider_id="p1",
+        provider_max_connections=1,
         force_new_window=False,
         start_seconds=0,
         open_ended_buffer=False,
@@ -351,9 +353,10 @@ def test_player_manager_play_threads_start_seconds():
         player_mode="single-instance",
     )
     pm._key_provider = {}
-    pm.running_instances = []
+    pm._init_connection_accounting()
     pm.player = MagicMock()
     pm.player.play.return_value = True
+    pm.player.active_keys.return_value = []
 
     pm.play("http://stream.mp4", "My Movie", provider_id="p1", start_seconds=360)
 

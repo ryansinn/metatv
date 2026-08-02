@@ -229,7 +229,10 @@ def test_on_stream_ready_play_anyway_calls_player_manager():
         "http://trex.example.com/live/user/pass/1234.ts",
         "FOX SPORTS 1",
         provider_id="trex-provider",
+        provider_max_connections=1,
         force_new_window=False,
+        start_seconds=0,
+        open_ended_buffer=False,
     )
 
 
