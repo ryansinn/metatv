@@ -27,6 +27,7 @@ from loguru import logger
 from metatv.core.config import Config
 from metatv.core.database import Database
 from metatv.gui import cursor_affordance
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 
@@ -686,6 +687,35 @@ class _RescanThread(QThread):
             session.close()
 
 
+class _KeywordCountThread(QThread):
+    """Background thread that computes live match counts for the Keywords section.
+
+    Mirrors :class:`_RescanThread`'s shape — a bounded, off-UI-thread DB read
+    (``ChannelRepository.count_keyword_matches``, one ``COUNT(*)`` per keyword)
+    so the dialog's live "wrestling — 412 channels" counts never block the UI
+    (CLAUDE.md's async-background-DB-reads rule).
+    """
+    done = pyqtSignal(dict)  # {keyword: count}
+
+    def __init__(self, db: Database, keywords: list[str], parent=None) -> None:
+        super().__init__(parent)
+        self._db = db
+        self._keywords = keywords
+
+    def run(self) -> None:
+        from metatv.core.repositories import RepositoryFactory
+        session = self._db.get_session()
+        try:
+            repos = RepositoryFactory(session)
+            counts = repos.channels.count_keyword_matches(self._keywords)
+            self.done.emit(counts)
+        except Exception as exc:
+            logger.error(f"Keyword match-count load failed: {exc}")
+            self.done.emit({})
+        finally:
+            session.close()
+
+
 class GlobalFilterDialog(QDialog):
     """Modal dialog for setting global content category filters."""
 
@@ -712,6 +742,25 @@ class GlobalFilterDialog(QDialog):
         self._user_category_rows: list[tuple[str, QCheckBox, QWidget]] = []
         # Content-provenance rows: list of (content_type_slug, checkbox, row_widget)
         self._content_provenance_rows: list[tuple[str, QCheckBox, QWidget]] = []
+        # Keywords section: a staged working copy of the excluded-keyword list —
+        # mutated by Add/Remove, only written to config.global_excluded_keywords
+        # in _save_and_accept() (Cancel discards it, matching every other section).
+        self._keyword_list: list[str] = [
+            k for k in (getattr(config, "global_excluded_keywords", None) or []) if k and k.strip()
+        ]
+        self._keyword_rows: list[tuple[str, QWidget, QLabel]] = []  # (keyword, row, count_label)
+        # Section title + separator — hidden by the realtime search filter when
+        # no keyword row matches (same collapsible-header contract as every
+        # other section's header_widgets).
+        self._keyword_header_widgets: list[QWidget] = []
+        # The Add row — deliberately NOT part of the search-collapsible header
+        # set above: adding a new keyword must stay possible even while a
+        # search query has narrowed/hidden the existing rows. Still torn down
+        # and rebuilt by _clear_groups()/_populate_keywords() like everything else.
+        self._keyword_static_widgets: list[QWidget] = []
+        self._keyword_counts: dict[str, int] = {}
+        self._keyword_count_thread: _KeywordCountThread | None = None
+        self._keyword_input: QLineEdit | None = None
         # The bare "Uncategorized" prefix group (no wrapping type header of its own)
         self._uncategorized_section: _GroupSection | None = None
         # Header widgets scoped to a single type — used both by _clear_groups()
@@ -1017,6 +1066,7 @@ class GlobalFilterDialog(QDialog):
         self._populate_content_types()
         self._populate_content_provenance()
         self._populate_user_categories()
+        self._populate_keywords()
         self._rebuild_filter_blocks()
 
     def _populate_user_categories(self) -> None:
@@ -1253,6 +1303,178 @@ class GlobalFilterDialog(QDialog):
             self._inner_vl.addWidget(row)
             self._content_provenance_rows.append((value, cb, row))
 
+    def _populate_keywords(self) -> None:
+        """Build the 'Keywords' section — user-defined free-text Global Exclusions.
+
+        A DISPLAY-TIME axis: a keyword here is matched case-insensitively as a
+        SUBSTRING against a channel's title on every load (channel list /
+        Discover / Recommendations) via
+        ``filter_utils.keyword_exclusion_criterion`` — there is no ingestion
+        step and no stored field, so editing this list takes effect the very
+        next load. Deliberately distinct from the "Restricted Content" keyword
+        list in Settings (``Config.restricted_keywords`` /
+        ``channel_name_utils.is_restricted``), which is resolved ONCE at
+        ingestion into ``ChannelDB.detected_restricted`` and only gates the
+        Adult-content filter — the two lists are never merged or cross-read.
+
+        Renders from ``self._keyword_list`` (the staged working copy — Add/
+        Remove mutate it locally; nothing touches ``config`` until Save,
+        matching every other section). Each row shows a live match count
+        loaded off the UI thread (``_KeywordCountThread`` — mirror-not-cage
+        transparency: a typo or an over-broad term reads "no matches" instead
+        of silently doing nothing).
+        """
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(_theme.SEP_DARK)
+        self._inner_vl.addWidget(sep)
+        self._keyword_header_widgets.append(sep)
+
+        hdr_row = QHBoxLayout()
+        hdr = QLabel("Keywords")
+        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        hdr_row.addWidget(hdr)
+        info_lbl = QLabel("ⓘ")
+        info_lbl.setStyleSheet(_theme.INFO_LABEL)
+        info_lbl.setToolTip(
+            "Hide any channel whose title contains one of your own words or\n"
+            "phrases (e.g. \"wrestling\", \"telenovela\") — matched case-\n"
+            "insensitively, everywhere (search, Discovery, Recommendations, EPG).\n"
+            "Distinct from the Restricted Content list in Settings, which only\n"
+            "affects the Adult-content filter."
+        )
+        hdr_row.addWidget(info_lbl)
+        hdr_row.addStretch()
+        hdr_w = QWidget()
+        hdr_w.setLayout(hdr_row)
+        self._inner_vl.addWidget(hdr_w)
+        self._keyword_header_widgets.append(hdr_w)
+
+        # ── Add row ──────────────────────────────────────────────────────────
+        add_row = QWidget()
+        add_hl = QHBoxLayout(add_row)
+        add_hl.setContentsMargins(2, 2, 2, 2)
+        add_hl.setSpacing(6)
+        self._keyword_input = QLineEdit()
+        self._keyword_input.setClearButtonEnabled(True)
+        self._keyword_input.setPlaceholderText("Add a keyword (e.g. wrestling)…")
+        self._keyword_input.returnPressed.connect(self._add_keyword)
+        add_hl.addWidget(self._keyword_input, 1)
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(self._add_keyword)
+        add_hl.addWidget(add_btn)
+        self._inner_vl.addWidget(add_row)
+        self._keyword_static_widgets.append(add_row)
+
+        self._keyword_rows = []
+        for kw in self._keyword_list:
+            self._add_keyword_row(kw)
+
+        self._start_keyword_count_reload()
+
+    def _add_keyword_row(self, keyword: str) -> None:
+        """Append one removable row for *keyword* to the Keywords section."""
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(2, 2, 2, 2)
+        rl.setSpacing(8)
+
+        kw_lbl = QLabel(keyword)
+        kw_lbl.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+        rl.addWidget(kw_lbl)
+
+        count_lbl = QLabel("counting…")
+        count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        rl.addWidget(count_lbl)
+        rl.addStretch()
+
+        remove_btn = QPushButton(_icons.close_icon)
+        remove_btn.setFlat(True)
+        remove_btn.setToolTip(f'Remove "{keyword}" from Global Exclusions')
+        remove_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED_2}; border: none; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ERR_MUTED}; }}"
+        )
+        remove_btn.clicked.connect(lambda _, k=keyword: self._remove_keyword(k))
+        rl.addWidget(remove_btn)
+
+        self._inner_vl.addWidget(row)
+        self._keyword_rows.append((keyword, row, count_lbl))
+        if keyword in self._keyword_counts:
+            self._apply_keyword_count(count_lbl, self._keyword_counts[keyword])
+
+    def _add_keyword(self) -> None:
+        """Handle the Add button / Enter in the keyword input."""
+        if self._keyword_input is None:
+            return
+        text = self._keyword_input.text().strip()
+        self._keyword_input.clear()
+        if not text:
+            return
+        if any(k.lower() == text.lower() for k in self._keyword_list):
+            self._keyword_input.setFocus()
+            return  # already present — no duplicate row
+        self._keyword_list.append(text)
+        self._add_keyword_row(text)
+        self._rebuild_filter_blocks()
+        self._apply_search_filter(self._search_box.text())  # keep any active search applied
+        self._start_keyword_count_reload()
+        self._keyword_input.setFocus()
+
+    def _remove_keyword(self, keyword: str) -> None:
+        """Drop *keyword* from the staged list and its row (view-only until Save)."""
+        if keyword in self._keyword_list:
+            self._keyword_list.remove(keyword)
+        for entry in list(self._keyword_rows):
+            kw, row, _count_lbl = entry
+            if kw == keyword:
+                self._inner_vl.removeWidget(row)
+                row.deleteLater()
+                self._keyword_rows.remove(entry)
+        self._rebuild_filter_blocks()
+
+    def _start_keyword_count_reload(self) -> None:
+        """Kick off a background load of match counts for every staged keyword.
+
+        A keyword already carrying a cached count (e.g. unrelated rows redrawn
+        after an Add) is loaded again too — cheap (bounded COUNT per keyword)
+        and keeps every row's number authoritative after the DB may have
+        changed (a rescan/library refresh) rather than staying cached from
+        dialog-open time.
+        """
+        if not self._keyword_list:
+            return
+        self._keyword_count_thread = _KeywordCountThread(
+            self._db, list(self._keyword_list), parent=self
+        )
+        self._keyword_count_thread.done.connect(self._on_keyword_counts_ready)
+        self._keyword_count_thread.start()
+
+    def _on_keyword_counts_ready(self, counts: dict) -> None:
+        """Main thread: apply freshly-loaded match counts to their rows."""
+        self._keyword_counts.update(counts)
+        for kw, _row, count_lbl in self._keyword_rows:
+            if kw in counts:
+                self._apply_keyword_count(count_lbl, counts[kw])
+
+    def _apply_keyword_count(self, count_lbl: QLabel, count: int) -> None:
+        """Render *count* on *count_lbl* — inert (0 matches) styled + worded distinctly.
+
+        Text carries the state (not color alone, CLAUDE.md a11y rule): a
+        typo'd or over-broad keyword reads "no matches" outright rather than
+        relying on a dimmer shade of the same "(N channels)" text.
+        """
+        if count > 0:
+            count_lbl.setText(f"— {count:,} channel{'s' if count != 1 else ''}")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            count_lbl.setToolTip("")
+        else:
+            count_lbl.setText("— no matches")
+            count_lbl.setStyleSheet(_theme.LABEL_MUTED + " font-style: italic;")
+            count_lbl.setToolTip(
+                "This keyword doesn't match any channel titles right now — check for a typo."
+            )
+
     def _clear_groups(self) -> None:
         """Remove all group widgets (before a re-populate)."""
         for section in self._sections:
@@ -1292,6 +1514,22 @@ class GlobalFilterDialog(QDialog):
         self._content_types_only_header_widgets.clear()
         self._content_provenance_header_widgets.clear()
         self._user_categories_header_widgets.clear()
+
+        for _kw, row, _count_lbl in self._keyword_rows:
+            self._inner_vl.removeWidget(row)
+            row.deleteLater()
+        self._keyword_rows.clear()
+        self._keyword_input = None
+
+        for w in self._keyword_header_widgets:
+            self._inner_vl.removeWidget(w)
+            w.deleteLater()
+        self._keyword_header_widgets.clear()
+
+        for w in self._keyword_static_widgets:
+            self._inner_vl.removeWidget(w)
+            w.deleteLater()
+        self._keyword_static_widgets.clear()
 
         self._filter_blocks = []
 
@@ -1429,6 +1667,13 @@ class GlobalFilterDialog(QDialog):
                 leaf_rows=leaf_rows,
             ))
 
+        if self._keyword_rows:
+            leaf_rows = [(row, [kw.lower()]) for kw, row, _count_lbl in self._keyword_rows]
+            blocks.append(_FilterBlock(
+                header_widgets=list(self._keyword_header_widgets),
+                leaf_rows=leaf_rows,
+            ))
+
         self._filter_blocks = blocks
 
     def _apply_search_filter(self, raw_query: str) -> None:
@@ -1492,6 +1737,11 @@ class GlobalFilterDialog(QDialog):
         self._config.global_filter_excluded_tag_content_types = [
             slug for slug, cb, _row in self._content_provenance_rows if cb.isChecked()
         ]
+
+        # Keywords — the staged working copy (Add/Remove already mutated it;
+        # this is the only point where it reaches config, matching every
+        # other section: Cancel discards everything above too).
+        self._config.global_excluded_keywords = list(self._keyword_list)
 
         self._config.save()
         self.accept()

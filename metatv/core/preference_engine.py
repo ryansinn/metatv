@@ -393,6 +393,7 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
                      dedupe_overrides: set[str] | None = None,
                      excluded_prefixes: list[str] | None = None,
                      include_uncategorized: bool = True,
+                     excluded_keywords: list[str] | None = None,
                      excluded_provider_ids: list[str] | None = None,
                      version_scorer=None,
                      balance_media_types: bool = False,
@@ -409,6 +410,8 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
 
     Exclusion rules:
     - From an inactive/expired source (excluded_provider_ids) → excluded
+    - Matches a Global Exclusions prefix/category (excluded_prefixes) or
+      keyword (excluded_keywords, case-insensitive substring on the title) → excluded
     - Disliked (rating < 0) → always excluded
     - Hidden (is_hidden) → excluded
     - Rec-suppressed (is_rec_suppressed) → excluded
@@ -488,7 +491,10 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
             ChannelDB.metadata_id.isnot(None),
         )
     )
-    candidates_q = _apply_prefix_filter(candidates_q, excluded_prefixes, include_uncategorized)
+    candidates_q = _apply_prefix_filter(
+        candidates_q, excluded_prefixes, include_uncategorized,
+        excluded_keywords=excluded_keywords,
+    )
     # Canonical provider scoping: never recommend content from inactive/expired sources.
     if excluded_provider_ids:
         candidates_q = candidates_q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))

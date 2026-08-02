@@ -97,6 +97,7 @@ class _ChannelListMixin:
         self._bypass_tier1_filters = False  # new search term — cancel any bypass
         self._bypass_global_exclusions = False  # …including the exclusions reveal
         self._bypass_dead_gate = False  # …and the dead-stream-gate reveal
+        self._bypass_keyword_exclusions = False  # …and the keyword-axis reveal
         self._clear_id_filter()             # a new search drops the ephemeral alert id-filter
         self._save_search_state()
         self._search_debounce.start()  # restart the 200ms timer on each keystroke
@@ -114,6 +115,7 @@ class _ChannelListMixin:
         """
         self._bypass_global_exclusions = False  # any id-filter change drops the exclusions reveal
         self._bypass_dead_gate = False  # …and the dead-stream-gate reveal
+        self._bypass_keyword_exclusions = False  # …and the keyword-axis reveal
         if getattr(self, "_details_id_filter", None) is None:
             return False
         self._details_id_filter = None
@@ -327,7 +329,9 @@ class _ChannelListMixin:
             for p in all_providers:
                 provider_icon_map[p.id] = (getattr(p, "icon", "") or self.config.provider_icon)
 
-        from metatv.core.filter_utils import global_exclusion_set, excluded_tag_content_types
+        from metatv.core.filter_utils import (
+            global_exclusion_set, excluded_tag_content_types, keyword_exclusion_list,
+        )
         _filter_paused = self.config.global_filter_paused
         # Canonical builder (paused-aware): union of the category blacklist
         # (group→leaf-expanded) and the explicit "Block [PREFIX]" set.
@@ -336,6 +340,10 @@ class _ChannelListMixin:
         # to an excluded channel-id set so the Python exclusion pass drops channels
         # carrying an excluded content_type tag (e.g. AI Generated / AI Voiceover).
         _excluded_ct_slugs = excluded_tag_content_types(self.config)
+        # Keyword axis (paused-aware): applied entirely in SQL inside get_all()/
+        # _apply_channel_filters — unlike the prefix/content-type layers above,
+        # it never needs a Python id-set resolve.
+        _excluded_keywords = keyword_exclusion_list(self.config)
         _search_text = (self.search_input.text().strip()
                         if hasattr(self, 'search_input') else "")
         # _bypass_tier1_filters: set when user clicks "Show filtered results" in the
@@ -376,6 +384,12 @@ class _ChannelListMixin:
             # __dict__.get: bare-host tests build MainWindow via __new__, where
             # PyQt turns plain attribute access into RuntimeError (#351/#375 trap).
             bypass_dead_gate=self.__dict__.get('_bypass_dead_gate', False),
+            # Keyword axis: paused-aware list (empty when paused/unset — a no-op).
+            excluded_keywords=_excluded_keywords,
+            # View-scoped reveal: skip the keyword axis for this one load so the
+            # user can see exactly what their keyword list hides (mirror-not-cage).
+            # Never mutates stored settings; reset on next search/filter change.
+            bypass_keyword_exclusions=self.__dict__.get('_bypass_keyword_exclusions', False),
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
             person_filter=self._details_person_filter,
@@ -443,6 +457,12 @@ class _ChannelListMixin:
         # hidden_only/id_filter_show_all branches already set include_hidden=True,
         # which bypasses the whole is_hidden/dead block in _apply_channel_filters.
         bypass_dead_gate = bool(params.get('bypass_dead_gate'))
+        # View-scoped reveal: skip the keyword axis for this one load (mirrors
+        # bypass_dead_gate above). The axis lives IN the SQL query (get_all's
+        # excluded_keywords), not a Python post-filter, so "bypass" here simply
+        # means "don't pass it" rather than "undo it afterwards".
+        bypass_keywords = bool(params.get('bypass_keyword_exclusions'))
+        _excl_keywords = params.get('excluded_keywords') or []
         if hidden_only:
             channels = repos.channels.get_hidden_channels(
                 excluded_user_categories=params.get('excluded_user_categories'),
@@ -493,6 +513,7 @@ class _ChannelListMixin:
                 tag_includes=params.get('tag_includes'),
                 exclude_watched=params.get('hide_watched', False),
                 collapse_variants=params.get('collapse_variants', False),
+                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
                 limit=_page_size,
             )
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
@@ -565,6 +586,7 @@ class _ChannelListMixin:
                 exclude_watched=params.get('hide_watched', False),
                 tag_includes=None,  # the axis being measured
                 collapse_variants=params.get('collapse_variants', False),
+                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
                 limit=_page_size,
             )
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
@@ -618,6 +640,7 @@ class _ChannelListMixin:
                 tag_includes=params.get('tag_includes'),
                 exclude_watched=params.get('hide_watched', False),
                 collapse_variants=params.get('collapse_variants', False),
+                excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
                 limit=_page_size,
             )
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
@@ -627,6 +650,59 @@ class _ChannelListMixin:
                     with_dead, excluded_prefixes, excluded_user_cats, excluded_ct_ids
                 )
             hidden_by_dead = max(0, len(with_dead) - len(channels))
+
+        # ── Filter layer 4 — Global Exclusions keyword axis (SQL) ──────────────────
+        # Unlike layer 1 (prefix/category/content-type, applied Python-side above),
+        # the keyword axis is already baked into the `channels` query itself (SQL
+        # ilike chain — see excluded_keywords on get_all). Measuring what it hides
+        # therefore means re-running the SAME query with ONLY that axis lifted
+        # (mirrors the dead-stream-gate diff immediately above) rather than an
+        # after-the-fact Python filter. Skipped when there are no keywords to
+        # measure, or the user already revealed this layer (bypass_keywords).
+        hidden_by_keywords = 0
+        keywords_active = (
+            not hidden_only and not id_filter_show_all
+            and not bypass_keywords and bool(_excl_keywords)
+        )
+        if keywords_active:
+            with_keywords = repos.channels.get_all(
+                provider_id=params['provider_id'],
+                media_types=params['media_types'],
+                language_prefixes=params.get('language_prefixes'),
+                region_prefixes=params.get('region_prefixes'),
+                quality_prefixes=params.get('quality_prefixes'),
+                platform_prefixes=params.get('platform_prefixes'),
+                genre_filters=params.get('genre_filters'),
+                invert_prefix_filters=params['invert_prefix_filters'],
+                include_untagged=params['include_untagged'],
+                include_untagged_quality=params.get('include_untagged_quality', True),
+                adult_mode=params['adult_mode'],
+                force_adult_provider_ids=force_adult_ids or None,
+                source_categories=params['source_categories'],
+                include_uncategorized_content_types=True,
+                hidden_only=False,
+                include_hidden=False,
+                include_dead=bypass_dead_gate,
+                search_query=params.get('search_query'),
+                strict_genre_filter=params.get('strict_genre_filter'),
+                person_filter=params.get('person_filter'),
+                context_tag_filter=params.get('context_tag_filter'),
+                context_category_filter=params.get('context_category_filter'),
+                channel_ids=params.get('context_id_filter'),
+                excluded_provider_ids=providers_to_exclude or None,
+                tag_includes=params.get('tag_includes'),
+                exclude_watched=params.get('hide_watched', False),
+                collapse_variants=params.get('collapse_variants', False),
+                excluded_keywords=None,  # the axis being measured
+                limit=_page_size,
+            )
+            # Mirror the Python-side exclusion filtering applied to `channels` so the
+            # diff isolates ONLY the keyword axis (never the layer-1 exclusions).
+            if exclusions_applied:
+                with_keywords = _apply_python_exclusions(
+                    with_keywords, excluded_prefixes, excluded_user_cats, excluded_ct_ids
+                )
+            hidden_by_keywords = max(0, len(with_keywords) - len(channels))
 
         # When "Hide watched" is ON, count how many results are hidden because they're
         # watched — used to show "N watched hidden" in the stats label.
@@ -677,6 +753,7 @@ class _ChannelListMixin:
         params['hidden_by_exclusions'] = hidden_by_exclusions
         params['hidden_by_search']     = hidden_by_search
         params['hidden_by_dead']       = hidden_by_dead
+        params['hidden_by_keywords']   = hidden_by_keywords
         params['id_filter_active']  = id_filter_active
         params['watched_hidden_count'] = watched_hidden_count
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
@@ -731,11 +808,13 @@ class _ChannelListMixin:
         self._currently_bypassing = params.get('bypassing_tier1', False)
         self._currently_bypassing_exclusions = params.get('bypass_global_exclusions', False)
         self._currently_bypassing_dead = params.get('bypass_dead_gate', False)
+        self._currently_bypassing_keywords = params.get('bypass_keyword_exclusions', False)
 
         # Per-layer transparency counts (0 for a layer that is bypassed/revealed).
         hidden_excl   = params.get('hidden_by_exclusions', 0)
         hidden_search = params.get('hidden_by_search', 0)
         hidden_dead   = params.get('hidden_by_dead', 0)
+        hidden_kw     = params.get('hidden_by_keywords', 0)
 
         logger.info(f"=== Loading {len(channels):,} channels (filtered from {total_channels:,} total) ===")
 
@@ -756,11 +835,11 @@ class _ChannelListMixin:
                 else:
                     self.status_bar.showMessage("No channels match — try a different search or check filter settings")
                     self.stats_label.setText(f"Showing 0 of {total_channels:,}")
-            elif hidden_excl or hidden_search or hidden_dead:
+            elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
                 # Results exist but are hidden by one or more filter layers — show the
                 # per-layer breakdown so the user can reveal each independently.
-                self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead)
-                total_hidden = hidden_excl + hidden_search + hidden_dead
+                self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead, hidden_kw)
+                total_hidden = hidden_excl + hidden_search + hidden_dead + hidden_kw
                 self.status_bar.showMessage(
                     f"No results — {total_hidden:,} match{'es' if total_hidden == 1 else ''} hidden by filters (click to reveal)"
                 )
@@ -851,8 +930,8 @@ class _ChannelListMixin:
                 id_hidden = params.get('filtered_out_count', 0)
                 if id_hidden > 0:
                     self._show_channel_filter_breakdown(0, id_hidden)
-        elif hidden_excl or hidden_search or hidden_dead:
-            self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead)
+        elif hidden_excl or hidden_search or hidden_dead or hidden_kw:
+            self._show_channel_filter_breakdown(hidden_excl, hidden_search, hidden_dead, hidden_kw)
 
     def _refresh_channel_stats_label(self) -> None:
         """Set the stats label from the current loaded row count.
@@ -918,6 +997,12 @@ class _ChannelListMixin:
                 "play failures — the dead-stream gate is suspended for this view. "
                 "Change search or filters to restore."
             )
+        elif getattr(self, '_currently_bypassing_keywords', False):
+            self._show_channel_banner(
+                f"{_icons.keyword_exclusion_icon}  Showing content your Global Exclusions "
+                "keyword list normally hides — the keyword axis is suspended for this view. "
+                "Change search or filters to restore."
+            )
         else:
             self._hide_channel_banners()
 
@@ -944,8 +1029,9 @@ class _ChannelListMixin:
         hidden_by_exclusions: int = 0,
         hidden_by_search: int = 0,
         hidden_by_dead: int = 0,
+        hidden_by_keywords: int = 0,
     ) -> None:
-        """Render the per-layer filter-transparency bar (up to three clickable segments).
+        """Render the per-layer filter-transparency bar (up to four clickable segments).
 
         Each segment appears only when its hidden-count is > 0 and links to a
         view-scoped reveal that never changes the user's stored settings:
@@ -953,6 +1039,7 @@ class _ChannelListMixin:
         * 🔒 Global Exclusions            → :meth:`_show_exclusion_hidden`
         * 🔎 search / Tier-1               → :meth:`_show_filtered_results`
         * ⚠ dead-stream gate (play fails) → :meth:`_show_dead_hidden`
+        * 🔤 Global Exclusions keywords    → :meth:`_show_keyword_hidden`
 
         Coexists with the suspend banner (``_channel_banner``): after revealing one
         layer its count is 0, so only the still-hidden layer's segment remains.
@@ -962,6 +1049,8 @@ class _ChannelListMixin:
             hidden_by_search: Results this view dropped via search / Tier-1 filters.
             hidden_by_dead: Results this view dropped via the dead-stream gate
                 (channels with repeated play failures).
+            hidden_by_keywords: Results this view dropped via the Global Exclusions
+                keyword axis (user-defined free-text terms matched against the title).
         """
         from metatv.gui import icons as _icons
         if not hasattr(self, '_channel_filter_bar'):
@@ -969,6 +1058,7 @@ class _ChannelListMixin:
         show_excl = hidden_by_exclusions > 0
         show_search = hidden_by_search > 0
         show_dead = hidden_by_dead > 0
+        show_kw = hidden_by_keywords > 0
         if hasattr(self, '_channel_exclusion_btn'):
             if show_excl:
                 self._channel_exclusion_btn.setText(
@@ -993,7 +1083,14 @@ class _ChannelListMixin:
                     f"(repeated play failures)  —  show"
                 )
             self._channel_dead_btn.setVisible(show_dead)
-        self._channel_filter_bar.setVisible(show_excl or show_search or show_dead)
+        if self.__dict__.get('_channel_keyword_btn') is not None:
+            if show_kw:
+                self._channel_keyword_btn.setText(
+                    f"{_icons.keyword_exclusion_icon} {hidden_by_keywords:,} hidden by "
+                    f"keywords  —  show"
+                )
+            self._channel_keyword_btn.setVisible(show_kw)
+        self._channel_filter_bar.setVisible(show_excl or show_search or show_dead or show_kw)
 
     def _hide_channel_banners(self) -> None:
         """Hide the info banner and the filter-transparency bar."""
@@ -1100,6 +1197,17 @@ class _ChannelListMixin:
         self._bypass_dead_gate = True
         self.load_channels()
 
+    def _show_keyword_hidden(self) -> None:
+        """Reveal what the Global Exclusions keyword axis is hiding — clicked on the 🔤 segment.
+
+        View-scoped: sets the one-load ``_bypass_keyword_exclusions`` flag and
+        reloads, so content matching one of the user's excluded keywords surfaces
+        in THIS view only. The user's stored keyword list is never changed — the
+        next search or filter change restores it.
+        """
+        self._bypass_keyword_exclusions = True
+        self.load_channels()
+
     def on_filter_changed(self):
         """Handle filter changes from FilterBar or media chips"""
         logger.info("Filter changed, reloading channels...")
@@ -1125,10 +1233,18 @@ class _ChannelListMixin:
 
         The query is a single GROUP BY over content_tags JOIN tags JOIN channels,
         scoped to visible channels on active sources — memory-safe over 1M+ rows.
+
+        Also applies the Global Exclusions keyword axis (paused-aware, resolved
+        here on the main thread per DR-0007) so a facet's advertised count never
+        includes channels the keyword list would hide from the actual list —
+        counts and the list must agree (mirror-not-cage transparency).
         """
+        from metatv.core.filter_utils import keyword_exclusion_list
+        _excl_keywords = set(keyword_exclusion_list(self.config))
         self._run_query(
             lambda repos: repos.tags.get_facet_value_counts(
                 excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
+                excluded_keywords=_excl_keywords or None,
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,

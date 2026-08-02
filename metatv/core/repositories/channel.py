@@ -16,6 +16,7 @@ from metatv.core.database import (
 )
 from metatv.core.filter_utils import (
     extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM, genres_from_raw,
+    keyword_exclusion_criterion,
 )
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
@@ -316,6 +317,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
                 include_dead: bool = False,
+                excluded_keywords: Optional[List[str]] = None,
                 collapse_variants: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
@@ -355,6 +357,11 @@ class ChannelRepository(_ChannelStatsMixin):
                 not a re-derived query on the lossy 'collection' residual.
             exclude_watched: When True, exclude channels where ``watch_completed=True``.
                 Default False (show everything, filter is opt-in).
+            excluded_keywords: Global Exclusions keyword axis — user-defined
+                free-text terms matched case-insensitively as a substring
+                against ``detected_title``/``name`` (build with
+                ``filter_utils.keyword_exclusion_list``). None/empty → no
+                keyword filtering.
             include_dead: When True, lift the dead-stream gate (channels whose
                 ``StreamRetryDB.reliability_state == "dead"``) so those rows are
                 returned alongside the rest — used both to reveal them on demand
@@ -421,6 +428,7 @@ class ChannelRepository(_ChannelStatsMixin):
             channel_ids=channel_ids,
             exclude_watched=exclude_watched,
             include_dead=include_dead,
+            excluded_keywords=excluded_keywords,
         )
 
         if collapse_variants:
@@ -576,6 +584,7 @@ class ChannelRepository(_ChannelStatsMixin):
         channel_ids: Optional[Set[str]] = None,
         exclude_watched: bool = False,
         include_dead: bool = False,
+        excluded_keywords: Optional[List[str]] = None,
     ):
         """Apply the shared channel-list WHERE predicates to ``query``.
 
@@ -642,6 +651,17 @@ class ChannelRepository(_ChannelStatsMixin):
         # intentionally excluded from the hidden-by-* accounting/reveal surfaces.
         # The "NO EVENT STREAMING" substring is the universal provider marker.
         query = query.filter(ChannelDB.name.notlike("%NO EVENT STREAMING%"))
+
+        # ── Global Exclusions: keyword axis (fourth axis, P1-6 family) ─────────
+        # User-defined free-text keywords (e.g. "wrestling") matched case-
+        # insensitively as a substring against detected_title (falling back to
+        # name) via the shared SQL twin — see filter_utils.keyword_exclusion_criterion
+        # for the full family docstring. Runs entirely in SQL (ilike chain), so it
+        # composes with every other axis below and stays safe over 240k+ rows.
+        # Empty/None (including "paused") → a tautology, added by the caller
+        # passing an empty list.
+        if excluded_keywords:
+            query = query.filter(keyword_exclusion_criterion(excluded_keywords, ChannelDB))
 
         if adult_mode != "all":
             force_ids = force_adult_provider_ids or []
@@ -1251,6 +1271,49 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter_by(media_type=media_type)
 
         return query.count()
+
+    def count_keyword_matches(self, keywords: List[str]) -> Dict[str, int]:
+        """Return ``{keyword: matching_channel_count}`` for the Global Exclusions
+        Keywords section's live per-row counts ("wrestling — 412 channels").
+
+        Runs one bounded ``COUNT(*)`` per keyword — an indexed-column scan plus an
+        ``ilike`` substring test against ``COALESCE(detected_title, name)``, the
+        SAME expression :func:`~metatv.core.filter_utils.keyword_exclusion_criterion`
+        filters on, so a count shown here always matches what that keyword would
+        actually hide. No id-set materialisation; safe to call off the UI thread
+        against the full ``channels`` table (240k+ rows) — a leading-wildcard
+        ``ilike`` cannot use an index, so each keyword is one full-table COUNT scan,
+        but the keyword list itself is small (dozens at most).
+
+        Scope mirrors the Exclusions dialog's other per-item counts (prefix,
+        content-type): ``media_type IN (movie, series, live)``, no ``is_hidden``
+        filter (so a count reflects the whole library, not just what's currently
+        visible under other filters — consistent with ``_load_prefix_counts``).
+
+        Args:
+            keywords: Keyword strings to count (blank/whitespace-only entries are
+                skipped and omitted from the result).
+
+        Returns:
+            ``{keyword: count}`` — a key is omitted only when *keywords* itself
+            was blank; an unmatched keyword still gets an entry with count 0.
+        """
+        if not keywords:
+            return {}
+        from sqlalchemy import func as _func
+        title_expr = _func.coalesce(ChannelDB.detected_title, ChannelDB.name)
+        counts: Dict[str, int] = {}
+        for kw in keywords:
+            cleaned = (kw or "").strip()
+            if not cleaned:
+                continue
+            counts[cleaned] = (
+                self.session.query(_func.count(ChannelDB.id))
+                .filter(ChannelDB.media_type.in_(["movie", "series", "live"]))
+                .filter(title_expr.ilike(f"%{cleaned}%"))
+                .scalar()
+            ) or 0
+        return counts
 
     def filter_available_ids(
         self,
