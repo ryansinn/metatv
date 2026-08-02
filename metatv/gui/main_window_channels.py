@@ -395,6 +395,14 @@ class _ChannelListMixin:
             bypassing_tier1=_bypassing,
             # Watched filter — OFF by default; when ON excludes watch_completed channels
             hide_watched=filter_state.get('hide_watched', False),
+            # Settings → Interface → Channel List opt-in (default off): collapse
+            # quality/language/source variants of the same content_key group into
+            # one representative row + a "×N" badge. Read once here (self.config
+            # is only reachable on the main thread) and carried in this SAME dict
+            # through pagination (ChannelListModel stores/re-emits query_params
+            # verbatim for fetchMore()), so every page of a search uses one
+            # consistent collapse setting.
+            collapse_variants=getattr(self.config, "collapse_variants_in_list", False),
         )
 
         # Run the heavy query off the UI thread via the async seam; stale results
@@ -484,6 +492,7 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
                 exclude_watched=params.get('hide_watched', False),
+                collapse_variants=params.get('collapse_variants', False),
                 limit=_page_size,
             )
         # Raw count of SQL rows fetched BEFORE the Python-side exclusion filtering
@@ -555,6 +564,7 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
                 exclude_watched=params.get('hide_watched', False),
                 tag_includes=None,  # the axis being measured
+                collapse_variants=params.get('collapse_variants', False),
                 limit=_page_size,
             )
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
@@ -607,6 +617,7 @@ class _ChannelListMixin:
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
                 exclude_watched=params.get('hide_watched', False),
+                collapse_variants=params.get('collapse_variants', False),
                 limit=_page_size,
             )
             # Mirror the exclusion filtering applied to `channels` so the diff isolates
@@ -1175,6 +1186,19 @@ class _ChannelListMixin:
                 if channel is None and surface != "retry":
                     return
                 if channel is not None:
+                    # "Show N versions" — reuse the SAME sibling lookup the
+                    # details-pane "Other Versions" / Similar-Titles lightbox
+                    # already use (get_content_key_siblings), scoped by the same
+                    # hidden-provider set as the rest of this menu's context, so
+                    # the count/options never surface a variant that is not
+                    # actually visible. "" content_key (unset/live) → no lookup.
+                    content_key = getattr(channel, "content_key", "") or ""
+                    variant_options: list = []
+                    if content_key:
+                        variant_options = repos.channels.get_content_key_siblings(
+                            content_key, cid,
+                            excluded_provider_ids=repos.providers.get_hidden_provider_ids(),
+                        )
                     ctx = ChannelMenuContext(
                         channel_ids=channel_ids,
                         surface=surface,
@@ -1198,6 +1222,9 @@ class _ChannelListMixin:
                         watch_completed=bool(
                             getattr(channel, "watch_completed", False)
                         ),
+                        content_key=content_key,
+                        variant_count=len(variant_options) + 1,
+                        variant_options=variant_options,
                     )
                 else:
                     # retry surface with no matching channel row
@@ -1261,7 +1288,46 @@ class _ChannelListMixin:
             ctx.has_unavailable = queue_section.has_unavailable() if queue_section else False
 
         handlers = self._build_handlers(ctx)
+        # "Show N versions" needs ctx.variant_options (fetched alongside the rest
+        # of the DB-pass context) and the anchor point — added here rather than
+        # in _build_handlers since gx/gy aren't part of that method's signature.
+        handlers["show_versions"] = lambda: self._show_variant_picker_menu(ctx, gx, gy)
         menu = build_channel_menu(ctx, handlers, parent=self)
+        menu.exec(QPoint(gx, gy))
+
+    def _show_variant_picker_menu(self, ctx, gx: int, gy: int) -> None:
+        """Show a small menu of *ctx*'s collapsed content_key variants.
+
+        Simplest-correct picker for the collapse_variants_in_list feature: a
+        flat menu of (quality, language, source) options — NOT an inline
+        expanding tree. Populated from ``ctx.variant_options`` (already
+        fetched off-thread in ``_bg_fetch_ctx_data`` via the existing
+        ``get_content_key_siblings`` chokepoint, the same one the details-pane
+        "Other Versions"/Similar-Titles lightbox use) — no extra DB round trip.
+        Picking an option plays it through the normal single-channel play path.
+        """
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+        for opt in ctx.variant_options:
+            bits = [
+                opt.get("detected_quality") or "",
+                opt.get("detected_region") or "",
+                opt.get("provider_name") or "",
+            ]
+            label = " · ".join(b for b in bits if b) or (opt.get("name") or "Version")
+            variant_id = opt.get("id")
+            if not variant_id:
+                continue
+            act = QAction(label, menu)
+            act.triggered.connect(
+                lambda checked=False, vid=variant_id: self.play_channel_by_id(vid)
+            )
+            menu.addAction(act)
+        if not menu.actions():
+            return
         menu.exec(QPoint(gx, gy))
 
     def _build_handlers(self, ctx) -> dict:
@@ -1597,6 +1663,7 @@ class _ChannelListMixin:
                 channel_ids=query_params.get('context_id_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=query_params.get('tag_includes'),
+                collapse_variants=query_params.get('collapse_variants', False),
                 limit=page_size,
                 offset=offset,
             )

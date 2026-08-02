@@ -316,6 +316,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel_ids: Optional[Set[str]] = None,
                 exclude_watched: bool = False,
                 include_dead: bool = False,
+                collapse_variants: bool = False,
                 limit: Optional[int] = None,
                 offset: Optional[int] = None) -> List[ChannelDB]:
         """Get all channels with optional filters.
@@ -360,6 +361,25 @@ class ChannelRepository(_ChannelStatsMixin):
                 (mirror-not-cage) and to measure how many the gate is hiding.
                 Default False (gate stays applied, same as today). No effect when
                 ``include_hidden``/``hidden_only`` already bypass the whole block.
+            collapse_variants: When True, collapse same-``content_key`` channels
+                (quality/language/source variants of the same production) into
+                one representative row per ``COALESCE(content_key, 'id:' || id)``
+                group — the highest-quality-tier variant (:func:`quality_tier_rank`
+                in ``channel_name_utils``, the lookup-table single source of
+                truth), tiebroken by id.  The representative carries a transient
+                ``_variant_count`` attribute (group size) read by
+                ``ChannelListDTO.from_orm``.  The collapse happens entirely in
+                SQL via window functions (mirrors
+                ``TagRepository._build_collapsed_sample_query``'s algorithm) so
+                paginated pages stay full-sized and non-overlapping — never a
+                post-fetch Python collapse of a page.  Never merges across
+                ``media_type`` (already encoded in ``content_key`` itself).
+                Since ``excluded_provider_ids`` is applied as a WHERE predicate
+                BEFORE the window function runs, a hidden/expired-provider
+                variant can never be excluded-from-set-yet-still-win the
+                representative slot — it simply isn't a candidate, so the best
+                *visible* variant always wins.  Default False — existing
+                callers/behaviour unchanged.
 
         Returns:
             List of channels matching all filters.
@@ -403,6 +423,9 @@ class ChannelRepository(_ChannelStatsMixin):
             include_dead=include_dead,
         )
 
+        if collapse_variants:
+            return self._get_all_collapsed(query, limit=limit, offset=offset)
+
         query = query.order_by(ChannelDB.name)
 
         # Comfy+ density's plot line (and the channel-list thumbnail's poster
@@ -428,6 +451,98 @@ class ChannelRepository(_ChannelStatsMixin):
             ch._joined_plot = plot or ""
             ch._joined_poster_url = poster_url or ""
             result.append(ch)
+        return result
+
+    def _get_all_collapsed(
+        self, filtered_query, *, limit: Optional[int], offset: Optional[int],
+    ) -> List[ChannelDB]:
+        """Collapse *filtered_query* (an already-WHERE-filtered ChannelDB query)
+        to one representative row per content_key group, in SQL.
+
+        Shares the window-function algorithm
+        ``TagRepository._build_collapsed_sample_query`` already uses for the
+        Discover/recipe collapse surfaces — ``ROW_NUMBER()``/``COUNT()``
+        partitioned by ``COALESCE(content_key, 'id:' || id)`` — so pagination
+        stays exact (a page never returns fewer than ``limit`` rows just
+        because some were collapsed away; the LIMIT/OFFSET apply to GROUPS,
+        not raw rows). Representative quality ranking is sourced from
+        ``channel_name_utils.quality_tier_rank`` (the lookup-table single
+        source of truth), not a second local ranking table.
+
+        Only the bounded page of representative ids is re-fetched as full
+        ORM rows (+ the same MetadataDB plot/poster outerjoin the
+        uncollapsed path uses) and reordered in Python — reordering a
+        page-sized list, never the whole matching set.
+        """
+        from sqlalchemy import case as _case, func as _func
+
+        from metatv.core.channel_name_utils import (
+            QUALITY_TIER_RANK, _QUALITY_TIER_RANK_DEFAULT,
+        )
+
+        inner = filtered_query.subquery(name="inner_ch")
+
+        group_key = _func.coalesce(
+            inner.c.content_key, _func.concat("id:", inner.c.id)
+        )
+
+        # Invert QUALITY_TIER_RANK (higher int = better quality) into an
+        # ascending SQL rank (lower = better) for ROW_NUMBER()'s default
+        # ascending ORDER BY — single lookup source, never a parallel table.
+        max_rank = max(QUALITY_TIER_RANK.values())
+        whens = [
+            (inner.c.detected_quality == token, max_rank - rank)
+            for token, rank in QUALITY_TIER_RANK.items()
+        ]
+        rep_rank = _case(*whens, else_=max_rank - _QUALITY_TIER_RANK_DEFAULT)
+
+        row_num = _func.row_number().over(
+            partition_by=group_key,
+            order_by=[rep_rank, inner.c.id],
+        ).label("_rn")
+        variant_count = _func.count(inner.c.id).over(
+            partition_by=group_key,
+        ).label("_variant_count")
+
+        middle = self.session.query(inner, row_num, variant_count).subquery(
+            name="windowed"
+        )
+
+        # Order representatives the same way the uncollapsed path orders rows
+        # (ChannelDB.name) — the representative's own name, with an id
+        # tiebreak so ties can't reorder between adjacent LIMIT/OFFSET pages.
+        reps_q = (
+            self.session.query(
+                middle.c.id.label("rep_id"),
+                middle.c._variant_count.label("vc"),
+            )
+            .filter(middle.c._rn == 1)
+            .order_by(middle.c.name, middle.c.id)
+        )
+        if offset is not None:
+            reps_q = reps_q.offset(offset)
+        reps = reps_q.limit(limit).all() if limit is not None else reps_q.all()
+        if not reps:
+            return []
+
+        vc_by_id = {row.rep_id: row.vc for row in reps}
+        rep_ids = [row.rep_id for row in reps]
+        order_map = {rid: i for i, rid in enumerate(rep_ids)}
+
+        rows = (
+            self.session.query(ChannelDB)
+            .filter(ChannelDB.id.in_(rep_ids))
+            .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+            .add_columns(MetadataDB.plot, MetadataDB.poster_url)
+            .all()
+        )
+        result = []
+        for ch, plot, poster_url in rows:
+            ch._joined_plot = plot or ""
+            ch._joined_poster_url = poster_url or ""
+            ch._variant_count = vc_by_id.get(ch.id, 1)
+            result.append(ch)
+        result.sort(key=lambda ch: order_map.get(ch.id, 0))
         return result
 
     def _apply_channel_filters(

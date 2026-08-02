@@ -363,6 +363,11 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             getattr(c, "channel_list_thumbnails", True)
         )
         self._channel_thumbnails_check.blockSignals(False)
+        self._collapse_variants_check.blockSignals(True)
+        self._collapse_variants_check.setChecked(
+            getattr(c, "collapse_variants_in_list", False)
+        )
+        self._collapse_variants_check.blockSignals(False)
 
     def _save_values(self):
         """Write widget values back to config and persist."""
@@ -465,6 +470,7 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
+        c.collapse_variants_in_list = self._collapse_variants_check.isChecked()
 
         c.sidebar_sections = new_order
         c.sidebar_visible_sections = new_visible

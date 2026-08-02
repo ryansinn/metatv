@@ -104,6 +104,7 @@ from metatv.gui.channel_list_model import (
     RATING_ROLE,
     ROW_KIND_ROLE,
     TITLE_ROLE,
+    VARIANT_COUNT_ROLE,
     YEAR_ROLE,
 )
 
@@ -245,6 +246,17 @@ def _rating_glyph_cell(rating: int) -> Optional[_Cell]:
         return None
     glyph = _icons.like_icon if rating > 0 else _icons.dislike_icon
     return _Cell(glyph, False, _theme.COLOR_MUTED)
+
+
+def _variant_badge_cell(count: int) -> Optional[_Cell]:
+    """Collapsed-variant "×N" badge (Settings → Interface → "Collapse quality/
+    language versions"). Omitted (None) for singleton/uncollapsed rows —
+    ``ChannelListDTO.variant_count`` defaults to 1 whenever collapsing is off,
+    so this is a no-op everywhere the setting is unused (same informational-chip
+    styling as :func:`_category_cell` — muted, not a strong categorical color)."""
+    if not count or count <= 1:
+        return None
+    return _Cell(f"×{count}", True, _theme.COLOR_MUTED, _theme.OVERLAY_08)
 
 
 class ChannelRowDelegate(QStyledItemDelegate):
@@ -470,6 +482,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
 
         right_cells = [c for c in (
+            _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
             _year_cell(index.data(YEAR_ROLE) or ""),
             _language_cell(index.data(LANGUAGE_ROLE) or ""),
             _rating_chip_cell(index.data(RATING_ROLE) or 0),
@@ -570,11 +583,12 @@ class ChannelRowDelegate(QStyledItemDelegate):
             self._paint_cell(painter, year_rects[0], year_cell, font)
 
     def _paint_badge_line(self, painter, line: QRect, index, font) -> None:
-        """Badge row — language, quality, category chips + rating glyph, all in
-        the muted/secondary token family. Used as comfy's line 2 and
-        comfy_plus's final line."""
+        """Badge row — variant-count badge, language, quality, category chips
+        + rating glyph, all in the muted/secondary token family. Used as
+        comfy's line 2 and comfy_plus's final line."""
         fm = QFontMetrics(font)
         cells = [c for c in (
+            _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
             _language_cell(index.data(LANGUAGE_ROLE) or ""),
             _quality_cell(index.data(QUALITY_TOKEN_ROLE) or ""),
             _category_cell(index.data(CATEGORY_ROLE) or ""),

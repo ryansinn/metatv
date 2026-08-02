@@ -2219,6 +2219,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.settings_applied.connect(self._apply_channel_list_density)
         dialog.settings_applied.connect(self.refresh_theme)
+        dialog.settings_applied.connect(self._apply_collapse_variants_setting)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             dialog.select_section_by_label(tab)
@@ -2372,6 +2373,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channel_model.layoutChanged.emit()
         if thumbnails_enabled and hasattr(self, "channels_list"):
             self.channels_list.request_visible_hydration()
+
+    def _apply_collapse_variants_setting(self) -> None:
+        """Re-query the channel list after the collapse-variants checkbox changes.
+
+        Unlike density/thumbnails (``_apply_channel_list_density``), this
+        setting changes the actual ROW SET ``ChannelRepository.get_all()``
+        returns (one row per content_key group vs. every variant), not just
+        row painting — a ``layoutChanged`` repaint isn't enough, it needs a
+        genuine DB requery. ``load_channels()`` is the narrow "reload the
+        channel list with current filters" chokepoint (same one every filter
+        chip handler calls, e.g. ``on_filter_changed``) — not the broader
+        ``_refresh_provider_dependent_views`` (that's for provider/corpus
+        mutations, not a display-setting toggle). Wired to
+        ``SettingsDialog.settings_applied`` so it fires on every Apply/OK,
+        matching the sibling density/thumbnails and recommendation-scoring
+        hooks in this same connect block (they also re-apply unconditionally).
+        """
+        self.load_channels()
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""

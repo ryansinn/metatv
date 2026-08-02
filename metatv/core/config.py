@@ -845,6 +845,11 @@ class Config(BaseModel):
     # an unknown/stale name (e.g. a palette removed in a later release) is
     # ignored by theme.apply_theme(), which just leaves the current one active.
     theme_name: str = "Midnight"
+    # Collapse quality/language/source variants of the same production
+    # (content_key group) into one row with a "×N" variant badge (Settings →
+    # Interface → Channel List). Opt-in — OFF by default because it changes
+    # what rows the user sees. See ChannelRepository.get_all(collapse_variants=).
+    collapse_variants_in_list: bool = False
 
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching

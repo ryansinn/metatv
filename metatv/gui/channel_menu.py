@@ -70,6 +70,18 @@ class ChannelMenuContext:
     # by calling parse_channel_name() here — name-derived fields are computed at
     # ingestion and read at render (CLAUDE.md).  Empty when unset; use `title`.
     detected_title: str = ""
+    # Cross-source identity key (ChannelDB.content_key) — read straight off the
+    # channel in the DB pass. "" when unset (pre-migration row or live channel).
+    content_key: str = ""
+    # Sibling count for this content_key group ( >=1; 1 = no other versions),
+    # computed in the DB pass via ChannelRepository.get_content_key_siblings so
+    # "Show N versions" only appears when there is something to show.
+    variant_count: int = 1
+    # (quality, language, source) option list for the "Show N versions" picker —
+    # each dict is one row from get_content_key_siblings (id/name/detected_quality/
+    # detected_region/provider_name/...). Fetched alongside the rest of the DB-pass
+    # context so the picker handler needs no second round trip.
+    variant_options: list = field(default_factory=list)
 
     @property
     def is_single(self) -> bool:
@@ -350,6 +362,20 @@ ACTIONS: dict[str, ChannelAction] = {
         icon=_icons.copy_icon,
         tooltip="Copy this title to the clipboard",
         applies=lambda c: c.is_single and c.channel_found and bool(c.title),
+    ),
+    # ── Collapsed-row variant picker ────────────────────────────────────────
+    # Only appears on a row that IS a collapsed content_key representative with
+    # other variants (Settings → Interface → "Collapse quality/language
+    # versions"); variant_count is 1 (default) everywhere else, so this action
+    # is invisible when the setting is off. Opens a menu of the sibling
+    # (quality, language, source) options fetched alongside the rest of the
+    # menu context — see ChannelMenuContext.variant_options.
+    "show_versions": ChannelAction(
+        id="show_versions",
+        label=lambda c: f"Show {c.variant_count} versions",
+        icon=_icons.versions_icon,
+        tooltip="Pick a specific quality/language/source version of this title",
+        applies=lambda c: c.is_single and c.channel_found and c.variant_count > 1,
     ),
     # ── Series monitor ──────────────────────────────────────────────────────
     "monitor_series": ChannelAction(
@@ -633,7 +659,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "sep",
         "watch", "track", "clear_epg_link", "unhide", "hide",
         "sep",
-        "search_title", "copy_title",
+        "search_title", "copy_title", "show_versions",
         "sep",
         "category",
         # Multi-select extras (applies = is_multi; single-select actions apply = is_single)
