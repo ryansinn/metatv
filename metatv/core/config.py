@@ -816,6 +816,10 @@ class Config(BaseModel):
     # middle plot line — collapses to comfy's two lines when a row has no
     # plot). One global key — not per-view.
     channel_list_density: str = "comfy"
+    # Show poster thumbnails at the left of comfy/comfy_plus channel-list rows
+    # (never compact). Lazy, viewport-only: only rows currently on screen ever
+    # request a download (see channel_list_thumbnails.py). Default on.
+    channel_list_thumbnails: bool = True
 
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching

@@ -391,25 +391,28 @@ class ChannelRepository(_ChannelStatsMixin):
 
         query = query.order_by(ChannelDB.name)
 
-        # Comfy+ density's plot line: outerjoin MetadataDB and select ONLY its
-        # plot column in this SAME paginated round-trip — never a per-row lookup.
+        # Comfy+ density's plot line (and the channel-list thumbnail's poster
+        # URL): outerjoin MetadataDB and select ONLY its plot + poster_url
+        # columns in this SAME paginated round-trip — never a per-row lookup.
         # metadata_id is a FK-by-convention onto MetadataDB's primary key, so the
         # join is 1:0-or-1 per channel row (no fan-out). add_columns() turns each
-        # result into a (ChannelDB, plot) pair; we unpack immediately and stash the
-        # text on a transient (non-mapped, non-persisted) instance attribute so
-        # get_all() keeps returning List[ChannelDB] — every existing caller
-        # (get_hidden_channels, count, _apply_python_exclusions, ...) is unaffected.
-        # ChannelListDTO.from_orm reads it back via ``_joined_plot``.
+        # result into a (ChannelDB, plot, poster_url) tuple; we unpack immediately
+        # and stash the values on transient (non-mapped, non-persisted) instance
+        # attributes so get_all() keeps returning List[ChannelDB] — every existing
+        # caller (get_hidden_channels, count, _apply_python_exclusions, ...) is
+        # unaffected. ChannelListDTO.from_orm reads them back via ``_joined_plot``
+        # / ``_joined_poster_url``.
         query = query.outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
-        query = query.add_columns(MetadataDB.plot)
+        query = query.add_columns(MetadataDB.plot, MetadataDB.poster_url)
 
         if offset is not None:
             query = query.offset(offset)
         rows = query.limit(limit).all() if limit is not None else query.all()
 
         result = []
-        for ch, plot in rows:
+        for ch, plot, poster_url in rows:
             ch._joined_plot = plot or ""
+            ch._joined_poster_url = poster_url or ""
             result.append(ch)
         return result
 

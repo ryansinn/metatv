@@ -74,6 +74,7 @@ PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback state glyph: ·/
 PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
 MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
 PLOT_ROLE = Qt.ItemDataRole.UserRole + 19          # MetadataDB.plot text or "" (str) — Comfy+ only
+POSTER_URL_ROLE = Qt.ItemDataRole.UserRole + 20    # MetadataDB.poster_url or "" (str) — thumbnail source
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -241,6 +242,8 @@ class ChannelListModel(QAbstractListModel):
             return f"{_icons.new_match_icon} " if channel.id in self._new_match_ids else ""
         if role == PLOT_ROLE:
             return channel.plot or ""
+        if role == POSTER_URL_ROLE:
+            return channel.poster_url or ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]
@@ -356,6 +359,20 @@ class ChannelListModel(QAbstractListModel):
         if pos is None:
             return None
         return self._section_display_start(section) + 1 + pos
+
+    def row_for_channel_id(self, channel_id: str) -> Optional[int]:
+        """Public display-row lookup for a loaded channel id.
+
+        Returns ``None`` when the channel isn't loaded, or (grouped mode) its
+        section is currently collapsed. Used by the channel-list thumbnail
+        hydrator (``channel_list_thumbnails.py``) to map a completed
+        ``ImageCache.image_loaded(url, pixmap)`` signal back to the display
+        row(s) that requested it, so it can emit a targeted ``dataChanged``.
+        """
+        idx = self._id_to_index.get(channel_id)
+        if idx is None:
+            return None
+        return self._display_row_for_channel_index(idx)
 
     # ── Group-by-type: public mutators ───────────────────────────────────────
 
