@@ -253,8 +253,14 @@ def test_advisory_error_detection():
     assert obj._is_advisory_error(None) is False  # type: ignore[arg-type]
 
 
-def test_on_stream_ready_no_retry_manager_failure_for_advisory():
-    """Advisory errors do NOT call stream_retry_manager.add_failure."""
+def test_on_stream_ready_calls_retry_manager_for_advisory():
+    """Advisory errors (401/403/511) DO call stream_retry_manager.add_failure.
+
+    Roadmap S3 (#227, the graduated play-failure ledger) deliberately revisits
+    the prior advisory exclusion: a stream that always fails pre-flight with an
+    advisory code (e.g. a dead XMAS-style channel returning HTTP 511 forever)
+    must still enter the ledger and graduate to "dead", or it never would.
+    """
     obj = _make_mixin()
     retry_mgr = MagicMock()
     obj.stream_retry_manager = retry_mgr
@@ -275,7 +281,7 @@ def test_on_stream_ready_no_retry_manager_failure_for_advisory():
         "siblings": [],
     }
     obj._on_stream_ready(data)
-    retry_mgr.add_failure.assert_not_called()
+    retry_mgr.add_failure.assert_called_once()
 
 
 def test_on_stream_ready_calls_retry_manager_for_non_advisory():

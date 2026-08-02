@@ -13,6 +13,7 @@ from .queue import WatchQueueRepository
 from .epg import EpgRepository
 from .analytics import AnalyticsRepository
 from .tag import TagRepository
+from .stream_retry import StreamRetryRepository
 
 
 class RepositoryFactory:
@@ -31,6 +32,7 @@ class RepositoryFactory:
         self._epg = None
         self._analytics = None
         self._tags = None
+        self._stream_retry = None
     
     @property
     def providers(self) -> ProviderRepository:
@@ -109,6 +111,13 @@ class RepositoryFactory:
             self._tags = TagRepository(self.session)
         return self._tags
 
+    @property
+    def stream_retry(self) -> StreamRetryRepository:
+        """Get stream-retry / graduated play-failure-ledger repository"""
+        if self._stream_retry is None:
+            self._stream_retry = StreamRetryRepository(self.session)
+        return self._stream_retry
+
 
 # Export all repositories and factory for convenience
 __all__ = [
@@ -124,4 +133,5 @@ __all__ = [
     'EpgRepository',
     'AnalyticsRepository',
     'TagRepository',
+    'StreamRetryRepository',
 ]

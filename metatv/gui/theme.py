@@ -582,6 +582,14 @@ CHANNEL_NAME_DIM      = "color: " + COLOR_MUTED + "; font-size: " + FONT_MD + ";
 #   QBrush(QColor(CHANNEL_ROW_WATCHED_FG))
 CHANNEL_ROW_WATCHED_FG: str = COLOR_MUTED
 
+# Channel-list row — ForegroundRole color for "degraded" reliability_state rows
+# (graduated play-failure ledger, roadmap S3 — 3+ consecutive user-initiated
+# play failures). Grayed-but-clickable: more desaturated than the watched-dim
+# state above so an unreliable stream reads as visually distinct from merely
+# "already seen".  Never encodes state by color alone — the row stays fully
+# clickable/playable, this is reinforcement only.
+CHANNEL_ROW_DEGRADED_FG: str = COLOR_FAINT
+
 # Channel-list playback-state indicator — colour applied by the row delegate to the
 # fixed "·"/▶/✓ separator glyph.  Shape carries the meaning; these are reinforcement
 # only.  IN_PROGRESS reuses the details Resume-button orange so "resumable" reads the

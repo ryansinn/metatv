@@ -37,6 +37,9 @@ from metatv.gui import theme as _theme
 
 # Pre-built brush for fully-watched non-live rows (built once, reused each data() call).
 _WATCHED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_WATCHED_FG))
+# Pre-built brush for "degraded" reliability_state rows (graduated play-failure
+# ledger — grayed-but-clickable; see theme.CHANNEL_ROW_DEGRADED_FG).
+_DEGRADED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_DEGRADED_FG))
 
 # Custom role: the row's display text as colour-marked HTML.  The playback-state
 # separator glyph (▶/✓) is wrapped in a colour <span> so ChannelRowDelegate can
@@ -174,6 +177,12 @@ class ChannelListModel(QAbstractListModel):
         if role == Qt.ItemDataRole.UserRole:
             return channel.id
         if role == Qt.ItemDataRole.ForegroundRole:
+            # Graduated play-failure ledger: a "degraded" stream (3+ consecutive
+            # user-initiated play failures) renders grayed-but-clickable — this
+            # takes priority over the watched-dim state below since an unreliable
+            # stream is the more actionable signal.
+            if channel.reliability_state == "degraded":
+                return _DEGRADED_DIM_BRUSH
             # Dim fully-watched non-live rows so finished content recedes visually.
             # Live channels never carry watch state, so they are always full-strength.
             if channel.watch_completed and channel.media_type != "live":
