@@ -120,6 +120,17 @@ class ChannelListDTO:
     # as plot above (see its _joined_poster_url stash) — never a per-row lookup.
     # Powers the comfy/comfy_plus channel-list thumbnail (channel_list_delegate.py).
     poster_url: str = ""
+    # Cross-source identity key (ChannelDB.content_key, computed at ingestion —
+    # see content_identity.content_key_for). None on pre-migration rows. Carried
+    # through so the "Show N versions" context-menu action can look up siblings
+    # via ChannelRepository.get_content_key_siblings without a second query.
+    content_key: str | None = None
+    # Collapsed-list variant-badge count — group size when this row is a
+    # collapse_variants=True representative (ChannelRepository.get_all()); 1 for
+    # every row when collapsing is off (the default) or the row is a singleton.
+    # Populated from the ORM row's transient ``_variant_count`` (see
+    # ChannelRepository._get_all_collapsed) — never re-derived at render.
+    variant_count: int = 1
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -154,6 +165,8 @@ class ChannelListDTO:
             reliability_state=reliability_state,
             plot=getattr(ch, "_joined_plot", "") or "",
             poster_url=getattr(ch, "_joined_poster_url", "") or "",
+            content_key=getattr(ch, "content_key", None),
+            variant_count=int(getattr(ch, "_variant_count", 1) or 1),
         )
 
 

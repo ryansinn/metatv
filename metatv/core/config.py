@@ -840,6 +840,11 @@ class Config(BaseModel):
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.
     channel_list_thumbnails: bool = True
+    # Collapse quality/language/source variants of the same production
+    # (content_key group) into one row with a "×N" variant badge (Settings →
+    # Interface → Channel List). Opt-in — OFF by default because it changes
+    # what rows the user sees. See ChannelRepository.get_all(collapse_variants=).
+    collapse_variants_in_list: bool = False
 
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching

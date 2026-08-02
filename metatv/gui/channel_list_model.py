@@ -75,6 +75,10 @@ PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph colo
 MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
 PLOT_ROLE = Qt.ItemDataRole.UserRole + 19          # MetadataDB.plot text or "" (str) — Comfy+ only
 POSTER_URL_ROLE = Qt.ItemDataRole.UserRole + 20    # MetadataDB.poster_url or "" (str) — thumbnail source
+# Collapse-variants "×N" badge count — ChannelListDTO.variant_count (>1 only
+# when Settings → Interface → "Collapse quality/language versions" is on AND
+# this row represents a collapsed content_key group). 1 (no badge) otherwise.
+VARIANT_COUNT_ROLE = Qt.ItemDataRole.UserRole + 21
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -244,6 +248,8 @@ class ChannelListModel(QAbstractListModel):
             return channel.plot or ""
         if role == POSTER_URL_ROLE:
             return channel.poster_url or ""
+        if role == VARIANT_COUNT_ROLE:
+            return channel.variant_count
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

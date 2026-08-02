@@ -624,6 +624,17 @@ class SettingsTabsMixin:
         )
         channel_list_form.addRow("", self._channel_thumbnails_check)
 
+        self._collapse_variants_check = QCheckBox(
+            "Collapse quality/language versions into one row"
+        )
+        self._collapse_variants_check.setToolTip(
+            "Shows one row per title instead of a row for every quality/language/\n"
+            "source copy, with a \"×N\" badge — right-click → Show N versions to\n"
+            "pick a specific one. Off by default. Applies immediately when you\n"
+            "click OK or Apply."
+        )
+        channel_list_form.addRow("", self._collapse_variants_check)
+
         layout.addWidget(channel_list_group)
 
         sources_group = QGroupBox("Sources")
