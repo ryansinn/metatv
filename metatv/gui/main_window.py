@@ -76,6 +76,10 @@ from metatv.gui.refresh_queue_manager import RefreshQueueManager
 from metatv.core.preference_engine import version_score as _version_score
 from metatv.gui.whats_new_dialog import WhatsNewDialog
 import metatv.whats_new as _whats_new
+
+# Auto-dialog backlog cap — above this many unseen entries, show only the
+# newest release's entries (see maybe_show_whats_new).
+_WHATS_NEW_AUTO_CAP = 25
 from metatv.core.config import dev_mode_enabled as _dev_mode_enabled
 
 _YEAR_IN_NAME = re.compile(r'\b(19[5-9]\d|20[0-2]\d)\b')
@@ -2184,7 +2188,22 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if not unseen:
             return
 
-        dlg = WhatsNewDialog(unseen, self)
+        # Backlog cap: a stale cursor must never replay a wall of history — cap
+        # the AUTO dialog to the newest release's entries and say what was
+        # skipped (Help ▸ What's New still has everything). The cursor still
+        # advances past the skipped entries: they are old news by definition.
+        footnote = None
+        if len(unseen) > _WHATS_NEW_AUTO_CAP:
+            newest_version = unseen[0].version  # entries_since is newest-first
+            capped = [e for e in unseen if e.version == newest_version]
+            if capped and len(capped) < len(unseen):
+                footnote = (
+                    f"{len(unseen) - len(capped)} earlier entries from older "
+                    "releases — browse them anytime in Help ▸ What's New"
+                )
+                unseen = capped
+
+        dlg = WhatsNewDialog(unseen, self, footnote=footnote)
         dlg.exec()
         self.config.last_seen_whats_new_id = _whats_new.latest_id()
         self.config.save()
