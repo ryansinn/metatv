@@ -104,15 +104,25 @@ class ChannelListDTO:
     # User rating — +1 liked, -1 disliked, 0 unrated.  Populated from UserRatingDB at
     # query time via a batch lookup (RatingRepository.get_all_map()); 0 means no rating.
     user_rating: int = 0
+    # Graduated play-failure ledger state — "ok"|"flagged"|"degraded"|"dead".
+    # Populated from StreamRetryDB at query time via a batch lookup
+    # (StreamRetryRepository.get_reliability_map()), same pattern as user_rating.
+    # "dead" rows never reach here (excluded at the query layer — see
+    # ChannelRepository._apply_channel_filters); "degraded" drives the grayed
+    # ForegroundRole in channel_list_model.py.
+    reliability_state: str = "ok"
 
     @classmethod
-    def from_orm(cls, ch, *, user_rating: int = 0) -> "ChannelListDTO":
+    def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
         """Build a ChannelListDTO from a ChannelDB row (call inside a session).
 
         Args:
             ch: A live ChannelDB ORM object (must be called inside a session).
             user_rating: The user's rating for this channel (+1, -1, or 0 for unrated).
                 Pass from a pre-fetched batch lookup to avoid N+1 queries.
+            reliability_state: The channel's graduated play-failure ledger state
+                ("ok"|"flagged"|"degraded"|"dead"). Pass from a pre-fetched batch
+                lookup (StreamRetryRepository.get_reliability_map()) to avoid N+1.
         """
         return cls(
             id=ch.id,
@@ -132,6 +142,7 @@ class ChannelListDTO:
             watch_percent=int(getattr(ch, "watch_percent", 0) or 0),
             last_played_via=getattr(ch, "last_played_via", None),
             user_rating=user_rating,
+            reliability_state=reliability_state,
         )
 
 

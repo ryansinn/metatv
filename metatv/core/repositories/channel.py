@@ -12,7 +12,7 @@ from loguru import logger
 from metatv.core.database import (
     ChannelDB, MetadataDB, SeasonDB, EpisodeDB,
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
-    ContentTagDB,
+    ContentTagDB, StreamRetryDB,
 )
 from metatv.core.filter_utils import (
     extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM, genres_from_raw,
@@ -455,6 +455,21 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter(ChannelDB.is_hidden == True)  # noqa: E712
         elif not include_hidden:
             query = query.filter_by(is_hidden=False)
+            # Graduated play-failure ledger (roadmap S3): a channel whose
+            # reliability_state has graduated to "dead" (6+ consecutive
+            # user-initiated play failures — StreamRetryRepository) is gated
+            # out of the forward-looking list the same way is_hidden is, right
+            # above. "flagged"/"degraded" rows stay visible — "degraded" is
+            # rendered grayed-but-clickable via ChannelListDTO.reliability_state
+            # (see channel_list_model.py). Engaged/record views (Favorites,
+            # History, Queue) don't route through get_all(), so they stay exempt
+            # per DR-0007, same as the is_hidden gate above.
+            dead_channel_ids = (
+                self.session.query(StreamRetryDB.channel_id)
+                .filter(StreamRetryDB.reliability_state == "dead")
+                .scalar_subquery()
+            )
+            query = query.filter(~ChannelDB.id.in_(dead_channel_ids))
 
         # Exclude provider category-header rows (e.g. "##### BEIN SPORTS #####").
         # These are label-only separators injected by some providers — not playable

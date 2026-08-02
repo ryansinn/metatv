@@ -24,11 +24,37 @@ def _next_check_delay(attempt_count: int) -> timedelta:
     return _BACKOFF_MAX
 
 
+# Graduated play-failure ledger thresholds (roadmap S3) — play_fail_count is the
+# count of USER-INITIATED play failures (distinct from attempt_count, the
+# background checker's own re-probe counter). 1st failure → "flagged" (also the
+# point a row first enters the retry checker); 3rd+ → "degraded" (rendered
+# grayed-but-clickable in the channel list); 6th+ → "dead" (excluded from
+# forward-looking list queries — see ChannelRepository._apply_channel_filters).
+_DEGRADED_AT = 3
+_DEAD_AT = 6
+
+
+def _reliability_state_for(play_fail_count: int) -> str:
+    """Map a play_fail_count to its graduated reliability_state."""
+    if play_fail_count >= _DEAD_AT:
+        return "dead"
+    if play_fail_count >= _DEGRADED_AT:
+        return "degraded"
+    if play_fail_count >= 1:
+        return "flagged"
+    return "ok"
+
+
 class StreamRetryRepository:
     def __init__(self, session):
         self._session = session
 
     def add(self, channel_id: str, channel_name: str, stream_url: str, error: str) -> StreamRetryDB:
+        """Record a play failure — upserts the retry row AND graduates the ledger.
+
+        Called for every user-initiated play failure (advisory HTTP codes
+        included, per the roadmap S3 revisit of the prior advisory exclusion).
+        """
         existing = self._session.query(StreamRetryDB).filter_by(channel_id=channel_id).first()
         if existing:
             existing.stream_url = stream_url
@@ -36,6 +62,9 @@ class StreamRetryRepository:
             existing.last_checked_at = datetime.utcnow()
             existing.next_check_at = datetime.utcnow() + _next_check_delay(existing.attempt_count)
             existing.status = "pending"
+            existing.play_fail_count = (existing.play_fail_count or 0) + 1
+            existing.last_play_error = error
+            existing.reliability_state = _reliability_state_for(existing.play_fail_count)
             self._session.commit()
             return existing
 
@@ -50,10 +79,26 @@ class StreamRetryRepository:
             attempt_count=0,
             last_error=error,
             status="pending",
+            play_fail_count=1,
+            last_play_error=error,
+            reliability_state=_reliability_state_for(1),
         )
         self._session.add(entry)
         self._session.commit()
         return entry
+
+    def get_reliability_map(self) -> dict[str, str]:
+        """Return ``{channel_id: reliability_state}`` for every non-"ok" row.
+
+        Batch lookup for the channel-list DTO build (mirrors
+        ``RatingRepository.get_all_map()``) — one query instead of N+1.
+        """
+        rows = (
+            self._session.query(StreamRetryDB.channel_id, StreamRetryDB.reliability_state)
+            .filter(StreamRetryDB.reliability_state != "ok")
+            .all()
+        )
+        return {channel_id: state for channel_id, state in rows}
 
     def get_due(self) -> list[StreamRetryDB]:
         return (
@@ -92,6 +137,11 @@ class StreamRetryRepository:
         entry.attempt_count = (entry.attempt_count or 0) + 1
         if ok:
             entry.status = "online"
+            # Ledger reset: a background-checker SUCCESS clears the graduated
+            # failure state entirely, regardless of how far it had graduated.
+            entry.play_fail_count = 0
+            entry.reliability_state = "ok"
+            entry.last_play_error = None
         else:
             entry.last_error = error or entry.last_error
             entry.next_check_at = datetime.utcnow() + _next_check_delay(entry.attempt_count)

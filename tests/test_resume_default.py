@@ -153,7 +153,7 @@ def _bare_dialog(qapp):
     """Build a bare SettingsDialog skeleton for load/save testing."""
     from PyQt6.QtWidgets import QComboBox, QCheckBox, QSpinBox, QLineEdit, QListWidget
     from metatv.gui.settings_dialog import SettingsDialog
-    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
+    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets, wire_settings_playback_widgets
 
     dlg = SettingsDialog.__new__(SettingsDialog)
 
@@ -207,6 +207,9 @@ def _bare_dialog(qapp):
     dlg._tmdb_lang_input = QLineEdit()
     dlg._omdb_key_input = QLineEdit()
     dlg._sidebar_list = QListWidget()
+
+    # Playback Network group widgets
+    wire_settings_playback_widgets(dlg)
 
     # Recommendations tab dials
     wire_settings_recommendation_widgets(dlg)

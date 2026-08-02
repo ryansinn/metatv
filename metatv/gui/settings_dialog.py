@@ -207,6 +207,17 @@ class SettingsDialog(QDialog):
         self._reconnect_spin.setRange(0, 10)
         net_form.addRow("Reconnect attempts:", self._reconnect_spin)
 
+        self._recheck_failed_on_refresh_check = QCheckBox(
+            "Re-check failed streams on source refresh"
+        )
+        self._recheck_failed_on_refresh_check.setToolTip(
+            "When a source finishes refreshing, immediately re-probe any of its\n"
+            "streams that previously failed (flagged/degraded/dead) instead of\n"
+            "waiting for the background retry checker's own schedule. Recovered\n"
+            "streams are restored to full visibility right away."
+        )
+        net_form.addRow("", self._recheck_failed_on_refresh_check)
+
         layout.addWidget(net_group)
 
         mpv_group = QGroupBox("MPV Extra Arguments")
@@ -756,6 +767,9 @@ class SettingsDialog(QDialog):
         self._close_player_check.setChecked(c.close_player_when_finished)
         self._timeout_spin.setValue(c.network_timeout)
         self._reconnect_spin.setValue(c.reconnect_attempts)
+        self._recheck_failed_on_refresh_check.setChecked(
+            getattr(c, "recheck_failed_on_refresh", True)
+        )
 
         buf_idx = self._buffer_combo.findData(c.buffer_profile)
         self._buffer_combo.setCurrentIndex(buf_idx if buf_idx >= 0 else self._buffer_combo.findData("modest"))
@@ -874,6 +888,7 @@ class SettingsDialog(QDialog):
         c.close_player_when_finished = self._close_player_check.isChecked()
         c.network_timeout = self._timeout_spin.value()
         c.reconnect_attempts = self._reconnect_spin.value()
+        c.recheck_failed_on_refresh = self._recheck_failed_on_refresh_check.isChecked()
         c.buffer_profile = self._buffer_combo.currentData()
         # Reset to "auto" so the buffer_profile (now the sole buffer control) takes effect;
         # an explicit byte size in default_cache_size would bypass the profile entirely.

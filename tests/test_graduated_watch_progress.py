@@ -437,6 +437,9 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._watch_partial_spin = mock_spin
     dialog._close_player_check = MagicMock()
     dialog._close_player_check.isChecked.return_value = True
+    # Playback → Network widgets (shared factory; this skeleton is Qt-free)
+    from tests.conftest import mock_settings_playback_widgets
+    mock_settings_playback_widgets(dialog)
     dialog._timeout_spin = MagicMock()
     dialog._timeout_spin.value.return_value = 30
     dialog._reconnect_spin = MagicMock()

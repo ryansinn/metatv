@@ -605,7 +605,15 @@ class _ChannelListMixin:
         # Batch-fetch all user ratings in one query (avoids N+1) then map surviving
         # ORM rows → DTOs so no ChannelDB crosses the boundary.
         ratings_map = repos.ratings.get_all_map()
-        dtos = [ChannelListDTO.from_orm(c, user_rating=ratings_map.get(c.id, 0)) for c in channels]
+        reliability_map = repos.stream_retry.get_reliability_map()
+        dtos = [
+            ChannelListDTO.from_orm(
+                c,
+                user_rating=ratings_map.get(c.id, 0),
+                reliability_state=reliability_map.get(c.id, "ok"),
+            )
+            for c in channels
+        ]
         return dtos, params
 
     def _on_channels_load_error(self, exc: Exception) -> None:
@@ -1508,7 +1516,15 @@ class _ChannelListMixin:
             )
 
         ratings_map = repos.ratings.get_all_map()
-        dtos = [ChannelListDTO.from_orm(c, user_rating=ratings_map.get(c.id, 0)) for c in rows]
+        reliability_map = repos.stream_retry.get_reliability_map()
+        dtos = [
+            ChannelListDTO.from_orm(
+                c,
+                user_rating=ratings_map.get(c.id, 0),
+                reliability_state=reliability_map.get(c.id, "ok"),
+            )
+            for c in rows
+        ]
         return dtos, has_more, raw_count
 
     def _on_channel_page_loaded(self, result, generation: int) -> None:

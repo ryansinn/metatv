@@ -617,8 +617,13 @@ class _StreamingMixin:
             )
             self._stream_fail_notifs[channel_id] = fail_notif_id
 
-            # Only record a confirmed failure for non-advisory errors
-            if not is_advisory and hasattr(self, "stream_retry_manager"):
+            # Record every failure — advisory (401/403/511) included — in the
+            # retry checker's ledger (roadmap S3, #227). This deliberately
+            # revisits the prior "advisory errors never enter the ledger"
+            # exclusion: the motivating case (dead XMAS-style channels that
+            # return 511 forever) never graduated to "dead" under the old
+            # gate, since 511 is advisory and was skipped here entirely.
+            if hasattr(self, "stream_retry_manager"):
                 self.stream_retry_manager.add_failure(
                     channel_id, channel_name, original_url, detail
                 )

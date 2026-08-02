@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox, QSpinBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent
-from tests.conftest import wire_settings_recommendation_widgets
+from tests.conftest import wire_settings_recommendation_widgets, wire_settings_playback_widgets
 
 
 @pytest.fixture(scope="module")
@@ -171,6 +171,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Recommendations tab dials — stubs to keep _load_values / _save_values happy
     wire_settings_recommendation_widgets(dlg)
+
+    # Playback Network group widgets (needed by _load_values / _save_values)
+    wire_settings_playback_widgets(dlg)
 
     # Sidebar list widget (needed by _load_values / _save_values)
     from PyQt6.QtWidgets import QListWidget

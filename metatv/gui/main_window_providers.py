@@ -602,8 +602,20 @@ class _ProviderMixin:
             # Refresh every view derived from provider/channel data (canonical).
             # This re-runs initialize_filter_stats() → FilterPanel.update_data().
             self._refresh_provider_dependent_views()
-            # Re-check any failed streams now that content is fresh
-            if hasattr(self, "stream_retry_manager"):
+            # Re-check any failed streams now that content is fresh — gated by
+            # the recheck_failed_on_refresh toggle (default on). check_all_now()
+            # re-probes every pending retry-ledger row (flagged/degraded/dead all
+            # keep status="pending" until they resolve), restoring recovered ones
+            # to reliability_state="ok" via the mark_checked(ok=True) seam.
+            # __dict__.get, not hasattr/getattr: on a MainWindow built via
+            # __new__ (the bare-host test idiom) PyQt raises RuntimeError for
+            # attribute access, and hasattr only swallows AttributeError — the
+            # same trap fixed in #351 and documented in sidebar/alerts.py.
+            _retry_mgr = self.__dict__.get("stream_retry_manager")
+            _cfg = self.__dict__.get("config")
+            if _retry_mgr is not None and getattr(
+                _cfg, "recheck_failed_on_refresh", True
+            ):
                 self.stream_retry_manager.check_all_now()
 
             # Relink EPG rows against the freshly-loaded channel corpus.

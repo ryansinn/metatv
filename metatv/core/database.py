@@ -468,6 +468,18 @@ class StreamRetryDB(Base):
     last_error      = Column(String)
     status          = Column(String, default="pending")  # "pending" | "online"
 
+    # ── Graduated play-failure ledger (roadmap S3) ───────────────────────────
+    # Tracks USER-INITIATED play failures separately from ``attempt_count``
+    # (the background checker's own re-probe count, above). Every failed play
+    # attempt — including advisory HTTP codes (401/403/511) — increments
+    # ``play_fail_count`` and graduates ``reliability_state``: 1st → "flagged",
+    # 3rd+ → "degraded" (rendered grayed in the channel list), 6th+ → "dead"
+    # (excluded from forward-looking list queries). A background-checker
+    # SUCCESS (``mark_checked(ok=True)``) resets both to 0 / "ok".
+    play_fail_count   = Column(Integer, default=0)
+    last_play_error   = Column(String)
+    reliability_state = Column(String, default="ok")  # "ok"|"flagged"|"degraded"|"dead"
+
 
 class TagDB(Base):
     """Canonical tag — a (type, value) pair in a known namespace.
@@ -640,6 +652,10 @@ class Database:
             # computed at ingestion; see ChannelDB.detected_genre(s) above.
             ("channels",     "detected_genre",             "TEXT"),
             ("channels",     "detected_genres",            "TEXT"),
+            # Wave 5 — graduated play-failure ledger (roadmap S3, #227).
+            ("stream_retry", "play_fail_count",             "INTEGER DEFAULT 0"),
+            ("stream_retry", "last_play_error",             "TEXT"),
+            ("stream_retry", "reliability_state",           "TEXT DEFAULT 'ok'"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:

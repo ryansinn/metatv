@@ -534,6 +534,12 @@ class Config(BaseModel):
     watch_alerts_icon: str = "⚠"      # Alerts section
     stream_retry_pending_icon: str = "🔴"  # Stream retry — awaiting re-check
     stream_retry_online_icon:  str = "🟢"  # Stream retry — back online
+    # Graduated play-failure ledger (roadmap S3): on a source refresh, re-probe
+    # that source's flagged/degraded/dead retry-checker rows immediately
+    # (instead of waiting for the next backoff-scheduled check) and restore
+    # any that come back online to reliability_state="ok". Configurable in
+    # Settings → Playback.
+    recheck_failed_on_refresh: bool = True
     info_icon: str = "ℹ"
     watchlist_icon: str = "⏰"         # Watchlist tab
     live_indicator_icon: str = "🟢"    # On Now / live indicator
