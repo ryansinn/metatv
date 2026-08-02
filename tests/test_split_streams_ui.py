@@ -345,8 +345,12 @@ def _bare_split_dialog(qapp, split: bool = False):
     )
     from metatv.gui.settings_dialog import SettingsDialog
     from metatv.core.http_headers import stream_user_agent
-    from tests.conftest import (wire_settings_recommendation_widgets, wire_settings_epg_widgets,
-                                wire_settings_playback_widgets)
+    from tests.conftest import (
+        wire_settings_density_widget,
+        wire_settings_epg_widgets,
+        wire_settings_playback_widgets,
+        wire_settings_recommendation_widgets,
+    )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
     dlg.config = _FakeDlgConfig(split=split)
@@ -417,6 +421,9 @@ def _bare_split_dialog(qapp, split: bool = False):
 
     # Recommendations tab dials
     wire_settings_recommendation_widgets(dlg)
+
+    # Interface density widget
+    wire_settings_density_widget(dlg)
 
     return dlg
 

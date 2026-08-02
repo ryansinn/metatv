@@ -463,6 +463,10 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     dialog._update_check_enabled_check = MagicMock()
     dialog._update_check_enabled_check.isChecked.return_value = True
 
+    # Interface density widget (mock flavor: this skeleton is Qt-free)
+    from tests.conftest import mock_settings_density_widget
+    mock_settings_density_widget(dialog)
+
     # EPG widgets — mock flavor: this skeleton is deliberately Qt-free.
     from tests.conftest import mock_settings_epg_widgets
     mock_settings_epg_widgets(dialog)

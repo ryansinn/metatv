@@ -55,6 +55,25 @@ CHANNEL_HTML_ROLE = Qt.ItemDataRole.UserRole + 5
 ROW_KIND_ROLE = Qt.ItemDataRole.UserRole + 6
 SECTION_TYPE_ROLE = Qt.ItemDataRole.UserRole + 7
 
+# Structured (non-composed) roles — one field each — added for
+# ChannelRowDelegate's density-aware layout (compact/comfy row rendering).
+# DisplayRole and CHANNEL_HTML_ROLE above are UNCHANGED and keep serving every
+# existing reader (tests, accessibility, header rows); these roles let the
+# delegate lay out/elide/chip-paint individual fields instead of parsing the
+# composed string. Return None (via the default data() fallthrough) on header
+# rows — only "channel" kind rows populate them.
+TITLE_ROLE = Qt.ItemDataRole.UserRole + 8         # detected_title or name (str)
+YEAR_ROLE = Qt.ItemDataRole.UserRole + 9          # detected_year or "" (str)
+QUALITY_TOKEN_ROLE = Qt.ItemDataRole.UserRole + 10  # raw detected_quality token or ""
+LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 11     # detected_region code or ""
+RATING_ROLE = Qt.ItemDataRole.UserRole + 12       # user_rating: -1, 0, or 1 (int)
+CATEGORY_ROLE = Qt.ItemDataRole.UserRole + 13     # category or "" (str)
+MEDIA_ICON_ROLE = Qt.ItemDataRole.UserRole + 14   # resolved media-type glyph (str)
+FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # resolved favorite/unfavorite glyph (str)
+PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback state glyph: ·/▶/✓ (str)
+PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
+MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
+
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
 # so a row is never silently dropped (mirror-not-cage).
@@ -192,6 +211,33 @@ class ChannelListModel(QAbstractListModel):
                 return f"You rated this {_icons.like_icon}"
             if channel.user_rating == -1:
                 return f"You rated this {_icons.dislike_icon}"
+        if role == TITLE_ROLE:
+            return channel.detected_title or channel.name
+        if role == YEAR_ROLE:
+            return channel.detected_year or ""
+        if role == QUALITY_TOKEN_ROLE:
+            return channel.detected_quality or ""
+        if role == LANGUAGE_ROLE:
+            return channel.detected_region or ""
+        if role == RATING_ROLE:
+            return channel.user_rating
+        if role == CATEGORY_ROLE:
+            return channel.category or ""
+        if role == MEDIA_ICON_ROLE:
+            return (
+                self._get_media_type_icon(channel.media_type)
+                if self._get_media_type_icon is not None else ""
+            )
+        if role == FAV_GLYPH_ROLE:
+            return self._favorite_icon if channel.is_favorite else self._unfavorite_icon
+        if role == PLAYBACK_GLYPH_ROLE:
+            glyph, _ = self._playback_indicator(channel)
+            return glyph
+        if role == PLAYBACK_GLYPH_COLOR_ROLE:
+            _, color = self._playback_indicator(channel)
+            return color
+        if role == MATCH_MARKER_ROLE:
+            return f"{_icons.new_match_icon} " if channel.id in self._new_match_ids else ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

@@ -31,6 +31,29 @@ _SIDEBAR_SECTION_LABELS: dict[str, str] = {
 _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
 
+_CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
+    ("Comfy (two lines)", "comfy"),
+    ("Compact (one line)", "compact"),
+)
+
+
+def _load_channel_density(combo: QComboBox, config) -> None:
+    """Select ``config.channel_list_density`` in ``combo`` (falls back to comfy).
+
+    Factored out of ``_load_values`` so the density round-trip is testable
+    against a bare ``QComboBox`` + a minimal fake config — no full
+    ``SettingsDialog`` skeleton required.
+    """
+    density = getattr(config, "channel_list_density", "comfy")
+    idx = combo.findData(density)
+    combo.setCurrentIndex(idx if idx >= 0 else combo.findData("comfy"))
+
+
+def _save_channel_density(combo: QComboBox, config) -> None:
+    """Write the selected density back to ``config.channel_list_density``."""
+    config.channel_list_density = combo.currentData() or "comfy"
+
+
 def _dial_or_none(value: float, default: float):
     """Return ``None`` when a dial still sits on its default, else the value.
 
@@ -640,6 +663,22 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(search_group)
 
+        channel_list_group = QGroupBox("Channel List")
+        channel_list_form = QFormLayout(channel_list_group)
+        channel_list_form.setSpacing(8)
+
+        self._channel_density_combo = QComboBox()
+        for label, value in _CHANNEL_DENSITY_CHOICES:
+            self._channel_density_combo.addItem(label, value)
+        self._channel_density_combo.setToolTip(
+            "Comfy shows two lines per row (title + a badge row of language/\n"
+            "quality/category). Compact fits everything on one line. Applies\n"
+            "immediately when you click OK or Apply."
+        )
+        channel_list_form.addRow("Row density:", self._channel_density_combo)
+
+        layout.addWidget(channel_list_group)
+
         sources_group = QGroupBox("Sources")
         sources_form = QFormLayout(sources_group)
         sources_form.setSpacing(8)
@@ -812,6 +851,11 @@ class SettingsDialog(QDialog):
         self._remember_search_check.setChecked(getattr(c, "remember_search", True))
         self._remember_search_check.blockSignals(False)
 
+        # Channel List
+        self._channel_density_combo.blockSignals(True)
+        _load_channel_density(self._channel_density_combo, c)
+        self._channel_density_combo.blockSignals(False)
+
         # Sources
         self._refresh_all_inactive_check.blockSignals(True)
         self._refresh_all_inactive_check.setChecked(
@@ -930,6 +974,9 @@ class SettingsDialog(QDialog):
 
         # Search
         c.remember_search = self._remember_search_check.isChecked()
+
+        # Channel List
+        _save_channel_density(self._channel_density_combo, c)
 
         # Sources
         c.refresh_all_includes_inactive = self._refresh_all_inactive_check.isChecked()
