@@ -182,7 +182,13 @@ def _other_sort(host):
 
 
 def test_separators_appear_in_time_ascending_sort(qapp):
-    with patch(_FROZEN_TZ_PATCH, lambda: timezone.utc):
+    with patch(_FROZEN_TZ_PATCH, lambda: timezone.utc), \
+         patch("metatv.core.epg_utils.now_utc",
+               lambda: datetime(2026, 8, 1, 19, 0, 0)):
+        # now_utc frozen too: the label's Tonight/Tomorrow naming compares the
+        # boundary against NOW — with fixed seed dates but a live clock this
+        # test broke the moment the real date passed Aug 1 (and flaked after
+        # 18:00 UTC-negative local time even ON Aug 1).
         host = _make_render_host(qapp, title_map={"c1": "ESPN"})
         _ascending(host)
         day1 = datetime(2026, 8, 1, 20, 0, 0)
