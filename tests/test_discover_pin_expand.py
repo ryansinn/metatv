@@ -145,6 +145,132 @@ class TestPinTriggersCardFetch:
 
 
 # ---------------------------------------------------------------------------
+# 1b. _start_expand_fetch shows a loading row, then cards or an error row
+# ---------------------------------------------------------------------------
+
+def _seed_genre_channel(db, genre: str = "Test") -> None:
+    """Insert one provider + one ingested movie row with the given genre."""
+    import uuid
+    from metatv.core.database import ChannelDB, ProviderDB
+    from metatv.core.repositories import RepositoryFactory
+
+    session = db.get_session()
+    try:
+        session.add(ProviderDB(
+            id="p1", name="P", type="xtream", url="http://x.example.com", is_active=True,
+        ))
+        session.add(ChannelDB(
+            id=str(uuid.uuid4()), source_id="c1", provider_id="p1",
+            name=f"{genre} Movie", media_type="movie",
+            raw_data={"genre": genre, "rating": "7.0"},
+        ))
+        session.commit()
+    finally:
+        session.close()
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
+
+
+def _run_event_loop_until(signal, timeout_ms: int = 3000) -> None:
+    """Pump the Qt event loop until *signal* fires (or the timeout guard does)."""
+    from PyQt6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    signal.connect(lambda *a: loop.quit())
+    guard = QTimer()
+    guard.setSingleShot(True)
+    guard.setInterval(timeout_ms)
+    guard.timeout.connect(loop.quit)
+    guard.start()
+    loop.exec()
+    guard.stop()
+
+
+class TestExpandFetchLoadingFeedback:
+    """Owner-reported perf bug: an expanding/pinning shelf used to sit empty
+    with zero feedback for however long the fetch took. ``_start_expand_fetch``
+    must show a loading row the instant the fetch is kicked off, replaced by
+    cards on success or a visible error row on failure — never silence.
+
+    Uses a REAL, fully-constructed ``DiscoverView`` (not the ``__new__``
+    shortcut other tests in this file use) because these paths emit real Qt
+    signals (``tmdbEnrichRequested``, the worker's ``ready``/``error``) that
+    need a properly-initialized QObject to fire safely.
+    """
+
+    def _build_real_view(self, tmp_path, config):
+        from metatv.core.database import Database
+        from metatv.gui.discover_view import DiscoverView, _ZONE_EXPANDED
+        from metatv.gui.discover_shelf import _Shelf
+
+        db = Database(f"sqlite:///{tmp_path / 'expand_fetch.db'}")
+        db.create_tables()
+
+        view = DiscoverView(db, config, MagicMock())
+        image_cache = MagicMock()
+        image_cache.get_image_async = MagicMock()
+        shelf = _Shelf("Test Genre", "genre:Test", [], image_cache, config, collapsed=False)
+        view._shelf_widgets["genre:Test"] = shelf
+        view._shelf_zones["genre:Test"] = _ZONE_EXPANDED
+        return db, view, shelf
+
+    def test_start_expand_fetch_shows_loading_synchronously(self, qapp, config, tmp_path):
+        """set_loading() fires before the background thread starts — deterministic,
+        no timing dependency (checked before the event loop ever runs)."""
+        db, view, shelf = self._build_real_view(tmp_path, config)
+        _seed_genre_channel(db, "Test")
+        try:
+            view._start_expand_fetch("genre:Test")
+            assert shelf._placeholder_lbl is not None
+            assert "Loading" in shelf._placeholder_lbl.text()
+        finally:
+            view._stop_loader(view._expand_worker, view._expand_thread)
+            db.close()
+
+    def test_start_expand_fetch_success_replaces_loading_with_cards(self, qapp, config, tmp_path):
+        """On a successful fetch, the loading row is replaced by real cards."""
+        db, view, shelf = self._build_real_view(tmp_path, config)
+        _seed_genre_channel(db, "Test")
+        try:
+            view._start_expand_fetch("genre:Test")
+            assert shelf._placeholder_lbl is not None, "loading row must show first"
+
+            _run_event_loop_until(view._expand_worker.ready)
+
+            assert shelf._placeholder_lbl is None, "loading row must be cleared on success"
+            assert len(shelf._cards_widgets) == 1
+            assert "genre:Test" in view._loaded_shelf_keys
+        finally:
+            db.close()
+
+    def test_start_expand_fetch_failure_shows_error_row(self, qapp, config, tmp_path, monkeypatch):
+        """On a failed fetch, a visible error row replaces the loading row —
+        never a silently-empty shelf (CLAUDE.md async-background-DB-reads rule)."""
+        from metatv.core import discovery_engine
+
+        db, view, shelf = self._build_real_view(tmp_path, config)
+        _seed_genre_channel(db, "Test")
+
+        def _boom(session):
+            raise RuntimeError("synthetic DB failure")
+
+        monkeypatch.setattr(discovery_engine, "build_status_sets", _boom)
+
+        try:
+            view._start_expand_fetch("genre:Test")
+            worker = view._expand_worker
+            _run_event_loop_until(worker.error)
+
+            assert shelf._placeholder_lbl is not None, "error row must be shown"
+            assert shelf._cards_widgets == [], "must not look like a legitimate empty shelf"
+            assert "genre:Test" not in view._loaded_shelf_keys, (
+                "a failed fetch must not be marked loaded — the next expand/pin retries"
+            )
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
 # 2. pinned ∧ collapsed is impossible after _move_shelf
 # ---------------------------------------------------------------------------
 

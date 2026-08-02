@@ -478,7 +478,14 @@ class DiscoverView(QWidget):
         self._start_expand_fetch(shelf_key)
 
     def _start_expand_fetch(self, shelf_key: str) -> None:
-        """Start a background ``_ShelfCardsWorker`` for *shelf_key*."""
+        """Start a background ``_ShelfCardsWorker`` for *shelf_key*.
+
+        Shows a "Loading…" placeholder in the shelf's card row the instant the
+        fetch is kicked off — before this, an expanded/pinned header-only shelf
+        just sat empty for however long the query took, with no feedback
+        (owner-reported perf bug — worse before #genre-perf's genre-shelf fix,
+        but any shelf fetch deserves visible feedback).
+        """
         # Cancel any previous expand fetch (user expanded a second shelf before
         # the first one finished — keep the most recent request).
         self._stop_loader(
@@ -488,12 +495,18 @@ class DiscoverView(QWidget):
         self._expand_worker = None
 
         self._inflight_expand = shelf_key
+        shelf = self._shelf_widgets.get(shelf_key)
+        if shelf is not None:
+            shelf.set_loading()
+
         self._expand_thread = QThread()
         self._expand_worker = _ShelfCardsWorker(self._db, self._config, shelf_key, limit=30)
         self._expand_worker.moveToThread(self._expand_thread)
         self._expand_thread.started.connect(self._expand_worker.run)
         self._expand_worker.ready.connect(self._on_expand_cards_ready)
         self._expand_worker.ready.connect(lambda *_: self._expand_thread.quit())
+        self._expand_worker.error.connect(self._on_expand_error)
+        self._expand_worker.error.connect(lambda *_: self._expand_thread.quit())
         self._expand_thread.start()
 
     def _on_expand_cards_ready(self, shelf_key: str, cards: list) -> None:
@@ -504,7 +517,8 @@ class DiscoverView(QWidget):
         if shelf is None:
             return  # shelf was hidden/removed while we were fetching
 
-        # Populate the shelf with its newly fetched cards.
+        # Populate the shelf with its newly fetched cards (replaces any
+        # loading placeholder — see _Shelf.set_cards()).
         shelf.set_cards(cards, image_cache=self._image_cache, config=self._config)
         self._shelf_data_cache[shelf_key] = cards
         self._loaded_shelf_keys.add(shelf_key)
@@ -513,6 +527,22 @@ class DiscoverView(QWidget):
 
         # Trigger image loading for the newly visible cards.
         QTimer.singleShot(120, shelf._load_visible)
+
+    def _on_expand_error(self, shelf_key: str, message: str) -> None:
+        """Called on the main thread when the lazy-expand fetch fails.
+
+        Renders a visible error row in place of the loading placeholder
+        (CLAUDE.md async-background-DB-reads rule — never leave a failed load
+        looking like a silently-empty shelf). *shelf_key* is deliberately left
+        out of ``_loaded_shelf_keys`` so the next expand/pin retries the fetch.
+        """
+        self._inflight_expand = None
+        logger.warning(f"DiscoverView: shelf '{shelf_key}' failed to load: {message}")
+
+        shelf = self._shelf_widgets.get(shelf_key)
+        if shelf is None:
+            return  # shelf was hidden/removed while we were fetching
+        shelf.show_load_error()
 
     def _on_hide_requested(self, shelf_key: str) -> None:
         # If this shelf is still pending (D2 buffer), remove it from the buffer

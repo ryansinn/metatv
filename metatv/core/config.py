@@ -995,6 +995,14 @@ class Config(BaseModel):
     # News/Religious/24-7) from language:/platform: to category: (live) or genre: (VOD).
     category_facet_version: int = 0
 
+    # Internal migration version for the detected_genre(s) backfill (#genre-perf).
+    # Bump CURRENT_VERSION in metatv/core/migrations/detected_genre_backfill.py to
+    # trigger a one-time pass populating ChannelDB.detected_genre/detected_genres
+    # (stored canonical genre(s), computed at ingestion) for pre-existing rows —
+    # what lets Discover's genre shelves read a small indexed/stored field instead
+    # of alias-matching against raw_data on every shelf expand.
+    genre_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

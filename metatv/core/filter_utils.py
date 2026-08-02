@@ -1066,6 +1066,59 @@ def normalize_genre(genre: str) -> str:
     return _GENRE_NORM.get(unescaped.lower(), unescaped)
 
 
+# Splits comma- or slash-delimited raw provider genre strings into individual
+# segments (e.g. "Action & Adventure / Sci-Fi" → two segments). Single source
+# of truth for genre segmentation — imported by ``genres_from_raw`` below and
+# by ``repositories/channel_stats.py`` for filter-stat aggregation.
+_GENRE_SEG_SEP_RE = re.compile(r"[/,]")
+
+# Bogus sentinel values some providers store literally in raw_data["genre"]
+# (e.g. a client-side "null"/"undefined" that leaked into the API response).
+# Filtered at ingestion so they never enter detected_genres — get_all_genres
+# used to filter these at query time; moved here per "compute once at
+# ingestion, read everywhere else".
+_BAD_GENRE_TOKENS = frozenset({"null", "undefined", "none"})
+
+
+def genres_from_raw(genre_str: str | None) -> list[str]:
+    """Split a raw provider genre string into ordered, de-duplicated canonical labels.
+
+    Splits on ``/`` and ``,`` (provider compound-genre delimiters), canonicalises
+    each segment via :func:`normalize_genre` (cross-language alias collapse +
+    HTML-entity unescape), drops bogus sentinel tokens (``"null"``,
+    ``"undefined"``, ``"none"``), and de-duplicates while preserving
+    first-seen order.
+
+    This is the **ingestion-time** derivation — the single source of truth
+    ``ChannelDB.detected_genre``/``detected_genres`` are computed from (see
+    ``update_detected_prefixes()`` in ``core/repositories/channel.py``).  Query
+    and render code must read those stored fields, never call this at runtime
+    (CLAUDE.md "compute once at ingestion, read everywhere else").
+
+    Args:
+        genre_str: The raw ``raw_data["genre"]`` string, or None/empty.
+
+    Returns:
+        An ordered list of canonical genre labels, e.g.
+        ``genres_from_raw("Action &amp; Adventure / Sci-Fi")`` →
+        ``["Action & Adventure", "Science Fiction"]``. Empty list when *genre_str*
+        carries no usable genre.
+    """
+    if not genre_str or not genre_str.strip():
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for seg in _GENRE_SEG_SEP_RE.split(genre_str):
+        seg = seg.strip()
+        if not seg or seg.lower() in _BAD_GENRE_TOKENS:
+            continue
+        canon = normalize_genre(seg)
+        if canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
+
+
 # The canonical genre vocabulary — the set of all values produced by
 # ``normalize_genre``.  Used as a **strict allowlist** for the category→genre
 # cross-walk: a token is only emitted as a genre tag when it normalizes to one

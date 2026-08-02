@@ -10,7 +10,6 @@ avoid pulling 300K+ rows into Python for sorting.
 
 from __future__ import annotations
 
-import html
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -20,11 +19,7 @@ from sqlalchemy import literal_column, or_, text
 from loguru import logger
 
 from metatv.core.content_dedup import _PREFIX_NOISE_RE, _YEAR_EXTRACT_RE
-from metatv.core.filter_utils import normalize_genre, _GENRE_NORM
-
-
-# Splits comma- or slash-delimited genre strings into individual genres.
-_GENRE_SEP_RE = re.compile(r"[/,]")
+from metatv.core.filter_utils import genres_from_raw, normalize_genre
 
 
 # ---------------------------------------------------------------------------
@@ -114,17 +109,20 @@ def channel_thumbnail(channel) -> str | None:
 
 
 def _primary_genre(channel) -> str | None:
-    rd = channel.raw_data or {}
-    genre_str = (rd.get("genre") or "").strip()
-    if not genre_str:
-        return None
-    # Take first segment from either delimiter, canonicalised so cross-language
-    # aliases (Drame/Dramma/دراما) render under one genre (D5 / DR-0005).
-    for seg in _GENRE_SEP_RE.split(genre_str):
-        seg = seg.strip()
-        if seg:
-            return normalize_genre(seg)
-    return None
+    """Compute the primary (first-segment) canonical genre from raw_data.
+
+    NOTE: this is the **ingestion-time** derivation helper — it powers
+    ``ChannelDB.detected_genre`` (computed once by ``update_detected_prefixes()``
+    in ``core/repositories/channel.py``). Render/query code must read the
+    stored ``channel.detected_genre`` field directly and never call this at
+    runtime (CLAUDE.md "compute once at ingestion, read everywhere else") —
+    a raw_data JSON scan per row is exactly what made Discover genre-shelf
+    expand take 15-20s (#genre-perf).  Kept as a thin wrapper around the
+    shared :func:`~metatv.core.filter_utils.genres_from_raw` splitter so the
+    segmentation/canonicalisation logic has one definition.
+    """
+    genres = genres_from_raw((channel.raw_data or {}).get("genre"))
+    return genres[0] if genres else None
 
 
 def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
@@ -153,7 +151,11 @@ def _to_card(channel, meta=None, fav_ids=None, queue_ids=None,
         thumbnail_url=channel_thumbnail(channel),
         rating=_r if 0 < _r < 10 else None,
         year=_raw_year(channel),
-        genre=_primary_genre(channel),
+        # Ingestion-computed stored field — never re-parse raw_data at render
+        # time (CLAUDE.md "compute once at ingestion, read everywhere else").
+        # None on pre-backfill rows or channels with no provider genre, same
+        # as the old _primary_genre(channel) behaviour for those cases.
+        genre=getattr(channel, "detected_genre", None),
         is_favorite=channel.id in (fav_ids or set()),
         in_queue=channel.id in (queue_ids or set()),
         already_watched=already_watched,
@@ -440,67 +442,6 @@ def get_top_rated(session, media_type: str = "movie", limit: int = 30,
     return _dedup_cards(cards)[:limit]
 
 
-def _genre_segment_conditions(genre_json_expr: str, aliases: set[str]) -> list:
-    """Build SQLAlchemy OR conditions matching an alias as a whole genre segment.
-
-    Genre fields use '/' or ',' as delimiters (e.g. "Action & Adventure / Drama").
-    A naive ``LIKE %alias%`` match causes cross-genre bleed: searching for "sci-fi"
-    would match "Sci-Fi & Fantasy" because the compound string *contains* "sci-fi".
-    This helper generates patterns that anchor each alias to segment boundaries so
-    only rows where the alias is a complete segment (trimmed) are returned.
-
-    Segment-boundary patterns for alias ``a``, delimiters ``/`` and ``,``:
-      - whole string:  ``a``
-      - first seg:     ``a /%``  /  ``a,%``
-      - last seg:      ``%/ a``  /  ``%, a``
-      - middle seg:    ``%/ a /%``  /  ``%/ a,%``  /  ``%, a /%``  /  ``%, a,%``
-
-    SQLite LIKE is ASCII-case-insensitive, so lowercase alias patterns match
-    provider strings regardless of their casing.
-    """
-    conditions = []
-    for i, a in enumerate(sorted(aliases)):
-        # Each alias generates several patterns; we use a sub-or group per alias.
-        # Space-padded delimiters handle "Action & Adventure / Drama" where segments
-        # have surrounding whitespace.  Both space-padded and non-padded variants
-        # are included for robustness.
-        pats = [
-            a,            # exact whole string
-            f"{a} /%",    # first seg, space-padded slash
-            f"{a}/%",     # first seg, tight slash
-            f"{a} ,%",    # first seg, space-padded comma
-            f"{a},%",     # first seg, tight comma
-            f"%/ {a}",    # last seg, space-padded slash
-            f"%/{a}",     # last seg, tight slash
-            f"%, {a}",    # last seg, space-padded comma
-            f"%,{a}",     # last seg, tight comma
-            f"%/ {a} /%", # mid seg, space-padded slashes
-            f"%/ {a}/%",
-            f"%/{a} /%",
-            f"%/{a}/%",   # mid seg, tight slashes
-            f"%/ {a} ,%", # mid seg, slash then comma
-            f"%/ {a},%",
-            f"%/{a} ,%",
-            f"%/{a},%",
-            f"%, {a} /%", # mid seg, comma then slash
-            f"%, {a}/%",
-            f"%,{a} /%",
-            f"%,{a}/%",
-            f"%, {a} ,%", # mid seg, commas
-            f"%, {a},%",
-            f"%,{a} ,%",
-            f"%,{a},%",
-        ]
-        sub_conds = [
-            text(f"{genre_json_expr} LIKE :gp{i}_{j}").bindparams(
-                **{f"gp{i}_{j}": p}
-            )
-            for j, p in enumerate(pats)
-        ]
-        conditions.append(or_(*sub_conds))
-    return conditions
-
-
 def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
                  excluded_prefixes=None, include_uncategorized: bool = True,
@@ -508,39 +449,30 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
                  adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
                  excluded_provider_ids: list[str] | None = None,
                  ) -> list[ContentCard]:
-    """Content matching a genre by whole-segment alias match, sorted by rating.
+    """Content matching a genre, sorted by rating.
 
-    *genre* is the **canonical** label (from ``get_all_genres``); match every raw
-    alias that normalises to it so a "Drama" shelf also pulls in "Drame" /
-    "Dramma" / "دراما" rows, not just the English ones (D5 / DR-0005).
+    *genre* is the **canonical** label (from ``get_all_genres``).  Matches the
+    ingestion-computed ``ChannelDB.detected_genres`` list (see
+    ``update_detected_prefixes()`` in ``core/repositories/channel.py``) — every
+    raw-alias/HTML-escape/segment-boundary complexity that used to live here
+    (D5 / DR-0005, bugs A + B) was resolved once at ingestion into that stored,
+    already-canonicalised list, so a "Drama" shelf still pulls in rows whose
+    raw provider genre was "Drame" / "Dramma" / "دراما", and a multi-genre row
+    like "Action & Adventure / Sci-Fi" still appears on both the Action &
+    Adventure and Science Fiction shelves — without re-parsing raw_data.
 
-    Matching is **segment-boundary-anchored** — an alias must be a complete
-    delimiter-separated segment, never a substring of another genre.  This
-    prevents "sci-fi" from matching "Sci-Fi & Fantasy", and "action" from
-    matching "Action & Adventure" (bug B — compound/component over-matching).
+    Perf (#genre-perf): the old implementation ran a ~200-condition
+    ``json_extract(raw_data, '$.genre') LIKE …`` OR-chain against the full
+    ``raw_data`` blob for every movie/series row (240k+), taking 15-20s per
+    shelf expand.  This reads the small pre-extracted ``detected_genres``
+    column instead — no raw_data touch, no per-row alias fan-out.
     """
     from metatv.core.database import ChannelDB, MetadataDB
-    # Raw aliases (lowercase) that canonicalise to this genre, plus the genre
-    # itself.  For each alias we also add the HTML-entity-encoded variant so
-    # provider strings stored as "Action &amp; Adventure" in raw_data are
-    # matched even though the DB value was never unescaped at ingest time (bug A).
     _target = normalize_genre(genre)
-    _base_aliases: set[str] = {raw for raw, canon in _GENRE_NORM.items() if canon == _target}
-    _base_aliases.add(genre.lower())
-    _base_aliases.add(html.unescape(genre).lower())
-    # Expand: for every alias, also add html.escape() variant to catch legacy
-    # raw_data strings that were stored with HTML entities (e.g. "&amp;").
-    _aliases: set[str] = set()
-    for _a in _base_aliases:
-        _aliases.add(_a)
-        _escaped = html.escape(_a)  # e.g. "action & adventure" → "action &amp; adventure"
-        if _escaped != _a:
-            _aliases.add(_escaped)
-    _genre_json = "json_extract(channels.raw_data, '$.genre')"
-    # Use segment-boundary conditions to prevent substring bleed between
-    # compounds ("Sci-Fi & Fantasy") and their components ("sci-fi", "fantasy").
-    _seg_conds = _genre_segment_conditions(_genre_json, _aliases)
-    _alias_match = or_(*_seg_conds)
+    _genre_match = text(
+        "EXISTS (SELECT 1 FROM json_each(channels.detected_genres) AS dg_je "
+        "WHERE dg_je.value = :genre_target)"
+    ).bindparams(genre_target=_target)
     q = (
         session.query(ChannelDB, MetadataDB)
         .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
@@ -548,7 +480,8 @@ def get_by_genre(session, genre: str, limit: int = 30, fav_ids=None,
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.raw_data.isnot(None),
-            _alias_match,
+            ChannelDB.detected_genres.isnot(None),
+            _genre_match,
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types)
@@ -695,40 +628,32 @@ def get_all_genres(session, min_count: int = 10,
                    ) -> list[str]:
     """Return individual genre names that have ≥ min_count entries.
 
-    Genre strings from raw_data are split on both '/' and ',' so compound
-    strings like 'Action & Adventure / Drama' or 'Animation, Mystery' yield
-    individual genre counts rather than counting the compound string as-is.
-    Only counts genres from channels that pass the global category filter.
+    Reads the ingestion-computed ``ChannelDB.detected_genres`` list (already
+    split on ``/``/``,`` and canonicalised — cross-language aliases like
+    Drame/Dramma/دراما already collapsed into "Drama", D5 / DR-0005) instead of
+    parsing ``raw_data`` at query time. Only counts genres from channels that
+    pass the global category filter.
 
-    Perf: selects only the genre field via json_extract() in SQL — no full
-    ORM objects, no Python-side JSON parsing — then streams with yield_per.
+    Perf (#genre-perf): selects only the small ``detected_genres`` column —
+    no ``raw_data`` touch, no full ORM objects, no per-row string splitting —
+    then streams with ``yield_per``.
     """
     from metatv.core.database import ChannelDB
-    _genre_col = literal_column("json_extract(channels.raw_data, '$.genre')").label("genre")
     q = (
-        session.query(_genre_col)
-        .select_from(ChannelDB)
+        session.query(ChannelDB.detected_genres)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
             ChannelDB.is_hidden == False,  # noqa: E712
-            ChannelDB.raw_data.isnot(None),
-            text("json_extract(channels.raw_data, '$.genre') IS NOT NULL"),
-            text("json_extract(channels.raw_data, '$.genre') != ''"),
+            ChannelDB.detected_genres.isnot(None),
         )
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types)
     q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
     q = _apply_provider_exclusion(q, excluded_provider_ids)
-    # Bogus sentinel values that providers occasionally store — skip them.
-    _BAD_GENRE_TOKENS = frozenset({"null", "undefined", "none"})
     counter: Counter = Counter()
-    for (genre_str,) in q.yield_per(5000):
-        for g in _GENRE_SEP_RE.split(genre_str or ""):
-            g = g.strip()
-            if g and g.lower() not in _BAD_GENRE_TOKENS:
-                # Count by canonical genre so cross-language aliases collapse into
-                # a single shelf (Drame/Dramma/دراما → "Drama") (D5 / DR-0005).
-                counter[normalize_genre(g)] += 1
+    for (genres,) in q.yield_per(5000):
+        for g in (genres or ()):
+            counter[g] += 1
     return [g for g, cnt in counter.most_common() if cnt >= min_count]
 
 
@@ -789,23 +714,21 @@ def _rank_genres_by_preference(genres: list[str], liked_ids: set,
                                 ) -> list[str]:
     """Sort genres so those with more liked content appear first.
 
-    Perf: selects only the genre field via json_extract() in SQL, avoiding
-    full ORM object materialisation for the liked-channel genre pass.
+    Reads the ingestion-computed ``detected_genres`` list — bounded by
+    ``liked_ids`` (typically small) so this was never the perf hotspot, but
+    reading the stored field keeps every genre read on one chokepoint.
     """
     if not liked_ids:
         return genres
     from metatv.core.database import ChannelDB
     genre_score: dict[str, int] = {g: 0 for g in genres}
-    _genre_col = literal_column("json_extract(channels.raw_data, '$.genre')").label("genre")
     q = (
-        session.query(_genre_col)
-        .select_from(ChannelDB)
+        session.query(ChannelDB.detected_genres)
         .filter(ChannelDB.id.in_(liked_ids))
     )
     q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types)
-    for (genre_str,) in q.yield_per(5000):
-        for g in _GENRE_SEP_RE.split(genre_str or ""):
-            g = g.strip()
+    for (dg,) in q.yield_per(5000):
+        for g in (dg or ()):
             if g in genre_score:
                 genre_score[g] += 1
     return sorted(genres, key=lambda g: genre_score[g], reverse=True)

@@ -38,6 +38,7 @@ def genre_compound_db(tmp_path):
       HTML-entity "Action &amp; Adventure" — 3 rows (should canonicalize to compound)
     """
     from metatv.core.database import Database, ChannelDB, ProviderDB
+    from metatv.core.repositories import RepositoryFactory
 
     db = Database(f"sqlite:///{tmp_path / 'genre_compound.db'}")
     db.create_tables()
@@ -71,6 +72,13 @@ def genre_compound_db(tmp_path):
         session.commit()
     finally:
         session.close()
+
+    # get_all_genres/get_by_genre now read the ingestion-computed
+    # detected_genre(s) fields (#genre-perf) — run the real ingestion pass so
+    # the fixture mirrors what a provider refresh actually does.
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
+
     yield db
     db.close()
 
@@ -278,6 +286,7 @@ class TestCompoundComponentSeparation:
         """
         from metatv.core.database import Database, ChannelDB, ProviderDB
         from metatv.core.discovery_engine import get_by_genre
+        from metatv.core.repositories import RepositoryFactory
 
         db = Database(f"sqlite:///{tmp_path / 'multi.db'}")
         db.create_tables()
@@ -293,6 +302,7 @@ class TestCompoundComponentSeparation:
                 raw_data={"genre": "Action & Adventure / Drama", "rating": "7.0"},
             ))
             session.commit()
+            RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
 
             # Must appear in 'Action & Adventure' shelf
             cards_aa = get_by_genre(session, "Action & Adventure", limit=50)

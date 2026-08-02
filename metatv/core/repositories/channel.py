@@ -14,7 +14,9 @@ from metatv.core.database import (
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
     ContentTagDB,
 )
-from metatv.core.filter_utils import extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM
+from metatv.core.filter_utils import (
+    extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM, genres_from_raw,
+)
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
@@ -1484,6 +1486,16 @@ class ChannelRepository(_ChannelStatsMixin):
                         and not new_detected_audio["sub"]):
                     new_detected_audio = None
 
+            # Compute canonical genre(s) from raw_data["genre"] (#genre-perf).
+            # genres_from_raw() canonicalises each '/'/',' segment (cross-language
+            # alias collapse + HTML-entity unescape). detected_genre = first
+            # segment (display); detected_genres = every segment (shelf
+            # membership via json_each in get_by_genre).
+            _raw_genre_str = (channel.raw_data or {}).get("genre") if channel.raw_data else None
+            _genre_list = genres_from_raw(_raw_genre_str)
+            new_detected_genre  = _genre_list[0] if _genre_list else None
+            new_detected_genres = _genre_list or None
+
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.
             # Build a lightweight proxy that reflects the new field values without
@@ -1518,6 +1530,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 or new_year  != channel.detected_year
                 or new_content_key != channel.content_key
                 or new_detected_audio != channel.detected_audio
+                or new_detected_genre != channel.detected_genre
+                or new_detected_genres != channel.detected_genres
             )
             if changed:
                 channel.detected_prefix = prefix
@@ -1527,6 +1541,8 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel.detected_year   = new_year
                 channel.content_key     = new_content_key
                 channel.detected_audio  = new_detected_audio
+                channel.detected_genre  = new_detected_genre
+                channel.detected_genres = new_detected_genres
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 
