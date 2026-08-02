@@ -432,6 +432,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # update_detected_prefixes() pass.
         from metatv.core.migrations.category_marker_backfill import CategoryMarkerBackfillTask
         self.migration_manager.register(CategoryMarkerBackfillTask(self.db))
+        # Owner-reported gap (side-by-side preview): detected_collection repeats
+        # tokens the row already shows via its own quality chip / media-type
+        # icon / subtitle-marker chip (e.g. "MULTISUB SERIES 4K") — one-time
+        # backfill of stored detected_collection for pre-existing rows (new
+        # channels get it at ingestion). No ordering dependency on the tasks
+        # around it — it just re-runs the same update_detected_prefixes() pass.
+        from metatv.core.migrations.collection_token_cleanup_backfill import (
+            CollectionTokenCleanupBackfillTask,
+        )
+        self.migration_manager.register(CollectionTokenCleanupBackfillTask(self.db))
         # ORDER MATTERS — populate detected_tmdb_id from raw_data BEFORE the
         # content_key recompute (v4) reads it, so cross-language/quality variants
         # sharing a provider tmdb id collapse onto one tmdb-first key.
