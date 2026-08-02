@@ -167,6 +167,20 @@ class ChannelDB(Base):
     detected_genre  = Column(String, index=True, nullable=True)
     detected_genres = Column(JSONEncoded, nullable=True)
 
+    # Restricted-content detection (owner-reported gap): the provider's ``is_adult``
+    # API flag is unreliable — some providers never set it even for content that is
+    # unambiguously marked by naming convention (XXX/ADULT/X-prefix). Computed once
+    # at ingestion via channel_name_utils.is_restricted_name() in the same
+    # update_detected_prefixes() pass that computes the other detected_* fields;
+    # NEVER re-derived at query/render time. Separate provenance from ``is_adult``
+    # (a provider-supplied fact) — this column is never overwritten by it, and vice
+    # versa. Read alongside ``is_adult`` by the adult-mode gate
+    # (ChannelRepository._apply_channel_filters / discovery_engine._apply_adult_filter).
+    # "restricted" is a deliberately neutral internal name — user-facing surfaces
+    # keep the "Adult" label. Backfilled for pre-existing rows by
+    # RestrictedBackfillTask (metatv/core/migrations/restricted_backfill.py).
+    detected_restricted = Column(Boolean, default=False, index=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -656,6 +670,9 @@ class Database:
             ("stream_retry", "play_fail_count",             "INTEGER DEFAULT 0"),
             ("stream_retry", "last_play_error",             "TEXT"),
             ("stream_retry", "reliability_state",           "TEXT DEFAULT 'ok'"),
+            # Wave 6 — restricted-content name/prefix detection (owner-reported
+            # gap); computed at ingestion, see ChannelDB.detected_restricted above.
+            ("channels",     "detected_restricted",         "INTEGER DEFAULT 0"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -675,6 +692,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_genre_enrich_state ON channels (genre_enrich_state)",
                 "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
             ]
             for idx_sql in index_migrations:
                 try:

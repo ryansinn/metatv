@@ -20,7 +20,7 @@ from metatv.core.filter_utils import (
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
-    AI_VOICEOVER_VALUE,
+    AI_VOICEOVER_VALUE, is_restricted_name,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -484,19 +484,24 @@ class ChannelRepository(_ChannelStatsMixin):
 
         if adult_mode != "all":
             force_ids = force_adult_provider_ids or []
-            # A channel is "adult" if is_adult=True OR its provider is force_adult
+            # A channel is restricted if is_adult=True (provider-supplied flag) OR
+            # detected_restricted=True (ingestion-computed XXX/ADULT/X-prefix naming
+            # detection — catches the channels the provider flag misses, owner-reported
+            # gap) OR its provider is force_adult.
+            restricted_expr = or_(
+                ChannelDB.is_adult == True,
+                ChannelDB.detected_restricted == True,
+            )
             if force_ids:
-                is_adult_expr = or_(
-                    ChannelDB.is_adult == True,
+                restricted_expr = or_(
+                    restricted_expr,
                     ChannelDB.provider_id.in_(force_ids),
                 )
-            else:
-                is_adult_expr = (ChannelDB.is_adult == True)
 
             if adult_mode == "hide":
-                query = query.filter(~is_adult_expr)
+                query = query.filter(~restricted_expr)
             elif adult_mode == "only":
-                query = query.filter(is_adult_expr)
+                query = query.filter(restricted_expr)
 
         # ── Identity pool: Language OR Region OR Platform (all grow the result set) ──
         # Selecting more always expands results. Quality is the only restrictive axis.
@@ -1599,6 +1604,14 @@ class ChannelRepository(_ChannelStatsMixin):
             new_detected_genre  = _genre_list[0] if _genre_list else None
             new_detected_genres = _genre_list or None
 
+            # Restricted-content detection (owner-reported gap): the provider's
+            # is_adult flag is unreliable, so this catches XXX/ADULT/X-prefix naming
+            # conventions it misses. Reads the UPDATED prefix (this batch's computed
+            # value, not the old ORM one) so a channel whose prefix changes in this
+            # same pass is judged on its new prefix. Separate provenance from
+            # is_adult — never overwrites it. See channel_name_utils.is_restricted_name.
+            new_restricted = is_restricted_name(channel.name, prefix)
+
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.
             # Build a lightweight proxy that reflects the new field values without
@@ -1635,6 +1648,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 or new_detected_audio != channel.detected_audio
                 or new_detected_genre != channel.detected_genre
                 or new_detected_genres != channel.detected_genres
+                or new_restricted != bool(channel.detected_restricted)
             )
             if changed:
                 channel.detected_prefix = prefix
@@ -1646,6 +1660,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel.detected_audio  = new_detected_audio
                 channel.detected_genre  = new_detected_genre
                 channel.detected_genres = new_detected_genres
+                channel.detected_restricted = new_restricted
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 
