@@ -3404,6 +3404,131 @@ class ChannelRepository(_ChannelStatsMixin):
             ChannelDB.id.in_(self.session.query(WatchQueueDB.channel_id)),
         )
 
+    # ── Background metadata enrichment (roadmap #249) ─────────────────────────
+
+    def _metadata_enrichment_filter(self, query, excluded_provider_ids, stale_before):
+        """Apply the shared metadata-enrichment-candidate predicate to *query*.
+
+        A candidate is a visible movie/series row with no cached metadata (no
+        ``metadata_id``, or one whose ``MetadataDB.fetched_at`` is NULL) or whose
+        cached metadata predates *stale_before*, that has not exhausted its retry
+        budget (``metadata_enrich_state IS NULL`` — the only other value,
+        ``'failed'``, permanently skips a row that kept erroring). Single
+        definition shared by the candidate select and its count so they can never
+        drift.  Assumes *query* already selects from ``ChannelDB``.
+        """
+        query = (
+            query
+            .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+            .filter(ChannelDB.is_hidden.is_(False))
+            .filter(ChannelDB.media_type.in_(("movie", "series")))
+            .filter(ChannelDB.metadata_enrich_state.is_(None))
+            .filter(
+                or_(
+                    ChannelDB.metadata_id.is_(None),
+                    MetadataDB.fetched_at.is_(None),
+                    MetadataDB.fetched_at < stale_before,
+                )
+            )
+        )
+        if excluded_provider_ids:
+            query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
+        return query
+
+    def select_metadata_enrichment_candidates(
+        self,
+        limit: int,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        stale_before: Optional[datetime] = None,
+    ) -> List[Dict[str, str]]:
+        """Select up to *limit* channels needing metadata enrichment, engaged-first.
+
+        Ordered in SQL: engaged channels (favorited, queued, or played — the same
+        predicate :meth:`_engaged_channel_predicate` uses to protect channels on
+        provider delete) sort before the remainder, so a background pass surfaces
+        value the user will actually notice first instead of only after a full
+        library crawl. Ties broken by ``id`` for a deterministic, resumable order.
+
+        Args:
+            limit: Max rows to return (one drain batch).
+            excluded_provider_ids: Hidden providers (inactive ∪ expired) from
+                ``ProviderRepository.get_hidden_provider_ids()`` — never enriched.
+            stale_before: Cached metadata with ``fetched_at`` older than this
+                counts as due for refresh.
+
+        Returns:
+            List of ``{"id", "name"}`` dicts, engaged rows first (plain dicts —
+            no ORM objects escape the session).
+        """
+        from sqlalchemy import case
+
+        q = self._metadata_enrichment_filter(
+            self.session.query(ChannelDB.id, ChannelDB.name),
+            excluded_provider_ids, stale_before,
+        )
+        engaged = self._engaged_channel_predicate()
+        q = q.order_by(case((engaged, 0), else_=1), ChannelDB.id).limit(limit)
+        return [{"id": cid, "name": name} for (cid, name) in q.all()]
+
+    def count_metadata_enrichment_candidates(
+        self,
+        excluded_provider_ids: Optional[Set[str]] = None,
+        stale_before: Optional[datetime] = None,
+    ) -> int:
+        """Count the full metadata-enrichment work set (same predicate as select)."""
+        q = self._metadata_enrichment_filter(
+            self.session.query(func.count(ChannelDB.id)),
+            excluded_provider_ids, stale_before,
+        )
+        return q.scalar() or 0
+
+    def record_metadata_enrich_success(self, channel_id: str) -> None:
+        """Clear retry bookkeeping after a successful enrichment.
+
+        The freshly written ``MetadataDB.fetched_at`` is what actually excludes
+        the channel from future candidate queries — this just resets the retry
+        counter so a channel that failed a few times before eventually
+        succeeding doesn't carry a stale count into its next staleness cycle.
+        """
+        self.session.execute(
+            update(ChannelDB)
+            .where(ChannelDB.id == channel_id)
+            .values(metadata_enrich_state=None, metadata_enrich_attempts=0)
+        )
+
+    def record_metadata_enrich_failure(self, channel_id: str, max_attempts: int) -> int:
+        """Bump *channel_id*'s failure count; mark permanently failed at *max_attempts*.
+
+        Bounded-retry gate: once ``metadata_enrich_attempts`` reaches
+        *max_attempts* the row is marked ``metadata_enrich_state='failed'``,
+        which the candidate predicate excludes forever after — a chronically
+        erroring channel (dead provider entry, no metadata anywhere) stops being
+        re-attempted every drain.
+
+        Args:
+            channel_id: The channel whose fetch just failed.
+            max_attempts: Attempt count at which the row is marked permanently failed.
+
+        Returns:
+            The row's attempt count after this failure (0 if the channel no
+            longer exists — deleted between read and write).
+        """
+        row = (
+            self.session.query(ChannelDB.metadata_enrich_attempts)
+            .filter(ChannelDB.id == channel_id)
+            .first()
+        )
+        if row is None:
+            return 0
+        attempts = (row[0] or 0) + 1
+        state = "failed" if attempts >= max_attempts else None
+        self.session.execute(
+            update(ChannelDB)
+            .where(ChannelDB.id == channel_id)
+            .values(metadata_enrich_attempts=attempts, metadata_enrich_state=state)
+        )
+        return attempts
+
     def prune_provider_content(
         self,
         provider_ids: list[str],

@@ -143,6 +143,18 @@ class ChannelDB(Base):
     # Movie-scoped (series list rows already carry genre). NOT in _CATALOG_UPDATE_COLS.
     genre_enrich_state = Column(String, nullable=True, index=True)
 
+    # Background metadata enrichment (see core/metadata_enrichment_queue.py). A row is a
+    # candidate when it has no cached MetadataDB row, or one older than
+    # config.metadata_old_content_ttl_days — that freshness check is what actually excludes
+    # a processed row from future candidate queries, so success needs no marker here. This
+    # pair only bounds RETRIES on a row whose fetch keeps failing:
+    #   metadata_enrich_state    — NULL (eligible) or 'failed' (attempts exhausted; skipped
+    #                               permanently rather than re-hit every drain).
+    #   metadata_enrich_attempts — consecutive failure count; reset to 0 on a success.
+    # NOT in _CATALOG_UPDATE_COLS — the provider upsert never overwrites this bookkeeping.
+    metadata_enrich_state = Column(String, nullable=True, index=True)
+    metadata_enrich_attempts = Column(Integer, default=0)
+
     # Audio annotation — extracted from sub/dub/multi parentheticals at ingestion (compute-once).
     # Shape: {"form": str, "audio": [str], "dub": [str], "sub": [str]}
     # "form" is one of "Dub", "Original", "Multi", "Dual", "" (unknown).
@@ -721,6 +733,10 @@ class Database:
             ("episodes",     "air_date",                     "TEXT"),
             ("episodes",     "rating",                       "FLOAT"),
             ("episodes",     "still_url",                    "TEXT"),
+            # Wave 4 — background metadata enrichment queue (#249); bounded-retry
+            # bookkeeping, see ChannelDB.metadata_enrich_state(_attempts) above.
+            ("channels",     "metadata_enrich_state",         "TEXT"),
+            ("channels",     "metadata_enrich_attempts",      "INTEGER DEFAULT 0"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -742,6 +758,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_restricted ON channels (detected_restricted)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_detected_collection ON channels (detected_collection)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_metadata_enrich_state ON channels (metadata_enrich_state)",
             ]
             for idx_sql in index_migrations:
                 try:
