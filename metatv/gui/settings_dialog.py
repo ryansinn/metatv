@@ -2,7 +2,7 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QCheckBox, QDialogButtonBox, QListWidgetItem,
+    QDialog, QVBoxLayout, QCheckBox, QComboBox, QDialogButtonBox, QListWidgetItem,
 )
 from loguru import logger
 
