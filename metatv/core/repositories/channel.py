@@ -20,7 +20,7 @@ from metatv.core.filter_utils import (
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
-    AI_VOICEOVER_VALUE, is_restricted_prefix,
+    AI_VOICEOVER_VALUE, is_restricted,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -1655,8 +1655,9 @@ class ChannelRepository(_ChannelStatsMixin):
             # conventions it misses. Reads the UPDATED prefix (this batch's computed
             # value, not the old ORM one) so a channel whose prefix changes in this
             # same pass is judged on its new prefix. Separate provenance from
-            # is_adult — never overwrites it. See channel_name_utils.is_restricted_prefix (prefix-only: titles are never scanned).
-            new_restricted = is_restricted_prefix(prefix)
+            # is_adult — never overwrites it. Detection is the user own "Adult" prefix
+            # group + their (empty by default) restricted_keywords list.
+            new_restricted = is_restricted(prefix, channel.name, config)
 
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.

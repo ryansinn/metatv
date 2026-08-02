@@ -92,34 +92,59 @@ def _run_ingestion(db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. is_restricted_prefix — pure detection function (prefix-only)
+# ---------------------------------------------------------------------------
+# 1. is_restricted — detection is the USER's configuration, never our guess
 # ---------------------------------------------------------------------------
 
-class TestIsRestrictedName:
 
-    @pytest.mark.parametrize("name,detected_prefix", [
-        ("Playboy TV", "ADULT"),   # prefix-group match wins first
-        ("Some Channel", "X"),     # standalone X prefix
-        ("Late Night Show", "XXX"),
-    ])
-    def test_true_cases(self, name, detected_prefix):
-        from metatv.core.channel_name_utils import is_restricted_prefix
+class _Cfg:
+    """Minimal config double exposing the two knobs detection reads."""
 
-        assert is_restricted_prefix(detected_prefix) is True
+    def __init__(self, adult_codes=("X", "XXX", "ADULT"), keywords=()):
+        self._adult = list(adult_codes)
+        self.restricted_keywords = list(keywords)
 
-    @pytest.mark.parametrize("name,detected_prefix", [
-        ("Essex TV", None),          # embedded "sex" — no word boundary
-        ("Maxx Sports", None),       # embedded "xx" tokens — never a naive substring hit
-        ("Maxxx Studio", None),      # embedded "xxx" — no word boundary either side
-        ("Generation X", None),      # bare "X" in the NAME (not the prefix) is never scanned
-        ("X Factor", None),          # same — "X" only counts as a standalone prefix
-        ("BBC News HD", "UK"),
-        ("Ordinary Channel", None),
-    ])
-    def test_false_cases(self, name, detected_prefix):
-        from metatv.core.channel_name_utils import is_restricted_prefix
+    @property
+    def filter_language_groups(self):
+        return {"Adult": self._adult, "English": ["EN"]}
 
-        assert is_restricted_prefix(detected_prefix) is False
+
+class TestIsRestricted:
+    """The app ships NO opinion about which names/codes mean restricted."""
+
+    def test_prefix_in_the_users_adult_group_is_restricted(self):
+        from metatv.core.channel_name_utils import is_restricted
+        assert is_restricted("ADULT", "Anything", _Cfg()) is True
+        assert is_restricted("xxx", "Anything", _Cfg()) is True
+
+    def test_unmapped_code_is_not_guessed(self):
+        """A real library used the code PORNBOX — unguessable, so we don't try.
+
+        It becomes restricted only once the USER puts it in their Adult group.
+        """
+        from metatv.core.channel_name_utils import is_restricted
+        assert is_restricted("PORNBOX", "Whatever", _Cfg()) is False
+        widened = _Cfg(adult_codes=("X", "XXX", "ADULT", "PORNBOX"))
+        assert is_restricted("PORNBOX", "Whatever", widened) is True
+
+    def test_titles_are_never_scanned_without_user_keywords(self):
+        """Real titles in this library that a keyword scan would have hidden."""
+        from metatv.core.channel_name_utils import is_restricted
+        cfg = _Cfg()  # no restricted_keywords configured — the default
+        assert is_restricted("SE", "Appropriate Adult", cfg) is False
+        assert is_restricted("EN", "xXx: Return of Xander Cage", cfg) is False
+        assert is_restricted("EN", "Sex Education", cfg) is False
+
+    def test_user_supplied_keywords_are_honoured(self):
+        from metatv.core.channel_name_utils import is_restricted
+        cfg = _Cfg(keywords=["late night xxx"])
+        assert is_restricted("EN", "Late Night XXX Hour", cfg) is True
+        assert is_restricted("EN", "Sex Education", cfg) is False
+
+    def test_no_config_falls_back_to_base_groups_and_no_keywords(self):
+        from metatv.core.channel_name_utils import is_restricted
+        assert is_restricted("ADULT", "Anything") is True
+        assert is_restricted("EN", "Appropriate Adult") is False
 
 
 # ---------------------------------------------------------------------------
@@ -375,20 +400,3 @@ class TestAdultModeGateReadsDetectedRestricted:
         assert "Regular Drama Movie" in names
 
 
-def test_titles_are_never_keyword_scanned():
-    """Owner steer 2026-08-02: detection is flag+prefix only, never title words.
-
-    Legitimate titles containing "adult"/"sex"/"x" must never be flagged —
-    hiding a user's real content is worse than missing one mislabeled channel.
-    """
-    from metatv.core.channel_name_utils import is_restricted_prefix
-    # No prefix → not restricted, whatever the title says.
-    assert is_restricted_prefix(None) is False
-    assert is_restricted_prefix("") is False
-    # Ordinary content prefixes stay visible.
-    assert is_restricted_prefix("EN") is False
-    assert is_restricted_prefix("FR") is False
-    # Restricted PREFIX codes are still caught.
-    assert is_restricted_prefix("XXX") is True
-    assert is_restricted_prefix("adult") is True
-    assert is_restricted_prefix("X") is True

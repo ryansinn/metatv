@@ -767,6 +767,14 @@ class Config(BaseModel):
     # overriding (or extending) the base. Provider-level overrides are keyed by
     # provider UUID: {provider_uuid: {code: group_name}}.
     user_prefix_overrides: dict = Field(default_factory=dict)
+
+    # Words/phrases the USER considers restricted, matched case-insensitively
+    # against channel names at ingestion. Intentionally EMPTY by default — the
+    # app ships no opinion about which words mean restricted content, because a
+    # guess hides real titles (this library contains "Appropriate Adult" and
+    # "xXx", both legitimate). Restricted-by-prefix uses the "Adult" prefix
+    # group instead, which the user can edit.
+    restricted_keywords: list = Field(default_factory=list)
     provider_prefix_overrides: dict = Field(default_factory=dict)
     user_quality_overrides: dict = Field(default_factory=dict)
     user_platform_overrides: dict = Field(default_factory=dict)
