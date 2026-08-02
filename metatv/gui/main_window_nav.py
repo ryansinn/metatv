@@ -53,6 +53,11 @@ class _NavMixin:
         if "missing_tmdb_view" in self.__dict__:
             if self.missing_tmdb_view.isVisible():
                 self.missing_tmdb_view.on_deactivate()
+        # Deactivate the Sources manager view if it exists and is visible (Wave 6 —
+        # Sources moved out of the sidebar stack into the status strip + this view).
+        if "sources_manager_view" in self.__dict__:
+            if self.sources_manager_view.isVisible():
+                self.sources_manager_view.on_deactivate()
         # Deactivate whichever Explore view (History / Favorites / Queue /
         # Recommended) is currently visible.  They are built lazily, so the dict may
         # be absent (early call) or empty.
@@ -87,6 +92,8 @@ class _NavMixin:
             self.recipe_view.setVisible(False)
         if "missing_tmdb_view" in self.__dict__:
             self.missing_tmdb_view.setVisible(False)
+        if "sources_manager_view" in self.__dict__:
+            self.sources_manager_view.setVisible(False)
         if "explore_views" in self.__dict__:
             for view in self.explore_views.values():
                 view.setVisible(False)
@@ -232,6 +239,20 @@ class _NavMixin:
         self.recipe_view.setVisible(True)
         self.stats_label.setText("Recipe Builder")
         self.recipe_view.on_activate()
+
+    def switch_to_sources_manager(self) -> None:
+        """Switch content area to the Sources manager view.
+
+        Opened from the sidebar status strip (Wave 6) — the one place to
+        browse/edit/refresh/analyze/toggle/EPG-refresh a source now that
+        Sources no longer lives in the sidebar section stack.
+        """
+        self.view_mode = "sources_manager"
+        self._hide_all_content_views()
+        self._deactivate_view_chips()  # management view — no chip of its own
+        self.sources_manager_view.setVisible(True)
+        self.stats_label.setText("Sources")
+        self.sources_manager_view.on_activate()
 
     def switch_to_explore_view(self, key: str) -> None:
         """Switch content area to the Explore view for *key* (embedded trail-map).

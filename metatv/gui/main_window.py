@@ -46,10 +46,12 @@ from metatv.core.player_manager import PlayerManager
 from metatv.gui.notification_widget import NotificationWidget
 from metatv.gui.provider_editor import ProviderEditorView
 from metatv.gui.sidebar_sections import (
-    SourcesSection, WatchAlertsSection,
+    WatchAlertsSection,
     HistorySection, FavoritesSection,
     RecommendedSection, WatchQueueSection,
 )
+from metatv.gui.sidebar.sources_strip import SourcesStatusStrip
+from metatv.gui.sources_manager_view import SourcesManagerView
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -795,7 +797,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.sidebar_sections = {}
 
         # Determine full ordered list: saved order first, then any new sections not yet in it
-        _known = ["alerts", "recommended", "queue", "favorites", "history", "sources"]
+        # "sources" is deliberately NOT here (Wave 6) — it lives in the always-visible
+        # status strip + Sources manager view below, not the reorderable section stack.
+        _known = ["alerts", "recommended", "queue", "favorites", "history"]
         ordered = list(self.config.sidebar_sections or _known)
         for sid in _known:
             if sid not in ordered:
@@ -834,12 +838,26 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Connect splitter moved signal to save sizes
         self.sidebar_splitter.splitterMoved.connect(self._schedule_layout_save)
 
-        # Wrap in outer widget so a Settings button can live at the bottom
+        # Wrap in outer widget so the Sources strip + a Settings button can live
+        # at the bottom, below the reorderable section stack.
         outer = QWidget()
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
         outer_layout.addWidget(self.sidebar_splitter, 1)  # stretch=1: bounded to outer height
+
+        # Sources status strip (Wave 6) — always-visible summary, NOT a
+        # CollapsibleSection and not part of the reorderable `ordered` list above.
+        # Clicking it opens the Sources manager view; Refresh All reuses the exact
+        # same queue chokepoint the old sidebar section's header button used.
+        self.sources_strip = SourcesStatusStrip(self.config, self.db, self)
+        self.sources_strip.clicked.connect(self.switch_to_sources_manager)
+        self.sources_strip.refreshAllClicked.connect(self.refresh_all_providers)
+        # Busy state mirrors whether the serial refresh queue currently has work.
+        self.refresh_queue_manager.queue_changed.connect(
+            lambda queue: self.sources_strip.set_busy(bool(queue))
+        )
+        outer_layout.addWidget(self.sources_strip)
 
         settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
         settings_btn.setFlat(True)
@@ -849,22 +867,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         outer_layout.addWidget(settings_btn)
 
         return outer
-    
+
     def create_section(self, section_id: str):
         """Create a sidebar section by ID"""
-        if section_id == "sources":
-            section = SourcesSection(self.config, self.db, self)
-            section.providerSelected.connect(self.on_provider_selected_new)
-            section.providerRefreshClicked.connect(self.refresh_provider)
-            section.providerEditClicked.connect(self.enter_provider_edit_mode)
-            section.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
-            section.providerToggleClicked.connect(self.toggle_provider_active)
-            section.providerEpgRefreshClicked.connect(self._on_provider_epg_refresh)
-            section.addProviderClicked.connect(self.add_provider)
-            section.refreshAllClicked.connect(self.refresh_all_providers)
-            return section
-
-        elif section_id == "alerts":
+        if section_id == "alerts":
             section = WatchAlertsSection(self.config, self.db, self)
             section.alertClicked.connect(self._on_alert_clicked)
             section.channel_selected.connect(self._on_alert_channel_details)
@@ -1845,8 +1851,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.epg_manager.refresh_error.connect(self._on_provider_epg_refreshed)
         self._refresh_watch_alerts()
 
-        # Provider editor (hidden by default)
-        self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager, self)
+        # Provider editor — embedded inside the Sources manager view's center pane
+        # (below), never added to the content stack directly. Constructed here
+        # (unparented) so its existing save/delete/refresh/account-info plumbing
+        # stays exactly as-is; SourcesManagerView.__init__ reparents it.
+        self.provider_editor = ProviderEditorView(self.db, self.config, self.epg_manager)
         self.provider_editor.done.connect(self.exit_provider_edit_mode)
         self.provider_editor.provider_saved.connect(self._on_provider_saved)
         self.provider_editor.provider_deleted.connect(self._on_provider_deleted)
@@ -1854,7 +1863,21 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.provider_editor.refresh_requested.connect(self.refresh_provider)
         self.provider_editor.account_info_updated.connect(self._on_account_info_updated)
         self.provider_editor.setVisible(False)
-        self._list_layout.addWidget(self.provider_editor)
+
+        # Sources manager view (Wave 6, hidden by default) — LEFT: every provider as
+        # a selectable ProviderItemWidget row (same widget/signals the retired
+        # sidebar Sources section used); CENTER: the provider_editor above. Opened
+        # from the sidebar status strip (switch_to_sources_manager).
+        self.sources_manager_view = SourcesManagerView(
+            self.config, self.db, self.provider_editor, self
+        )
+        self.sources_manager_view.providerRefreshClicked.connect(self.refresh_provider)
+        self.sources_manager_view.providerAnalyzeClicked.connect(self.enter_provider_analytics_mode)
+        self.sources_manager_view.providerToggleClicked.connect(self.toggle_provider_active)
+        self.sources_manager_view.providerEpgRefreshClicked.connect(self._on_provider_epg_refresh)
+        self.sources_manager_view.addProviderClicked.connect(self.add_provider)
+        self.sources_manager_view.setVisible(False)
+        self._list_layout.addWidget(self.sources_manager_view)
 
         # Source analytics view (hidden by default)
         self.source_analytics = SourceAnalyticsView(self)
