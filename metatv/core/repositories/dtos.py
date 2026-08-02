@@ -413,6 +413,64 @@ class MissingTmdbSourceDTO:
 
 
 # ---------------------------------------------------------------------------
+# Reconnect Engaged Content DTOs (Wave 4 — orphaned engaged-content recovery)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ReconnectMatchDTO:
+    """The proposed live replacement for an orphaned engaged channel.
+
+    Built by ``ChannelRepository.get_reconnect_candidates`` — the best
+    same-``content_key`` channel on a NOT-hidden provider, picked by
+    ``channel_name_utils.quality_tier_rank``.  Never a title-heuristic match.
+    """
+    channel_id: str
+    name: str
+    detected_title: str | None
+    detected_quality: str | None
+    provider_id: str
+    provider_name: str
+
+
+@dataclass(frozen=True)
+class ReconnectCandidateDTO:
+    """One orphaned *engaged* channel + its proposed live replacement (or none).
+
+    An orphan is a channel that is engaged (favorited, played, or queued — the
+    same ``ChannelRepository._engaged_channel_predicate`` gate that
+    ``prune_provider_content`` uses to decide what to KEEP on a source delete)
+    whose provider is hidden (inactive/expired/orphaned — see
+    ``ProviderRepository.get_hidden_provider_ids``).  ``match`` is ``None``
+    when the orphan has no stored ``content_key`` or no live channel shares it
+    — the row is still returned (mirror-not-cage: nothing is silently
+    dropped), just marked unmatched by the view.
+
+    Built inside a session_scope() by
+    :meth:`ChannelRepository.get_reconnect_candidates` — no ORM object crosses
+    the session boundary.
+    """
+    orphan_id: str
+    orphan_name: str
+    detected_title: str | None
+    detected_year: str | None
+    media_type: str | None
+    provider_id: str
+    provider_name: str
+    content_key: str | None
+    # Engagement fields carried for display of "what will move" — mirror the
+    # ChannelDB columns ChannelRepository.reconnect_engaged_content() moves.
+    is_favorite: bool
+    last_played: datetime | None
+    play_count: int
+    watch_progress: int
+    watch_completed: bool
+    watch_percent: int
+    user_rating: int              # +1/-1/0 (UserRatingDB), 0 = unrated
+    in_queue: bool                # True if any WatchQueueDB row references this channel_id
+    match: "ReconnectMatchDTO | None" = None
+
+
+# ---------------------------------------------------------------------------
 # Events tab DTO
 # ---------------------------------------------------------------------------
 
