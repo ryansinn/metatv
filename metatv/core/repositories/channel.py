@@ -22,6 +22,7 @@ from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
     AI_VOICEOVER_VALUE, is_restricted, parse_category_marker, AUDIO_LANG_WORD_MAP,
+    strip_collection_noise_tokens,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -1787,6 +1788,15 @@ class ChannelRepository(_ChannelStatsMixin):
             #     detected_audio sub/dub facet (below) AND kept as its own
             #     chip-ready display value (detected_collection_subdub, e.g.
             #     "AR-SUB") — never treated as a language.
+            # After the marker is stripped, strip_collection_noise_tokens()
+            # (channel_name_utils.py) removes whatever's LEFT that merely
+            # repeats a chip/icon the row already paints elsewhere — a
+            # quality tier (the quality chip), a media-type word (the media
+            # icon), or a multi/sub marker (the subtitle-marker chip), e.g.
+            # "MULTISUB SERIES 4K" -> "" (every token redundant) or
+            # "|MULTI| APPLE+ KIDS" -> "APPLE+ KIDS". Only ever clears a
+            # SPAN that is entirely noise — never touches a real name that
+            # merely contains a noise word ("SERIES MANIA" survives intact).
             new_collection: str | None = None
             new_collection_language: str | None = None
             new_collection_subdub: str | None = None
@@ -1795,6 +1805,13 @@ class ChannelRepository(_ChannelStatsMixin):
             if channel.category:
                 clean_category, category_marker = parse_category_marker(channel.category)
                 new_collection = clean_category or None
+                # Strip tokens already conveyed elsewhere on the row (quality
+                # chip / media-type icon / subtitle-marker chip) — see
+                # strip_collection_noise_tokens() docstring for the "whole
+                # span must be noise" rule that keeps a real collection name
+                # like "SERIES MANIA" intact. Normalize a fully-noise result
+                # ("") back to None, same as the clean_category line above.
+                new_collection = strip_collection_noise_tokens(new_collection) or None
                 if category_marker is not None:
                     if category_marker.kind == "language":
                         if prefix is None:

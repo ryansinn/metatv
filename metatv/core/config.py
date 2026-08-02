@@ -1092,6 +1092,15 @@ class Config(BaseModel):
     # rows (new channels get them at ingestion).
     category_marker_backfill_version: int = 0
 
+    # Internal migration version for the collection-token-cleanup backfill
+    # (owner-reported gap — detected_collection repeating tokens the row
+    # already shows via its own quality chip / media-type icon / subtitle-
+    # marker chip, e.g. "MULTISUB SERIES 4K"). Bump CURRENT_VERSION in
+    # metatv/core/migrations/collection_token_cleanup_backfill.py to trigger
+    # a one-time pass re-deriving ChannelDB.detected_collection for
+    # pre-existing rows (new channels get it at ingestion).
+    collection_token_cleanup_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

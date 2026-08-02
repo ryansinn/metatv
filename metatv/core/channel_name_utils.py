@@ -497,6 +497,22 @@ QUALITY_TOKENS: frozenset[str] = frozenset({
     "HD", "SD", "HQ", "LQ", "RAW", "CAM",
 })
 
+# Bare media-type indicator words that duplicate the comfy row's media-type icon
+# (LIVE/MOVIE/SERIES — metatv.core.models.MediaType) when they appear standalone
+# in a provider category string feeding detected_collection (e.g. "MULTISUB
+# SERIES 4K" on a row whose icon already reads "series"). Whole-token match
+# only — see strip_collection_noise_tokens()'s "whole span must be noise"
+# gate, which is what keeps a real collection name like "SERIES MANIA" intact
+# even though "SERIES" alone is in this set. Deliberately excludes the bare
+# word "TV" (too common inside real channel/network brand names, e.g. "KIDS
+# TV", mirroring the same caution the DUAL/AUDIO/MULTI exclusion below takes
+# for real titles).
+MEDIA_TYPE_TOKENS: frozenset[str] = frozenset({
+    "MOVIE", "MOVIES", "FILM", "FILMS",
+    "SERIES", "SERIE", "TVSHOW", "TVSHOWS", "SHOW", "SHOWS",
+    "LIVE", "VOD",
+})
+
 # ── quality token → viewer-facing label + explanation (single source of truth) ─ #
 # Not every QUALITY_TOKEN a provider stamps on a name is a picture-quality TIER.
 # ``HEVC`` / ``H265`` / ``H264`` are *codecs* and ``RAW`` is a *bitrate/processing*
@@ -1699,6 +1715,103 @@ def parse_category_marker(category: str) -> tuple[str, Optional[CategoryMarker]]
             return collapsed, None
         return clean, CategoryMarker(code=normalize_region_code(code_raw), kind=kind)
     return clean, CategoryMarker(code=normalize_region_code(code_raw), kind="language")
+
+
+# Bare "multiple audio/subtitle tracks available" indicator tokens.  Distinct
+# from _SUB_DUB_TOKENS (the SUB/DUB *role* family) because these denote "more
+# than one track", not a specific sub/dub role; MUTI is the common
+# missing-L typo, MULTISUB the compound form.  A dedicated collection-noise
+# constant (rather than extending _SUB_DUB_TOKENS or reusing the *function*-
+# local ``_MULTI_MARKERS`` inside extract_audio_annotation) so this stays
+# scoped to collection-string cleanup and never silently reshapes the
+# (deliberately conservative — see the DUAL/AUDIO/MULTI caveat near
+# _UNAMBIGUOUS_SUBDUB_MARKERS) title-parenthetical qualifier logic.
+_MULTI_TRACK_TOKENS: frozenset[str] = frozenset({"MULTI", "MUTI", "MULTISUB"})
+
+# Leading pipe-delimited marker that _CATEGORY_MARKER_RE didn't recognize
+# because its code exceeds that regex's 2-4 char code slot (e.g. "MULTI" is
+# 5 chars) — parse_category_marker() leaves it in place unrecognized.
+# strip_collection_noise_tokens() below re-examines exactly this shape and
+# removes it when every token inside is noise.
+_LEADING_BRACKET_RE = re.compile(r'^\|\s*([^|]+?)\s*\|\s*')
+
+# Combined vocabulary for strip_collection_noise_tokens(): a token counts as
+# collection noise when it duplicates the quality chip (QUALITY_TOKENS), the
+# subtitle-marker chip's sub/dub family (_SUB_DUB_TOKENS), a multi-track
+# marker (_MULTI_TRACK_TOKENS), or the media-type icon (MEDIA_TYPE_TOKENS).
+_COLLECTION_NOISE_TOKENS: frozenset[str] = (
+    QUALITY_TOKENS | _SUB_DUB_TOKENS | _MULTI_TRACK_TOKENS | MEDIA_TYPE_TOKENS
+)
+
+
+def _is_collection_noise_token(token: str) -> bool:
+    """Return True when *token* (any case) is in :data:`_COLLECTION_NOISE_TOKENS`."""
+    return token.upper() in _COLLECTION_NOISE_TOKENS
+
+
+def strip_collection_noise_tokens(collection: str | None) -> str | None:
+    """Strip provider-category tokens already conveyed elsewhere on the row.
+
+    ``detected_collection`` (the comfy-row line-2 chip) is derived from the
+    provider's raw category string via :func:`parse_category_marker`. Real
+    feeds routinely repeat information the row already shows via its own
+    dedicated chips/icon — a quality tier duplicating the quality chip
+    (``detected_quality``), a media-type word duplicating the media-type
+    icon, or a multi-track/sub-dub marker duplicating the subtitle-marker
+    chip (``detected_collection_subdub``). This strips that noise so the
+    chip only carries what actually names the collection/provider bundle
+    (e.g. ``"|MULTI| APPLE+ KIDS"`` -> ``"APPLE+ KIDS"``).
+
+    Mirrors :func:`_is_all_qualifier_tokens`'s established "strip only when
+    the WHOLE span is noise" idiom — never remove a single noise word out of
+    otherwise-meaningful running text, since that risks mangling a real
+    collection name that merely *contains* a noise-vocabulary word (e.g.
+    ``"SERIES MANIA"`` must survive intact: "MANIA" alone is not the
+    collection's name, "SERIES MANIA" together is). Two passes:
+
+    1. **Leading bracket marker** — a leading ``|TOKEN|`` (or multi-word
+       ``|TOKEN TOKEN|``) group left behind by :func:`parse_category_marker`
+       because its code was too long for that regex's 2-4 char code slot
+       (e.g. ``"|MULTI|"`` — 5 chars) is stripped whenever every token
+       inside the brackets is noise. Repeats for consecutive leading
+       brackets.
+    2. **Free-text body** — the remaining text is cleared to ``""`` only
+       when EVERY token in it is noise (e.g. ``"MULTISUB SERIES 4K"`` — all
+       three tokens are noise, so the whole chip disappears). A single
+       non-noise token anywhere in the body means nothing is touched.
+
+    Token matching is whole-token only (never a substring) — the body is
+    split on whitespace/hyphen/slash and each leaf is compared by exact
+    (case-insensitive) set membership, so ``"4K"`` never damages a
+    collection legitimately named ``"24K"`` and ``"SERIES"`` never touches
+    ``"SERIES MANIA"``.
+
+    Args:
+        collection: The raw ``detected_collection`` candidate (already run
+            through :func:`parse_category_marker`), or ``None``/``""``.
+
+    Returns:
+        The cleaned string; ``None``/``""`` input is returned unchanged;
+        stripping every token yields ``""`` (the caller normalizes that to
+        ``None`` so no empty chip renders — never re-run at paint time).
+    """
+    if not collection:
+        return collection
+
+    working = collection
+    while True:
+        m = _LEADING_BRACKET_RE.match(working)
+        if not m:
+            break
+        leaves = [t for t in re.split(r"[\s\-/]+", m.group(1).strip()) if t]
+        if not leaves or not all(_is_collection_noise_token(t) for t in leaves):
+            break
+        working = working[m.end():].strip()
+
+    body_tokens = [t for t in re.split(r"[\s\-/]+", working.strip()) if t]
+    if body_tokens and all(_is_collection_noise_token(t) for t in body_tokens):
+        return ""
+    return working
 
 
 def _strip_quality(bare: str) -> tuple[str, list[str]]:
