@@ -7,7 +7,7 @@ content-descriptor group) was NOT caught when the provider failed to flag it, so
 it leaked into general surfaces (Discover shelves, recommendations, browse).
 
 Coverage:
-1. ``is_restricted_name`` (channel_name_utils.py) — prefix-group match, name
+1. ``is_restricted_prefix`` (channel_name_utils.py) — PREFIX-ONLY match; titles are never
    word-boundary scan, and the false-positive guards (must not match "Essex",
    "Maxx Sports").
 2. Ingestion (``update_detected_prefixes``) writes ``ChannelDB.detected_restricted``.
@@ -92,22 +92,20 @@ def _run_ingestion(db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. is_restricted_name — pure detection function
+# 1. is_restricted_prefix — pure detection function (prefix-only)
 # ---------------------------------------------------------------------------
 
 class TestIsRestrictedName:
 
     @pytest.mark.parametrize("name,detected_prefix", [
-        ("XXX Channel", None),
-        ("ADULT MOVIES", None),
         ("Playboy TV", "ADULT"),   # prefix-group match wins first
         ("Some Channel", "X"),     # standalone X prefix
         ("Late Night Show", "XXX"),
     ])
     def test_true_cases(self, name, detected_prefix):
-        from metatv.core.channel_name_utils import is_restricted_name
+        from metatv.core.channel_name_utils import is_restricted_prefix
 
-        assert is_restricted_name(name, detected_prefix) is True
+        assert is_restricted_prefix(detected_prefix) is True
 
     @pytest.mark.parametrize("name,detected_prefix", [
         ("Essex TV", None),          # embedded "sex" — no word boundary
@@ -119,9 +117,9 @@ class TestIsRestrictedName:
         ("Ordinary Channel", None),
     ])
     def test_false_cases(self, name, detected_prefix):
-        from metatv.core.channel_name_utils import is_restricted_name
+        from metatv.core.channel_name_utils import is_restricted_prefix
 
-        assert is_restricted_name(name, detected_prefix) is False
+        assert is_restricted_prefix(detected_prefix) is False
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +270,7 @@ class TestRestrictedBackfillCrashRetry:
         )
 
         _add_provider(file_db)
-        _add_channel(file_db, name="XXX Uncensored")
+        _add_channel(file_db, name="XXX - Uncensored")
 
         task = RestrictedBackfillTask(file_db)
         assert cfg.restricted_backfill_version == 0
@@ -308,7 +306,7 @@ class TestAdultModeGateReadsDetectedRestricted:
         _add_provider(file_db)
         # Name-flagged, provider-UNflagged — the owner-reported gap case.
         _add_channel(
-            file_db, name="XXX Uncensored Movie", media_type="movie",
+            file_db, name="XXX - Uncensored Movie", media_type="movie",
             is_adult=False, raw_genre="Drama",
         )
         # An ordinary, unrelated channel that must always stay visible.
@@ -327,7 +325,7 @@ class TestAdultModeGateReadsDetectedRestricted:
             names = {
                 ch.name for ch in repos.channels.get_all(adult_mode="hide")
             }
-        assert "XXX Uncensored Movie" not in names
+        assert "XXX - Uncensored Movie" not in names
         assert "Regular Drama Movie" in names
 
     def test_only_includes_name_flagged_channel_in_list_query(self, seeded):
@@ -338,7 +336,7 @@ class TestAdultModeGateReadsDetectedRestricted:
             names = {
                 ch.name for ch in repos.channels.get_all(adult_mode="only")
             }
-        assert "XXX Uncensored Movie" in names
+        assert "XXX - Uncensored Movie" in names
         assert "Regular Drama Movie" not in names
 
     def test_hide_excludes_name_flagged_channel_from_discover_genre_query(self, seeded):
@@ -350,7 +348,7 @@ class TestAdultModeGateReadsDetectedRestricted:
                                                       adult_mode="hide")}
         finally:
             session.close()
-        assert "XXX Uncensored Movie" not in titles
+        assert "Uncensored Movie" not in titles
         assert "Regular Drama Movie" in titles
 
     def test_only_includes_name_flagged_channel_in_discover_genre_query(self, seeded):
@@ -362,7 +360,7 @@ class TestAdultModeGateReadsDetectedRestricted:
                                                       adult_mode="only")}
         finally:
             session.close()
-        assert "XXX Uncensored Movie" in titles
+        assert "Uncensored Movie" in titles
         assert "Regular Drama Movie" not in titles
 
     def test_all_mode_shows_everything(self, seeded):
@@ -373,20 +371,24 @@ class TestAdultModeGateReadsDetectedRestricted:
             names = {
                 ch.name for ch in repos.channels.get_all(adult_mode="all")
             }
-        assert "XXX Uncensored Movie" in names
+        assert "XXX - Uncensored Movie" in names
         assert "Regular Drama Movie" in names
 
 
-def test_legitimate_titles_are_not_restricted():
-    """Curatorial, never censorial: real titles containing a token stay visible."""
-    from metatv.core.channel_name_utils import is_restricted_name
-    # "SEX" is not free-scanned at all (too many legitimate titles carry it).
-    assert is_restricted_name("Sex Education", None) is False
-    assert is_restricted_name("Sex and the City", None) is False
-    # Allowlisted phrase containing a scanned token.
-    assert is_restricted_name("Adult Swim", None) is False
-    assert is_restricted_name("EN - Adult Swim Toonami", None) is False
-    # Unambiguous markers still detected.
-    assert is_restricted_name("XXX Channel", None) is True
-    assert is_restricted_name("ADULT MOVIES", None) is True
-    assert is_restricted_name("Porn HD", None) is True
+def test_titles_are_never_keyword_scanned():
+    """Owner steer 2026-08-02: detection is flag+prefix only, never title words.
+
+    Legitimate titles containing "adult"/"sex"/"x" must never be flagged —
+    hiding a user's real content is worse than missing one mislabeled channel.
+    """
+    from metatv.core.channel_name_utils import is_restricted_prefix
+    # No prefix → not restricted, whatever the title says.
+    assert is_restricted_prefix(None) is False
+    assert is_restricted_prefix("") is False
+    # Ordinary content prefixes stay visible.
+    assert is_restricted_prefix("EN") is False
+    assert is_restricted_prefix("FR") is False
+    # Restricted PREFIX codes are still caught.
+    assert is_restricted_prefix("XXX") is True
+    assert is_restricted_prefix("adult") is True
+    assert is_restricted_prefix("X") is True

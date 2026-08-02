@@ -20,7 +20,7 @@ from metatv.core.filter_utils import (
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
     _COMPOUND_PREFIX_RE, _PAREN_PREFIX_RE, detect_ai_provenance,
-    AI_VOICEOVER_VALUE, is_restricted_name,
+    AI_VOICEOVER_VALUE, is_restricted_prefix,
 )
 from metatv.core.repositories.dtos import (
     FavoriteDTO, LiveEventDTO,
@@ -184,14 +184,20 @@ def _metadata_person_exists(pattern: str):
     """
     from sqlalchemy import exists as _exists, select as _sa_select, type_coerce as _type_coerce, Text as _Text
 
+    # correlate(ChannelDB) is REQUIRED: get_all() now outerjoins MetadataDB (for
+    # the list DTO's plot/poster columns), so without an explicit correlation
+    # SQLAlchemy auto-correlates MetadataDB out of this subquery too and raises
+    # "returned no FROM clauses due to auto-correlation".
     return _exists(
-        _sa_select(MetadataDB.id).where(
+        _sa_select(MetadataDB.id)
+        .where(
             MetadataDB.id == ChannelDB.metadata_id,
             or_(
                 MetadataDB.director.ilike(pattern),
                 _type_coerce(MetadataDB.cast, _Text).ilike(pattern),
             ),
         )
+        .correlate(ChannelDB)
     )
 
 
@@ -1649,8 +1655,8 @@ class ChannelRepository(_ChannelStatsMixin):
             # conventions it misses. Reads the UPDATED prefix (this batch's computed
             # value, not the old ORM one) so a channel whose prefix changes in this
             # same pass is judged on its new prefix. Separate provenance from
-            # is_adult — never overwrites it. See channel_name_utils.is_restricted_name.
-            new_restricted = is_restricted_name(channel.name, prefix)
+            # is_adult — never overwrites it. See channel_name_utils.is_restricted_prefix (prefix-only: titles are never scanned).
+            new_restricted = is_restricted_prefix(prefix)
 
             # Compute the content_key from the UPDATED fields (not the old ORM values)
             # so the key is always in sync with detected_title/year/media_type.
