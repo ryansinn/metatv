@@ -400,6 +400,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # just re-runs the same update_detected_prefixes() pass.
         from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
         self.migration_manager.register(DetectedGenreBackfillTask(self.db))
+        # Owner-reported gap: restricted-content (XXX/ADULT/X-prefix naming
+        # convention) name/prefix detection the provider's is_adult flag misses —
+        # one-time backfill of stored detected_restricted for pre-existing rows
+        # (new channels get it at ingestion). No ordering dependency on the tasks
+        # around it — it just re-runs the same update_detected_prefixes() pass.
+        from metatv.core.migrations.restricted_backfill import RestrictedBackfillTask
+        self.migration_manager.register(RestrictedBackfillTask(self.db))
         # ORDER MATTERS — populate detected_tmdb_id from raw_data BEFORE the
         # content_key recompute (v4) reads it, so cross-language/quality variants
         # sharing a provider tmdb id collapse onto one tmdb-first key.

@@ -1340,6 +1340,77 @@ def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> 
     return None
 
 
+# ── Restricted-content detection (owner-reported gap) ──────────────────────────── #
+# The provider `is_adult` API flag is unreliable — some providers never set it even
+# for content that is unambiguously marked by naming convention. This is a
+# NEUTRAL/abstract internal name deliberately — "restricted" — never "adult" in code;
+# user-facing surfaces keep the "Adult" label (owner steer). Do NOT rename the
+# established is_adult / filter_adult_mode / build_adult_filter identifiers elsewhere;
+# this is new, separately-provenanced detection that feeds the same gate.
+#
+# Conservative by design: a false positive here HIDES legitimate content from general
+# surfaces (Discover/recommendations/browse) when adult_mode="hide", so only
+# unambiguous explicit-content markers are curated in.
+#
+# RESTRICTED_NAME_TOKENS is scanned as whole words anywhere in the channel name.
+# RESTRICTED_PREFIX_TOKENS additionally includes a bare "X" — too ambiguous to
+# word-scan across a full name (would false-positive on "X Factor", "Generation X",
+# "Malcolm X" style titles) but a confirmed adult marker when it IS the channel's
+# entire leading prefix token (mirrors BASE_PREFIX_GROUPS["Adult"] =
+# ["X", "XXX", "ADULT"] in config.py — the existing "Adult" content-descriptor group).
+RESTRICTED_NAME_TOKENS: frozenset[str] = frozenset({
+    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA", "SEX",
+})
+
+RESTRICTED_PREFIX_TOKENS: frozenset[str] = RESTRICTED_NAME_TOKENS | {"X"}
+
+_RESTRICTED_NAME_RE = re.compile(
+    r"\b(?:" + "|".join(sorted(RESTRICTED_NAME_TOKENS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_restricted_name(name: str, detected_prefix: Optional[str]) -> bool:
+    """Detect restricted (explicit/adult) content from name/prefix convention.
+
+    Owner-reported gap: the provider's ``is_adult`` API flag is unreliable —
+    some providers never set it even when the channel name is unambiguously
+    marked as explicit content by naming convention. This pure helper is the
+    single detection chokepoint for that gap; it must be called only at
+    ingestion (``update_detected_prefixes()`` in ``core/repositories/channel.py``)
+    and the result stored (``ChannelDB.detected_restricted``) — never re-derived
+    at render/query time (CLAUDE.md "compute once at ingestion" rule).
+
+    Priority:
+      1. Prefix-group match — ``detected_prefix`` (the channel's already-stored,
+         ingestion-computed prefix; never re-derived here) equals one of
+         :data:`RESTRICTED_PREFIX_TOKENS`. This is the only path a bare "X"
+         can match — standalone, as the entire prefix.
+      2. Word-boundary token scan of the full name against
+         :data:`RESTRICTED_NAME_TOKENS`. Word-boundary (never substring), so an
+         embedded hit inside an ordinary word never false-positives — "Essex"
+         contains the "SEX" token as a substring but is one unbroken word (no
+         boundary before the embedded "sex"), and "Maxxx" contains "XXX" the
+         same way — neither matches ``\\bSEX\\b`` / ``\\bXXX\\b``.
+
+    Pure — no DB, no Qt.
+
+    Args:
+        name: The channel's raw name.
+        detected_prefix: The channel's stored ``detected_prefix``, or ``None``.
+
+    Returns:
+        True when the name/prefix marks the channel as restricted content.
+    """
+    if detected_prefix and detected_prefix.strip().upper() in RESTRICTED_PREFIX_TOKENS:
+        return True
+
+    if not name:
+        return False
+
+    return bool(_RESTRICTED_NAME_RE.search(name))
+
+
 # ── Dual-facet code table (DR-0006) ─────────────────────────────────────────── #
 # Maps a normalized IPTV prefix code → one or more (facet_type, value, confidence)
 # entries.  Rules (see DR-0006 and CLAUDE.md "Tags/facets" rule):

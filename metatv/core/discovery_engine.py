@@ -290,20 +290,25 @@ def _apply_user_category_exclusion(query, excluded_user_categories: list[str] | 
 
 
 def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[str] | None):
-    """Apply adult content filter to a SQLAlchemy query on ChannelDB."""
+    """Apply adult content filter to a SQLAlchemy query on ChannelDB.
+
+    A channel is restricted if ``is_adult`` (provider-supplied flag) OR
+    ``detected_restricted`` (ingestion-computed XXX/ADULT/X-prefix naming
+    detection — catches channels the provider flag misses, owner-reported gap;
+    see ``channel_name_utils.is_restricted_name``) OR its provider is force_adult.
+    """
     if adult_mode == "all":
         return query
     from metatv.core.database import ChannelDB
     from sqlalchemy import or_
     force_ids = force_adult_provider_ids or []
+    restricted_expr = or_(ChannelDB.is_adult == True, ChannelDB.detected_restricted == True)  # noqa: E712
     if force_ids:
-        is_adult_expr = or_(ChannelDB.is_adult == True, ChannelDB.provider_id.in_(force_ids))  # noqa: E712
-    else:
-        is_adult_expr = (ChannelDB.is_adult == True)  # noqa: E712
+        restricted_expr = or_(restricted_expr, ChannelDB.provider_id.in_(force_ids))
     if adult_mode == "hide":
-        return query.filter(~is_adult_expr)
+        return query.filter(~restricted_expr)
     if adult_mode == "only":
-        return query.filter(is_adult_expr)
+        return query.filter(restricted_expr)
     return query
 
 

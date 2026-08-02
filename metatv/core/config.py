@@ -1037,6 +1037,14 @@ class Config(BaseModel):
     # of alias-matching against raw_data on every shelf expand.
     genre_backfill_version: int = 0
 
+    # Internal migration version for the detected_restricted backfill (owner-reported
+    # gap — restricted-content name/prefix detection, e.g. XXX/ADULT/X-prefix, that the
+    # provider's is_adult flag misses).  Bump CURRENT_VERSION in
+    # metatv/core/migrations/restricted_backfill.py to trigger a one-time pass
+    # populating ChannelDB.detected_restricted (computed at ingestion via
+    # channel_name_utils.is_restricted_name()) for pre-existing rows.
+    restricted_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0
