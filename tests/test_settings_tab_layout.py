@@ -152,22 +152,29 @@ def _full_dialog(qapp) -> SettingsDialog:
 # --------------------------------------------------------------------------- #
 
 def test_settings_dialog_has_exactly_five_tabs(qapp):
-    """The dialog must have exactly 5 tabs after the Recommendations tab was added."""
+    """The dialog must have exactly 5 sections after the Recommendations tab was added.
+
+    Post three-panel-layout: the left-nav QListWidget (``_nav.section_list``)
+    replaces the old QTabWidget's tab bar; the center QStackedWidget
+    (``_nav.stack``) must carry the same number of pages.
+    """
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    assert dlg._tabs.count() == 5
+    assert dlg._nav.section_list.count() == 5
+    assert dlg._nav.stack.count() == 5
 
     dlg.close()
 
 
 def test_settings_dialog_tab_names(qapp):
-    """Tabs must be named Playback, Interaction, Recommendations, Metadata & API Keys,
+    """Sections must be named Playback, Interaction, Recommendations, Metadata & API Keys,
     Interface in order."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    tab_titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+    tab_titles = [dlg._nav.section_list.item(i).text()
+                  for i in range(dlg._nav.section_list.count())]
     assert tab_titles == ["Playback", "Interaction", "Recommendations",
                           "Metadata & API Keys", "Interface"]
 
@@ -175,11 +182,12 @@ def test_settings_dialog_tab_names(qapp):
 
 
 def test_settings_dialog_no_sidebar_tab(qapp):
-    """There must be no tab named 'Sidebar' — its content moved into Interface."""
+    """There must be no section named 'Sidebar' — its content moved into Interface."""
     cfg = _FakeConfig()
     dlg = SettingsDialog(cfg, parent=None)
 
-    tab_titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+    tab_titles = [dlg._nav.section_list.item(i).text()
+                  for i in range(dlg._nav.section_list.count())]
     assert "Sidebar" not in tab_titles
 
     dlg.close()

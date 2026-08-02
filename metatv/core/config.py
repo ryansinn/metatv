@@ -651,6 +651,14 @@ class Config(BaseModel):
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
     sidebar_section_sizes: list = Field(default_factory=list)  # Heights of sidebar sections in pixels
 
+    # Settings dialog — three-panel layout (left-nav section list, right help
+    # panel).  settings_dialog_section is the index of the last-selected
+    # left-nav row; width/height are the dialog's last size.  All three are UI
+    # state (persist on close regardless of OK/Cancel), never a setting value.
+    settings_dialog_section: int = 0
+    settings_dialog_width: int = 900
+    settings_dialog_height: int = 600
+
     # Recipe view legacy splitter geometry (pre-redesign two-column layout).
     # Retained so older config.yaml files still load cleanly; the current
     # masonry redesign no longer reads or writes them.
