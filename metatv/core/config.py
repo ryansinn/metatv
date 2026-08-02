@@ -921,6 +921,22 @@ class Config(BaseModel):
     # Channels with user_category matching any of these names are hidden everywhere.
     global_filter_excluded_user_categories: list = Field(default_factory=list)
 
+    # User-defined keyword exclusions — free-text words/phrases (e.g. "wrestling",
+    # "telenovela") matched case-insensitively as a SUBSTRING against a channel's
+    # detected_title (falling back to name) at QUERY time, everywhere Global
+    # Exclusions apply (channel list, Discover, Recommendations). Empty by
+    # default — the app ships no opinion about what to hide.
+    #
+    # Distinct from ``restricted_keywords`` above: that list feeds
+    # ``channel_name_utils.is_restricted()`` and is baked into
+    # ``ChannelDB.detected_restricted`` at INGESTION (a one-time compute that
+    # gates the adult_mode filter). This list has no ingestion step and no
+    # stored field — it's read live by ``filter_utils.keyword_exclusion_list``/
+    # ``keyword_exclusion_criterion`` on every query, so editing it takes
+    # effect immediately on the next load, and it hides content from general
+    # browsing regardless of adult_mode.
+    global_excluded_keywords: list = Field(default_factory=list)
+
     # Sports / Events view filter state persistence
     # Keyword definitions (sport_keywords, league_keywords) live in:
     #   ~/.config/metatv/sports_definitions.yaml

@@ -244,6 +244,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # cleared on the next search / filter change, same as the exclusions reveal.
         self._bypass_dead_gate: bool = False
         self._currently_bypassing_dead: bool = False  # set after load, read by filter_channels
+        # When True, the Global Exclusions keyword axis (excluded_keywords) is
+        # skipped for one load — so the user can see exactly what their keyword
+        # list is hiding for THIS view without editing the global setting.
+        # View-scoped: cleared on the next search / filter change, same as the
+        # other reveal flags above.
+        self._bypass_keyword_exclusions: bool = False
+        self._currently_bypassing_keywords: bool = False  # set after load, read by filter_channels
 
         # Details-pane context filters — set when user clicks a genre/person/tag chip.
         # At most one is active at a time; all are cleared by the chip's dismiss button.
@@ -1693,6 +1700,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         self._channel_dead_btn.clicked.connect(self._show_dead_hidden)
         _cfb_layout.addWidget(self._channel_dead_btn)
+        # Segment 4 — Global Exclusions keyword axis.
+        self._channel_keyword_btn = QPushButton()
+        self._channel_keyword_btn.setVisible(False)
+        self._channel_keyword_btn.setStyleSheet(_seg_style)
+        self._channel_keyword_btn.setToolTip(
+            "Your Global Exclusions keyword list is hiding these results (their\n"
+            "title matches one of your keywords).\nClick to temporarily show them "
+            "for this view only.\n"
+            "Your keyword list is not changed; searching or changing filters restores the view."
+        )
+        self._channel_keyword_btn.clicked.connect(self._show_keyword_hidden)
+        _cfb_layout.addWidget(self._channel_keyword_btn)
         _cfb_layout.addStretch(1)
         self._list_layout.addWidget(self._channel_filter_bar)
 
@@ -2339,7 +2358,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
                 f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
                 f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
             )
-            for btn_name in ("_channel_exclusion_btn", "_channel_filter_btn", "_channel_dead_btn"):
+            for btn_name in ("_channel_exclusion_btn", "_channel_filter_btn", "_channel_dead_btn", "_channel_keyword_btn"):
                 getattr(self, btn_name).setStyleSheet(_seg_style)
 
         if hasattr(self, "stats_label"):

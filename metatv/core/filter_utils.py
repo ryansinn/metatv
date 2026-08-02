@@ -503,6 +503,88 @@ def tag_content_type_exclusion_criterion(excluded_slugs: set[str], channel_id_co
     return ~exists(subq)
 
 
+# ---------------------------------------------------------------------------
+# Keyword exclusion — P1-6 chokepoint family, fourth axis
+# ---------------------------------------------------------------------------
+#
+# A user-defined, free-text axis distinct from prefix/region, user-category, and
+# content_type above: the user may globally hide any channel whose TITLE contains
+# one of their own keywords (e.g. "wrestling", "telenovela") — matched
+# case-insensitively as a substring against ``detected_title`` (falling back to
+# ``name`` for rows with no ingestion-computed title; never re-parses the name).
+#
+# Unlike ``restricted_keywords`` (``channel_name_utils.is_restricted``), which is
+# resolved ONCE at ingestion into the stored ``ChannelDB.detected_restricted`` flag
+# and gates the adult_mode filter, this axis has no ingestion step or stored field —
+# it is read live, at query time, by every consumer below, so editing the keyword
+# list takes effect on the very next load with no re-scan needed.
+#
+# ``keyword_exclusion_criterion`` (SQLAlchemy KEEP clause) is the ONLY
+# implementation of this rule — every surface that filters by keyword (channel
+# list via ``ChannelRepository._apply_channel_filters``, Discover via
+# ``discovery_engine._apply_keyword_exclusion``, Recommendations via
+# ``preference_engine.score_candidates``) routes through it; never fork a parallel
+# substring check. ``keyword_exclusion_list`` is the single paused-aware builder of
+# the keyword list every one of those callers reads from ``Config``.
+
+
+def keyword_exclusion_list(config) -> list[str]:
+    """Return the user's active keyword Global Exclusions.
+
+    Paused-aware (mirrors :func:`global_exclusion_set` /
+    :func:`excluded_tag_content_types`): empty when
+    ``config.global_filter_paused`` is set, otherwise the cleaned
+    (stripped, blank-dropped) contents of ``config.global_excluded_keywords``.
+
+    Args:
+        config: The application ``Config`` (read on the main/control thread; the
+            engine layers receive the resolved list, never ``Config`` — DR-0007).
+
+    Returns:
+        The keyword strings to exclude — empty when paused or unset.
+    """
+    if getattr(config, "global_filter_paused", False):
+        return []
+    return [k.strip() for k in (getattr(config, "global_excluded_keywords", None) or []) if k and k.strip()]
+
+
+def keyword_exclusion_criterion(keywords: "list[str] | set[str] | None", channel_cls):
+    """Return the SQLAlchemy KEEP criterion for the keyword Global Exclusion axis.
+
+    A channel is excluded when its title contains ANY of *keywords* (a
+    case-insensitive substring match); the KEEP condition returned here is the
+    conjunction of "does NOT contain keyword i" over every keyword — expressed as
+    an ``ilike`` chain against ``COALESCE(detected_title, name)`` so it runs
+    entirely in SQL (no per-row Python filtering — safe over the 240k+-row
+    ``channels`` table). Route every keyword exclusion on a query/aggregate
+    surface through this helper instead of hand-rolling a parallel ``ilike``
+    chain (single chokepoint, P1-6 family).
+
+    Args:
+        keywords: The user's keyword strings (build with
+            :func:`keyword_exclusion_list`). Blank/whitespace-only entries are
+            ignored. Empty/``None`` → a tautology (keeps all rows) — same
+            "empty exclusion never hides anything" contract as
+            :func:`channel_exclusion_criterion`.
+        channel_cls: The ``ChannelDB`` class (or an aliased equivalent) carrying
+            ``detected_title``/``name`` columns.
+
+    Returns:
+        A SQLAlchemy boolean clause for ``.filter(...)`` — ``true()`` when
+        *keywords* is empty.
+
+    See Also:
+        :func:`keyword_exclusion_list`: builds *keywords* from ``Config``.
+    """
+    from sqlalchemy import and_, func, true
+
+    cleaned = [k.strip() for k in (keywords or []) if k and k.strip()]
+    if not cleaned:
+        return true()
+    title_expr = func.coalesce(channel_cls.detected_title, channel_cls.name)
+    return and_(*[~title_expr.ilike(f"%{kw}%") for kw in cleaned])
+
+
 def matches_filter(
     channel_detected_prefix: Optional[str],
     channel_media_type: str,

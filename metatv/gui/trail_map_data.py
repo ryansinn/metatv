@@ -354,7 +354,7 @@ def load_recommended_ids(
 
     Returns an empty list when the user has no taste weights yet.
     """
-    from metatv.core.filter_utils import get_active_category_filter
+    from metatv.core.filter_utils import get_active_category_filter, keyword_exclusion_list
     from metatv.core.preference_engine import (
         compute_weights, score_candidates, version_score,
     )
@@ -371,6 +371,7 @@ def load_recommended_ids(
         dedupe_overrides=set(getattr(config, "rec_dedupe_overrides", []) or []),
         excluded_prefixes=excluded_prefixes,
         include_uncategorized=include_uncategorized,
+        excluded_keywords=keyword_exclusion_list(config) or None,
         excluded_provider_ids=hidden or None,
         version_scorer=lambda ch: version_score(ch, config),
         balance_media_types=True,

@@ -190,7 +190,10 @@ class _SeeAllWorker(QObject):
 
     def run(self) -> None:
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
-        from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types
+        from metatv.core.filter_utils import (
+            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
+            keyword_exclusion_list,
+        )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         try:
@@ -201,7 +204,8 @@ class _SeeAllWorker(QObject):
             fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
-                      excluded_content_types=excluded_tag_content_types(self._config) or None)
+                      excluded_content_types=excluded_tag_content_types(self._config) or None,
+                      excluded_keywords=keyword_exclusion_list(self._config) or None)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids,
                       progress_map=ss.progress_map)
@@ -252,7 +256,10 @@ class _ShelfCardsWorker(QObject):
 
     def run(self) -> None:
         from metatv.core.discovery_engine import build_status_sets, build_adult_filter
-        from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types
+        from metatv.core.filter_utils import (
+            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
+            keyword_exclusion_list,
+        )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         cards: list | None = None
@@ -265,7 +272,8 @@ class _ShelfCardsWorker(QObject):
             fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
-                      excluded_content_types=excluded_tag_content_types(self._config) or None)
+                      excluded_content_types=excluded_tag_content_types(self._config) or None,
+                      excluded_keywords=keyword_exclusion_list(self._config) or None)
             sk = dict(fav_ids=ss.fav_ids, queue_ids=ss.queue_ids,
                       watched_ids=ss.watched_ids, liked_ids=ss.liked_ids,
                       progress_map=ss.progress_map)
@@ -319,7 +327,10 @@ class _LoaderWorker(QObject):
             get_all_user_categories,
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
-        from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types
+        from metatv.core.filter_utils import (
+            get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types,
+            keyword_exclusion_list,
+        )
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
         try:
@@ -334,7 +345,8 @@ class _LoaderWorker(QObject):
             fk = dict(excluded_prefixes=all_excl or None,
                       include_uncategorized=include_uncategorized,
                       # Content-provenance layer (paused-aware): hide AI content everywhere.
-                      excluded_content_types=excluded_tag_content_types(self._config) or None)
+                      excluded_content_types=excluded_tag_content_types(self._config) or None,
+                      excluded_keywords=keyword_exclusion_list(self._config) or None)
 
             adult_mode, force_adult_ids = build_adult_filter(session, self._config)
             af = dict(adult_mode=adult_mode, force_adult_provider_ids=force_adult_ids or None)

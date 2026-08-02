@@ -62,6 +62,7 @@ filter_icon: str = "⚡"
 global_exclusion_icon: str = "🔒"   # U+1F512 LOCK — content held back by Global Exclusions
 search_filter_icon: str = "🔎"      # U+1F50E MAGNIFIER TILTED RIGHT — content held back by search/Tier-1 filters
 dead_stream_icon: str = "⚠"        # U+26A0 WARNING SIGN — content held back by the dead-stream gate (repeated play failures); same glyph family as notification_warning_icon/qa_stale_icon
+keyword_exclusion_icon: str = "🔤"  # U+1F524 INPUT SYMBOL FOR LATIN LETTERS — content held back by the Global Exclusions keyword axis (user-defined free-text terms)
 filter_only_icon: str = "◎"   # U+25CE BULLSEYE — "show only this group" affordance
 show_all_icon: str = "⋯"    # U+22EF MIDLINE HORIZONTAL ELLIPSIS — "show all / expand" affordance
 see_all_arrow_icon: str = "→"  # U+2192 RIGHTWARDS ARROW — "See all / Show all" drill-down affordance
