@@ -570,3 +570,45 @@ def wire_settings_epg_widgets(dlg) -> None:
     dlg._epg_notify_minutes_spin.setValue(15)
     dlg._epg_auto_refresh_check = QCheckBox()
     dlg._epg_auto_refresh_check.setChecked(True)
+
+
+def mock_settings_playback_widgets(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_playback_widgets`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    def _stub(method: str, value):
+        m = MagicMock()
+        getattr(m, method).return_value = value
+        return m
+
+    dlg._recheck_failed_on_refresh_check = _stub("isChecked", True)
+
+
+def wire_settings_playback_widgets(dlg) -> None:
+    """Attach the Settings → Playback tab's Network group widgets to a skeleton dialog.
+
+    Builds **real** Qt widgets, so the caller must already have a QApplication
+    (the module ``qapp`` fixture). Qt-free skeletons want
+    :func:`mock_settings_playback_widgets` instead.
+
+    Six settings tests build ``SettingsDialog`` via ``__new__`` and hand-wire only
+    the widgets ``_load_values``/``_save_values`` touch — so every widget added to
+    the Playback Network group breaks all six at once until each one grows the same
+    stubs. Keeping this group in one factory (mirrors ``wire_settings_recommendation_widgets``)
+    makes the next Playback widget a single edit here instead of six near-identical copies.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QCheckBox
+
+    dlg._recheck_failed_on_refresh_check = QCheckBox()
+    dlg._recheck_failed_on_refresh_check.setChecked(True)

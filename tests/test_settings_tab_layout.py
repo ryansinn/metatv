@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
-from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
+from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets, wire_settings_playback_widgets
 
 
 @pytest.fixture(scope="module")
@@ -113,6 +113,9 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._prebuffer_wait_spin.setRange(1, 120)
     dlg._override_all_check = QCheckBox()
     dlg._split_check = QCheckBox()
+
+    # Playback Network group widgets
+    wire_settings_playback_widgets(dlg)
 
     # -- Metadata tab widgets (includes EPG after reorg) --
     dlg._meta_enabled_check = QCheckBox()
