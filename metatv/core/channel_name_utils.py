@@ -1359,10 +1359,22 @@ def classify_channel_content_type(name: str, detected_prefix: Optional[str]) -> 
 # entire leading prefix token (mirrors BASE_PREFIX_GROUPS["Adult"] =
 # ["X", "XXX", "ADULT"] in config.py — the existing "Adult" content-descriptor group).
 RESTRICTED_NAME_TOKENS: frozenset[str] = frozenset({
-    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA", "SEX",
+    # Unambiguous markers only. "SEX" was deliberately REMOVED from the free
+    # name scan: legitimate titles carry it ("Sex Education", "Sex and the
+    # City", "Sex Lives of College Girls") and silently hiding a user's real
+    # content is a worse failure than missing one mislabeled channel — the
+    # product tenet is curatorial, never censorial. It still counts via the
+    # provider's Adult prefix-GROUP path (RESTRICTED_PREFIX_TOKENS below).
+    "XXX", "ADULT", "PORN", "EROTIC", "EROTICA",
 })
 
-RESTRICTED_PREFIX_TOKENS: frozenset[str] = RESTRICTED_NAME_TOKENS | {"X"}
+# Phrases that contain a restricted token but are legitimate content. Checked
+# BEFORE the token scan. Extend as real false positives surface.
+RESTRICTED_NAME_ALLOWLIST: frozenset[str] = frozenset({
+    "ADULT SWIM",
+})
+
+RESTRICTED_PREFIX_TOKENS: frozenset[str] = RESTRICTED_NAME_TOKENS | {"X", "SEX"}
 
 _RESTRICTED_NAME_RE = re.compile(
     r"\b(?:" + "|".join(sorted(RESTRICTED_NAME_TOKENS, key=len, reverse=True)) + r")\b",
@@ -1408,6 +1420,11 @@ def is_restricted_name(name: str, detected_prefix: Optional[str]) -> bool:
     if not name:
         return False
 
+    # False-positive guard: a legitimate title that merely contains a token
+    # (e.g. "Adult Swim") must never be hidden — checked before the scan.
+    _upper = (name or "").upper()
+    if any(phrase in _upper for phrase in RESTRICTED_NAME_ALLOWLIST):
+        return False
     return bool(_RESTRICTED_NAME_RE.search(name))
 
 

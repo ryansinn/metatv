@@ -375,3 +375,18 @@ class TestAdultModeGateReadsDetectedRestricted:
             }
         assert "XXX Uncensored Movie" in names
         assert "Regular Drama Movie" in names
+
+
+def test_legitimate_titles_are_not_restricted():
+    """Curatorial, never censorial: real titles containing a token stay visible."""
+    from metatv.core.channel_name_utils import is_restricted_name
+    # "SEX" is not free-scanned at all (too many legitimate titles carry it).
+    assert is_restricted_name("Sex Education", None) is False
+    assert is_restricted_name("Sex and the City", None) is False
+    # Allowlisted phrase containing a scanned token.
+    assert is_restricted_name("Adult Swim", None) is False
+    assert is_restricted_name("EN - Adult Swim Toonami", None) is False
+    # Unambiguous markers still detected.
+    assert is_restricted_name("XXX Channel", None) is True
+    assert is_restricted_name("ADULT MOVIES", None) is True
+    assert is_restricted_name("Porn HD", None) is True
