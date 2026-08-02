@@ -56,12 +56,12 @@ ROW_KIND_ROLE = Qt.ItemDataRole.UserRole + 6
 SECTION_TYPE_ROLE = Qt.ItemDataRole.UserRole + 7
 
 # Structured (non-composed) roles — one field each — added for
-# ChannelRowDelegate's density-aware layout (compact/comfy row rendering).
-# DisplayRole and CHANNEL_HTML_ROLE above are UNCHANGED and keep serving every
-# existing reader (tests, accessibility, header rows); these roles let the
-# delegate lay out/elide/chip-paint individual fields instead of parsing the
-# composed string. Return None (via the default data() fallthrough) on header
-# rows — only "channel" kind rows populate them.
+# ChannelRowDelegate's density-aware layout (compact/comfy/comfy_plus row
+# rendering). DisplayRole and CHANNEL_HTML_ROLE above are UNCHANGED and keep
+# serving every existing reader (tests, accessibility, header rows); these
+# roles let the delegate lay out/elide/chip-paint individual fields instead of
+# parsing the composed string. Return None (via the default data() fallthrough)
+# on header rows — only "channel" kind rows populate them.
 TITLE_ROLE = Qt.ItemDataRole.UserRole + 8         # detected_title or name (str)
 YEAR_ROLE = Qt.ItemDataRole.UserRole + 9          # detected_year or "" (str)
 QUALITY_TOKEN_ROLE = Qt.ItemDataRole.UserRole + 10  # raw detected_quality token or ""
@@ -73,6 +73,7 @@ FAV_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 15    # resolved favorite/unfavorite
 PLAYBACK_GLYPH_ROLE = Qt.ItemDataRole.UserRole + 16  # playback state glyph: ·/▶/✓ (str)
 PLAYBACK_GLYPH_COLOR_ROLE = Qt.ItemDataRole.UserRole + 17  # playback glyph color token or None
 MATCH_MARKER_ROLE = Qt.ItemDataRole.UserRole + 18  # unviewed watch-for match marker 🚨 (str)
+PLOT_ROLE = Qt.ItemDataRole.UserRole + 19          # MetadataDB.plot text or "" (str) — Comfy+ only
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -238,6 +239,8 @@ class ChannelListModel(QAbstractListModel):
             return color
         if role == MATCH_MARKER_ROLE:
             return f"{_icons.new_match_icon} " if channel.id in self._new_match_ids else ""
+        if role == PLOT_ROLE:
+            return channel.plot or ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

@@ -812,7 +812,9 @@ class Config(BaseModel):
     # collapse state survives restarts.
     group_collapsed_types: list = Field(default_factory=list)
     # Channel-list row density (Settings → Interface → Channel List): "compact"
-    # (one line) or "comfy" (two lines, default). One global key — not per-view.
+    # (one line), "comfy" (two lines, default), or "comfy_plus" (comfy plus a
+    # middle plot line — collapses to comfy's two lines when a row has no
+    # plot). One global key — not per-view.
     channel_list_density: str = "comfy"
 
     # Metadata provider settings

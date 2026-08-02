@@ -7,7 +7,7 @@ Two responsibilities:
    single-line ``QTextDocument`` (``_paint_html_row``), unchanged from before
    this file grew density awareness.
 
-2. **Channel rows** paint one of two densities set via :meth:`set_density`
+2. **Channel rows** paint one of three densities set via :meth:`set_density`
    (persisted at ``Config.channel_list_density``, wired from Settings →
    Interface → Channel List):
 
@@ -17,6 +17,11 @@ Two responsibilities:
    - ``"comfy"`` (default) — two lines: line 1 is
      ``[media icon][fav][glyph][🚨][title]`` + a right-aligned ``[year]``; line 2 is the
      muted badge row ``[language][quality][category]`` + a rating glyph.
+   - ``"comfy_plus"`` — comfy's line 1, PLUS a middle line of the channel's plot
+     text (elided to one line, muted token) when ``PLOT_ROLE`` is non-empty,
+     PLUS comfy's badge-row line. A row with no plot renders IDENTICALLY to
+     comfy (2 lines, not a 3-line row with an empty gap) — both ``sizeHint``
+     and ``paint`` branch on whether ``PLOT_ROLE`` is populated.
 
    The playback-state separator glyph (·/▶/✓) appears immediately before the
    title; its colour is determined per the original logic (watched-green for
@@ -33,15 +38,16 @@ Two responsibilities:
    *fixed* box computed from the other cells' measured widths, so a long title
    can never push a chip out of the row.
 
-Both densities read the structured per-field roles added to
-``ChannelListModel`` (``TITLE_ROLE``, ``YEAR_ROLE``, ...) rather than the
-composed ``DisplayRole``/``CHANNEL_HTML_ROLE`` strings — those two roles stay
-available unchanged for header rows and any other reader (tests,
+All three densities read the structured per-field roles added to
+``ChannelListModel`` (``TITLE_ROLE``, ``YEAR_ROLE``, ``PLOT_ROLE``, ...) rather
+than the composed ``DisplayRole``/``CHANNEL_HTML_ROLE`` strings — those two
+roles stay available unchanged for header rows and any other reader (tests,
 accessibility).
 
 The row-math is factored into pure functions (``right_aligned_rects``,
-``stacked_line_rects``) that take/return plain ``QRect`` — no painter or style
-dependency — so layout correctness is unit-testable without rendering pixels.
+``stacked_line_rects``, ``stacked_line_rects_n``) that take/return plain
+``QRect`` — no painter or style dependency — so layout correctness is
+unit-testable without rendering pixels.
 """
 
 from __future__ import annotations
@@ -78,6 +84,7 @@ from metatv.gui.channel_list_model import (
     MEDIA_ICON_ROLE,
     PLAYBACK_GLYPH_COLOR_ROLE,
     PLAYBACK_GLYPH_ROLE,
+    PLOT_ROLE,
     QUALITY_TOKEN_ROLE,
     RATING_ROLE,
     ROW_KIND_ROLE,
@@ -87,7 +94,8 @@ from metatv.gui.channel_list_model import (
 
 DENSITY_COMPACT = "compact"
 DENSITY_COMFY = "comfy"
-_VALID_DENSITIES = (DENSITY_COMPACT, DENSITY_COMFY)
+DENSITY_COMFY_PLUS = "comfy_plus"
+_VALID_DENSITIES = (DENSITY_COMPACT, DENSITY_COMFY, DENSITY_COMFY_PLUS)
 
 # Structural spacing (not a colour/font-size — px literals are fine inline
 # per CLAUDE.md's styles rule).
@@ -134,15 +142,34 @@ def right_aligned_rects(container: QRect, widths: list[int], spacing: int) -> li
     return rects
 
 
+def stacked_line_rects_n(
+    container: QRect, line_height: int, gap: int, count: int
+) -> list[QRect]:
+    """Split ``container`` into ``count`` vertically-stacked line rects, each
+    ``line_height`` tall with ``gap`` between consecutive lines, centred as a
+    block within ``container``. Generalizes :func:`stacked_line_rects` (the
+    fixed 2-line convenience wrapper comfy uses) so comfy_plus can lay out its
+    variable 2-or-3-line row (plot line collapses when a channel has no plot)
+    with the same pure, painter-free math. Returns ``[]`` for ``count <= 0``.
+    """
+    if count <= 0:
+        return []
+    total = count * line_height + (count - 1) * gap
+    top = container.top() + max(0, (container.height() - total) // 2)
+    rects = []
+    y = top
+    for _ in range(count):
+        rects.append(QRect(container.left(), y, container.width(), line_height))
+        y += line_height + gap
+    return rects
+
+
 def stacked_line_rects(container: QRect, line_height: int, gap: int) -> tuple[QRect, QRect]:
     """Split ``container`` into two vertically-stacked line rects (line1 above
     line2), each ``line_height`` tall with ``gap`` between them, centred as a
     block within ``container``. Powers the comfy (two-line) layout.
     """
-    total = 2 * line_height + gap
-    top = container.top() + max(0, (container.height() - total) // 2)
-    line1 = QRect(container.left(), top, container.width(), line_height)
-    line2 = QRect(container.left(), top + line_height + gap, container.width(), line_height)
+    line1, line2 = stacked_line_rects_n(container, line_height, gap, 2)
     return line1, line2
 
 
@@ -195,19 +222,24 @@ def _rating_glyph_cell(rating: int) -> Optional[_Cell]:
 
 
 class ChannelRowDelegate(QStyledItemDelegate):
-    """Paints channel rows in one of two densities; header rows unchanged."""
+    """Paints channel rows in one of three densities; header rows unchanged."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._density: str = DENSITY_COMFY
 
     def set_density(self, density: str) -> None:
-        """Set the row density ("compact" or "comfy"); unknown values fall back to comfy."""
+        """Set the row density ("compact"/"comfy"/"comfy_plus"); unknown values
+        fall back to comfy."""
         self._density = density if density in _VALID_DENSITIES else DENSITY_COMFY
 
     @property
     def density(self) -> str:
         return self._density
+
+    def _comfy_plus_line_count(self, index) -> int:
+        """comfy_plus is 3 lines when the row has plot text, else 2 (= comfy)."""
+        return 3 if index.data(PLOT_ROLE) else 2
 
     # ── QStyledItemDelegate overrides ───────────────────────────────────────
 
@@ -217,9 +249,12 @@ class ChannelRowDelegate(QStyledItemDelegate):
         fm = QFontMetrics(opt.font)
         line_h = fm.height()
         row_kind = index.data(ROW_KIND_ROLE)
-        if row_kind == "header" or self._density != DENSITY_COMFY:
+        if row_kind == "header" or self._density == DENSITY_COMPACT:
             height = line_h + 2 * _ROW_V_PAD
-        else:
+        elif self._density == DENSITY_COMFY_PLUS:
+            n = self._comfy_plus_line_count(index)
+            height = n * line_h + (n - 1) * _LINE_GAP + 2 * _ROW_V_PAD
+        else:  # DENSITY_COMFY
             height = 2 * line_h + _LINE_GAP + 2 * _ROW_V_PAD
         return QSize(option.rect.width(), height)
 
@@ -245,6 +280,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
         painter.setClipRect(text_rect)
         if self._density == DENSITY_COMPACT:
             self._paint_compact(painter, text_rect, index, default_color, opt.font)
+        elif self._density == DENSITY_COMFY_PLUS:
+            self._paint_comfy_plus(painter, text_rect, index, default_color, opt.font)
         else:
             self._paint_comfy(painter, text_rect, index, default_color, opt.font)
         painter.restore()
@@ -381,12 +418,17 @@ class ChannelRowDelegate(QStyledItemDelegate):
         for cell, r in zip(right_cells, right_rects):
             self._paint_cell(painter, r, cell, font)
 
-    # ── Comfy (two lines) ────────────────────────────────────────────────────
+    # ── Shared comfy/comfy_plus line painters ───────────────────────────────
+    #
+    # comfy is 2 lines (title+year, badge row); comfy_plus is the SAME 2 lines
+    # plus a middle elided-plot line when the row has plot text (else it's
+    # identical to comfy — see _comfy_plus_line_count). Both densities share
+    # these per-line painters so the layout logic lives in exactly one place.
 
-    def _paint_comfy(self, painter, rect: QRect, index, default_color, font) -> None:
+    def _paint_title_year_line(self, painter, line: QRect, index, default_color, font) -> None:
+        """Line 1: media icon + fav + playback glyph + 🚨 + title (elided) left,
+        year right-aligned flush to ``line``'s right edge."""
         fm = QFontMetrics(font)
-        line1, line2 = stacked_line_rects(rect, fm.height(), _LINE_GAP)
-
         media_icon = index.data(MEDIA_ICON_ROLE) or ""
         fav_glyph = index.data(FAV_GLYPH_ROLE) or ""
         playback_glyph = index.data(PLAYBACK_GLYPH_ROLE) or ""
@@ -395,51 +437,80 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         year_cell = _year_cell(index.data(YEAR_ROLE) or "")
 
-        # Line 1: media icon + fav + glyph + 🚨 + title (elided) left, year right-aligned.
         year_w = self._cell_width(fm, year_cell) if year_cell else 0
-        year_rects = right_aligned_rects(line1, [year_w], _CELL_GAP) if year_cell else []
+        year_rects = right_aligned_rects(line, [year_w], _CELL_GAP) if year_cell else []
 
-        x = line1.left()
+        x = line.left()
         for glyph in (media_icon, fav_glyph):
             if not glyph:
                 continue
             w = fm.horizontalAdvance(glyph)
-            self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), glyph, default_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), glyph, default_color, font)
             x += w + _CELL_GAP
 
         # Paint playback-state glyph (·/▶/✓) with optional color
         if playback_glyph:
             w = fm.horizontalAdvance(playback_glyph)
             glyph_color = playback_color if playback_color else default_color
-            self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), playback_glyph, glyph_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), playback_glyph, glyph_color, font)
             x += w + _CELL_GAP
 
         # Paint unviewed match marker (🚨)
         if match_marker:
             w = fm.horizontalAdvance(match_marker)
-            self._draw_text(painter, QRect(x, line1.top(), w, line1.height()), match_marker, default_color, font)
+            self._draw_text(painter, QRect(x, line.top(), w, line.height()), match_marker, default_color, font)
             x += w
 
-        title_right = year_rects[0].left() - _CELL_GAP if year_rects else line1.left() + line1.width()
+        title_right = year_rects[0].left() - _CELL_GAP if year_rects else line.left() + line.width()
         title_box_w = max(0, title_right - x)
-        title_box = QRect(x, line1.top(), title_box_w, line1.height())
+        title_box = QRect(x, line.top(), title_box_w, line.height())
         elided = fm.elidedText(title, Qt.TextElideMode.ElideRight, title_box_w)
         self._draw_text(painter, title_box, elided, default_color, font)
 
         if year_cell:
             self._paint_cell(painter, year_rects[0], year_cell, font)
 
-        # Line 2: badge row — language, quality, category chips + rating glyph,
-        # all in the muted/secondary token family.
+    def _paint_badge_line(self, painter, line: QRect, index, font) -> None:
+        """Badge row — language, quality, category chips + rating glyph, all in
+        the muted/secondary token family. Used as comfy's line 2 and
+        comfy_plus's final line."""
+        fm = QFontMetrics(font)
         cells = [c for c in (
             _language_cell(index.data(LANGUAGE_ROLE) or ""),
             _quality_cell(index.data(QUALITY_TOKEN_ROLE) or ""),
             _category_cell(index.data(CATEGORY_ROLE) or ""),
             _rating_glyph_cell(index.data(RATING_ROLE) or 0),
         ) if c is not None]
-        lx = line2.left()
+        lx = line.left()
         for cell in cells:
             w = self._cell_width(fm, cell)
-            c_rect = QRect(lx, line2.top(), w, line2.height())
+            c_rect = QRect(lx, line.top(), w, line.height())
             self._paint_cell(painter, c_rect, cell, font)
             lx += w + _CELL_GAP
+
+    def _paint_plot_line(self, painter, line: QRect, plot: str, font) -> None:
+        """comfy_plus's middle line — the plot, elided to fit, muted token."""
+        fm = QFontMetrics(font)
+        elided = fm.elidedText(plot, Qt.TextElideMode.ElideRight, line.width())
+        self._draw_text(painter, line, elided, _theme.COLOR_MUTED, font)
+
+    # ── Comfy (two lines) ────────────────────────────────────────────────────
+
+    def _paint_comfy(self, painter, rect: QRect, index, default_color, font) -> None:
+        fm = QFontMetrics(font)
+        line1, line2 = stacked_line_rects(rect, fm.height(), _LINE_GAP)
+        self._paint_title_year_line(painter, line1, index, default_color, font)
+        self._paint_badge_line(painter, line2, index, font)
+
+    # ── Comfy+ (two or three lines — plot line collapses when absent) ───────
+
+    def _paint_comfy_plus(self, painter, rect: QRect, index, default_color, font) -> None:
+        fm = QFontMetrics(font)
+        plot = index.data(PLOT_ROLE) or ""
+        lines = stacked_line_rects_n(rect, fm.height(), _LINE_GAP, 3 if plot else 2)
+        self._paint_title_year_line(painter, lines[0], index, default_color, font)
+        if plot:
+            self._paint_plot_line(painter, lines[1], plot, font)
+            self._paint_badge_line(painter, lines[2], index, font)
+        else:
+            self._paint_badge_line(painter, lines[1], index, font)

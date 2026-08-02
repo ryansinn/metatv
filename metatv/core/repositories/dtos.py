@@ -111,6 +111,11 @@ class ChannelListDTO:
     # ChannelRepository._apply_channel_filters); "degraded" drives the grayed
     # ForegroundRole in channel_list_model.py.
     reliability_state: str = "ok"
+    # MetadataDB.plot text (or "" when the channel has no metadata row / no plot).
+    # Populated via the outerjoin ChannelRepository.get_all() performs against
+    # MetadataDB (see its _joined_plot stash) — never a per-row lookup. Powers the
+    # "Comfy+" channel-list density's elided plot line (channel_list_delegate.py).
+    plot: str = ""
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -143,6 +148,7 @@ class ChannelListDTO:
             last_played_via=getattr(ch, "last_played_via", None),
             user_rating=user_rating,
             reliability_state=reliability_state,
+            plot=getattr(ch, "_joined_plot", "") or "",
         )
 
 
