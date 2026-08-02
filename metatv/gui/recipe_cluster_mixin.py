@@ -40,7 +40,7 @@ class _RecipeClusterMixin:
         cloud (DR-0007: ``get_hidden_provider_ids()`` + the user's Global
         Exclusions), off the ``_run_query`` seam.
         """
-        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
         facets = list(_ALL_CLUSTER_FACETS)
         limit = _CLUSTER_LIMIT_PER_FACET
         self._run_query(
@@ -51,6 +51,7 @@ class _RecipeClusterMixin:
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
             ),
             self._on_clusters_loaded,
             token_ref=self._cluster_token,

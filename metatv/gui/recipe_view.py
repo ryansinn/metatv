@@ -439,7 +439,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
     # ── Data loading ──────────────────────────────────────────────────────
 
-    def _global_exclusion_sets(self) -> tuple[set[str], set[str], set[str]]:
+    def _global_exclusion_sets(self) -> tuple[set[str], set[str], set[str], set[str]]:
         """Resolve the user's Global Exclusions for the faceted queries.
 
         The control layer (DR-0007): we read ``Config`` here on the main thread
@@ -448,31 +448,34 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         (one chokepoint), and is paused-aware (all sets empty when paused).
 
         Returns:
-            ``(excluded_prefixes, excluded_categories, excluded_content_types)``.
+            ``(excluded_prefixes, excluded_categories, excluded_content_types,
+            excluded_keywords)``.
         """
         from metatv.core.filter_utils import (
             get_active_category_filter,
             get_excluded_prefixes,
             excluded_tag_content_types,
+            keyword_exclusion_list,
         )
 
         cfg = self._config
         if getattr(cfg, "global_filter_paused", False):
-            return set(), set(), set()
+            return set(), set(), set(), set()
         _cat_excluded, _ = get_active_category_filter(cfg)
         excluded_prefixes: set[str] = set(_cat_excluded or []) | get_excluded_prefixes(cfg)
         excluded_categories: set[str] = set(
             getattr(cfg, "global_filter_excluded_user_categories", []) or []
         )
         excluded_content_types: set[str] = excluded_tag_content_types(cfg)
-        return excluded_prefixes, excluded_categories, excluded_content_types
+        excluded_keywords: set[str] = set(keyword_exclusion_list(cfg))
+        return excluded_prefixes, excluded_categories, excluded_content_types, excluded_keywords
 
     # The masonry cluster-grid overview + center-mode switch live in
     # _RecipeClusterMixin; the Saved round-trip lives in _RecipeSavedMixin.
 
     def _load_cloud(self, facet_type: str) -> None:
         """Load tag counts for the selected facet (off-thread)."""
-        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.get_tag_counts_for_facet(
                 facet_type,
@@ -480,6 +483,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
             ),
             self._on_cloud_loaded,
             token_ref=self._cloud_token,
@@ -547,7 +551,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         """Load the YIELDS count + a bounded set of result cards (off-thread)."""
         includes = {k: set(v) for k, v in self._recipe_includes.items() if v}
         excludes = {k: set(v) for k, v in self._recipe_excludes.items() if v}
-        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
         cap = self._RESULTS_CARD_CAP
 
         def _query(repos):
@@ -559,6 +563,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
                 collapse_variants=True,
             )
             if total == 0:
@@ -570,6 +575,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
                 limit=cap,
                 collapse_variants=True,
             )
@@ -676,7 +682,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
 
     def _load_search(self, query: str) -> None:
         """Run the cross-facet tag search off-thread via the async seam."""
-        excl_prefixes, excl_categories, excl_content_types = self._global_exclusion_sets()
+        excl_prefixes, excl_categories, excl_content_types, excl_keywords = self._global_exclusion_sets()
         self._run_query(
             lambda repos: repos.tags.search_tag_values_across_facets(
                 query,
@@ -684,6 +690,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
                 excluded_prefixes=excl_prefixes,
                 excluded_categories=excl_categories,
                 excluded_tag_content_types=excl_content_types,
+                excluded_keywords=excl_keywords,
             ),
             self._on_search_loaded,
             token_ref=self._search_token,

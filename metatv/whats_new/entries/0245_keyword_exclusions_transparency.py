@@ -17,6 +17,11 @@ ENTRY = WhatsNewEntry(
         "unavailable segments. Click it to reveal what your keyword list is "
         "hiding for that one view — nothing is deleted, and your settings are "
         "never changed by looking.",
+        "The filter panel's category counts and the Recipe builder's tag "
+        "cloud/YIELDS counts now agree with your keyword exclusions too — a "
+        "genre that used to still advertise its old count (and land you on an "
+        "empty result when clicked) now shows the true, keyword-filtered "
+        "number everywhere counts appear.",
     ),
     version="0.22.0",
     date="2026-08-02",
@@ -32,5 +37,9 @@ ENTRY = WhatsNewEntry(
         "hidden again (your keyword list itself is untouched).",
         "Click the × on a keyword row in the dialog → the row disappears; "
         "click OK → that keyword no longer hides anything.",
+        "Add a keyword that matches some titles in a genre you browse often → "
+        "open the filter panel and the Recipe builder's tag cloud for that "
+        "genre → both show the same, reduced count, and clicking it lands on "
+        "exactly that many results (never an empty list).",
     ),
 )

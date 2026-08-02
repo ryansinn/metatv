@@ -1233,10 +1233,18 @@ class _ChannelListMixin:
 
         The query is a single GROUP BY over content_tags JOIN tags JOIN channels,
         scoped to visible channels on active sources — memory-safe over 1M+ rows.
+
+        Also applies the Global Exclusions keyword axis (paused-aware, resolved
+        here on the main thread per DR-0007) so a facet's advertised count never
+        includes channels the keyword list would hide from the actual list —
+        counts and the list must agree (mirror-not-cage transparency).
         """
+        from metatv.core.filter_utils import keyword_exclusion_list
+        _excl_keywords = set(keyword_exclusion_list(self.config))
         self._run_query(
             lambda repos: repos.tags.get_facet_value_counts(
                 excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
+                excluded_keywords=_excl_keywords or None,
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,

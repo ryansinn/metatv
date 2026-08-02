@@ -27,6 +27,15 @@ is a genuine no-op when empty:
     ``lower(...) LIKE lower(...)`` expression), not something requiring a
     Python-side row scan.
 
+(k) Facet/tag counts (``TagRepository._scope_to_visible_channels`` and its
+    callers — the filter panel's ``get_facet_value_counts`` and the Recipe
+    builder's ``get_tag_counts_for_facet`` / ``count_channels_by_tag_facets`` /
+    ``get_channel_ids_by_tag_facets``) agree with the keyword-filtered LIST —
+    a facet must never advertise a count a click can't actually produce
+    (coordinator follow-up: counts and lists disagreeing undercuts the whole
+    transparency thesis). paused restores the unfiltered count; an empty
+    keyword set changes nothing.
+
 Real ``Database`` on a ``tmp_path`` file (never ``:memory:``), per the tests rule.
 """
 
@@ -500,3 +509,171 @@ def test_dialog_keyword_row_shows_live_count_and_inert_state(seeded, qtbot):
     by_kw = {kw: lbl.text() for kw, _row, lbl in dlg._keyword_rows}
     assert "1 channel" in by_kw["wrestling"]
     assert by_kw["zzz_no_such_word"] == "— no matches"
+
+
+# ---------------------------------------------------------------------------
+# (k) Facet/tag counts agree with the keyword-filtered list (coordinator
+#     follow-up — TagRepository._scope_to_visible_channels and its callers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def genre_tagged(file_db):
+    """Two Drama-tagged channels (one keyword-matching) + one Comedy control.
+
+    Returns ``(wrestling_id, drama_id, comedy_id, db)``.
+    """
+    with file_db.session_scope() as session:
+        repos = RepositoryFactory(session)
+
+        wrestling_id = _add_channel(
+            session, name="WWE Wrestling Drama Special",
+            detected_title="WWE Wrestling Drama Special",
+        )
+        repos.tags.set_content_tags(
+            wrestling_id, [("genre", "Drama", "test_feeder")]
+        )
+
+        drama_id = _add_channel(
+            session, name="Great Drama Movie", detected_title="Great Drama Movie",
+        )
+        repos.tags.set_content_tags(
+            drama_id, [("genre", "Drama", "test_feeder")]
+        )
+
+        comedy_id = _add_channel(
+            session, name="Funny Comedy Show", detected_title="Funny Comedy Show",
+        )
+        repos.tags.set_content_tags(
+            comedy_id, [("genre", "Comedy", "test_feeder")]
+        )
+    return wrestling_id, drama_id, comedy_id, file_db
+
+
+def test_facet_value_counts_matches_faceted_list_length(genre_tagged):
+    """get_facet_value_counts (the filter-panel count) must equal the length
+    of the exact list a click on that facet value would produce
+    (get_channel_ids_by_tag_facets), with the SAME keyword exclusion active —
+    a count that disagrees with its list is the "click and land on empty"
+    bug this test guards against."""
+    wrestling_id, drama_id, _comedy_id, db = genre_tagged
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+
+        counts = repos.tags.get_facet_value_counts(
+            excluded_provider_ids=[], excluded_keywords={"wrestling"},
+        )
+        drama_count = counts.get("genre", {}).get("Drama", 0)
+
+        matching_ids = repos.tags.get_channel_ids_by_tag_facets(
+            includes={"genre": {"Drama"}},
+            excluded_provider_ids=[],
+            excluded_keywords={"wrestling"},
+        )
+
+    assert wrestling_id not in matching_ids, "sanity: keyword axis dropped it from the list"
+    assert drama_id in matching_ids
+    assert drama_count == len(matching_ids) == 1, (
+        "the advertised count must equal the list the click actually produces"
+    )
+
+
+def test_tag_counts_for_facet_matches_count_channels_by_tag_facets(genre_tagged):
+    """The Recipe builder's single-facet cloud count agrees with its own
+    count_channels_by_tag_facets/get_channel_ids_by_tag_facets, all scoped
+    through the SAME _scope_to_visible_channels chokepoint."""
+    wrestling_id, drama_id, _comedy_id, db = genre_tagged
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+
+        cloud = {
+            d.value: d.channel_count
+            for d in repos.tags.get_tag_counts_for_facet(
+                "genre", excluded_provider_ids=[], excluded_keywords={"wrestling"},
+            )
+        }
+        yields_count = repos.tags.count_channels_by_tag_facets(
+            includes={"genre": {"Drama"}},
+            excluded_provider_ids=[],
+            excluded_keywords={"wrestling"},
+        )
+        matching_ids = repos.tags.get_channel_ids_by_tag_facets(
+            includes={"genre": {"Drama"}},
+            excluded_provider_ids=[],
+            excluded_keywords={"wrestling"},
+        )
+
+    assert cloud.get("Drama") == 1
+    assert yields_count == len(matching_ids) == 1
+    assert wrestling_id not in matching_ids
+    assert drama_id in matching_ids
+
+
+def test_facet_counts_paused_restores_unfiltered_count(genre_tagged):
+    """global_filter_paused (via keyword_exclusion_list returning []) restores
+    the count that excludes nothing — both Drama channels count again."""
+    from metatv.core.config import Config
+    from metatv.core.filter_utils import keyword_exclusion_list
+
+    _wrestling_id, _drama_id, _comedy_id, db = genre_tagged
+    cfg = Config()
+    cfg.global_excluded_keywords = ["wrestling"]
+    cfg.global_filter_paused = True
+
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+        paused_keywords = set(keyword_exclusion_list(cfg))
+        assert paused_keywords == set(), "sanity: paused → empty keyword set"
+
+        counts = repos.tags.get_facet_value_counts(
+            excluded_provider_ids=[], excluded_keywords=paused_keywords or None,
+        )
+        matching_ids = repos.tags.get_channel_ids_by_tag_facets(
+            includes={"genre": {"Drama"}},
+            excluded_provider_ids=[],
+            excluded_keywords=paused_keywords or None,
+        )
+
+    assert counts["genre"]["Drama"] == 2, "paused — both Drama channels counted"
+    assert len(matching_ids) == 2
+
+
+def test_empty_keyword_set_changes_no_facet_count(genre_tagged):
+    """An empty keyword set must produce the IDENTICAL count to None — a
+    genuine no-op, not merely 'happens to match'."""
+    _wrestling_id, _drama_id, _comedy_id, db = genre_tagged
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+        counts_none = repos.tags.get_facet_value_counts(
+            excluded_provider_ids=[], excluded_keywords=None,
+        )
+        counts_empty = repos.tags.get_facet_value_counts(
+            excluded_provider_ids=[], excluded_keywords=set(),
+        )
+    assert counts_none == counts_empty
+    assert counts_none["genre"]["Drama"] == 2, "sanity: both Drama channels counted unfiltered"
+
+
+def test_scope_to_visible_channels_empty_keywords_adds_no_clause(genre_tagged):
+    """The chokepoint itself: excluded_keywords=set() must compile to IDENTICAL
+    SQL to excluded_keywords=None inside _scope_to_visible_channels — the
+    facet-count layer's own no-op guarantee, not just inherited by accident
+    from the criterion helper."""
+    from metatv.core.database import ContentTagDB
+
+    _wrestling_id, _drama_id, _comedy_id, db = genre_tagged
+    with db.session_scope(commit=False) as session:
+        repos = RepositoryFactory(session)
+        q_none = repos.session.query(ContentTagDB.channel_id)
+        q_none = repos.tags._scope_to_visible_channels(
+            q_none, ContentTagDB.channel_id, excluded_provider_ids=[],
+            excluded_keywords=None,
+        )
+        q_empty = repos.session.query(ContentTagDB.channel_id)
+        q_empty = repos.tags._scope_to_visible_channels(
+            q_empty, ContentTagDB.channel_id, excluded_provider_ids=[],
+            excluded_keywords=set(),
+        )
+        assert str(q_none.statement.compile(session.get_bind())) == str(
+            q_empty.statement.compile(session.get_bind())
+        )

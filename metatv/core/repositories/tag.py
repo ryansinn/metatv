@@ -546,7 +546,8 @@ class TagRepository:
                                    excluded_provider_ids: Optional[List[str]] = None,
                                    excluded_prefixes: Optional[Set[str]] = None,
                                    excluded_categories: Optional[Set[str]] = None,
-                                   excluded_tag_content_types: Optional[Set[str]] = None):
+                                   excluded_tag_content_types: Optional[Set[str]] = None,
+                                   excluded_keywords: Optional[Set[str]] = None):
         """Join ``ChannelDB`` and restrict a tag query to *visible* channels.
 
         The single definition of "visible channel" for the tag repository's
@@ -602,6 +603,14 @@ class TagRepository:
                 carrying any of these via
                 ``filter_utils.tag_content_type_exclusion_criterion`` (NOT EXISTS).
                 ``None``/empty → no content-type scope.
+            excluded_keywords: Global-exclusion keyword axis
+                (``global_excluded_keywords``) — drop channels whose title
+                (``detected_title``/``name``) contains any of these, matched
+                case-insensitively, via
+                ``filter_utils.keyword_exclusion_criterion`` (the SAME SQL twin
+                the channel list / Discover / Recommendations already use — P1-6
+                family, single chokepoint, never a second matcher).  ``None``/
+                empty → no keyword scope.
 
         Returns:
             The query with the visibility join + filters applied.
@@ -610,6 +619,7 @@ class TagRepository:
         from metatv.core.filter_utils import (
             channel_exclusion_criterion,
             tag_content_type_exclusion_criterion,
+            keyword_exclusion_criterion,
         )
         from sqlalchemy import or_
 
@@ -637,11 +647,18 @@ class TagRepository:
                 or_(ChannelDB.user_category.is_(None),
                     ChannelDB.user_category.notin_(_cats)),
             )
+        if excluded_keywords:
+            # SQL twin of the keyword axis — reuses the exact same criterion the
+            # channel-list/Discover/Recommendations chokepoints already apply, so
+            # a facet/tag count never advertises a value the corresponding list
+            # can't actually show (mirror-not-cage: counts and lists must agree).
+            query = query.filter(keyword_exclusion_criterion(excluded_keywords, ChannelDB))
         return query
 
     def get_facet_value_counts(
         self,
         excluded_provider_ids: Optional[List[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ) -> dict[str, dict[str, int]]:
         """Return per-facet value counts for the filter panel.
 
@@ -652,6 +669,13 @@ class TagRepository:
         Args:
             excluded_provider_ids: Provider IDs to exclude (inactive ∪ expired
                 sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
+            excluded_keywords: Global-exclusion keyword axis (see
+                :meth:`_scope_to_visible_channels`).  ``None``/empty → no
+                keyword scope. NOTE: unlike the keyword axis, this method does
+                NOT yet accept the prefix/user-category/content-type Global
+                Exclusion sets (a pre-existing gap, not introduced here) — the
+                filter panel's counts still disagree with its list for those
+                three axes; only the keyword axis is closed by this parameter.
 
         Returns:
             Nested dict ``{facet_type: {value: channel_count}}`` where
@@ -670,7 +694,8 @@ class TagRepository:
             .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
         )
         q = self._scope_to_visible_channels(
-            q, ContentTagDB.channel_id, excluded_provider_ids
+            q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value)
 
         result: dict[str, dict[str, int]] = {}
@@ -702,6 +727,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ) -> list:
         """Return per-facet distinct-value counts for the Recipe builder Pantry sidebar.
 
@@ -741,6 +767,7 @@ class TagRepository:
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_id, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type)
 
         raw: dict[str, int] = {}
@@ -768,6 +795,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ) -> list:
         """Return per-value channel counts for ONE facet type, sorted by count DESC.
 
@@ -810,6 +838,7 @@ class TagRepository:
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_id, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         ).group_by(TagDB.value).order_by(
             _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
         )
@@ -831,6 +860,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ) -> dict[str, list]:
         """Return the top-N tag values for EACH requested facet in ONE windowed pass.
 
@@ -890,6 +920,7 @@ class TagRepository:
         inner_q = self._scope_to_visible_channels(
             inner_q, ContentTagDB.channel_id, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value)
         inner = inner_q.subquery()
 
@@ -926,6 +957,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
         limit: int = 300,
     ) -> list:
         """Search tag VALUES across ALL facet types, case-insensitively, sorted by count.
@@ -986,6 +1018,7 @@ class TagRepository:
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_id, excluded_provider_ids,
             excluded_prefixes, excluded_categories, excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value).order_by(
             _func.count(_func.distinct(ContentTagDB.channel_id)).desc()
         )
@@ -1014,6 +1047,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ):
         """Return the set of channel ids that match all include facets and no exclude facets.
 
@@ -1131,6 +1165,7 @@ class TagRepository:
             query = self._scope_to_visible_channels(
                 query, outer.channel_id, excluded_provider_ids,
                 excluded_prefixes, excluded_categories, excluded_tag_content_types,
+                excluded_keywords=excluded_keywords,
             )
 
         # --- include facets: one EXISTS per facet (AND across facets) ---
@@ -1214,6 +1249,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
     ) -> set[str]:
         """Return the set of channel ids matching the faceted constraints.
 
@@ -1233,6 +1269,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         )
         return {row.channel_id for row in query.all()}
 
@@ -1246,6 +1283,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
         collapse_variants: bool = False,
     ) -> int:
         """Count channels matching the faceted constraints — entirely in SQL.
@@ -1272,6 +1310,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         )
         if collapse_variants:
             # COUNT(DISTINCT group_key) — one per collapsed production.
@@ -1301,6 +1340,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
         limit: int = 20,
     ) -> list[str]:
         """Return up to *limit* channel display names matching the constraints.
@@ -1318,6 +1358,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         )
         ids = [row.channel_id for row in query.limit(limit).all()]
         if not ids:
@@ -1461,6 +1502,7 @@ class TagRepository:
         excluded_prefixes: Optional[Set[str]] = None,
         excluded_categories: Optional[Set[str]] = None,
         excluded_tag_content_types: Optional[Set[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
         limit: int = 24,
         offset: int = 0,
         name_filter: Optional[str] = None,
@@ -1527,6 +1569,7 @@ class TagRepository:
             excluded_prefixes=excluded_prefixes,
             excluded_categories=excluded_categories,
             excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
         ).subquery()
 
         if collapse_variants:
