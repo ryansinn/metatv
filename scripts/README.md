@@ -46,6 +46,20 @@ worktrees are skipped unless their only change is an untracked `venv/` (`?? venv
 or `?? venv/`); `--force` overrides. `--dry-run` shows every action, changes
 nothing, and labels itself as such (a real run never says "dry-run").
 
+## `ship_batch.sh <version> <PR#> [<PR#>...] [--dry-run]`
+
+Maintainer release tool (MetaTV-specific). Batches multiple staged PRs into a
+release cut: (1) verifies each PR is OPEN; (2) creates a temp worktree, fetches
+and merges PRs sequentially (abort on conflict); (3) applies the release chore
+(bumps `__version__` in `metatv/__init__.py`, updates `version="..."` in added
+What's New entries); (4) runs the full test gate (`pytest tests/ -q`); on GREEN,
+(5) merges each PR via `gh pr merge --squash`, cherry-picks the chore commit
+onto fresh origin/main, and pushes; (6) tags `v<version>` and publishes a
+release (polls for CI completion, prints release URL + asset list); (7) cleans
+up temp worktrees. No What's New entry for this tooling change itself. `--dry-run`
+stops after step 4 (gate + conflict detection) and prints `WOULD-SHIP` on GREEN
+(safe to verify the final gate before committing to the merge).
+
 ## Configuration — `.devscripts.conf`
 
 Resolution order for anything project-specific: **(a)** a repo-root
