@@ -623,13 +623,13 @@ class _LightboxCard(QFrame):
         origin_ids: list[str],
         nav_stack: list[str],
         current_id: str,
-        db: "Database",
+        titles: dict[str, str],
     ) -> None:
         """Update the breadcrumb trail with the current dive path.
 
         Called whenever the lightbox loads a new channel or dives deeper.
         """
-        self._breadcrumb.update_trail(origin_title, origin_ids, nav_stack, current_id, db)
+        self._breadcrumb.update_trail(origin_title, origin_ids, nav_stack, current_id, titles)
 
     def _on_breadcrumb_clicked(self, channel_id: str) -> None:
         """Handle breadcrumb crumb click — relay as a signal for the overlay."""

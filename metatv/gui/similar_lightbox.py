@@ -80,6 +80,9 @@ class SimilarTitleLightbox(QWidget):
         self._origin_idx: int = 0
         self._origin_title: str = ""
         self._nav_stack: list[str] = []
+        # channel_id → title, captured as the user dives so the breadcrumb never
+        # queries the DB on the UI thread (it repaints on every navigation).
+        self._nav_titles: dict[str, str] = {}
         self._current_id: str = ""
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
@@ -387,6 +390,13 @@ class SimilarTitleLightbox(QWidget):
             self._card.show_error("Could not load details")
             return
 
+        # Remember this title for the breadcrumb, then repaint it now that the
+        # real name is known (the first paint happens before the load returns).
+        _t = (data.get("name") or "").strip()
+        if _t:
+            self._nav_titles[channel_id] = _t
+            self._update_nav_state()
+
         self._card.populate(data)
 
         # Poster images — main thread only. Check the sync cache first, fall back
@@ -482,7 +492,8 @@ class SimilarTitleLightbox(QWidget):
             self._next_chev.setEnabled(idx < n - 1)
         # Update the breadcrumb trail
         self._card.update_breadcrumb(
-            self._origin_title, self._origin_ids, self._nav_stack, self._current_id, self._db
+            self._origin_title, self._origin_ids, self._nav_stack,
+            self._current_id, self._nav_titles,
         )
 
     # ------------------------------------------------------------------ #
@@ -491,6 +502,7 @@ class SimilarTitleLightbox(QWidget):
 
     def _close(self) -> None:
         self._nav_stack.clear()
+        self._nav_titles.clear()
         self._card.set_back_visible(False)
         self.hide()
 

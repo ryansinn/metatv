@@ -62,7 +62,7 @@ class LightboxBreadcrumb(QWidget):
         origin_ids: list[str],
         nav_stack: list[str],
         current_id: str,
-        db: "Database",
+        titles: dict[str, str],
     ) -> None:
         """Update the breadcrumb with the current dive path.
 
@@ -71,7 +71,8 @@ class LightboxBreadcrumb(QWidget):
             origin_ids: The list of similar channels at the origin.
             nav_stack: The list of channel IDs walked through (dive history).
             current_id: The currently shown channel's ID.
-            db: Database connection to fetch channel names for crumbs.
+            titles: channel_id → display title, captured by the lightbox as
+                the user dives (no DB access: this runs on every navigation).
         """
         # Clear previous crumbs
         self._crumb_buttons.clear()
@@ -87,28 +88,13 @@ class LightboxBreadcrumb(QWidget):
 
         self.show()
 
-        # Fetch channel names for the dive stack (once, off-thread is handled by caller)
-        # For now, we'll fetch them inline using a session.
-        titles: dict[str, str] = {}
-        try:
-            with db.session_scope(commit=False) as session:
-                from metatv.core.database import ChannelDB
-                for cid in nav_stack + [current_id]:
-                    ch = session.get(ChannelDB, cid)
-                    if ch:
-                        titles[cid] = ch.detected_title or ch.name or "?"
-                    else:
-                        titles[cid] = "?"
-        except Exception:
-            # Fallback on any DB error — show IDs instead of titles
-            for cid in nav_stack + [current_id]:
-                titles[cid] = "?"
+        titles = dict(titles or {})
 
         # Build the trail: origin › stack items › current
         trail: list[tuple[str, str]] = [(origin_title, "")]  # origin is not clickable
         for cid in nav_stack:
-            trail.append((titles.get(cid, "?"), cid))
-        trail.append((titles.get(current_id, "?"), current_id))
+            trail.append((titles.get(cid) or "…", cid))
+        trail.append((titles.get(current_id) or "…", current_id))
 
         # Decide on elision: keep first + last if long
         max_visible = 4  # e.g. "Origin › … › B › Current"
