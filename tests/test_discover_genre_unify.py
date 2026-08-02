@@ -16,6 +16,7 @@ import pytest
 @pytest.fixture()
 def genre_db(tmp_path):
     from metatv.core.database import Database, ChannelDB, ProviderDB
+    from metatv.core.repositories import RepositoryFactory
 
     db = Database(f"sqlite:///{tmp_path / 'genre.db'}")
     db.create_tables()
@@ -37,6 +38,14 @@ def genre_db(tmp_path):
         session.commit()
     finally:
         session.close()
+
+    # get_all_genres/get_by_genre now read the ingestion-computed
+    # detected_genre(s) fields (#genre-perf) instead of parsing raw_data live —
+    # run the real ingestion pass so the fixture mirrors what a provider
+    # refresh actually does.
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
+
     yield db
     db.close()
 

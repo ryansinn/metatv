@@ -828,6 +828,12 @@ DISCOVER_REC_COUNT = (
 )
 DISCOVER_REC_MATCH_ROW = "color: " + COLOR_DIM_2 + "; font-size: " + FONT_MD + "; padding-left: 4px;"
 
+# Shelf-row placeholder — shown in a Discover shelf's card row while a
+# lazy-expand fetch is in flight (DISCOVER_SHELF_LOADING) or after it fails
+# (DISCOVER_SHELF_ERROR). See discover_shelf.py set_loading()/show_load_error().
+DISCOVER_SHELF_LOADING = "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
+DISCOVER_SHELF_ERROR = "color: " + COLOR_WARN + "; font-size: " + FONT_MD + "; padding: 8px 4px;"
+
 # What's New dialog
 WHATS_NEW_TITLE = (
     "font-size: " + FONT_2XL + "; font-weight: bold; color: " + COLOR_TEXT_HI + ";"

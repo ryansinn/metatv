@@ -80,6 +80,13 @@ def seeded_db(tmp_path):
     finally:
         session.close()
 
+    # Genre shelf queries now read the ingestion-computed detected_genres
+    # field (#genre-perf) instead of parsing raw_data live — run the real
+    # ingestion pass so the fixture mirrors what a provider refresh does.
+    from metatv.core.repositories import RepositoryFactory
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
+
     yield db
     db.close()
 
@@ -313,6 +320,41 @@ class TestLazyExpandWorker:
         w.run()
         assert results == [], "cancelled worker must not emit"
 
+    def test_shelf_cards_worker_emits_error_on_query_failure(self, seeded_db, qapp, monkeypatch):
+        """A raising query must emit ``error(shelf_key, message)``, never ``ready``.
+
+        Owner-reported perf bug fix requirement: a failed lazy-expand fetch
+        must render a visible error row, never look like a silently-empty
+        shelf (CLAUDE.md async-background-DB-reads rule) — the view can only
+        do that if the worker actually distinguishes "query raised" from
+        "query legitimately returned zero cards".
+        """
+        from metatv.core.config import Config
+        from metatv.core import discovery_engine
+        from metatv.gui.discover_workers import _ShelfCardsWorker
+
+        def _boom(session):
+            raise RuntimeError("synthetic DB failure")
+
+        # _ShelfCardsWorker.run() does a LOCAL
+        # "from metatv.core.discovery_engine import build_status_sets" — patch
+        # the real source attribute, not a re-export, so the local import
+        # inside run() picks it up.
+        monkeypatch.setattr(discovery_engine, "build_status_sets", _boom)
+
+        w = _ShelfCardsWorker(seeded_db, Config(), "genre:Action", limit=30)
+        ready_results: list = []
+        error_results: list = []
+        w.ready.connect(lambda k, c: ready_results.append((k, c)))
+        w.error.connect(lambda k, m: error_results.append((k, m)))
+        w.run()
+
+        assert ready_results == [], "must not emit ready when the query raised"
+        assert len(error_results) == 1, "must emit error exactly once"
+        key, message = error_results[0]
+        assert key == "genre:Action"
+        assert "synthetic DB failure" in message
+
     def test_shelf_set_cards_populates_card_widgets(self, qapp):
         """_Shelf.set_cards() adds card widgets to the inner layout."""
         from metatv.core.config import Config
@@ -341,6 +383,67 @@ class TestLazyExpandWorker:
 
         shelf.set_cards([card], image_cache=image_cache, config=cfg)
         assert len(shelf._cards_widgets) == 1, "set_cards must add one card widget"
+
+    def test_shelf_set_loading_shows_placeholder_row(self, qapp):
+        """set_loading() shows a 'Loading…' row on a still-empty (header-only) shelf.
+
+        Owner-reported perf bug: expanding/pinning a not-yet-fetched shelf used
+        to sit visibly empty with no feedback while the fetch ran.
+        """
+        from metatv.core.config import Config
+        from metatv.gui.discover_shelf import _Shelf
+
+        cfg = Config()
+        image_cache = MagicMock()
+        shelf = _Shelf("Test Genre", "genre:Test", [], image_cache, cfg, collapsed=False)
+
+        shelf.set_loading()
+
+        assert shelf._placeholder_lbl is not None, "loading placeholder must be shown"
+        assert "Loading" in shelf._placeholder_lbl.text()
+
+    def test_shelf_set_cards_clears_loading_placeholder(self, qapp):
+        """A successful set_cards() replaces the loading placeholder with real cards."""
+        from metatv.core.config import Config
+        from metatv.core.discovery_engine import ContentCard
+        from metatv.gui.discover_shelf import _Shelf
+
+        cfg = Config()
+        image_cache = MagicMock()
+        image_cache.get_image_async = MagicMock()
+        shelf = _Shelf("Test Genre", "genre:Test", [], image_cache, cfg, collapsed=False)
+        shelf.set_loading()
+        assert shelf._placeholder_lbl is not None
+
+        card = ContentCard(
+            channel_id="ch-1", title="Great Movie", media_type="movie",
+            thumbnail_url=None, rating=8.0, year=2020, genre="Test",
+        )
+        shelf.set_cards([card], image_cache=image_cache, config=cfg)
+
+        assert shelf._placeholder_lbl is None, "loading placeholder must be cleared"
+        assert len(shelf._cards_widgets) == 1
+
+    def test_shelf_show_load_error_shows_error_row(self, qapp):
+        """show_load_error() shows a visible warning row, replacing any loading placeholder.
+
+        Per CLAUDE.md's async-background-DB-reads rule: a failed background
+        load must never look like a silently-empty result.
+        """
+        from metatv.core.config import Config
+        from metatv.gui.discover_shelf import _Shelf
+
+        cfg = Config()
+        image_cache = MagicMock()
+        shelf = _Shelf("Test Genre", "genre:Test", [], image_cache, cfg, collapsed=False)
+        shelf.set_loading()
+
+        shelf.show_load_error("Couldn't load this shelf")
+
+        assert shelf._placeholder_lbl is not None, "error placeholder must be shown"
+        assert "Couldn't load this shelf" in shelf._placeholder_lbl.text()
+        # Never a bare empty row indistinguishable from "nothing here".
+        assert shelf._cards_widgets == []
 
 
 # ---------------------------------------------------------------------------

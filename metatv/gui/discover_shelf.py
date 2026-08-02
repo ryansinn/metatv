@@ -13,6 +13,7 @@ from metatv.core.config import Config
 from metatv.core.discovery_engine import ContentCard
 from metatv.gui.discover_card import _ContentCard, _CARD_H, _CARD_W, card_metrics
 from metatv.gui import cursor_affordance
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
 if TYPE_CHECKING:
@@ -53,6 +54,9 @@ class _Shelf(QWidget):
         # List of (on_clicked, on_double_clicked, on_context_menu, on_middle_click)
         # tuples so set_cards() can wire late-added card widgets to the same slots.
         self._pending_wires: list[tuple] = []
+        # Loading/error placeholder shown in the card row during a lazy-expand
+        # fetch (header-only shelf with no cards yet); cleared by set_cards().
+        self._placeholder_lbl: QLabel | None = None
 
         self._build_ui(title, cards, image_cache, config)
         self._apply_state()
@@ -282,6 +286,41 @@ class _Shelf(QWidget):
             if left + card.width() >= scroll_x and left <= scroll_x + vp_w:
                 card.request_image()
 
+    def _clear_placeholder(self) -> None:
+        """Remove any loading/error placeholder row from the card row."""
+        if self._placeholder_lbl is not None:
+            self._inner_layout.removeWidget(self._placeholder_lbl)
+            self._placeholder_lbl.deleteLater()
+            self._placeholder_lbl = None
+
+    def set_loading(self) -> None:
+        """Show a muted "Loading…" placeholder while a lazy-expand fetch is in flight.
+
+        Owner-reported perf bug: expanding/pinning a header-only (not-yet-fetched)
+        shelf used to just sit empty for the 15-20s the old raw_data genre scan
+        took, with no feedback at all.  Called by DiscoverView the instant a
+        card fetch is kicked off (``_start_expand_fetch``); replaced by real
+        cards on success (``set_cards``) or an error row on failure
+        (``show_load_error``).  No-ops if cards are already present.
+        """
+        if self._cards_widgets:
+            return
+        self._clear_placeholder()
+        self._placeholder_lbl = QLabel(f"{_icons.loading_icon} Loading…")
+        self._placeholder_lbl.setStyleSheet(_theme.DISCOVER_SHELF_LOADING)
+        self._inner_layout.insertWidget(0, self._placeholder_lbl)
+
+    def show_load_error(self, message: str = "Couldn't load this shelf") -> None:
+        """Render a visible, non-selectable error row after a failed lazy-expand fetch.
+
+        Per CLAUDE.md's async-background-DB-reads rule, a failed background load
+        must never look like a silently-empty result — never ``clear(); return``.
+        """
+        self._clear_placeholder()
+        self._placeholder_lbl = QLabel(f"{_icons.notification_warning_icon} {message}")
+        self._placeholder_lbl.setStyleSheet(_theme.DISCOVER_SHELF_ERROR)
+        self._inner_layout.insertWidget(0, self._placeholder_lbl)
+
     def set_cards(self, cards: list, image_cache=None, config=None,
                   replace: bool = False) -> None:
         """Populate this shelf with *cards* after construction.
@@ -303,6 +342,10 @@ class _Shelf(QWidget):
         """
         if not hasattr(self, "_inner_layout") or self._inner_layout is None:
             return  # layout not yet built (should not happen in practice)
+
+        # A successful fetch replaces any loading/error placeholder from a
+        # prior lazy-expand attempt.
+        self._clear_placeholder()
 
         _ic  = image_cache if image_cache is not None else self._image_cache
         _cfg = config      if config      is not None else self._config

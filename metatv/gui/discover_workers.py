@@ -227,11 +227,16 @@ class _SeeAllWorker(QObject):
 class _ShelfCardsWorker(QObject):
     """Fetch cards for a single collapsed shelf on lazy-expand.
 
-    Emits ``ready(shelf_key, cards)`` on success (or with an empty list on
-    error).  The view connects to this and calls ``_Shelf.set_cards()``.
+    Emits ``ready(shelf_key, cards)`` on success — *cards* may legitimately be
+    an empty list (a shelf with nothing matching after filters).  Emits
+    ``error(shelf_key, message)`` when the query itself raised, so the view can
+    render a distinct error row instead of a silently-empty shelf (never
+    conflate "genuinely empty" with "the fetch failed" — CLAUDE.md's
+    async-background-DB-reads rule).
     """
 
     ready = pyqtSignal(str, list)  # (shelf_key, cards)
+    error = pyqtSignal(str, str)   # (shelf_key, message)
 
     def __init__(self, db: Database, config: Config, shelf_key: str,
                  limit: int = 30) -> None:
@@ -250,6 +255,8 @@ class _ShelfCardsWorker(QObject):
         from metatv.core.filter_utils import get_active_category_filter, get_excluded_prefixes, excluded_tag_content_types
         from metatv.core.repositories import RepositoryFactory
         session = self._db.get_session()
+        cards: list | None = None
+        error_message: str | None = None
         try:
             ss = build_status_sets(session)
             cat_excluded, include_uncategorized = get_active_category_filter(self._config)
@@ -271,13 +278,17 @@ class _ShelfCardsWorker(QObject):
                 session, self._config, self._shelf_key, self._limit,
                 sk=sk, fk=fk, af=af, ek=ek,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("ShelfCardsWorker error for %s", self._shelf_key)
-            cards = []
+            error_message = str(exc) or exc.__class__.__name__
         finally:
             session.close()
-        if not self._cancelled:
+        if self._cancelled:
+            return
+        if cards is not None:
             self.ready.emit(self._shelf_key, cards)
+        else:
+            self.error.emit(self._shelf_key, error_message or "Unknown error")
 
 
 class _LoaderWorker(QObject):

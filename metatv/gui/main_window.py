@@ -375,6 +375,12 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # never re-run to pick them up. Keep DetectedTitleReparse ahead of TagBackfill.
         from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
         self.migration_manager.register(DetectedTitleReparseTask(self.db))
+        # Discover genre-shelf perf (#genre-perf) — one-time backfill of stored
+        # detected_genre/detected_genres for pre-existing rows (new channels get
+        # them at ingestion). No ordering dependency on the tasks around it — it
+        # just re-runs the same update_detected_prefixes() pass.
+        from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
+        self.migration_manager.register(DetectedGenreBackfillTask(self.db))
         # ORDER MATTERS — populate detected_tmdb_id from raw_data BEFORE the
         # content_key recompute (v4) reads it, so cross-language/quality variants
         # sharing a provider tmdb id collapse onto one tmdb-first key.

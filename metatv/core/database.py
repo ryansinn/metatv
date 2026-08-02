@@ -151,6 +151,22 @@ class ChannelDB(Base):
     # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
     detected_audio = Column(JSONEncoded, nullable=True)
 
+    # Canonical genre(s) — derived once at ingestion from raw_data["genre"] via
+    # filter_utils.genres_from_raw() (segment-split on '/'/',' + normalize_genre()
+    # cross-language alias collapse + HTML-entity unescape), computed alongside the
+    # other detected_* fields in update_detected_prefixes() (core/repositories/channel.py).
+    # detected_genre: the FIRST segment's canonical label (e.g. "Drama") — cheap
+    #   indexed equality read for card display (ContentCard.genre).
+    # detected_genres: ALL segments' canonical labels as a JSON list (e.g.
+    #   ["Action & Adventure", "Science Fiction"]) — powers get_by_genre's
+    #   membership match via json_each so a multi-genre row still appears on
+    #   every shelf it belongs to (#genre-perf).  NULL when the channel carries
+    #   no provider genre.  Backfilled for pre-existing rows by
+    #   DetectedGenreBackfillTask (metatv/core/migrations/detected_genre_backfill.py).
+    # NOT in _CATALOG_COLS / _CATALOG_UPDATE_COLS — the provider upsert never overwrites it.
+    detected_genre  = Column(String, index=True, nullable=True)
+    detected_genres = Column(JSONEncoded, nullable=True)
+
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
     # source_category: label extracted from the nearest preceding ##...## header in the stream list
@@ -605,6 +621,10 @@ class Database:
             ("watch_queue",  "season_num",                 "INTEGER"),
             ("watch_queue",  "episode_num",                "INTEGER"),
             ("watch_queue",  "episode_title",              "TEXT"),
+            # Discover genre-shelf perf (#genre-perf) — stored canonical genre(s),
+            # computed at ingestion; see ChannelDB.detected_genre(s) above.
+            ("channels",     "detected_genre",             "TEXT"),
+            ("channels",     "detected_genres",            "TEXT"),
         ]
         with self.engine.connect() as conn:
             for table, col, col_type in migrations:
@@ -623,6 +643,7 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS ix_channels_tmdb_enrich_state ON channels (tmdb_enrich_state)",
                 "CREATE INDEX IF NOT EXISTS ix_channels_genre_enrich_state ON channels (genre_enrich_state)",
                 "CREATE INDEX IF NOT EXISTS ix_watch_queue_episode_id ON watch_queue (episode_id)",
+                "CREATE INDEX IF NOT EXISTS ix_channels_detected_genre ON channels (detected_genre)",
             ]
             for idx_sql in index_migrations:
                 try:

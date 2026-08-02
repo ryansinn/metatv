@@ -88,6 +88,13 @@ def seeded_db(tmp_path):
     finally:
         session.close()
 
+    # get_all_genres now reads the ingestion-computed detected_genres field
+    # (#genre-perf) instead of parsing raw_data live — run the real ingestion
+    # pass so the fixture mirrors what a provider refresh actually does.
+    from metatv.core.repositories import RepositoryFactory
+    with db.session_scope() as session:
+        RepositoryFactory(session).channels.update_detected_prefixes(provider_id=None)
+
     yield db
     db.close()
 
