@@ -644,8 +644,12 @@ class Config(BaseModel):
     font_size: int = 0  # 0 = system default
     
     # Sidebar Configuration
-    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
-    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history", "sources"])
+    # "sources" retired from this list (Wave 6, #<pending>) — Sources moved out of
+    # the sidebar section stack into the always-visible status strip + Sources
+    # manager view (see gui/sidebar/sources_strip.py, gui/sources_manager_view.py).
+    # Existing configs are migrated by _inject_new_sections().
+    sidebar_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
+    sidebar_visible_sections: list = Field(default_factory=lambda: ["alerts", "recommended", "queue", "favorites", "history"])
     sidebar_section_states: dict = Field(default_factory=dict)  # Collapsed state and heights per section
     sidebar_width: int = 340  # Width of sidebar in pixels
     window_geometry: str = ""  # Base64-encoded QByteArray from saveGeometry()
@@ -1469,13 +1473,18 @@ class Config(BaseModel):
                 idx = self.sidebar_visible_sections.index("alerts") + 1 if "alerts" in self.sidebar_visible_sections else 0
                 self.sidebar_visible_sections.insert(idx, sid)
                 changed = True
-        # Retire the orphaned "new_episodes" section — its role folded into the
-        # always-visible Watch Alerts section.  Strip any stale saved reference so
-        # the create loop never tries to build a section that no longer exists.
+        # Retire orphaned sections whose UI no longer exists in the sidebar section
+        # stack — strip any stale saved reference so the create loop never tries to
+        # build a section that no longer exists:
+        #   "new_episodes" — folded into the always-visible Watch Alerts section.
+        #   "sources"      — moved out of the sidebar entirely (Wave 6) into the
+        #                    status strip + Sources manager view.
+        _retired_sections = {"new_episodes", "sources"}
         for _attr in ("sidebar_sections", "sidebar_visible_sections"):
             _lst = getattr(self, _attr)
-            if "new_episodes" in _lst:
-                setattr(self, _attr, [s for s in _lst if s != "new_episodes"])
+            _filtered = [s for s in _lst if s not in _retired_sections]
+            if _filtered != _lst:
+                setattr(self, _attr, _filtered)
                 changed = True
         if changed:
             self.save()

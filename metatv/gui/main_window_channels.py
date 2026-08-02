@@ -240,10 +240,10 @@ class _ChannelListMixin:
             if hasattr(self, '_hidden_banner'):
                 self._hidden_banner.setVisible(True)
 
-        # Restore source filter — update sidebar selection without triggering load
+        # Restore source filter — update Sources UI selection without triggering load
         if provider_id:
             self.selected_provider_id = provider_id
-            src = self.sidebar_sections.get("sources") if hasattr(self, 'sidebar_sections') else None
+            src = self._sources_status_target() if hasattr(self, '_sources_status_target') else None
             if src is not None and hasattr(src, 'select_provider'):
                 src.select_provider(provider_id)
 

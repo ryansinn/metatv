@@ -26,7 +26,9 @@ _SIDEBAR_SECTION_LABELS: dict[str, str] = {
     "queue":       "Watch Queue",
     "favorites":   "Favorites",
     "history":     "History",
-    "sources":     "Sources",
+    # "sources" deliberately absent (Wave 6) — Sources left the reorderable
+    # sidebar section stack for the always-visible status strip + Sources
+    # manager view; it can no longer be reordered/hidden here.
 }
 _ALL_SIDEBAR_SECTIONS = list(_SIDEBAR_SECTION_LABELS.keys())
 
