@@ -530,8 +530,10 @@ def _build_semantic_constants() -> dict[str, object]:
         " border: 1px solid " + OVERLAY_18 + "; border-radius: 8px; }"
     )
 
-    # Provider editor — top bar + footer buttons
-    PROVIDER_TOPBAR = "background: " + OVERLAY_04 + "; border-bottom: 1px solid " + OVERLAY_08 + ";"
+    # Provider editor — persistent footer (Delete / Test Connection / Discard /
+    # Save Changes) below the Summary/Connection/Settings tabs, always visible
+    # regardless of the selected tab.
+    PROVIDER_FOOTER = "background: " + OVERLAY_04 + "; border-top: 1px solid " + OVERLAY_08 + ";"
     LINK_BTN = (
         "QPushButton { border: none; color: " + COLOR_ACCENT_BLUE + "; font-size: " + FONT_XL + "; padding: 4px 8px; }"
         "QPushButton:hover { color: " + COLOR_ACCENT_BLUE_2 + "; }"
@@ -545,6 +547,10 @@ def _build_semantic_constants() -> dict[str, object]:
         "QPushButton:hover { background: " + COLOR_BTN_SAVE_HOVER + "; }"
         "QPushButton:disabled { background: " + COLOR_LINE + "; color: " + COLOR_MUTED_2 + "; }"
     )
+    # Vertical divider — provider-editor footer, visually separating the
+    # destructive Delete action (far left) from the Test Connection / Discard /
+    # Save Changes group (right) so Delete never reads as adjacent to Save.
+    FOOTER_DIVIDER = "background: " + COLOR_LINE + ";"
 
     # Category / prefix chips (version chips, similar-title chips, title-area prefix badge)
     CATEGORY_CHIP = (

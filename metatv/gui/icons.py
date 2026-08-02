@@ -71,6 +71,7 @@ hide_watched_filter_icon: str = "✓"   # Used in "Hide watched" toggle label
 pin_icon: str = "📌"
 manage_icon: str = "⚙"
 visibility_toggle_icon: str = "👁"
+analyze_icon: str = "📊"   # U+1F4CA BAR CHART — "analyze this source" action (overlap/content breakdown)
 
 # Navigation / collapse
 expand_icon: str = ">"
@@ -90,6 +91,7 @@ live_indicator_icon: str = "🟢"
 stream_retry_pending_icon: str = "🔴"
 stream_retry_online_icon: str = "🟢"
 status_dot_icon: str = "●"      # filled status dot; colored by state (ok/err) at the call site
+inactive_dot_icon: str = "○"    # U+25CB WHITE CIRCLE — hollow companion to status_dot_icon; disabled/inactive state
 watchlist_on_icon: str = "🔔"
 watchlist_off_icon: str = "🔕"
 preferred_version_icon: str = "🎯"

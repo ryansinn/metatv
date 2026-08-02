@@ -447,6 +447,22 @@ class _NavMixin:
         else:
             self.switch_to_list_view()
 
+    def on_sources_manager_toggle(self) -> None:
+        """Sources status strip click — toggle the Sources manager open/closed.
+
+        The strip is a plain clickable widget, not a checkable chip (Sources
+        manager has no chip of its own — see switch_to_sources_manager), so
+        this compares ``view_mode`` directly instead of a chip's checked state.
+        Closing goes to switch_to_list_view() — the same fixed "close" target
+        every other toggle-to-close view uses (on_discover_view_toggle et al.);
+        it runs _hide_all_content_views(), which calls the Sources manager's
+        on_deactivate() before hiding it.
+        """
+        if self.view_mode == "sources_manager":
+            self.switch_to_list_view()
+        else:
+            self.switch_to_sources_manager()
+
     def on_search_view_toggle(self) -> None:
         if self.search_chip.is_enabled():
             self.switch_to_list_view()

@@ -663,6 +663,11 @@ class Config(BaseModel):
     settings_dialog_width: int = 900
     settings_dialog_height: int = 600
 
+    # Sources manager — provider editor detail pane's Summary/Connection/Settings
+    # tabs (see gui/provider_editor.py). UI state (persists on change, restores on
+    # init), never a setting value — same convention as settings_dialog_section.
+    provider_editor_selected_tab: int = 0
+
     # Recipe view legacy splitter geometry (pre-redesign two-column layout).
     # Retained so older config.yaml files still load cleanly; the current
     # masonry redesign no longer reads or writes them.

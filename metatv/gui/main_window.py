@@ -866,7 +866,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Clicking it opens the Sources manager view; Refresh All reuses the exact
         # same queue chokepoint the old sidebar section's header button used.
         self.sources_strip = SourcesStatusStrip(self.config, self.db, self)
-        self.sources_strip.clicked.connect(self.switch_to_sources_manager)
+        self.sources_strip.clicked.connect(self.on_sources_manager_toggle)
         self.sources_strip.refreshAllClicked.connect(self.refresh_all_providers)
         # Busy state mirrors whether the serial refresh queue currently has work.
         self.refresh_queue_manager.queue_changed.connect(
@@ -1882,7 +1882,8 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Sources manager view (Wave 6, hidden by default) — LEFT: every provider as
         # a selectable ProviderItemWidget row (same widget/signals the retired
         # sidebar Sources section used); CENTER: the provider_editor above. Opened
-        # from the sidebar status strip (switch_to_sources_manager).
+        # (and, Wave 7, toggled closed) from the sidebar status strip
+        # (on_sources_manager_toggle → switch_to_sources_manager/switch_to_list_view).
         self.sources_manager_view = SourcesManagerView(
             self.config, self.db, self.provider_editor, self
         )

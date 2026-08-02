@@ -42,7 +42,19 @@ def _epg_state_color() -> dict[str, str]:
 
 
 class ProviderItemWidget(QWidget):
-    """Custom widget for provider items with refresh, edit, analyze, and toggle buttons."""
+    """Custom widget for provider items.
+
+    ``show_actions=True`` (default) renders the full row: refresh / edit /
+    analyze / toggle buttons + the EPG freshness pip — used by the retired
+    sidebar ``SourcesSection`` and by tests exercising that surface.
+
+    ``show_actions=False`` renders a minimal row — icon, status dot, provider
+    name only — used by :class:`~metatv.gui.sources_manager_view.SourcesManagerView`'s
+    left column (Wave 7): those five per-row icon buttons were truncating the
+    provider name in the narrow left column, so they moved into the detail
+    pane's action bar (``ProviderEditorView._build_action_bar``) instead of
+    being rebuilt as a parallel widget — one shared row class, one flag.
+    """
 
     refreshClicked = pyqtSignal(str)      # provider_id
     editClicked = pyqtSignal(str)         # provider_id
@@ -53,12 +65,16 @@ class ProviderItemWidget(QWidget):
     def __init__(self, provider_id: str, provider_name: str, is_active: bool = True,
                  icon: str = "", sub_color: str = "", is_expired: bool = False,
                  busy: bool = False, epg_state: str = "none", epg_tooltip: str = "",
-                 parent=None):
+                 show_actions: bool = True, parent=None):
         super().__init__(parent)
         self.provider_id = provider_id
         self._is_active = is_active
         self._epg_state = epg_state
         self._epg_tooltip = epg_tooltip
+        self._show_actions = show_actions
+        self._epg_btn = None
+        self._toggle_btn = None
+        self._action_btns: list = []
 
         self.setAutoFillBackground(True)
 
@@ -90,13 +106,14 @@ class ProviderItemWidget(QWidget):
             self._status_lbl.setToolTip("Subscription expired")
         layout.addWidget(self._status_lbl)
 
-        # EPG freshness indicator — colored by state; click to refresh EPG for this source.
-        self._epg_btn = QPushButton(_icons.epg_indicator_icon)
-        self._epg_btn.setFixedSize(16, 20)
-        self._epg_btn.setFlat(True)
-        self._epg_btn.clicked.connect(lambda: self.epgRefreshClicked.emit(self.provider_id))
-        layout.addWidget(self._epg_btn)
-        self.set_epg_state(epg_state, epg_tooltip)
+        if show_actions:
+            # EPG freshness indicator — colored by state; click to refresh EPG for this source.
+            self._epg_btn = QPushButton(_icons.epg_indicator_icon)
+            self._epg_btn.setFixedSize(16, 20)
+            self._epg_btn.setFlat(True)
+            self._epg_btn.clicked.connect(lambda: self.epgRefreshClicked.emit(self.provider_id))
+            layout.addWidget(self._epg_btn)
+            self.set_epg_state(epg_state, epg_tooltip)
 
         # Provider name — expired gets distinct label + color, otherwise use sub_color
         display_name = f"{provider_name} (Expired)" if is_expired else provider_name
@@ -108,6 +125,9 @@ class ProviderItemWidget(QWidget):
         elif sub_color:
             self._name_lbl.setStyleSheet(f"color: {sub_color};")
         layout.addWidget(self._name_lbl, 1)
+
+        if not show_actions:
+            return
 
         _btn_style = (
             "QPushButton {{\n"
@@ -137,7 +157,7 @@ class ProviderItemWidget(QWidget):
         layout.addWidget(edit_btn)
 
         # Analyze (purple for analytics)
-        analyze_btn = QPushButton("📊")
+        analyze_btn = QPushButton(_icons.analyze_icon)
         analyze_btn.setFixedSize(22, 20)
         analyze_btn.setToolTip("Analyze source overlap and content")
         analyze_btn.setStyleSheet(_btn_style.format(r=200, g=100, b=255))
@@ -162,11 +182,18 @@ class ProviderItemWidget(QWidget):
         self._status_lbl.setText("●" if is_active else "○")
         dot_color = _theme.COLOR_OK if is_active else _theme.COLOR_MUTED_2
         self._status_lbl.setStyleSheet(f"color: {dot_color};")
-        self._toggle_btn.setText("●" if is_active else "○")
+        if self._toggle_btn is not None:
+            self._toggle_btn.setText("●" if is_active else "○")
 
     def set_busy(self, busy: bool) -> None:
         """Disable the row's action buttons and show a spinner on the toggle while a
-        provider operation (enable/disable + view refresh) is in progress."""
+        provider operation (enable/disable + view refresh) is in progress.
+
+        No-ops when ``show_actions=False`` — the row has no action buttons to
+        update; the equivalent visual now lives on the detail pane's action bar
+        (``ProviderEditorView.set_toggle_busy``)."""
+        if self._toggle_btn is None:
+            return
         for btn in self._action_btns:
             btn.setEnabled(not busy)
         if busy:
@@ -177,9 +204,13 @@ class ProviderItemWidget(QWidget):
             self._toggle_btn.setToolTip("Enable / Disable this provider")
 
     def set_epg_state(self, state: str, tooltip: str) -> None:
-        """Color the EPG indicator by freshness state and set its date-range tooltip."""
+        """Color the EPG indicator by freshness state and set its date-range tooltip.
+
+        No-ops when ``show_actions=False`` — there is no EPG pip on a stripped row."""
         self._epg_state = state
         self._epg_tooltip = tooltip
+        if self._epg_btn is None:
+            return
         color = _epg_state_color().get(state, _theme.COLOR_FAINT)
         self._epg_btn.setEnabled(True)
         self._epg_btn.setText(_icons.epg_indicator_icon)
@@ -191,7 +222,11 @@ class ProviderItemWidget(QWidget):
         self._epg_btn.setToolTip(tooltip)
 
     def set_epg_refreshing(self, busy: bool) -> None:
-        """Spinner on the EPG indicator while its feed is being refreshed."""
+        """Spinner on the EPG indicator while its feed is being refreshed.
+
+        No-ops when ``show_actions=False``."""
+        if self._epg_btn is None:
+            return
         if busy:
             self._epg_btn.setText(_icons.loading_icon)
             self._epg_btn.setEnabled(False)

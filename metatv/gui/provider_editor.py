@@ -1,25 +1,34 @@
 """Provider editor — center-panel view for managing IPTV sources.
 
-Replaces the channel list when the user enters provider-edit mode.
-Clicking a different source in the sidebar switches the editor to that provider
-without leaving the view.
+Embedded inside :class:`~metatv.gui.sources_manager_view.SourcesManagerView`'s
+center pane (never added to the content stack directly). Selecting a different
+source in the left column switches the editor to that provider without leaving
+the view.
+
+Wave 7 relayout: the detail pane is a ``QTabWidget`` (Summary / Connection /
+Settings — content builders in ``provider_editor_tabs.py``, kept in a separate
+module to stay under the project's 1000-line file limit) with a PERSISTENT
+footer (Delete / Test Connection / Discard / Save Changes) below the tabs,
+always visible regardless of the selected tab — Save/Discard apply to the
+whole source, not to one tab, so a commit bar living inside a tab would wrongly
+imply per-tab saving. The four per-row action buttons the pre-Wave-7 left
+column rendered (refresh / analyze / EPG-refresh / enable-toggle — see
+``sidebar/sources.py``'s ``ProviderItemWidget``) now live in the Summary tab's
+action bar (``_build_action_bar``), wired to the SAME signals/handlers the row
+buttons used — see the class docstring below for exactly how each was
+re-pointed.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Dict, List, Optional
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QPushButton, QGroupBox,
-    QListWidget, QListWidgetItem, QComboBox,
-    QScrollArea, QFrame, QSizePolicy, QMessageBox,
-    QCheckBox, QProgressBar, QTextEdit, QSpacerItem, QApplication,
+    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget,
 )
 from loguru import logger
 
@@ -30,8 +39,7 @@ from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.url_row_widget import URLRowWidget
-from metatv.providers.factory import get_provider
+from metatv.gui.provider_editor_tabs import _ProviderEditorTabsMixin
 
 
 def _format_probe_message(result: ProbeResult) -> str:
@@ -74,6 +82,7 @@ class FetchAccountInfoThread(QThread):
             self.finished.emit(False, str(e))
 
     async def _fetch(self):
+        from metatv.providers.factory import get_provider
         plugin = get_provider(self.provider.type)
         if not plugin or not hasattr(plugin, "fetch_account_info"):
             self.finished.emit(False, "Provider type does not support account info")
@@ -122,7 +131,7 @@ class TestAllURLsThread(QThread):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# URL row widget inside the URL list
+# Icon picker
 # ──────────────────────────────────────────────────────────────────────────────
 
 class ProviderIconPicker(QWidget):
@@ -285,19 +294,38 @@ class _CopyableLabel(QLabel):
 # Main editor view (center panel)
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ProviderEditorView(QWidget):
+class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
     """Full-panel provider editor.
 
     Shows account info, credentials, URLs, and settings for one provider.
-    Clicking a different source in the sidebar calls load_provider() to switch.
+    Clicking a different source in the left column calls load_provider() to switch.
+
+    Action-bar re-pointing (Wave 7 — moved off the left-column row, see
+    ``sidebar/sources.py``'s ``ProviderItemWidget(show_actions=False)``):
+
+    * Refresh        → reuses the pre-existing (previously unemitted)
+      ``refresh_requested`` signal, already connected in ``main_window.py`` to
+      ``self.refresh_provider`` — no new plumbing needed, just a new emitter.
+    * Analyze / Enable-Disable / Refresh Guide → three NEW signals
+      (``analyze_requested``, ``toggle_active_requested``,
+      ``epg_refresh_requested``); ``SourcesManagerView`` connects each to its
+      existing public ``providerAnalyzeClicked``/``providerToggleClicked``/
+      ``providerEpgRefreshClicked`` signals, so ``main_window.py``'s handler
+      wiring for those three is completely unchanged.
+    * "Refresh Guide" reuses the pre-Wave-7 ``_epg_refresh_btn`` attribute name
+      (relocated from the old EPG group into the action bar, restyled/retexted)
+      so ``tests/test_provider_editor_epg_autodetect.py`` needed no changes.
     """
 
     done = pyqtSignal()                     # user clicked "Done" — exit editor mode
     provider_saved = pyqtSignal(str)        # provider_id saved
     provider_deleted = pyqtSignal(str)      # provider_id deleted (finished — kept for compatibility)
     provider_delete_requested = pyqtSignal(str)  # provider_id — user confirmed delete; MainWindow runs the purge off-thread
-    refresh_requested = pyqtSignal(str)     # provider_id — trigger channel refresh
+    refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh" clicked
     account_info_updated = pyqtSignal(str)  # provider_id — account info changed (expiration, connections, etc.)
+    analyze_requested = pyqtSignal(str)         # provider_id — action bar "Analyze" clicked
+    toggle_active_requested = pyqtSignal(str)   # provider_id — action bar Enable/Disable clicked
+    epg_refresh_requested = pyqtSignal(str)     # provider_id — action bar "Refresh Guide" clicked
 
     def __init__(self, db: Database, config=None, epg_manager=None, parent=None):
         super().__init__(parent)
@@ -314,6 +342,8 @@ class ProviderEditorView(QWidget):
         self._epg_url_override: str = ""   # tracks loaded URL override for change detection in _save
         self._loaded_epg_url: str = ""     # auto-built epg_url at load time (for refresh button enablement)
         self._loading: bool = False        # True while load_provider populates fields; suppresses dirty-marking
+        self._current_is_active: bool = True    # mirrors the name-row status dot + toggle action label
+        self._current_is_expired: bool = False  # date-based subscription expiry, mirrors the left-column row dot
         self._setup_ui()
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -323,50 +353,37 @@ class ProviderEditorView(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Top bar ──────────────────────────────────────────────────────────
-        top_bar = QWidget()
-        top_bar.setStyleSheet(_theme.PROVIDER_TOPBAR)
-        top_bar.setFixedHeight(46)
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(12, 0, 12, 0)
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._build_summary_tab(), "Summary")
+        self._tabs.addTab(self._build_connection_tab(), "Connection")
+        self._tabs.addTab(self._build_settings_tab(), "Settings")
+        root.addWidget(self._tabs, 1)
 
-        done_btn = QPushButton("← Done Editing Sources")
-        done_btn.setStyleSheet(_theme.LINK_BTN)
-        done_btn.clicked.connect(self.done)
-        top_layout.addWidget(done_btn)
-        top_layout.addStretch()
-
-        self._status_indicator = QLabel("")
-        self._status_indicator.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: 600;")
-        top_layout.addWidget(self._status_indicator)
-
-        root.addWidget(top_bar)
-
-        # ── Scroll area ──────────────────────────────────────────────────────
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        content = QWidget()
-        self._content_layout = QVBoxLayout(content)
-        self._content_layout.setContentsMargins(24, 20, 24, 20)
-        self._content_layout.setSpacing(16)
-
-        self._build_header_row()
-        self._build_account_info_group()
-        self._build_credentials_group()
-        self._build_urls_group()
-        self._build_settings_group()
-        self._content_layout.addStretch(1)
-        self._build_footer_row()
-
-        scroll.setWidget(content)
-        root.addWidget(scroll, 1)
+        self._build_footer_row(root)
+        self._connect_dirty_signals()
 
         self._set_fields_enabled(False)
+        self._restore_tab_state()
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
-    def _build_header_row(self):
+    def _restore_tab_state(self) -> None:
+        """Restore the last-selected tab from config, signals blocked (rule:
+        block → set every widget → unblock, then connect handlers in a
+        separate pass — ``_on_tab_changed`` is connected AFTER this call)."""
+        idx = getattr(self.config, "provider_editor_selected_tab", 0) if self.config else 0
+        idx = max(0, min(idx, self._tabs.count() - 1))
+        self._tabs.blockSignals(True)
+        self._tabs.setCurrentIndex(idx)
+        self._tabs.blockSignals(False)
+
+    def _on_tab_changed(self, index: int) -> None:
+        if self.config is not None:
+            self.config.provider_editor_selected_tab = index
+            self.config.save()
+
+    def _build_header_row(self, layout: QVBoxLayout) -> None:
+        """Icon + provider name (with a small status dot beside it, consistent
+        with the left-column rows' dots) + Enabled checkbox."""
         row = QHBoxLayout()
 
         # Icon picker
@@ -386,11 +403,17 @@ class ProviderEditorView(QWidget):
         lbl = QLabel("Provider Name")
         lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         name_col.addWidget(lbl)
+        name_row = QHBoxLayout()
+        name_row.setSpacing(6)
+        self._status_dot_lbl = QLabel("")
+        self._status_dot_lbl.setFixedWidth(14)
+        name_row.addWidget(self._status_dot_lbl)
         self._name_input = QLineEdit()
         self._name_input.setClearButtonEnabled(True)
         self._name_input.setStyleSheet(f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
         self._name_input.setPlaceholderText("My Provider")
-        name_col.addWidget(self._name_input)
+        name_row.addWidget(self._name_input, 1)
+        name_col.addLayout(name_row)
         row.addLayout(name_col, 1)
 
         row.addSpacing(16)
@@ -400,306 +423,146 @@ class ProviderEditorView(QWidget):
         self._enabled_check.setChecked(True)
         row.addWidget(self._enabled_check)
 
-        self._content_layout.addLayout(row)
+        layout.addLayout(row)
 
-    def _build_account_info_group(self):
-        group = QGroupBox("Account Info")
-        layout = QVBoxLayout(group)
-        layout.setSpacing(8)
+    def _update_status_dot(self, is_active: bool, is_expired: bool) -> None:
+        """Colour the small name-row status dot — identical 3-state logic to the
+        left-column rows' dot (green=active, red=expired, gray=disabled), so a
+        glance at either surface agrees. The verbose account_status string stays
+        fully available in Account Info's "Status:" line."""
+        if is_expired:
+            self._status_dot_lbl.setText(_icons.status_dot_icon)
+            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR};")
+            self._status_dot_lbl.setToolTip("Subscription expired")
+        elif is_active:
+            self._status_dot_lbl.setText(_icons.status_dot_icon)
+            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
+            self._status_dot_lbl.setToolTip("Active")
+        else:
+            self._status_dot_lbl.setText(_icons.inactive_dot_icon)
+            self._status_dot_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2};")
+            self._status_dot_lbl.setToolTip("Disabled")
 
-        # Status row
-        status_row = QHBoxLayout()
-        self._acct_status_lbl = QLabel("—")
-        self._acct_status_lbl.setStyleSheet(_theme.FIELD_LABEL)
-        status_row.addWidget(QLabel("Status:"))
-        status_row.addWidget(self._acct_status_lbl)
-        status_row.addSpacing(24)
-        status_row.addWidget(QLabel("Connections:"))
-        self._acct_cons_lbl = QLabel("—")
-        self._acct_cons_lbl.setStyleSheet(_theme.FIELD_LABEL)
-        status_row.addWidget(self._acct_cons_lbl)
-        status_row.addStretch()
-        layout.addLayout(status_row)
+    # ── Action bar (Summary tab) ─────────────────────────────────────────────
 
-        # Dates row
-        dates_row = QHBoxLayout()
-        dates_row.addWidget(QLabel("Created:"))
-        self._acct_created_lbl = QLabel("—")
-        dates_row.addWidget(self._acct_created_lbl)
-        dates_row.addSpacing(24)
-        dates_row.addWidget(QLabel("Expires:"))
-        self._acct_exp_lbl = QLabel("—")
-        dates_row.addWidget(self._acct_exp_lbl)
-        dates_row.addStretch()
-        layout.addLayout(dates_row)
+    def _build_action_bar(self, layout: QVBoxLayout) -> None:
+        """Right-aligned text+icon action buttons, directly beneath the
+        provider-name row: the four actions the left-column row used to own."""
+        row = QHBoxLayout()
+        row.addStretch()
 
-        # EPG guide status — surfaces a provider feed serving stale/out-of-date data
-        # (so a blank EPG view reads as "provider's guide is stale", not "our bug").
-        epg_row = QHBoxLayout()
-        epg_row.addWidget(QLabel("EPG guide:"))
-        self._acct_epg_lbl = QLabel("—")
-        epg_row.addWidget(self._acct_epg_lbl)
-        epg_row.addStretch()
-        layout.addLayout(epg_row)
+        self._action_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh")
+        self._action_refresh_btn.setToolTip("Refresh channels from this provider")
+        self._action_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
+        self._action_refresh_btn.clicked.connect(self._on_action_refresh_clicked)
+        row.addWidget(self._action_refresh_btn)
 
-        # Remaining bar
-        bar_row = QHBoxLayout()
-        bar_row.addWidget(QLabel("Remaining:"))
-        self._acct_remaining_lbl = QLabel("—")
-        bar_row.addWidget(self._acct_remaining_lbl)
-        self._acct_progress = QProgressBar()
-        self._acct_progress.setTextVisible(False)
-        self._acct_progress.setFixedHeight(6)
-        self._acct_progress.setRange(0, 100)
-        self._acct_progress.setValue(0)
-        self._acct_progress.hide()
-        bar_row.addWidget(self._acct_progress, 1)
-        layout.addLayout(bar_row)
+        self._action_analyze_btn = QPushButton(f"{_icons.analyze_icon}  Analyze")
+        self._action_analyze_btn.setToolTip("Analyze source overlap and content")
+        self._action_analyze_btn.setStyleSheet(_theme.PANEL_BTN)
+        self._action_analyze_btn.clicked.connect(self._on_action_analyze_clicked)
+        row.addWidget(self._action_analyze_btn)
 
-        # Refresh button
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        self._refresh_acct_btn = QPushButton("↻  Refresh Account Info")
-        self._refresh_acct_btn.setFixedWidth(180)
-        self._refresh_acct_btn.clicked.connect(self._fetch_account_info)
-        btn_row.addWidget(self._refresh_acct_btn)
-        layout.addLayout(btn_row)
-
-        self._acct_error_lbl = QLabel("")
-        self._acct_error_lbl.setStyleSheet(f"color: {_theme.COLOR_ERR_2}; font-size: {_theme.FONT_MD};")
-        self._acct_error_lbl.hide()
-        layout.addWidget(self._acct_error_lbl)
-
-        self._content_layout.addWidget(group)
-
-    def _build_credentials_group(self):
-        group = QGroupBox("Credentials")
-        form = QFormLayout(group)
-        form.setSpacing(8)
-
-        un_row = QHBoxLayout()
-        self._username_input = QLineEdit()
-        self._username_input.setClearButtonEnabled(True)
-        self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._username_input.setPlaceholderText("username")
-        un_row.addWidget(self._username_input, 1)
-        un_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
-        un_eye.setFixedWidth(28)
-        un_eye.setCheckable(True)
-        un_eye.setStyleSheet(_theme.EYE_BTN)
-        un_eye.toggled.connect(
-            lambda checked: self._username_input.setEchoMode(
-                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
-            )
-        )
-        un_row.addWidget(un_eye)
-        form.addRow("Username:", un_row)
-
-        pw_row = QHBoxLayout()
-        self._password_input = QLineEdit()
-        self._password_input.setClearButtonEnabled(True)
-        self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._password_input.setPlaceholderText("password")
-        pw_row.addWidget(self._password_input, 1)
-        pw_eye = QPushButton(self.config.visibility_toggle_icon if self.config else "👁")
-        pw_eye.setFixedWidth(28)
-        pw_eye.setCheckable(True)
-        pw_eye.setStyleSheet(_theme.EYE_BTN)
-        pw_eye.toggled.connect(
-            lambda checked: self._password_input.setEchoMode(
-                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
-            )
-        )
-        pw_row.addWidget(pw_eye)
-        form.addRow("Password:", pw_row)
-
-        self._content_layout.addWidget(group)
-
-    def _build_urls_group(self):
-        group = QGroupBox("DNS / URLs  (sorted by reliability — drag or use arrows to reorder)")
-        layout = QVBoxLayout(group)
-        layout.setSpacing(6)
-
-        self._url_list = QListWidget()
-        self._url_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self._url_list.setSpacing(2)
-        layout.addWidget(self._url_list)
-
-        add_row = QHBoxLayout()
-        self._new_url_input = QLineEdit()
-        self._new_url_input.setClearButtonEnabled(True)
-        self._new_url_input.setPlaceholderText("http://newdomain.com:8080")
-        self._new_url_input.returnPressed.connect(self._add_url)
-        add_row.addWidget(self._new_url_input, 1)
-        add_btn = QPushButton("Add URL")
-        add_btn.setFixedWidth(80)
-        add_btn.clicked.connect(self._add_url)
-        add_row.addWidget(add_btn)
-        layout.addLayout(add_row)
-
-        self._content_layout.addWidget(group)
-
-    def _build_settings_group(self):
-        group = QGroupBox("Settings")
-        form = QFormLayout(group)
-        form.setSpacing(8)
-
-        self._refresh_combo = QComboBox()
-        self._refresh_combo.addItems(["Manual", "On App Launch", "Daily", "Weekly", "Every 30 Days"])
-        form.addRow("Auto-refresh:", self._refresh_combo)
-
-        self._force_adult_check = QCheckBox("Mark all channels from this source as adult content")
-        self._force_adult_check.setToolTip(
-            "Enable when this provider doesn't tag channels with adult flags "
-            "but you want the adult content filter to apply to it."
-        )
-        form.addRow("Adult content:", self._force_adult_check)
-
-        self._content_layout.addWidget(group)
-        self._build_epg_group()
-
-    def _build_epg_group(self):
-        """Build the EPG configuration group box with all EPG controls."""
-        from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
-
-        group = QGroupBox("EPG")
-        form = QFormLayout(group)
-        form.setSpacing(8)
-
-        # 1. Enable / disable — with a right-aligned auto-detect status badge
-        self._epg_enabled_check = QCheckBox("Fetch EPG guide for this provider")
-        self._epg_enabled_check.setChecked(True)
-        self._epg_enabled_check.setToolTip(
-            "When enabled, MetaTV downloads this provider's XMLTV guide data and "
-            "shows programme info in the EPG view, On Now, and Watchlist. "
-            "Disabling immediately removes the fetched guide data for this source "
-            "and skips it on future EPG refreshes. Re-enabling allows the next "
-            "refresh to re-fetch it."
-        )
-        self._epg_detect_badge = QLabel("")
-        self._epg_detect_badge.setTextFormat(Qt.TextFormat.RichText)
-        enable_row = QHBoxLayout()
-        enable_row.setContentsMargins(0, 0, 0, 0)
-        enable_row.addWidget(self._epg_enabled_check)
-        enable_row.addStretch()
-        enable_row.addWidget(self._epg_detect_badge)
-        enable_container = QWidget()
-        enable_container.setLayout(enable_row)
-        form.addRow("Enable EPG:", enable_container)
-
-        # 1b. Auto-detected URL (smaller, click-to-copy). Hidden when none detected.
-        self._epg_autodetected_lbl = _CopyableLabel()
-        self._epg_autodetected_lbl.setVisible(False)
-        form.addRow("", self._epg_autodetected_lbl)
-
-        # 2. URL override
-        self._epg_url_override_input = QLineEdit()
-        self._epg_url_override_input.setClearButtonEnabled(True)
-        self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
-        self._epg_url_override_input.setToolTip(
-            "Optional: supply your own XMLTV URL for this provider. "
-            "Leave blank to use the auto-detected feed. "
-            "Changing this URL forces the guide to re-fetch on next refresh."
-        )
-        form.addRow("XMLTV URL override:", self._epg_url_override_input)
-
-        # 3. Freshness label (read-only)
-        self._acct_epg_lbl = QLabel("—")
-        self._acct_epg_lbl.setToolTip(
-            "Current state of the downloaded EPG guide data for this provider."
-        )
-        form.addRow("Guide freshness:", self._acct_epg_lbl)
-
-        # 4. Refresh interval
-        self._epg_interval_combo = QComboBox()
-        self._epg_interval_combo.addItem("Use default (from Settings)", "default")
-        for value, label in EPG_INTERVAL_CHOICES:
-            self._epg_interval_combo.addItem(label, value)
-        self._epg_interval_combo.setToolTip(
-            "How often to re-fetch this provider's EPG guide. "
-            "'Use default' inherits the global setting from Settings → EPG refresh "
-            "(the default is Auto). "
-            "'Auto' self-tunes: it refreshes at half the guide's depth, clamped to "
-            "6 hours – 7 days, so there is always guide headroom. "
-            "'Only when data is stale' waits until the guide has fully expired."
-        )
-        form.addRow("Refresh interval:", self._epg_interval_combo)
-
-        # 5. Manual refresh button
-        refresh_row = QHBoxLayout()
-        self._epg_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh EPG now")
+        # Reuses the pre-Wave-7 "_epg_refresh_btn" name (relocated here from the
+        # EPG group; see the class docstring) — its enabled-state is still
+        # computed by _update_epg_refresh_btn_state() in provider_editor_tabs.py.
+        self._epg_refresh_btn = QPushButton(f"{_icons.calendar_icon}  Refresh Guide")
         self._epg_refresh_btn.setToolTip(
             "Immediately re-fetch this provider's EPG guide, bypassing the throttle. "
             "Disabled when EPG is off or no URL is configured."
         )
-        self._epg_refresh_btn.clicked.connect(self._on_epg_refresh_now)
-        refresh_row.addWidget(self._epg_refresh_btn)
-        refresh_row.addStretch()
-        form.addRow("", refresh_row)
+        self._epg_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
+        self._epg_refresh_btn.clicked.connect(self._on_action_epg_clicked)
+        row.addWidget(self._epg_refresh_btn)
 
-        # Disable EPG controls when the checkbox is unchecked
-        self._epg_enabled_check.toggled.connect(self._update_epg_controls_enabled)
-        self._epg_url_override_input.textChanged.connect(
-            lambda _: self._update_epg_refresh_btn_state()
-        )
-        self._update_epg_controls_enabled(self._epg_enabled_check.isChecked())
+        self._action_toggle_btn = QPushButton("Disable")
+        self._action_toggle_btn.setToolTip("Enable / Disable this provider")
+        self._action_toggle_btn.setStyleSheet(_theme.PANEL_BTN)
+        self._action_toggle_btn.clicked.connect(self._on_action_toggle_clicked)
+        row.addWidget(self._action_toggle_btn)
 
-        self._content_layout.addWidget(group)
+        layout.addLayout(row)
 
-    def _update_epg_controls_enabled(self, enabled: bool) -> None:
-        """Enable/disable EPG sub-controls based on the Enable EPG checkbox."""
-        self._epg_url_override_input.setEnabled(enabled)
-        self._epg_interval_combo.setEnabled(enabled)
-        self._update_epg_refresh_btn_state()
+    def _on_action_refresh_clicked(self) -> None:
+        if self._provider_id:
+            self.refresh_requested.emit(self._provider_id)
 
-    def _update_epg_refresh_btn_state(self) -> None:
-        """Enable the Refresh EPG now button when EPG is on and an effective URL
-        exists — the override OR the auto-detected URL (so the built-in feed can be
-        refreshed without typing a custom URL)."""
-        enabled = self._epg_enabled_check.isChecked()
-        has_url = bool(
-            self._epg_url_override_input.text().strip()
-            or (self._provider_id and getattr(self, "_loaded_epg_url", ""))
-        )
-        self._epg_refresh_btn.setEnabled(enabled and has_url)
+    def _on_action_analyze_clicked(self) -> None:
+        if self._provider_id:
+            self.analyze_requested.emit(self._provider_id)
 
-    def _update_epg_autodetected_display(self) -> None:
-        """Render the right-aligned auto-detect badge and the click-to-copy auto URL
-        line from ``self._loaded_epg_url``: green AUTODETECTED + the URL when one
-        exists, red NOT FOUND with the URL line hidden otherwise."""
-        auto_url = getattr(self, "_loaded_epg_url", "") or ""
-        if auto_url:
-            self._epg_detect_badge.setText(
-                f'<span style="color:{_theme.COLOR_OK}">{_icons.status_dot_icon}</span> AUTODETECTED'
-            )
-            self._epg_detect_badge.setToolTip(
-                "An XMLTV guide URL was auto-detected from this source's credentials."
-            )
-            self._epg_autodetected_lbl.set_url(auto_url)
-            self._epg_autodetected_lbl.setVisible(True)
-        else:
-            self._epg_detect_badge.setText(
-                f'<span style="color:{_theme.COLOR_ERR}">{_icons.status_dot_icon}</span> NOT FOUND'
-            )
-            self._epg_detect_badge.setToolTip(
-                "No XMLTV guide URL could be auto-detected. Add a URL override to fetch EPG."
-            )
-            self._epg_autodetected_lbl.set_url("")
-            self._epg_autodetected_lbl.setVisible(False)
+    def _on_action_epg_clicked(self) -> None:
+        if self._provider_id:
+            self.epg_refresh_requested.emit(self._provider_id)
 
-    def _on_epg_refresh_now(self) -> None:
-        """Trigger an immediate EPG refresh for the current provider via EpgManager."""
-        if not self._provider_id or not self._epg_manager:
+    def _on_action_toggle_clicked(self) -> None:
+        if self._provider_id:
+            self.toggle_active_requested.emit(self._provider_id)
+
+    def _update_toggle_action_label(self, is_active: bool) -> None:
+        self._action_toggle_btn.setText("Disable" if is_active else "Enable")
+
+    def set_toggle_busy(self, busy: bool) -> None:
+        """Spinner/disable on the action bar's Enable/Disable button while a
+        toggle operation is in flight — reuses ``SourcesManagerView._busy_ids``,
+        the same busy machinery the retired row's toggle button used, just
+        rendered here instead. On completion, re-reads is_active/expiry fresh
+        from the DB (one row) so the label/status dot reflect the outcome even
+        on failure (where the DB value never actually changed) without a full
+        ``load_provider()`` reload that would stomp unsaved edits elsewhere."""
+        self._action_toggle_btn.setEnabled(not busy)
+        if busy:
+            self._action_toggle_btn.setText(f"{_icons.loading_icon}  Updating…")
+            self._action_toggle_btn.setToolTip("Updating…")
             return
-        self._epg_manager.force_refresh_provider(self._provider_id)
+        self._action_toggle_btn.setToolTip("Enable / Disable this provider")
+        if self._provider_id:
+            with self.db.session_scope(commit=False) as session:
+                row = session.query(ProviderDB).filter_by(id=self._provider_id).first()
+                if row is not None:
+                    self._current_is_active = bool(row.is_active)
+                    self._current_is_expired = bool(
+                        row.account_exp_date and row.account_exp_date <= datetime.now()
+                    )
+        self._update_toggle_action_label(self._current_is_active)
+        self._update_status_dot(self._current_is_active, self._current_is_expired)
 
-    def _build_footer_row(self):
-        row = QHBoxLayout()
+    def set_epg_busy(self, busy: bool) -> None:
+        """Spinner/disable on the action bar's "Refresh Guide" button while an
+        EPG fetch is in flight (mirrors the retired row EPG pip's spinner)."""
+        if busy:
+            self._epg_refresh_btn.setEnabled(False)
+            self._epg_refresh_btn.setText(f"{_icons.loading_icon}  Refreshing…")
+            self._epg_refresh_btn.setToolTip("Refreshing EPG…")
+        else:
+            self._epg_refresh_btn.setText(f"{_icons.calendar_icon}  Refresh Guide")
+            self._update_epg_refresh_btn_state()
 
-        delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Provider")
-        delete_btn.setStyleSheet(_theme.DELETE_BTN)
-        delete_btn.clicked.connect(self._delete_provider)
-        row.addWidget(delete_btn)
+    # ── Persistent footer ────────────────────────────────────────────────────
+
+    def _build_footer_row(self, root: QVBoxLayout) -> None:
+        """Delete / Test Connection / Discard / Save Changes — OUTSIDE the
+        QTabWidget, always visible regardless of the selected tab. Delete sits
+        far left with a visual divider separating it from the Test/Discard/Save
+        group (destructive action must never read as adjacent to Save)."""
+        footer = QWidget()
+        footer.setStyleSheet(_theme.PROVIDER_FOOTER)
+        row = QHBoxLayout(footer)
+        row.setContentsMargins(16, 10, 16, 10)
+
+        self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Provider")
+        self._delete_btn.setStyleSheet(_theme.DELETE_BTN)
+        self._delete_btn.clicked.connect(self._delete_provider)
+        row.addWidget(self._delete_btn)
+
+        row.addSpacing(12)
+        self._footer_divider = QFrame()
+        self._footer_divider.setFrameShape(QFrame.Shape.NoFrame)
+        self._footer_divider.setFixedWidth(1)
+        self._footer_divider.setMinimumHeight(20)
+        self._footer_divider.setStyleSheet(_theme.FOOTER_DIVIDER)
+        row.addWidget(self._footer_divider)
+
         row.addStretch()
 
         self._test_btn = QPushButton("Test Connection")
@@ -708,10 +571,10 @@ class ProviderEditorView(QWidget):
         self._test_btn.clicked.connect(self._test_connection)
         row.addWidget(self._test_btn)
 
-        discard_btn = QPushButton("Discard")
-        discard_btn.setFixedWidth(80)
-        discard_btn.clicked.connect(self._discard)
-        row.addWidget(discard_btn)
+        self._discard_btn = QPushButton("Discard")
+        self._discard_btn.setFixedWidth(80)
+        self._discard_btn.clicked.connect(self._discard)
+        row.addWidget(self._discard_btn)
 
         self._save_btn = QPushButton("Save Changes")
         self._save_btn.setMinimumWidth(120)
@@ -720,16 +583,13 @@ class ProviderEditorView(QWidget):
         self._save_btn.clicked.connect(self._save)
         row.addWidget(self._save_btn)
 
-        self._content_layout.addLayout(row)
-        self._connect_dirty_signals()
+        root.addWidget(footer)
 
     def _connect_dirty_signals(self) -> None:
         """Wire all editable-field change signals to ``_mark_dirty``.
 
-        Called once at the end of ``_build_footer_row`` so that every field is
-        already constructed.  Connecting here (rather than at the end of each
-        ``_build_*`` method) keeps the wiring in one place and runs after
-        ``_loading`` is already initialised.
+        Called once from ``_setup_ui`` (after the tabs — and therefore every
+        field — are already constructed) so the wiring stays in one place.
         """
         self._name_input.textChanged.connect(self._mark_dirty)
         self._username_input.textChanged.connect(self._mark_dirty)
@@ -754,57 +614,6 @@ class ProviderEditorView(QWidget):
         self._save_btn.setEnabled(True)
 
     # ── Public API ────────────────────────────────────────────────────────────
-
-    def _set_epg_status_label(self, epg_url, epg_data_end,
-                              epg_data_start=None) -> None:
-        """Populate the EPG-guide status line from the provider's cached EPG fields.
-
-        When the effective refresh interval is Auto, also shows the guide depth and
-        the resolved interval so the user can see exactly what Auto computed.
-
-        Uses the canonical epg_is_stale boundary so this matches the EPG view notice.
-
-        Args:
-            epg_url:        Effective EPG URL (auto-detected or override).
-            epg_data_end:   Latest non-filler programme stop (UTC-naive).
-            epg_data_start: Earliest programme start (UTC-naive); used only for the
-                            Auto depth annotation.
-        """
-        from metatv.core.epg_utils import epg_auto_delta, epg_is_stale, to_local
-        if not epg_url:
-            self._acct_epg_lbl.setText("Not configured")
-            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
-            return
-        if epg_data_end is None:
-            self._acct_epg_lbl.setText("No guide data fetched yet")
-            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")
-            return
-        try:
-            day = to_local(epg_data_end).strftime("%d %b %Y").lstrip("0")
-        except Exception:
-            day = str(epg_data_end)
-        if epg_is_stale(epg_data_end):
-            self._acct_epg_lbl.setText(
-                f"{_icons.notification_warning_icon} Stale — guide ends {day} (provider out of date)"
-            )
-            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_WARN};")
-        else:
-            # Build auto-interval annotation when depth info is available.
-            auto_note = ""
-            if epg_data_start is not None and epg_data_end is not None:
-                depth = epg_data_end - epg_data_start
-                depth_days = depth.total_seconds() / 86400
-                resolved = epg_auto_delta(epg_data_start, epg_data_end)
-                resolved_hours = resolved.total_seconds() / 3600
-                if resolved_hours < 24:
-                    resolved_str = f"{resolved_hours:.0f}h"
-                else:
-                    resolved_str = f"{resolved_hours / 24:.0f}d"
-                auto_note = (
-                    f" · Auto: ~{depth_days:.0f}-day feed → refreshing ~every {resolved_str}"
-                )
-            self._acct_epg_lbl.setText(f"Current — guide through {day}{auto_note}")
-            self._acct_epg_lbl.setStyleSheet(f"color: {_theme.COLOR_OK};")
 
     def load_provider(self, provider_id: str, force: bool = False):
         """Switch the editor to the given provider. Safe to call while editing.
@@ -895,187 +704,20 @@ class ProviderEditorView(QWidget):
             self._rebuild_url_list()
             self._set_fields_enabled(True)
 
-            # Update top-bar status
-            status = db_prov.account_status or ""
-            if status.lower() == "active":
-                self._status_indicator.setText("● Active")
-                self._status_indicator.setStyleSheet(_theme.STATUS_OK)
-            elif status.lower() == "expired":
-                self._status_indicator.setText("⚠ Expired")
-                self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
-            elif status:
-                self._status_indicator.setText(f"● {status}")
-                self._status_indicator.setStyleSheet(_theme.STATUS_WARN)
-            else:
-                self._status_indicator.setText("")
+            # Name-row status dot + action-bar toggle label — identical 3-state
+            # logic to the left-column row's dot.
+            self._current_is_active = bool(db_prov.is_active)
+            self._current_is_expired = bool(
+                db_prov.account_exp_date and db_prov.account_exp_date <= datetime.now()
+            )
+            self._update_status_dot(self._current_is_active, self._current_is_expired)
+            self._update_toggle_action_label(self._current_is_active)
 
         finally:
             self._loading = False
             session.close()
 
-    # ── Account info ──────────────────────────────────────────────────────────
-
-    def _fetch_account_info(self):
-        if not self._provider_id:
-            return
-        self._refresh_acct_btn.setEnabled(False)
-        self._refresh_acct_btn.setText("Fetching…")
-        self._acct_error_lbl.hide()
-
-        session = self.db.get_session()
-        try:
-            repos = RepositoryFactory(session)
-            db_prov = repos.providers.get_by_id(self._provider_id)
-            if not db_prov:
-                return
-            provider = repos.providers.to_model(db_prov)
-        finally:
-            session.close()
-
-        self._account_thread = FetchAccountInfoThread(provider)
-        self._account_thread.finished.connect(self._on_account_info_fetched)
-        self._account_thread.start()
-
-    def _on_account_info_fetched(self, success: bool, result):
-        self._refresh_acct_btn.setEnabled(True)
-        self._refresh_acct_btn.setText("↻  Refresh Account Info")
-
-        if not success:
-            self._acct_error_lbl.setText(f"Failed: {result}")
-            self._acct_error_lbl.show()
-            return
-
-        info = result
-        self._pending_account_info = info  # stored on save
-
-        # Parse timestamps
-        exp_dt = self._parse_ts(info.get("exp_date"))
-        created_dt = self._parse_ts(info.get("created_at"))
-
-        self._apply_account_info({
-            "status": info.get("status", ""),
-            "exp_date_dt": exp_dt,
-            "created_at_dt": created_dt,
-            "active_cons": info.get("active_cons", 0),
-            "max_connections": info.get("max_connections", 1),
-        })
-
-        # Update top-bar
-        status = info.get("status", "")
-        if status.lower() == "active":
-            self._status_indicator.setText("● Active")
-            self._status_indicator.setStyleSheet(_theme.STATUS_OK)
-        elif status.lower() == "expired":
-            self._status_indicator.setText("⚠ Expired")
-            self._status_indicator.setStyleSheet(_theme.STATUS_ERR)
-        else:
-            self._status_indicator.setText(f"● {status}" if status else "")
-
-        # Auto-save fresh account info to database immediately
-        self._persist_account_info(info)
-
-    def _apply_account_info(self, data: dict, from_cache: bool = False):
-        """Populate account info labels from a data dict."""
-        status = data.get("status", "")
-        exp_dt: Optional[datetime] = data.get("exp_date_dt")
-        created_dt: Optional[datetime] = data.get("created_at_dt")
-        active_cons = data.get("active_cons", 0)
-        max_cons = data.get("max_connections", 1)
-
-        # Status label
-        if status.lower() == "active":
-            color = _theme.COLOR_OK
-        elif status.lower() == "expired":
-            color = _theme.COLOR_ERR
-        elif status:
-            color = _theme.COLOR_WARN
-        else:
-            color = _theme.COLOR_MUTED
-        self._acct_status_lbl.setText(status or "Unknown")
-        self._acct_status_lbl.setStyleSheet(f"font-weight: 600; color: {color};")
-
-        # Connections
-        self._acct_cons_lbl.setText(f"{active_cons} / {max_cons}")
-
-        # Dates
-        self._acct_created_lbl.setText(created_dt.strftime("%Y-%m-%d") if created_dt else "—")
-        self._acct_exp_lbl.setText(exp_dt.strftime("%Y-%m-%d") if exp_dt else "—")
-
-        # Remaining bar
-        if exp_dt:
-            now = datetime.now()
-            col = subscription_color(exp_dt, created_dt)
-            if exp_dt > now:
-                days_left = (exp_dt - now).days
-                total_days = (exp_dt - created_dt).days if created_dt else 30
-                pct = max(0, min(100, int(days_left / total_days * 100))) if total_days > 0 else 100
-                suffix = " (cached)" if from_cache else ""
-                self._acct_remaining_lbl.setText(f"{days_left} days  ({pct}%){suffix}")
-                self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {col};")
-                self._acct_progress.setValue(pct)
-                self._acct_progress.setStyleSheet(
-                    f"QProgressBar::chunk {{ background: {col}; border-radius: 3px; }}"
-                    f"QProgressBar {{ border-radius: 3px; background: {_theme.OVERLAY_10}; }}"
-                )
-                self._acct_progress.show()
-            else:
-                self._acct_remaining_lbl.setText("Expired")
-                self._acct_remaining_lbl.setStyleSheet(f"font-weight: 600; color: {_theme.COLOR_ERR};")
-                self._acct_progress.setValue(0)
-                self._acct_progress.show()
-        else:
-            self._acct_remaining_lbl.setText("—")
-            self._acct_progress.hide()
-
-    # ── URL list ──────────────────────────────────────────────────────────────
-
-    def _rebuild_url_list(self):
-        self._url_list.clear()
-        total = len(self._provider_urls)
-        for i, pu in enumerate(self._provider_urls):
-            item = QListWidgetItem()
-            widget = URLRowWidget(pu, i, total)
-            widget.moveUp.connect(lambda idx=i: self._move_url(idx, -1))
-            widget.moveDown.connect(lambda idx=i: self._move_url(idx, 1))
-            widget.removed.connect(lambda idx=i: self._remove_url(idx))
-            item.setSizeHint(QSize(0, 58))
-            self._url_list.addItem(item)
-            self._url_list.setItemWidget(item, widget)
-        # Fit list height to content (max ~4 rows)
-        row_h = 62
-        self._url_list.setFixedHeight(min(max(row_h, total * row_h), row_h * 5))
-
-    def _add_url(self):
-        url = self._new_url_input.text().strip()
-        if not url:
-            return
-        if any(u.url.rstrip("/") == url.rstrip("/") for u in self._provider_urls):
-            return  # duplicate
-        max_pri = max((u.priority for u in self._provider_urls), default=-1)
-        self._provider_urls.append(ProviderURL(url=url, priority=max_pri + 1))
-        self._new_url_input.clear()
-        self._rebuild_url_list()
-
-    def _remove_url(self, idx: int):
-        if len(self._provider_urls) <= 1:
-            QMessageBox.warning(self, "Cannot Remove", "At least one URL is required.")
-            return
-        self._provider_urls.pop(idx)
-        self._rebuild_url_list()
-
-    def _move_url(self, idx: int, delta: int):
-        new_idx = idx + delta
-        if new_idx < 0 or new_idx >= len(self._provider_urls):
-            return
-        self._provider_urls[idx], self._provider_urls[new_idx] = (
-            self._provider_urls[new_idx], self._provider_urls[idx]
-        )
-        # Re-assign priority to match visual order
-        for i, pu in enumerate(self._provider_urls):
-            pu.priority = i
-        self._rebuild_url_list()
-
-    # ── Save / delete / discard ───────────────────────────────────────────────
+    # ── Save / delete / discard / test connection ───────────────────────────
 
     def _save(self):
         if not self._provider_id:
@@ -1148,6 +790,9 @@ class ProviderEditorView(QWidget):
             # Reflect updated state so repeated saves behave correctly.
             self._epg_was_enabled = epg_now_enabled
             self._epg_url_override = new_epg_override or ""
+            self._current_is_active = bool(db_prov.is_active)
+            self._update_status_dot(self._current_is_active, self._current_is_expired)
+            self._update_toggle_action_label(self._current_is_active)
             # Show transient "Saved" confirmation — persists until the next field edit,
             # at which point _mark_dirty() restores "Save Changes" and re-enables the button.
             self._save_btn.setText(f"{_icons.notification_success_icon} Saved")
@@ -1158,37 +803,6 @@ class ProviderEditorView(QWidget):
             session.rollback()
             logger.error(f"Failed to save provider: {e}")
             QMessageBox.critical(self, "Save Failed", str(e))
-        finally:
-            session.close()
-
-    def _persist_account_info(self, info: dict):
-        """Immediately save fresh account info to database.
-
-        Called when account refresh succeeds, so changes persist even if user
-        navigates away without clicking Save. Emits account_info_updated signal
-        so sidebar can refresh its display.
-        """
-        if not self._provider_id or not info:
-            return
-
-        session = self.db.get_session()
-        try:
-            db_prov = session.query(ProviderDB).filter_by(id=self._provider_id).first()
-            if not db_prov:
-                return
-
-            db_prov.account_status = info.get("status")
-            db_prov.account_active_cons = info.get("active_cons", 0)
-            db_prov.max_connections = info.get("max_connections", 1)
-            db_prov.account_exp_date = self._parse_ts(info.get("exp_date"))
-            db_prov.account_created_at = self._parse_ts(info.get("created_at"))
-            db_prov.updated_at = datetime.now()
-            session.commit()
-            logger.info(f"Account info auto-saved for '{db_prov.name}'")
-            # Notify sidebar to refresh display
-            self.account_info_updated.emit(self._provider_id)
-        except Exception as e:
-            logger.error(f"Failed to auto-save account info: {e}")
         finally:
             session.close()
 
@@ -1243,6 +857,7 @@ class ProviderEditorView(QWidget):
         self._test_results_pending = len(urls)
 
         # Show "Testing…" badge on every row
+        from metatv.gui.url_row_widget import URLRowWidget
         for i in range(self._url_list.count()):
             w = self._url_list.itemWidget(self._url_list.item(i))
             if isinstance(w, URLRowWidget):
@@ -1255,6 +870,7 @@ class ProviderEditorView(QWidget):
 
     def _on_single_url_result(self, url: str, success: bool, ms: int, message: str):
         """Update the matching URL row badge as each result arrives."""
+        from metatv.gui.url_row_widget import URLRowWidget
         self._test_results_pending = max(0, self._test_results_pending - 1)
         total = len(self._provider_urls)
         done = total - self._test_results_pending
@@ -1307,16 +923,21 @@ class ProviderEditorView(QWidget):
         if working:
             self._fetch_account_info()
 
-    # ── EPG helpers ───────────────────────────────────────────────────────────
-
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _set_fields_enabled(self, enabled: bool):
         for w in [self._icon_picker, self._name_input, self._enabled_check,
                   self._username_input, self._password_input, self._refresh_combo,
                   self._force_adult_check, self._url_list, self._new_url_input,
-                  self._refresh_acct_btn, self._test_btn]:
+                  self._refresh_acct_btn, self._test_btn,
+                  self._action_refresh_btn, self._action_analyze_btn,
+                  self._action_toggle_btn]:
             w.setEnabled(enabled)
+        # The action bar's Refresh Guide button has its own gating (EPG
+        # on + has URL) — _update_epg_refresh_btn_state, called from
+        # load_provider, is the source of truth once a provider is loaded.
+        if not enabled:
+            self._epg_refresh_btn.setEnabled(False)
 
     @staticmethod
     def _parse_ts(ts) -> Optional[datetime]:

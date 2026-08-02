@@ -1,4 +1,4 @@
-"""Sources manager — full-view provider list + configuration (Wave 6).
+"""Sources manager — full-view provider list + configuration (Wave 6, Wave 7).
 
 Replaces the old sidebar ``SourcesSection`` (see ``gui/sidebar/sources.py``,
 which now only supplies :class:`ProviderItemWidget` and its helper — the
@@ -6,13 +6,18 @@ per-provider row widget this view reuses verbatim, same signals, never a
 parallel implementation). Opened from the sidebar status strip
 (``gui/sidebar/sources_strip.py``).
 
-LEFT column: every provider as a selectable :class:`ProviderItemWidget` row —
-the SAME widget (status dot / EPG pip / name / toggle / edit / analyze /
-refresh buttons) the retired sidebar section rendered, so the visual language
-and every action signal (refresh / analyze / toggle active / EPG refresh) are
-unchanged; the host wires them to the exact same handlers
-(``refresh_provider``, ``enter_provider_analytics_mode``,
-``toggle_provider_active``, ``_on_provider_epg_refresh``) it always has.
+LEFT column: every provider as a selectable :class:`ProviderItemWidget` row,
+constructed with ``show_actions=False`` (Wave 7) — status dot, provider name
+(no longer truncated), and expiry/inactive state only. The five per-row icon
+buttons (refresh / edit / analyze / toggle / EPG-refresh) the pre-Wave-7 row
+rendered now live in the embedded editor's Summary-tab action bar
+(``ProviderEditorView._build_action_bar``); this view's public
+``providerRefreshClicked``/``providerAnalyzeClicked``/``providerToggleClicked``/
+``providerEpgRefreshClicked`` signals are unchanged (so ``main_window.py``'s
+handler wiring for them is untouched) — they now fire from the editor's action
+bar via the pass-through connections in ``__init__`` instead of from row
+buttons. The "edit" action needed no re-pointing: selecting a row already
+loads it into the editor, so there was never a separate "edit mode" to invoke.
 
 CENTER: the host's single ``ProviderEditorView`` instance, embedded here
 instead of added directly to the content stack — never a second instance /
@@ -29,12 +34,11 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from metatv.core.epg_utils import epg_status as _epg_status
 from metatv.core.repositories import RepositoryFactory
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.sidebar.sources import ProviderItemWidget, _epg_tooltip
+from metatv.gui.sidebar.sources import ProviderItemWidget
 
 if TYPE_CHECKING:
     from metatv.core.config import Config
@@ -101,6 +105,18 @@ class SourcesManagerView(QWidget):
         self._center_layout.setContentsMargins(0, 0, 0, 0)
         self._center_layout.addWidget(self._provider_editor)
 
+        # Pass-through wiring (Wave 7): the editor's action bar replaced the row
+        # buttons as the source of these clicks — re-point by relaying the
+        # editor's new per-action signals onto this view's EXISTING public
+        # signals, so main_window.py's handler connections need no changes.
+        # Refresh is the one exception: it reuses the editor's pre-existing
+        # (previously unemitted) `refresh_requested` signal, already connected
+        # directly to `self.refresh_provider` on this same embedded instance —
+        # no pass-through needed here for it.
+        self._provider_editor.analyze_requested.connect(self.providerAnalyzeClicked.emit)
+        self._provider_editor.toggle_active_requested.connect(self.providerToggleClicked.emit)
+        self._provider_editor.epg_refresh_requested.connect(self.providerEpgRefreshClicked.emit)
+
         self._empty_label = QLabel("Select a source on the left to view its configuration.")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setWordWrap(True)
@@ -151,6 +167,10 @@ class SourcesManagerView(QWidget):
         self._empty_label.setVisible(False)
         self._provider_editor.setVisible(True)
         self._provider_editor.load_provider(provider_id)
+        # A busy toggle for this provider may have started while a different
+        # row was selected (or before any row was) — resync the action bar's
+        # busy visual so switching back to it mid-operation still shows it.
+        self._provider_editor.set_toggle_busy(provider_id in self._busy_ids)
 
     # ------------------------------------------------------------------ #
     # Data                                                                 #
@@ -182,43 +202,21 @@ class SourcesManagerView(QWidget):
                         provider.account_exp_date, provider.account_created_at
                     )
                 icon = getattr(provider, "icon", "") or ""
-                epg_state = _epg_status(
-                    getattr(provider, "epg_url", None), getattr(provider, "epg_data_end", None)
-                )
-                epg_tooltip = _epg_tooltip(
-                    epg_state, getattr(provider, "epg_data_start", None),
-                    getattr(provider, "epg_data_end", None),
-                )
 
+                # Wave 7: no action buttons/EPG pip on the row — status dot,
+                # name, expiry state only (see class docstring). The row's
+                # click (below, itemClicked → _on_item_clicked → select_provider)
+                # is the only interaction left; every action moved to the
+                # editor's action bar.
                 widget = ProviderItemWidget(
                     provider.id, provider.name,
                     is_active=provider.is_active,
                     icon=icon,
                     sub_color=sub_color,
                     is_expired=is_expired,
-                    busy=provider.id in self._busy_ids,
-                    epg_state=epg_state,
-                    epg_tooltip=epg_tooltip,
+                    show_actions=False,
                 )
                 self._item_widgets[provider.id] = widget
-                widget.refreshClicked.connect(
-                    lambda pid=provider.id: self.providerRefreshClicked.emit(pid)
-                )
-                widget.analyzeClicked.connect(
-                    lambda pid=provider.id: self.providerAnalyzeClicked.emit(pid)
-                )
-                widget.toggleClicked.connect(
-                    lambda pid=provider.id: self.providerToggleClicked.emit(pid)
-                )
-                widget.epgRefreshClicked.connect(
-                    lambda pid=provider.id: self.providerEpgRefreshClicked.emit(pid)
-                )
-                # The pencil ("edit") action just focuses/loads this row's config —
-                # selecting a row already shows it in the center pane, so there is
-                # no separate "edit mode" to switch to.
-                widget.editClicked.connect(
-                    lambda pid=provider.id: self.select_provider(pid)
-                )
                 self.sources_tree.setItemWidget(item, 0, widget)
 
         if not providers:
@@ -236,18 +234,25 @@ class SourcesManagerView(QWidget):
         return provider_id in self._busy_ids
 
     def set_provider_busy(self, provider_id: str, busy: bool) -> None:
+        """Track busy state in ``_busy_ids`` (interface parity — still read by
+        ``is_provider_busy``/``has_busy``/``clear_busy`` elsewhere) and, when
+        *provider_id* is the one currently loaded in the editor, render the
+        spinner on its action bar's Enable/Disable button — the row itself has
+        no busy visual of its own since Wave 7 (``show_actions=False``)."""
         if busy:
             self._busy_ids.add(provider_id)
         else:
             self._busy_ids.discard(provider_id)
-        widget = self._item_widgets.get(provider_id)
-        if widget is not None:
-            widget.set_busy(busy)
+        if provider_id == self._selected_id:
+            self._provider_editor.set_toggle_busy(busy)
 
     def set_provider_epg_refreshing(self, provider_id: str, busy: bool) -> None:
-        widget = self._item_widgets.get(provider_id)
-        if widget is not None:
-            widget.set_epg_refreshing(busy)
+        """Render the EPG-refresh spinner on the editor's action bar "Refresh
+        Guide" button when *provider_id* is the one currently loaded — mirrors
+        the retired row EPG pip's spinner, which never persisted across a
+        ``refresh()`` rebuild either (no ``_busy_ids``-style tracking needed)."""
+        if provider_id == self._selected_id:
+            self._provider_editor.set_epg_busy(busy)
 
     def has_busy(self) -> bool:
         return bool(self._busy_ids)
