@@ -156,6 +156,8 @@ def test_prune_content_tags_via_provider_delete(db):
 
 def _seam_self(db_obj, *, on_deleted, sources=None):
     me = SimpleNamespace()
+    # Wave 6: Sources left the sidebar stack — expose the mixin's resolver.
+    me._sources_status_target = lambda: sources
     me.db = db_obj
     me.executor = _SyncExecutor()
     me.notification_manager = MagicMock()

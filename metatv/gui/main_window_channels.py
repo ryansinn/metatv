@@ -373,7 +373,9 @@ class _ChannelListMixin:
             # View-scoped reveal: lift the dead-stream gate for this one load so the
             # user can see channels held back by repeated play failures (mirror-not-
             # cage). Never mutates stored settings; reset on next search/filter change.
-            bypass_dead_gate=self._bypass_dead_gate,
+            # __dict__.get: bare-host tests build MainWindow via __new__, where
+            # PyQt turns plain attribute access into RuntimeError (#351/#375 trap).
+            bypass_dead_gate=self.__dict__.get('_bypass_dead_gate', False),
             search_query=_search_text or None,
             strict_genre_filter=self._details_genre_filter,
             person_filter=self._details_person_filter,
@@ -970,7 +972,10 @@ class _ChannelListMixin:
                     f"search filters  —  show"
                 )
             self._channel_filter_btn.setVisible(show_search)
-        if hasattr(self, '_channel_dead_btn'):
+        # __dict__.get, not hasattr: PyQt raises RuntimeError for attribute
+        # access on a __new__'d MainWindow and hasattr only swallows
+        # AttributeError (same trap as #351/#375).
+        if self.__dict__.get('_channel_dead_btn') is not None:
             if show_dead:
                 self._channel_dead_btn.setText(
                     f"{_icons.dead_stream_icon} {hidden_by_dead:,} unavailable "

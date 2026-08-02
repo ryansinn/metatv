@@ -52,6 +52,9 @@ def test_toggle_reentrancy_guard_blocks_while_busy():
     sources = MagicMock()
     sources.is_provider_busy.return_value = True
     me = SimpleNamespace(
+        # Wave 6: Sources left the sidebar stack — bare hosts must expose the
+        # resolver the provider mixin now calls.
+        _sources_status_target=lambda: sources,
         sidebar_sections={"sources": sources},
         status_bar=MagicMock(),
         db=MagicMock(),
@@ -73,6 +76,7 @@ def test_toggle_marks_busy_then_refreshes_when_idle():
     prov = MagicMock(is_active=True, name="Prov")
     db.get_session.return_value.query.return_value.filter_by.return_value.first.return_value = prov
     me = SimpleNamespace(
+        _sources_status_target=lambda: sources,
         sidebar_sections={"sources": sources},
         status_bar=MagicMock(),
         db=db,

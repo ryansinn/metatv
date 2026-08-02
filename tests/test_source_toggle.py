@@ -30,6 +30,9 @@ def _make_window(selected_provider_id=None, in_edit_mode=False):
     sources = SimpleNamespace(clear_selection=MagicMock())
     provider_editor = MagicMock()
     me = SimpleNamespace(
+        # Wave 6: Sources left the sidebar stack — bare hosts must expose the
+        # resolver the provider mixin now calls.
+        _sources_status_target=lambda: sources,
         selected_provider_id=selected_provider_id,
         _in_provider_edit_mode=in_edit_mode,
         load_channels=load_channels,
@@ -130,6 +133,7 @@ def test_no_sources_section_does_not_crash_on_toggle_off():
 
     load_channels = MagicMock()
     me = SimpleNamespace(
+        _sources_status_target=lambda: None,
         selected_provider_id="p1",
         _in_provider_edit_mode=False,
         load_channels=load_channels,
