@@ -679,6 +679,15 @@ class SettingsDialog(QDialog):
         )
         channel_list_form.addRow("Row density:", self._channel_density_combo)
 
+        self._channel_thumbnails_check = QCheckBox("Show thumbnails in lists")
+        self._channel_thumbnails_check.setToolTip(
+            "Shows a small poster thumbnail at the left of each row in Comfy/\n"
+            "Comfy+ density (Compact never shows one). Only rows currently on\n"
+            "screen are downloaded — scrolling never queues the whole list.\n"
+            "Applies immediately when you click OK or Apply."
+        )
+        channel_list_form.addRow("", self._channel_thumbnails_check)
+
         layout.addWidget(channel_list_group)
 
         sources_group = QGroupBox("Sources")
@@ -857,6 +866,11 @@ class SettingsDialog(QDialog):
         self._channel_density_combo.blockSignals(True)
         _load_channel_density(self._channel_density_combo, c)
         self._channel_density_combo.blockSignals(False)
+        self._channel_thumbnails_check.blockSignals(True)
+        self._channel_thumbnails_check.setChecked(
+            getattr(c, "channel_list_thumbnails", True)
+        )
+        self._channel_thumbnails_check.blockSignals(False)
 
         # Sources
         self._refresh_all_inactive_check.blockSignals(True)
@@ -979,6 +993,7 @@ class SettingsDialog(QDialog):
 
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
+        c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()
 
         # Sources
         c.refresh_all_includes_inactive = self._refresh_all_inactive_check.isChecked()

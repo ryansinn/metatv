@@ -1662,6 +1662,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         from metatv.gui.channel_list_model import ChannelListModel
         from metatv.gui.channel_list_view import ChannelListView
         from metatv.gui.channel_list_delegate import ChannelRowDelegate
+        from metatv.gui.channel_list_thumbnails import ChannelThumbnailHydrator
         from PyQt6.QtWidgets import QAbstractItemView
         self.channel_model = ChannelListModel(self)
         # Restore the persisted "Group by type" state + per-section collapse state.
@@ -1676,12 +1677,32 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list.setModel(self.channel_model)
         # Rich-text delegate so the playback-state separator glyph (·/▶/✓) can be
         # coloured (Resume-orange / watched-green) as reinforcement.  Also owns
-        # the compact/comfy row density (Settings → Interface → Channel List).
-        self._channel_row_delegate = ChannelRowDelegate(self.channels_list)
+        # the compact/comfy/comfy_plus row density AND the comfy/comfy_plus
+        # poster thumbnail (both Settings → Interface → Channel List).
+        self._channel_row_delegate = ChannelRowDelegate(
+            self.channels_list, image_cache=self.image_cache
+        )
         self._channel_row_delegate.set_density(
             getattr(self.config, "channel_list_density", "comfy")
         )
+        self._channel_row_delegate.set_thumbnails_enabled(
+            getattr(self.config, "channel_list_thumbnails", True)
+        )
         self.channels_list.setItemDelegate(self._channel_row_delegate)
+        # Viewport-only thumbnail hydration: requests a poster download ONLY
+        # for rows currently on screen (never the whole virtualized list) —
+        # see channel_list_thumbnails.py. Shares the same ImageCache the
+        # delegate reads from at paint time (cache-hit only, no I/O there).
+        self._channel_thumbnail_hydrator = ChannelThumbnailHydrator(
+            self.channel_model, self.image_cache, parent=self
+        )
+        self._channel_thumbnail_hydrator.set_enabled(
+            getattr(self.config, "channel_list_thumbnails", True)
+        )
+        self._register_cleanable(
+            "channel_thumbnail_hydrator", self._channel_thumbnail_hydrator.shutdown
+        )
+        self.channels_list.set_thumbnail_hydrator(self._channel_thumbnail_hydrator)
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
@@ -2186,16 +2207,25 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             view.refresh()
 
     def _apply_channel_list_density(self) -> None:
-        """Re-apply the channel-list row density (Settings → Interface) live.
+        """Re-apply the channel-list row density AND thumbnail toggle
+        (Settings → Interface → Channel List) live.
 
-        Wired to ``SettingsDialog.settings_applied`` so a density change takes
-        effect immediately, no restart needed. ``sizeHint()`` changes per row,
-        so ``viewport().update()`` alone isn't enough — ``layoutChanged`` tells
-        the view to re-query row heights, not just repaint the same geometry.
+        Wired to ``SettingsDialog.settings_applied`` so a change takes effect
+        immediately, no restart needed. ``sizeHint()`` changes per row (density
+        and/or the thumbnail's reserved height), so ``viewport().update()``
+        alone isn't enough — ``layoutChanged`` tells the view to re-query row
+        heights, not just repaint the same geometry.
         """
         density = getattr(self.config, "channel_list_density", "comfy")
         self._channel_row_delegate.set_density(density)
+        thumbnails_enabled = getattr(self.config, "channel_list_thumbnails", True)
+        self._channel_row_delegate.set_thumbnails_enabled(thumbnails_enabled)
+        hydrator = getattr(self, "_channel_thumbnail_hydrator", None)
+        if hydrator is not None:
+            hydrator.set_enabled(thumbnails_enabled)
         self.channel_model.layoutChanged.emit()
+        if thumbnails_enabled and hasattr(self, "channels_list"):
+            self.channels_list.request_visible_hydration()
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""
