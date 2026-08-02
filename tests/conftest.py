@@ -572,6 +572,47 @@ def wire_settings_epg_widgets(dlg) -> None:
     dlg._epg_auto_refresh_check.setChecked(True)
 
 
+def mock_settings_density_widget(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_density_widget`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    dlg._channel_density_combo = MagicMock()
+    dlg._channel_density_combo.currentData.return_value = "comfy"
+
+
+def wire_settings_density_widget(dlg) -> None:
+    """Attach the Settings → Interface tab's Channel List density combo to a
+    skeleton dialog.
+
+    Builds a **real** Qt widget, so the caller must already have a
+    QApplication (the module ``qapp`` fixture). Qt-free skeletons want
+    :func:`mock_settings_density_widget` instead.
+
+    Mirrors ``wire_settings_recommendation_widgets`` et al: any bare-skeleton
+    test that calls the full ``_load_values``/``_save_values`` breaks once a
+    new widget is added to ``_build_interface_tab`` until it grows a stub for
+    it — keeping this one widget in its own factory means the next caller is
+    a single line here.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
+    from PyQt6.QtWidgets import QComboBox
+
+    dlg._channel_density_combo = QComboBox()
+    for label, value in _CHANNEL_DENSITY_CHOICES:
+        dlg._channel_density_combo.addItem(label, value)
+
+
 def mock_settings_playback_widgets(dlg) -> None:
     """MagicMock flavor of :func:`wire_settings_playback_widgets`.
 

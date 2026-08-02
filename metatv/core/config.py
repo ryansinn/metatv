@@ -811,7 +811,10 @@ class Config(BaseModel):
     # media_types whose grouped section is collapsed (header only). Persisted so
     # collapse state survives restarts.
     group_collapsed_types: list = Field(default_factory=list)
-    
+    # Channel-list row density (Settings → Interface → Channel List): "compact"
+    # (one line) or "comfy" (two lines, default). One global key — not per-view.
+    channel_list_density: str = "comfy"
+
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching
     metadata_cache_ttl_days: int = 30  # Fresh content cache lifetime

@@ -1675,8 +1675,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list = ChannelListView()
         self.channels_list.setModel(self.channel_model)
         # Rich-text delegate so the playback-state separator glyph (·/▶/✓) can be
-        # coloured (Resume-orange / watched-green) as reinforcement.
-        self.channels_list.setItemDelegate(ChannelRowDelegate(self.channels_list))
+        # coloured (Resume-orange / watched-green) as reinforcement.  Also owns
+        # the compact/comfy row density (Settings → Interface → Channel List).
+        self._channel_row_delegate = ChannelRowDelegate(self.channels_list)
+        self._channel_row_delegate.set_density(
+            getattr(self.config, "channel_list_density", "comfy")
+        )
+        self.channels_list.setItemDelegate(self._channel_row_delegate)
         self.channels_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
@@ -2143,6 +2148,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog = SettingsDialog(self.config, self)
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.settings_applied.connect(self._refresh_recommendation_views)
+        dialog.settings_applied.connect(self._apply_channel_list_density)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             tabs = getattr(dialog, "_tabs", None)
@@ -2178,6 +2184,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         view = getattr(self, "preferences_view", None)
         if view is not None and getattr(view, "_active", False):
             view.refresh()
+
+    def _apply_channel_list_density(self) -> None:
+        """Re-apply the channel-list row density (Settings → Interface) live.
+
+        Wired to ``SettingsDialog.settings_applied`` so a density change takes
+        effect immediately, no restart needed. ``sizeHint()`` changes per row,
+        so ``viewport().update()`` alone isn't enough — ``layoutChanged`` tells
+        the view to re-query row heights, not just repaint the same geometry.
+        """
+        density = getattr(self.config, "channel_list_density", "comfy")
+        self._channel_row_delegate.set_density(density)
+        self.channel_model.layoutChanged.emit()
 
     def _apply_sidebar_visibility(self) -> None:
         """Reorder and show/hide sidebar sections immediately from config."""
