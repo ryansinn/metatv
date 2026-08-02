@@ -258,6 +258,20 @@ ACTIONS: dict[str, ChannelAction] = {
         ),
         applies=lambda c: c.is_single and c.channel_found,
     ),
+    "play_deep_cache": ChannelAction(
+        id="play_deep_cache",
+        label=lambda c: "Buffer without limit (pre-load fully)",
+        icon=_icons.deep_cache_icon,
+        tooltip=(
+            "Pre-load this title fully to a scratch cache before/while playing — "
+            "goes further than the open-ended buffer by recording the stream to "
+            "disk. VOD only; the recording is temporary and is discarded when "
+            "playback stops."
+        ),
+        # VOD-only (movie/series) — live channels have no fixed end to pre-load to,
+        # so this action is never shown for them (same predicate as like/dislike).
+        applies=lambda c: c.is_single and c.channel_found and c.media_type in ("movie", "series"),
+    ),
     # ── Resume-position overrides ────────────────────────────────────────────
     "play_from_beginning": ChannelAction(
         id="play_from_beginning",
@@ -604,7 +618,7 @@ ACTIONS: dict[str, ChannelAction] = {
 
 SURFACE_LAYOUTS: dict[str, list[str]] = {
     "channel": [
-        "play", "play_new_window", "play_open_ended_buffer",
+        "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
@@ -633,7 +647,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "bulk_category",
     ],
     "history": [
-        "play", "play_new_window", "play_open_ended_buffer",
+        "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
@@ -649,7 +663,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "remove_history", "hide",
     ],
     "favorites": [
-        "play", "play_new_window", "play_open_ended_buffer",
+        "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
@@ -669,7 +683,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
         "clear_unavailable",
     ],
     "queue": [
-        "play", "play_new_window", "play_open_ended_buffer",
+        "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",
@@ -695,7 +709,7 @@ SURFACE_LAYOUTS: dict[str, list[str]] = {
     # (e.g. mark_watched/category/monitor_series on a non-VOD, not_interested only
     # when it can be suppressed).
     "recommended": [
-        "play", "play_new_window", "play_open_ended_buffer",
+        "play", "play_new_window", "play_open_ended_buffer", "play_deep_cache",
         "play_from_beginning", "resume_from",
         "sep",
         "favorite", "queue",

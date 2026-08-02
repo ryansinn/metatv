@@ -173,6 +173,8 @@ class PlayerManager:
         force_new_window: bool = False,
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
+        channel_id: str = "",
     ) -> bool:
         """Play a URL, enforcing the provider's connection limit.
 
@@ -200,6 +202,13 @@ class PlayerManager:
             open_ended_buffer: When True, the player uses a large disk-backed
                 cache (up to 2 GiB, 3600 s readahead) instead of the configured
                 bounded buffer profile.
+            deep_buffer: When True (VOD-only — see ``channel_menu.py``'s
+                ``play_deep_cache`` action), the player also records the raw
+                stream to disk ("Buffer without limit" / deep-cache mode) —
+                see ``MPVPlayer.play``.
+            channel_id: The channel/episode id being played — threaded through
+                to name the deep-cache recording deterministically. Ignored
+                unless ``deep_buffer`` is True.
 
         Returns:
             True if successful, False otherwise (including when the
@@ -235,6 +244,7 @@ class PlayerManager:
         result = self.player.play(
             url, title, instance_key=key, start_seconds=start_seconds,
             open_ended_buffer=open_ended_buffer,
+            deep_buffer=deep_buffer, channel_id=channel_id,
         )
 
         if provider_id:

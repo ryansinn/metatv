@@ -8,6 +8,7 @@ import re
 import shutil
 import hashlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 from loguru import logger
 
@@ -97,6 +98,11 @@ class _Inst:
 
     process: Optional[subprocess.Popen] = None
     socket_path: str = ""
+    # Deep-cache --stream-record file this instance was launched with, if any
+    # ("" for a normal/open-ended launch). Purged wherever the socket is
+    # unlinked (_relaunch_instance, cleanup()) and in stop() — see
+    # MPVPlayer._purge_deep_cache_file.
+    record_path: str = ""
 
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
@@ -128,6 +134,16 @@ class MPVPlayer(PlayerPlugin):
         self._last_key: str | None = None
         # Monotonically increasing IPC request id for property queries.
         self._request_id = 100
+        # Refusal message from the most recent deep-cache preflight, if any —
+        # "" when the last deep-cache launch (or none yet) had no refusal.
+        # Set right before play() returns False for a deep_buffer request so
+        # the GUI layer can surface it as a toast without changing play()'s
+        # existing bool-return contract.
+        self.last_deep_cache_message: str = ""
+        # Deep-cache recordings are ephemeral for this slice (no save/keep/
+        # promotion yet) — sweep any file left over from a previous run
+        # (e.g. a crash before an instance's teardown could purge it).
+        self._sweep_deep_cache_dir_at_startup()
 
     # ── Public helpers ───────────────────────────────────────────────────────
 
@@ -198,21 +214,30 @@ class MPVPlayer(PlayerPlugin):
 
         return self._launch_ipc_instance(key, self._compose_extra_args())
 
-    def _relaunch_instance(self, key: str, extra_args: list[str]) -> bool:
+    def _relaunch_instance(
+        self, key: str, extra_args: list[str], record_path: str = ""
+    ) -> bool:
         """Terminate the existing mpv instance for *key* and start a fresh one.
 
         This is required when a per-launch option (such as the open-ended disk-backed
-        cache args) must be baked in at process start — mpv's cache settings cannot be
-        changed on a running process via IPC ``loadfile`` per-file options.  The fresh
-        process is launched under the **same key** and registered in ``_instances`` so
-        subsequent IPC commands (``loadfile``, ``get_property``) and the playback-health
-        readout all target the correct window.
+        cache args, or deep-cache's ``--stream-record``) must be baked in at process
+        start — mpv's cache settings cannot be changed on a running process via IPC
+        ``loadfile`` per-file options.  The fresh process is launched under the **same
+        key** and registered in ``_instances`` so subsequent IPC commands (``loadfile``,
+        ``get_property``) and the playback-health readout all target the correct window.
 
         Args:
             key: Instance key.  The same key that ``play()`` resolved — the caller
                 must NOT pass a throwaway/new key.
             extra_args: Fully-composed mpv argument list to use for the fresh launch
-                (e.g. ``_compose_open_ended_buffer_args()``).
+                (e.g. ``_compose_open_ended_buffer_args()`` or
+                ``_compose_deep_cache_args()``).
+            record_path: The deep-cache ``--stream-record`` file the FRESH instance is
+                being launched with, if any ("" for a normal/open-ended relaunch).
+                Stored on the new ``_Inst`` so a later teardown (relaunch/stop/cleanup)
+                can find and purge it. Any *previous* deep-cache file this key owned is
+                purged right here — that instance is being torn down, so its recording
+                is orphaned regardless of what the new launch is.
 
         Returns:
             True if the fresh instance started successfully, False on failure.
@@ -225,7 +250,7 @@ class MPVPlayer(PlayerPlugin):
         if inst is not None and inst.is_running():
             logger.info(
                 f"Terminating existing mpv instance [{key}] PID {inst.process.pid} "
-                "for relaunch with open-ended buffer args"
+                "for relaunch with new buffer args"
             )
             inst.process.terminate()
             try:
@@ -233,6 +258,11 @@ class MPVPlayer(PlayerPlugin):
             except subprocess.TimeoutExpired:
                 logger.warning(f"mpv instance [{key}] did not terminate in time, killing")
                 inst.process.kill()
+
+        # The old instance for this key is gone — purge its deep-cache recording
+        # (if any) now, symmetric with the socket-unlink below.
+        if inst is not None and inst.record_path:
+            self._purge_deep_cache_file(inst.record_path)
 
         # Remove stale entry so _launch_ipc_instance proceeds to a fresh spawn.
         self._instances.pop(key, None)
@@ -245,15 +275,17 @@ class MPVPlayer(PlayerPlugin):
             except Exception as e:
                 logger.warning(f"Could not remove stale socket: {e}")
 
-        return self._launch_ipc_instance(key, extra_args)
+        return self._launch_ipc_instance(key, extra_args, record_path=record_path)
 
-    def _launch_ipc_instance(self, key: str, extra_args: list[str]) -> bool:
+    def _launch_ipc_instance(
+        self, key: str, extra_args: list[str], record_path: str = ""
+    ) -> bool:
         """Start a fresh IPC-enabled mpv process under *key* and register it.
 
         Shared implementation used by :meth:`_ensure_instance_running` (normal launch)
-        and :meth:`_relaunch_instance` (open-ended buffer relaunch).  The caller is
-        responsible for any pre-launch cleanup (socket removal, terminating the old
-        process) — this method assumes the slot is free.
+        and :meth:`_relaunch_instance` (open-ended buffer / deep-cache relaunch).  The
+        caller is responsible for any pre-launch cleanup (socket removal, terminating
+        the old process) — this method assumes the slot is free.
 
         Args:
             key: Instance key; determines the IPC socket path via
@@ -261,6 +293,9 @@ class MPVPlayer(PlayerPlugin):
             extra_args: Fully-composed mpv argument list (UA + reconnect + cache flags
                 + user args).  The IPC server flag, ``--force-window``, ``--keep-open``,
                 and ``--idle`` are added here automatically.
+            record_path: Deep-cache ``--stream-record`` file this instance was launched
+                with, if any ("" for a normal/open-ended launch) — stored on the
+                registered ``_Inst`` so teardown can find it.
 
         Returns:
             True if the process started and its socket appeared within the timeout,
@@ -308,12 +343,16 @@ class MPVPlayer(PlayerPlugin):
             for _ in range(10):
                 if os.path.exists(sock_path):
                     logger.info(f"Socket ready: {sock_path}")
-                    self._instances[key] = _Inst(process=process, socket_path=sock_path)
+                    self._instances[key] = _Inst(
+                        process=process, socket_path=sock_path, record_path=record_path
+                    )
                     return True
                 time.sleep(0.1)
 
             logger.warning(f"Socket not created within timeout for key [{key}]")
-            self._instances[key] = _Inst(process=process, socket_path=sock_path)
+            self._instances[key] = _Inst(
+                process=process, socket_path=sock_path, record_path=record_path
+            )
             return False
 
         except Exception as e:
@@ -492,6 +531,8 @@ class MPVPlayer(PlayerPlugin):
         instance_key: str = _SHARED_KEY,
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
+        channel_id: str = "",
     ) -> bool:
         """Play *url* in the instance identified by *instance_key*.
 
@@ -507,6 +548,13 @@ class MPVPlayer(PlayerPlugin):
         ``_open_ended_buffer_args``), regardless of ``single_instance`` mode.
         This is a per-play variant — the normal ``play_media`` path and the
         configured buffer profile are unchanged.
+
+        When *deep_buffer* is True ("Buffer without limit", VOD-only), mpv is
+        launched with the same open-ended disk-backed cache flags PLUS
+        ``--stream-record=<channel_id>.ts`` into ``config.deep_cache_dir`` and
+        ``--cache-pause-initial=yes`` (start paused until the initial cache
+        fills). Takes priority over *open_ended_buffer* if both are set. See
+        ``_compose_deep_cache_args`` and ``_deep_cache_preflight``.
 
         In multiple-instances mode *instance_key* is ignored; every call
         launches an independent new mpv process (legacy behavior unchanged).
@@ -525,6 +573,14 @@ class MPVPlayer(PlayerPlugin):
                 The existing IPC instance (if any) is NOT reused — buffer
                 config is set at process launch time and cannot be patched
                 over IPC per-file.
+            deep_buffer: When True, launch a fresh process that also records
+                the raw stream to disk via ``--stream-record`` (see above).
+                Same "fresh process, no IPC per-file patch" constraint as
+                *open_ended_buffer*.
+            channel_id: The channel/episode id being played — used to name the
+                deep-cache recording deterministically (``<channel_id>.ts``) so
+                a later slice can find it for save/keep/promotion. Ignored
+                unless *deep_buffer* is True.
 
         Returns:
             True if the stream was handed off to mpv, False on failure.
@@ -536,6 +592,85 @@ class MPVPlayer(PlayerPlugin):
             logger.info(f"  Resume: {start_seconds}s")
         if open_ended_buffer:
             logger.info("  Open-ended buffer mode: disk-backed 2GiB / 3600s readahead")
+
+        # Deep-cache ("Buffer without limit", VOD-only) — same baked-in-at-launch
+        # constraint as open-ended buffer, plus a pre-flight (cap sweep / disk-space
+        # refusal) and a --stream-record file to manage.  Checked first so a caller
+        # that (incorrectly) sets both flags gets deep-cache behavior.
+        if deep_buffer:
+            ok, message = self._deep_cache_preflight()
+            if not ok:
+                self.last_deep_cache_message = message
+                logger.warning(f"Deep buffer refused for {title!r}: {message}")
+                return False
+            self.last_deep_cache_message = ""
+
+            size = getattr(self.config, "default_cache_size", "auto")
+            if size and size != "auto":
+                # default_cache_size normally bypasses the profile system entirely
+                # (see _compose_extra_args) — deep mode is an explicit one-off user
+                # action asking for the largest possible buffer, so it intentionally
+                # overrides that power-user setting rather than being silently
+                # capped by it. Must be logged per the deep-cache design note.
+                logger.info(
+                    f"Deep buffer: bypassing explicit default_cache_size={size!r} — "
+                    "deep mode always uses the full open-ended disk-backed cache."
+                )
+            record_path = str(self._deep_cache_record_path(channel_id))
+            logger.info(f"  Deep-cache buffer mode: recording to {record_path}")
+
+            if self.single_instance:
+                if not self._relaunch_instance(
+                    instance_key,
+                    self._compose_deep_cache_args(record_path),
+                    record_path=record_path,
+                ):
+                    logger.warning(
+                        f"Could not relaunch instance [{instance_key}] with deep-cache args, "
+                        "falling back to standalone process"
+                    )
+                    return self._launch_new_instance(
+                        url, title, start_seconds=start_seconds,
+                        deep_buffer=True, record_path=record_path,
+                    )
+
+                if start_seconds > 0:
+                    per_file_opts = f"start={start_seconds}"
+                    command = {"command": ["loadfile", url, "replace", 0, per_file_opts],
+                               "request_id": 1}
+                else:
+                    command = {"command": ["loadfile", url, "replace"], "request_id": 1}
+
+                if self._send_ipc_command(command, instance_key):
+                    title_command = {
+                        "command": ["set_property", "force-media-title", title],
+                        "request_id": 2,
+                    }
+                    self._send_ipc_command(title_command, instance_key)
+                    self._last_key = instance_key
+                    logger.info(
+                        f"Sent to mpv instance [{instance_key}] (deep-cache buffer): {title}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"IPC command failed after deep-cache relaunch [{instance_key}], "
+                        "falling back to standalone process"
+                    )
+                    return self._launch_new_instance(
+                        url, title, start_seconds=start_seconds,
+                        deep_buffer=True, record_path=record_path,
+                    )
+
+            # multiple-instances mode — no IPC; spawn a plain standalone process.
+            # NOTE: standalone (multi-instance) launches aren't tracked in
+            # _instances at all (pre-existing gap, same as open-ended buffer),
+            # so this file relies on the startup sweep for cleanup rather than
+            # a symmetric stop()/cleanup() purge.
+            return self._launch_new_instance(
+                url, title, start_seconds=start_seconds,
+                deep_buffer=True, record_path=record_path,
+            )
 
         # Open-ended buffer requires baking the large cache args in at process start —
         # mpv's cache settings cannot be patched via IPC loadfile per-file options.
@@ -691,6 +826,8 @@ class MPVPlayer(PlayerPlugin):
         title: str,
         start_seconds: int = 0,
         open_ended_buffer: bool = False,
+        deep_buffer: bool = False,
+        record_path: str = "",
     ) -> bool:
         """Launch a standalone (no-IPC) mpv process for *url*.
 
@@ -698,17 +835,24 @@ class MPVPlayer(PlayerPlugin):
             url: Stream URL.
             title: Title to display.
             start_seconds: When > 0, pass ``--start=<N>`` so mpv begins at
-                that offset.  Used when ``open_ended_buffer`` and resume
-                position must compose.
+                that offset.  Used when ``open_ended_buffer``/``deep_buffer``
+                and resume position must compose.
             open_ended_buffer: When True, use open-ended disk-backed cache
                 args instead of the configured buffer profile.  The reconnect
                 flag and user's ``mpv_extra_args`` still apply (appended last).
+            deep_buffer: When True, use the deep-cache args (open-ended cache +
+                ``--stream-record=<record_path>`` + start-paused). Takes
+                priority over ``open_ended_buffer`` if both are set.
+            record_path: The ``--stream-record`` target path. Required (and
+                only used) when ``deep_buffer`` is True.
 
         Returns:
             True if the process was spawned successfully.
         """
         try:
-            if open_ended_buffer:
+            if deep_buffer:
+                extra_args = self._compose_deep_cache_args(record_path)
+            elif open_ended_buffer:
                 extra_args = self._compose_open_ended_buffer_args()
             else:
                 extra_args = self._compose_extra_args()
@@ -765,10 +909,24 @@ class MPVPlayer(PlayerPlugin):
         resolved = self._resolve_key(key)
         if resolved is None:
             return False
+
+        inst = self._instances.get(resolved)
+        result = False
         if self.single_instance and self.is_running(resolved):
             command = {"command": ["quit"], "request_id": 1}
-            return self._send_ipc_command(command, resolved)
-        return False
+            result = self._send_ipc_command(command, resolved)
+
+        # Deep-cache recordings are safe to unlink even while mpv's "quit" is
+        # still in flight — on POSIX, removing the directory entry doesn't
+        # affect a process that still holds the file open; the space is
+        # reclaimed once mpv actually closes it on exit. That lets this purge
+        # happen synchronously here rather than needing to wait for the
+        # process to actually die (stop() has no such synchronous signal).
+        if inst is not None and inst.record_path:
+            self._purge_deep_cache_file(inst.record_path)
+            inst.record_path = ""
+
+        return result
 
     # ── Cleanup ──────────────────────────────────────────────────────────────
 
@@ -776,7 +934,9 @@ class MPVPlayer(PlayerPlugin):
         """Terminate ALL instances' processes and remove ALL their sockets.
 
         Iterates the full registry so no orphan window or socket is left
-        behind when the application closes.
+        behind when the application closes. Also purges any deep-cache
+        recording still owned by an instance (symmetric with the socket
+        unlink below).
         """
         logger.info("Cleaning up MPVPlayer resources")
 
@@ -797,6 +957,9 @@ class MPVPlayer(PlayerPlugin):
                 except Exception as e:
                     logger.warning(f"Could not remove socket [{key}]: {e}")
 
+            if inst.record_path:
+                self._purge_deep_cache_file(inst.record_path)
+
         self._instances.clear()
 
     # ── Arg composition (unchanged) ──────────────────────────────────────────
@@ -806,9 +969,9 @@ class MPVPlayer(PlayerPlugin):
         """Return mpv buffer flags for the given profile name.
 
         Args:
-            profile: One of ``"reconnect_only"``, ``"modest"``, ``"large"``, or
-                     ``"open_ended"``.  Any unknown value is treated as ``"modest"``
-                     (safe default).
+            profile: One of ``"reconnect_only"``, ``"modest"``, ``"large"``,
+                     ``"open_ended"``, or ``"deep"``.  Any unknown value is treated
+                     as ``"modest"`` (safe default).
 
         Returns:
             List of mpv argument strings for the requested buffer profile.
@@ -820,6 +983,12 @@ class MPVPlayer(PlayerPlugin):
         if profile == "open_ended":
             # Reuse the shared constant — identical to _compose_open_ended_buffer_args.
             return list(_OPEN_ENDED_BUFFER_ARGS)
+        if profile == "deep":
+            # Deep-cache ("Buffer without limit"): identical open-ended disk-backed
+            # flags plus a start-paused gate so playback waits for the initial cache
+            # fill. The dynamic --stream-record=<path> flag is NOT included here (it
+            # depends on a per-play file path) — see _compose_deep_cache_args.
+            return list(_OPEN_ENDED_BUFFER_ARGS) + ["--cache-pause-initial=yes"]
         # "modest" is the default; unknown values fall back here rather than crashing.
         return ["--cache=yes", "--cache-secs=10", "--demuxer-readahead-secs=20"]
 
@@ -968,3 +1137,214 @@ class MPVPlayer(PlayerPlugin):
         buffer_args = list(_OPEN_ENDED_BUFFER_ARGS)
 
         return base_args + buffer_args + user_args
+
+    def _compose_deep_cache_args(self, record_path: str) -> list[str]:
+        """Build mpv args for deep-cache ("Buffer without limit") VOD pre-loading.
+
+        Same shape as ``_compose_open_ended_buffer_args`` — reuses the identical
+        open-ended disk-backed cache flags via ``_buffer_profile_args("deep")`` —
+        plus the per-play ``--stream-record=<record_path>`` flag, which mirrors the
+        decoded stream to disk as a raw ``.ts`` file.  This is what lets the buffer
+        grow past mpv's own in-memory/disk cache limits: mpv keeps recording even
+        after ``--demuxer-max-bytes`` is full and old cache is dropped.  There is NO
+        save/keep/promotion of this file in this slice — it is purged on the owning
+        instance's stop/relaunch/cleanup (see ``_purge_deep_cache_file``) and swept
+        at startup — the deterministic ``<channel_id>.ts`` naming (see
+        ``_deep_cache_record_path``) is only so a *later* slice can find and offer to
+        promote it.
+
+        Honors the same ``mpv_args_override_all`` escape hatch as
+        ``_compose_extra_args``/``_compose_open_ended_buffer_args`` — when set, only
+        user args are returned.  Deliberately does **not** honor the
+        ``default_cache_size`` power-user override (unlike ``_compose_extra_args``):
+        deep mode is an explicit one-off action asking for the largest possible
+        buffer, so it always wins over that setting — the caller (``play()``) logs
+        this bypass when it applies.
+
+        Args:
+            record_path: Absolute path mpv should write the raw stream-record to.
+
+        Returns:
+            List of mpv argument strings.
+        """
+        user_args = list(self.config.mpv_extra_args)
+
+        # Override-all: user takes full manual control — skip all built-in flags.
+        if getattr(self.config, "mpv_args_override_all", False):
+            return user_args
+
+        base_args = [f"--user-agent={stream_user_agent()}", RECONNECT_FLAG]
+        buffer_args = self._buffer_profile_args("deep")
+        record_args = [f"--stream-record={record_path}"]
+
+        return base_args + buffer_args + record_args + user_args
+
+    # ── Deep cache ("Buffer without limit", VOD-only, ephemeral) ────────────
+
+    def _deep_cache_dir(self) -> Path:
+        """Resolve the deep-cache scratch directory from config.
+
+        Expands a leading ``~/`` via ``Path.home()`` rather than
+        ``Path.expanduser()`` — ``expanduser()`` reads ``$HOME`` directly and
+        would bypass the ``Path.home()`` patch the test suite's autouse
+        ``_isolate_user_config`` fixture (``tests/conftest.py``) relies on for
+        isolation, which would let a test run sweep/purge files under the
+        real developer's home directory.
+
+        Returns:
+            The expanded, absolute deep-cache directory path.
+        """
+        raw = getattr(self.config, "deep_cache_dir", "") or "~/.cache/metatv/deepcache"
+        if raw == "~":
+            return Path.home()
+        if raw.startswith("~/"):
+            return Path.home() / raw[2:]
+        return Path(raw)
+
+    def _deep_cache_record_path(self, channel_id: str) -> Path:
+        """Deterministic ``--stream-record`` path for *channel_id*.
+
+        Named ``<channel_id>.ts`` (not a random/temp name) so a later slice
+        (save/keep/promotion) can find a given channel's deep-cache recording
+        by id alone. Falls back to ``"unknown"`` for an empty id rather than
+        producing a bare ``.ts`` filename.
+
+        Args:
+            channel_id: The channel/episode id being played.
+
+        Returns:
+            Absolute path under ``_deep_cache_dir()``.
+        """
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", channel_id) if channel_id else "unknown"
+        return self._deep_cache_dir() / f"{safe_id}.ts"
+
+    def _sweep_deep_cache_dir_at_startup(self) -> None:
+        """Purge every leftover deep-cache ``.ts`` file at process start.
+
+        Deep-cache recordings are explicitly ephemeral in this slice (no
+        save/keep/promotion yet — see ``_compose_deep_cache_args``), so any file
+        still present from a previous run (e.g. the app crashed before an
+        instance's teardown could purge it) is stale and safe to remove.  A no-op
+        (and never *creates* the directory) when the dir doesn't already exist —
+        this must stay side-effect-free for the common case of no prior deep-cache
+        usage, including every test that constructs an ``MPVPlayer``.
+        """
+        cache_dir = self._deep_cache_dir()
+        if not cache_dir.is_dir():
+            return
+        removed = 0
+        for f in cache_dir.glob("*.ts"):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError as e:
+                logger.warning(f"Deep-cache startup sweep: could not remove {f}: {e}")
+        if removed:
+            logger.info(
+                f"Deep-cache startup sweep: removed {removed} leftover file(s) from {cache_dir}"
+            )
+
+    def _purge_deep_cache_file(self, path: str) -> None:
+        """Remove a single deep-cache recording, if it still exists.
+
+        Safe to call even while mpv still holds the file open for writing
+        (POSIX unlink semantics — see the ``stop()`` docstring) and safe to
+        call on an already-removed path (no-op).
+
+        Args:
+            path: Absolute path to the ``.ts`` recording (``""`` is a no-op).
+        """
+        if not path:
+            return
+        try:
+            p = Path(path)
+            if p.exists():
+                p.unlink()
+                logger.info(f"Deep-cache: purged {p}")
+        except OSError as e:
+            logger.warning(f"Deep-cache: could not purge {path}: {e}")
+
+    def _purge_deep_cache_over_cap(self, cache_dir: Path, max_bytes: int) -> None:
+        """Evict the oldest deep-cache files until *cache_dir* is back under *max_bytes*.
+
+        Oldest-first by mtime — the soft cap described in the deep-cache design
+        (``config.deep_cache_max_gb``). A no-op when the dir is already under cap
+        or empty.
+
+        Args:
+            cache_dir: Directory to sweep (only its ``*.ts`` files are considered).
+            max_bytes: The cap, in bytes.
+        """
+        try:
+            files = sorted(
+                (f for f in cache_dir.glob("*.ts") if f.is_file()),
+                key=lambda f: f.stat().st_mtime,
+            )
+        except OSError as e:
+            logger.warning(f"Deep-cache cap sweep: could not list {cache_dir}: {e}")
+            return
+
+        total = 0
+        sizes: dict[Path, int] = {}
+        for f in files:
+            try:
+                sizes[f] = f.stat().st_size
+                total += sizes[f]
+            except OSError:
+                sizes[f] = 0
+
+        while total > max_bytes and files:
+            oldest = files.pop(0)
+            size = sizes.get(oldest, 0)
+            try:
+                oldest.unlink()
+                total -= size
+                logger.info(
+                    f"Deep-cache cap sweep: evicted {oldest.name} "
+                    f"({size / (1024 ** 2):.0f} MiB)"
+                )
+            except OSError as e:
+                logger.warning(f"Deep-cache cap sweep: could not remove {oldest}: {e}")
+                break
+
+    def _deep_cache_preflight(self) -> tuple[bool, str]:
+        """Pre-flight check run before every deep-cache launch.
+
+        1. Ensures the cache dir exists (creates it if missing).
+        2. Soft cap: if the dir already exceeds ``config.deep_cache_max_gb``,
+           evicts the oldest files (:meth:`_purge_deep_cache_over_cap`) until
+           it's back under the cap.
+        3. Hard refusal: if free disk space is less than 2x the cap, refuses
+           outright rather than let deep mode potentially fill the disk —
+           returns a user-facing message for the caller to surface as a toast.
+
+        Returns:
+            ``(True, "")`` when the launch may proceed, else
+            ``(False, <refusal message>)``.
+        """
+        cache_dir = self._deep_cache_dir()
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return False, f"Could not create deep-cache directory: {e}"
+
+        max_gb = getattr(self.config, "deep_cache_max_gb", 20)
+        max_bytes = max_gb * (1024 ** 3)
+
+        self._purge_deep_cache_over_cap(cache_dir, max_bytes)
+
+        try:
+            free_bytes = shutil.disk_usage(cache_dir).free
+        except OSError as e:
+            logger.warning(f"Deep-cache: could not read free disk space: {e}")
+            free_bytes = None
+
+        if free_bytes is not None and free_bytes < 2 * max_bytes:
+            message = (
+                f"Not enough free disk space for deep buffering "
+                f"(need at least {2 * max_gb} GiB free for a {max_gb} GiB cache)."
+            )
+            logger.warning(f"Deep-cache preflight refused: {message}")
+            return False, message
+
+        return True, ""

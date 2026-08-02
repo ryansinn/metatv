@@ -828,6 +828,31 @@ class _FavoritesMixin:
         else:
             self.play_media(channel, open_ended_buffer=True)
 
+    def play_channel_deep_cache_by_id(self, channel_id: str) -> None:
+        """Play channel by ID with deep-cache ("Buffer without limit") mode.
+
+        Mirrors ``play_channel_open_ended_buffer_by_id`` but passes
+        ``deep_buffer=True`` so mpv also records the raw stream to disk (a
+        scratch ``.ts`` file, purged when this instance stops/relaunches) on
+        top of the open-ended disk-backed cache. VOD-only — the
+        ``play_deep_cache`` menu action is gated to movie/series in
+        ``channel_menu.py``, and for SERIES the normal drill-in is used (a
+        series has no single stream to deep-buffer).
+
+        Args:
+            channel_id: The channel's unique ID string.
+        """
+        from metatv.core.models import MediaType
+        channel = None
+        with self.db.session_scope() as session:
+            channel = RepositoryFactory(session).channels.get_playable_dto(channel_id)
+        if not channel:
+            return
+        if channel.media_type == MediaType.SERIES:
+            self.drill_into_series(channel)
+        else:
+            self.play_media(channel, deep_buffer=True)
+
     def play_channel_from_beginning_by_id(self, channel_id: str) -> None:
         """Play channel by ID, forcing playback to start at position 0.
 

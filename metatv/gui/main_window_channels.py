@@ -1191,6 +1191,7 @@ class _ChannelListMixin:
             "play": play_fn,
             "play_new_window": lambda: self.play_channel_new_window_by_id(cid),
             "play_open_ended_buffer": lambda: self.play_channel_open_ended_buffer_by_id(cid),
+            "play_deep_cache": lambda: self.play_channel_deep_cache_by_id(cid),
             "play_from_beginning": lambda: self.play_channel_from_beginning_by_id(cid),
             "resume_from": lambda: self.play_channel_resume_by_id(cid),
             "favorite": lambda: self._toggle_favorite_by_id(
