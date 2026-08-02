@@ -211,6 +211,12 @@ qa_addressed_icon: str = "↺"       # U+21BA ANTICLOCKWISE OPEN CIRCLE — addr
 qa_jump_icon: str = "↑"            # U+2191 UPWARDS ARROW — jump to the addressing entry
 qa_goto_icon: str = "▸"            # U+25B8 BLACK RIGHT-POINTING SMALL TRIANGLE — "Go" deep-link to view/content under test
 
+# Background metadata enrichment queue (Tools menu + progress view). Start/Resume
+# reuse play_icon (▶) — same "go" affordance, no need for a third glyph.
+metadata_enrich_icon: str = "🧬"    # U+1F9EC DNA — background metadata enrichment queue
+enrich_pause_icon: str = "⏸"       # U+23F8 PAUSE — pause an in-progress background pass
+enrich_cancel_icon: str = "⏹"      # U+23F9 STOP — cancel a background pass
+
 # Provider icon palette — colored-circle glyphs offered when picking a source icon
 provider_icon_palette: list[str] = [
     "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "🔶", "🔷", "🔸", "🔹",
