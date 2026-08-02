@@ -15,6 +15,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from loguru import logger
 from sqlalchemy import text
 
 from metatv.core.database import Database
@@ -181,6 +182,33 @@ def test_fresh_connection_uses_wal_journal_mode(tmp_path):
         assert mode.lower() == "wal", f"expected journal_mode=WAL, got {mode!r}"
     finally:
         db.close()
+
+
+def test_startup_logs_pragma_diagnostics(tmp_path):
+    """Database.__init__ logs the ACTUAL read-back journal_mode/busy_timeout once.
+
+    Migration-resilience-2 (owner log 2026-08-01): the next "database is
+    locked" mystery should start with facts, not a re-derivation of whether
+    WAL/busy_timeout are really in effect. Regression guard: the line must
+    report values READ BACK from a real PRAGMA query (not just the literals
+    passed to `_set_pragmas`), and it fires exactly once per Database().
+    """
+    captured: list[str] = []
+    sink_id = logger.add(lambda msg: captured.append(msg.record["message"]), level="INFO")
+    try:
+        db = Database(f"sqlite:///{tmp_path / 'diag.db'}")
+        try:
+            pragma_lines = [m for m in captured if m.startswith("Database pragmas:")]
+            assert len(pragma_lines) == 1, (
+                f"expected exactly one pragma diagnostics line, got {pragma_lines}"
+            )
+            line = pragma_lines[0]
+            assert "journal_mode=wal" in line.lower(), line
+            assert "busy_timeout=30000" in line, line
+        finally:
+            db.close()
+    finally:
+        logger.remove(sink_id)
 
 
 # ---------------------------------------------------------------------------

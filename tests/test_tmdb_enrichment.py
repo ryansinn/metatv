@@ -515,6 +515,140 @@ def test_process_batch_http_error_defers_gracefully(db, config_obj, monkeypatch,
     assert row.detected_tmdb_id is None
 
 
+# ---------------------------------------------------------------------------
+# 3b. Migration-resilience wave 2 — defer bulk writes while a migration runs
+# ---------------------------------------------------------------------------
+#
+# Owner log 2026-08-01: a details-pane browse enqueued a drain batch whose
+# write raced a running Migration Center pass ("database is locked" 90s after
+# an earlier migration crash). TmdbEnrichmentManager now polls an injected
+# MigrationManager's `.is_running` before each bulk-write batch method and
+# yields its single-worker turn instead — see _defer_for_migration.
+
+class _FakeMigrationManager:
+    """Reports `.is_running` True for a fixed number of polls, then False."""
+
+    def __init__(self, running_for_n_checks: int) -> None:
+        self._remaining = running_for_n_checks
+        self.checks = 0
+
+    @property
+    def is_running(self) -> bool:
+        self.checks += 1
+        if self._remaining > 0:
+            self._remaining -= 1
+            return True
+        return False
+
+
+def test_defer_for_migration_polls_until_not_running(db, config_obj, monkeypatch, qapp):
+    from metatv.core import tmdb_enrichment_manager as tem_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+
+    fake_mm = _FakeMigrationManager(running_for_n_checks=3)
+    mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=fake_mm)
+    try:
+        mgr._defer_for_migration()
+    finally:
+        mgr.shutdown()
+
+    assert len(sleeps) == 3, f"expected 3 poll sleeps while migration ran, got {sleeps}"
+    assert all(s == tem_mod._MIGRATION_DEFER_POLL_S for s in sleeps)
+    assert fake_mm.checks == 4, "expected one extra check that finally saw not-running"
+
+
+def test_defer_for_migration_no_wait_when_not_running(db, config_obj, monkeypatch, qapp):
+    from metatv.core import tmdb_enrichment_manager as tem_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+
+    fake_mm = _FakeMigrationManager(running_for_n_checks=0)
+    mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=fake_mm)
+    try:
+        mgr._defer_for_migration()
+    finally:
+        mgr.shutdown()
+
+    assert sleeps == [], "must not sleep when the migration is already finished"
+
+
+def test_defer_for_migration_noop_without_migration_manager(db, config_obj, monkeypatch, qapp):
+    """Default construction (migration_manager=None) — zero behavior change
+    for every existing call site that doesn't wire one in."""
+    from metatv.core import tmdb_enrichment_manager as tem_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+
+    mgr = TmdbEnrichmentManager(db, config_obj)  # no migration_manager
+    try:
+        mgr._defer_for_migration()
+    finally:
+        mgr.shutdown()
+
+    assert sleeps == []
+
+
+def test_defer_for_migration_bounded_by_max_wait(db, config_obj, monkeypatch, qapp):
+    """A stuck/misreporting MigrationManager can't wedge enrichment forever —
+    the courtesy wait is bounded."""
+    from metatv.core import tmdb_enrichment_manager as tem_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(tem_mod, "_MIGRATION_DEFER_MAX_WAIT_S", 3.0)
+
+    class _AlwaysRunning:
+        is_running = True
+
+    mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=_AlwaysRunning())
+    try:
+        mgr._defer_for_migration()
+    finally:
+        mgr.shutdown()
+
+    # 3.0s ceiling / 1.0s poll interval => bails after 3 sleeps.
+    assert len(sleeps) == 3, f"expected the wait to be capped at 3 polls, got {sleeps}"
+
+
+def test_process_batch_defers_then_completes_once_migration_finishes(
+    db, config_obj, monkeypatch, qapp
+):
+    """End-to-end: a drain batch called while a migration is "running" waits,
+    then still completes (enriches the row) once it reports finished — the
+    write isn't dropped, just delayed."""
+    from metatv.core import tmdb_enrichment_manager as tem_mod
+
+    with db.session_scope() as session:
+        _provider(session)
+        _channel(session, media_type="movie", detected_title="EN Movie",
+                 detected_tmdb_id="999", content_key="tmdb:999|movie", source_id="100")
+        idless = _channel(session, media_type="movie", detected_title="ES Peli", source_id="200")
+
+    calls: list = []
+    monkeypatch.setattr("metatv.providers.xtream.XtreamAPI",
+                        _make_fake_api(vod={"200": {"info": {"tmdb_id": "999"}}}, calls=calls))
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tem_mod.time, "sleep", lambda s: sleeps.append(s))
+
+    fake_mm = _FakeMigrationManager(running_for_n_checks=2)
+    mgr = TmdbEnrichmentManager(db, config_obj, migration_manager=fake_mm)
+    try:
+        mgr._process_batch([idless])
+    finally:
+        mgr.shutdown()
+
+    assert len(sleeps) == 2, f"expected the batch to defer twice, got {sleeps}"
+    assert ("vod", "200") in calls  # ...but still ran once the migration "finished"
+    with db.session_scope(commit=False) as session:
+        row = session.query(ChannelDB.detected_tmdb_id).filter_by(id=idless).one()
+    assert row.detected_tmdb_id == "999"
+
+
 def test_enqueue_disabled_by_config_makes_no_calls(db, config_obj, monkeypatch, qapp):
     config_obj.tmdb_enrichment_enabled = False
     with db.session_scope() as session:

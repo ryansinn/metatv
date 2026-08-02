@@ -362,6 +362,369 @@ class TestUpdateDetectedPrefixesLockRetry:
 
 
 # ---------------------------------------------------------------------------
+# 1c. update_detected_prefixes propagation phases — lock retry (migration
+#     resilience wave 2)
+# ---------------------------------------------------------------------------
+
+def _make_vod_channel(
+    session,
+    *,
+    provider_id: str = "p1",
+    media_type: str = "movie",
+    detected_title: str,
+    detected_year: str | None = None,
+    detected_tmdb_id: str | None = None,
+    content_key: str | None = None,
+    detected_region: str | None = None,
+) -> str:
+    """Insert a VOD ChannelDB row with detected_* fields pre-seeded directly
+    (bypassing update_detected_prefixes parsing), so a propagation phase's
+    winner/idless scan can be exercised without depending on name parsing."""
+    from metatv.core.database import ChannelDB
+    cid = str(uuid.uuid4())
+    session.add(ChannelDB(
+        id=cid,
+        source_id=str(uuid.uuid4()),
+        provider_id=provider_id,
+        name=detected_title,
+        media_type=media_type,
+        detected_title=detected_title,
+        detected_year=detected_year,
+        detected_tmdb_id=detected_tmdb_id,
+        content_key=content_key,
+        detected_region=detected_region,
+    ))
+    return cid
+
+
+class TestPropagationLockRetry:
+    """Behavioral tests for the shared ``_retry_on_lock`` helper covering the
+    two propagation phases of ``update_detected_prefixes`` —
+    ``_propagate_region_from_siblings`` and ``propagate_tmdb_from_title_siblings``.
+
+    Regression: the owner's 2026-08-01 18:48 log shows
+    ``propagate_tmdb_from_title_siblings`` crashing on a transient
+    'database is locked' at its bulk UPDATE — #367's retry only covered the
+    batch-commit phase, not these two. Both phases now retry through the same
+    ``ChannelRepository._retry_on_lock`` the batch phase uses.
+    """
+
+    def test_region_propagation_retries_then_succeeds(self, db, monkeypatch):
+        """A lock error during the region-sibling fill's final commit retries
+        and the fill still lands (not lost to the retry)."""
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            # Winner: has content_key + a region. Empty: same content_key, no region.
+            _make_vod_channel(
+                session, detected_title="Foo", content_key="k1",
+                detected_region="US",
+            )
+            empty_id = _make_vod_channel(
+                session, detected_title="Foo (ES source)", content_key="k1",
+                detected_region=None,
+            )
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _flaky_commit():
+                calls["n"] += 1
+                if calls["n"] <= 2:
+                    raise OperationalError(
+                        "UPDATE channels ...", {}, Exception("database is locked")
+                    )
+                real_commit()
+
+            monkeypatch.setattr(session, "commit", _flaky_commit)
+            try:
+                filled = repos.channels._propagate_region_from_siblings()
+            finally:
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert filled == 1, f"expected the empty row to be filled, got {filled}"
+        assert calls["n"] == 3, f"expected 2 failed attempts + 1 success, got {calls['n']}"
+        assert len(sleeps) == 2, f"expected a sleep between each retry, got {sleeps}"
+
+        with db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=empty_id).first()
+            assert ch.detected_region == "US", (
+                f"expected the retried fill to persist, got {ch.detected_region!r}"
+            )
+
+    def test_region_propagation_non_lock_error_aborts_without_retry(self, db, monkeypatch):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            _make_vod_channel(session, detected_title="Foo", content_key="k1", detected_region="US")
+            _make_vod_channel(session, detected_title="Foo2", content_key="k1", detected_region=None)
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _broken_commit():
+                calls["n"] += 1
+                raise OperationalError("UPDATE channels ...", {}, Exception("disk I/O error"))
+
+            monkeypatch.setattr(session, "commit", _broken_commit)
+            try:
+                with pytest.raises(OperationalError):
+                    repos.channels._propagate_region_from_siblings()
+            finally:
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert calls["n"] == 1, "a non-lock error must not be retried"
+        assert sleeps == [], "must not sleep on a non-lock error"
+
+    def test_tmdb_propagation_retries_then_succeeds(self, db, monkeypatch):
+        """A lock error during the tmdb-sibling adoption's final commit
+        retries and the adoption still lands — the exact site from the owner
+        log (channel.py propagate_tmdb_from_title_siblings, ~line 1750)."""
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            _make_vod_channel(
+                session, detected_title="The Matrix", detected_year="1999",
+                detected_tmdb_id="603",
+            )
+            idless_id = _make_vod_channel(
+                session, detected_title="the  matrix", detected_year="1999",
+            )
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _flaky_commit():
+                calls["n"] += 1
+                if calls["n"] <= 2:
+                    raise OperationalError(
+                        "UPDATE channels ...", {}, Exception("database is locked")
+                    )
+                real_commit()
+
+            monkeypatch.setattr(session, "commit", _flaky_commit)
+            try:
+                adopted = repos.channels.propagate_tmdb_from_title_siblings()
+            finally:
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert adopted == 1, f"expected the idless row to adopt the sibling id, got {adopted}"
+        assert calls["n"] == 3, f"expected 2 failed attempts + 1 success, got {calls['n']}"
+        assert len(sleeps) == 2, f"expected a sleep between each retry, got {sleeps}"
+
+        with db.session_scope() as session:
+            ch = session.query(ChannelDB).filter_by(id=idless_id).first()
+            assert ch.detected_tmdb_id == "603", (
+                f"expected the retried adoption to persist, got {ch.detected_tmdb_id!r}"
+            )
+            assert ch.content_key == "tmdb:603|movie"
+
+    def test_tmdb_propagation_non_lock_error_aborts_without_retry(self, db, monkeypatch):
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        with db.session_scope() as session:
+            _make_vod_channel(
+                session, detected_title="The Matrix", detected_year="1999",
+                detected_tmdb_id="603",
+            )
+            _make_vod_channel(session, detected_title="the  matrix", detected_year="1999")
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        with db.session_scope() as session:
+            repos = RepositoryFactory(session)
+            real_commit = session.commit
+            calls = {"n": 0}
+
+            def _broken_commit():
+                calls["n"] += 1
+                raise OperationalError("UPDATE channels ...", {}, Exception("disk I/O error"))
+
+            monkeypatch.setattr(session, "commit", _broken_commit)
+            try:
+                with pytest.raises(OperationalError):
+                    repos.channels.propagate_tmdb_from_title_siblings()
+            finally:
+                monkeypatch.setattr(session, "commit", real_commit)
+
+        assert calls["n"] == 1, "a non-lock error must not be retried"
+        assert sleeps == [], "must not sleep on a non-lock error"
+
+
+class TestBackfillTaskSurvivesPropagationLock:
+    """Coordinator follow-up (2026-08-01 18:50 trace): detected_genre_backfill
+    crashed at the identical propagation site as detected_title_reparse — both
+    tasks call the SAME ``update_detected_prefixes``, so one shared retry
+    helper must demonstrably cover BOTH tasks' full run, not just the batch
+    phase. Runs the REAL ``DetectedGenreBackfillTask.run()`` end-to-end
+    (through its own ``session_scope``) with a flaky commit spanning past the
+    batch phase into a propagation phase, and asserts the task completes
+    without raising.
+    """
+
+    def test_genre_backfill_task_survives_lock_in_propagation_phase(self, db, monkeypatch):
+        from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
+        from metatv.core.repositories import channel as channel_mod
+        from sqlalchemy.exc import OperationalError
+
+        # A single VOD row that, after the batch phase parses it, has BOTH a
+        # non-null content_key + detected_region (feeds the region-sibling
+        # winner map) AND a pre-seeded detected_tmdb_id (feeds the tmdb-sibling
+        # groups map) — so neither propagation phase early-returns before
+        # reaching its final commit. category="|US|" drives the parser's
+        # category->region fallback (name itself carries no locale marker).
+        with db.session_scope() as session:
+            from metatv.core.database import ChannelDB
+            session.add(ChannelDB(
+                id=str(uuid.uuid4()),
+                source_id=str(uuid.uuid4()),
+                provider_id="p1",
+                name="Some Movie (2020)",
+                media_type="movie",
+                category="|US|",
+                detected_tmdb_id="12345",
+            ))
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(channel_mod.time, "sleep", lambda s: sleeps.append(s))
+
+        task = DetectedGenreBackfillTask(db)
+
+        # Commit-call sequence for this single-row fixture is deterministic:
+        # #1 batch commit, #2 region-propagation's unconditional final commit,
+        # #3 tmdb-propagation's unconditional final commit (each phase reaches
+        # its final commit even when it fills/adopts 0 rows, as long as its
+        # winner/groups map isn't empty — see _propagate_region_from_siblings /
+        # propagate_tmdb_from_title_siblings). Fail call #2 and #4 once each so
+        # BOTH propagation phases hit — and retry past — a lock error.
+        calls = {"n": 0}
+        FAIL_ONCE_ON = {2, 4}
+
+        def _patched_session_scope(self, commit=True):
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _cm():
+                with self.SessionLocal() as session:
+                    real_commit = session.commit
+
+                    def _flaky_commit():
+                        calls["n"] += 1
+                        if calls["n"] in FAIL_ONCE_ON:
+                            raise OperationalError(
+                                "UPDATE channels ...", {}, Exception("database is locked")
+                            )
+                        real_commit()
+
+                    session.commit = _flaky_commit
+                    try:
+                        yield session
+                        if commit:
+                            session.commit()
+                        else:
+                            session.rollback()
+                    except Exception:
+                        session.rollback()
+                        raise
+                    finally:
+                        session.close()
+
+            return _cm()
+
+        monkeypatch.setattr(
+            type(db), "session_scope", _patched_session_scope, raising=True
+        )
+
+        # Should complete without raising — both propagation phases recovered.
+        task.run(progress_cb=lambda *a: None, is_cancelled=lambda: False)
+
+        assert calls["n"] >= 3, f"expected at least 3 commit calls, got {calls['n']}"
+        assert len(sleeps) >= 1, "expected at least one lock-retry sleep"
+
+
+class TestCrashedTaskDoesNotLeakLock:
+    """Coordinator follow-up: verify a task that crashes mid-``update_detected_prefixes``
+    does NOT leave an open write transaction holding the SQLite lock — a NEW
+    session/connection must be able to write immediately afterward. Both the
+    inner ``_retry_on_lock`` (final-attempt re-raise, after its own rollback)
+    and the outer ``session_scope`` (rollback + close on any exception) are
+    expected to fully release the writer; this test proves the combination
+    rather than re-deriving SQLite locking semantics from the source.
+    """
+
+    def test_new_connection_writes_immediately_after_crash(self, db, monkeypatch):
+        import time as _time
+        from sqlalchemy import update
+        from metatv.core.database import ChannelDB
+        from metatv.core.repositories import RepositoryFactory
+        from metatv.core.repositories import channel as channel_mod
+        from metatv.core.migrations.detected_title_reparse import DetectedTitleReparseTask
+
+        with db.session_scope() as session:
+            cid = _make_channel(session, "EN - Test Channel")
+
+        def _boom(self, *a, **kw):
+            # Touch the session with a real pending write, THEN blow up — if
+            # anything leaked, this pending change is what would hold the lock.
+            self.session.execute(
+                update(ChannelDB).where(ChannelDB.id == cid).values(detected_prefix="LEAK")
+            )
+            raise RuntimeError("simulated crash mid-migration")
+
+        monkeypatch.setattr(
+            channel_mod.ChannelRepository, "update_detected_prefixes", _boom
+        )
+
+        task = DetectedTitleReparseTask(db)
+        with pytest.raises(RuntimeError):
+            task.run(progress_cb=lambda *a: None, is_cancelled=lambda: False)
+
+        # A brand-new session must be able to write IMMEDIATELY — no lingering
+        # transaction from the crashed task holding the writer. Bound the wait
+        # so a real leak fails fast instead of hanging out the test timeout.
+        t0 = _time.monotonic()
+        with db.session_scope() as session2:
+            session2.execute(
+                update(ChannelDB).where(ChannelDB.id == cid).values(detected_prefix="FRESH")
+            )
+        elapsed = _time.monotonic() - t0
+        assert elapsed < 5.0, f"new connection write took {elapsed}s — looks like a leaked lock"
+
+        with db.session_scope() as session3:
+            ch = session3.query(ChannelDB).filter_by(id=cid).first()
+            assert ch.detected_prefix == "FRESH", (
+                "the crashed task's own pending write must have been rolled "
+                f"back, got detected_prefix={ch.detected_prefix!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # 2. MigrationManager — skip, signal ordering, cancellation
 # ---------------------------------------------------------------------------
 

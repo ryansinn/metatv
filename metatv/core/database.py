@@ -553,6 +553,21 @@ class Database:
 
         self.SessionLocal = sessionmaker(bind=self.engine)
         logger.info(f"Database initialized: {database_url}")
+
+        # Diagnostics: log the ACTUAL pragma values a fresh connection reports
+        # (read back, not just the literals passed to PRAGMA above) once at
+        # startup, so the next "database is locked" mystery starts with facts
+        # instead of re-deriving whether WAL/busy_timeout are really in effect.
+        try:
+            with self.engine.connect() as conn:
+                journal_mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
+                busy_timeout = conn.exec_driver_sql("PRAGMA busy_timeout").scalar()
+            logger.info(
+                "Database pragmas: journal_mode={} busy_timeout={}ms",
+                journal_mode, busy_timeout,
+            )
+        except Exception:
+            logger.exception("Database: failed to read back pragma diagnostics")
     
     def create_tables(self):
         """Create all tables"""

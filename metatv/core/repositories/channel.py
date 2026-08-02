@@ -1247,6 +1247,15 @@ class ChannelRepository(_ChannelStatsMixin):
         sib_filled = 0
         tmdb_adopted = 0
         if not (is_cancelled is not None and is_cancelled()):
+            # Both propagation phases below are bulk writers just like the batch
+            # loop above and hit the identical lock-contention hazard (owner log
+            # 2026-08-01 18:48: propagate_tmdb_from_title_siblings crashed on
+            # `database is locked` at its bulk UPDATE, uncovered by #367's
+            # batch-only retry). Both methods retry internally via the same
+            # shared `_retry_on_lock` helper the batch loop uses, so every
+            # write phase of this method gets identical lock-contention
+            # coverage — including their OTHER caller, the standalone
+            # tmdb_sibling_propagation migration task.
             sib_filled = self._propagate_region_from_siblings(provider_id)
             # Free (no-network) tmdb propagation: an idless row self-heals by adopting
             # a confident same-title sibling's detected_tmdb_id so new content collapses
@@ -1261,6 +1270,62 @@ class ChannelRepository(_ChannelStatsMixin):
         )
         return updated
 
+    def _retry_on_lock(self, label: str, fn, *args, **kwargs):
+        """Call ``fn(*args, **kwargs)``, retrying on a transient SQLite lock.
+
+        Shared by every write phase of :meth:`update_detected_prefixes` — the
+        per-batch commit (:meth:`_commit_prefix_batch_with_retry`), region
+        sibling propagation (:meth:`_propagate_region_from_siblings`), and tmdb
+        sibling propagation (:meth:`propagate_tmdb_from_title_siblings`) — one
+        helper instead of three copies (owner log 2026-08-01: the tmdb-sibling
+        phase crashed on ``database is locked`` because only the batch commit
+        had retry coverage before this).
+
+        On ``OperationalError`` whose message contains "locked", rolls back the
+        session and retries up to ``_LOCK_RETRY_ATTEMPTS`` times with a
+        ``_LOCK_RETRY_DELAY_S`` sleep between attempts. A failed commit's
+        rollback discards any pending in-memory changes, so ``fn`` must be safe
+        to re-run from scratch — every current caller is a fill-empty-only bulk
+        pass that re-queries on each call, so a retry simply re-scans and only
+        re-applies whatever didn't make it into the last successful commit.
+        Any other exception, or a lock error on the final attempt, re-raises
+        immediately so the caller's crash-without-version-bump contract (#364)
+        is unchanged — only lock contention retries.
+
+        Args:
+            label: Short phase name used in log messages only.
+            fn: Callable to invoke (and retry from scratch on a lock error).
+            *args: Positional arguments forwarded to ``fn``.
+            **kwargs: Keyword arguments forwarded to ``fn``.
+
+        Returns:
+            ``fn``'s return value from the successful attempt.
+        """
+        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            try:
+                return fn(*args, **kwargs)
+            except OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                self.session.rollback()
+                if attempt == _LOCK_RETRY_ATTEMPTS:
+                    logger.error(
+                        "{}: still locked after {} attempt(s), aborting run "
+                        "(will retry next launch)",
+                        label,
+                        _LOCK_RETRY_ATTEMPTS,
+                    )
+                    raise
+                logger.warning(
+                    "{}: locked (attempt {}/{}); retrying in {}s",
+                    label,
+                    attempt,
+                    _LOCK_RETRY_ATTEMPTS,
+                    _LOCK_RETRY_DELAY_S,
+                )
+                time.sleep(_LOCK_RETRY_DELAY_S)
+        raise AssertionError("unreachable")  # pragma: no cover
+
     def _commit_prefix_batch_with_retry(
         self,
         chunk_ids: list[str],
@@ -1269,15 +1334,11 @@ class ChannelRepository(_ChannelStatsMixin):
     ) -> tuple[int, int]:
         """Run one ``update_detected_prefixes`` batch, retrying on a transient lock.
 
-        Delegates the actual query/compute/commit to :meth:`_process_prefix_batch`.
-        On ``OperationalError`` whose message contains "locked", rolls back and
-        retries the *whole* batch (query included) up to ``_LOCK_RETRY_ATTEMPTS``
-        times with a ``_LOCK_RETRY_DELAY_S`` sleep between attempts — a failed
-        commit leaves the session's in-memory changes expired after rollback, so
-        re-running just ``session.commit()`` would flush nothing; the batch must
-        be recomputed from a fresh query. Any other exception (or a lock error on
-        the final attempt) re-raises immediately so the caller's crash-without-
-        version-bump contract (#364) is unchanged — only lock contention retries.
+        Delegates the actual query/compute/commit to :meth:`_process_prefix_batch`
+        via the shared :meth:`_retry_on_lock` helper, which retries the *whole*
+        batch (query included) — a failed commit leaves the session's in-memory
+        changes expired after rollback, so re-running just ``session.commit()``
+        would flush nothing; the batch must be recomputed from a fresh query.
 
         Args:
             chunk_ids: Channel ids in this batch.
@@ -1287,29 +1348,13 @@ class ChannelRepository(_ChannelStatsMixin):
         Returns:
             ``(batch_updated, batch_processed)`` from the successful attempt.
         """
-        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
-            try:
-                return self._process_prefix_batch(chunk_ids, separators, config)
-            except OperationalError as exc:
-                if "locked" not in str(exc).lower():
-                    raise
-                self.session.rollback()
-                if attempt == _LOCK_RETRY_ATTEMPTS:
-                    logger.error(
-                        "update_detected_prefixes: batch still locked after {} "
-                        "attempt(s), aborting run (will retry next launch)",
-                        _LOCK_RETRY_ATTEMPTS,
-                    )
-                    raise
-                logger.warning(
-                    "update_detected_prefixes: batch locked (attempt {}/{}); "
-                    "retrying in {}s",
-                    attempt,
-                    _LOCK_RETRY_ATTEMPTS,
-                    _LOCK_RETRY_DELAY_S,
-                )
-                time.sleep(_LOCK_RETRY_DELAY_S)
-        raise AssertionError("unreachable")  # pragma: no cover
+        return self._retry_on_lock(
+            "update_detected_prefixes: batch",
+            self._process_prefix_batch,
+            chunk_ids,
+            separators,
+            config,
+        )
 
     def _process_prefix_batch(
         self,
@@ -1554,6 +1599,21 @@ class ChannelRepository(_ChannelStatsMixin):
     ) -> int:
         """Fill empty ``detected_region`` from a same-``content_key`` sibling.
 
+        Retries the whole pass on a transient lock via the shared
+        :meth:`_retry_on_lock` helper — see :meth:`_propagate_region_from_siblings_impl`
+        for the actual logic and docstring.
+        """
+        return self._retry_on_lock(
+            "update_detected_prefixes: region-sibling propagation",
+            self._propagate_region_from_siblings_impl,
+            provider_id,
+        )
+
+    def _propagate_region_from_siblings_impl(
+        self, provider_id: Optional[str] = None
+    ) -> int:
+        """Fill empty ``detected_region`` from a same-``content_key`` sibling.
+
         Final fill-empty-only pass of :meth:`update_detected_prefixes`.  A row
         whose name AND provider-category yielded no region inherits one from a
         sibling sharing its (non-NULL) ``content_key`` — the cross-source content
@@ -1567,6 +1627,12 @@ class ChannelRepository(_ChannelStatsMixin):
         Never overwrites a row that already has a region.  Sibling regions are
         read across **all** providers (content identity is source-independent);
         when *provider_id* is given, only that provider's rows are filled.
+
+        Idempotent / retry-safe: only fills rows that are still empty, so a
+        retried run after a partial commit simply re-scans and re-applies
+        whatever the last successful commit didn't cover — see
+        :meth:`_propagate_region_from_siblings` (the public entry point, which
+        wraps this in the shared lock-retry helper).
 
         Args:
             provider_id: Restrict the rows that get filled to this provider, or
@@ -1647,6 +1713,24 @@ class ChannelRepository(_ChannelStatsMixin):
     ) -> int:
         """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
 
+        Retries the whole pass on a transient lock via the shared
+        :meth:`_retry_on_lock` helper — this is the site that crashed
+        uncovered on 2026-08-01 (owner log: ``database is locked`` inside this
+        method's bulk ``UPDATE``, which #367's batch-only retry didn't reach).
+        See :meth:`_propagate_tmdb_from_title_siblings_impl` for the actual
+        logic and full docstring.
+        """
+        return self._retry_on_lock(
+            "propagate_tmdb_from_title_siblings",
+            self._propagate_tmdb_from_title_siblings_impl,
+            provider_id,
+        )
+
+    def _propagate_tmdb_from_title_siblings_impl(
+        self, provider_id: Optional[str] = None
+    ) -> int:
+        """Adopt a confident same-title sibling's ``detected_tmdb_id`` onto idless rows.
+
         Free (no-network) Phase-2 pass.  For each idless VOD row
         (``detected_tmdb_id IS NULL``), if a sibling shares the **same normalized
         ``detected_title``** (via :func:`content_dedup.normalize_title`) **and the
@@ -1669,6 +1753,12 @@ class ChannelRepository(_ChannelStatsMixin):
         never touched (mirror-not-cage).  Shared by the one-time migration
         (``tmdb_sibling_propagation``) and ``update_detected_prefixes`` so both paths
         use one definition.
+
+        Idempotent / retry-safe: only touches rows still idless
+        (``detected_tmdb_id IS NULL``), so a retried run after a partial commit
+        (see :meth:`propagate_tmdb_from_title_siblings`, the public entry point
+        wrapping this in the shared lock-retry helper) simply re-scans and
+        adopts only what the last successful commit didn't cover.
 
         Args:
             provider_id: Restrict the idless rows filled to this provider, or None

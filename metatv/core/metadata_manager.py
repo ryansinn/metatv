@@ -1,6 +1,6 @@
 """Metadata provider management and coordination"""
 import asyncio
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from datetime import datetime, timedelta
 from collections import deque
 
@@ -139,95 +139,160 @@ class MetadataManager:
     async def get_metadata(self, channel_id: str,
                           force_refresh: bool = False) -> Optional[MetadataResult]:
         """Get metadata using plugin fallback chain
-        
+
+        Session hygiene: the DB is touched in two short, separate scopes — a
+        read (channel identity + cache check) BEFORE any network call, and a
+        write (persist the merged result) only AFTER every provider network
+        call has returned. No session is held open while awaiting
+        ``provider.get_details()`` — those calls are unbounded network I/O and
+        holding a session (with `database.py`'s single-writer SQLite) across
+        them starved concurrent bulk writers (a Migration Center pass) of the
+        write lock long enough to exceed the 30s busy_timeout (owner log
+        2026-08-01). See docs/CRITICAL_RULES.md#database-sessions.
+
         Args:
             channel_id: Channel ID to fetch metadata for
             force_refresh: If True, bypass cache and fetch fresh data
-        
+
         Returns:
             MetadataResult with merged data from all providers, or None
         """
         logger.debug(f"=== get_metadata called for channel_id={channel_id}, force_refresh={force_refresh}")
         try:
-            logger.debug(f"Getting database session...")
-            session = self.db.get_session()
-            try:
-                logger.debug(f"Querying for channel {channel_id}...")
-                channel = session.query(ChannelDB).filter_by(id=channel_id).first()
-                
-                if not channel:
-                    logger.warning(f"Channel not found: {channel_id}")
-                    return None
-                
-                logger.debug(f"Found channel: {channel.name}")
-                
-                # Check cache first (unless force refresh)
-                if not force_refresh and channel.metadata_id:
-                    cached = self._get_cached_metadata(session, channel.metadata_id)
-                    if cached and not self._is_stale(cached):
-                        logger.debug(f"Using cached metadata for {channel.name}")
-                        return self._metadata_db_to_result(cached)
-                
-                # Try providers in priority order
-                result = MetadataResult()
-                providers_tried = []
-                
-                logger.debug(f"Trying {len(self.registry.get_enabled())} enabled providers for {channel.name}")
-                
-                for provider in self.registry.get_enabled():
-                    # Skip if not supported for this media type
-                    if channel.media_type not in provider.supported_media_types:
-                        logger.debug(f"Skipping {provider.name}: doesn't support {channel.media_type}")
-                        continue
-                    
-                    # Rate limit check
-                    if not await self._check_rate_limit(provider.name):
-                        logger.debug(f"Rate limit reached for {provider.name}, skipping")
-                        continue
-                    
-                    try:
-                        logger.debug(f"Fetching metadata from {provider.name} for {channel.name}")
-                        
-                        # Fetch from provider
-                        partial = await provider.get_details(
-                            channel.id,
-                            media_type=channel.media_type
-                        )
-                        
-                        if partial:
-                            logger.debug(f"{provider.name} returned: title={partial.title}, plot={'Yes' if partial.plot else 'No'}, poster={'Yes' if partial.poster_url else 'No'}")
-                            providers_tried.append(provider.name)
-                            
-                            # Merge partial result (fill in missing fields only)
-                            result.merge(partial)
-                            
-                            # If all important fields populated, stop early
-                            if result.is_complete():
-                                logger.debug(f"Metadata complete after {provider.name}")
-                                break
-                        else:
-                            logger.debug(f"{provider.name} returned None")
-                    
-                    except Exception as e:
-                        logger.warning(f"Metadata fetch failed from {provider.name}: {e}", exc_info=True)
-                        continue
-                
-                logger.debug(f"Merged result: title={result.title}, plot={'Yes' if result.plot else 'No'}, poster={'Yes' if result.poster_url else 'No'}")
-                
-                # Save to cache if we got any data
-                if result.title or result.plot or result.poster_url:
-                    self._save_metadata_cache(session, channel, result)
-                    logger.info(f"Cached metadata for {channel.name} from: {', '.join(providers_tried)}")
-                    return result
-                
-                logger.debug(f"No metadata found for {channel.name}")
-                return None
-            finally:
-                session.close()
-        
+            lookup = self._load_channel_for_metadata(channel_id, force_refresh)
         except Exception as e:
-            logger.error(f"Error fetching metadata for {channel_id}: {e}", exc_info=True)
+            logger.error(f"Error reading channel for metadata fetch {channel_id}: {e}", exc_info=True)
             return None
+        if lookup is None:
+            return None
+        cached_result, ch_name, ch_media_type = lookup
+        if cached_result is not None:
+            logger.debug(f"Using cached metadata for {ch_name}")
+            return cached_result
+
+        # ── Network phase: NO DB session open for the duration of this loop ──
+        result = MetadataResult()
+        providers_tried = []
+
+        logger.debug(f"Trying {len(self.registry.get_enabled())} enabled providers for {ch_name}")
+
+        for provider in self.registry.get_enabled():
+            # Skip if not supported for this media type
+            if ch_media_type not in provider.supported_media_types:
+                logger.debug(f"Skipping {provider.name}: doesn't support {ch_media_type}")
+                continue
+
+            # Rate limit check
+            if not await self._check_rate_limit(provider.name):
+                logger.debug(f"Rate limit reached for {provider.name}, skipping")
+                continue
+
+            try:
+                logger.debug(f"Fetching metadata from {provider.name} for {ch_name}")
+
+                # Fetch from provider (network I/O — deliberately no session open here)
+                partial = await provider.get_details(
+                    channel_id,
+                    media_type=ch_media_type
+                )
+
+                if partial:
+                    logger.debug(f"{provider.name} returned: title={partial.title}, plot={'Yes' if partial.plot else 'No'}, poster={'Yes' if partial.poster_url else 'No'}")
+                    providers_tried.append(provider.name)
+
+                    # Merge partial result (fill in missing fields only)
+                    result.merge(partial)
+
+                    # If all important fields populated, stop early
+                    if result.is_complete():
+                        logger.debug(f"Metadata complete after {provider.name}")
+                        break
+                else:
+                    logger.debug(f"{provider.name} returned None")
+
+            except Exception as e:
+                logger.warning(f"Metadata fetch failed from {provider.name}: {e}", exc_info=True)
+                continue
+
+        logger.debug(f"Merged result: title={result.title}, plot={'Yes' if result.plot else 'No'}, poster={'Yes' if result.poster_url else 'No'}")
+
+        # Save to cache if we got any data
+        if not (result.title or result.plot or result.poster_url):
+            logger.debug(f"No metadata found for {ch_name}")
+            return None
+
+        try:
+            self._persist_metadata_cache(channel_id, result, providers_tried, ch_name)
+        except Exception as e:
+            logger.error(f"Error saving metadata for {channel_id}: {e}", exc_info=True)
+            return None
+        return result
+
+    def _load_channel_for_metadata(
+        self, channel_id: str, force_refresh: bool
+    ) -> Optional[Tuple[Optional[MetadataResult], str, str]]:
+        """Read-only lookup: channel name/media_type + cached metadata, own short scope.
+
+        Runs in its own ``session_scope(commit=False)`` that closes before
+        this method returns — the caller (``get_metadata``) performs any
+        network fetch strictly AFTER this session is gone, never inside it.
+
+        Args:
+            channel_id: Channel ID to look up.
+            force_refresh: If True, skip the cache check (still reads identity).
+
+        Returns:
+            ``None`` when the channel doesn't exist. Otherwise
+            ``(cached_result_or_None, channel_name, media_type)`` — a non-None
+            first element means the cache was fresh and the caller should
+            return it directly without any network fetch.
+        """
+        with self.db.session_scope(commit=False) as session:
+            logger.debug(f"Querying for channel {channel_id}...")
+            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+
+            if not channel:
+                logger.warning(f"Channel not found: {channel_id}")
+                return None
+
+            logger.debug(f"Found channel: {channel.name}")
+            ch_name = channel.name
+            ch_media_type = channel.media_type
+
+            cached_result = None
+            if not force_refresh and channel.metadata_id:
+                cached = self._get_cached_metadata(session, channel.metadata_id)
+                if cached and not self._is_stale(cached):
+                    cached_result = self._metadata_db_to_result(cached)
+
+            return (cached_result, ch_name, ch_media_type)
+
+    def _persist_metadata_cache(
+        self, channel_id: str, result: MetadataResult,
+        providers_tried: List[str], ch_name: str,
+    ) -> None:
+        """Write phase: open a fresh session only AFTER all network I/O is done.
+
+        Re-queries the channel in this new session (the one from
+        ``_load_channel_for_metadata`` is long closed) — a channel deleted
+        between the read and this write is logged and skipped rather than
+        raising.
+
+        Args:
+            channel_id: Channel ID to persist metadata for.
+            result: The merged provider result to cache.
+            providers_tried: Provider names that contributed data (for logging).
+            ch_name: Channel display name (for logging only).
+        """
+        with self.db.session_scope() as session:
+            channel = session.query(ChannelDB).filter_by(id=channel_id).first()
+            if not channel:
+                logger.warning(
+                    f"Channel disappeared before metadata cache write: {channel_id}"
+                )
+                return
+            self._save_metadata_cache(session, channel, result)
+        logger.info(f"Cached metadata for {ch_name} from: {', '.join(providers_tried)}")
     
     async def _check_rate_limit(self, provider_name: str) -> bool:
         """Check and wait for rate limit if needed
