@@ -2145,13 +2145,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
-            tabs = getattr(dialog, "_tabs", None)
-            if tabs is not None:
-                want = tab.strip().lower()
-                for i in range(tabs.count()):
-                    if want in tabs.tabText(i).lower():
-                        tabs.setCurrentIndex(i)
-                        break
+            dialog.select_section_by_label(tab)
         dialog.exec()
         self._apply_sidebar_visibility()
         # The Recommendations tab's dials change how the engine scores, so both
