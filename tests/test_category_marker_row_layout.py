@@ -414,8 +414,18 @@ class TestComfyLine1Layout:
         title_rect = next(r for r, t in drawn_text_calls if t == "My Great Show")
         quality_rect = next(r for r, c in cell_calls if c.text == quality_display("4K"))
 
-        # Immediately follows the title's rect — no stretch between them.
-        assert quality_rect.left() == title_rect.left() + title_rect.width() + _CELL_GAP
+        # Immediately follows the title TEXT — no stretch between them.
+        #
+        # This originally asserted ``title_rect.width()`` — the title BOX, which is
+        # stretched to every pixel up to the right group — so it locked in the very
+        # regression its name describes (chip painted flush against the right group,
+        # owner UX report vs 0.21.0). Measure the drawn text instead.
+        from PyQt6.QtGui import QFontMetrics
+        fm = QFontMetrics(QFont())
+        title_text_end = title_rect.left() + min(
+            fm.horizontalAdvance("My Great Show"), title_rect.width()
+        )
+        assert quality_rect.left() == title_text_end + _CELL_GAP
 
     def test_right_group_full_ordering_flush_right(self, qapp):
         """A row carrying all five right-group values at once: order is
@@ -526,3 +536,113 @@ class TestCompactUnaffected:
     def test_density_still_defaults_to_comfy(self, qapp):
         delegate = ChannelRowDelegate()
         assert delegate.density == DENSITY_COMFY
+
+
+# ---------------------------------------------------------------------------
+# Quality-chip POSITION (owner UX report against 0.21.0)
+#
+# The row grammar says the quality chip hugs the TITLE TEXT. The first
+# implementation offset the chip by ``title_box_w`` — the title box is stretched
+# to every pixel up to the right-aligned group, so the chip was painted flush
+# against that group instead, on the far right of the row.
+#
+# The cell ORDER was correct throughout, which is why the original suite passed
+# green while the rendered row was wrong. These tests assert painted GEOMETRY.
+# ---------------------------------------------------------------------------
+
+class TestQualityChipHugsTitle:
+
+    ROW_W = 900  # wide row => large gap between title text and the right group
+
+    def _capture(self, density):
+        """Paint one row and return {label: rect} for every painted cell."""
+        from PyQt6.QtGui import QFontMetrics
+
+        delegate = ChannelRowDelegate()
+        painted: dict[str, QRect] = {}
+        delegate._paint_cell = lambda p, rect, cell, font: painted.__setitem__(
+            cell.text, QRect(rect)
+        )
+        drawn: list[tuple[QRect, str]] = []
+        delegate._draw_text = lambda p, rect, text, color, font: drawn.append(
+            (QRect(rect), text)
+        )
+
+        index = MagicMock()
+        roles = {
+            "TITLE_ROLE": "Fallout",
+            "QUALITY_TOKEN_ROLE": "4K",
+            "YEAR_ROLE": "2024",
+            "LANGUAGE_ROLE": "US",
+        }
+        import metatv.gui.channel_list_delegate as d
+
+        def data(role):
+            for name, value in roles.items():
+                if role == getattr(d, name, object()):
+                    return value
+            return None
+
+        index.data.side_effect = data
+        font = QFont()
+        rect = QRect(0, 0, self.ROW_W, 40)
+        if density == DENSITY_COMPACT:
+            delegate._paint_compact(None, rect, index, None, font)
+        else:
+            delegate._paint_title_year_line(None, rect, index, None, font)
+        return painted, drawn, QFontMetrics(font)
+
+    def _assert_hugs(self, density):
+        painted, drawn, fm = self._capture(density)
+        chip = painted.get(quality_display("4K"))
+        assert chip is not None, "quality chip was never painted"
+
+        title_draw = next((r for r, t in drawn if t.startswith("Fallout")), None)
+        assert title_draw is not None, "title was never drawn"
+        title_text_end = title_draw.left() + fm.horizontalAdvance("Fallout")
+
+        # The chip starts right after the title TEXT, not after the stretched box.
+        assert chip.left() <= title_text_end + 2 * _CELL_GAP, (
+            f"quality chip drifted right: chip.left()={chip.left()} but the title "
+            f"text ends at {title_text_end} (row width {self.ROW_W})"
+        )
+        # And it is nowhere near the right edge — the regression's signature.
+        assert chip.left() < self.ROW_W // 2, (
+            f"quality chip parked on the right half ({chip.left()}) — it must hug "
+            "the title on the left"
+        )
+
+    def test_comfy_quality_chip_hugs_title(self, qapp):
+        self._assert_hugs(DENSITY_COMFY)
+
+    def test_compact_quality_chip_hugs_title(self, qapp):
+        self._assert_hugs(DENSITY_COMPACT)
+
+    def test_year_stays_plain_text_right_aligned(self, qapp):
+        """Year stays unboxed plain text in the right group (owner call, 0.22.0)."""
+        from PyQt6.QtGui import QFontMetrics  # noqa: F401
+
+        delegate = ChannelRowDelegate()
+        cells: list = []
+        delegate._paint_cell = lambda p, rect, cell, font: cells.append((QRect(rect), cell))
+        delegate._draw_text = lambda p, rect, text, color, font: None
+
+        index = MagicMock()
+        import metatv.gui.channel_list_delegate as d
+        roles = {"TITLE_ROLE": "Fallout", "QUALITY_TOKEN_ROLE": "4K",
+                 "YEAR_ROLE": "2024", "LANGUAGE_ROLE": "US"}
+
+        def data(role):
+            for name, value in roles.items():
+                if role == getattr(d, name, object()):
+                    return value
+            return None
+
+        index.data.side_effect = data
+        delegate._paint_title_year_line(
+            None, QRect(0, 0, self.ROW_W, 40), index, None, QFont()
+        )
+        year = next(((r, c) for r, c in cells if c.text == "2024"), None)
+        assert year is not None, "year was never painted"
+        assert year[1].is_chip is False, "year must stay plain text, not a chip"
+        assert year[0].left() > self.ROW_W // 2, "year must be right-aligned"

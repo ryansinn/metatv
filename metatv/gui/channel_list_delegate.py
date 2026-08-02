@@ -536,7 +536,11 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._draw_text(painter, title_box, elided, default_color, font)
 
         if quality_cell:
-            q_rect = QRect(x + title_box_w + _CELL_GAP, rect.top(), quality_w, rect.height())
+            # The chip hugs the TITLE TEXT, not the title box. ``title_box_w`` is
+            # the full space up to the right group, so offsetting by it parked the
+            # chip against the right group instead (owner UX report, 0.21.0).
+            title_w = min(fm.horizontalAdvance(elided), title_box_w)
+            q_rect = QRect(x + title_w + _CELL_GAP, rect.top(), quality_w, rect.height())
             self._paint_cell(painter, q_rect, quality_cell, font)
 
         for cell, r in zip(right_cells, right_rects):
@@ -619,7 +623,9 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._draw_text(painter, title_box, elided, default_color, font)
 
         if quality_cell:
-            q_rect = QRect(x + title_box_w + _CELL_GAP, line.top(), quality_w, line.height())
+            # Hug the title TEXT — see the note in _paint_compact.
+            title_w = min(fm.horizontalAdvance(elided), title_box_w)
+            q_rect = QRect(x + title_w + _CELL_GAP, line.top(), quality_w, line.height())
             self._paint_cell(painter, q_rect, quality_cell, font)
 
         for cell, r in zip(right_cells, right_rects):
