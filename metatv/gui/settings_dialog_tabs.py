@@ -11,6 +11,9 @@ them, only that ``self`` is the same ``SettingsDialog`` instance.
 """
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
@@ -22,6 +25,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
+from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui import theme_palettes
 from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
@@ -479,7 +483,21 @@ class SettingsTabsMixin:
             lambda: QDesktopServices.openUrl(QUrl("https://www.themoviedb.org/settings/api"))
         )
         tmdb_key_row.addWidget(tmdb_link_btn)
+        self._tmdb_test_btn = QPushButton("Test")
+        self._tmdb_test_btn.setFixedWidth(50)
+        self._tmdb_test_btn.setEnabled(self._executor is not None)
+        self._tmdb_test_btn.setToolTip(
+            "Test this TMDb API key" if self._executor is not None
+            else "Test unavailable — no background executor for this dialog instance"
+        )
+        self._tmdb_test_btn.clicked.connect(self._on_test_tmdb_key)
+        tmdb_key_row.addWidget(self._tmdb_test_btn)
         tmdb_form.addRow("API key:", tmdb_key_row)
+
+        self._tmdb_test_result = QLabel("")
+        self._tmdb_test_result.setStyleSheet(_theme.URL_BADGE)
+        self._tmdb_test_result.hide()
+        tmdb_form.addRow("", self._tmdb_test_result)
 
         self._tmdb_lang_input = QLineEdit()
         self._tmdb_lang_input.setClearButtonEnabled(True)
@@ -509,7 +527,21 @@ class SettingsTabsMixin:
             lambda: QDesktopServices.openUrl(QUrl("https://www.omdbapi.com/apikey.aspx"))
         )
         omdb_key_row.addWidget(omdb_link_btn)
+        self._omdb_test_btn = QPushButton("Test")
+        self._omdb_test_btn.setFixedWidth(50)
+        self._omdb_test_btn.setEnabled(self._executor is not None)
+        self._omdb_test_btn.setToolTip(
+            "Test this OMDb API key" if self._executor is not None
+            else "Test unavailable — no background executor for this dialog instance"
+        )
+        self._omdb_test_btn.clicked.connect(self._on_test_omdb_key)
+        omdb_key_row.addWidget(self._omdb_test_btn)
         omdb_form.addRow("API key:", omdb_key_row)
+
+        self._omdb_test_result = QLabel("")
+        self._omdb_test_result.setStyleSheet(_theme.URL_BADGE)
+        self._omdb_test_result.hide()
+        omdb_form.addRow("", self._omdb_test_result)
 
         layout.addWidget(omdb_group)
 
@@ -571,6 +603,104 @@ class SettingsTabsMixin:
 
         layout.addStretch()
         return tab
+
+    # ── TMDb/OMDb "Test" buttons ────────────────────────────────────────────
+    # Off-UI-thread pattern mirrored from StreamDiagnosticsDialog
+    # (metatv/gui/diagnostics_dialog.py): the worker runs on the shared
+    # executor and ONLY emits `_provider_test_ready`; `_on_provider_test_ready`
+    # (the connected slot) is the only place that touches the result-badge
+    # widgets, per CLAUDE.md's "Qt threading — signals only" rule. Each
+    # provider is tested with the key CURRENTLY TYPED (not yet saved) via a
+    # throwaway SimpleNamespace config — this is a "test before you save" tool.
+
+    def _on_test_tmdb_key(self) -> None:
+        """Metadata tab: TMDb 'Test' button clicked."""
+        from metatv.metadata_providers.tmdb import TMDbProvider
+        key = self._tmdb_key_input.text().strip()
+        language = self._tmdb_lang_input.text().strip() or "en-US"
+        provider = TMDbProvider(SimpleNamespace(
+            metadata_tmdb_api_key=key,
+            metadata_tmdb_language=language,
+            metadata_tmdb_include_adult=False,
+        ))
+        self._run_provider_test("tmdb", provider, self._tmdb_test_btn, self._tmdb_test_result)
+
+    def _on_test_omdb_key(self) -> None:
+        """Metadata tab: OMDb 'Test' button clicked."""
+        from metatv.metadata_providers.omdb import OMDbProvider
+        key = self._omdb_key_input.text().strip()
+        provider = OMDbProvider(SimpleNamespace(metadata_omdb_api_key=key))
+        self._run_provider_test("omdb", provider, self._omdb_test_btn, self._omdb_test_result)
+
+    def _run_provider_test(self, provider_name: str, provider, button: QPushButton,
+                            label: QLabel) -> None:
+        """Kick off ``provider.test_connection()`` on the shared executor.
+
+        Args:
+            provider_name: ``"tmdb"`` or ``"omdb"`` — echoed back by the worker
+                so ``_on_provider_test_ready`` knows which widgets to update.
+            provider: A throwaway provider instance built from the currently
+                typed (possibly unsaved) key.
+            button: The "Test" button to disable while the probe is in flight.
+            label: The inline result-badge label to update.
+        """
+        if self._executor is None:
+            label.setText(f"{_icons.notification_error_icon}  Test unavailable — no executor")
+            label.setStyleSheet(_theme.URL_BADGE_ERR)
+            label.show()
+            return
+        if not provider.is_enabled():
+            label.setText(f"{_icons.notification_error_icon}  Enter an API key first")
+            label.setStyleSheet(_theme.URL_BADGE_ERR)
+            label.show()
+            return
+        button.setEnabled(False)
+        label.setText(f"{_icons.loading_icon} Testing…")
+        label.setStyleSheet(_theme.URL_BADGE_TESTING)
+        label.show()
+        self._executor.submit(self._provider_test_worker, provider_name, provider)
+
+    def _provider_test_worker(self, provider_name: str, provider) -> None:
+        """Runs OFF the main thread. Never touches widgets — emits the result only.
+
+        Args:
+            provider_name: ``"tmdb"`` or ``"omdb"``.
+            provider: The provider instance to probe.
+        """
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(provider.test_connection())
+            finally:
+                loop.close()
+        except Exception as e:  # pragma: no cover - defensive; must never escape a worker thread
+            result = (False, f"Unexpected error: {e}")
+        self._provider_test_ready.emit(provider_name, result)
+
+    def _on_provider_test_ready(self, provider_name: str, result) -> None:
+        """MAIN THREAD ONLY: render a Test-button result (success/failure + icon).
+
+        Args:
+            provider_name: ``"tmdb"`` or ``"omdb"``.
+            result: ``(success, message)`` from ``test_connection()``.
+        """
+        if provider_name == "tmdb":
+            button, label = self._tmdb_test_btn, self._tmdb_test_result
+        elif provider_name == "omdb":
+            button, label = self._omdb_test_btn, self._omdb_test_result
+        else:
+            return
+        button.setEnabled(self._executor is not None)
+
+        success, message = result
+        if success:
+            label.setText(f"{_icons.notification_success_icon}  Connected")
+            label.setStyleSheet(_theme.URL_BADGE_OK)
+        else:
+            label.setText(f"{_icons.notification_error_icon}  {message or 'Test failed'}")
+            label.setStyleSheet(_theme.URL_BADGE_ERR)
+        label.show()
 
     def _build_interface_tab(self) -> QWidget:
         """Build the Interface tab containing Search and Sidebar settings."""
