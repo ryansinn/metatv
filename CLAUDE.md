@@ -115,6 +115,25 @@ Read `metadata.year` everywhere (`MetadataManager._derive_year()` populates it a
 - `ThreadPoolExecutor` for blocking I/O; `asyncio` for async providers; `QTimer.singleShot(0, ...)` for deferred main-thread execution.
 - **Every PR with user-visible behavior adds `metatv/whats_new/entries/NNNN_slug.py`** (zero-padded next id via `python -c "from metatv.whats_new import latest_id; print(latest_id() + 1)"`) with `ENTRY = WhatsNewEntry(...)` including a **non-empty `test_steps`** tuple — the dev-QA smoke test (`METATV_DEV=1`), each step an action + expected outcome covering the changed path. `test_steps` is the default; omit (with a one-line PR note) only for no-behavior refactors or dev-only tooling. Never edit the shared list. Format + examples: `metatv/whats_new/entries/README`.
 
+## Agent & Test Operations (Claude Code — binding, owner-mandated)
+
+One directive per rule; violations here have burned real money and real trust. No exceptions without the owner saying so in the moment.
+
+### One gate, no double-testing
+Each implementer agent runs its OWN new/changed test files ONCE — that is the slice's verification. The coordinator runs **exactly one full-suite gate per merge batch**, on the final integration tree **with the release chore already applied** (one green covers integration + release). A red gate → fix → one new gate; nothing else ever triggers a rerun. Never: per-PR verify runs, interim pytest batches after conflict resolutions or inline fixes, separate release-chore test runs, or re-running an agent's tests.
+
+### Subagent dispatch
+Implementers run on the cheapest adequate model with **`effort: "low"`** (medium only for genuinely hard judgment slices — never inherit session effort). Briefs **inline the 3-5 applicable rule bullets** — never "read CLAUDE.md fully" or doc-reading assignments. **One concern per slice** (<100k-token target). Briefs always carry: pre-assigned What's New id(s), "run only your new/changed test files once — no adjacent-file batteries; the merge gate covers integration", worktree isolation, rebase-before-PR, do-not-merge.
+
+### The owner's checkout is sacred
+The owner UX-tests via `./run.sh` from this checkout — it always rests on the current release tree. ALL coordinator branch work happens in temp worktrees; never `git checkout` a work branch here.
+
+### Shell discipline for gates
+Never pipe a test run through `tail`/`head`/`grep` in the same command that decides success — the pipe eats the exit code (this has shipped a red PR). Redirect to a log, capture `$?`, decide on it.
+
+### Design work
+Mockups start from a faithful inventory of the CURRENT app (code transcription with file:line anchors); proposals render side-by-side vs current with **every delta a numbered question** (Q-tags). Roadmap concepts are never pre-applied as settled layout.
+
 ## Session Wrap SOP
 
 On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: tests (`pytest tests/ -x -q`) → commit everything → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.
