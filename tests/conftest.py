@@ -628,6 +628,11 @@ def mock_settings_density_widget(dlg) -> None:
     dlg._channel_density_combo.currentData.return_value = "comfy"
     dlg._channel_thumbnails_check = MagicMock()
     dlg._channel_thumbnails_check.isChecked.return_value = True
+    dlg._collapse_variants_check = MagicMock()
+    dlg._collapse_variants_check.isChecked.return_value = False
+    dlg._theme_combo = MagicMock()
+    dlg._theme_combo.currentData.return_value = "Midnight"
+    dlg._theme_combo.currentText.return_value = "Midnight"
 
 
 def wire_settings_density_widget(dlg) -> None:
@@ -656,6 +661,17 @@ def wire_settings_density_widget(dlg) -> None:
         dlg._channel_density_combo.addItem(label, value)
     dlg._channel_thumbnails_check = QCheckBox()
     dlg._channel_thumbnails_check.setChecked(True)
+    # Collapse-variants opt-in (#387) and the theme combo (#389) — same group,
+    # so they live in this factory rather than eight duplicated stubs.
+    dlg._collapse_variants_check = QCheckBox()
+    dlg._collapse_variants_check.setChecked(False)
+    try:
+        from metatv.gui.theme_palettes import PALETTES as _PALETTES
+    except Exception:
+        _PALETTES = {"Midnight": {}}
+    dlg._theme_combo = QComboBox()
+    for _name in _PALETTES:
+        dlg._theme_combo.addItem(_name, _name)
 
 
 def mock_settings_playback_widgets(dlg) -> None:

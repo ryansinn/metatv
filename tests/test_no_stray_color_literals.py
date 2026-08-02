@@ -140,6 +140,10 @@ _MIGRATED: list[tuple[str, str]] = [
 # Files explicitly excluded from the scan (canonical data tables or theme itself)
 _EXCLUDED_FILES: set[str] = {
     "theme.py",
+    # theme_palettes.py holds the palette dicts theme.py's tokens are sourced
+    # FROM (Midnight/Graphite/Daylight) — raw literals are the whole point of
+    # that file, exactly as they are in theme.py.
+    "theme_palettes.py",
     # badge_utils.py was previously excluded because _QUALITY_COLORS held raw literals.
     # Those are now migrated to tokens (B2), so badge_utils is no longer excluded.
 }

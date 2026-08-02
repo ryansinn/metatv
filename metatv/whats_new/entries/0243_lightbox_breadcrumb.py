@@ -1,16 +1,16 @@
 """What's New entry for lightbox breadcrumb trail feature."""
 from __future__ import annotations
 
-from metatv.whats_new.entry import WhatsNewEntry
+from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=243,
     title="Lightbox Breadcrumb Trail",
-    description=(
+    items=(
         "When you dive deep into Similar Titles (A → B → C → D), "
         "a subtle breadcrumb trail now shows your path at the top of the lightbox. "
         "Click any earlier crumb to jump back to that point; long trails elide in the middle "
-        "with a clickable '…' that opens the full Explore trail-map."
+        "with a clickable '…' that opens the full Explore trail-map.",
     ),
     version="0.21.0",
     date="2026-08-02",
