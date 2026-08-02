@@ -53,6 +53,11 @@ class _NavMixin:
         if "missing_tmdb_view" in self.__dict__:
             if self.missing_tmdb_view.isVisible():
                 self.missing_tmdb_view.on_deactivate()
+        # Deactivate the background metadata enrichment progress view if it
+        # exists and is visible (the queue itself keeps running regardless).
+        if "metadata_enrichment_view" in self.__dict__:
+            if self.metadata_enrichment_view.isVisible():
+                self.metadata_enrichment_view.on_deactivate()
         # Deactivate the Sources manager view if it exists and is visible (Wave 6 —
         # Sources moved out of the sidebar stack into the status strip + this view).
         if "sources_manager_view" in self.__dict__:
@@ -92,6 +97,8 @@ class _NavMixin:
             self.recipe_view.setVisible(False)
         if "missing_tmdb_view" in self.__dict__:
             self.missing_tmdb_view.setVisible(False)
+        if "metadata_enrichment_view" in self.__dict__:
+            self.metadata_enrichment_view.setVisible(False)
         if "sources_manager_view" in self.__dict__:
             self.sources_manager_view.setVisible(False)
         if "explore_views" in self.__dict__:

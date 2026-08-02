@@ -239,6 +239,19 @@ class _ProviderMixin:
         self.missing_tmdb_view.on_deactivate()
         self.switch_to_list_view()
 
+    def enter_metadata_enrichment_mode(self):
+        """Switch center panel to the background metadata enrichment progress view."""
+        self._hide_all_content_views()
+        self.metadata_enrichment_view.setVisible(True)
+        self.metadata_enrichment_view.on_activate()
+        self.stats_label.setText("Background metadata enrichment")
+        self._deactivate_view_chips()
+
+    def exit_metadata_enrichment_mode(self):
+        """Return to the normal channel list view."""
+        self.metadata_enrichment_view.on_deactivate()
+        self.switch_to_list_view()
+
     def toggle_provider_active(self, provider_id: str):
         """Flip the is_active flag for a provider and refresh all affected views."""
         sources = self._sources_status_target()

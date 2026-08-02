@@ -1448,6 +1448,15 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
     )
 
+    # Shared QProgressBar role (background enrichment queue view; migration_progress_widget.py
+    # still builds its own inline — left alone, out of scope for this addition).
+    PROGRESS_BAR = (
+        "QProgressBar { border: 1px solid " + COLOR_BORDER + "; border-radius: 3px;"
+        " background: " + COLOR_LINE + "; text-align: center; color: " + COLOR_TEXT_HI + ";"
+        " font-size: " + FONT_SM + "; }"
+        "QProgressBar::chunk { background: " + COLOR_ACCENT_BLUE + "; border-radius: 2px; }"
+    )
+
     return {k: v for k, v in dict(locals()).items() if not k.startswith("_")}
 
 

@@ -388,6 +388,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "tmdb_enrichment_manager", self.tmdb_enrichment_manager.shutdown
         )
 
+        # Background metadata enrichment queue (roadmap #249) — proactively fills
+        # in missing/stale MetadataResult rows (poster/plot/cast/rating, driven
+        # through the existing self.metadata_manager, not a parallel fetcher) for
+        # the whole library, engaged (favorited/queued/played) channels first.
+        # Same migration-defer contract as tmdb_enrichment_manager above.
+        from metatv.core.metadata_enrichment_queue import MetadataEnrichmentQueue
+        self.metadata_enrichment_queue = MetadataEnrichmentQueue(
+            self.db, self.config, self.metadata_manager, parent=self,
+            migration_manager=self.migration_manager,
+        )
+        self._register_cleanable(
+            "metadata_enrichment_queue", self.metadata_enrichment_queue.shutdown
+        )
+
         from metatv.core.migrations.prefix_rescan import PrefixRescanTask
         self.migration_manager.register(PrefixRescanTask(self.db))
         from metatv.core.migrations.metadata_rescan import MetadataRescanTask
@@ -530,6 +544,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         QTimer.singleShot(
             3000, self.tmdb_enrichment_manager.backfill_missing_genres
         )
+
+        # Background metadata enrichment (roadmap #249) — owner opt-in only
+        # (config.metadata_background_refresh defaults False); manual start from
+        # the Tools view works regardless of this toggle. Deferred so it never
+        # competes with the initial channel load / paint or blocks launch.
+        if self.config.metadata_background_refresh:
+            QTimer.singleShot(4000, self.metadata_enrichment_queue.start)
 
         # Show What's New dialog after the window paints (deferred, idempotent)
         self._whats_new_checked: bool = False
@@ -796,7 +817,15 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         )
         missing_tmdb_action.triggered.connect(self.enter_missing_tmdb_mode)
         tools_menu.addAction(missing_tmdb_action)
-        
+        metadata_enrich_action = QAction(
+            f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment", self
+        )
+        metadata_enrich_action.setToolTip(
+            "View progress and start/pause/cancel the background metadata fill"
+        )
+        metadata_enrich_action.triggered.connect(self.enter_metadata_enrichment_mode)
+        tools_menu.addAction(metadata_enrich_action)
+
         # Help menu
         help_menu = menubar.addMenu("&Help")
         whats_new_action = QAction(f"{_icons.whats_new_icon}  What's New", self)
@@ -1926,6 +1955,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.missing_tmdb_view.done.connect(self.exit_missing_tmdb_mode)
         self.missing_tmdb_view.setVisible(False)
         self._list_layout.addWidget(self.missing_tmdb_view)
+
+        # Background metadata enrichment queue progress view (hidden by default;
+        # Tools menu). See metadata_enrichment_queue.py + roadmap #249.
+        from metatv.gui.metadata_enrichment_view import MetadataEnrichmentView
+        self.metadata_enrichment_view = MetadataEnrichmentView(self)
+        self.metadata_enrichment_view.done.connect(self.exit_metadata_enrichment_mode)
+        self.metadata_enrichment_view.setVisible(False)
+        self._list_layout.addWidget(self.metadata_enrichment_view)
 
         # Inner splitter: filter panel (left) | list area (right)
         self._inner_splitter = CollapsibleSplitter(Qt.Orientation.Horizontal)
