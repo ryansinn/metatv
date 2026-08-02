@@ -996,7 +996,7 @@ def test_global_exclusion_sets_unions_prefixes_and_categories(qapp):
     _set_global_filter(
         view, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
     )
-    prefixes, cats, content_types = view._global_exclusion_sets()
+    prefixes, cats, content_types, keywords = view._global_exclusion_sets()
     assert prefixes == {"AR", "KU"}
     assert cats == {"Kids"}
     assert content_types == set()  # no content_type exclusions set here
@@ -1008,11 +1008,11 @@ def test_global_exclusion_sets_empty_when_paused(qapp):
     _set_global_filter(
         view, paused=True, categories=["AR"], prefixes=["KU"], user_categories=["Kids"]
     )
-    prefixes, cats, content_types = view._global_exclusion_sets()
+    prefixes, cats, content_types, keywords = view._global_exclusion_sets()
     assert prefixes == set()
     assert cats == set()
     assert content_types == set()
-
+    assert keywords == set(), "keyword axis must also be empty when paused"
 
 def test_load_results_threads_exclusion_sets_to_engine(qapp):
     """_load_results runs its query_fn with excluded_prefixes/categories on both
