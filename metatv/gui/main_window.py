@@ -493,23 +493,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if _dev_mode_enabled():
             QTimer.singleShot(0, self._maybe_show_qa_checklist)
 
-        # Series monitor startup check — runs after channels are loaded (deferred 0ms
-        # yields to the event loop so channel load and UI paint happen first).
-        QTimer.singleShot(0, self.series_monitor.check_all)
+        # Series monitor / VOD watch-alert / EPG auto-refresh startup checks —
+        # each is a bulk DB writer with no lock-retry of its own, so gate them
+        # behind any pending Migration Center run (see _gate_startup_fetches):
+        # racing them against a heavy migration's batched commits produced the
+        # 2026-07-31 / 2026-08-01 "database is locked" crash-loops. When
+        # nothing is pending they fire on the same deferred schedule as before.
+        self._gate_startup_fetches()
         # Recurring background recheck (config.series_monitor_interval_minutes,
         # default 60; 0 = off) — keeps long-running sessions current without
-        # requiring a provider refresh or app restart.
+        # requiring a provider refresh or app restart. Independent of the
+        # startup-kickoff gate above (it only affects the first, one-time poke).
         self.series_monitor.start_scheduler()
-
-        # VOD watch-alert startup check — same deferred strategy as series_monitor.
-        QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
-
-        # EPG startup refresh check — run after the event loop settles (2 s) so the
-        # channel list is loaded and the match map can be built correctly.  The
-        # per-provider needs_refresh() throttle handles all gating; this is the
-        # first poke so the app honors the configured interval from launch without
-        # requiring the user to open the EPG view.
-        QTimer.singleShot(2000, self.epg_manager.refresh_all_if_needed)
 
         # Automatic update check — bundled (.app) builds only, so a source-run
         # developer is never nagged. The manual "Check for updates now" button
@@ -519,7 +514,57 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             QTimer.singleShot(3000, self.update_checker.check_async)
 
         logger.info("Main window initialized")
-    
+
+    def _gate_startup_fetches(self) -> None:
+        """Sequence the startup bulk-write kickoffs behind any pending migration.
+
+        ``series_monitor.check_all``, ``vod_watch_alert_manager.check_all``, and
+        ``epg_manager.refresh_all_if_needed`` are all bulk DB writers with no
+        lock-retry of their own. Firing them unconditionally (the old
+        behavior) let them race a heavy Migration Center run's batched commits
+        (e.g. ``detected_title_reparse``'s 2000-row batches) — the cause of
+        the 2026-07-31 / 2026-08-01 "database is locked" crash-loops.
+
+        When ``MigrationManager.has_pending_tasks()`` is True at startup,
+        defer the three kickoffs until its ``all_finished`` signal; otherwise
+        fire them immediately on the same schedule as before. One gate,
+        connected at most once per launch — the handler disconnects itself
+        the moment it runs, so this stays a plain conditional, not a new
+        state machine.
+        """
+        if self.migration_manager.has_pending_tasks():
+            def _on_migrations_done() -> None:
+                self.migration_manager.all_finished.disconnect(_on_migrations_done)
+                self._start_deferred_fetches()
+
+            self.migration_manager.all_finished.connect(_on_migrations_done)
+        else:
+            self._start_deferred_fetches()
+
+    def _start_deferred_fetches(self) -> None:
+        """Fire the series-monitor / VOD-alert / EPG-refresh startup checks.
+
+        Deferred via ``QTimer.singleShot`` so the event loop settles (channel
+        list loaded, UI painted) before each starts — timings unchanged from
+        before the migration gate. Called either immediately at startup (no
+        migrations pending) or once via ``_gate_startup_fetches`` after
+        migrations finish.
+        """
+        # Series monitor startup check — runs after channels are loaded
+        # (deferred 0ms yields to the event loop so channel load and UI paint
+        # happen first).
+        QTimer.singleShot(0, self.series_monitor.check_all)
+
+        # VOD watch-alert startup check — same deferred strategy as series_monitor.
+        QTimer.singleShot(0, self.vod_watch_alert_manager.check_all)
+
+        # EPG startup refresh check — run after the event loop settles (2 s) so
+        # the channel list is loaded and the match map can be built correctly.
+        # The per-provider needs_refresh() throttle handles all gating; this is
+        # the first poke so the app honors the configured interval from launch
+        # without requiring the user to open the EPG view.
+        QTimer.singleShot(2000, self.epg_manager.refresh_all_if_needed)
+
     def setup_ui(self):
         """Set up the user interface"""
         self.setWindowTitle(window_title())

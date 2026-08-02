@@ -98,6 +98,20 @@ class MigrationManager(QObject):
         """
         self._tasks.append(task)
 
+    def has_pending_tasks(self) -> bool:
+        """Return True if any registered task's ``needs_run(config)`` is True.
+
+        Read-only — does not submit anything. Lets a caller (main_window
+        startup sequencing) decide *before* ``run_pending()`` actually runs
+        whether a migration is about to do heavy writes, without duplicating
+        the ``needs_run`` filter here and in ``run_pending``.
+        """
+        return bool(self._pending_tasks())
+
+    def _pending_tasks(self) -> list["MigrationTask"]:
+        """Registered tasks whose ``needs_run(config)`` currently returns True."""
+        return [t for t in self._tasks if t.needs_run(self.config)]
+
     def run_pending(self) -> None:
         """Submit all pending tasks to the background worker.
 
@@ -110,7 +124,7 @@ class MigrationManager(QObject):
             logger.debug("MigrationManager.run_pending: already running, skipping")
             return
 
-        pending = [t for t in self._tasks if t.needs_run(self.config)]
+        pending = self._pending_tasks()
         if not pending:
             logger.debug("MigrationManager.run_pending: no pending tasks")
             return
