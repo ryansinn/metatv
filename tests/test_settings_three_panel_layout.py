@@ -133,6 +133,14 @@ def test_open_settings_tab_selects_interface_section(qapp, tmp_path, monkeypatch
         def _apply_sidebar_visibility(self):
             pass
 
+        def _apply_collapse_variants_setting(self):
+            # post-settings hook added by the collapse-variants slice (#387)
+            pass
+
+        def refresh_theme(self):
+            # post-settings hook added by the theme slice (#389)
+            pass
+
         def _apply_channel_list_density(self):
             # post-settings hook added by the density slice (#380/#383)
             pass
