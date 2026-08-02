@@ -10,7 +10,10 @@ ENTRY = WhatsNewEntry(
         "plot, cast, director, genres, and ratings for movies/series whenever "
         "your provider's own data is thin. Add an API key in Settings → "
         "Metadata & API Keys to turn either on; a title already linked to a "
-        "TMDb id skips searching and fetches it directly.",
+        "TMDb id skips searching and fetches it directly. Entering a key "
+        "takes effect immediately — no restart needed, and if you're "
+        "upgrading from an older version your existing settings are updated "
+        "automatically so the new sources aren't silently skipped.",
         "Settings → Metadata & API Keys now has a 'Test' button beside each "
         "API key field — it checks the key against the live service (off the "
         "UI thread) and shows a clear connected/failed result inline, before "

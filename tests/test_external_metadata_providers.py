@@ -614,6 +614,97 @@ def test_registry_priority_override_unlisted_provider_sorts_after_listed():
 
 
 # ---------------------------------------------------------------------------
+# Config migration: metadata_enabled_providers allow-list merge
+# (coordinator follow-up — an owner-reported real config.yaml persisted from
+# before TMDb/OMDb existed had metadata_enabled_providers: [provider], so
+# widening the Field default_factory alone did nothing: pydantic loads the
+# persisted value verbatim, silently excluding tmdb/omdb from
+# MetadataProviderRegistry.get_enabled() forever — pasting a TMDb API key
+# into Settings was a silent no-op. metatv/core/config.py's
+# _migrate_metadata_enabled_providers() (model_post_init, version-gated by
+# metadata_enabled_providers_version) closes that gap for existing installs.
+# ---------------------------------------------------------------------------
+
+def test_migration_merges_missing_providers_and_new_provider_is_consulted(tmp_path):
+    """The exact owner-reported scenario: a persisted config whose
+    metadata_enabled_providers is exactly ["provider"] (predates TMDb/OMDb) must,
+    once loaded, actually consult TMDb given a key — not merely end up with an
+    updated list that nothing reads."""
+    from metatv.core.config import Config
+    from metatv.core.metadata_manager import MetadataProviderRegistry
+    from metatv.metadata_providers.tmdb import TMDbProvider
+
+    cfg = Config(
+        config_dir=tmp_path,
+        metadata_enabled_providers=["provider"],
+        metadata_enabled_providers_version=0,
+        metadata_tmdb_api_key="a-real-key",
+    )
+    assert "tmdb" in cfg.metadata_enabled_providers
+    assert cfg.metadata_enabled_providers_version == 1
+
+    registry = MetadataProviderRegistry(cfg)
+    registry.register(_dummy_provider("provider"))
+    registry.register(TMDbProvider(cfg))
+    consulted = [p.name for p in registry.get_enabled()]
+    assert "tmdb" in consulted, f"TMDb must actually be consulted once merged+keyed, got {consulted}"
+
+
+def test_migration_idempotent_across_two_runs(tmp_path):
+    """A second invocation (simulating a second app launch re-reading the
+    already-migrated state) must not duplicate entries or change anything."""
+    from metatv.core.config import Config
+
+    cfg = Config(config_dir=tmp_path, metadata_enabled_providers=["provider"],
+                 metadata_enabled_providers_version=0)
+    first_run_list = list(cfg.metadata_enabled_providers)
+    assert cfg.metadata_enabled_providers_version == 1
+
+    cfg._migrate_metadata_enabled_providers()  # second run
+    assert cfg.metadata_enabled_providers == first_run_list
+    assert cfg.metadata_enabled_providers_version == 1
+
+
+def test_migration_leaves_fully_populated_list_untouched(tmp_path):
+    """A list that already contains every shipped name is left byte-for-byte as
+    is (no duplicate append, no reordering) — the version still advances."""
+    from metatv.core.config import Config
+
+    cfg = Config(config_dir=tmp_path, metadata_enabled_providers=["provider", "tmdb", "omdb"],
+                 metadata_enabled_providers_version=0)
+    assert cfg.metadata_enabled_providers == ["provider", "tmdb", "omdb"]
+    assert cfg.metadata_enabled_providers_version == 1
+
+
+def test_migration_never_reapplies_once_versioned_even_if_list_shrinks(tmp_path):
+    """Once metadata_enabled_providers_version is already 1 (migration already ran),
+    a list missing tmdb/omdb is NOT re-merged — proves the version-gate (not a plain
+    membership check) protects a future deliberate removal, if this list ever grows
+    an editing UI, from being silently undone on a later launch."""
+    from metatv.core.config import Config
+
+    cfg = Config(config_dir=tmp_path, metadata_enabled_providers=["tmdb"],
+                 metadata_enabled_providers_version=1)
+    assert cfg.metadata_enabled_providers == ["tmdb"], "already-migrated config must not be touched again"
+
+
+def test_migration_does_not_touch_unrelated_config_keys(tmp_path):
+    """The migration only ever touches metadata_enabled_providers/_version — every
+    other field passed through construction is unaffected."""
+    from metatv.core.config import Config
+
+    cfg = Config(
+        config_dir=tmp_path,
+        metadata_enabled_providers=["provider"],
+        metadata_enabled_providers_version=0,
+        metadata_cache_ttl_days=45,
+        metadata_tmdb_language="fr-FR",
+    )
+    assert cfg.metadata_cache_ttl_days == 45
+    assert cfg.metadata_tmdb_language == "fr-FR"
+
+
+# ---------------------------------------------------------------------------
 # Session hygiene — no DB session open across a network await
 # (mirrors tests/test_metadata_manager_session_hygiene.py's _SessionCounter)
 # ---------------------------------------------------------------------------

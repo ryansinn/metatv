@@ -863,7 +863,25 @@ class Config(BaseModel):
     # Allow-list consulted by MetadataProviderRegistry.get_enabled() (wave4/external-metadata-providers).
     # Defaults to every shipped provider — TMDb/OMDb are still independently gated by their
     # own is_enabled() (empty API key), so listing them here is a no-op until a key is set.
+    # NOTE: this default only helps a NEW config — an install upgrading from before
+    # tmdb/omdb existed has this already persisted as ["provider"] in config.yaml, which
+    # pydantic loads verbatim (the Field default never applies once a key is on disk).
+    # See metadata_enabled_providers_version / _migrate_metadata_enabled_providers() below
+    # for the one-time backfill that closes that gap for existing installs.
     metadata_enabled_providers: list = Field(default_factory=lambda: ["provider", "tmdb", "omdb"])  # Which providers are enabled
+    # Schema version for metadata_enabled_providers (wave4/external-metadata-providers
+    # follow-up — owner-reported: a real config.yaml persisted from before TMDb/OMDb
+    # existed had metadata_enabled_providers: [provider], so pasting a TMDb API key into
+    # Settings was a silent no-op — MetadataProviderRegistry.get_enabled() dropped "tmdb"
+    # before is_enabled() was ever consulted). 0 (or absent) = not yet migrated;
+    # _migrate_metadata_enabled_providers() (model_post_init) merges "tmdb"/"omdb" into
+    # the persisted list ONCE and bumps this to 1. This list has no Settings UI, so a
+    # config missing a shipped name only ever means "predates that provider" — there is
+    # no user intent to preserve. Version-gated (not a plain membership check re-run
+    # every load) so that if this list ever grows an editing UI, a user's later,
+    # deliberate removal of a provider is never silently undone by this migration
+    # running again.
+    metadata_enabled_providers_version: int = 0
     
     # Provider-specific API keys and settings
     metadata_tmdb_api_key: str = ""  # TMDb API key
@@ -1476,6 +1494,30 @@ class Config(BaseModel):
         if changed:
             self.vod_watch_alerts = updated
 
+    def _migrate_metadata_enabled_providers(self) -> None:
+        """Merge newly-shipped provider names into ``metadata_enabled_providers`` — ONCE.
+
+        ``metadata_enabled_providers`` has no Settings UI (nothing ever writes it), so
+        a persisted value missing a shipped provider name only ever means "this config
+        predates that provider" — there is no user intent to preserve. Without this, an
+        existing install's persisted ``["provider"]`` value silently excludes "tmdb"/
+        "omdb" from ``MetadataProviderRegistry.get_enabled()`` forever: pasting a TMDb
+        API key into Settings becomes a silent no-op with nothing to diagnose from
+        (owner-reported against a real ``config.yaml``, wave4/external-metadata-providers).
+
+        Version-gated (``metadata_enabled_providers_version``) rather than a plain
+        membership check re-run on every load, so that if this list ever grows an
+        editing UI, a user's later, deliberate removal of a provider is never silently
+        undone by this migration running again on a subsequent launch. Idempotent:
+        a no-op once the version is already >= 1.
+        """
+        if self.metadata_enabled_providers_version >= 1:
+            return
+        for name in ("tmdb", "omdb"):
+            if name not in self.metadata_enabled_providers:
+                self.metadata_enabled_providers.append(name)
+        self.metadata_enabled_providers_version = 1
+
     # ── Computed views of the base lookup tables ─────────────────────────────
     # These are NOT stored in config.yaml — they're computed from the base
     # constants + user/provider overrides at access time.
@@ -1582,6 +1624,9 @@ class Config(BaseModel):
         # Seed per-match "viewed" state on pre-feature VOD watch-alert rules so the
         # alert-visibility green only lights up for matches found AFTER the upgrade.
         self._migrate_vod_alert_viewed()
+        # Merge newly-shipped provider names (tmdb/omdb) into a persisted
+        # metadata_enabled_providers that predates them — see the field's docstring.
+        self._migrate_metadata_enabled_providers()
 
     def _migrate_qa_step_results(self) -> None:
         """Backfill ``qa_step_results`` from the legacy ``qa_checked_steps`` list shape.
