@@ -177,7 +177,8 @@ def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None 
                 orig_prefix, orig_count = prefix_dict[region_upper]
                 # Replace the prefix entry with merged count
                 prefix_dict[region_upper] = (orig_prefix, orig_count + region_count)
-                region_only.add(region_upper)  # Mark that this code has a region-only variant
+                # NOT region-only: this code is also somebody's detected_prefix, so
+                # the "carries no language prefix" tooltip would be false for it.
             else:
                 # This region code is NOT already a prefix; add it and mark as region-only
                 prefix_dict[region_upper] = (region_orig, region_count)
