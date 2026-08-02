@@ -16,7 +16,11 @@ from PyQt6.QtWidgets import QComboBox, QLineEdit, QCheckBox, QSpinBox
 
 from metatv.gui.settings_dialog import SettingsDialog
 from metatv.core.http_headers import stream_user_agent
-from tests.conftest import wire_settings_recommendation_widgets, wire_settings_playback_widgets
+from tests.conftest import (
+    wire_settings_density_widget,
+    wire_settings_playback_widgets,
+    wire_settings_recommendation_widgets,
+)
 
 
 @pytest.fixture(scope="module")
@@ -178,6 +182,9 @@ def _bare_dialog(qapp) -> SettingsDialog:
     # Sidebar list widget (needed by _load_values / _save_values)
     from PyQt6.QtWidgets import QListWidget
     dlg._sidebar_list = QListWidget()
+
+    # Interface density widget (needed by _load_values / _save_values)
+    wire_settings_density_widget(dlg)
 
     return dlg
 

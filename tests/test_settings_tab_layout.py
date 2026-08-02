@@ -24,7 +24,12 @@ from PyQt6.QtWidgets import (
 )
 
 from metatv.gui.settings_dialog import SettingsDialog, _ALL_SIDEBAR_SECTIONS
-from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets, wire_settings_playback_widgets
+from tests.conftest import (
+    wire_settings_density_widget,
+    wire_settings_epg_widgets,
+    wire_settings_playback_widgets,
+    wire_settings_recommendation_widgets,
+)
 
 
 @pytest.fixture(scope="module")
@@ -137,6 +142,7 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
+    wire_settings_density_widget(dlg)
 
     return dlg
 

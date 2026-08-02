@@ -263,7 +263,12 @@ def _wire_minimal_dialog(dlg, qapp):
     from PyQt6.QtWidgets import (
         QCheckBox, QComboBox, QLineEdit, QListWidget, QSpinBox,
     )
-    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets, wire_settings_playback_widgets
+    from tests.conftest import (
+        wire_settings_density_widget,
+        wire_settings_epg_widgets,
+        wire_settings_playback_widgets,
+        wire_settings_recommendation_widgets,
+    )
 
     # Recommendations tab dials
     wire_settings_recommendation_widgets(dlg)
@@ -322,3 +327,4 @@ def _wire_minimal_dialog(dlg, qapp):
     dlg._refresh_all_inactive_check = QCheckBox()
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
+    wire_settings_density_widget(dlg)
