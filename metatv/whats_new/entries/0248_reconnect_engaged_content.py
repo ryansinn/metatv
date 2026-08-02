@@ -11,10 +11,13 @@ ENTRY = WhatsNewEntry(
         "content from it used to just sit there, stranded and pointing at a "
         "gone source. Tools → 'Reconnect Engaged Content' now lists every one "
         "of those orphaned rows next to a proposed same-title match on one of "
-        "your active sources, and lets you move the favorite, watch history, "
+        "your active sources, and lets you merge the favorite, watch history, "
         "resume position, rating, and queue membership onto the live copy — "
-        "one row at a time, or all matched rows at once. Nothing moves "
-        "automatically; unmatched rows are listed too, plainly marked as such.",
+        "one row at a time, or all matched rows at once. It's a merge, not an "
+        "overwrite: if you'd already watched further or rated the live copy "
+        "independently, that progress and rating are kept, never rolled back. "
+        "Nothing moves automatically; unmatched rows are listed too, plainly "
+        "marked as such.",
     ),
     version="0.23.0",
     date="2026-08-03",
