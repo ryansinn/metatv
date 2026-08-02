@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=242,
-    version="0.21.0",
+    version="0.22.0",
     date="2026-08-02",
     title="Sources manager: readable source names + a tabbed editor",
     items=(
