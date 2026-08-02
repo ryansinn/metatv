@@ -228,6 +228,35 @@ class EpisodeRepository:
             season_num=nxt.season_num,
         )
 
+    def get_resume_targets_for_series(
+        self, keys: "List[tuple[str, str]]"
+    ) -> "Dict[tuple[str, str], PlayableEpisodeDTO]":
+        """Batch the History sidebar's "Play Next Episode" resolution across series rows.
+
+        For each ``(series_id, provider_id)`` key, resolves the smart-ladder resume
+        target via :meth:`get_resume_dto` — the same "last engaged → resume in place →
+        next episode → None (series complete)" ladder used elsewhere. Sibling to
+        :meth:`get_last_played_codes_for_series` (same batched-keys shape, called
+        alongside it from :func:`~metatv.core.repositories.dtos.build_history_dtos`),
+        but the ladder's branches (engaged lookup, then a conditional next-after query)
+        don't collapse into one SQL statement the way a flat "last played" scan does —
+        so this dedupes the requested keys first (a series repeated across multiple
+        History rows only pays for the ladder once) and calls :meth:`get_resume_dto`
+        once per unique key, rather than once per History row.
+
+        A key maps to ``None`` in effect (simply absent from the result) when there is
+        no resume target — no episodes ever played, or the series is complete — so the
+        caller (the History row) knows not to show a "Play Next Episode" button.
+        """
+        if not keys:
+            return {}
+        out: Dict[tuple[str, str], "PlayableEpisodeDTO"] = {}
+        for series_id, provider_id in dict.fromkeys(keys):  # de-dup, keep first-seen order
+            dto = self.get_resume_dto(series_id=series_id, provider_id=provider_id)
+            if dto is not None:
+                out[(series_id, provider_id)] = dto
+        return out
+
     def mark_episodes_as_engaged(self, episode_ids: "List[str]") -> int:
         """Flip ``last_played_via`` to ``'manual'`` for the given episode ids.
 
