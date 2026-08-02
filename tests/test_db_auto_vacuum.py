@@ -136,6 +136,54 @@ def test_new_connection_survives_concurrent_write_lock(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 3c. Engine-wide busy_timeout + journal_mode — lock-resilience layer 1
+# ---------------------------------------------------------------------------
+
+def test_fresh_connection_has_30s_busy_timeout(tmp_path):
+    """Every connection off Database.engine gets PRAGMA busy_timeout=30000 (30s)
+    via the same connect-event listener that sets auto_vacuum, applied BEFORE
+    any table exists.
+
+    This is the app-wide lock-resilience layer: a writer contending for the
+    SQLite write lock (the startup EPG-refresh / Migration Center write storm
+    that produced the 2026-07-31 and 2026-08-01 'database is locked'
+    crash-loops) retries silently inside SQLite for up to 30s before an
+    OperationalError ever reaches Python, instead of raising on the very
+    first collision. (Already present since 2e7ef5b4 — this pins the
+    contract so a future refactor of _set_pragmas can't silently drop it.)
+    """
+    db = Database(f"sqlite:///{tmp_path / 'busy_timeout.db'}")
+    try:
+        with db.engine.connect() as conn:
+            value = conn.exec_driver_sql("PRAGMA busy_timeout").scalar()
+        assert value == 30000, f"expected busy_timeout=30000ms, got {value}"
+
+        # A brand-new dbapi connection (post dispose) must get it too — the
+        # pragma is per-connection state, re-applied by the connect listener,
+        # not something that only happens to survive on the first connection.
+        db.engine.dispose()
+        with db.engine.connect() as conn:
+            value = conn.exec_driver_sql("PRAGMA busy_timeout").scalar()
+        assert value == 30000, f"expected busy_timeout=30000ms on a fresh connection, got {value}"
+    finally:
+        db.close()
+
+
+def test_fresh_connection_uses_wal_journal_mode(tmp_path):
+    """WAL journal mode is already enabled on every connection (concurrent
+    readers don't block a writer, and vice versa) — part of the same
+    lock-resilience layer as busy_timeout. Regression guard only; not new
+    behavior."""
+    db = Database(f"sqlite:///{tmp_path / 'wal.db'}")
+    try:
+        with db.engine.connect() as conn:
+            mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
+        assert mode.lower() == "wal", f"expected journal_mode=WAL, got {mode!r}"
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # 4. (Optional) Auto-reclaim: freelist_count stays low after delete on FULL DB
 # ---------------------------------------------------------------------------
 

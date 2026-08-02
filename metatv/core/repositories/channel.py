@@ -1,10 +1,12 @@
 """Channel repository for data access"""
 
 import re
+import time
 from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, or_, update
+from sqlalchemy.exc import OperationalError
 from loguru import logger
 
 from metatv.core.database import (
@@ -36,6 +38,16 @@ from metatv.core.tag_decomposer import region_code_from_category
 # row and the similar-titles lightbox route through it).
 _SIMILAR_CANDIDATE_SCAN = 200  # max rows the word-overlap heuristic scans per lookup
 _SIMILAR_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]+")  # blanked before candidate word-split
+
+# update_detected_prefixes batch lock-retry tuning. The engine already applies a
+# 30s PRAGMA busy_timeout to every connection (database.py), so an OperationalError
+# reaching here means a concurrent bulk writer (EPG auto-refresh's batched inserts,
+# another Migration Center task) held the write lock for even longer than that —
+# a real, if rare, collision under the startup write storm. Retry a few times with
+# a short sleep rather than aborting the whole multi-batch run (see
+# _commit_prefix_batch_with_retry).
+_LOCK_RETRY_ATTEMPTS = 3
+_LOCK_RETRY_DELAY_S = 2.0
 
 
 class _TmdbKeyProxy:
@@ -1210,205 +1222,12 @@ class ChannelRepository(_ChannelStatsMixin):
                 break
 
             chunk_ids = all_ids[batch_start : batch_start + _BATCH]
-            channels = self.session.query(ChannelDB).filter(
-                ChannelDB.id.in_(chunk_ids)
-            ).all()
+            batch_updated, batch_processed = self._commit_prefix_batch_with_retry(
+                chunk_ids, separators, config,
+            )
+            updated += batch_updated
+            processed += batch_processed
 
-            for channel in channels:
-                raw_prefix = extract_prefix(channel.name, separators=separators)
-                # Normalize full country/language names to standard codes:
-                # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
-                prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
-                # Reject digit-only codes — these are provider-internal category numbers
-                # (e.g. "300" from "300  - 2007"), not valid display prefixes.
-                if prefix and re.match(r'^\d+$', prefix):
-                    prefix = None
-                    raw_prefix = None
-
-                parsed = parse_channel_name(channel.name)
-
-                # ── Compound prefix decomposition ────────────────────────────────── #
-                # Handles "4K-DE - Title" (quality+lang), "SE-4K - Title" (lang+quality),
-                # "PL 4K - Title" (lang+space+quality), and "[US] 4K-DE - Title" (bracket
-                # before compound). When a compound is found the lang part overrides the
-                # extracted prefix and the bracket (if any) moves to detected_region.
-                compound_quality: str | None = None
-                bracket_as_region: str | None = None
-
-                cm = _COMPOUND_PREFIX_RE.match(channel.name)
-                if cm:
-                    bracket    = cm.group("bracket")
-                    compound_lang = (
-                        cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
-                    ).upper()
-                    compound_q = (
-                        cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
-                    ).upper()
-
-                    # Guard: skip if the "lang" slot is itself a quality token (e.g. 4K-HD)
-                    if compound_lang and compound_lang not in QUALITY_TOKENS:
-                        prefix = normalize_region_code(compound_lang)
-                        compound_quality = compound_q or None
-                        if bracket:
-                            bracket_as_region = normalize_region_code(bracket)
-
-                # Paren prefix: (QFR) Title — parenthetical code at start, not caught by extract_prefix
-                if not cm:
-                    pm = _PAREN_PREFIX_RE.match(channel.name)
-                    if pm:
-                        paren_code = pm.group(1).upper()
-                        if paren_code not in QUALITY_TOKENS:
-                            prefix = normalize_region_code(paren_code)
-
-                # detected_quality priority:
-                #   1. Name suffix  ("CNN HD" → "HD")
-                #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
-                #   3. Quality-as-prefix  ("HD - Movie" → "HD")
-                #   4. API quality field  (channel.quality = "hd" → "HD")
-                quality: str | None = None
-                if parsed.quality:
-                    quality = parsed.quality[0].upper()
-                elif compound_quality:
-                    quality = compound_quality
-                elif prefix and prefix.upper() in QUALITY_TOKENS:
-                    quality = prefix.upper()
-                    prefix = None  # quality token must not display as a category prefix
-                elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
-                    api_q = channel.quality.upper()
-                    if api_q in QUALITY_TOKENS:
-                        quality = api_q
-
-                # Safety net: Guard #3 only fires when Guards 1 and 2 didn't. If Guard 1
-                # (parsed.quality) fired first, prefix is still "4K". Clear it here regardless.
-                if prefix and prefix.upper() in QUALITY_TOKENS:
-                    prefix = None
-
-                # If prefix was cleared (quality token) or rejected (numeric guard), fall back to
-                # what parse_channel_name extracted in step 1. This lets "[4K] [US] Title" store
-                # detected_prefix = "US" rather than None after Guard #3 cleared "4K".
-                if prefix is None and parsed.region:
-                    prefix = parsed.region
-
-                # detected_region: bracket secondary (from compound decomposition) takes
-                # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
-                region: str | None = bracket_as_region or parsed.lang or None
-
-                # AI-provenance marker (single source of truth: detect_ai_provenance).
-                # A trailing "(AI)" voiceover marker is TWO uppercase letters, so
-                # parse_channel_name reads it as a bogus lang/region qualifier ("AI",
-                # which is also the ISO code for Anguilla) and leaks it into region.
-                # Clear it here — the marker is an AI dub, not a locale — so the
-                # category/sibling fallbacks below can still fill a real region and no
-                # bogus region facet is ever produced.  The content_type:ai_voiceover
-                # tag carries the real signal.
-                _ai_raw = detect_ai_provenance(channel.name)
-                if (_ai_raw is not None and _ai_raw.value == AI_VOICEOVER_VALUE
-                        and region and region.upper() == "AI"):
-                    region = None
-
-                # Fill-empty fallback (step 2): when the NAME carries no region,
-                # derive it from the provider category (e.g. "|FR|" → "FR") via the
-                # shared tag_decomposer extraction. Never overwrites a name-derived
-                # region; only explicit region codes qualify (free text → None).
-                if not region and channel.category:
-                    region = region_code_from_category(channel.category, config=config)
-
-                new_title = parsed.bare_name or None
-                new_year  = parsed.year or None
-
-                # If extract_prefix set a prefix that parse_channel_name couldn't strip
-                # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
-                # are not handled), do the strip manually now.
-                if prefix and raw_prefix and new_title:
-                    _strip_m = re.match(
-                        rf'^{re.escape(raw_prefix)}\s*(?:[★|]|-\s+)\s*(.+)$',
-                        new_title,
-                        re.IGNORECASE,
-                    )
-                    if _strip_m:
-                        new_title = _strip_m.group(1).strip()
-
-                # AI VOICEOVER title cleanup (safety net).  parse_channel_name almost
-                # always strips a trailing "(AI)" already (it reads the two letters as
-                # a lang qualifier), but if any voiceover marker survives into the
-                # title, strip it here so the display title is clean and collapses onto
-                # the base production — the content_type:ai_voiceover tag preserves the
-                # distinction.  An "(AI Generated)" content marker is DELIBERATELY LEFT
-                # in new_title: it flows into content_key below so a fabricated work
-                # never shares a content_key with a real same-title production (keeping
-                # content_key_for a single, consistent read of the stored detected_title
-                # — no new identity machinery).  Only the recognized marker is touched.
-                if new_title:
-                    _ai_title = detect_ai_provenance(new_title)
-                    if _ai_title is not None and _ai_title.value == AI_VOICEOVER_VALUE:
-                        new_title = _ai_title.cleaned_name or None
-
-                # Compute detected_audio from parsed audio fields.
-                # Store None when there is no audio annotation so the column is cheap
-                # (no JSON blob for the vast majority of channels with no sub/dub tag).
-                new_detected_audio = None
-                if parsed.audio_langs or parsed.dub_langs or parsed.sub_langs or parsed.audio:
-                    new_detected_audio = {
-                        "form":  parsed.audio or "",
-                        "audio": list(parsed.audio_langs),
-                        "dub":   list(parsed.dub_langs),
-                        "sub":   list(parsed.sub_langs),
-                    }
-                    # Normalize: drop all-empty dict to None
-                    if (not new_detected_audio["form"]
-                            and not new_detected_audio["audio"]
-                            and not new_detected_audio["dub"]
-                            and not new_detected_audio["sub"]):
-                        new_detected_audio = None
-
-                # Compute the content_key from the UPDATED fields (not the old ORM values)
-                # so the key is always in sync with detected_title/year/media_type.
-                # Build a lightweight proxy that reflects the new field values without
-                # mutating the channel yet — this lets us include content_key in the
-                # changed comparison atomically.
-                # detected_tmdb_id is a provider fact captured at ingestion (not
-                # recomputed here) — read the already-stored value so the recomputed
-                # content_key stays tmdb-first when the provider shipped an id.
-                class _NewFields:
-                    __slots__ = (
-                        "detected_title", "media_type", "detected_year",
-                        "detected_tmdb_id", "id",
-                    )
-                    def __init__(self, title, mt, year, tmdb_id, ch_id):
-                        self.detected_title = title
-                        self.media_type = mt
-                        self.detected_year = year
-                        self.detected_tmdb_id = tmdb_id
-                        self.id = ch_id
-                new_content_key = content_key_for(
-                    _NewFields(
-                        new_title, channel.media_type, new_year,
-                        channel.detected_tmdb_id, channel.id,
-                    )
-                )
-
-                changed = (
-                    prefix != channel.detected_prefix
-                    or quality != channel.detected_quality
-                    or region != channel.detected_region
-                    or new_title != channel.detected_title
-                    or new_year  != channel.detected_year
-                    or new_content_key != channel.content_key
-                    or new_detected_audio != channel.detected_audio
-                )
-                if changed:
-                    channel.detected_prefix = prefix
-                    channel.detected_quality = quality
-                    channel.detected_region = region
-                    channel.detected_title  = new_title
-                    channel.detected_year   = new_year
-                    channel.content_key     = new_content_key
-                    channel.detected_audio  = new_detected_audio
-                    channel.updated_at = datetime.now()
-                    updated += 1
-
-            processed += len(channels)
-            self.session.commit()
             # Expunge between batches to release ORM objects from memory before
             # loading the next chunk.  After the last batch there is nothing to
             # free, so we skip the expunge to leave any caller-held references
@@ -1439,6 +1258,280 @@ class ChannelRepository(_ChannelStatsMixin):
             f"+{tmdb_adopted} tmdb ids from title siblings)"
         )
         return updated
+
+    def _commit_prefix_batch_with_retry(
+        self,
+        chunk_ids: list[str],
+        separators: list[str] | None,
+        config,
+    ) -> tuple[int, int]:
+        """Run one ``update_detected_prefixes`` batch, retrying on a transient lock.
+
+        Delegates the actual query/compute/commit to :meth:`_process_prefix_batch`.
+        On ``OperationalError`` whose message contains "locked", rolls back and
+        retries the *whole* batch (query included) up to ``_LOCK_RETRY_ATTEMPTS``
+        times with a ``_LOCK_RETRY_DELAY_S`` sleep between attempts — a failed
+        commit leaves the session's in-memory changes expired after rollback, so
+        re-running just ``session.commit()`` would flush nothing; the batch must
+        be recomputed from a fresh query. Any other exception (or a lock error on
+        the final attempt) re-raises immediately so the caller's crash-without-
+        version-bump contract (#364) is unchanged — only lock contention retries.
+
+        Args:
+            chunk_ids: Channel ids in this batch.
+            separators: Prefix separators passed through to per-channel parsing.
+            config: Live ``Config`` instance for the category→region fallback.
+
+        Returns:
+            ``(batch_updated, batch_processed)`` from the successful attempt.
+        """
+        for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+            try:
+                return self._process_prefix_batch(chunk_ids, separators, config)
+            except OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                self.session.rollback()
+                if attempt == _LOCK_RETRY_ATTEMPTS:
+                    logger.error(
+                        "update_detected_prefixes: batch still locked after {} "
+                        "attempt(s), aborting run (will retry next launch)",
+                        _LOCK_RETRY_ATTEMPTS,
+                    )
+                    raise
+                logger.warning(
+                    "update_detected_prefixes: batch locked (attempt {}/{}); "
+                    "retrying in {}s",
+                    attempt,
+                    _LOCK_RETRY_ATTEMPTS,
+                    _LOCK_RETRY_DELAY_S,
+                )
+                time.sleep(_LOCK_RETRY_DELAY_S)
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def _process_prefix_batch(
+        self,
+        chunk_ids: list[str],
+        separators: list[str] | None,
+        config,
+    ) -> tuple[int, int]:
+        """Query, parse, and commit one ``update_detected_prefixes`` batch.
+
+        Extracted from ``update_detected_prefixes`` so a lock retry
+        (:meth:`_commit_prefix_batch_with_retry`) can re-run the whole batch —
+        query, per-channel parse, and commit — from scratch, since a failed
+        commit's rollback expires the session's pending in-memory changes and a
+        bare retried ``commit()`` would have nothing left to flush.
+
+        Args:
+            chunk_ids: Channel ids in this batch.
+            separators: Prefix separators passed through to per-channel parsing.
+            config: Live ``Config`` instance for the category→region fallback.
+
+        Returns:
+            ``(batch_updated, batch_processed)`` — channels actually changed vs.
+            total channels queried in this batch.
+        """
+        channels = self.session.query(ChannelDB).filter(
+            ChannelDB.id.in_(chunk_ids)
+        ).all()
+
+        batch_updated = 0
+        for channel in channels:
+            raw_prefix = extract_prefix(channel.name, separators=separators)
+            # Normalize full country/language names to standard codes:
+            # "NIGERIA" → "NGA", "ENGLISH" → "EN", "TELUGU" → "TE", etc.
+            prefix = normalize_region_code(raw_prefix) if raw_prefix else raw_prefix
+            # Reject digit-only codes — these are provider-internal category numbers
+            # (e.g. "300" from "300  - 2007"), not valid display prefixes.
+            if prefix and re.match(r'^\d+$', prefix):
+                prefix = None
+                raw_prefix = None
+
+            parsed = parse_channel_name(channel.name)
+
+            # ── Compound prefix decomposition ────────────────────────────────── #
+            # Handles "4K-DE - Title" (quality+lang), "SE-4K - Title" (lang+quality),
+            # "PL 4K - Title" (lang+space+quality), and "[US] 4K-DE - Title" (bracket
+            # before compound). When a compound is found the lang part overrides the
+            # extracted prefix and the bracket (if any) moves to detected_region.
+            compound_quality: str | None = None
+            bracket_as_region: str | None = None
+
+            cm = _COMPOUND_PREFIX_RE.match(channel.name)
+            if cm:
+                bracket    = cm.group("bracket")
+                compound_lang = (
+                    cm.group("lang_a") or cm.group("lang_b") or cm.group("lang_c") or ""
+                ).upper()
+                compound_q = (
+                    cm.group("qual_a") or cm.group("qual_b") or cm.group("qual_c") or ""
+                ).upper()
+
+                # Guard: skip if the "lang" slot is itself a quality token (e.g. 4K-HD)
+                if compound_lang and compound_lang not in QUALITY_TOKENS:
+                    prefix = normalize_region_code(compound_lang)
+                    compound_quality = compound_q or None
+                    if bracket:
+                        bracket_as_region = normalize_region_code(bracket)
+
+            # Paren prefix: (QFR) Title — parenthetical code at start, not caught by extract_prefix
+            if not cm:
+                pm = _PAREN_PREFIX_RE.match(channel.name)
+                if pm:
+                    paren_code = pm.group(1).upper()
+                    if paren_code not in QUALITY_TOKENS:
+                        prefix = normalize_region_code(paren_code)
+
+            # detected_quality priority:
+            #   1. Name suffix  ("CNN HD" → "HD")
+            #   2. Compound prefix quality  ("4K" from "4K-DE - Title")
+            #   3. Quality-as-prefix  ("HD - Movie" → "HD")
+            #   4. API quality field  (channel.quality = "hd" → "HD")
+            quality: str | None = None
+            if parsed.quality:
+                quality = parsed.quality[0].upper()
+            elif compound_quality:
+                quality = compound_quality
+            elif prefix and prefix.upper() in QUALITY_TOKENS:
+                quality = prefix.upper()
+                prefix = None  # quality token must not display as a category prefix
+            elif channel.quality and channel.quality.upper() not in ("UNKNOWN", ""):
+                api_q = channel.quality.upper()
+                if api_q in QUALITY_TOKENS:
+                    quality = api_q
+
+            # Safety net: Guard #3 only fires when Guards 1 and 2 didn't. If Guard 1
+            # (parsed.quality) fired first, prefix is still "4K". Clear it here regardless.
+            if prefix and prefix.upper() in QUALITY_TOKENS:
+                prefix = None
+
+            # If prefix was cleared (quality token) or rejected (numeric guard), fall back to
+            # what parse_channel_name extracted in step 1. This lets "[4K] [US] Title" store
+            # detected_prefix = "US" rather than None after Guard #3 cleared "4K".
+            if prefix is None and parsed.region:
+                prefix = parsed.region
+
+            # detected_region: bracket secondary (from compound decomposition) takes
+            # priority, then parenthetical lang/region suffix (e.g. "(US)" → "US")
+            region: str | None = bracket_as_region or parsed.lang or None
+
+            # AI-provenance marker (single source of truth: detect_ai_provenance).
+            # A trailing "(AI)" voiceover marker is TWO uppercase letters, so
+            # parse_channel_name reads it as a bogus lang/region qualifier ("AI",
+            # which is also the ISO code for Anguilla) and leaks it into region.
+            # Clear it here — the marker is an AI dub, not a locale — so the
+            # category/sibling fallbacks below can still fill a real region and no
+            # bogus region facet is ever produced.  The content_type:ai_voiceover
+            # tag carries the real signal.
+            _ai_raw = detect_ai_provenance(channel.name)
+            if (_ai_raw is not None and _ai_raw.value == AI_VOICEOVER_VALUE
+                    and region and region.upper() == "AI"):
+                region = None
+
+            # Fill-empty fallback (step 2): when the NAME carries no region,
+            # derive it from the provider category (e.g. "|FR|" → "FR") via the
+            # shared tag_decomposer extraction. Never overwrites a name-derived
+            # region; only explicit region codes qualify (free text → None).
+            if not region and channel.category:
+                region = region_code_from_category(channel.category, config=config)
+
+            new_title = parsed.bare_name or None
+            new_year  = parsed.year or None
+
+            # If extract_prefix set a prefix that parse_channel_name couldn't strip
+            # (_SEPARATOR_RE requires [A-Z] first char, so digit-starting codes like "24/7"
+            # are not handled), do the strip manually now.
+            if prefix and raw_prefix and new_title:
+                _strip_m = re.match(
+                    rf'^{re.escape(raw_prefix)}\s*(?:[★|]|-\s+)\s*(.+)$',
+                    new_title,
+                    re.IGNORECASE,
+                )
+                if _strip_m:
+                    new_title = _strip_m.group(1).strip()
+
+            # AI VOICEOVER title cleanup (safety net).  parse_channel_name almost
+            # always strips a trailing "(AI)" already (it reads the two letters as
+            # a lang qualifier), but if any voiceover marker survives into the
+            # title, strip it here so the display title is clean and collapses onto
+            # the base production — the content_type:ai_voiceover tag preserves the
+            # distinction.  An "(AI Generated)" content marker is DELIBERATELY LEFT
+            # in new_title: it flows into content_key below so a fabricated work
+            # never shares a content_key with a real same-title production (keeping
+            # content_key_for a single, consistent read of the stored detected_title
+            # — no new identity machinery).  Only the recognized marker is touched.
+            if new_title:
+                _ai_title = detect_ai_provenance(new_title)
+                if _ai_title is not None and _ai_title.value == AI_VOICEOVER_VALUE:
+                    new_title = _ai_title.cleaned_name or None
+
+            # Compute detected_audio from parsed audio fields.
+            # Store None when there is no audio annotation so the column is cheap
+            # (no JSON blob for the vast majority of channels with no sub/dub tag).
+            new_detected_audio = None
+            if parsed.audio_langs or parsed.dub_langs or parsed.sub_langs or parsed.audio:
+                new_detected_audio = {
+                    "form":  parsed.audio or "",
+                    "audio": list(parsed.audio_langs),
+                    "dub":   list(parsed.dub_langs),
+                    "sub":   list(parsed.sub_langs),
+                }
+                # Normalize: drop all-empty dict to None
+                if (not new_detected_audio["form"]
+                        and not new_detected_audio["audio"]
+                        and not new_detected_audio["dub"]
+                        and not new_detected_audio["sub"]):
+                    new_detected_audio = None
+
+            # Compute the content_key from the UPDATED fields (not the old ORM values)
+            # so the key is always in sync with detected_title/year/media_type.
+            # Build a lightweight proxy that reflects the new field values without
+            # mutating the channel yet — this lets us include content_key in the
+            # changed comparison atomically.
+            # detected_tmdb_id is a provider fact captured at ingestion (not
+            # recomputed here) — read the already-stored value so the recomputed
+            # content_key stays tmdb-first when the provider shipped an id.
+            class _NewFields:
+                __slots__ = (
+                    "detected_title", "media_type", "detected_year",
+                    "detected_tmdb_id", "id",
+                )
+                def __init__(self, title, mt, year, tmdb_id, ch_id):
+                    self.detected_title = title
+                    self.media_type = mt
+                    self.detected_year = year
+                    self.detected_tmdb_id = tmdb_id
+                    self.id = ch_id
+            new_content_key = content_key_for(
+                _NewFields(
+                    new_title, channel.media_type, new_year,
+                    channel.detected_tmdb_id, channel.id,
+                )
+            )
+
+            changed = (
+                prefix != channel.detected_prefix
+                or quality != channel.detected_quality
+                or region != channel.detected_region
+                or new_title != channel.detected_title
+                or new_year  != channel.detected_year
+                or new_content_key != channel.content_key
+                or new_detected_audio != channel.detected_audio
+            )
+            if changed:
+                channel.detected_prefix = prefix
+                channel.detected_quality = quality
+                channel.detected_region = region
+                channel.detected_title  = new_title
+                channel.detected_year   = new_year
+                channel.content_key     = new_content_key
+                channel.detected_audio  = new_detected_audio
+                channel.updated_at = datetime.now()
+                batch_updated += 1
+
+        self.session.commit()
+        return batch_updated, len(channels)
 
     def _propagate_region_from_siblings(
         self, provider_id: Optional[str] = None
