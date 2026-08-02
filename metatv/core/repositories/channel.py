@@ -155,10 +155,36 @@ def _channel_text_search_predicate(search_term: str):
     Returns:
         A SQLAlchemy boolean clause suitable for ``query.filter(...)``.
     """
+    pattern = f"%{search_term}%"
+    return or_(ChannelDB.name.ilike(pattern), _metadata_person_exists(pattern))
+
+
+def _metadata_person_exists(pattern: str):
+    """Correlated EXISTS: the channel's linked ``MetadataDB`` row has a
+    director/cast match for *pattern* (a SQL ``LIKE``/``ILIKE`` pattern,
+    e.g. ``f"%{name}%"``).
+
+    Single chokepoint for "does this channel's *enriched* metadata mention
+    this person" — shared by :func:`_channel_text_search_predicate` (free-text
+    search box) and the details-pane Cast/Crew context-chip filter
+    (``ChannelRepository._apply_channel_filters`` ``person_filter`` branch).
+    Both need the same shape (details pane displays ``MetadataDB.cast``/
+    ``director``, so any filter over "who's in this" must match what's
+    displayed, not the raw provider blob) — extend this helper for a future
+    variant rather than forking a second correlated subquery.
+
+    ``MetadataDB.cast`` is a ``JSONEncoded`` (``Text``-backed) column storing
+    ``[{"name": ..., "character": ..., "photo_url": ...}]`` — matched with a
+    plain substring ``ILIKE`` against the serialized JSON text, which is
+    sufficient for a name lookup without a ``json_each`` split.
+    ``MetadataDB.director`` is matched the same way. Both comparisons wrap the
+    column in ``type_coerce(..., Text)`` first — without it, SQLAlchemy runs
+    the ``JSONEncoded`` bind-processor on the search pattern too (JSON-encoding
+    it into a quoted string literal), which silently never matches.
+    """
     from sqlalchemy import exists as _exists, select as _sa_select, type_coerce as _type_coerce, Text as _Text
 
-    pattern = f"%{search_term}%"
-    metadata_match = _exists(
+    return _exists(
         _sa_select(MetadataDB.id).where(
             MetadataDB.id == ChannelDB.metadata_id,
             or_(
@@ -167,7 +193,6 @@ def _channel_text_search_predicate(search_term: str):
             ),
         )
     )
-    return or_(ChannelDB.name.ilike(pattern), metadata_match)
 
 
 class ChannelRepository(_ChannelStatsMixin):
@@ -564,30 +589,48 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter(_channel_text_search_predicate(search_query))
 
         # Strict genre filter — from details-pane genre chip clicks. No passthrough:
-        # only movies/series whose raw_data genre field contains the requested genre.
+        # only movies/series matching the requested genre. Primary match is
+        # ``detected_genres`` — the ingestion-computed canonical genre list
+        # (same field ``discovery_engine.get_by_genre`` reads, see
+        # ``update_detected_prefixes()``) — via the exact-match ``json_each``
+        # pattern that function uses; falls back to a raw_data.genre LIKE for
+        # rows ingested before detected_genres existed / not yet re-swept.
         if strict_genre_filter:
             from sqlalchemy import text as _text2
+            _canon_genre = normalize_genre(strict_genre_filter)
             query = query.filter(
                 ChannelDB.media_type.in_(["movie", "series"]),
-                _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
-                    _strict_genre=f"%{strict_genre_filter}%"
+                or_(
+                    _text2(
+                        "EXISTS (SELECT 1 FROM json_each(channels.detected_genres) AS dg_je "
+                        "WHERE dg_je.value = :_strict_genre_exact)"
+                    ).bindparams(_strict_genre_exact=_canon_genre),
+                    _text2("json_extract(raw_data, '$.genre') LIKE :_strict_genre").bindparams(
+                        _strict_genre=f"%{strict_genre_filter}%"
+                    ),
                 ),
             )
 
-        # Person filter — from details-pane cast/director/crew clicks.
-        # Searches raw_data.cast (comma-separated string) and raw_data.director.
-        # MetadataDB is not used because raw_data covers ~70k channels while only
-        # ~763 channels have metadata_id set; most metadata comes from raw_data directly.
+        # Person filter — from details-pane cast/director/crew chip clicks. The
+        # details pane displays the ENRICHED MetadataDB.cast/director, so the
+        # filter must match what's shown there first (via the shared
+        # _metadata_person_exists EXISTS, also used by the free-text search
+        # predicate) — otherwise an enriched-only row (e.g. a movie whose raw
+        # provider feed carries no cast field, but MetadataDB.cast does) is
+        # invisible to its own chip. Falls back to the raw_data.cast/director
+        # LIKE match for un-enriched rows (most channels have no metadata_id).
         if person_filter:
             from sqlalchemy import text as _text3
+            _person_pattern = f"%{person_filter}%"
             query = query.filter(
                 or_(
+                    _metadata_person_exists(_person_pattern),
                     _text3(
                         "json_extract(raw_data, '$.cast') LIKE :_person_cast"
-                    ).bindparams(_person_cast=f"%{person_filter}%"),
+                    ).bindparams(_person_cast=_person_pattern),
                     _text3(
                         "json_extract(raw_data, '$.director') LIKE :_person_dir"
-                    ).bindparams(_person_dir=f"%{person_filter}%"),
+                    ).bindparams(_person_dir=_person_pattern),
                 )
             )
 
