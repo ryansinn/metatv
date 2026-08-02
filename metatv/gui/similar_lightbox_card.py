@@ -21,6 +21,8 @@ Play button owns playback.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -28,10 +30,14 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
+if TYPE_CHECKING:
+    from metatv.core.database import Database
+
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.cursor_affordance import set_clickable
 from metatv.gui.flow_layout import FlowLayout
+from metatv.gui.lightbox_breadcrumb import LightboxBreadcrumb
 from metatv.gui.sim_badges import make_sim_badges
 
 # Poster / strip-card dimensions (structural spacing — px is fine inline).
@@ -206,6 +212,7 @@ class _LightboxCard(QFrame):
     back_clicked        = pyqtSignal()
     close_clicked       = pyqtSignal()
     explore_clicked     = pyqtSignal()   # open the Explore trail-map (seeded with the nav trail)
+    breadcrumb_crumb_clicked = pyqtSignal(str)  # channel_id — breadcrumb navigation
     play_clicked        = pyqtSignal()
     queue_clicked       = pyqtSignal()
     favorite_clicked    = pyqtSignal()
@@ -285,6 +292,12 @@ class _LightboxCard(QFrame):
         row.addWidget(close_btn)
 
         outer.addWidget(bar)
+
+        # Breadcrumb trail — shows the dive path when in a rabbit hole
+        self._breadcrumb = LightboxBreadcrumb()
+        self._breadcrumb.crumb_clicked.connect(self._on_breadcrumb_clicked)
+        self._breadcrumb.explore_ellipsis_clicked.connect(self.explore_clicked)
+        outer.addWidget(self._breadcrumb)
 
     def _build_body(self, outer: QVBoxLayout) -> None:
         scroll = _GrowScrollArea()
@@ -603,6 +616,24 @@ class _LightboxCard(QFrame):
 
     def set_back_visible(self, visible: bool) -> None:
         self._back_btn.setVisible(visible)
+
+    def update_breadcrumb(
+        self,
+        origin_title: str,
+        origin_ids: list[str],
+        nav_stack: list[str],
+        current_id: str,
+        titles: dict[str, str],
+    ) -> None:
+        """Update the breadcrumb trail with the current dive path.
+
+        Called whenever the lightbox loads a new channel or dives deeper.
+        """
+        self._breadcrumb.update_trail(origin_title, origin_ids, nav_stack, current_id, titles)
+
+    def _on_breadcrumb_clicked(self, channel_id: str) -> None:
+        """Handle breadcrumb crumb click — relay as a signal for the overlay."""
+        self.breadcrumb_crumb_clicked.emit(channel_id)
 
     # ------------------------------------------------------------------ #
     # Populate                                                             #

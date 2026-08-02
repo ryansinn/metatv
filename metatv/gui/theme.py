@@ -1428,6 +1428,20 @@ def _build_semantic_constants() -> dict[str, object]:
         "color: " + COLOR_TEXT_LOW + "; font-size: " + FONT_XL + "; font-weight: bold;"
     )
 
+    # Lightbox dive-trail breadcrumb (#388) — inside the builder so a theme
+    # switch recomposes them like every other semantic constant.
+    LIGHTBOX_BREADCRUMB_CRUMB = (
+        "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+        " border: none; background: transparent; padding: 0 2px; text-align: left; }"
+        "QPushButton:hover { color: " + COLOR_TEXT + "; }"
+    )
+    LIGHTBOX_BREADCRUMB_CURRENT = (
+        "color: " + COLOR_TEXT + "; font-size: " + FONT_SM + ";"
+    )
+    LIGHTBOX_BREADCRUMB_SEP = (
+        "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
+    )
+
     return {k: v for k, v in dict(locals()).items() if not k.startswith("_")}
 
 
