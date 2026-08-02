@@ -407,6 +407,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # around it — it just re-runs the same update_detected_prefixes() pass.
         from metatv.core.migrations.restricted_backfill import RestrictedBackfillTask
         self.migration_manager.register(RestrictedBackfillTask(self.db))
+        # Owner-reported gap: provider category strings carrying a leading
+        # "|EN| ANIME"-style marker that duplicates channel-name language info —
+        # one-time backfill of stored detected_collection(_language|_subdub) for
+        # pre-existing rows (new channels get it at ingestion). No ordering
+        # dependency on the tasks around it — it just re-runs the same
+        # update_detected_prefixes() pass.
+        from metatv.core.migrations.category_marker_backfill import CategoryMarkerBackfillTask
+        self.migration_manager.register(CategoryMarkerBackfillTask(self.db))
         # ORDER MATTERS — populate detected_tmdb_id from raw_data BEFORE the
         # content_key recompute (v4) reads it, so cross-language/quality variants
         # sharing a provider tmdb id collapse onto one tmdb-first key.

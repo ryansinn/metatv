@@ -61,6 +61,24 @@ _LEADING_PIPE_PREFIX_RE = re.compile(
 # never touched.
 _POST_PREFIX_RESIDUE_RE = re.compile(r'^[.\-:|,;]+\s+')
 
+# Leading CATEGORY marker: "|EN| ANIME", "|AR-SUB| AMAZON PRIME",
+# "|DE| FILME 1990-2023" — a provider ``category`` string (not the channel
+# name) that duplicates language/subtitle info already carried elsewhere.
+# Mirrors _LEADING_PIPE_PREFIX_RE's shape but separately captures an optional
+# "-SUB"/"-DUB" compound suffix so parse_category_marker can route it
+# distinctly from a plain language code. See parse_category_marker.
+_CATEGORY_MARKER_RE = re.compile(
+    r'^\|\s*([A-Z]{2,4})(?:-([A-Z]{2,8}))?\s*\|\s*(.*)$',
+    re.IGNORECASE,
+)
+
+# The only compound suffixes a category marker recognizes — a gate against the
+# shared sub/dub vocabulary (_SUB_DUB_TOKENS) rather than a parallel token
+# list, restricted to the two unambiguous kinds evidenced in real category
+# data (owner report: "AR-SUB" — 6,474 rows). Any other compound suffix is
+# left unrecognized rather than guessed at.
+_CATEGORY_MARKER_SUBDUB_KINDS: dict[str, str] = {"SUB": "sub", "DUB": "dub"}
+
 # EPG-embedded event feed: "REGION (NETWORK [CHAN#]) | TITLE (TIMESTAMP)".
 # Some providers (TREX/Ninja) encode a scheduled programme directly in the channel
 # name: a known region, a broadcaster/network in parens (optionally with a feed
@@ -91,6 +109,20 @@ class PlatformEvent(NamedTuple):
     title: str             # programme title with network/pipe/timestamp stripped
     start_time: Optional[datetime]  # scheduled start, or None (form-A / sentinel)
     always_available: bool # True when the timestamp was the far-future sentinel
+
+
+class CategoryMarker(NamedTuple):
+    """A leading ``|TOKEN|`` marker stripped from a provider category string
+    (see :func:`parse_category_marker`).
+
+    Attributes:
+        code: Normalized region/language code (e.g. "EN", "AR") — always run
+            through :func:`normalize_region_code`.
+        kind: "language" for a plain code marker, or "sub"/"dub" for a
+            compound ``CODE-SUB``/``CODE-DUB`` marker.
+    """
+    code: str
+    kind: str
 
 
 def _parse_event_ts(s: str) -> Optional[datetime]:
@@ -1622,6 +1654,51 @@ def normalize_region_code(raw: str) -> str:
     if upper in _ALIAS_MAP:
         return _ALIAS_MAP[upper]
     return upper
+
+
+def parse_category_marker(category: str) -> tuple[str, Optional[CategoryMarker]]:
+    """Strip a leading ``|TOKEN|`` marker from a provider category string.
+
+    Real provider category strings carry a leading pipe-delimited marker that
+    duplicates channel-name language/subtitle information, e.g.
+    ``"|EN| ANIME"``, ``"|AR-SUB| AMAZON PRIME"``, ``"|DE| FILME 1990-2023"``.
+    This strips the marker and classifies it — a plain code is a
+    :class:`CategoryMarker` with ``kind="language"``; a ``CODE-SUB``/
+    ``CODE-DUB`` compound is ``kind="sub"``/``"dub"`` — reusing
+    :func:`normalize_region_code` and the shared sub/dub vocabulary
+    (:data:`_SUB_DUB_TOKENS` via :data:`_CATEGORY_MARKER_SUBDUB_KINDS`) rather
+    than inventing parallel data. An unrecognized compound suffix (anything
+    but SUB/DUB) is left alone — the whole string is returned unchanged with
+    no marker, per the "don't guess beyond it" rule.
+
+    Args:
+        category: The raw provider ``category`` string (may be ``None``/empty).
+
+    Returns:
+        ``(clean_category, marker)`` — ``clean_category`` has the marker
+        removed and whitespace collapsed (or is the original text,
+        whitespace-collapsed, when no marker is recognized); ``marker`` is
+        ``None`` when no leading marker was recognized.
+    """
+    if not category:
+        return category or "", None
+    collapsed = " ".join(category.split())
+    m = _CATEGORY_MARKER_RE.match(collapsed)
+    if not m:
+        return collapsed, None
+    code_raw, suffix_raw, rest = m.group(1), m.group(2), m.group(3)
+    clean = " ".join(rest.split())
+    if suffix_raw:
+        suffix_upper = suffix_raw.upper()
+        kind = (
+            _CATEGORY_MARKER_SUBDUB_KINDS.get(suffix_upper)
+            if suffix_upper in _SUB_DUB_TOKENS else None
+        )
+        if kind is None:
+            # Unrecognized compound (not SUB/DUB) — don't guess, leave as-is.
+            return collapsed, None
+        return clean, CategoryMarker(code=normalize_region_code(code_raw), kind=kind)
+    return clean, CategoryMarker(code=normalize_region_code(code_raw), kind="language")
 
 
 def _strip_quality(bare: str) -> tuple[str, list[str]]:

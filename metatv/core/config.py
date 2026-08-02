@@ -1053,6 +1053,14 @@ class Config(BaseModel):
     # channel_name_utils.is_restricted_prefix()) for pre-existing rows.
     restricted_backfill_version: int = 0
 
+    # Internal migration version for the category-marker backfill (owner-reported
+    # gap — provider category strings carrying a leading "|EN| ANIME"-style marker
+    # that duplicates channel-name language info). Bump CURRENT_VERSION in
+    # metatv/core/migrations/category_marker_backfill.py to trigger a one-time pass
+    # populating ChannelDB.detected_collection(_language|_subdub) for pre-existing
+    # rows (new channels get them at ingestion).
+    category_marker_backfill_version: int = 0
+
     # What's New dialog — cursor tracking which entries the user has seen.
     # 0 = never seen any entry (shows all on first launch after this feature ships).
     last_seen_whats_new_id: int = 0

@@ -120,6 +120,14 @@ class ChannelListDTO:
     # as plot above (see its _joined_poster_url stash) — never a per-row lookup.
     # Powers the comfy/comfy_plus channel-list thumbnail (channel_list_delegate.py).
     poster_url: str = ""
+    # Category-marker cleanup fields — computed at ingestion (see ChannelDB.
+    # detected_collection(_language|_subdub) in database.py); read directly,
+    # never re-parsed from ``category``. Power the Comfy/Comfy+ row's
+    # collection/secondary-language/subtitle-marker chips
+    # (channel_list_delegate.py).
+    detected_collection: str | None = None
+    detected_collection_language: str | None = None
+    detected_collection_subdub: str | None = None
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -154,6 +162,9 @@ class ChannelListDTO:
             reliability_state=reliability_state,
             plot=getattr(ch, "_joined_plot", "") or "",
             poster_url=getattr(ch, "_joined_poster_url", "") or "",
+            detected_collection=ch.detected_collection,
+            detected_collection_language=ch.detected_collection_language,
+            detected_collection_subdub=ch.detected_collection_subdub,
         )
 
 
