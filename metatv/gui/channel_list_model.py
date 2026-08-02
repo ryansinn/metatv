@@ -86,11 +86,14 @@ POSTER_URL_ROLE = Qt.ItemDataRole.UserRole + 20    # MetadataDB.poster_url or ""
 # this row represents a collapsed content_key group). 1 (no badge) otherwise.
 VARIANT_COUNT_ROLE = Qt.ItemDataRole.UserRole + 21
 # Category-marker cleanup roles (Comfy/Comfy+ line 1 right-group + collection chip).
+# NOTE: numbered from 22 — 21 belongs to VARIANT_COUNT_ROLE above. Two parallel
+# slices both claimed 21; asking for the primary language returned the variant
+# COUNT (an int), which blew up in QFontMetrics. Keep these unique.
 # See ChannelDB.detected_collection(_language|_subdub) in database.py for provenance.
-PRIMARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 21    # detected_prefix or "" — the channel's OWN (honest) language
-SECONDARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 22  # detected_collection_language or "" — category's disagreeing language marker
-SUBTITLE_MARKER_ROLE = Qt.ItemDataRole.UserRole + 23     # detected_collection_subdub or "" — e.g. "AR-SUB"
-COLLECTION_ROLE = Qt.ItemDataRole.UserRole + 24          # detected_collection or "" — clean category (marker stripped)
+PRIMARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 22    # detected_prefix or "" — the channel's OWN (honest) language
+SECONDARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 23  # detected_collection_language or "" — category's disagreeing language marker
+SUBTITLE_MARKER_ROLE = Qt.ItemDataRole.UserRole + 24     # detected_collection_subdub or "" — e.g. "AR-SUB"
+COLLECTION_ROLE = Qt.ItemDataRole.UserRole + 25          # detected_collection or "" — clean category (marker stripped)
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,

@@ -213,10 +213,13 @@ def stacked_line_rects(container: QRect, line_height: int, gap: int) -> tuple[QR
 # Cell builders — map a raw role value to a paintable _Cell (or None to omit).
 # ---------------------------------------------------------------------------
 
-def _year_cell(year: str) -> Optional[_Cell]:
+def _year_cell(year) -> Optional[_Cell]:
+    # Coerce: the year reaches us as a str from ChannelListDTO but as an int
+    # from some model stubs/roles, and a non-str text reaches QFontMetrics
+    # .horizontalAdvance() and raises.
     if not year:
         return None
-    return _Cell(year, False, _theme.COLOR_MUTED)
+    return _Cell(str(year), False, _theme.COLOR_MUTED)
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:
