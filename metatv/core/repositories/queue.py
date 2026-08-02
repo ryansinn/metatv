@@ -284,22 +284,55 @@ class WatchQueueRepository:
         self.session.query(WatchQueueDB).delete()
 
     def clear_watched(self) -> int:
-        """Remove entries whose content has been played at least once.
+        """Remove entries whose content has been genuinely finished watching.
 
-        Episode-grain rows check the EPISODE's own last_played (not the series');
-        channel-grain rows check the channel's. Returns count removed.
+        Episode-grain rows: remove only if the episode's is_watched or
+        watch_completed is True.
+
+        Channel-grain rows with media_type="series": remove only if the series has
+        at least one stored EpisodeDB row AND all episodes have is_watched or
+        watch_completed=True. If zero episode rows exist, conservatively KEEP the
+        row (cannot prove it's finished). If no EpisodeDB exists, keep it.
+
+        All other channel-grain rows (movie/live/unknown): remove only if the
+        channel's watch_completed is True.
+
+        Returns count of rows removed.
         """
         rows = self.session.query(WatchQueueDB).all()
         removed = 0
         for row in rows:
             if row.episode_id:
+                # Episode-grain: remove only if watched or completed
                 ep = self.session.get(EpisodeDB, row.episode_id)
-                if ep and ep.last_played:
+                if ep and (ep.is_watched or ep.watch_completed):
                     self.session.delete(row)
                     removed += 1
                 continue
+
             ch = self.session.get(ChannelDB, row.channel_id)
-            if ch and ch.last_played:
-                self.session.delete(row)
-                removed += 1
+            if not ch:
+                # Channel no longer exists — it was already handled by clear_unavailable
+                continue
+
+            if ch.media_type == "series":
+                # Series: remove only if ALL episodes are watched.
+                # EpisodeDB.series_id holds the PROVIDER's series id — i.e.
+                # ChannelDB.source_id, NOT ChannelDB.id (verified against real
+                # data: episodes.series_id='45505' vs channels.id='<uuid>_45505').
+                episodes = (
+                    self.session.query(EpisodeDB)
+                    .filter_by(series_id=ch.source_id, provider_id=ch.provider_id)
+                    .all()
+                )
+                # Zero episodes = conservatively keep the row (never clear what we can't prove is finished)
+                if episodes and all(ep.is_watched or ep.watch_completed for ep in episodes):
+                    self.session.delete(row)
+                    removed += 1
+            else:
+                # Movie/live/unknown: remove only if watch_completed is True
+                if ch.watch_completed:
+                    self.session.delete(row)
+                    removed += 1
+
         return removed

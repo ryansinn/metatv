@@ -97,6 +97,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
         btn_row = QHBoxLayout()
         self._clear_watched_btn = QPushButton(f"{self.config.watched_icon} Clear Watched")
+        self._clear_watched_btn.setToolTip("Remove finished items — partially watched titles stay")
         self._clear_watched_btn.clicked.connect(self.clearWatchedClicked.emit)
         btn_row.addWidget(self._clear_watched_btn)
 

@@ -232,9 +232,10 @@ class TestEpisodeGrainQueue:
                 "remove(channel_id) must never delete an episode-grain row"
             )
 
-    def test_clear_watched_checks_episode_own_last_played(self, db):
+    def test_clear_watched_checks_episode_own_watched_flag(self, db):
         """clear_watched on an episode-grain row checks the EPISODE's own
-        last_played, not the series'."""
+        watched flag, not the series' (semantics tightened: finished, not
+        merely played — see clear_watched)."""
         from datetime import datetime
 
         series_id = _seed_series(db)
@@ -244,7 +245,9 @@ class TestEpisodeGrainQueue:
 
         # Only the episode was played; the series channel's own last_played is NULL.
         with db.session_scope() as session:
-            session.get(EpisodeDB, ep_id).last_played = datetime.utcnow()
+            _ep = session.get(EpisodeDB, ep_id)
+            _ep.last_played = datetime.utcnow()
+            _ep.is_watched = True
 
         with db.session_scope() as session:
             removed = RepositoryFactory(session).queue.clear_watched()
