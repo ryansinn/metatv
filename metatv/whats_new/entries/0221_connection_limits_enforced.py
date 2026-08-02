@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=221,
-    version="0.19.0",
+    version="0.18.2",
     date="2026-08-01",
     title="Per-source connection limits are now enforced",
     items=(

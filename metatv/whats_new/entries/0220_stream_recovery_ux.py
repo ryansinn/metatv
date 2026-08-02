@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=220,
-    version="0.19.0",
+    version="0.18.2",
     date="2026-08-01",
     title="Stream recovery is now visible and one click away",
     items=(

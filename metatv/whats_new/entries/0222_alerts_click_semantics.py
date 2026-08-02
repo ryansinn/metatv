@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=222,
-    version="0.19.0",
+    version="0.18.2",
     date="2026-08-01",
     title="Double-click and \"Open series\" now browse monitored series in Watch Alerts",
     items=(

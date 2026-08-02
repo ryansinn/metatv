@@ -2,7 +2,7 @@ from metatv.whats_new import WhatsNewEntry
 
 ENTRY = WhatsNewEntry(
     id=223,
-    version="0.19.0",
+    version="0.18.2",
     date="2026-08-01",
     title="Startup maintenance pass survives being interrupted by normal browsing",
     items=(
