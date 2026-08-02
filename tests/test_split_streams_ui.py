@@ -64,7 +64,7 @@ class _FakePlayer:
     def is_available(self) -> bool:
         return True
 
-    def play(self, url: str, title: str, instance_key: str = "__shared__", start_seconds: int = 0, open_ended_buffer: bool = False) -> bool:
+    def play(self, url: str, title: str, instance_key: str = "__shared__", start_seconds: int = 0, open_ended_buffer: bool = False, **kwargs) -> bool:
         self.play_calls.append({"url": url, "title": title, "instance_key": instance_key, "start_seconds": start_seconds, "open_ended_buffer": open_ended_buffer})
         return True
 
@@ -345,7 +345,8 @@ def _bare_split_dialog(qapp, split: bool = False):
     )
     from metatv.gui.settings_dialog import SettingsDialog
     from metatv.core.http_headers import stream_user_agent
-    from tests.conftest import wire_settings_recommendation_widgets, wire_settings_epg_widgets
+    from tests.conftest import (wire_settings_recommendation_widgets, wire_settings_epg_widgets,
+                                wire_settings_playback_widgets)
 
     dlg = SettingsDialog.__new__(SettingsDialog)
     dlg.config = _FakeDlgConfig(split=split)
@@ -401,6 +402,7 @@ def _bare_split_dialog(qapp, split: bool = False):
     dlg._reconnect_spin.setRange(0, 10)
 
     wire_settings_epg_widgets(dlg)
+    wire_settings_playback_widgets(dlg)
 
     dlg._meta_enabled_check = QCheckBox()
     dlg._meta_autofetch_check = QCheckBox()
