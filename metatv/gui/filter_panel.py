@@ -24,7 +24,7 @@ from loguru import logger
 
 from metatv.core.channel_name_utils import quality_display
 from metatv.gui import theme as _theme
-from metatv.gui.filter_group_row import _ACCENT, _fmt, _TriCheckbox, _ItemRow, _GroupRow, _Section
+from metatv.gui.filter_group_row import _accent_colors, _fmt, _TriCheckbox, _ItemRow, _GroupRow, _Section
 
 
 # ── Main FilterPanel ───────────────────────────────────────────────────────────
@@ -79,7 +79,12 @@ class FilterPanel(QWidget):
 
         # Panel header
         ph = QWidget()
-        ph.setStyleSheet(f"background: {_theme.COLOR_BG_DEEP};")
+        # COLOR_LINE_DARK, not COLOR_BG_DEEP: this header pairs its background
+        # with COLOR_TEXT_2 (themed) below, and COLOR_BG_DEEP is a fixed-dark
+        # token reserved for the lightbox/trail-map "cinema" family (see
+        # theme_palettes.py) — pairing it with a themed foreground would go
+        # illegible once a light palette (Daylight) makes COLOR_TEXT_2 dark.
+        ph.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")
         ph.setFixedHeight(36)
         phl = QHBoxLayout(ph)
         phl.setContentsMargins(10, 0, 8, 0)
@@ -109,7 +114,7 @@ class FilterPanel(QWidget):
         # OFF by default (watched channels are visible); turning it ON hides them.
         from metatv.gui import icons as _icons
         hw_row = QWidget()
-        hw_row.setStyleSheet(f"background: {_theme.COLOR_BG_DEEP};")
+        hw_row.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")  # see ph above
         hw_row.setFixedHeight(30)
         hw_rl = QHBoxLayout(hw_row)
         hw_rl.setContentsMargins(10, 0, 8, 0)

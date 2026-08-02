@@ -840,6 +840,11 @@ class Config(BaseModel):
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.
     channel_list_thumbnails: bool = True
+    # Active colour palette (Settings → Interface → Appearance). Must be a key
+    # in metatv.gui.theme_palettes.PALETTES ("Midnight"/"Graphite"/"Daylight");
+    # an unknown/stale name (e.g. a palette removed in a later release) is
+    # ignored by theme.apply_theme(), which just leaves the current one active.
+    theme_name: str = "Midnight"
 
     # Metadata provider settings
     metadata_enabled: bool = True  # Enable metadata fetching

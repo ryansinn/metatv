@@ -467,6 +467,10 @@ def test_settings_dialog_saves_partial_threshold(tmp_path):
     from tests.conftest import mock_settings_density_widget
     mock_settings_density_widget(dialog)
 
+    # Appearance theme combo (mock flavor: this skeleton is Qt-free)
+    from tests.conftest import mock_settings_theme_widget
+    mock_settings_theme_widget(dialog)
+
     # EPG widgets — mock flavor: this skeleton is deliberately Qt-free.
     from tests.conftest import mock_settings_epg_widgets
     mock_settings_epg_widgets(dialog)

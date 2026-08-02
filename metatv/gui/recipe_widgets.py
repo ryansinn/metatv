@@ -46,19 +46,21 @@ from metatv.gui.weighted_tag_cloud import (
 # Maps facet_type → (display_name, color_token, role_label)
 # "category" (live-channel kind: Sports/News/Kids…) sits immediately before
 # "genre" — both are content descriptors; category is the live-channel variant.
-_FACET_META: dict[str, tuple[str, str, str]] = {
-    "category":   ("Category",      _theme.COLOR_FACET_CATEGORY,   "KIND"),
-    "genre":      ("Genre",         _theme.COLOR_FACET_GENRE,      "BASE"),
-    "language":   ("Language",      _theme.COLOR_FACET_LANGUAGE,   "IN"),
-    "subtitle":   ("Subtitle",      _theme.COLOR_FACET_SUBTITLE,   "IN"),
-    "dub":        ("Dub Lang",      _theme.COLOR_FACET_DUB,        "IN"),
-    "format":     ("Audio Format",  _theme.COLOR_FACET_FORMAT,     "AUDIO"),
-    "region":     ("Region",        _theme.COLOR_FACET_REGION,     "FROM"),
-    "platform":   ("Platform",      _theme.COLOR_FACET_PLATFORM,   "ON"),
-    "decade":     ("Decade",        _theme.COLOR_FACET_DECADE,     "ERA"),
-    "quality":    ("Quality",       _theme.COLOR_FACET_QUALITY,    "FINISH"),
-    "collection": ("Collection",    _theme.COLOR_FACET_COLLECTION, "SET"),
-}
+def _facet_meta() -> dict[str, tuple[str, str, str]]:
+    """Facet display metadata, re-read fresh so a live theme switch applies."""
+    return {
+        "category":   ("Category",      _theme.COLOR_FACET_CATEGORY,   "KIND"),
+        "genre":      ("Genre",         _theme.COLOR_FACET_GENRE,      "BASE"),
+        "language":   ("Language",      _theme.COLOR_FACET_LANGUAGE,   "IN"),
+        "subtitle":   ("Subtitle",      _theme.COLOR_FACET_SUBTITLE,   "IN"),
+        "dub":        ("Dub Lang",      _theme.COLOR_FACET_DUB,        "IN"),
+        "format":     ("Audio Format",  _theme.COLOR_FACET_FORMAT,     "AUDIO"),
+        "region":     ("Region",        _theme.COLOR_FACET_REGION,     "FROM"),
+        "platform":   ("Platform",      _theme.COLOR_FACET_PLATFORM,   "ON"),
+        "decade":     ("Decade",        _theme.COLOR_FACET_DECADE,     "ERA"),
+        "quality":    ("Quality",       _theme.COLOR_FACET_QUALITY,    "FINISH"),
+        "collection": ("Collection",    _theme.COLOR_FACET_COLLECTION, "SET"),
+    }
 
 # Role display order in the recipe rail / bar
 _ROLE_ORDER: list[str] = ["KIND", "BASE", "IN", "AUDIO", "FROM", "ON", "ERA", "FINISH", "SET"]
@@ -85,17 +87,17 @@ _CLUSTER_MAX_COLS: int = 4
 
 def _facet_color(facet_type: str) -> str:
     """Return the theme color token for a facet type, falling back to COLOR_TEXT."""
-    return _FACET_META.get(facet_type, ("", _theme.COLOR_TEXT, ""))[1]
+    return _facet_meta().get(facet_type, ("", _theme.COLOR_TEXT, ""))[1]
 
 
 def _facet_display(facet_type: str) -> str:
     """Return the human-readable display name for a facet type."""
-    return _FACET_META.get(facet_type, (facet_type.title(), "", ""))[0]
+    return _facet_meta().get(facet_type, (facet_type.title(), "", ""))[0]
 
 
 def _facet_role(facet_type: str) -> str:
     """Return the role label (BASE/IN/FROM…) for a facet type."""
-    return _FACET_META.get(facet_type, ("", "", "OTHER"))[2]
+    return _facet_meta().get(facet_type, ("", "", "OTHER"))[2]
 
 
 def _facet_chip_style(color: str, *, excluded: bool = False) -> str:
@@ -269,9 +271,6 @@ class _ClusterTile(QFrame):
     facet_clicked = pyqtSignal(str)         # facet_type — drill into the full cloud
     tag_clicked   = pyqtSignal(str, str)    # (facet_type, value) — add an ingredient
 
-    # Uniform font tier for decade chips (strip, not weighted).
-    _DECADE_FONT = _theme.FONT_CLOUD_3
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("clusterTile")
@@ -363,7 +362,7 @@ class _ClusterTile(QFrame):
                 state = "exclude"
             else:
                 state = "none"
-            token = self._DECADE_FONT if is_decade else _count_to_font_token(dto.channel_count, mn, mx)
+            token = _theme.FONT_CLOUD_3 if is_decade else _count_to_font_token(dto.channel_count, mn, mx)
             btn = _TagButton(
                 dto.value, dto.channel_count, state, token, color,
                 facet_type=facet, display=display_map.get(dto.value),

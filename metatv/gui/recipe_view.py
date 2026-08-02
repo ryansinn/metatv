@@ -76,7 +76,7 @@ from metatv.gui.weighted_tag_cloud import WeightedTagCloud
 from metatv.gui.recipe_widgets import (  # noqa: F401
     _ALL_CLUSTER_FACETS,
     _CLUSTER_LIMIT_PER_FACET,
-    _FACET_META,
+    _facet_meta,
     _ROLE_ORDER,
     BROWSE_FACETS,
     _ClusterGrid,
@@ -508,7 +508,7 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
             self._render_clusters()
             return
 
-        meta = _FACET_META.get(facet)
+        meta = _facet_meta().get(facet)
         color = meta[1] if meta else _theme.COLOR_TEXT
         display = meta[0] if meta else facet.title()
 

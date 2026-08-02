@@ -43,13 +43,14 @@ def test_settings_control_round_trips_double_click_default(qapp):
     the single field that governs the bare double-click default (no duplicate field)."""
     from PyQt6.QtWidgets import QComboBox
     from metatv.gui.settings_dialog import SettingsDialog
-    from tests.conftest import wire_settings_density_widget
+    from tests.conftest import wire_settings_density_widget, wire_settings_theme_widget
 
     dlg = SettingsDialog.__new__(SettingsDialog)
     dlg._resume_mode_combo = QComboBox()
     dlg._resume_mode_combo.addItem("Resume (when a saved position exists)", userData="resume")
     dlg._resume_mode_combo.addItem("Start from beginning", userData="beginning")
     wire_settings_density_widget(dlg)
+    wire_settings_theme_widget(dlg)
 
     # Load: config value selects the matching item.
     cfg = MagicMock()

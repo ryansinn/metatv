@@ -18,12 +18,13 @@ _STEP_GLYPH: dict[StepStatus, str] = {
     StepStatus.DONE:    _icons.migration_done_icon,
 }
 
-# Color for each glyph state
-_STEP_COLOR: dict[StepStatus, str] = {
-    StepStatus.PENDING: _theme.COLOR_DIM,
-    StepStatus.ACTIVE:  _theme.COLOR_ACCENT_BLUE,
-    StepStatus.DONE:    _theme.COLOR_OK,
-}
+def _step_color() -> dict[StepStatus, str]:
+    """Color for each glyph state, re-read fresh so a live theme switch applies."""
+    return {
+        StepStatus.PENDING: _theme.COLOR_DIM,
+        StepStatus.ACTIVE:  _theme.COLOR_ACCENT_BLUE,
+        StepStatus.DONE:    _theme.COLOR_OK,
+    }
 
 
 class _StepRow(QWidget):
@@ -39,7 +40,7 @@ class _StepRow(QWidget):
         self._glyph.setFixedWidth(14)
         self._glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._glyph.setStyleSheet(
-            f"color: {_STEP_COLOR[status]}; font-size: {_theme.FONT_MD};"
+            f"color: {_step_color()[status]}; font-size: {_theme.FONT_MD};"
         )
         layout.addWidget(self._glyph)
 
@@ -54,7 +55,7 @@ class _StepRow(QWidget):
         """Update the glyph and its color for the new status."""
         self._glyph.setText(_STEP_GLYPH[status])
         self._glyph.setStyleSheet(
-            f"color: {_STEP_COLOR[status]}; font-size: {_theme.FONT_MD};"
+            f"color: {_step_color()[status]}; font-size: {_theme.FONT_MD};"
         )
 
 

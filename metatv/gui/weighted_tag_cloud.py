@@ -42,14 +42,16 @@ from metatv.gui import theme as _theme
 _CAP: int = 40
 
 # ── font-size token ladder ───────────────────────────────────────────────────────
-_CLOUD_TOKENS: list[str] = [
-    _theme.FONT_CLOUD_1,
-    _theme.FONT_CLOUD_2,
-    _theme.FONT_CLOUD_3,
-    _theme.FONT_CLOUD_4,
-    _theme.FONT_CLOUD_5,
-    _theme.FONT_CLOUD_6,
-]
+def _cloud_tokens() -> list[str]:
+    """Font-size token ladder, re-read fresh so a live theme switch applies."""
+    return [
+        _theme.FONT_CLOUD_1,
+        _theme.FONT_CLOUD_2,
+        _theme.FONT_CLOUD_3,
+        _theme.FONT_CLOUD_4,
+        _theme.FONT_CLOUD_5,
+        _theme.FONT_CLOUD_6,
+    ]
 
 
 def _count_to_font_token(count: int, min_count: int, max_count: int) -> str:
@@ -67,10 +69,11 @@ def _count_to_font_token(count: int, min_count: int, max_count: int) -> str:
     Returns:
         One of the FONT_CLOUD_* token strings from ``metatv.gui.theme``.
     """
-    n = len(_CLOUD_TOKENS)
+    tokens = _cloud_tokens()
+    n = len(tokens)
     if max_count <= min_count:
         # Flat distribution — pick middle tier
-        return _CLOUD_TOKENS[n // 2]
+        return tokens[n // 2]
     # Use log₁₀ to compress the range; clip to [0, n-1]
     log_min = math.log10(max(1, min_count))
     log_max = math.log10(max(1, max_count))
@@ -80,7 +83,7 @@ def _count_to_font_token(count: int, min_count: int, max_count: int) -> str:
     else:
         fraction = (log_val - log_min) / (log_max - log_min)
         bucket = min(n - 1, int(fraction * n))
-    return _CLOUD_TOKENS[bucket]
+    return tokens[bucket]
 
 
 def _fmt_count(n: int) -> str:

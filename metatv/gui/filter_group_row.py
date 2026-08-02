@@ -30,19 +30,20 @@ from metatv.gui import theme as _theme
 
 
 # ── Accent colours per section (values are theme tokens) ────────────────────────
-_ACCENT = {
-    "media":    _theme.COLOR_ACCENT_BLUE,
-    "language": _theme.COLOR_ACCENT_BLUE,
-    "subtitle": _theme.COLOR_FACET_SUBTITLE,
-    "dub":      _theme.COLOR_FACET_DUB,
-    "format":   _theme.COLOR_FACET_FORMAT,
-    "region":   _theme.COLOR_ACCENT_GREEN,
-    "platform": _theme.COLOR_ACCENT_PURPLE,
-    "quality":  _theme.COLOR_ACCENT_ORANGE,
-    "category": _theme.COLOR_ACCENT_ORANGE,   # warm orange — live-channel kind
-    "genre":    _theme.COLOR_ACCENT_TEAL,
-    "untagged": _theme.COLOR_MUTED_2,
-}
+def _accent_colors() -> dict[str, str]:
+    return {
+        "media":    _theme.COLOR_ACCENT_BLUE,
+        "language": _theme.COLOR_ACCENT_BLUE,
+        "subtitle": _theme.COLOR_FACET_SUBTITLE,
+        "dub":      _theme.COLOR_FACET_DUB,
+        "format":   _theme.COLOR_FACET_FORMAT,
+        "region":   _theme.COLOR_ACCENT_GREEN,
+        "platform": _theme.COLOR_ACCENT_PURPLE,
+        "quality":  _theme.COLOR_ACCENT_ORANGE,
+        "category": _theme.COLOR_ACCENT_ORANGE,   # warm orange — live-channel kind
+        "genre":    _theme.COLOR_ACCENT_TEAL,
+        "untagged": _theme.COLOR_MUTED_2,
+    }
 
 # Top-N cap configuration — display-only, no values are dropped.
 # Sections with more than _SHOW_ALL_THRESHOLD items render only _SHOW_ALL_TOP_N
@@ -297,7 +298,7 @@ class _Section(QWidget):
         self._show_all_btn: QPushButton | None = None
         self._show_all_expanded: bool = False
 
-        accent = _ACCENT.get(section_key, _theme.COLOR_ACCENT_BLUE)
+        accent = _accent_colors().get(section_key, _theme.COLOR_ACCENT_BLUE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)

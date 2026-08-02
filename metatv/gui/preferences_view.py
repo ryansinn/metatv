@@ -142,6 +142,16 @@ class _AttrColumn(QWidget):
         vl.addWidget(scroll)
 
 
+def _rec_row_btn_style() -> str:
+    """Style for _RecRow's dislike/not-interested buttons, re-read fresh so a
+    live theme switch applies."""
+    return (
+        "QPushButton { border: none; border-radius: 3px; padding: 2px; }"
+        f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
+        f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
+    )
+
+
 class _RecRow(QWidget):
     """Single recommendation row: label + 👍/👎 buttons + Not Interested."""
 
@@ -149,12 +159,6 @@ class _RecRow(QWidget):
     notInterestedClicked = pyqtSignal(str)        # channel_id
     middleClicked        = pyqtSignal(str)        # channel_id — configured middle-click play
     contextMenuRequested = pyqtSignal(str, int, int)  # channel_id, gx, gy
-
-    _BTN_STYLE = (
-        "QPushButton { border: none; border-radius: 3px; padding: 2px; }"
-        f"QPushButton:checked {{ background: {_theme.OVERLAY_18}; }}"
-        f"QPushButton:hover   {{ background: {_theme.OVERLAY_10}; }}"
-    )
 
     def __init__(self, channel_id: str, text: str, config: Config,
                  already_liked: bool = False, parent=None):
@@ -177,7 +181,7 @@ class _RecRow(QWidget):
         self.dislike_btn.setFixedSize(26, 26)
         self.dislike_btn.setToolTip("Dislike")
         self.dislike_btn.setFlat(True)
-        self.dislike_btn.setStyleSheet(self._BTN_STYLE)
+        self.dislike_btn.setStyleSheet(_rec_row_btn_style())
         self.dislike_btn.clicked.connect(lambda: self.dislikeClicked.emit(self.channel_id))
         hl.addWidget(self.dislike_btn)
 
@@ -185,7 +189,7 @@ class _RecRow(QWidget):
         self.ni_btn.setFixedSize(26, 26)
         self.ni_btn.setToolTip("Not interested — hide from recommendations")
         self.ni_btn.setFlat(True)
-        self.ni_btn.setStyleSheet(self._BTN_STYLE)
+        self.ni_btn.setStyleSheet(_rec_row_btn_style())
         self.ni_btn.clicked.connect(lambda: self.notInterestedClicked.emit(self.channel_id))
         hl.addWidget(self.ni_btn)
 

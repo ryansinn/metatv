@@ -20,6 +20,7 @@ from tests.conftest import (
     wire_settings_density_widget,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
+    wire_settings_theme_widget,
 )
 
 
@@ -185,6 +186,7 @@ def _bare_dialog(qapp) -> SettingsDialog:
 
     # Interface density widget (needed by _load_values / _save_values)
     wire_settings_density_widget(dlg)
+    wire_settings_theme_widget(dlg)
 
     return dlg
 

@@ -130,9 +130,6 @@ class ProviderIconPicker(QWidget):
 
     icon_changed = pyqtSignal(str)
 
-    _BTN_STYLE = _theme.ICON_PICK_BTN
-    _BTN_SELECTED_STYLE = _theme.ICON_PICK_BTN_SELECTED
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self._icon = ""
@@ -163,7 +160,7 @@ class ProviderIconPicker(QWidget):
         for icon in _icons.provider_icon_palette:
             b = QPushButton(icon)
             b.setFixedSize(30, 30)
-            b.setStyleSheet(self._BTN_STYLE)
+            b.setStyleSheet(_theme.ICON_PICK_BTN)
             b.clicked.connect(lambda checked, i=icon: self._pick(i))
             btn_row.addWidget(b)
             self._color_btns.append((icon, b))
@@ -208,7 +205,7 @@ class ProviderIconPicker(QWidget):
     def _update_selection(self, selected: str):
         for icon, btn in self._color_btns:
             btn.setStyleSheet(
-                self._BTN_SELECTED_STYLE if icon == selected else self._BTN_STYLE
+                _theme.ICON_PICK_BTN_SELECTED if icon == selected else _theme.ICON_PICK_BTN
             )
 
     def get_icon(self) -> str:

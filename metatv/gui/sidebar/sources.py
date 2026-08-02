@@ -32,12 +32,13 @@ def _epg_tooltip(state: str, start, end) -> str:
 
 
 # EPG freshness state → colour token (single source: epg_utils.epg_status).
-_EPG_STATE_COLOR = {
-    "none":    _theme.COLOR_FAINT,    # almost transparent — no guide
-    "stale":   _theme.COLOR_ERR_2,    # softer red — feed out of date
-    "soon":    _theme.COLOR_WARN,     # amber — about to run out
-    "current": _theme.COLOR_OK,       # green — current & future-looking
-}
+def _epg_state_color() -> dict[str, str]:
+    return {
+        "none":    _theme.COLOR_FAINT,    # almost transparent — no guide
+        "stale":   _theme.COLOR_ERR_2,    # softer red — feed out of date
+        "soon":    _theme.COLOR_WARN,     # amber — about to run out
+        "current": _theme.COLOR_OK,       # green — current & future-looking
+    }
 
 
 class ProviderItemWidget(QWidget):
@@ -179,7 +180,7 @@ class ProviderItemWidget(QWidget):
         """Color the EPG indicator by freshness state and set its date-range tooltip."""
         self._epg_state = state
         self._epg_tooltip = tooltip
-        color = _EPG_STATE_COLOR.get(state, _theme.COLOR_FAINT)
+        color = _epg_state_color().get(state, _theme.COLOR_FAINT)
         self._epg_btn.setEnabled(True)
         self._epg_btn.setText(_icons.epg_indicator_icon)
         self._epg_btn.setStyleSheet(

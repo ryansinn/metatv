@@ -32,7 +32,7 @@ Two responsibilities:
    roles populated by the model.
 
    Chips are painted as rounded rects using the same colour logic as
-   ``badge_utils`` (quality via the shared ``_QUALITY_COLORS`` map, region via
+   ``badge_utils`` (quality via the shared ``_quality_colors()`` map, region via
    the platform/geographic split) — all colours are theme tokens, never
    literals. The title is elided (``Qt.TextElideMode.ElideRight``) against a
    *fixed* box computed from the other cells' measured widths, so a long title
@@ -88,7 +88,7 @@ from PyQt6.QtWidgets import (
 from metatv.core.channel_name_utils import PLATFORM_CODES, quality_display
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.badge_utils import _QUALITY_COLORS
+from metatv.gui.badge_utils import _quality_colors
 from metatv.gui.channel_list_model import (
     CATEGORY_ROLE,
     CHANNEL_HTML_ROLE,
@@ -129,9 +129,11 @@ _THUMB_W = 32
 _THUMB_H = 48         # 32 * 3/2 — 2:3 width:height
 _THUMB_GAP = 8         # gap between the thumbnail and the rest of the row
 
-# Rating chip/glyph colours — local to this delegate (not a channel-name lookup
-# table, so it doesn't belong in channel_name_utils.py); values are theme tokens.
-_RATING_CHIP_BG: dict[int, str] = {1: _theme.COLOR_OK, -1: _theme.COLOR_ERR}
+def _rating_chip_bg() -> dict[int, str]:
+    """Rating chip/glyph colours — local to this delegate (not a channel-name
+    lookup table, so it doesn't belong in channel_name_utils.py); values are
+    theme tokens, re-read fresh so a live theme switch applies."""
+    return {1: _theme.COLOR_OK, -1: _theme.COLOR_ERR}
 
 
 class _Cell(NamedTuple):
@@ -211,7 +213,7 @@ def _quality_cell(token: str) -> Optional[_Cell]:
     if not token:
         return None
     upper = token.upper()
-    bg = _QUALITY_COLORS.get(upper, _theme.COLOR_FAINT)
+    bg = _quality_colors().get(upper, _theme.COLOR_FAINT)
     return _Cell(quality_display(upper), True, _theme.COLOR_TEXT_HI, bg)
 
 
@@ -233,7 +235,7 @@ def _rating_chip_cell(rating: int) -> Optional[_Cell]:
     if not rating:
         return None
     glyph = _icons.like_icon if rating > 0 else _icons.dislike_icon
-    bg = _RATING_CHIP_BG[1 if rating > 0 else -1]
+    bg = _rating_chip_bg()[1 if rating > 0 else -1]
     return _Cell(glyph, True, _theme.COLOR_TEXT_HI, bg)
 
 

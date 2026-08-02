@@ -31,25 +31,31 @@ MOOD_DISLIKE      = "dislike"
 
 _MOOD_ORDER = [MOOD_LIKE, MOOD_CURIOUS, MOOD_NONE, MOOD_NOT_FOR_ME, MOOD_DISLIKE]
 
-_MOOD_COLORS = {
-    MOOD_LIKE:       (_theme.COLOR_MOOD_LIKE_BG, _theme.COLOR_MOOD_LIKE_FG),       # bright green bg, dark text
-    MOOD_CURIOUS:    (_theme.COLOR_MOOD_CURIOUS_BG, _theme.COLOR_MOOD_CURIOUS_FG),  # forest green
-    MOOD_NONE:       (_theme.COLOR_FAINT, _theme.COLOR_TEXT),                        # mid grey
-    MOOD_NOT_FOR_ME: (_theme.COLOR_MOOD_NOTFORME_BG, _theme.COLOR_MOOD_NOTFORME_FG),  # brick red
-    MOOD_DISLIKE:    (_theme.COLOR_MOOD_DISLIKE_BG, _theme.COLOR_TEXT_HI),           # bright red
-}
+def _mood_colors() -> dict:
+    return {
+        MOOD_LIKE:       (_theme.COLOR_MOOD_LIKE_BG, _theme.COLOR_MOOD_LIKE_FG),       # bright green bg, dark text
+        MOOD_CURIOUS:    (_theme.COLOR_MOOD_CURIOUS_BG, _theme.COLOR_MOOD_CURIOUS_FG),  # forest green
+        MOOD_NONE:       (_theme.COLOR_FAINT, _theme.COLOR_TEXT),                        # mid grey
+        MOOD_NOT_FOR_ME: (_theme.COLOR_MOOD_NOTFORME_BG, _theme.COLOR_MOOD_NOTFORME_FG),  # brick red
+        MOOD_DISLIKE:    (_theme.COLOR_MOOD_DISLIKE_BG, _theme.COLOR_TEXT_HI),           # bright red
+    }
 
-_MOOD_SELECTED_STYLE = (
-    "QPushButton {{ background: {bg}; color: {fg}; border: 2px solid {bg};"
-    " border-radius: 14px; padding: 4px 10px; font-size: " + _theme.FONT_2XL + "; font-weight: bold; }}"
-)
-_MOOD_IDLE_STYLE = (
-    f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_MUTED_2};"
-    f" border: 1px solid {_theme.COLOR_BORDER};"
-    f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
-    f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"
-    f" border-color: {_theme.COLOR_MUTED_2}; }}"
-)
+
+def _mood_selected_style() -> str:
+    return (
+        "QPushButton {{ background: {bg}; color: {fg}; border: 2px solid {bg};"
+        " border-radius: 14px; padding: 4px 10px; font-size: " + _theme.FONT_2XL + "; font-weight: bold; }}"
+    )
+
+
+def _mood_idle_style() -> str:
+    return (
+        f"QPushButton {{ background: {_theme.COLOR_LINE_DARK}; color: {_theme.COLOR_MUTED_2};"
+        f" border: 1px solid {_theme.COLOR_BORDER};"
+        f" border-radius: 14px; padding: 4px 10px; font-size: {_theme.FONT_2XL}; }}"
+        f"QPushButton:hover {{ background: {_theme.COLOR_LINE}; color: {_theme.COLOR_DIM};"
+        f" border-color: {_theme.COLOR_MUTED_2}; }}"
+    )
 
 
 class _MoodBar(QWidget):
@@ -107,13 +113,13 @@ class _MoodBar(QWidget):
     def _refresh_styles(self) -> None:
         for mood, btn in self._buttons.items():
             if mood == self._current:
-                bg, fg = _MOOD_COLORS[mood]
+                bg, fg = _mood_colors()[mood]
                 btn.setStyleSheet(
-                    _MOOD_SELECTED_STYLE.format(bg=bg, fg=fg)
+                    _mood_selected_style().format(bg=bg, fg=fg)
                 )
                 btn.setChecked(True)
             else:
-                btn.setStyleSheet(_MOOD_IDLE_STYLE)
+                btn.setStyleSheet(_mood_idle_style())
                 btn.setChecked(False)
 
     def current_mood(self) -> str | None:

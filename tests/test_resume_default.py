@@ -158,6 +158,7 @@ def _bare_dialog(qapp):
         wire_settings_epg_widgets,
         wire_settings_playback_widgets,
         wire_settings_recommendation_widgets,
+        wire_settings_theme_widget,
     )
 
     dlg = SettingsDialog.__new__(SettingsDialog)
@@ -221,6 +222,7 @@ def _bare_dialog(qapp):
 
     # Interface density widget
     wire_settings_density_widget(dlg)
+    wire_settings_theme_widget(dlg)
 
     return dlg
 

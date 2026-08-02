@@ -29,6 +29,7 @@ from tests.conftest import (
     wire_settings_epg_widgets,
     wire_settings_playback_widgets,
     wire_settings_recommendation_widgets,
+    wire_settings_theme_widget,
 )
 
 
@@ -143,6 +144,7 @@ def _full_dialog(qapp) -> SettingsDialog:
     dlg._update_check_enabled_check = QCheckBox()
     dlg._sidebar_list = QListWidget()
     wire_settings_density_widget(dlg)
+    wire_settings_theme_widget(dlg)
 
     return dlg
 

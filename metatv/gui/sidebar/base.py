@@ -168,6 +168,10 @@ class CollapsibleSection(QFrame):
             already containing ``self.toggle_btn``.
         """
         header = _ClickableHeader()
+        # Stashed so refresh_theme() can re-apply SECTION_HEADER_TINT after a
+        # live palette switch — this is a local var otherwise, and every
+        # subclass routes through this one helper to build its header.
+        self._header = header
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(5, 3, 5, 3)
 
@@ -474,3 +478,21 @@ class CollapsibleSection(QFrame):
     def refresh(self):
         """Refresh section content - override in subclasses"""
         pass
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this section's persistent chrome —
+        the collapsible header and its "Explore →" link, both styled once at
+        construction time (``setStyleSheet`` caches the rendered string, so a
+        later ``theme.apply_theme()`` call doesn't repaint them on its own).
+
+        Row/list content built by ``refresh()`` already reads whatever theme
+        token values are current each time it rebuilds, so it doesn't need a
+        sweep here — only the two widgets built directly by
+        ``CollapsibleSection``/``_build_clickable_header`` do.  Called from
+        ``MainWindow.refresh_theme()``'s sidebar sweep.
+        """
+        if hasattr(self, "_header"):
+            self._header.setStyleSheet(_theme.SECTION_HEADER_TINT)
+        explore_btn = getattr(self, "explore_btn", None)
+        if explore_btn is not None:
+            explore_btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)

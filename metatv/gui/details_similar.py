@@ -11,12 +11,13 @@ from metatv.gui import theme as _theme
 from metatv.gui.details_versions import ChannelVersion, resolve_category_name
 
 
-# Icon-only action buttons — transparent, no border, hover brightens (single-use, token-built)
-_ICON_BTN = (
-    f"QPushButton {{ border: none; font-size: {_theme.FONT_LG}; padding: 0px;"
-    " background: transparent; }"
-    f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
-)
+def _icon_btn() -> str:
+    """Icon-only action button style — transparent, no border, hover brightens."""
+    return (
+        f"QPushButton {{ border: none; font-size: {_theme.FONT_LG}; padding: 0px;"
+        " background: transparent; }"
+        f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_HI}; }}"
+    )
 
 
 class _SimilarSection(QWidget):
@@ -127,7 +128,7 @@ class _SimilarSection(QWidget):
         play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedSize(22, 20)
         play_btn.setFlat(True)
-        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_ICON_BTN}")
+        play_btn.setStyleSheet(f"QPushButton {{ color: {_theme.COLOR_FAINT}; }} {_icon_btn()}")
         play_btn.setToolTip(f"Play: {v.name}")
         play_btn.clicked.connect(lambda _, cid=v.channel_id: self.play_requested.emit(cid))
         row.addWidget(play_btn)
@@ -226,7 +227,7 @@ class _SimilarSection(QWidget):
         fav_btn = QPushButton(_icons.favorite_icon)
         fav_btn.setFixedSize(22, 20)
         fav_btn.setFlat(True)
-        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_ICON_BTN}")
+        fav_btn.setStyleSheet(f"QPushButton {{ color: {fav_color}; }} {_icon_btn()}")
         fav_btn.setToolTip("Remove from Favorites" if v.is_favorite else "Add to Favorites")
         fav_btn.clicked.connect(lambda _, cid=v.channel_id: self.favorite_toggled.emit(cid))
         row.addWidget(fav_btn)
@@ -237,7 +238,7 @@ class _SimilarSection(QWidget):
         queue_btn = QPushButton(q_icon)
         queue_btn.setFixedSize(22, 20)
         queue_btn.setFlat(True)
-        queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_ICON_BTN}")
+        queue_btn.setStyleSheet(f"QPushButton {{ color: {q_color}; }} {_icon_btn()}")
         queue_btn.setToolTip("Remove from Watch Later" if v.in_queue else "Add to Watch Later")
 
         def _on_queue_click(_checked=False, _btn=queue_btn, _v=v):
@@ -246,7 +247,7 @@ class _SimilarSection(QWidget):
             _v.in_queue = not _v.in_queue
             _btn.setText(_icons.watched_icon if _v.in_queue else _icons.queue_icon)
             _c = _theme.COLOR_ACCENT_BLUE if _v.in_queue else _theme.COLOR_FAINT
-            _btn.setStyleSheet(f"QPushButton {{ color: {_c}; }} {_ICON_BTN}")
+            _btn.setStyleSheet(f"QPushButton {{ color: {_c}; }} {_icon_btn()}")
             _btn.setToolTip("Remove from Watch Later" if _v.in_queue else "Add to Watch Later")
             self.queue_toggled.emit(_v.channel_id)
 

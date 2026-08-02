@@ -55,8 +55,6 @@ def card_metrics(zoom: float) -> CardMetrics:
         poster_h=round(_POSTER_H * z),
     )
 
-_PLACEHOLDER_COLORS = _theme.BACKDROP_TINTS
-
 
 class _FlowLayout:
     """Simple flow-layout helper — arranges widgets left-to-right, wrapping."""
@@ -128,7 +126,7 @@ class _ContentCard(QWidget):
         # Poster frame
         self._poster_frame = QFrame()
         self._poster_frame.setFixedSize(cw, ph)
-        color = _PLACEHOLDER_COLORS[hash(card.channel_id) % len(_PLACEHOLDER_COLORS)]
+        color = _theme.BACKDROP_TINTS[hash(card.channel_id) % len(_theme.BACKDROP_TINTS)]
         self._poster_frame.setStyleSheet(
             f"background: {color}; border-radius: 4px;"
         )

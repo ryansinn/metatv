@@ -45,6 +45,24 @@ def _save_channel_density(combo: QComboBox, config) -> None:
     """Write the selected density back to ``config.channel_list_density``."""
     config.channel_list_density = combo.currentData() or "comfy"
 
+
+def _load_theme_combo(combo: QComboBox, config) -> None:
+    """Select ``config.theme_name`` in ``combo`` (falls back to Midnight).
+
+    Factored out like ``_load_channel_density`` so the round-trip is testable
+    against a bare ``QComboBox`` + a minimal fake config.
+    """
+    from metatv.gui import theme_palettes
+    name = getattr(config, "theme_name", theme_palettes.DEFAULT_PALETTE)
+    idx = combo.findData(name)
+    combo.setCurrentIndex(idx if idx >= 0 else combo.findData(theme_palettes.DEFAULT_PALETTE))
+
+
+def _save_theme_combo(combo: QComboBox, config) -> None:
+    """Write the selected palette name back to ``config.theme_name``."""
+    from metatv.gui import theme_palettes
+    config.theme_name = combo.currentData() or theme_palettes.DEFAULT_PALETTE
+
 # Left-nav sections, in display order — id + label, unchanged from the old
 # QTabWidget's five tab names/order so the ``settings:<tab>`` deep link and
 # shipped What's New entries keep matching. id is also the _SECTION_HELP key.
@@ -331,6 +349,11 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             self._sidebar_list.addItem(item)
 
+        # Appearance
+        self._theme_combo.blockSignals(True)
+        _load_theme_combo(self._theme_combo, c)
+        self._theme_combo.blockSignals(False)
+
         # Channel List
         self._channel_density_combo.blockSignals(True)
         _load_channel_density(self._channel_density_combo, c)
@@ -436,6 +459,9 @@ class SettingsDialog(SettingsTabsMixin, QDialog):
             new_order.append(sid)
             if item.checkState() == Qt.CheckState.Checked:
                 new_visible.append(sid)
+        # Appearance
+        _save_theme_combo(self._theme_combo, c)
+
         # Channel List
         _save_channel_density(self._channel_density_combo, c)
         c.channel_list_thumbnails = self._channel_thumbnails_check.isChecked()

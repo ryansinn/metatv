@@ -2218,6 +2218,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         dialog.settings_applied.connect(self._apply_sidebar_visibility)
         dialog.settings_applied.connect(self._refresh_recommendation_views)
         dialog.settings_applied.connect(self._apply_channel_list_density)
+        dialog.settings_applied.connect(self.refresh_theme)
         dialog.check_updates_requested.connect(self._manual_update_check)
         if tab:
             dialog.select_section_by_label(tab)
@@ -2226,6 +2227,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # The Recommendations tab's dials change how the engine scores, so both
         # recommendation surfaces have to be re-scored, not just repainted.
         self._refresh_recommendation_views()
+        # Covers OK (which only emits settings_applied via Apply, not OK/accept) —
+        # refresh_theme() itself no-ops instantly if the palette didn't change.
+        self.refresh_theme()
         # Re-sync the nav-bar Split toggle in case the user changed the setting
         # via the Settings dialog's Playback tab checkbox.
         if hasattr(self, "_split_toggle_btn"):
@@ -2247,6 +2251,106 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         view = getattr(self, "preferences_view", None)
         if view is not None and getattr(view, "_active", False):
             view.refresh()
+
+    def refresh_theme(self) -> None:
+        """Re-apply ``self.config.theme_name`` live, no restart needed.
+
+        ``theme.apply_theme()`` rebinds every ``theme.COLOR_*``/semantic-constant
+        module global in place, but a widget that already called
+        ``setStyleSheet(theme.SOME_CONSTANT)`` keeps rendering the OLD string —
+        Qt cached the rendered style, not a live reference to the Python
+        constant. This sweeps the persistent chrome that caches a stylesheet
+        once at construction: this window's own cached buttons/labels, every
+        sidebar section, the details pane, and a channel-list repaint (the
+        row delegate reads ``theme.COLOR_*`` fresh on every ``paint()`` call
+        already, so it only needs to be told to repaint, not re-themed).
+
+        A handful of small widgets built as local variables in ``setup_ui()``
+        (never kept as ``self.*`` — the sidebar Settings button, the bottom
+        nav bar's own background, the "showing hidden" label, the context
+        filter chip's dismiss button) aren't reachable here and still need a
+        restart to pick up a new palette — low-traffic chrome, acceptable
+        gap for this slice. Filter/provider/recipe dialogs, the EPG view, and
+        other views not in the sweep list below are the same: correct next
+        time they're opened (they read theme tokens fresh at build time),
+        just not repainted while already on screen.
+        """
+        if not _theme.apply_theme(self.config.theme_name):
+            return
+
+        if hasattr(self, "_diagnose_btn"):
+            self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        if hasattr(self, "_split_toggle_btn"):
+            self._split_toggle_btn.setStyleSheet(_theme.NAV_TOGGLE_BTN)
+        if hasattr(self, "_playback_health_label"):
+            self._playback_health_label.setStyleSheet(_theme.NAV_HEALTH)
+
+        if hasattr(self, "_tab_all_btn") and hasattr(self, "_tab_hidden_btn"):
+            _tab_style = (
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; padding: 3px 10px;"
+                f" border: 1px solid {_theme.COLOR_BORDER}; background: {_theme.COLOR_LINE_DARK};"
+                f" color: {_theme.COLOR_DISABLED}; }}"
+                f"QPushButton:checked {{ background: {_theme.COLOR_BORDER}; color: {_theme.COLOR_TEXT_HI};"
+                f" font-weight: bold; }}"
+                f"QPushButton:hover:!checked {{ background: {_theme.COLOR_LINE}; }}"
+            )
+            self._tab_all_btn.setStyleSheet(
+                _tab_style + "QPushButton { border-right: none;"
+                " border-top-left-radius: 4px; border-bottom-left-radius: 4px; }"
+            )
+            self._tab_hidden_btn.setStyleSheet(
+                _tab_style + "QPushButton { border-top-right-radius: 4px;"
+                " border-bottom-right-radius: 4px; }"
+            )
+
+        if hasattr(self, "_context_filter_chip"):
+            self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
+            self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
+
+        if hasattr(self, "_manage_cats_btn"):
+            self._manage_cats_btn.setStyleSheet(
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ACCENT_BLUE}; padding: 2px 8px;"
+                f" border: 1px solid {_theme.OVERLAY_BLUE_25}; border-radius: 4px; }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_BLUE_2}; border-color: {_theme.OVERLAY_BLUE_LT_25}; }}"
+            )
+        if hasattr(self, "_hidden_banner"):
+            self._hidden_banner.setStyleSheet(
+                f"background: {_theme.OVERLAY_BROWN_08}; border-radius: 4px;"
+            )
+        if hasattr(self, "_channel_banner"):
+            self._channel_banner.setStyleSheet(
+                f"QLabel {{ color: {_theme.COLOR_MUTED}; padding: 4px 8px;"
+                f" font-size: {_theme.FONT_MD}; }}"
+            )
+        if hasattr(self, "_channel_exclusion_btn"):
+            _seg_style = (
+                f"QPushButton {{ background: {_theme.COLOR_BANNER_YEL_BG}; color: {_theme.COLOR_BANNER_YEL_FG};"
+                f" border: 1px solid {_theme.COLOR_BANNER_YEL_BORDER}; border-radius: 4px;"
+                f" padding: 8px 16px; font-size: {_theme.FONT_LG}; }}"
+                f"QPushButton:hover {{ background: {_theme.COLOR_BANNER_YEL_BG_HOVER};"
+                f" border-color: {_theme.COLOR_BANNER_YEL_BORDER_HOVER}; }}"
+            )
+            for btn_name in ("_channel_exclusion_btn", "_channel_filter_btn", "_channel_dead_btn"):
+                getattr(self, btn_name).setStyleSheet(_seg_style)
+
+        if hasattr(self, "stats_label"):
+            self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
+        if hasattr(self, "epg_status_label"):
+            self.epg_status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+
+        for section in getattr(self, "sidebar_sections", {}).values():
+            if hasattr(section, "refresh_theme"):
+                section.refresh_theme()
+
+        if hasattr(self, "details_pane"):
+            self.details_pane.refresh_theme()
+
+        # The row delegate already reads theme.COLOR_* fresh inside paint(),
+        # so a repaint is all the channel list needs (same trigger as
+        # _apply_channel_list_density's row-height change, minus the
+        # layoutChanged — no row geometry changed here, just colours).
+        if hasattr(self, "channels_list"):
+            self.channels_list.viewport().update()
 
     def _apply_channel_list_density(self) -> None:
         """Re-apply the channel-list row density AND thumbnail toggle

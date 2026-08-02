@@ -572,6 +572,46 @@ def wire_settings_epg_widgets(dlg) -> None:
     dlg._epg_auto_refresh_check.setChecked(True)
 
 
+def mock_settings_theme_widget(dlg) -> None:
+    """MagicMock flavor of :func:`wire_settings_theme_widget`.
+
+    For skeletons that are deliberately Qt-free (all-MagicMock, no ``qapp``
+    fixture) — constructing a real QWidget without a QApplication aborts the
+    interpreter.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from unittest.mock import MagicMock
+
+    dlg._theme_combo = MagicMock()
+    dlg._theme_combo.currentData.return_value = "Midnight"
+
+
+def wire_settings_theme_widget(dlg) -> None:
+    """Attach the Settings → Interface tab's Appearance group's theme combo
+    to a skeleton dialog (wave7/theme-system).
+
+    Builds a **real** Qt widget, so the caller must already have a
+    QApplication (the module ``qapp`` fixture). Qt-free skeletons want
+    :func:`mock_settings_theme_widget` instead.
+
+    Mirrors ``wire_settings_density_widget`` — any bare-skeleton test that
+    calls the full ``_load_values``/``_save_values`` breaks once a new widget
+    is added to ``_build_interface_tab`` until it grows a stub for it.
+
+    Args:
+        dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QComboBox
+
+    from metatv.gui import theme_palettes
+
+    dlg._theme_combo = QComboBox()
+    for palette_name in theme_palettes.PALETTES:
+        dlg._theme_combo.addItem(palette_name, palette_name)
+
+
 def mock_settings_density_widget(dlg) -> None:
     """MagicMock flavor of :func:`wire_settings_density_widget`.
 

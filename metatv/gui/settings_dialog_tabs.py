@@ -23,6 +23,7 @@ from metatv.core.epg_utils import EPG_INTERVAL_CHOICES, EPG_SCRUBBER_INCREMENTS
 from metatv.core.media_mix import format_media_share
 from metatv.core.preference_engine import RecScoringSettings
 from metatv.gui import theme as _theme
+from metatv.gui import theme_palettes
 from metatv.gui.middle_click_actions import MIDDLE_CLICK_ACTIONS
 
 # Channel-list row densities — single source of truth (settings_dialog re-exports
@@ -599,6 +600,23 @@ class SettingsTabsMixin:
         search_form.addRow("", search_hint)
 
         layout.addWidget(search_group)
+
+        appearance_group = QGroupBox("Appearance")
+        appearance_form = QFormLayout(appearance_group)
+        appearance_form.setSpacing(8)
+
+        self._theme_combo = QComboBox()
+        for palette_name in theme_palettes.PALETTES:
+            self._theme_combo.addItem(palette_name, palette_name)
+        self._theme_combo.setToolTip(
+            "Switches the app's colour palette. Midnight is the default dark\n"
+            "theme, Graphite a flatter neutral-dark variant, Daylight a light\n"
+            "theme. Applies immediately when you click OK or Apply — no\n"
+            "restart needed for most of the app."
+        )
+        appearance_form.addRow("Theme:", self._theme_combo)
+
+        layout.addWidget(appearance_group)
 
         channel_list_group = QGroupBox("Channel List")
         channel_list_form = QFormLayout(channel_list_group)

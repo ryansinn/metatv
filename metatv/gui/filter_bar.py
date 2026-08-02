@@ -94,9 +94,6 @@ class FilterChip(ToggleChip):
 
     open_dialog_requested = pyqtSignal()
 
-    _ACTIVE_STYLE = _theme.EXCL_CHIP_ACTIVE
-    _PAUSED_STYLE = _theme.EXCL_CHIP_PAUSED
-
     def __init__(self, label: str):
         super().__init__(label, enabled=False)
         # Disable checkable state: ToggleChip sets setCheckable(True), but on Linux/Wayland
@@ -120,11 +117,11 @@ class FilterChip(ToggleChip):
         self.blockSignals(False)
         if has_filters and paused:
             self.setText(f"{self.label} ●")
-            self.setStyleSheet(self._PAUSED_STYLE)
+            self.setStyleSheet(_theme.EXCL_CHIP_PAUSED)
             self.setToolTip("Filters paused — click to resume · right-click to edit")
         elif has_filters:
             self.setText(f"{self.label} ●")
-            self.setStyleSheet(self._ACTIVE_STYLE)
+            self.setStyleSheet(_theme.EXCL_CHIP_ACTIVE)
             self.setToolTip("Filters active — click to pause · right-click to edit")
         else:
             self.update_appearance()   # standard gray ○

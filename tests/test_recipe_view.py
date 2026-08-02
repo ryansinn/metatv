@@ -889,8 +889,10 @@ def test_facet_role_known_and_unknown():
 
 def test_role_order_covers_all_known_facets():
     """Every known facet's role appears in _ROLE_ORDER."""
-    from metatv.gui.recipe_view import _ROLE_ORDER, _FACET_META
-    for ftype, meta in _FACET_META.items():
+    # _facet_meta() re-reads the current theme token on every call (was a
+    # frozen-at-import dict, _FACET_META) — see wave7/theme-system.
+    from metatv.gui.recipe_view import _ROLE_ORDER, _facet_meta
+    for ftype, meta in _facet_meta().items():
         role = meta[2]
         assert role in _ROLE_ORDER, (
             f"Role {role!r} for facet {ftype!r} is missing from _ROLE_ORDER"

@@ -207,34 +207,40 @@ def test_category_not_globally_excludable(qapp):
 # ---------------------------------------------------------------------------
 
 class TestRecipeFacetMeta:
-    """_FACET_META in recipe_view must include 'category' with the correct values."""
+    """_facet_meta() in recipe_view must include 'category' with the correct values.
+
+    ``_FACET_META`` used to be a plain module-level dict; it's now a function
+    (``_facet_meta()``) so its color values re-read the current theme token on
+    every call instead of freezing whatever palette was active at import time
+    (wave7/theme-system) — call it fresh in each assertion below.
+    """
 
     def test_category_in_facet_meta(self):
-        """'category' must be a key in _FACET_META."""
-        from metatv.gui.recipe_view import _FACET_META
-        assert "category" in _FACET_META, "'category' must be in recipe_view._FACET_META"
+        """'category' must be a key in _facet_meta()."""
+        from metatv.gui.recipe_view import _facet_meta
+        assert "category" in _facet_meta(), "'category' must be in recipe_view._facet_meta()"
 
     def test_category_display_name(self):
-        """_FACET_META['category'][0] (display name) must be 'Category'."""
-        from metatv.gui.recipe_view import _FACET_META
-        display_name = _FACET_META["category"][0]
+        """_facet_meta()['category'][0] (display name) must be 'Category'."""
+        from metatv.gui.recipe_view import _facet_meta
+        display_name = _facet_meta()["category"][0]
         assert display_name == "Category", (
             f"display name must be 'Category'; got {display_name!r}"
         )
 
     def test_category_color_is_theme_token(self):
-        """_FACET_META['category'][1] must equal theme.COLOR_FACET_CATEGORY."""
+        """_facet_meta()['category'][1] must equal theme.COLOR_FACET_CATEGORY."""
         from metatv.gui import theme as _theme
-        from metatv.gui.recipe_view import _FACET_META
-        color = _FACET_META["category"][1]
+        from metatv.gui.recipe_view import _facet_meta
+        color = _facet_meta()["category"][1]
         assert color == _theme.COLOR_FACET_CATEGORY, (
             f"category color must be COLOR_FACET_CATEGORY; got {color!r}"
         )
 
     def test_category_role_label_is_kind(self):
-        """_FACET_META['category'][2] (role label) must be 'KIND'."""
-        from metatv.gui.recipe_view import _FACET_META
-        role = _FACET_META["category"][2]
+        """_facet_meta()['category'][2] (role label) must be 'KIND'."""
+        from metatv.gui.recipe_view import _facet_meta
+        role = _facet_meta()["category"][2]
         assert role == "KIND", f"role label must be 'KIND'; got {role!r}"
 
     def test_kind_in_role_order(self):

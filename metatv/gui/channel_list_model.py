@@ -35,11 +35,17 @@ from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
-# Pre-built brush for fully-watched non-live rows (built once, reused each data() call).
-_WATCHED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_WATCHED_FG))
-# Pre-built brush for "degraded" reliability_state rows (graduated play-failure
-# ledger — grayed-but-clickable; see theme.CHANNEL_ROW_DEGRADED_FG).
-_DEGRADED_DIM_BRUSH = QBrush(QColor(_theme.CHANNEL_ROW_DEGRADED_FG))
+def _watched_dim_brush() -> QBrush:
+    """Brush for fully-watched non-live rows — built fresh each call so a live
+    theme switch is picked up (cheap; called from the main-thread data() path)."""
+    return QBrush(QColor(_theme.CHANNEL_ROW_WATCHED_FG))
+
+
+def _degraded_dim_brush() -> QBrush:
+    """Brush for "degraded" reliability_state rows (graduated play-failure
+    ledger — grayed-but-clickable; see theme.CHANNEL_ROW_DEGRADED_FG). Built
+    fresh each call so a live theme switch is picked up."""
+    return QBrush(QColor(_theme.CHANNEL_ROW_DEGRADED_FG))
 
 # Custom role: the row's display text as colour-marked HTML.  The playback-state
 # separator glyph (▶/✓) is wrapped in a colour <span> so ChannelRowDelegate can
@@ -203,11 +209,11 @@ class ChannelListModel(QAbstractListModel):
             # takes priority over the watched-dim state below since an unreliable
             # stream is the more actionable signal.
             if channel.reliability_state == "degraded":
-                return _DEGRADED_DIM_BRUSH
+                return _degraded_dim_brush()
             # Dim fully-watched non-live rows so finished content recedes visually.
             # Live channels never carry watch state, so they are always full-strength.
             if channel.watch_completed and channel.media_type != "live":
-                return _WATCHED_DIM_BRUSH
+                return _watched_dim_brush()
         if role == Qt.ItemDataRole.ToolTipRole:
             if channel.user_rating == 1:
                 return f"You rated this {_icons.like_icon}"
