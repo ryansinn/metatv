@@ -116,6 +116,10 @@ class ChannelListDTO:
     # MetadataDB (see its _joined_plot stash) — never a per-row lookup. Powers the
     # "Comfy+" channel-list density's elided plot line (channel_list_delegate.py).
     plot: str = ""
+    # MetadataDB.poster_url (or "" when absent). Populated via the SAME outerjoin
+    # as plot above (see its _joined_poster_url stash) — never a per-row lookup.
+    # Powers the comfy/comfy_plus channel-list thumbnail (channel_list_delegate.py).
+    poster_url: str = ""
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -149,6 +153,7 @@ class ChannelListDTO:
             user_rating=user_rating,
             reliability_state=reliability_state,
             plot=getattr(ch, "_joined_plot", "") or "",
+            poster_url=getattr(ch, "_joined_poster_url", "") or "",
         )
 
 

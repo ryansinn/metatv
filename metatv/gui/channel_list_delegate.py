@@ -38,6 +38,20 @@ Two responsibilities:
    *fixed* box computed from the other cells' measured widths, so a long title
    can never push a chip out of the row.
 
+Poster thumbnails (comfy/comfy_plus only, opt-out via ``set_thumbnails_enabled``
+— never painted in compact) reserve a FIXED ``_THUMB_W``x``_THUMB_H`` (2:3) rect
+flush to the row's left edge, before the media icon; the rest of the row's
+content is laid out in the narrower remaining rect. ``paint`` fetches the pixmap
+via ``ImageCache.get_image_sync`` — a cache-hit-only lookup that is safe to call
+from the paint path (never downloads, never touches the network) — and falls
+back to a placeholder tile (rounded rect in a muted token + the title's first
+letter) when the cache misses. Actually fetching an uncached image is the
+VIEWPORT-ONLY hydrator's job (``channel_list_thumbnails.py``), never the
+delegate's — the delegate only ever reads what's already on disk.
+``sizeHint`` grows a row to fit the reserved thumbnail height when it would
+otherwise be shorter (e.g. a plain 2-line comfy row); comfy_plus rows already
+tall enough from their own content are unaffected.
+
 All three densities read the structured per-field roles added to
 ``ChannelListModel`` (``TITLE_ROLE``, ``YEAR_ROLE``, ``PLOT_ROLE``, ...) rather
 than the composed ``DisplayRole``/``CHANNEL_HTML_ROLE`` strings — those two
@@ -52,7 +66,7 @@ unit-testable without rendering pixels.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import (
@@ -85,12 +99,16 @@ from metatv.gui.channel_list_model import (
     PLAYBACK_GLYPH_COLOR_ROLE,
     PLAYBACK_GLYPH_ROLE,
     PLOT_ROLE,
+    POSTER_URL_ROLE,
     QUALITY_TOKEN_ROLE,
     RATING_ROLE,
     ROW_KIND_ROLE,
     TITLE_ROLE,
     YEAR_ROLE,
 )
+
+if TYPE_CHECKING:
+    from metatv.core.image_cache import ImageCache
 
 DENSITY_COMPACT = "compact"
 DENSITY_COMFY = "comfy"
@@ -104,6 +122,12 @@ _LINE_GAP = 2         # gap between comfy's two stacked text lines
 _CELL_GAP = 6         # horizontal gap between adjacent cells
 _CHIP_H_PAD = 5       # chip internal horizontal padding (mirrors badge_utils' "1px 5px")
 _CHIP_RADIUS = 3      # chip corner radius (mirrors badge_utils' "border-radius: 3px")
+
+# Poster-thumbnail geometry (comfy/comfy_plus only — never compact). Fixed 2:3
+# aspect ratio, independent of font size, so the reserved rect never wobbles.
+_THUMB_W = 32
+_THUMB_H = 48         # 32 * 3/2 — 2:3 width:height
+_THUMB_GAP = 8         # gap between the thumbnail and the rest of the row
 
 # Rating chip/glyph colours — local to this delegate (not a channel-name lookup
 # table, so it doesn't belong in channel_name_utils.py); values are theme tokens.
@@ -224,9 +248,11 @@ def _rating_glyph_cell(rating: int) -> Optional[_Cell]:
 class ChannelRowDelegate(QStyledItemDelegate):
     """Paints channel rows in one of three densities; header rows unchanged."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, image_cache: Optional["ImageCache"] = None) -> None:
         super().__init__(parent)
         self._density: str = DENSITY_COMFY
+        self._image_cache = image_cache
+        self._thumbnails_enabled: bool = False
 
     def set_density(self, density: str) -> None:
         """Set the row density ("compact"/"comfy"/"comfy_plus"); unknown values
@@ -237,9 +263,27 @@ class ChannelRowDelegate(QStyledItemDelegate):
     def density(self) -> str:
         return self._density
 
+    def set_thumbnails_enabled(self, enabled: bool) -> None:
+        """Turn the comfy/comfy_plus poster thumbnail on/off (compact never
+        shows one regardless of this flag)."""
+        self._thumbnails_enabled = bool(enabled)
+
+    @property
+    def thumbnails_enabled(self) -> bool:
+        return self._thumbnails_enabled
+
     def _comfy_plus_line_count(self, index) -> int:
         """comfy_plus is 3 lines when the row has plot text, else 2 (= comfy)."""
         return 3 if index.data(PLOT_ROLE) else 2
+
+    def _shows_thumbnail(self, row_kind, index) -> bool:
+        """Whether THIS row gets a reserved thumbnail rect: channel rows only,
+        never header rows, never compact density, and only when enabled."""
+        return (
+            row_kind != "header"
+            and self._density != DENSITY_COMPACT
+            and self._thumbnails_enabled
+        )
 
     # ── QStyledItemDelegate overrides ───────────────────────────────────────
 
@@ -256,6 +300,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
             height = n * line_h + (n - 1) * _LINE_GAP + 2 * _ROW_V_PAD
         else:  # DENSITY_COMFY
             height = 2 * line_h + _LINE_GAP + 2 * _ROW_V_PAD
+        if self._shows_thumbnail(row_kind, index):
+            height = max(height, _THUMB_H + 2 * _ROW_V_PAD)
         return QSize(option.rect.width(), height)
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
@@ -278,13 +324,64 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setClipRect(text_rect)
+        content_rect = text_rect
+        if self._shows_thumbnail("channel", index):
+            thumb_rect = self._thumbnail_rect(text_rect)
+            self._paint_thumbnail(painter, thumb_rect, index)
+            content_rect = QRect(
+                text_rect.left() + _THUMB_W + _THUMB_GAP,
+                text_rect.top(),
+                max(0, text_rect.width() - (_THUMB_W + _THUMB_GAP)),
+                text_rect.height(),
+            )
         if self._density == DENSITY_COMPACT:
-            self._paint_compact(painter, text_rect, index, default_color, opt.font)
+            self._paint_compact(painter, content_rect, index, default_color, opt.font)
         elif self._density == DENSITY_COMFY_PLUS:
-            self._paint_comfy_plus(painter, text_rect, index, default_color, opt.font)
+            self._paint_comfy_plus(painter, content_rect, index, default_color, opt.font)
         else:
-            self._paint_comfy(painter, text_rect, index, default_color, opt.font)
+            self._paint_comfy(painter, content_rect, index, default_color, opt.font)
         painter.restore()
+
+    # ── Poster thumbnail (comfy/comfy_plus only) ─────────────────────────────
+
+    def _thumbnail_rect(self, row_rect: QRect) -> QRect:
+        """Fixed ``_THUMB_W``x``_THUMB_H`` rect flush to ``row_rect``'s left
+        edge, vertically centred within the row."""
+        y = row_rect.top() + max(0, (row_rect.height() - _THUMB_H) // 2)
+        return QRect(row_rect.left(), y, _THUMB_W, _THUMB_H)
+
+    def _paint_thumbnail(self, painter, rect: QRect, index) -> None:
+        """Paint the real poster (cache-hit only — never downloads from
+        paint()) cropped to fill ``rect``, or a placeholder tile on a miss."""
+        url = index.data(POSTER_URL_ROLE) or ""
+        pixmap = None
+        if url and self._image_cache is not None:
+            pixmap = self._image_cache.get_image_sync(url)
+        if pixmap is not None and not pixmap.isNull():
+            scaled = pixmap.scaled(
+                rect.width(), rect.height(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = max(0, (scaled.width() - rect.width()) // 2)
+            y = max(0, (scaled.height() - rect.height()) // 2)
+            cropped = scaled.copy(x, y, rect.width(), rect.height())
+            painter.drawPixmap(rect, cropped)
+            return
+        self._paint_thumbnail_placeholder(painter, rect, index)
+
+    def _paint_thumbnail_placeholder(self, painter, rect: QRect, index) -> None:
+        """Zero-network fallback: a muted rounded tile with the title's first
+        letter centred — shown while an image is loading, on a load failure,
+        or for a channel with no poster at all."""
+        title = index.data(TITLE_ROLE) or ""
+        letter = title.strip()[:1].upper() if title.strip() else "?"
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(_theme.COLOR_FAINT))
+        painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QColor(_theme.COLOR_MUTED))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
 
     # ── Header-row rendering (unchanged behaviour) ──────────────────────────
 
