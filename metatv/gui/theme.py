@@ -1374,6 +1374,21 @@ LIGHTBOX_VERSION_ROW = (
     "QPushButton:hover { color: " + COLOR_TEXT_HI + "; background: " + COLOR_BG_DEEP + "; }"
 )
 
+# Breadcrumb trail in the lightbox header — subtle muted path tracking the dive history.
+# Shows as: "Origin › A › B › Current" with earlier crumbs clickable to jump back.
+# Long trails elide in the middle with a clickable `…` for the full Explore path.
+LIGHTBOX_BREADCRUMB_CRUMB = (
+    "QPushButton { color: " + COLOR_MUTED + "; font-size: " + FONT_SM + ";"
+    " border: none; background: transparent; padding: 0 2px; text-align: left; }"
+    "QPushButton:hover { color: " + COLOR_TEXT + "; }"
+)
+LIGHTBOX_BREADCRUMB_CURRENT = (
+    "color: " + COLOR_TEXT + "; font-size: " + FONT_SM + ";"
+)
+LIGHTBOX_BREADCRUMB_SEP = (
+    "color: " + COLOR_MUTED_2 + "; font-size: " + FONT_SM + ";"
+)
+
 
 def lightbox_version_row(accent_color: str = "") -> str:
     """Compose the Other-Versions list-row style, tinting the left border by

@@ -136,6 +136,7 @@ class SimilarTitleLightbox(QWidget):
         self._card = _LightboxCard()
         self._card.back_clicked.connect(self._go_back)
         self._card.close_clicked.connect(self._close)
+        self._card.breadcrumb_crumb_clicked.connect(self._on_breadcrumb_crumb_clicked)
         self._card.play_clicked.connect(lambda: self.play_requested.emit(self._current_id))
         self._card.queue_clicked.connect(lambda: self.queue_toggled.emit(self._current_id))
         self._card.favorite_clicked.connect(lambda: self.favorite_toggled.emit(self._current_id))
@@ -452,6 +453,21 @@ class SimilarTitleLightbox(QWidget):
             self._card.set_back_visible(False)
         self._load_channel(prev_id)
 
+    def _on_breadcrumb_crumb_clicked(self, channel_id: str) -> None:
+        """Handle breadcrumb crumb click — truncate stack and load that channel.
+
+        Truncates the nav_stack so it ends just before the clicked channel,
+        effectively "rewinding" to that point.
+        """
+        if not channel_id or channel_id not in self._nav_stack:
+            return
+        # Find the index of the crumb and truncate the stack there
+        idx = self._nav_stack.index(channel_id)
+        self._nav_stack = self._nav_stack[:idx]
+        if not self._nav_stack:
+            self._card.set_back_visible(False)
+        self._load_channel(channel_id)
+
     def _update_nav_state(self) -> None:
         in_rabbit_hole = bool(self._nav_stack)
         n = len(self._origin_ids)
@@ -464,6 +480,10 @@ class SimilarTitleLightbox(QWidget):
             self._card.set_counter(f"{idx + 1} of {n}")
             self._prev_chev.setEnabled(idx > 0)
             self._next_chev.setEnabled(idx < n - 1)
+        # Update the breadcrumb trail
+        self._card.update_breadcrumb(
+            self._origin_title, self._origin_ids, self._nav_stack, self._current_id, self._db
+        )
 
     # ------------------------------------------------------------------ #
     # Dismiss                                                              #
