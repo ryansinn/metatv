@@ -113,12 +113,20 @@ def _load_tag_content_type_counts(db: Database, values: list[str]) -> dict[str, 
         session.close()
 
 
-def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None = None) -> list[tuple[str, int]]:
-    """Return [(prefix, count)] for all prefixes in the DB, sorted alphabetically."""
-    from sqlalchemy import func
+def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None = None) -> tuple[list[tuple[str, int]], set[str]]:
+    """Return ([(prefix, count)], {region_only_tokens}) for all prefixes and region
+    tokens in the DB.
+
+    Region-only tokens are region codes that appear on channels with no language
+    prefix. The returned set contains only those region codes that are NOT already
+    present as detected_prefix in the DB (no double-counting).
+    """
+    from sqlalchemy import and_, func, or_
     from metatv.core.database import ChannelDB
+
     session = db.get_session()
     try:
+        # Query all detected_prefix values
         q = (
             session.query(ChannelDB.detected_prefix, func.count())
             .filter(
@@ -127,15 +135,60 @@ def _load_prefix_counts(db: Database, excluded_user_categories: set[str] | None 
             )
         )
         if excluded_user_categories:
-            from sqlalchemy import or_ as _or
-            q = q.filter(_or(ChannelDB.user_category.is_(None),
+            q = q.filter(or_(ChannelDB.user_category.is_(None),
                              ~ChannelDB.user_category.in_(excluded_user_categories)))
-        rows = (
+        prefix_rows = (
             q.group_by(ChannelDB.detected_prefix)
             .order_by(ChannelDB.detected_prefix)
             .all()
         )
-        return [(row[0], row[1]) for row in rows if row[0]]
+        prefix_counts = [(row[0], row[1]) for row in prefix_rows if row[0]]
+        prefix_set = {p.upper() for p, _ in prefix_counts}
+
+        # Query detected_region for rows with NO prefix (None or empty string)
+        region_q = (
+            session.query(ChannelDB.detected_region, func.count())
+            .filter(
+                and_(
+                    or_(ChannelDB.detected_prefix.is_(None),
+                        ChannelDB.detected_prefix == ""),
+                    ChannelDB.detected_region.isnot(None),
+                ),
+                ChannelDB.media_type.in_(["movie", "series", "live"]),
+            )
+        )
+        if excluded_user_categories:
+            region_q = region_q.filter(or_(ChannelDB.user_category.is_(None),
+                                           ~ChannelDB.user_category.in_(excluded_user_categories)))
+        region_rows = (
+            region_q.group_by(ChannelDB.detected_region)
+            .order_by(ChannelDB.detected_region)
+            .all()
+        )
+
+        # Merge region tokens into prefix_counts, tracking region-only ones
+        region_only = set()
+        region_dict = {r.upper(): (r, c) for r, c in region_rows if r}
+        prefix_dict = {p.upper(): (p, c) for p, c in prefix_counts}
+
+        for region_upper, (region_orig, region_count) in region_dict.items():
+            if region_upper in prefix_set:
+                # This region code already exists as a prefix; merge counts
+                orig_prefix, orig_count = prefix_dict[region_upper]
+                # Replace the prefix entry with merged count
+                prefix_dict[region_upper] = (orig_prefix, orig_count + region_count)
+                # NOT region-only: this code is also somebody's detected_prefix, so
+                # the "carries no language prefix" tooltip would be false for it.
+            else:
+                # This region code is NOT already a prefix; add it and mark as region-only
+                prefix_dict[region_upper] = (region_orig, region_count)
+                region_only.add(region_upper)
+
+        # Convert back to list and re-sort
+        prefix_counts = list(prefix_dict.values())
+        prefix_counts.sort(key=lambda x: x[0])
+
+        return (prefix_counts, region_only)
     finally:
         session.close()
 
@@ -192,6 +245,7 @@ class _GroupSection(QWidget):
         initially_checked: set[str],
         *,
         config,
+        region_only_tokens: set[str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -203,6 +257,7 @@ class _GroupSection(QWidget):
         self._body_built = False
         self._expanded = False
         self._pre_search_expanded: bool | None = None  # expand state to restore when search clears
+        self._region_only_tokens = region_only_tokens or set()  # tokens that are region-only (no prefix)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -273,6 +328,10 @@ class _GroupSection(QWidget):
             cb.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-family: monospace;")
             cb.stateChanged.connect(self._on_prefix_changed)
             rl.addWidget(cb)
+
+            # Mark region-only tokens with a tooltip
+            if prefix.upper() in self._region_only_tokens:
+                cb.setToolTip("Region token — applies to channels that carry no language prefix")
 
             count_lbl = QLabel(f"({count:,})")
             count_lbl.setStyleSheet(_theme.LABEL_MUTED)
@@ -840,7 +899,7 @@ class GlobalFilterDialog(QDialog):
         # Blacklist model: currently excluded prefixes start checked; everything else unchecked.
         excluded = set(self._config.global_filter_excluded_categories)
 
-        prefix_counts = _load_prefix_counts(
+        prefix_counts, region_only_tokens = _load_prefix_counts(
             self._db,
             excluded_user_categories=set(self._config.global_filter_excluded_user_categories),
         )
@@ -850,7 +909,7 @@ class GlobalFilterDialog(QDialog):
             platform_groups=self._config.filter_platform_groups,
         )
         logger.debug(
-            f"GlobalFilterDialog: {len(prefix_counts)} prefixes in {len(all_groups)} groups"
+            f"GlobalFilterDialog: {len(prefix_counts)} prefixes (incl. {len(region_only_tokens)} region-only) in {len(all_groups)} groups"
         )
 
         named_groups = [(n, p) for n, p in all_groups if n != "Uncategorized"]
@@ -881,7 +940,11 @@ class GlobalFilterDialog(QDialog):
         for group_name, prefixes in named_groups:
             # Only pre-check prefixes that are currently excluded
             initial = excluded & {p for p, _ in prefixes}
-            section = _GroupSection(group_name, prefixes, initial, config=self._config)
+            section = _GroupSection(
+                group_name, prefixes, initial,
+                config=self._config,
+                region_only_tokens=region_only_tokens
+            )
             self._inner_vl.addWidget(section)
             self._sections.append(section)
             self._language_sections.append(section)
@@ -930,7 +993,11 @@ class GlobalFilterDialog(QDialog):
 
             for group_name, entries in sorted(platform_data):
                 initial = excluded & {p for p, _ in entries}
-                section = _GroupSection(group_name, entries, initial, config=self._config)
+                section = _GroupSection(
+                    group_name, entries, initial,
+                    config=self._config,
+                    region_only_tokens=region_only_tokens
+                )
                 self._inner_vl.addWidget(section)
                 self._sections.append(section)
                 self._platform_sections.append(section)
@@ -938,7 +1005,11 @@ class GlobalFilterDialog(QDialog):
         # ── Uncategorized (truly unmapped prefixes) ─────────────────────────────
         if other_entries:
             initial = excluded & {p for p, _ in other_entries}
-            other_section = _GroupSection("Uncategorized", other_entries, initial, config=self._config)
+            other_section = _GroupSection(
+                "Uncategorized", other_entries, initial,
+                config=self._config,
+                region_only_tokens=region_only_tokens
+            )
             self._inner_vl.addWidget(other_section)
             self._sections.append(other_section)
             self._uncategorized_section = other_section
