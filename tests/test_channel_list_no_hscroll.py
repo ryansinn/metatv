@@ -1,11 +1,34 @@
-"""Test that ChannelListView never shows a horizontal scrollbar.
+"""Regression test for horizontal scrollbar on ChannelListView.
 
-When rows are painted with fm.elidedText() to fit available width, there is
-nothing to scroll to horizontally. The view should suppress the horizontal
-scrollbar entirely via setHorizontalScrollBarPolicy(ScrollBarAlwaysOff).
+The bug (horizontal scrollbar appearing on first launch) is a first-layout
+timing artifact that cannot be reproduced in a synthetic unit test.
 
-This test proves that the policy is set and remains enforced through layout
-passes (including after a resize).
+Root cause: ChannelListView did not set a horizontal scrollbar policy.
+On first layout, before the view is fully resized, option.rect.width() can
+be from a pre-resize state, causing the delegate's sizeHint to cache an
+incorrect width. Without the policy set, Qt's default ScrollBarAsNeeded
+can trigger layout thrashing.
+
+The fix applies the established convention from sibling list views
+(Favorites, History, Queue, Recommended) and calls
+setHorizontalScrollBarPolicy(ScrollBarAlwaysOff), since rows are painted
+with fm.elidedText() to fit available width — there is nothing to scroll
+to horizontally.
+
+Why this test is minimal:
+- The delegate's sizeHint returns QSize(option.rect.width(), height),
+  so content width always equals viewport width in any properly-sized view.
+- The scrollbar maximum is always 0 in a synthetic harness, regardless of
+  the policy (content never exceeds viewport).
+- The bug manifests only in first-launch timing (before layout is complete)
+  and is observable only as visual clipping in the real app.
+
+This file serves as a regression anchor; the fix is proven by matching the
+convention at:
+  - metatv/gui/sidebar/favorites.py:63
+  - metatv/gui/sidebar/history.py:48
+  - metatv/gui/sidebar/queue.py:85
+  - metatv/gui/sidebar/recommended.py:69
 """
 
 import pytest
@@ -17,49 +40,21 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_channel_list_view_suppresses_horizontal_scrollbar(qapp):
-    """ChannelListView should never show a horizontal scrollbar.
+def test_channel_list_view_scrollbar_policy_is_set(qapp):
+    """ChannelListView sets horizontal scrollbar policy to ScrollBarAlwaysOff.
 
-    After initial layout and after a resize, the horizontal scrollbar policy
-    must be ScrollBarAlwaysOff, and the scrollbar must remain invisible.
+    This verifies that the policy is explicitly set, matching the convention
+    in sibling list views. The policy itself (not visibility) is the
+    testable behavior, since sizeHint returns option.rect.width() — content
+    width always equals viewport width in a synthetic test.
     """
-    from PyQt6.QtWidgets import QListView
-    from PyQt6.QtCore import Qt, QStringListModel, QSize
+    from PyQt6.QtCore import Qt, QStringListModel
     from metatv.gui.channel_list_view import ChannelListView
 
-    # Create a view with enough rows to ensure we've gone through layout passes.
     view = ChannelListView()
-    model = QStringListModel(
-        [f"Channel {i}: Very Long Name With Extra Details {i}" for i in range(50)]
-    )
+    model = QStringListModel(["Channel 1", "Channel 2"])
     view.setModel(model)
 
-    # First layout: after showing the view, it should not have a horizontal scrollbar.
-    view.show()
-    view.resize(800, 400)
-    view.repaint()
-
-    # Force layout by processing events.
-    qapp.processEvents()
-
-    # Assert policy and visibility after first layout.
     assert (
         view.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    ), "Policy must be ScrollBarAlwaysOff after initial layout"
-    assert (
-        not view.horizontalScrollBar().isVisible()
-    ), "Horizontal scrollbar must be invisible after initial layout"
-
-    # Resize to a smaller width — even if rows might try to overflow,
-    # the scrollbar policy should suppress it.
-    view.resize(400, 400)
-    view.repaint()
-    qapp.processEvents()
-
-    # Assert policy and visibility after resize.
-    assert (
-        view.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    ), "Policy must remain ScrollBarAlwaysOff after resize"
-    assert (
-        not view.horizontalScrollBar().isVisible()
-    ), "Horizontal scrollbar must remain invisible after resize"
+    ), "Policy must be ScrollBarAlwaysOff to match sibling list views"
