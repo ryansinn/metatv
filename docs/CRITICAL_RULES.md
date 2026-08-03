@@ -194,6 +194,15 @@ Engine/control/view split rationale: DESIGN_RATIONALE **DR-0007**. The engine st
 
 **The shared predicate now exists — use it.** `core/channel_visibility.py` (v0.24.0, What's New #260) is the single definition of "which channels are visible", closing what used to be four hand-maintained answers. See "Channel visibility" below.
 
+## Series-monitor baselines
+
+`monitored_series[].baselines` is keyed **per mirror** — `"provider_id|source_id"`, built via `series_monitor.mirror_key()` — not per provider. `content_key` is a deliberately generous identity, so one provider routinely carries several listings of the same show; under a provider-only key each overwrote a single slot and each was compared against the same stale `prev`, manufacturing "+N episodes" alerts that grew every launch until `clamp_unseen_new_to_baseline_total` pinned them to `sum(baselines)` — the provider's TOTAL episode count (owner report 2026-08-03: "Rick And Morty +132 eps").
+
+- Never index `baselines` by a bare `provider_id`, and never test membership with `provider_id in baselines` — compare the provider half via `provider_of()` (as `Config.get_monitored_for_provider` does).
+- `_resolve_mirrors` dedupes on the full `(provider_id, source_id)` pair and **deliberately allows several mirrors on one provider** — each has its own slot, so that is correct, not a leak.
+- Shape changes go through `normalize_monitored_entry()`, the one chokepoint both `Config.get_monitored_series` and the worker call. It handles both historical shapes and is idempotent — a second pass must not re-zero `unseen_new`, or every config read would wipe legitimate counts.
+- Correcting a corrupt count: **zero** it when the value is *proven* corrupt (produced by a known accounting bug — `zero_out_inflated_unseen_new`, and the mirror-key migration); **clamp** it when merely implausible (`clamp_unseen_new_to_baseline_total`). Don't collapse the two.
+
 ## Channel visibility
 
 `metatv/core/channel_visibility.py` is the one place the exclusion axes are threaded onto a channel query. Before it, "which channels are visible" was answered independently in four sites — `ChannelRepository._apply_channel_filters`, the `_apply_*_filter`/`_apply_*_exclusion` cluster in `discovery_engine.py`, inline filters in `preference_engine.score_candidates`, and `TagRepository._scope_to_visible_channels` — each threading its own subset of the axes. That divergence *was* the "Recommendations ignores global exclusions" bug class, not a cause of it.

@@ -194,15 +194,51 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
    `@executable_path/libs/`, and the build fails if any install name contains `libs/libs/` or if
    the vendored `mpv --version` will not run.
 
-**v0.25.0 — next (owner UX pass, 2026-08-02).** Each item below is a reported defect, not a plan.
+**v0.25.0 — SHIPPED 2026-08-03 (owner UX pass).** Two What's New entries (#266, #267); verify with
+`scripts/roadmap_audit.py --version 0.25.0`. Each item was a reported defect, not a plan.
 
-- [ ] **Live theme switch doesn't reach list backgrounds** — owner-reported, NOT diagnosed; needs
-  an owner re-test against v0.24.0 first (the QPalette floor and the six-view sweep both landed
-  after the report). One confirmed contributor: `theme.apply_list_selection()` bakes its QSS once
-  at construction and the sweep never re-applies it.
-- [ ] **Series monitor fetches during interpreter shutdown** — `shutdown()` uses `wait=False` with
-  no cancellation flag, so queued work runs into a dead interpreter ("cannot schedule new futures
-  after interpreter shutdown").
+1. [x] **False "+N episodes" alerts** (#267) — the Watch Queue reported "Rick And Morty +132 eps"
+   and "Fallout +23 eps", climbing every launch. `baselines` was keyed by `provider_id` alone, but
+   `content_key` is generous enough that one provider carries several listings of a show; each wrote
+   to the same slot and each was compared against the same stale `prev`. The clamp then pinned the
+   total to `sum(baselines)` — which is why the badge read as the provider's TOTAL episode count.
+   Baselines are now keyed per mirror (`provider|source`), `_resolve_mirrors` dedupes on the full
+   pair, and the migration zeroes the proven-corrupt counts rather than clamping them.
+2. [x] **Stranded channel banner** (#266) — the channel-list banners live in `_list_layout`, not in
+   any view, so `_hide_all_content_views()` never reset them: switching to Sources left
+   "33 hidden by Global Exclusions" reporting a channel count over an unrelated view.
+3. [x] **Add Source CTA read as disabled** (#266) — it borrowed `RECIPE_SAVED_ICON_BTN`, a
+   de-emphasised icon-button role (transparent + `COLOR_FAINT`). Now its own `SOURCES_ADD_BTN`:
+   solid accent fill with `COLOR_ON_ACCENT` text, contrast-asserted.
+4. [x] **Series monitor fetched during interpreter shutdown** (#266) — `shutdown()` used
+   `wait=False`, which stops new submissions but cannot interrupt the running batch, so it kept
+   issuing live HTTP fetches past `Database.close()`. Now a `threading.Event` polled per entry and
+   per mirror.
+5. [x] **Source glyph on version chips with one source** (#266) — suppressed unless the versions
+   genuinely span more than one source; the source is still named in every tooltip.
+6. [x] **Results-list rows ran flush to both edges** (#266) — right-aligned cells anchor to
+   `container.right()`, so the vertical scrollbar painted over them. `_ROW_H_PAD` inset applied at
+   the paint chokepoint, so every density and the thumbnail path inherit it.
+
+**v0.26.0 — next.** Carried forward from the same UX pass, plus what v0.25.0 surfaced.
+
+- [ ] **Live theme switching is architecturally broken** — CONFIRMED by owner re-test against
+  v0.24.0: switching in Settings leaves the previous palette's text on the new chrome (light-grey on
+  light-grey), app-wide. Not a missing view — Qt caches the RENDERED stylesheet string, and there are
+  **838 `setStyleSheet` call sites across 68 files against 22 `refresh_theme()` methods across 16**.
+  The #253 QPalette floor amplified it: unstyled widgets adopt the new palette instantly while 800+
+  baked stylesheets do not. Cold launch is unaffected (`__main__.py:57` applies the theme before any
+  widget exists). Fix is a style registry — `theme.style(w, "ROLE")` recording weakref + role so
+  `apply_theme()` re-applies every live entry, plus a drift-guard test banning the raw form. Detail:
+  docs/UI_UX_GUIDELINES.md → "Known-broken: live theme switching".
+- [ ] **Row chips: clickable filters + explanatory hover** — owner decision 2026-08-03. Chips in the
+  results list are delegate-painted with no hit-testing, so they neither filter nor explain
+  themselves. Clicking one filters via the same strict context-chip path as the search-area filters
+  (docs/CONTEXT_FILTER_CHIPS.md); hover names the facet. Needs per-chip `QRect` hit-testing recorded
+  at paint, `setMouseTracking` + cursor routed through `cursor_affordance.py`, and tooltips via
+  `viewportEvent`/`helpEvent` (delegate sub-regions cannot use `setToolTip`). Settled in the brief:
+  a chip click filters ONLY — it does not also select the row, so it cannot collide with
+  double-click-to-play.
 - [ ] **Add-provider dialog: URL field sits below the list it feeds** — a tester pasted URLs into
   the big box. Move the URL input above the list; add an explainer for what EPG is and why to
   enable it.
@@ -215,8 +251,6 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 - [ ] **First run never lands on Discover** — Discover is the default view but a new user has no
   source, so they never get placed there. Navigate after the first source finishes loading (guards:
   first source only, ≥1 channel, no manual navigation in the meantime).
-- [ ] **Details pane shows a source glyph on version chips with one source** — pure noise when
-  there is nothing to disambiguate.
 - [ ] **Discover collection shelves need organising** — ~800 shelves is unscrollable.
   `MIN_COLLECTION_SHELF_MEMBERS` is 2; raise it, add shelf search, and drop any collection whose
   members are all globally excluded. Platform rollup needs its own Q-tag review.
