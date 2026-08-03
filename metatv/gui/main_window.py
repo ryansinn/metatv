@@ -1699,6 +1699,14 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._hidden_banner.hide()
         self._list_layout.addWidget(self._hidden_banner)
 
+        # Zero-sources empty state (#263) — shown above the (empty) channel list
+        # ONLY when the user has configured no source at all. Extracted into its
+        # own method (rather than inlined here like _hidden_banner above) so a
+        # test can build + wire it directly against a bare host without booting
+        # the whole setup_ui(), the same way _sources_status_target()-style
+        # helpers are unit-tested elsewhere.
+        self._build_no_sources_banner()
+
         # Banner strip — shown above the channel list for transient states:
         # loading placeholder, "N filtered" actionable button, bypass banner.
         # Hidden by default; _ChannelListMixin shows/hides it as needed.

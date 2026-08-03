@@ -14,10 +14,13 @@ runtime, so the split is behaviour-preserving.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 from loguru import logger
 
 from metatv.core.notifications import StepStatus
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
+from metatv.gui import theme as _theme
 from metatv.gui.dialogs import AddProviderDialog
 
 
@@ -193,6 +196,53 @@ class _ProviderMixin:
         dialog = AddProviderDialog(self, self.config, self.db, self.notification_manager)
         if dialog.exec():
             self.load_providers()
+
+    def _build_no_sources_banner(self) -> None:
+        """Build the zero-sources empty-state banner and add it to ``_list_layout``.
+
+        Shown above the (empty) channel list ONLY when the user has configured
+        no source at all — see ``_show_no_sources_state``/``_on_channels_loaded``
+        in ``main_window_channels.py``. A first-time user previously saw "No
+        channels match — try a different search or check filter settings",
+        which blames search/filters for a cause that is actually "there is no
+        source yet" — misleading, and gives no next step. This banner states
+        the real cause plainly and offers a discoverable "Add Source" button
+        that calls :meth:`add_provider` directly — the SAME handler the
+        sidebar '+' (``sidebar/sources.py``) and Sources-manager '+'
+        (``sources_manager_view.py``) buttons already use, so there is still
+        exactly one path that creates a source.
+
+        Extracted into its own method (called once from ``setup_ui()``) so a
+        test can build + wire it directly against a bare host, asserting the
+        REAL construction/click-wiring code without booting the whole window.
+        """
+        self._no_sources_banner = QWidget()
+        _nsb_layout = QHBoxLayout(self._no_sources_banner)
+        _nsb_layout.setContentsMargins(8, 4, 8, 4)
+        _nsb_layout.setSpacing(8)
+        self._no_sources_lbl = QLabel(
+            "No sources configured yet — add one to start browsing channels."
+        )
+        self._no_sources_lbl.setStyleSheet(
+            f"color: {_theme.COLOR_ACCENT_BLUE}; font-size: {_theme.FONT_MD};")
+        self._no_sources_lbl.setWordWrap(True)
+        _nsb_layout.addWidget(self._no_sources_lbl)
+        _nsb_layout.addStretch()
+        self._no_sources_add_btn = QPushButton(f"{_icons.provider_icon} Add Source")
+        self._no_sources_add_btn.setToolTip("Add Source…")
+        self._no_sources_add_btn.setStyleSheet(
+            f"QPushButton {{ border: 1px solid {_theme.COLOR_ACCENT_BLUE}; border-radius: 4px;"
+            f" padding: 4px 12px; font-size: {_theme.FONT_MD}; font-weight: 600;"
+            f" background: {_theme.OVERLAY_BLUE_20}; color: {_theme.COLOR_ACCENT_BLUE}; }}"
+            f"QPushButton:hover {{ background: {_theme.OVERLAY_BLUE_40}; color: {_theme.COLOR_TEXT_HI}; }}"
+        )
+        self._no_sources_add_btn.clicked.connect(self.add_provider)
+        _nsb_layout.addWidget(self._no_sources_add_btn)
+        self._no_sources_banner.setStyleSheet(
+            f"background: {_theme.OVERLAY_BLUE_10}; border-radius: 4px;"
+        )
+        self._no_sources_banner.hide()
+        self._list_layout.addWidget(self._no_sources_banner)
 
     def enter_provider_edit_mode(self, provider_id: str):
         """Switch center panel to provider editor for the given provider."""
