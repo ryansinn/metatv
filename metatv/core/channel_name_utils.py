@@ -20,6 +20,12 @@ class ParsedChannel(NamedTuple):
         dub_langs:  Languages identified as a dubbed audio track (from DUB markers).
         sub_langs:  Languages identified as a subtitle track (from SUB markers).
                     "Multi" is used as a special sentinel when [Multi-Sub] is detected.
+        trailing:   Text the year-strip discarded from AFTER the year, e.g.
+                    "NICOLAS CAGE" in "EN - Adaptation. 4K (2002) NICOLAS CAGE".
+                    Providers routinely append the lead actor there, and it used
+                    to be dropped on the floor — not merely unused, but never
+                    surfaced to any caller. Callers decide what it means; the
+                    parser only refuses to throw it away.
     """
     region: str
     bare_name: str
@@ -30,6 +36,7 @@ class ParsedChannel(NamedTuple):
     audio_langs: list[str] = []
     dub_langs: list[str] = []
     sub_langs: list[str] = []
+    trailing: str = ""
 
 
 # ── Separator patterns ──────────────────────────────────────────────────────── #
@@ -2266,6 +2273,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
                             _prefix_quality = dq.group(1).upper()
                             bare = dq.group(2).strip()
 
+    trailing = ""
+
     # 1b. Pre-cut: relocate a real 4-digit year in parens that has trailing FREE-TEXT
     # junk after it (cast/extra credits, not a recognized qualifier) so the existing
     # end-anchored steps below (quality/audio/lang/year) can extract it normally.
@@ -2298,6 +2307,12 @@ def parse_channel_name(name: str) -> ParsedChannel:
             and not _trailing.startswith(("(", "["))
             and _trailing_is_upper_junk
         ):
+            # Keep it. This span is already known to be provider-appended
+            # extra credits ("HARVEY KEITEL, TARANTINO", "NICOLAS CAGE") —
+            # the guards above established that. Discarding it meant no
+            # caller could see the actor the provider had helpfully named,
+            # even on titles with no metadata at all.
+            trailing = _trailing
             bare = bare[: _last_year_match.end()]
 
     # 2. Strip quality tokens from end (first pass)
@@ -2357,6 +2372,8 @@ def parse_channel_name(name: str) -> ParsedChannel:
     ym = _YEAR_RE.search(bare)
     if ym:
         year = ym.group(1) or ym.group(2)  # group 1 = paren form, group 2 = dash form
+        # Anything still after the year here (step 1b usually took it already).
+        trailing = trailing or bare[ym.end():].strip()
         bare = bare[: ym.start()].strip()
 
     # 6a. Second bracket pass — catches brackets that were hidden by the year token in
@@ -2436,7 +2453,7 @@ def parse_channel_name(name: str) -> ParsedChannel:
         quality = quality + [_prefix_quality]
 
     return ParsedChannel(region, bare, quality, lang, year, audio,
-                         _audio_langs, _dub_langs, _sub_langs)
+                         _audio_langs, _dub_langs, _sub_langs, trailing)
 
 
 # ── EPG TLD compatibility (region-gated fuzzy matching, Wave 3 Slice 3B) ─────── #
