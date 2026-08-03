@@ -815,7 +815,22 @@ class _MetadataSection(QWidget):
 
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
-        self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        # Ignored WIDTH is deliberate — it stops the label's sizeHint widening
+        # the whole details column (docs/DETAILS_PANE_DESIGN.md, the width trap
+        # that has recurred ~5 times). But an ignored width also means Qt has no
+        # width to wrap against when computing the height, so a wrapped title
+        # was allocated fewer lines than it renders and got clipped top and
+        # bottom — "Monty Python's The Meaning of Life" lost its first and last
+        # lines (owner report).
+        #
+        # setHeightForWidth(True) is what makes the layout ASK the label how
+        # tall it needs to be at the width it is actually given, which is the
+        # only way to keep the ignored width AND a correct height.
+        _title_policy = QSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        _title_policy.setHeightForWidth(True)
+        self.title_label.setSizePolicy(_title_policy)
         _theme.style(self.title_label, "DETAIL_TITLE")
         title_bar_layout.addWidget(self.title_label, 1)
 
