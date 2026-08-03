@@ -308,10 +308,15 @@ class TestCollectionResolution:
         host.switch_to_list_view = lambda: None
         host._load_called = []
         host.load_channels = lambda: host._load_called.append(True)
-        # Bind the real mixin methods under test.
+        # Bind the real mixin methods under test. The handlers now DELEGATE to
+        # _activate_context_filter (the single applier) and, for collection, to
+        # _on_category_filter_requested — so both have to be real here or the
+        # test exercises a hollow handler.
         for name in (
             "_reset_context_filters",
             "_resolve_current_channel_category",
+            "_activate_context_filter",
+            "_on_category_filter_requested",
             "_on_tag_filter_requested",
         ):
             setattr(host, name, getattr(_NavMixin, name).__get__(host))

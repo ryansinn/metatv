@@ -323,3 +323,104 @@ class TestTagValueTranslation:
                 assert resolved in BASE_QUALITY_GROUPS, (
                     f"{token!r} resolved to {resolved!r}, which is not a group"
                 )
+
+
+class TestContextFilterUnification:
+    """Every context-filter entry point goes through one applier.
+
+    Owner: "whatever filter path those use should be unified so we're not making
+    multiple hand-rolled functions that duplicate the same behavior." That was a
+    direct response to this session adding an eighth copy of the reset/set/label/
+    show/save/switch/reload ritual — one that set the right state var from the
+    WRONG column and silently filtered nothing.
+    """
+
+    def _host(self):
+        from metatv.gui.main_window_nav import _NavMixin
+
+        host = _NavMixin.__new__(_NavMixin)
+        host._reset_context_filters = MagicMock()
+        host._context_filter_label = MagicMock()
+        host._context_filter_chip = MagicMock()
+        host._save_search_state = MagicMock()
+        host.switch_to_list_view = MagicMock()
+        host.load_channels = MagicMock()
+        return host
+
+    def test_applier_performs_the_whole_ritual(self):
+        host = self._host()
+
+        host._activate_context_filter("Genre: Drama", _details_genre_filter="Drama")
+
+        host._reset_context_filters.assert_called_once()
+        assert host._details_genre_filter == "Drama"
+        host._context_filter_label.setText.assert_called_once_with("Genre: Drama")
+        host._context_filter_chip.show.assert_called_once()
+        host._save_search_state.assert_called_once()
+        host.switch_to_list_view.assert_called_once()
+        host.load_channels.assert_called_once()
+
+    def test_row_and_details_collection_clicks_are_indistinguishable(self):
+        """Both paths must produce the SAME filter state — that is the point of
+        unifying them."""
+        from_row = self._host()
+        from_row._on_row_chip_clicked("collection", "AMAZON PRIME")
+
+        from_details = self._host()
+        from_details._resolve_current_channel_category = lambda: "AMAZON PRIME"
+        from_details._on_tag_filter_requested("collection", "ignored-by-design")
+
+        assert from_row._details_category_filter == "AMAZON PRIME"
+        assert from_details._details_category_filter == "AMAZON PRIME"
+        for host in (from_row, from_details):
+            host._context_filter_label.setText.assert_called_once_with(
+                "Collection: AMAZON PRIME"
+            )
+            host.load_channels.assert_called_once()
+
+    def test_empty_category_does_not_apply_a_filter(self):
+        """A channel with no curated category must leave the list untouched
+        rather than filter on '' and show nothing."""
+        host = self._host()
+        host._on_category_filter_requested("")
+        host.load_channels.assert_not_called()
+        host._context_filter_chip.show.assert_not_called()
+
+    def test_handlers_do_not_reimplement_the_ritual(self):
+        """Structural guard: the per-filter handlers must DELEGATE.
+
+        If a future handler inlines load_channels()/_context_filter_chip.show()
+        again, it has forked the behaviour — which is exactly what produced the
+        broken collection path.
+        """
+        import inspect
+
+        from metatv.gui.main_window_nav import _NavMixin
+
+        for name in ("_on_genre_filter_requested", "_on_person_filter_requested",
+                     "_on_category_filter_requested", "_on_tag_filter_requested"):
+            src = inspect.getsource(getattr(_NavMixin, name))
+            assert "load_channels()" not in src, (
+                f"{name} calls load_channels() directly instead of going through "
+                f"_activate_context_filter"
+            )
+            assert "_context_filter_chip.show()" not in src, (
+                f"{name} shows the chip directly instead of delegating"
+            )
+
+    def test_collection_chip_filters_on_category_not_the_displayed_collection(self, qapp):
+        """The chip DISPLAYS detected_collection but must FILTER on category.
+
+        These are different columns; filtering on the displayed string matches
+        nothing. Asserted on a real painted row.
+        """
+        dto = _dto(category="RAW PROVIDER CAT", detected_collection="Clean Collection")
+        delegate = _painted_delegate(qapp, dto)
+
+        collection = [c for _r, c in delegate.hit_cells(0) if c.facet == "collection"]
+        assert collection, "collection chip was not painted"
+        assert collection[0].value == "RAW PROVIDER CAT", (
+            f"collection chip filters on {collection[0].value!r} — it must carry "
+            f"the curated category, not the displayed collection"
+        )
+        assert "Clean Collection" in collection[0].text

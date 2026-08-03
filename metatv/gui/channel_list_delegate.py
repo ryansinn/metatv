@@ -114,6 +114,7 @@ from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.badge_utils import _quality_outline_colors
 from metatv.gui.channel_list_model import (
+    CATEGORY_ROLE,
     CHANNEL_HTML_ROLE,
     COLLECTION_ROLE,
     FAV_GLYPH_ROLE,
@@ -444,7 +445,8 @@ def _genre_cell(genre: str) -> Optional[_Cell]:
                  tip=f"Genre: {genre} — click to show only {genre}")
 
 
-def _category_cell(category: str, platform_code: str = "") -> Optional[_Cell]:
+def _category_cell(category: str, platform_code: str = "",
+                   filter_category: str = "") -> Optional[_Cell]:
     """Collection chip — MUTED GREY, unchanged (owner call #257):
     ``OVERLAY_08`` + ``COLOR_MUTED``. The TEXT is a render-layer transform
     via :func:`~metatv.core.channel_name_utils.collection_display` (trailing
@@ -455,8 +457,13 @@ def _category_cell(category: str, platform_code: str = "") -> Optional[_Cell]:
     display = collection_display(category, platform_code or None)
     if not display:
         return None
+    # DISPLAY comes from detected_collection (cleaned); the FILTER value is the
+    # curated ChannelDB.category, a different column — that is what the
+    # collection filter matches, and filtering on the displayed string returns
+    # nothing. Falls back to the display value only when no curated category
+    # exists, which the applier treats as "nothing to filter on".
     return _Cell(display, True, _theme.COLOR_MUTED, _theme.OVERLAY_08,
-                 facet="collection", value=category,
+                 facet="collection", value=(filter_category or ""),
                  tip=f"Collection: {display} — click to show only this collection")
 
 
@@ -956,7 +963,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
         region_code = index.data(LANGUAGE_ROLE) or ""
         platform_code = region_code if region_code in PLATFORM_CODES else ""
         genre_cell = _genre_cell(index.data(GENRE_ROLE) or "")
-        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "", platform_code)
+        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "", platform_code,
+                                        filter_category=index.data(CATEGORY_ROLE) or "")
 
         right_cells = [c for c in (genre_cell, collection_cell) if c is not None]
         right_widths = [self._cell_width(fm, c) for c in right_cells]

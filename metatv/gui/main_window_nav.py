@@ -605,51 +605,72 @@ class _NavMixin:
         self._details_category_filter = None
         self._details_id_filter = None
 
-    def _on_genre_filter_requested(self, genre: str) -> None:
-        """Strict SQL genre filter from details-pane chip click."""
+    def _activate_context_filter(self, label: str, **state) -> None:
+        """THE way a context filter is applied. Every entry point routes here.
+
+        Each caller used to repeat the same seven-line ritual — reset, set its
+        own state var, set the label, show the chip, save search state, switch
+        to the list, reload — which is how the row-chip work ended up adding an
+        eighth hand-rolled copy that set the right variable from the wrong
+        field. One chokepoint, per CLAUDE.md's single-source-of-truth rule; a
+        new filter type sets its var here and inherits the rest.
+
+        Args:
+            label: Chip text, e.g. ``"Genre: Drama"``.
+            **state: Exactly one ``_details_*_filter`` attribute to set.
+                Mutual exclusion is enforced by the reset below, so passing more
+                than one is a caller bug rather than a supported combination.
+        """
         self._reset_context_filters()
-        self._details_genre_filter = genre
-        self._context_filter_label.setText(f"Genre: {genre}")
+        for name, value in state.items():
+            setattr(self, name, value)
+        self._context_filter_label.setText(label)
         self._context_filter_chip.show()
         self._save_search_state()
         self.switch_to_list_view()
         self.load_channels()
 
+    def _on_genre_filter_requested(self, genre: str) -> None:
+        """Strict SQL genre filter from a genre chip (details pane or row)."""
+        self._activate_context_filter(f"Genre: {genre}", _details_genre_filter=genre)
+
     def _on_person_filter_requested(self, name: str) -> None:
         """Strict SQL cast/crew filter from details-pane chip click."""
-        self._reset_context_filters()
-        self._details_person_filter = name
-        self._context_filter_label.setText(f"Cast/Crew: {name}")
-        self._context_filter_chip.show()
-        self._save_search_state()
-        self.switch_to_list_view()
-        self.load_channels()
+        self._activate_context_filter(f"Cast/Crew: {name}", _details_person_filter=name)
+
+    def _on_category_filter_requested(self, category: str) -> None:
+        """Strict SQL filter on the curated provider ``ChannelDB.category``.
+
+        The one collection/category entry point, shared by the details-pane tag
+        chip and the row chip. Collection is special among facets: it filters on
+        the human-curated ``category`` column, NOT a re-derived query on the
+        lossy ``detected_collection`` residual, so the user sees the actual
+        curated set. The two callers differ only in where they GET the category
+        — the details pane looks it up for the channel it is showing, the row
+        chip reads it off the clicked row — never in how they apply it.
+        """
+        if not category:
+            # Nothing curated to filter on — leave the list untouched rather
+            # than applying a filter that matches nothing.
+            return
+        self._activate_context_filter(
+            f"Collection: {category}", _details_category_filter=category
+        )
 
     def _on_tag_filter_requested(self, facet_type: str, value: str) -> None:
         """Left-click a tag chip → strict context filter for that exact facet.
 
-        COLLECTION is special: it resolves to the curated provider category the
-        current channel belongs to (``ChannelDB.category``), NOT a re-derived
-        query on the lossy 'collection' residual — so the user sees the actual
-        human-curated set.  Every other facet filters on the exact (type, value)
-        tag (no hierarchy rollup, v1).
+        Collection defers to :meth:`_on_category_filter_requested` (it filters a
+        different column); every other facet filters on the exact (type, value)
+        tag, no hierarchy rollup.
         """
-        self._reset_context_filters()
         if facet_type == "collection":
-            category = self._resolve_current_channel_category()
-            if not category:
-                # No curated category to resolve to — leave the list unchanged.
-                return
-            self._details_category_filter = category
-            self._context_filter_label.setText(f"Collection: {category}")
-        else:
-            self._details_tag_filter = (facet_type, value)
-            label = facet_type.replace("_", " ").title()
-            self._context_filter_label.setText(f"{label}: {value}")
-        self._context_filter_chip.show()
-        self._save_search_state()
-        self.switch_to_list_view()
-        self.load_channels()
+            self._on_category_filter_requested(self._resolve_current_channel_category())
+            return
+        label = facet_type.replace("_", " ").title()
+        self._activate_context_filter(
+            f"{label}: {value}", _details_tag_filter=(facet_type, value)
+        )
 
     def _on_row_chip_clicked(self, facet: str, value: str) -> None:
         """A chip in a channel-list row was clicked → strict context filter.
@@ -679,20 +700,12 @@ class _NavMixin:
             return
 
         if facet == "collection":
-            # NOT via _on_tag_filter_requested: its collection branch resolves
-            # the CURRENTLY SELECTED channel's category and ignores the value
-            # passed in. That is right for a details-pane click (the pane always
-            # describes the selected row) but wrong here — a chip click
-            # deliberately does not change the selection, so it would filter by
-            # whatever happened to be selected before. Set the category filter
-            # from the CHIP's own value instead.
-            self._reset_context_filters()
-            self._details_category_filter = value
-            self._context_filter_label.setText(f"Collection: {value}")
-            self._context_filter_chip.show()
-            self._save_search_state()
-            self.switch_to_list_view()
-            self.load_channels()
+            # The chip DISPLAYS detected_collection but must FILTER on the
+            # curated ChannelDB.category — different columns. The delegate
+            # carries the raw category as the chip's value for exactly this
+            # reason; routing through the shared entry point keeps this
+            # identical to a details-pane collection click.
+            self._on_category_filter_requested(value)
             return
 
         if facet in ("quality", "region", "language", "audio"):
