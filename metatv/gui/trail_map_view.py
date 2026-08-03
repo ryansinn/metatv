@@ -170,7 +170,7 @@ class _TrailRow(QWidget):
 
         if trail_num is not None:
             num = QLabel(str(trail_num))
-            num.setStyleSheet(_theme.TRAILMAP_TRAIL_NUM)
+            _theme.style(num, "TRAILMAP_TRAIL_NUM")
             num.setFixedWidth(14)
             num.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(num)
@@ -179,7 +179,7 @@ class _TrailRow(QWidget):
         self.thumb.setObjectName("trailmap_thumb")
         self.thumb.setFixedSize(_THUMB_W, _THUMB_H)
         self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumb.setStyleSheet(_theme.TRAILMAP_THUMB)
+        _theme.style(self.thumb, "TRAILMAP_THUMB")
         self.thumb.setToolTip("Enlarge poster")
         set_clickable(self.thumb)
         self.thumb.clicked.connect(lambda: self.poster_clicked.emit(self._id))
@@ -192,7 +192,7 @@ class _TrailRow(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
         name = _ElidedTitleLabel(row.title or "Unknown")
-        name.setStyleSheet(_theme.TRAILMAP_ROW_TITLE)
+        _theme.style(name, "TRAILMAP_ROW_TITLE")
         # Title fills the row's text column (stretch=1) and wraps/elides to ≤2 lines
         # so a long title never overflows the fixed-width column.  Title + year (+
         # "here") all AlignBottom → they share ONE baseline (the title's last line),
@@ -200,11 +200,11 @@ class _TrailRow(QWidget):
         title_row.addWidget(name, 1, Qt.AlignmentFlag.AlignBottom)
         if row.year:
             yr = QLabel(str(row.year))
-            yr.setStyleSheet(_theme.TRAILMAP_ROW_YEAR)
+            _theme.style(yr, "TRAILMAP_ROW_YEAR")
             title_row.addWidget(yr, 0, Qt.AlignmentFlag.AlignBottom)
         if is_here:
             here = QLabel("here")
-            here.setStyleSheet(_theme.TRAILMAP_HERE_TAG)
+            _theme.style(here, "TRAILMAP_HERE_TAG")
             title_row.addWidget(here, 0, Qt.AlignmentFlag.AlignBottom)
         # No trailing stretch — the title's stretch fills, pinning year/"here" to the
         # right edge on the shared baseline.
@@ -217,7 +217,7 @@ class _TrailRow(QWidget):
         lay.addLayout(main, 1)
 
         chev = QLabel(_icons.trail_expand_icon)
-        chev.setStyleSheet(_theme.TRAILMAP_ROW_CHEVRON)
+        _theme.style(chev, "TRAILMAP_ROW_CHEVRON")
         lay.addWidget(chev, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Hover action bar — hidden until the row (or a button in it) is hovered.
@@ -271,15 +271,15 @@ class _TrailColumn(QFrame):
         col.setSpacing(0)
 
         head = QWidget()
-        head.setStyleSheet(_theme.TRAILMAP_COLHEAD)
+        _theme.style(head, "TRAILMAP_COLHEAD")
         hv = QVBoxLayout(head)
         hv.setContentsMargins(12, 9, 12, 8)
         hv.setSpacing(1)
         k = QLabel(kicker)
-        k.setStyleSheet(_theme.TRAILMAP_COLHEAD_KICKER)
+        _theme.style(k, "TRAILMAP_COLHEAD_KICKER")
         hv.addWidget(k)
         n = QLabel(name)
-        n.setStyleSheet(_theme.TRAILMAP_COLHEAD_NAME)
+        _theme.style(n, "TRAILMAP_COLHEAD_NAME")
         n.setWordWrap(False)
         hv.addWidget(n)
         col.addWidget(head)
@@ -288,9 +288,9 @@ class _TrailColumn(QFrame):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(scroll, "BG_TRANSPARENT")
         body_w = QWidget()
-        body_w.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(body_w, "BG_TRANSPARENT")
         self._body = QVBoxLayout(body_w)
         self._body.setContentsMargins(6, 6, 6, 6)
         self._body.setSpacing(2)
@@ -299,7 +299,7 @@ class _TrailColumn(QFrame):
         col.addWidget(scroll, 1)
 
         self._hint = QLabel("")
-        self._hint.setStyleSheet(_theme.TRAILMAP_COLHINT)
+        _theme.style(self._hint, "TRAILMAP_COLHINT")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint.setContentsMargins(0, 6, 0, 6)
         col.addWidget(self._hint)
@@ -461,7 +461,7 @@ class TrailMapView(QWidget):
 
         self._shell = QFrame()
         self._shell.setObjectName("trailmap_shell")
-        self._shell.setStyleSheet(_theme.TRAILMAP_SHELL)
+        _theme.style(self._shell, "TRAILMAP_SHELL")
         self._shell.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         shell = QVBoxLayout(self._shell)
         shell.setContentsMargins(0, 0, 0, 0)
@@ -474,10 +474,10 @@ class TrailMapView(QWidget):
         cols_scroll.setFrameShape(QFrame.Shape.NoFrame)
         cols_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         cols_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        cols_scroll.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(cols_scroll, "BG_TRANSPARENT")
         self._cols_scroll = cols_scroll
         self._cols_w = QWidget()
-        self._cols_w.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(self._cols_w, "BG_TRANSPARENT")
         self._cols_layout = QHBoxLayout(self._cols_w)
         self._cols_layout.setContentsMargins(0, 0, 0, 0)
         self._cols_layout.setSpacing(0)
@@ -493,23 +493,23 @@ class TrailMapView(QWidget):
 
     def _build_header(self, shell: QVBoxLayout) -> None:
         bar = QWidget()
-        bar.setStyleSheet(_theme.TRAILMAP_HEADER_BAR)
+        _theme.style(bar, "TRAILMAP_HEADER_BAR")
         row = QHBoxLayout(bar)
         row.setContentsMargins(16, 10, 12, 10)
         row.setSpacing(10)
 
         title = QLabel(f"{_icons.explore_icon}  Explore")
-        title.setStyleSheet(_theme.TRAILMAP_TITLE)
+        _theme.style(title, "TRAILMAP_TITLE")
         self._header_title = title  # embedded mode relabels this per origin_title
         row.addWidget(title)
         self._subtitle = QLabel("")
-        self._subtitle.setStyleSheet(_theme.TRAILMAP_SUBTITLE)
+        _theme.style(self._subtitle, "TRAILMAP_SUBTITLE")
         row.addWidget(self._subtitle)
         row.addStretch()
 
         self._collapse_btn = QPushButton("Collapse branches")
         self._collapse_btn.setFlat(True)
-        self._collapse_btn.setStyleSheet(_theme.TRAILMAP_LINK_BTN)
+        _theme.style(self._collapse_btn, "TRAILMAP_LINK_BTN")
         self._collapse_btn.setToolTip("Collapse every drilled column back to the trail")
         self._collapse_btn.clicked.connect(self._collapse_branches)
         row.addWidget(self._collapse_btn)
@@ -517,7 +517,7 @@ class TrailMapView(QWidget):
         close_btn = QPushButton(_icons.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(_theme.TRAILMAP_CLOSE_BTN)
+        _theme.style(close_btn, "TRAILMAP_CLOSE_BTN")
         close_btn.setToolTip("Close Explore (Esc)")
         close_btn.clicked.connect(self._close)
         row.addWidget(close_btn)

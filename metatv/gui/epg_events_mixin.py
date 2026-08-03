@@ -209,7 +209,7 @@ class _EpgEventsMixin:
         layout.addWidget(self._events_list)
 
         self._events_stats = QLabel("")
-        self._events_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._events_stats, "LABEL_MUTED")
         layout.addWidget(self._events_stats)
 
         self.stack.addWidget(page)
@@ -232,11 +232,11 @@ class _EpgEventsMixin:
     def _apply_events_toggle_styles(self) -> None:
         """Apply active/inactive styles to the Timeline / By Network buttons."""
         if self._events_timeline_btn.isChecked():
-            self._events_timeline_btn.setStyleSheet(_theme.EVENTS_SEG_ACTIVE)
-            self._events_network_btn.setStyleSheet(_theme.EVENTS_SEG_INACTIVE)
+            _theme.style(self._events_timeline_btn, "EVENTS_SEG_ACTIVE")
+            _theme.style(self._events_network_btn, "EVENTS_SEG_INACTIVE")
         else:
-            self._events_timeline_btn.setStyleSheet(_theme.EVENTS_SEG_INACTIVE)
-            self._events_network_btn.setStyleSheet(_theme.EVENTS_SEG_ACTIVE)
+            _theme.style(self._events_timeline_btn, "EVENTS_SEG_INACTIVE")
+            _theme.style(self._events_network_btn, "EVENTS_SEG_ACTIVE")
 
     def _on_events_mode_timeline(self) -> None:
         self._events_timeline_btn.setChecked(True)

@@ -44,6 +44,8 @@ values (``setStyleSheet()`` bakes a string, it doesn't track the token live).
 
 from __future__ import annotations
 
+import weakref
+
 from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import QApplication
 
@@ -1570,6 +1572,96 @@ def _sync_qt_application_palette() -> None:
         app.setPalette(qt_palette())
 
 
+# ---------------------------------------------------------------------------
+# Live-restyle registry (#277)
+# ---------------------------------------------------------------------------
+#
+# Qt caches the RENDERED stylesheet string, not a reference to the Python
+# constant — so ``apply_theme`` rebinding ``LIST_ROW`` does nothing to a widget
+# that already called ``setStyleSheet(LIST_ROW)``. The previous answer was a
+# hand-maintained sweep in ``MainWindow.refresh_theme()``, which cannot work:
+# there were ~838 setStyleSheet call sites against 22 refresh_theme methods, and
+# an enumeration can never see the ones nobody remembered to add.
+#
+# This inverts it. A widget styled through :func:`style` registers itself, and
+# ``apply_theme`` re-applies every live registration. Nothing has to be
+# remembered, and a new widget is covered the moment it is written.
+#
+# Held by WEAK reference so the registry never keeps a closed dialog alive; dead
+# entries are reaped on the next pass. A deleted C++ object raises RuntimeError
+# on access even while the Python wrapper lives, so that is caught too.
+_style_registry: "list[tuple[weakref.ref, object]]" = []
+
+
+def style(widget, role: str) -> None:
+    """Apply the named semantic constant to *widget* and register it.
+
+    Use this instead of ``theme.style(widget, "SOME_ROLE")`` — the plain
+    call renders correctly once and then goes stale on every theme switch.
+
+    Args:
+        widget: Any QWidget.
+        role: Name of a semantic constant in this module, e.g. ``"LIST_ROW"``.
+
+    Raises:
+        AttributeError: If *role* is not a constant here — a typo would
+            otherwise register a widget that silently never restyles.
+    """
+    widget.setStyleSheet(_role_qss(role))
+    _style_registry.append((weakref.ref(widget), role))
+
+
+def style_fn(widget, builder) -> None:
+    """Register a widget whose stylesheet is COMPOSED rather than a bare role.
+
+    For the f-string/concatenation sites (``f"color: {COLOR_WARN}"``): pass a
+    zero-arg callable and it is re-invoked on every theme switch, so the
+    interpolated tokens are re-read.
+
+    Args:
+        widget: Any QWidget.
+        builder: Zero-arg callable returning a stylesheet string.
+    """
+    widget.setStyleSheet(builder())
+    _style_registry.append((weakref.ref(widget), builder))
+
+
+def _role_qss(role) -> str:
+    """Resolve a registration to its current stylesheet string."""
+    if callable(role):
+        return role()
+    value = globals().get(role)
+    if value is None:
+        raise AttributeError(f"theme has no semantic constant {role!r}")
+    return value
+
+
+def _reapply_registered_styles() -> int:
+    """Re-apply every live registration; reap dead ones. Returns the count."""
+    survivors: list = []
+    applied = 0
+    for ref, role in _style_registry:
+        widget = ref()
+        if widget is None:
+            continue
+        try:
+            widget.setStyleSheet(_role_qss(role))
+        except (RuntimeError, AttributeError):
+            # RuntimeError: the C++ object is gone while the wrapper lingers.
+            # AttributeError: a role that no longer exists — drop it rather
+            # than wedging the whole sweep on one stale entry.
+            continue
+        survivors.append((ref, role))
+        applied += 1
+    _style_registry[:] = survivors
+    return applied
+
+
+def registered_style_count() -> int:
+    """Live registrations — for tests and diagnostics."""
+    return sum(1 for ref, _ in _style_registry if ref() is not None)
+
+
 def apply_theme(name: str) -> bool:
     """Switch the active palette, rebinding every token AND semantic-constant
     module-level global in place so already-imported consumers
@@ -1607,6 +1699,11 @@ def apply_theme(name: str) -> bool:
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
     _sync_qt_application_palette()
+    # Restyle every widget registered through style()/style_fn(). Unconditional,
+    # like the palette push above: a cold launch whose saved theme already
+    # matches the resting default still needs one pass so nothing is left on a
+    # stale string. Cheap when the registry is empty (startup, tests).
+    _reapply_registered_styles()
     return changed
 
 

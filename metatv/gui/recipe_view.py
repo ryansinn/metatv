@@ -223,8 +223,8 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         ``MainWindow.refresh_theme()`` forwarding to ``details_pane``/
         ``filter_panel``. Called from ``MainWindow.refresh_theme()``.
         """
-        self._back_to_clusters_btn.setStyleSheet(_theme.RECIPE_BACK_TO_GRID_BTN)
-        self._stage_hdr.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        _theme.style(self._back_to_clusters_btn, "RECIPE_BACK_TO_GRID_BTN")
+        _theme.style(self._stage_hdr, "RECIPE_BROWSE_HDR")
         for child in (
             self._tab_bar, self._cluster_grid, self._cloud,
             self._recipe_bar, self._matching, self._browse, self._saved_panel,
@@ -349,14 +349,14 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         hdr_row.setSpacing(8)
         self._back_to_clusters_btn = QPushButton(f"{_icons.nav_prev_icon} All facets")
         self._back_to_clusters_btn.setFlat(True)
-        self._back_to_clusters_btn.setStyleSheet(_theme.RECIPE_BACK_TO_GRID_BTN)
+        _theme.style(self._back_to_clusters_btn, "RECIPE_BACK_TO_GRID_BTN")
         self._back_to_clusters_btn.setToolTip("Back to the facet overview")
         self._back_to_clusters_btn.clicked.connect(self._on_back_to_clusters)
         self._back_to_clusters_btn.setVisible(False)
         hdr_row.addWidget(self._back_to_clusters_btn)
 
         self._stage_hdr = QLabel("Browse by facet")
-        self._stage_hdr.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        _theme.style(self._stage_hdr, "RECIPE_BROWSE_HDR")
         hdr_row.addWidget(self._stage_hdr)
         hdr_row.addStretch()
 

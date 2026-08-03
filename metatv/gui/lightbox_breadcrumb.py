@@ -29,7 +29,7 @@ class _CrumbButton(QPushButton):
         super().__init__(title)
         self.channel_id = channel_id
         self.setFlat(True)
-        self.setStyleSheet(_theme.LIGHTBOX_BREADCRUMB_CRUMB)
+        _theme.style(self, "LIGHTBOX_BREADCRUMB_CRUMB")
         self.setToolTip(title)
         set_clickable(self)
         self.clicked.connect(lambda: self.crumb_clicked.emit(self.channel_id))
@@ -49,7 +49,7 @@ class LightboxBreadcrumb(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(self, "BG_TRANSPARENT")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -113,7 +113,7 @@ class LightboxBreadcrumb(QWidget):
                 # Clickable ellipsis that opens Explore with the full trail
                 ellipsis_btn = QPushButton("…")
                 ellipsis_btn.setFlat(True)
-                ellipsis_btn.setStyleSheet(_theme.LIGHTBOX_BREADCRUMB_CRUMB)
+                _theme.style(ellipsis_btn, "LIGHTBOX_BREADCRUMB_CRUMB")
                 ellipsis_btn.setToolTip("Show full path in Explore")
                 set_clickable(ellipsis_btn)
                 ellipsis_btn.clicked.connect(self.explore_ellipsis_clicked)
@@ -121,7 +121,7 @@ class LightboxBreadcrumb(QWidget):
             elif is_current:
                 # Current crumb is not clickable
                 current_lbl = QLabel(title)
-                current_lbl.setStyleSheet(_theme.LIGHTBOX_BREADCRUMB_CURRENT)
+                _theme.style(current_lbl, "LIGHTBOX_BREADCRUMB_CURRENT")
                 current_lbl.setToolTip(title)
                 current_lbl.setMaximumWidth(150)
                 self._layout.addWidget(current_lbl, 0)
@@ -136,7 +136,7 @@ class LightboxBreadcrumb(QWidget):
             # Add separator between crumbs (except after last)
             if i < len(shown) - 1:
                 sep = QLabel("›")
-                sep.setStyleSheet(_theme.LIGHTBOX_BREADCRUMB_SEP)
+                _theme.style(sep, "LIGHTBOX_BREADCRUMB_SEP")
                 self._layout.addWidget(sep, 0)
 
         self._layout.addStretch()

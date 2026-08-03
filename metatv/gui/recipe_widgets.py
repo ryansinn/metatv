@@ -274,7 +274,7 @@ class _ClusterTile(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("clusterTile")
-        self.setStyleSheet(_theme.RECIPE_CLUSTER_TILE)
+        _theme.style(self, "RECIPE_CLUSTER_TILE")
         # Size to content vertically so the masonry packs tiles by true height.
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._facet: str = ""
@@ -292,11 +292,11 @@ class _ClusterTile(QFrame):
         self._hdr_btn.clicked.connect(self._emit_facet)
         hdr_row.addWidget(self._hdr_btn)
         self._sub_lbl = QLabel("")
-        self._sub_lbl.setStyleSheet(_theme.RECIPE_CLUSTER_SUBTITLE)
+        _theme.style(self._sub_lbl, "RECIPE_CLUSTER_SUBTITLE")
         hdr_row.addWidget(self._sub_lbl)
         hdr_row.addStretch()
         self._see_all_lbl = QLabel(f"see all {_icons.nav_next_icon}")
-        self._see_all_lbl.setStyleSheet(_theme.RECIPE_CLUSTER_SUBTITLE)
+        _theme.style(self._see_all_lbl, "RECIPE_CLUSTER_SUBTITLE")
         hdr_row.addWidget(self._see_all_lbl)
         self._hdr_row = hdr_row
         outer.addLayout(hdr_row)
@@ -447,7 +447,7 @@ class _ClusterGrid(QWidget):
         current tokens on every ``set_clusters()`` call, so they need no sweep
         entry here. Called from ``RecipeView.refresh_theme()``.
         """
-        self._placeholder.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+        _theme.style(self._placeholder, "RECIPE_EMPTY_HINT")
 
     # ── private ───────────────────────────────────────────────────────────
 
@@ -458,7 +458,7 @@ class _ClusterGrid(QWidget):
 
         # Empty / loading placeholder (shown until the async cluster load lands).
         self._placeholder = QLabel("Loading facets…")
-        self._placeholder.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+        _theme.style(self._placeholder, "RECIPE_EMPTY_HINT")
         outer.addWidget(self._placeholder)
 
         # Masonry host — a horizontal row of column layouts, rebuilt on column-count

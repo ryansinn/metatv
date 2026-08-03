@@ -129,12 +129,12 @@ class _ActionBar(QWidget):
         # set_resume() toggles it and stamps the M:SS label.
         self.play_button = QPushButton(f"{self.config.play_icon} Play", self)
         self.play_button.setToolTip("Play from the beginning")
-        self.play_button.setStyleSheet(_theme.DETAIL_PLAY_BTN)
+        _theme.style(self.play_button, "DETAIL_PLAY_BTN")
         self.play_button.clicked.connect(self.play_clicked)
 
         self.resume_button = QPushButton(f"{_icons.resume_from_icon} Resume", self)
         self.resume_button.setToolTip("Resume from where you left off")
-        self.resume_button.setStyleSheet(_theme.DETAIL_RESUME_BTN)
+        _theme.style(self.resume_button, "DETAIL_RESUME_BTN")
         self.resume_button.clicked.connect(self.resume_clicked)
         self.resume_button.hide()
 
@@ -150,7 +150,7 @@ class _ActionBar(QWidget):
             f"{self.config.queue_icon} Watch Later", self
         )
         self.queue_button.setCheckable(True)
-        self.queue_button.setStyleSheet(_theme.DETAIL_QUEUE_BTN)
+        _theme.style(self.queue_button, "DETAIL_QUEUE_BTN")
         self.queue_button.setToolTip("Add to Watch Later")
         self.queue_button.clicked.connect(self._on_queue_clicked)
 
@@ -397,7 +397,7 @@ class _ActionBar(QWidget):
         self._is_playing = True
         self._playing_base_pos = float(position_seconds or 0.0)
         self._playing_base_ts = time.monotonic()
-        self.play_button.setStyleSheet(_theme.DETAIL_PLAY_BTN_PLAYING)
+        _theme.style(self.play_button, "DETAIL_PLAY_BTN_PLAYING")
         if self._playing_timer is None:
             self._playing_timer = QTimer(self)
             self._playing_timer.setInterval(1000)
@@ -413,7 +413,7 @@ class _ActionBar(QWidget):
         self._is_playing = False
         if self._playing_timer is not None:
             self._playing_timer.stop()
-        self.play_button.setStyleSheet(_theme.DETAIL_PLAY_BTN)
+        _theme.style(self.play_button, "DETAIL_PLAY_BTN")
         self.play_button.setText(f"{self.config.play_icon} Play")
         self.play_button.setToolTip("Play from the beginning")
 
@@ -440,11 +440,11 @@ class _ActionBar(QWidget):
             # Favorited glows GOLD (the star fills yellow) — the favorite button is
             # NOT :checkable, so the accent :checked rule can't reach it; swap the
             # whole style directly (mirrors the alert/monitor button's style swap).
-            self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_FAV)
+            _theme.style(self.favorite_button, "DETAIL_RAIL_BTN_FAV")
         else:
             self.favorite_button.setText(self.config.unfavorite_icon)
             self.favorite_button.setToolTip(f"Add{suffix} to Favorites")
-            self.favorite_button.setStyleSheet(_theme.DETAIL_RAIL_BTN)
+            _theme.style(self.favorite_button, "DETAIL_RAIL_BTN")
 
     def set_episode_queue_favorite(self, in_queue: bool, is_favorite: bool) -> None:
         """Apply per-EPISODE queue + favorite state (episode mode only, Slice 2B).
@@ -605,13 +605,13 @@ class _ActionBar(QWidget):
         if self._has_new_match:
             # New matched content available — GREEN + filled wins over the red
             # alerting state.  🚨 glyph + tooltip carry the non-colour cue.
-            self.monitor_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_NEW_MATCH)
+            _theme.style(self.monitor_button, "DETAIL_RAIL_BTN_NEW_MATCH")
             self.monitor_button.setToolTip(
                 "New matched content available — right-click the item in the list "
                 "to clear this alert (or use Clear Alerts in the Watch Queue)"
             )
             return
-        self.monitor_button.setStyleSheet(_theme.DETAIL_RAIL_BTN_ALERT)
+        _theme.style(self.monitor_button, "DETAIL_RAIL_BTN_ALERT")
         self.monitor_button.setToolTip(
             "Stop new-episode alerts for this series" if self._is_monitored
             else "Alert me to new episodes of this series"

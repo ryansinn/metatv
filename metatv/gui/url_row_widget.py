@@ -45,7 +45,7 @@ class URLRowWidget(QWidget):
         badge = QLabel(f"#{index + 1}")
         badge.setFixedWidth(24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(_theme.META_HINT)
+        _theme.style(badge, "META_HINT")
         layout.addWidget(badge)
 
         # URL + stats column
@@ -53,12 +53,12 @@ class URLRowWidget(QWidget):
         info_col.setSpacing(2)
 
         url_label = QLabel(provider_url.url)
-        url_label.setStyleSheet(_theme.FIELD_LABEL)
+        _theme.style(url_label, "FIELD_LABEL")
         url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         info_col.addWidget(url_label)
 
         self._stats_label = QLabel(self._build_stats(provider_url))
-        self._stats_label.setStyleSheet(_theme.META_HINT)
+        _theme.style(self._stats_label, "META_HINT")
         info_col.addWidget(self._stats_label)
         layout.addLayout(info_col, 1)
 
@@ -66,7 +66,7 @@ class URLRowWidget(QWidget):
         self._result_badge = QLabel("")
         self._result_badge.setFixedWidth(110)
         self._result_badge.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._result_badge.setStyleSheet(_theme.URL_BADGE)
+        _theme.style(self._result_badge, "URL_BADGE")
         self._result_badge.hide()
         layout.addWidget(self._result_badge)
 
@@ -74,24 +74,24 @@ class URLRowWidget(QWidget):
         rm_btn = QPushButton(_icons.close_icon)
         rm_btn.setFixedSize(24, 24)
         rm_btn.setToolTip("Remove this URL")
-        rm_btn.setStyleSheet(_theme.URL_REMOVE_BTN)
+        _theme.style(rm_btn, "URL_REMOVE_BTN")
         rm_btn.clicked.connect(self.removed)
         layout.addWidget(rm_btn)
 
     def show_testing(self):
         """Show a 'Testing…' spinner while waiting for result."""
         self._result_badge.setText(f"{_icons.loading_icon} Testing…")
-        self._result_badge.setStyleSheet(_theme.URL_BADGE_TESTING)
+        _theme.style(self._result_badge, "URL_BADGE_TESTING")
         self._result_badge.show()
 
     def show_test_result(self, success: bool, message: str):
         """Update badge with pass/fail result."""
         if success:
             self._result_badge.setText(f"{_icons.notification_success_icon}  {message}")
-            self._result_badge.setStyleSheet(_theme.URL_BADGE_OK)
+            _theme.style(self._result_badge, "URL_BADGE_OK")
         else:
             self._result_badge.setText(f"{_icons.notification_error_icon}  {message}")
-            self._result_badge.setStyleSheet(_theme.URL_BADGE_ERR)
+            _theme.style(self._result_badge, "URL_BADGE_ERR")
         self._result_badge.show()
 
     def clear_test_result(self):

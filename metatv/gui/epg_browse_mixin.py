@@ -159,7 +159,7 @@ class _EpgBrowseMixin:
         filter_row = QHBoxLayout()
 
         self._anchor_label = QLabel("Starting:")
-        self._anchor_label.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._anchor_label, "LABEL_MUTED")
         filter_row.addWidget(self._anchor_label)
 
         self.anchor_combo = QComboBox()
@@ -193,7 +193,7 @@ class _EpgBrowseMixin:
         scrubber_row = QHBoxLayout()
         scrubber_row.setSpacing(8)
         self._scrubber_left_label = QLabel("")
-        self._scrubber_left_label.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._scrubber_left_label, "LABEL_MUTED")
         scrubber_row.addWidget(self._scrubber_left_label)
 
         self._browse_scrubber = QSlider(Qt.Orientation.Horizontal)
@@ -208,14 +208,14 @@ class _EpgBrowseMixin:
         scrubber_row.addWidget(self._browse_scrubber, 1)
 
         self._scrubber_right_label = QLabel("")
-        self._scrubber_right_label.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._scrubber_right_label, "LABEL_MUTED")
         scrubber_row.addWidget(self._scrubber_right_label)
         layout.addLayout(scrubber_row)
 
         # Current-handle position label (updates live while dragging).
         self._scrubber_pos_label = QLabel("")
         self._scrubber_pos_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._scrubber_pos_label.setStyleSheet(_theme.EPG_SCRUBBER_POS)
+        _theme.style(self._scrubber_pos_label, "EPG_SCRUBBER_POS")
         layout.addWidget(self._scrubber_pos_label)
 
         # Programme tree: Time | Category | Channel | Quality | Show | Duration
@@ -287,7 +287,7 @@ class _EpgBrowseMixin:
         # the global stats line (that line carries the whole-guide EPG count + the
         # source status/Refresh). _render_browse sets/clears it.
         self.browse_stats = QLabel("")
-        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self.browse_stats, "LABEL_MUTED")
         layout.addWidget(self.browse_stats)
 
         self.stack.addWidget(page)

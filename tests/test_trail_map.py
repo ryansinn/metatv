@@ -519,11 +519,20 @@ class TestSharedLangChip:
 
     def test_detail_strip_and_sim_badges_share_the_token(self, qapp):
         """One source of truth: the trail-map detail strip renders the lang chip with
-        the SAME token the shared sim-badges renderer uses."""
+        the SAME token the shared sim-badges renderer uses.
+
+        Matches the ROLE NAME rather than a specific call form. Styling now goes
+        through ``theme.style(widget, "ROLE")`` (#277) instead of
+        ``setStyleSheet(_theme.ROLE)``, and pinning the old spelling made a
+        mechanical migration look like a broken invariant.
+        """
         import inspect
         from metatv.gui import trail_map_detail, sim_badges
-        assert "_theme.LANG_CHIP" in inspect.getsource(trail_map_detail)
-        assert "_theme.LANG_CHIP" in inspect.getsource(sim_badges)
+        for module in (trail_map_detail, sim_badges):
+            src = inspect.getsource(module)
+            assert "LANG_CHIP" in src, (
+                f"{module.__name__} no longer references the shared LANG_CHIP role"
+            )
 
 
 # ---------------------------------------------------------------------------

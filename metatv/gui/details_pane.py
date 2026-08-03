@@ -410,7 +410,7 @@ class DetailsPaneWidget(QWidget):
         # "Width discipline").
         self._byline = QLabel()
         self._byline.setWordWrap(True)
-        self._byline.setStyleSheet(_theme.DETAIL_EPISODE_BYLINE)
+        _theme.style(self._byline, "DETAIL_EPISODE_BYLINE")
         _no_width_force(self._byline)
         self._byline.hide()
 
@@ -424,11 +424,11 @@ class DetailsPaneWidget(QWidget):
         _episode_meta_layout.setContentsMargins(0, 0, 0, 0)
         _episode_meta_layout.setSpacing(8)
         self._episode_rating_lbl = QLabel()
-        self._episode_rating_lbl.setStyleSheet(_theme.DETAIL_EPISODE_RATING)
+        _theme.style(self._episode_rating_lbl, "DETAIL_EPISODE_RATING")
         self._episode_rating_lbl.hide()
         _episode_meta_layout.addWidget(self._episode_rating_lbl)
         self._episode_air_date_lbl = QLabel()
-        self._episode_air_date_lbl.setStyleSheet(_theme.DETAIL_EPISODE_AIR_DATE)
+        _theme.style(self._episode_air_date_lbl, "DETAIL_EPISODE_AIR_DATE")
         self._episode_air_date_lbl.hide()
         _episode_meta_layout.addWidget(self._episode_air_date_lbl)
         _episode_meta_layout.addStretch()
@@ -734,7 +734,7 @@ class DetailsPaneWidget(QWidget):
         "live" — this only needs to cover pieces that are styled once and
         never touched again. Called from ``MainWindow.refresh_theme()``.
         """
-        self._byline.setStyleSheet(_theme.DETAIL_EPISODE_BYLINE)
+        _theme.style(self._byline, "DETAIL_EPISODE_BYLINE")
         for child in (getattr(self, "_versions", None), getattr(self, "_epg_agenda", None)):
             if child is not None and hasattr(child, "refresh_theme"):
                 child.refresh_theme()

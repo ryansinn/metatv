@@ -58,7 +58,7 @@ class SourceAnalyticsView(QWidget):
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel("Source Analytics")
-        title.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(title, "DETAIL_TITLE")
         top_bar.addWidget(back_btn)
         top_bar.addWidget(title)
         top_bar.addStretch()
@@ -107,7 +107,7 @@ class SourceAnalyticsView(QWidget):
     def _build_section_header(self, title: str) -> QLabel:
         """Build a section header label."""
         label = QLabel(title)
-        label.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(label, "SECTION_HDR_LG")
         return label
 
     def on_activate(self, provider_id: str):
@@ -122,7 +122,7 @@ class SourceAnalyticsView(QWidget):
                        self._unique_layout, self._prefixes_layout):
             self._clear_layout(layout)
             loading = QLabel("Loading…")
-            loading.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(loading, "SECTION_HINT")
             layout.addWidget(loading)
         self._load_analytics(provider_id)
 
@@ -196,7 +196,7 @@ class SourceAnalyticsView(QWidget):
         # Quality histogram
         if dto.quality_histogram:
             quality_label = QLabel("Quality Distribution:")
-            quality_label.setStyleSheet(_theme.SECTION_HDR)
+            _theme.style(quality_label, "SECTION_HDR")
             self._fingerprint_layout.addWidget(quality_label)
             quality_row = QHBoxLayout()
             for quality, count in sorted(dto.quality_histogram.items(), key=lambda x: x[1], reverse=True)[:5]:
@@ -207,7 +207,7 @@ class SourceAnalyticsView(QWidget):
         # Region top-3
         if dto.region_histogram:
             region_label = QLabel("Top Regions:")
-            region_label.setStyleSheet(_theme.SECTION_HDR)
+            _theme.style(region_label, "SECTION_HDR")
             self._fingerprint_layout.addWidget(region_label)
             region_row = QHBoxLayout()
             for region, count in sorted(dto.region_histogram.items(), key=lambda x: x[1], reverse=True)[:3]:
@@ -316,7 +316,7 @@ class SourceAnalyticsView(QWidget):
         logger.error("Source analytics panel load failed: {}", exc)
         self._clear_layout(layout)
         err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this panel")
-        err.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(err, "SECTION_HINT")
         layout.addWidget(err)
 
     def _clear_layout(self, layout):

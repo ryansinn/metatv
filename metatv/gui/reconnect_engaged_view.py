@@ -63,7 +63,7 @@ class ReconnectEngagedView(QWidget):
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel(f"{_icons.reconnect_icon}  Reconnect Engaged Content")
-        title.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(title, "DETAIL_TITLE")
         top_bar.addWidget(back_btn)
         top_bar.addWidget(title)
         top_bar.addStretch()
@@ -71,7 +71,7 @@ class ReconnectEngagedView(QWidget):
         self._reconnect_all_btn.setToolTip(
             "Move every matched row's engagement onto its proposed live replacement"
         )
-        self._reconnect_all_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        _theme.style(self._reconnect_all_btn, "LINK_BTN_SM")
         self._reconnect_all_btn.clicked.connect(self._on_reconnect_all_clicked)
         self._reconnect_all_btn.setEnabled(False)
         top_bar.addWidget(self._reconnect_all_btn)
@@ -83,7 +83,7 @@ class ReconnectEngagedView(QWidget):
             "your favorite, watch history, resume position, rating, and queue "
             "membership onto the live copy. Nothing moves automatically."
         )
-        hint.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(hint, "SECTION_HINT")
         hint.setWordWrap(True)
 
         scroll = QScrollArea()
@@ -103,7 +103,7 @@ class ReconnectEngagedView(QWidget):
         self._reconnect_all_btn.setEnabled(False)
         self._clear_layout(self._rows_layout)
         loading = QLabel("Loading…")
-        loading.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(loading, "SECTION_HINT")
         self._rows_layout.addWidget(loading)
         self._load()
 
@@ -145,7 +145,7 @@ class ReconnectEngagedView(QWidget):
                 f"{_icons.notification_success_icon}  No orphaned engaged content — "
                 "everything you've favorited, watched, or queued is on an active source."
             )
-            done.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(done, "SECTION_HINT")
             self._rows_layout.addWidget(done)
             return
 
@@ -164,12 +164,12 @@ class ReconnectEngagedView(QWidget):
         title = candidate.detected_title or candidate.orphan_name
         year = f" ({candidate.detected_year})" if candidate.detected_year else ""
         header = QLabel(f"{mtype_icon}  {title}{year}  ·  was on {candidate.provider_name}")
-        header.setStyleSheet(_theme.SECTION_HDR)
+        _theme.style(header, "SECTION_HDR")
         header.setWordWrap(True)
         row_layout.addWidget(header)
 
         engaged_line = QLabel(f"    {self._engagement_summary(candidate)}")
-        engaged_line.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(engaged_line, "SECTION_HINT")
         engaged_line.setWordWrap(True)
         row_layout.addWidget(engaged_line)
 
@@ -182,13 +182,13 @@ class ReconnectEngagedView(QWidget):
                 f"    {_icons.notification_success_icon} Match: {match_title}{quality} "
                 f"on {match.provider_name}"
             )
-            match_label.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(match_label, "SECTION_HINT")
             match_label.setWordWrap(True)
             action_row.addWidget(match_label, 1)
 
             reconnect_btn = QPushButton(f"{_icons.reconnect_icon} Reconnect")
             reconnect_btn.setToolTip("Move this row's engagement onto the matched live channel")
-            reconnect_btn.setStyleSheet(_theme.PANEL_BTN)
+            _theme.style(reconnect_btn, "PANEL_BTN")
             orphan_id, live_id = candidate.orphan_id, match.channel_id
             reconnect_btn.clicked.connect(
                 lambda _checked=False, o=orphan_id, l=live_id: self._on_reconnect_clicked(o, l)
@@ -198,7 +198,7 @@ class ReconnectEngagedView(QWidget):
             unmatched_label = QLabel(
                 f"    {_icons.notification_warning_icon} No live match found on an active source"
             )
-            unmatched_label.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(unmatched_label, "SECTION_HINT")
             unmatched_label.setWordWrap(True)
             action_row.addWidget(unmatched_label, 1)
 
@@ -278,7 +278,7 @@ class ReconnectEngagedView(QWidget):
         logger.error(f"Reconnect-candidates load failed: {exc}")
         self._clear_layout(self._rows_layout)
         err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this list")
-        err.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(err, "SECTION_HINT")
         self._rows_layout.addWidget(err)
 
     def _clear_layout(self, layout) -> None:

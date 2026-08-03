@@ -337,7 +337,7 @@ class PreferencesView(QWidget):
         restored from it here, with signals blocked during the restore.
         """
         self._mix_caption_lbl = QLabel("Mix")
-        self._mix_caption_lbl.setStyleSheet(_theme.META_HINT)
+        _theme.style(self._mix_caption_lbl, "META_HINT")
         row.addWidget(self._mix_caption_lbl)
 
         self._mix_slider = QSlider(Qt.Orientation.Horizontal)
@@ -356,7 +356,7 @@ class PreferencesView(QWidget):
 
         self._mix_auto_btn = QPushButton("Automatic")
         self._mix_auto_btn.setFlat(True)
-        self._mix_auto_btn.setStyleSheet(_theme.INLINE_ACTION_BTN)
+        _theme.style(self._mix_auto_btn, "INLINE_ACTION_BTN")
         self._mix_auto_btn.setToolTip(
             "Match the balance of what you actually watch (square-root damped, so the\n"
             "smaller type is never crowded out)."
@@ -624,9 +624,9 @@ class PreferencesView(QWidget):
         every ``refresh()``/``_render()`` call, so it's already live — same
         rationale as the channel-list row delegate.
         """
-        self._mix_caption_lbl.setStyleSheet(_theme.META_HINT)
+        _theme.style(self._mix_caption_lbl, "META_HINT")
         self._mix_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
-        self._mix_auto_btn.setStyleSheet(_theme.INLINE_ACTION_BTN)
+        _theme.style(self._mix_auto_btn, "INLINE_ACTION_BTN")
 
         _toggle_style = (
             f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"

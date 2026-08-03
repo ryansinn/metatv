@@ -152,13 +152,13 @@ class ProviderIconPicker(QWidget):
 
         self._btn = QPushButton(_icons.provider_icon)
         self._btn.setFixedSize(48, 48)
-        self._btn.setStyleSheet(_theme.ICON_PICK_MAIN_BTN)
+        _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
         self._btn.setToolTip("Click to change icon")
         self._btn.clicked.connect(self._toggle_palette)
         layout.addWidget(self._btn)
 
         self._palette = QFrame()
-        self._palette.setStyleSheet(_theme.ICON_PICK_POPUP)
+        _theme.style(self._palette, "ICON_PICK_POPUP")
         self._palette.hide()
         pal_layout = QVBoxLayout(self._palette)
         pal_layout.setContentsMargins(8, 8, 8, 8)
@@ -169,7 +169,7 @@ class ProviderIconPicker(QWidget):
         for icon in _icons.provider_icon_palette:
             b = QPushButton(icon)
             b.setFixedSize(30, 30)
-            b.setStyleSheet(_theme.ICON_PICK_BTN)
+            _theme.style(b, "ICON_PICK_BTN")
             b.clicked.connect(lambda checked, i=icon: self._pick(i))
             btn_row.addWidget(b)
             self._color_btns.append((icon, b))
@@ -236,8 +236,8 @@ class ProviderIconPicker(QWidget):
         and never touched again except on the next colour pick. Called from
         ``ProviderEditorView.refresh_theme()``.
         """
-        self._btn.setStyleSheet(_theme.ICON_PICK_MAIN_BTN)
-        self._palette.setStyleSheet(_theme.ICON_PICK_POPUP)
+        _theme.style(self._btn, "ICON_PICK_MAIN_BTN")
+        _theme.style(self._palette, "ICON_PICK_POPUP")
         self._custom_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
         self._custom_input.setStyleSheet(f"font-size: {_theme.FONT_INPUT};")
         self._update_selection(self._icon)
@@ -403,7 +403,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         icon_col = QVBoxLayout()
         icon_col.setSpacing(2)
         self._icon_field_lbl = QLabel("Icon")
-        self._icon_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self._icon_field_lbl, "CHANNEL_NAME_DIM")
         icon_col.addWidget(self._icon_field_lbl)
         self._icon_picker = ProviderIconPicker()
         icon_col.addWidget(self._icon_picker)
@@ -414,7 +414,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
         self._name_field_lbl = QLabel("Source Name")
-        self._name_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self._name_field_lbl, "CHANNEL_NAME_DIM")
         name_col.addWidget(self._name_field_lbl)
         name_row = QHBoxLayout()
         name_row.setSpacing(6)
@@ -466,13 +466,13 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
 
         self._action_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh")
         self._action_refresh_btn.setToolTip("Refresh channels from this source")
-        self._action_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._action_refresh_btn, "PANEL_BTN")
         self._action_refresh_btn.clicked.connect(self._on_action_refresh_clicked)
         row.addWidget(self._action_refresh_btn)
 
         self._action_analyze_btn = QPushButton(f"{_icons.analyze_icon}  Analyze")
         self._action_analyze_btn.setToolTip("Analyze source overlap and content")
-        self._action_analyze_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._action_analyze_btn, "PANEL_BTN")
         self._action_analyze_btn.clicked.connect(self._on_action_analyze_clicked)
         row.addWidget(self._action_analyze_btn)
 
@@ -484,13 +484,13 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             "Immediately re-fetch this source's EPG guide, bypassing the throttle. "
             "Disabled when EPG is off or no URL is configured."
         )
-        self._epg_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._epg_refresh_btn, "PANEL_BTN")
         self._epg_refresh_btn.clicked.connect(self._on_action_epg_clicked)
         row.addWidget(self._epg_refresh_btn)
 
         self._action_toggle_btn = QPushButton("Disable")
         self._action_toggle_btn.setToolTip("Enable / Disable this source")
-        self._action_toggle_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._action_toggle_btn, "PANEL_BTN")
         self._action_toggle_btn.clicked.connect(self._on_action_toggle_clicked)
         row.addWidget(self._action_toggle_btn)
 
@@ -559,12 +559,12 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         far left with a visual divider separating it from the Test/Discard/Save
         group (destructive action must never read as adjacent to Save)."""
         self._footer = QWidget()
-        self._footer.setStyleSheet(_theme.PROVIDER_FOOTER)
+        _theme.style(self._footer, "PROVIDER_FOOTER")
         row = QHBoxLayout(self._footer)
         row.setContentsMargins(16, 10, 16, 10)
 
         self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Source")
-        self._delete_btn.setStyleSheet(_theme.DELETE_BTN)
+        _theme.style(self._delete_btn, "DELETE_BTN")
         self._delete_btn.clicked.connect(self._delete_provider)
         row.addWidget(self._delete_btn)
 
@@ -573,7 +573,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._footer_divider.setFrameShape(QFrame.Shape.NoFrame)
         self._footer_divider.setFixedWidth(1)
         self._footer_divider.setMinimumHeight(20)
-        self._footer_divider.setStyleSheet(_theme.FOOTER_DIVIDER)
+        _theme.style(self._footer_divider, "FOOTER_DIVIDER")
         row.addWidget(self._footer_divider)
 
         row.addStretch()
@@ -592,7 +592,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._save_btn = QPushButton("Save Changes")
         self._save_btn.setMinimumWidth(120)
         self._save_btn.setDefault(True)
-        self._save_btn.setStyleSheet(_theme.SAVE_BTN)
+        _theme.style(self._save_btn, "SAVE_BTN")
         self._save_btn.clicked.connect(self._save)
         row.addWidget(self._save_btn)
 
@@ -641,8 +641,8 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row delegate — left out of this sweep, same as ``_acct_cons_lbl``'s
         sibling ``_acct_status_lbl`` isn't touched here either.
         """
-        self._icon_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        self._name_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self._icon_field_lbl, "CHANNEL_NAME_DIM")
+        _theme.style(self._name_field_lbl, "CHANNEL_NAME_DIM")
         if hasattr(self._icon_picker, "refresh_theme"):
             self._icon_picker.refresh_theme()
 
@@ -650,16 +650,16 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._action_refresh_btn, self._action_analyze_btn,
             self._epg_refresh_btn, self._action_toggle_btn,
         ):
-            btn.setStyleSheet(_theme.PANEL_BTN)
+            _theme.style(btn, "PANEL_BTN")
 
-        self._footer.setStyleSheet(_theme.PROVIDER_FOOTER)
-        self._delete_btn.setStyleSheet(_theme.DELETE_BTN)
-        self._footer_divider.setStyleSheet(_theme.FOOTER_DIVIDER)
-        self._save_btn.setStyleSheet(_theme.SAVE_BTN)
+        _theme.style(self._footer, "PROVIDER_FOOTER")
+        _theme.style(self._delete_btn, "DELETE_BTN")
+        _theme.style(self._footer_divider, "FOOTER_DIVIDER")
+        _theme.style(self._save_btn, "SAVE_BTN")
 
-        self._acct_cons_lbl.setStyleSheet(_theme.FIELD_LABEL)
-        self._username_eye_btn.setStyleSheet(_theme.EYE_BTN)
-        self._password_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        _theme.style(self._acct_cons_lbl, "FIELD_LABEL")
+        _theme.style(self._username_eye_btn, "EYE_BTN")
+        _theme.style(self._password_eye_btn, "EYE_BTN")
 
     # ── Public API ────────────────────────────────────────────────────────────
 

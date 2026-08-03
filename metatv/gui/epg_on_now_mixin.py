@@ -279,7 +279,7 @@ class _EpgOnNowMixin:
         layout.addWidget(self.on_now_list)
 
         self.on_now_stats = QLabel("")
-        self.on_now_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self.on_now_stats, "LABEL_MUTED")
         layout.addWidget(self.on_now_stats)
 
         self.stack.addWidget(page)

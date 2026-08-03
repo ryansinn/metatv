@@ -324,8 +324,8 @@ class FilterPanel(QWidget):
         self._header_bar.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")
         self._includes_lbl.setStyleSheet(
             f"font-size: {_theme.FONT_XL}; font-weight: bold; color: {_theme.COLOR_TEXT_2};")
-        self._all_btn.setStyleSheet(_theme.PANEL_BTN)
-        self._clear_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._all_btn, "PANEL_BTN")
+        _theme.style(self._clear_btn, "PANEL_BTN")
         self._hide_watched_row.setStyleSheet(f"background: {_theme.COLOR_LINE_DARK};")
         self._hide_watched_cb.setStyleSheet(
             f"color: {_theme.COLOR_TEXT_2}; font-size: {_theme.FONT_SM};"

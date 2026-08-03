@@ -307,7 +307,7 @@ class _Shelf(QWidget):
             return
         self._clear_placeholder()
         self._placeholder_lbl = QLabel(f"{_icons.loading_icon} Loading…")
-        self._placeholder_lbl.setStyleSheet(_theme.DISCOVER_SHELF_LOADING)
+        _theme.style(self._placeholder_lbl, "DISCOVER_SHELF_LOADING")
         self._inner_layout.insertWidget(0, self._placeholder_lbl)
 
     def show_load_error(self, message: str = "Couldn't load this shelf") -> None:
@@ -318,7 +318,7 @@ class _Shelf(QWidget):
         """
         self._clear_placeholder()
         self._placeholder_lbl = QLabel(f"{_icons.notification_warning_icon} {message}")
-        self._placeholder_lbl.setStyleSheet(_theme.DISCOVER_SHELF_ERROR)
+        _theme.style(self._placeholder_lbl, "DISCOVER_SHELF_ERROR")
         self._inner_layout.insertWidget(0, self._placeholder_lbl)
 
     def set_cards(self, cards: list, image_cache=None, config=None,

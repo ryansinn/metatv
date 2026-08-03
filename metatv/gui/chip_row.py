@@ -161,11 +161,11 @@ def build_chip_row(
 
     if new_badge:
         new_lbl = QLabel("NEW")
-        new_lbl.setStyleSheet(_theme.QUEUE_MATCHED_NEW_TAG)
+        _theme.style(new_lbl, "QUEUE_MATCHED_NEW_TAG")
         layout.addWidget(new_lbl)
 
     title_lbl = MiddleElideLabel(title)
-    title_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — legible title
+    _theme.style(title_lbl, "VOD_ALERT_NAME")  # COLOR_TEXT — legible title
     # Preferred + no stretch: the title sizes to its content so the 4K chip can hug
     # the title TEXT. MiddleElideLabel's buffered sizeHint keeps a title that fits
     # from being clipped; only a title too long for the row elides.
@@ -178,7 +178,7 @@ def build_chip_row(
         quality_chip = QPushButton(quality_display(quality.upper()))
         quality_chip.setFlat(True)
         quality_chip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
+        _theme.style(quality_chip, "QUALITY_CHIP")
         quality_chip.setToolTip(quality_tooltip(quality))
         layout.addWidget(quality_chip)
 
@@ -188,14 +188,14 @@ def build_chip_row(
     # the language chip as the CONSISTENT far-right element on every row.
     if year:
         year_lbl = QLabel(str(year))
-        year_lbl.setStyleSheet(_theme.YEAR_CHIP)  # subtle bordered chip
+        _theme.style(year_lbl, "YEAR_CHIP")  # subtle bordered chip
         layout.addWidget(year_lbl)
 
     # Language chip (QLabel — LANG_CHIP is label-friendly). This is the honest
     # detected_prefix, NOT the source detected_region.
     if prefix:
         lang_chip = QLabel(prefix)
-        lang_chip.setStyleSheet(_theme.LANG_CHIP)
+        _theme.style(lang_chip, "LANG_CHIP")
         lang_chip.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(lang_chip)
 

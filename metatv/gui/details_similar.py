@@ -154,7 +154,7 @@ class _SimilarSection(QWidget):
             full_name = resolve_category_name(prefix, self.config) or prefix
             chip = QPushButton(prefix)
             chip.setFixedHeight(18)
-            chip.setStyleSheet(_theme.CATEGORY_CHIP_SM)
+            _theme.style(chip, "CATEGORY_CHIP_SM")
             chip.setToolTip(full_name)
             chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
             chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

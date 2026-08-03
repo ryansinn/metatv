@@ -105,13 +105,13 @@ class _ProviderEditorTabsMixin:
         # Status row
         status_row = QHBoxLayout()
         self._acct_status_lbl = QLabel("—")
-        self._acct_status_lbl.setStyleSheet(_theme.FIELD_LABEL)
+        _theme.style(self._acct_status_lbl, "FIELD_LABEL")
         status_row.addWidget(QLabel("Status:"))
         status_row.addWidget(self._acct_status_lbl)
         status_row.addSpacing(24)
         status_row.addWidget(QLabel("Connections:"))
         self._acct_cons_lbl = QLabel("—")
-        self._acct_cons_lbl.setStyleSheet(_theme.FIELD_LABEL)
+        _theme.style(self._acct_cons_lbl, "FIELD_LABEL")
         status_row.addWidget(self._acct_cons_lbl)
         status_row.addStretch()
         group_layout.addLayout(status_row)
@@ -328,7 +328,7 @@ class _ProviderEditorTabsMixin:
         )
         self._username_eye_btn.setFixedWidth(28)
         self._username_eye_btn.setCheckable(True)
-        self._username_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        _theme.style(self._username_eye_btn, "EYE_BTN")
         self._username_eye_btn.toggled.connect(
             lambda checked: self._username_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -348,7 +348,7 @@ class _ProviderEditorTabsMixin:
         )
         self._password_eye_btn.setFixedWidth(28)
         self._password_eye_btn.setCheckable(True)
-        self._password_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        _theme.style(self._password_eye_btn, "EYE_BTN")
         self._password_eye_btn.toggled.connect(
             lambda checked: self._password_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -491,7 +491,7 @@ class _ProviderEditorTabsMixin:
             "want to save the download."
         )
         explainer.setWordWrap(True)
-        explainer.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(explainer, "SECTION_HINT")
         outer.addWidget(explainer)
 
         form_host = QWidget()

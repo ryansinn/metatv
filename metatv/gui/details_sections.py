@@ -643,11 +643,11 @@ class _PosterSection(QWidget):
             return
 
         if self._watched:
-            self._watched_badge.setStyleSheet(_theme.POSTER_WATCHED_BADGE)
+            _theme.style(self._watched_badge, "POSTER_WATCHED_BADGE")
             self._watched_badge.setToolTip("Watched — click to mark as unwatched")
             visible = True
         else:
-            self._watched_badge.setStyleSheet(_theme.POSTER_UNWATCHED_BADGE)
+            _theme.style(self._watched_badge, "POSTER_UNWATCHED_BADGE")
             self._watched_badge.setToolTip("Mark as watched")
             visible = self._poster_hovered or self._badge_hovered
 
@@ -816,12 +816,12 @@ class _MetadataSection(QWidget):
         self.title_label = QLabel()
         self.title_label.setWordWrap(True)
         self.title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(self.title_label, "DETAIL_TITLE")
         title_bar_layout.addWidget(self.title_label, 1)
 
         self._prefix_chip = QPushButton()
         self._prefix_chip.setFlat(True)
-        self._prefix_chip.setStyleSheet(_theme.CATEGORY_CHIP)
+        _theme.style(self._prefix_chip, "CATEGORY_CHIP")
         self._prefix_chip.setFixedHeight(24)
         self._prefix_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._prefix_chip.hide()
@@ -829,7 +829,7 @@ class _MetadataSection(QWidget):
 
         self._quality_chip = QPushButton()
         self._quality_chip.setFlat(True)
-        self._quality_chip.setStyleSheet(_theme.QUALITY_CHIP)
+        _theme.style(self._quality_chip, "QUALITY_CHIP")
         self._quality_chip.setFixedHeight(24)
         self._quality_chip.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._quality_chip.hide()
@@ -895,11 +895,11 @@ class _MetadataSection(QWidget):
         media_row_layout = _FlowLayout(self._media_row, h_spacing=8, v_spacing=4)
 
         self._media_type_lbl = QLabel()
-        self._media_type_lbl.setStyleSheet(_theme.META_DIM)
+        _theme.style(self._media_type_lbl, "META_DIM")
         media_row_layout.addWidget(self._media_type_lbl)
 
         self.runtime_label = QLabel()
-        self.runtime_label.setStyleSheet(_theme.META_DIM)
+        _theme.style(self.runtime_label, "META_DIM")
         self.runtime_label.hide()
         media_row_layout.addWidget(self.runtime_label)
 
@@ -978,7 +978,7 @@ class _MetadataSection(QWidget):
             # rating_label and _content_rating_lbl live on _media_row which is
             # already hidden above via self._media_row.setVisible(not is_live)
         else:
-            self.title_label.setStyleSheet(_theme.DETAIL_TITLE)
+            _theme.style(self.title_label, "DETAIL_TITLE")
 
     def load_basic(self, channel, provider_map: dict | None = None) -> None:
         """Tier-1 display: channel attributes only, no metadata.
@@ -1222,7 +1222,7 @@ class _MetadataSection(QWidget):
             # emitted signal so filtering still matches "Action & Adventure".
             chip = QPushButton(escape_mnemonic(g))
             chip.setFlat(True)
-            chip.setStyleSheet(_theme.GENRE_CHIP)
+            _theme.style(chip, "GENRE_CHIP")
             chip.setToolTip(f"Filter by genre: {g}")
             chip.clicked.connect(lambda _checked, _g=g: self.genre_clicked.emit(_g))
             self._genres_layout.addWidget(chip)
@@ -1253,12 +1253,12 @@ class _PlotSection(QWidget):
         self.plot_label = QLabel()
         self.plot_label.setWordWrap(True)
         self.plot_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.plot_label.setStyleSheet(_theme.DETAIL_TEXT)
+        _theme.style(self.plot_label, "DETAIL_TEXT")
         _no_width_force(self.plot_label)
         layout.addWidget(self.plot_label)
 
         self.plot_loading = QLabel("Loading description...")
-        self.plot_loading.setStyleSheet(_theme.LOADING_TEXT)
+        _theme.style(self.plot_loading, "LOADING_TEXT")
         self.plot_loading.hide()
         layout.addWidget(self.plot_loading)
 
@@ -1330,7 +1330,7 @@ class _TechnicalSection(QWidget):
         self.tech_details_label = QLabel()
         self.tech_details_label.setWordWrap(True)
         self.tech_details_label.setTextFormat(Qt.TextFormat.RichText)
-        self.tech_details_label.setStyleSheet(_theme.DETAIL_TEXT)
+        _theme.style(self.tech_details_label, "DETAIL_TEXT")
         _no_width_force(self.tech_details_label)
         content_layout.addWidget(self.tech_details_label)
         layout.addWidget(self._content)
@@ -1423,7 +1423,7 @@ class _CastSection(QWidget):
         self._director_lbl = QLabel()
         self._director_lbl.setWordWrap(True)
         self._director_lbl.setTextFormat(Qt.TextFormat.RichText)
-        self._director_lbl.setStyleSheet(_theme.DETAIL_TEXT)
+        _theme.style(self._director_lbl, "DETAIL_TEXT")
         self._director_lbl.setOpenExternalLinks(False)
         self._director_lbl.linkActivated.connect(
             lambda url: self.person_clicked.emit(url)
@@ -1435,7 +1435,7 @@ class _CastSection(QWidget):
         self.cast_label = QLabel()
         self.cast_label.setWordWrap(True)
         self.cast_label.setTextFormat(Qt.TextFormat.RichText)
-        self.cast_label.setStyleSheet(_theme.DETAIL_TEXT)
+        _theme.style(self.cast_label, "DETAIL_TEXT")
         self.cast_label.setOpenExternalLinks(False)
         self.cast_label.linkActivated.connect(
             lambda url: self.person_clicked.emit(url)
@@ -1701,7 +1701,7 @@ class _TagsSection(QWidget):
 
         # Facet label (e.g. "LANGUAGE")
         lbl = QLabel(label_text.upper())
-        lbl.setStyleSheet(_theme.TAG_FACET_LABEL)
+        _theme.style(lbl, "TAG_FACET_LABEL")
         self._content_layout.addWidget(lbl)
 
         # Chip row — a wrapping _FlowLayout, NEVER a QHBoxLayout.  A facet with many
@@ -1746,9 +1746,9 @@ class _TagsSection(QWidget):
         # Provenance style: source-given = solid border; inferred = dashed border.
         # Low-confidence = extra dimming on top of provenance style.
         if tag.source_given:
-            chip.setStyleSheet(_theme.TAG_CHIP_SOURCE)
+            _theme.style(chip, "TAG_CHIP_SOURCE")
         else:
-            chip.setStyleSheet(_theme.TAG_CHIP_INFERRED)
+            _theme.style(chip, "TAG_CHIP_INFERRED")
 
         # Interactivity: left-click → strict context filter for this exact facet;
         # right-click → seed Discover/Recipe with this one tag.  Default-arg

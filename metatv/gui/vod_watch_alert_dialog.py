@@ -221,7 +221,7 @@ class ManageVodAlertsDialog(QDialog):
 
     def _sub_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(_theme.DIALOG_SUBHEADER)
+        _theme.style(lbl, "DIALOG_SUBHEADER")
         return lbl
 
     def _muted_line(self, text: str) -> QLabel:
@@ -292,12 +292,12 @@ class ManageVodAlertsDialog(QDialog):
         # (strikethrough) name + "Undo" — nothing else is actionable until restored.
         if rule_created in self._pending_remove_rules:
             name_lbl = QLabel(f"{_icons.alert_icon} {text}")
-            name_lbl.setStyleSheet(_theme.DIALOG_PENDING_REMOVE_NAME)
+            _theme.style(name_lbl, "DIALOG_PENDING_REMOVE_NAME")
             hl.addWidget(name_lbl, 1)
 
             undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
             undo_btn.setFlat(True)
-            undo_btn.setStyleSheet(_theme.LINK_BTN_SM)
+            _theme.style(undo_btn, "LINK_BTN_SM")
             undo_btn.setToolTip(f"Keep the watch-for rule for '{text}'")
             undo_btn.clicked.connect(
                 lambda _checked=False, rc=rule_created: self._undo_rule(rc)
@@ -346,7 +346,7 @@ class ManageVodAlertsDialog(QDialog):
 
         remove_btn = QPushButton(f"{_icons.close_icon} Remove")
         remove_btn.setFlat(True)
-        remove_btn.setStyleSheet(_theme.DIALOG_DANGER_LINK)
+        _theme.style(remove_btn, "DIALOG_DANGER_LINK")
         remove_btn.setToolTip(f"Remove the watch-for rule for '{text}'")
         remove_btn.clicked.connect(
             lambda _checked=False, rc=rule_created: self._remove(rc)
@@ -376,12 +376,12 @@ class ManageVodAlertsDialog(QDialog):
         # (strikethrough) name + "Undo" — nothing else is actionable until restored.
         if cid in self._pending_remove_series:
             name_lbl = QLabel(f"{_icons.series_icon} {title}")
-            name_lbl.setStyleSheet(_theme.DIALOG_PENDING_REMOVE_NAME)
+            _theme.style(name_lbl, "DIALOG_PENDING_REMOVE_NAME")
             hl.addWidget(name_lbl, 1)
 
             undo_btn = QPushButton(f"{_icons.undo_icon} Undo")
             undo_btn.setFlat(True)
-            undo_btn.setStyleSheet(_theme.LINK_BTN_SM)
+            _theme.style(undo_btn, "LINK_BTN_SM")
             undo_btn.setToolTip(f"Keep monitoring {title} for new episodes")
             undo_btn.clicked.connect(
                 lambda _checked=False, c=cid: self._undo_series(c)
@@ -424,7 +424,7 @@ class ManageVodAlertsDialog(QDialog):
 
         stop_btn = QPushButton(f"{_icons.close_icon} Stop")
         stop_btn.setFlat(True)
-        stop_btn.setStyleSheet(_theme.DIALOG_DANGER_LINK)
+        _theme.style(stop_btn, "DIALOG_DANGER_LINK")
         stop_btn.setToolTip(f"Stop new-episode alerts for {title}")
         stop_btn.clicked.connect(lambda _checked=False, c=cid: self._stop_series(c))
         hl.addWidget(stop_btn)

@@ -279,35 +279,41 @@ near-black section headers). `theme.qt_palette()` builds a `QPalette` from the a
 `MainWindow` is constructed. This is a floor *underneath* the explicit-stylesheet layer, not a
 replacement for it.
 
-### Known-broken: live theme switching (do not claim this works)
+### Live theme switching — the style registry (v0.26.0, #277)
 
-**Qt caches the rendered stylesheet string, not a live reference to the Python constant.** A widget
-that called `setStyleSheet(theme.SOME_CONSTANT)` at construction keeps rendering the OLD colors after
-`apply_theme()` rebinds the module globals. Only widgets explicitly re-styled by a `refresh_theme()`
-update.
+**Qt caches the RENDERED stylesheet string**, not a reference to the Python
+constant, so `apply_theme()` rebinding `LIST_ROW` does nothing to a widget that
+already called `setStyleSheet(LIST_ROW)`.
 
-Current coverage, measured 2026-08-02:
+The original answer was a hand-maintained sweep in `MainWindow.refresh_theme()`.
+It could not work, and the measurement said so: **838 `setStyleSheet` call sites
+across 68 files against 22 `refresh_theme()` methods across 16**. An enumeration
+cannot see the call sites nobody remembered to add to it — which is why #253 and
+#261 each "completed" the theme work and each left it broken.
 
-| | count |
-|---|---|
-| `setStyleSheet` call sites (`gui/`, `gui/sidebar/`) | **838** across 68 files |
-| …of which pass a theme constant | 466 |
-| `refresh_theme()` methods | **22** across 16 files |
+It is now inverted. A widget styled through the registry registers itself, and
+`apply_theme()` re-applies every live registration:
 
-The sweep is a hand-maintained enumeration and **cannot be completed by adding more entries** — that
-is what #253/#261 attempted. Worse, the Layer-0 floor amplified the symptom: on a live switch the
-unstyled widgets adopt the new palette *instantly* while 800+ baked stylesheets keep the old one, so
-switching to Daylight yields the previous dark theme's light-grey text on the new light chrome —
-illegible, app-wide. **Cold launch is unaffected** (the theme is applied before any widget is built),
-so the current honest statement is: *themes are correct at startup; live switching is not supported.*
+```python
+_theme.style(label, "SECTION_HINT")                       # a named role
+_theme.style_fn(label, lambda: f"color: {_theme.COLOR_WARN};")  # composed
+```
 
-Two candidate fixes, neither yet built:
-1. **Style registry** — replace `w.setStyleSheet(_theme.ROLE)` with `_theme.style(w, "ROLE")`, which
-   records a weakref + role name; `apply_theme()` re-applies every live entry. Mechanical across the
-   466 token-referencing sites, plus a drift-guard test banning the raw form.
-2. **One application-level stylesheet** — build a single QSS document from tokens using type /
-   `objectName` / dynamic-property selectors and call `QApplication.setStyleSheet()` once. The
-   idiomatic Qt answer and the right end state; effectively part of the UI overhaul.
+Nothing has to be remembered; a new widget is covered the moment it is written.
+Registrations are held by **weak reference** (a closed dialog is never kept
+alive) and dead entries are reaped on the next pass — including C++-deleted
+objects, which raise `RuntimeError` while the Python wrapper still exists.
+
+- An unknown role name raises at registration, so a typo can't silently produce
+  a widget that never restyles.
+- `tests/test_theme_style_registry.py` asserts the rendered stylesheet actually
+  CHANGES across a switch (with an unregistered-widget contrast case so it
+  can't pass spuriously), and carries a drift guard banning raw
+  `setStyleSheet(theme.X)` — plus a test that the guard itself can fail.
+
+**Remaining:** ~370 composed/f-string `setStyleSheet` sites are not yet
+registered. They still go stale on a live switch. Migrating one is a
+one-line change to `style_fn`; do it opportunistically when touching the code.
 
 ## Visual language — what the colors and glyphs *mean*
 

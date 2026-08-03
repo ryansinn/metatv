@@ -167,7 +167,7 @@ class SimilarTitleLightbox(QWidget):
         btn = QPushButton(glyph)
         btn.setFixedSize(44, 44)
         btn.setFlat(True)
-        btn.setStyleSheet(_theme.LIGHTBOX_CHEVRON)
+        _theme.style(btn, "LIGHTBOX_CHEVRON")
         btn.setToolTip(tip)
         return btn
 

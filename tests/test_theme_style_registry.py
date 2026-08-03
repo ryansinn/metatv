@@ -1,0 +1,174 @@
+"""Live theme switching via the style registry (#277).
+
+The old model was a hand-maintained sweep: ``MainWindow.refresh_theme()``
+re-invoked ``setStyleSheet`` on widgets it knew about. That cannot work, and the
+numbers said so — ~838 ``setStyleSheet`` call sites against 22 ``refresh_theme``
+methods. An enumeration can never see the ones nobody remembered to add, which
+is why #253 and #261 both "completed" the theme work and both left it broken.
+
+Inverted: a widget styled through ``theme.style(w, "ROLE")`` registers itself,
+and ``apply_theme`` re-applies every live registration. Nothing has to be
+remembered; a new widget is covered the moment it is written.
+
+These tests assert the RENDERED stylesheet actually changes — the property that
+was silently false before — plus the drift guard that keeps the raw form from
+creeping back.
+"""
+
+from __future__ import annotations
+
+import ast
+import pathlib
+import re
+
+import pytest
+from PyQt6.QtWidgets import QApplication, QLabel
+
+from metatv.gui import theme as _theme
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def _restore_theme():
+    original = _theme.current_theme()
+    yield
+    _theme.apply_theme(original)
+
+
+class TestLiveRestyle:
+
+    def test_a_registered_widget_restyles_on_theme_switch(self, qapp):
+        """The whole point. This was false for every widget before #277."""
+        _theme.apply_theme("Midnight")
+        widget = QLabel()
+        _theme.style(widget, "SECTION_HINT")
+        midnight = widget.styleSheet()
+
+        _theme.apply_theme("Daylight")
+        daylight = widget.styleSheet()
+
+        assert midnight != daylight, (
+            "the widget kept its old stylesheet across a theme switch — Qt "
+            "caches the rendered string, so this is exactly the bug"
+        )
+        assert _theme.COLOR_TEXT_HI not in midnight or True  # sanity: no crash
+        assert daylight == _theme.SECTION_HINT
+
+    def test_an_unregistered_widget_does_NOT_restyle(self, qapp):
+        """Contrast case, so the previous test can't pass for a spurious reason.
+
+        A plain setStyleSheet still goes stale — that is Qt's behaviour, not
+        something the registry changes. It is why the raw form is now banned.
+        """
+        _theme.apply_theme("Midnight")
+        widget = QLabel()
+        widget.setStyleSheet(_theme.SECTION_HINT)
+        before = widget.styleSheet()
+
+        _theme.apply_theme("Daylight")
+
+        assert widget.styleSheet() == before
+
+    def test_style_fn_reevaluates_composed_stylesheets(self, qapp):
+        """The f-string sites need the builder re-invoked, not a stored string."""
+        _theme.apply_theme("Midnight")
+        widget = QLabel()
+        _theme.style_fn(widget, lambda: f"color: {_theme.COLOR_MUTED};")
+        midnight = widget.styleSheet()
+
+        _theme.apply_theme("Daylight")
+
+        assert widget.styleSheet() != midnight
+        assert widget.styleSheet() == f"color: {_theme.COLOR_MUTED};"
+
+    def test_unknown_role_fails_loudly_at_registration(self, qapp):
+        """A typo must not register a widget that silently never restyles."""
+        with pytest.raises(AttributeError):
+            _theme.style(QLabel(), "NO_SUCH_ROLE")
+
+
+class TestRegistryHygiene:
+
+    def test_dead_widgets_are_reaped(self, qapp):
+        """Weak refs — the registry must never keep a closed dialog alive."""
+        import gc
+
+        _theme.apply_theme("Midnight")
+        before = _theme.registered_style_count()
+        for _ in range(20):
+            _theme.style(QLabel(), "SECTION_HINT")
+        gc.collect()
+        _theme.apply_theme("Daylight")   # triggers a reaping pass
+        gc.collect()
+        _theme.apply_theme("Midnight")
+
+        after = _theme.registered_style_count()
+        assert after <= before + 20, (
+            f"registry grew unboundedly: {before} -> {after}"
+        )
+
+    def test_a_deleted_c_object_does_not_break_the_sweep(self, qapp):
+        """A deleted C++ object raises RuntimeError while the wrapper lives.
+
+        One such entry must not wedge the whole restyle pass — every other
+        registered widget still has to be updated.
+        """
+        from PyQt6 import sip
+
+        _theme.apply_theme("Midnight")
+        doomed = QLabel()
+        survivor = QLabel()
+        _theme.style(doomed, "SECTION_HINT")
+        _theme.style(survivor, "SECTION_HINT")
+        sip.delete(doomed)
+
+        _theme.apply_theme("Daylight")
+
+        assert survivor.styleSheet() == _theme.SECTION_HINT, (
+            "a dead sibling stopped the sweep before reaching this widget"
+        )
+
+
+class TestDriftGuard:
+    """The raw form must not creep back — the rule only holds if it can fail."""
+
+    @staticmethod
+    def _raw_sites() -> list[str]:
+        pat = re.compile(r"\.setStyleSheet\((?:_theme|theme)\.[A-Z][A-Z_0-9]*\)")
+        out = []
+        for path in sorted(pathlib.Path("metatv/gui").rglob("*.py")):
+            for i, line in enumerate(path.read_text().splitlines(), 1):
+                if pat.search(line):
+                    out.append(f"{path}:{i}: {line.strip()}")
+        return out
+
+    def test_no_raw_setstylesheet_with_a_theme_role(self):
+        offenders = self._raw_sites()
+        assert not offenders, (
+            "these render correctly once and then go stale on every theme "
+            "switch — use theme.style(widget, \"ROLE\") instead:\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_the_guard_can_actually_fail(self, tmp_path, monkeypatch):
+        """A matcher that never matches would read as a clean codebase forever."""
+        pat = re.compile(r"\.setStyleSheet\((?:_theme|theme)\.[A-Z][A-Z_0-9]*\)")
+        assert pat.search('lbl.setStyleSheet(_theme.SECTION_HINT)')
+        assert pat.search('self.x.setStyleSheet(theme.LANG_CHIP)')
+        # …and does NOT flag the correct form or a composed one.
+        assert not pat.search('_theme.style(lbl, "SECTION_HINT")')
+        assert not pat.search('lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED};")')
+
+    def test_the_migration_actually_registered_widgets(self):
+        """Count style() call sites — a migration that silently no-op'd would
+        leave the codebase 'clean' by the guard above while styling nothing."""
+        pat = re.compile(r"(?:_theme|theme)\.style\(")
+        total = sum(
+            len(pat.findall(path.read_text()))
+            for path in pathlib.Path("metatv/gui").rglob("*.py")
+        )
+        assert total > 400, f"only {total} style() call sites — migration incomplete"

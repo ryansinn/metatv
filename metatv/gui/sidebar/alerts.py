@@ -132,7 +132,7 @@ class _VodAlertRow(QWidget):
         layout.addWidget(icon_lbl)
 
         name_lbl = QLabel()
-        name_lbl.setStyleSheet(_theme.VOD_ALERT_NAME)  # COLOR_TEXT — never tinted
+        _theme.style(name_lbl, "VOD_ALERT_NAME")  # COLOR_TEXT — never tinted
         if suffix:
             # Collision disambiguator: title + a dim, smaller suffix inline (rich
             # text so it flows immediately after the title, not at the far margin).
@@ -171,7 +171,7 @@ class _AlertRow(QWidget):
         layout.addWidget(name_lbl, 1)
 
         self.time_lbl = QLabel(time_str)
-        self.time_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self.time_lbl, "CHANNEL_NAME_DIM")
         self.time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.time_lbl)
 
@@ -179,7 +179,7 @@ class _AlertRow(QWidget):
         self.play_btn.setFixedSize(20, 18)
         self.play_btn.setFlat(True)
         self.play_btn.setToolTip("Play")
-        self.play_btn.setStyleSheet(_theme.PLAY_BTN_SMALL)
+        _theme.style(self.play_btn, "PLAY_BTN_SMALL")
         self.play_btn.clicked.connect(self.play_clicked)
         self.play_btn.hide()
         layout.addWidget(self.play_btn)
@@ -259,7 +259,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._clear_all_btn = QPushButton("Clear all")
         self._clear_all_btn.setFlat(True)
         self._clear_all_btn.setToolTip("Acknowledge all new matches")
-        self._clear_all_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        _theme.style(self._clear_all_btn, "LINK_BTN_SM")
         self._clear_all_btn.clicked.connect(self.clearAllAlertsClicked.emit)
         self._clear_all_btn.hide()
         hl.addWidget(self._clear_all_btn)
@@ -273,7 +273,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._manage_btn.setToolTip(
             "Manage watch alerts — keyword rules and monitored series"
         )
-        self._manage_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        _theme.style(self._manage_btn, "LINK_BTN_SM")
         self._manage_btn.clicked.connect(self.manageWatchForClicked.emit)
         hl.addWidget(self._manage_btn)
 
@@ -314,7 +314,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._epg_toggle = QPushButton()
         self._epg_toggle.setFlat(True)
         self._epg_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._epg_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
+        _theme.style(self._epg_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
         self._epg_toggle.setToolTip(
             "Live TV programs and events from your watchlist, airing now or soon."
         )
@@ -361,7 +361,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._vod_toggle = QPushButton()
         self._vod_toggle.setFlat(True)
         self._vod_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._vod_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
+        _theme.style(self._vod_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
         self._vod_toggle.clicked.connect(self._toggle_vod_watching)
         vod_hdr_row.addWidget(self._vod_toggle)
         vod_hdr_row.addStretch()
@@ -400,7 +400,7 @@ class WatchAlertsSection(BackgroundRefreshMixin, CollapsibleSection):
         self._retry_toggle = QPushButton()
         self._retry_toggle.setFlat(True)
         self._retry_toggle.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._retry_toggle.setStyleSheet(_theme.SIDEBAR_SUBSECTION_TOGGLE)
+        _theme.style(self._retry_toggle, "SIDEBAR_SUBSECTION_TOGGLE")
         self._retry_toggle.clicked.connect(self._toggle_stream_monitoring)
         retry_hdr_row.addWidget(self._retry_toggle)
 

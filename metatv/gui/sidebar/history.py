@@ -113,7 +113,7 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
         next_btn.setFixedSize(30, 20)
         next_btn.setToolTip(f"Play next episode: {dto.next_episode_code}")
         next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        next_btn.setStyleSheet(_theme.HISTORY_PLAY_NEXT_BUTTON)
+        _theme.style(next_btn, "HISTORY_PLAY_NEXT_BUTTON")
         episode_id = dto.next_episode_id
         next_btn.clicked.connect(lambda: self.playNextClicked.emit(episode_id))
         return next_btn

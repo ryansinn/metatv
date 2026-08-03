@@ -762,7 +762,7 @@ class QAChecklistWindow(QWidget):
             " entries no longer appear.  Entries with failures are kept."
         )
         self._purge_btn.setEnabled(False)
-        self._purge_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._purge_btn, "PANEL_BTN")
         self._purge_btn.clicked.connect(self._on_purge)
         hbar_layout.addWidget(self._purge_btn)
 
@@ -1031,7 +1031,7 @@ class QAChecklistWindow(QWidget):
 
         title_lbl = QLabel(entry.title)
         if has_failure and not archived:
-            title_lbl.setStyleSheet(_theme.QA_ENTRY_FAILED_TITLE)
+            _theme.style(title_lbl, "QA_ENTRY_FAILED_TITLE")
         else:
             title_color = (
                 _theme.COLOR_MUTED if (is_complete or archived) else _theme.COLOR_TEXT
@@ -1043,7 +1043,7 @@ class QAChecklistWindow(QWidget):
 
         if has_failure and not archived:
             fail_badge = QLabel(f"{_icons.qa_fail_icon} FAILED")
-            fail_badge.setStyleSheet(_theme.QA_FAIL_BADGE)
+            _theme.style(fail_badge, "QA_FAIL_BADGE")
             header_layout.addWidget(fail_badge)
 
         ref_lbl = QLabel(entry.date)
@@ -1065,7 +1065,7 @@ class QAChecklistWindow(QWidget):
             if is_complete:
                 archive_btn = QPushButton(f"{_icons.qa_archive_icon}  Archive")
                 archive_btn.setToolTip("Archive this checklist entry")
-                archive_btn.setStyleSheet(_theme.PANEL_BTN)
+                _theme.style(archive_btn, "PANEL_BTN")
                 archive_btn.clicked.connect(
                     lambda _, eid=entry.id: self._on_archive(eid)
                 )
@@ -1073,7 +1073,7 @@ class QAChecklistWindow(QWidget):
         else:
             unarchive_btn = QPushButton(f"{_icons.qa_unarchive_icon}  Unarchive")
             unarchive_btn.setToolTip("Restore this entry to the open checklist")
-            unarchive_btn.setStyleSheet(_theme.PANEL_BTN)
+            _theme.style(unarchive_btn, "PANEL_BTN")
             unarchive_btn.clicked.connect(
                 lambda _, eid=entry.id: self._on_unarchive(eid)
             )
@@ -1155,7 +1155,7 @@ class QAChecklistWindow(QWidget):
             go_btn = QPushButton(f"Go {_icons.qa_goto_icon}")
             go_btn.setToolTip(f"Jump the app to this step's target ({target})")
             go_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            go_btn.setStyleSheet(_theme.QA_GOTO_BTN)
+            _theme.style(go_btn, "QA_GOTO_BTN")
             go_btn.clicked.connect(lambda _, t=target: self._navigate(t))
             row_layout.addWidget(go_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
@@ -1165,7 +1165,7 @@ class QAChecklistWindow(QWidget):
             stale_lbl.setToolTip(
                 f"Marked on {rec.get('sha')}; current build is {self._current_sha}."
             )
-            stale_lbl.setStyleSheet(_theme.QA_STALE_HINT)
+            _theme.style(stale_lbl, "QA_STALE_HINT")
             row_layout.addWidget(stale_lbl, alignment=Qt.AlignmentFlag.AlignTop)
 
         # Addressed-by-PR badge — shown when a newer entry's PR claims this failure.
@@ -1187,7 +1187,7 @@ class QAChecklistWindow(QWidget):
                     "This failure was addressed in a later PR.\n"
                     "Click to jump to the addressing entry; re-test and mark pass once confirmed."
                 )
-                badge_btn.setStyleSheet(_theme.QA_ADDRESSED_BADGE_BTN)
+                _theme.style(badge_btn, "QA_ADDRESSED_BADGE_BTN")
                 badge_btn.clicked.connect(
                     lambda _, eid=addr_eid: self._jump_to_entry(eid)
                 )
@@ -1234,7 +1234,7 @@ class QAChecklistWindow(QWidget):
 
         note_edit = _FailNoteEdit()
         note_edit.setPlaceholderText("What went wrong? (Ctrl+V pastes a screenshot)")
-        note_edit.setStyleSheet(_theme.QA_FAIL_NOTE_BOX)
+        _theme.style(note_edit, "QA_FAIL_NOTE_BOX")
         note_edit.setFixedHeight(56)
         note_edit.setPlainText(rec.get("note", ""))
         note_edit.text_committed.connect(
@@ -1254,7 +1254,7 @@ class QAChecklistWindow(QWidget):
 
         attach_btn = QPushButton(f"{_icons.qa_attach_icon} Attach")
         attach_btn.setToolTip("Attach a screenshot file to this failure")
-        attach_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        _theme.style(attach_btn, "QA_ATTACH_BTN")
         attach_btn.clicked.connect(
             lambda _, eid=entry_id, si=idx: self._on_attach_clicked(eid, si)
         )
@@ -1265,7 +1265,7 @@ class QAChecklistWindow(QWidget):
             "Re-run the log snapshot and record that this item was re-reviewed,\n"
             "making it visually distinct from a stale unreviewed failure."
         )
-        retest_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        _theme.style(retest_btn, "QA_ATTACH_BTN")
         retest_btn.clicked.connect(
             lambda _, eid=entry_id, si=idx: self._on_retest_clicked(eid, si)
         )
@@ -1284,7 +1284,7 @@ class QAChecklistWindow(QWidget):
             addr_chip.setToolTip(
                 "This failure has been claimed by a later PR. Re-test to confirm."
             )
-            addr_chip.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
+            _theme.style(addr_chip, "QA_ADDRESSED_BADGE")
             chips_layout.addWidget(addr_chip)
         else:
             # Not yet addressed — offer a manual-mark button.
@@ -1293,7 +1293,7 @@ class QAChecklistWindow(QWidget):
                 "Record that a later PR addresses this failure.\n"
                 "The step stays FAILED until you re-test and mark it pass."
             )
-            mark_addr_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+            _theme.style(mark_addr_btn, "QA_ATTACH_BTN")
             mark_addr_btn.clicked.connect(
                 lambda _, eid=entry_id, si=idx: self._on_mark_step_addressed(eid, si)
             )
@@ -1303,7 +1303,7 @@ class QAChecklistWindow(QWidget):
             name = os.path.basename(path)
             chip = QPushButton(f"{name}  {_icons.close_icon}")
             chip.setToolTip(f"Remove {path}")
-            chip.setStyleSheet(_theme.QA_ATTACHMENT_CHIP)
+            _theme.style(chip, "QA_ATTACHMENT_CHIP")
             chip.clicked.connect(
                 lambda _, eid=entry_id, si=idx, p=path: self._on_remove_attachment(eid, si, p)
             )
@@ -1313,7 +1313,7 @@ class QAChecklistWindow(QWidget):
         if log_path:
             log_chip = QLabel(f"{_icons.info_icon} {os.path.basename(log_path)}")
             log_chip.setToolTip(f"Log snapshot: {log_path}")
-            log_chip.setStyleSheet(_theme.QA_FAIL_BADGE)
+            _theme.style(log_chip, "QA_FAIL_BADGE")
             chips_layout.addWidget(log_chip)
 
         last_retested = rec.get("last_retested")
@@ -1470,7 +1470,7 @@ class QAChecklistWindow(QWidget):
 
         add_btn = QPushButton(f"+ Add item")
         add_btn.setToolTip("Add a new flagged observation to capture something noticed during testing")
-        add_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        _theme.style(add_btn, "QA_ATTACH_BTN")
         hdr_layout.addWidget(add_btn)
 
         self._body_layout.addWidget(hdr_row)
@@ -1720,7 +1720,7 @@ class QAChecklistWindow(QWidget):
         # ── note box ──────────────────────────────────────────────────────────
         note_edit = _FailNoteEdit()
         note_edit.setPlaceholderText("Notes… (Ctrl+V pastes a screenshot)")
-        note_edit.setStyleSheet(_theme.QA_FAIL_NOTE_BOX)
+        _theme.style(note_edit, "QA_FAIL_NOTE_BOX")
         note_edit.setFixedHeight(56)
         note_edit.setPlainText(item.get("note", ""))
         note_edit.setToolTip("Free-text notes for this observation; Ctrl+V pastes a clipboard screenshot")
@@ -1735,7 +1735,7 @@ class QAChecklistWindow(QWidget):
 
         attach_btn = QPushButton(f"{_icons.qa_attach_icon} Attach")
         attach_btn.setToolTip("Attach a screenshot file to this observation")
-        attach_btn.setStyleSheet(_theme.QA_ATTACH_BTN)
+        _theme.style(attach_btn, "QA_ATTACH_BTN")
         chips_layout.addWidget(attach_btn)
 
         # Addressed-by-PR badge for this flagged item. Flagged items are a one-way
@@ -1752,14 +1752,14 @@ class QAChecklistWindow(QWidget):
             fa_chip.setToolTip(
                 "This flagged item has been addressed by a later PR. Re-test to confirm."
             )
-            fa_chip.setStyleSheet(_theme.QA_ADDRESSED_BADGE)
+            _theme.style(fa_chip, "QA_ADDRESSED_BADGE")
             chips_layout.addWidget(fa_chip)
 
         for att_path in (item.get("attachments") or []):
             att_name = os.path.basename(att_path)
             chip = QPushButton(f"{att_name}  {_icons.close_icon}")
             chip.setToolTip(f"Remove attachment: {att_path}")
-            chip.setStyleSheet(_theme.QA_ATTACHMENT_CHIP)
+            _theme.style(chip, "QA_ATTACHMENT_CHIP")
             chip.clicked.connect(
                 lambda _, iid=item_id, p=att_path: self._on_flagged_remove_attachment(iid, p)
             )

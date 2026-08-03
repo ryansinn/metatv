@@ -89,7 +89,7 @@ class SourcesStatusStrip(QWidget):
         self.db = db
 
         self.setObjectName("sourcesStatusStrip")
-        self.setStyleSheet(_theme.SOURCES_STRIP)
+        _theme.style(self, "SOURCES_STRIP")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setToolTip("Open the Sources manager")
@@ -100,18 +100,18 @@ class SourcesStatusStrip(QWidget):
         layout.setSpacing(6)
 
         title = QLabel(f"{_icons.provider_icon} Sources")
-        title.setStyleSheet(_theme.SOURCES_STRIP_TITLE)
+        _theme.style(title, "SOURCES_STRIP_TITLE")
         layout.addWidget(title)
 
         self._summary_lbl = QLabel("")
-        self._summary_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self._summary_lbl, "CHANNEL_NAME_DIM")
         layout.addWidget(self._summary_lbl, 1)
 
         self._refresh_btn = QPushButton(_icons.refresh_icon)
         self._refresh_btn.setFixedSize(22, 20)
         self._refresh_btn.setFlat(True)
         self._refresh_btn.setToolTip("Refresh all sources")
-        self._refresh_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        _theme.style(self._refresh_btn, "RECIPE_SAVED_ICON_BTN")
         cursor_affordance.set_clickable(self._refresh_btn)
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         layout.addWidget(self._refresh_btn)

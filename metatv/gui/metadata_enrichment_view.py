@@ -57,7 +57,7 @@ class MetadataEnrichmentView(QWidget):
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel(f"{_icons.metadata_enrich_icon}  Background Metadata Enrichment")
-        title.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(title, "DETAIL_TITLE")
         top_bar.addWidget(back_btn)
         top_bar.addWidget(title)
         top_bar.addStretch()
@@ -74,46 +74,46 @@ class MetadataEnrichmentView(QWidget):
             "titles first. Safe to pause or close the app; it resumes where it "
             "left off."
         )
-        hint.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(hint, "SECTION_HINT")
         hint.setWordWrap(True)
         content_layout.addWidget(hint)
 
         self._state_label = QLabel("Idle")
-        self._state_label.setStyleSheet(_theme.SECTION_HDR)
+        _theme.style(self._state_label, "SECTION_HDR")
         content_layout.addWidget(self._state_label)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setMinimum(0)
         self._progress_bar.setMaximum(0)  # indeterminate until a total is known
         self._progress_bar.setTextVisible(True)
-        self._progress_bar.setStyleSheet(_theme.PROGRESS_BAR)
+        _theme.style(self._progress_bar, "PROGRESS_BAR")
         content_layout.addWidget(self._progress_bar)
 
         self._current_label = QLabel("")
-        self._current_label.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(self._current_label, "SECTION_HINT")
         self._current_label.setWordWrap(True)
         content_layout.addWidget(self._current_label)
 
         self._failed_label = QLabel("")
-        self._failed_label.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(self._failed_label, "SECTION_HINT")
         content_layout.addWidget(self._failed_label)
 
         controls = QHBoxLayout()
         self._start_btn = QPushButton(f"{_icons.play_icon} Start")
         self._start_btn.setToolTip("Begin (or resume) a background enrichment pass")
-        self._start_btn.setStyleSheet(_theme.SAVE_BTN)
+        _theme.style(self._start_btn, "SAVE_BTN")
         self._start_btn.clicked.connect(self._on_start_clicked)
         controls.addWidget(self._start_btn)
 
         self._pause_btn = QPushButton(f"{_icons.enrich_pause_icon} Pause")
         self._pause_btn.setToolTip("Pause after the current title finishes")
-        self._pause_btn.setStyleSheet(_theme.PANEL_BTN)
+        _theme.style(self._pause_btn, "PANEL_BTN")
         self._pause_btn.clicked.connect(self._on_pause_clicked)
         controls.addWidget(self._pause_btn)
 
         self._cancel_btn = QPushButton(f"{_icons.enrich_cancel_icon} Cancel")
         self._cancel_btn.setToolTip("Stop this pass after the current title finishes")
-        self._cancel_btn.setStyleSheet(_theme.DELETE_BTN)
+        _theme.style(self._cancel_btn, "DELETE_BTN")
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
         controls.addWidget(self._cancel_btn)
 
@@ -134,7 +134,7 @@ class MetadataEnrichmentView(QWidget):
 
     def _section_header(self, text: str) -> QLabel:
         label = QLabel(text)
-        label.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(label, "SECTION_HDR_LG")
         return label
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
@@ -230,12 +230,12 @@ class MetadataEnrichmentView(QWidget):
         self._clear_layout(self._failures_layout)
         if not recent_failures:
             empty = QLabel(f"{_icons.notification_success_icon}  No failures yet.")
-            empty.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(empty, "SECTION_HINT")
             self._failures_layout.addWidget(empty)
             return
         for title, reason in list(recent_failures)[-_VISIBLE_FAILURES:]:
             row = QLabel(f"{_icons.notification_error_icon}  {title} — {reason}")
-            row.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(row, "SECTION_HINT")
             row.setWordWrap(True)
             self._failures_layout.addWidget(row)
 

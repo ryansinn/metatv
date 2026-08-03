@@ -56,7 +56,7 @@ class SentimentBar(QWidget):
         btn.setFlat(True)
         btn.setFixedSize(size, size)
         btn.setToolTip(tip)
-        btn.setStyleSheet(_theme.RATING_BTN)
+        _theme.style(btn, "RATING_BTN")
         return btn
 
     # -- state sync (host-driven; never fires signals) -------------------- #

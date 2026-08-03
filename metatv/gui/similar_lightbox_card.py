@@ -167,7 +167,7 @@ class _HoverPosterSlot(QFrame):
         super().__init__(parent)
         self.setObjectName("lightbox_poster")
         self.setFixedSize(_POSTER_W, _POSTER_H)
-        self.setStyleSheet(_theme.LIGHTBOX_POSTER_SLOT)
+        _theme.style(self, "LIGHTBOX_POSTER_SLOT")
         set_clickable(self)
         self.setToolTip("Enlarge poster")
 
@@ -179,7 +179,7 @@ class _HoverPosterSlot(QFrame):
         self._img.setGeometry(0, 0, _POSTER_W, _POSTER_H)
         self._img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._img.setWordWrap(True)
-        self._img.setStyleSheet(_theme.LIGHTBOX_POSTER_PLACEHOLDER)
+        _theme.style(self._img, "LIGHTBOX_POSTER_PLACEHOLDER")
         # Let presses on the image fall through to the slot (enlarge affordance).
         self._img.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
@@ -225,7 +225,7 @@ class _LightboxCard(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("lightbox_card")
-        self.setStyleSheet(_theme.LIGHTBOX_CARD)
+        _theme.style(self, "LIGHTBOX_CARD")
         # Width is driven responsively by the overlay (see ``apply_overlay_size``);
         # this is only the pre-first-resize default so the card never renders at
         # its bare size-hint width. Height is Maximum so it can grow to content up
@@ -250,33 +250,33 @@ class _LightboxCard(QFrame):
 
     def _build_header(self, outer: QVBoxLayout) -> None:
         bar = QWidget()
-        bar.setStyleSheet(_theme.LIGHTBOX_HEADER_BAR)
+        _theme.style(bar, "LIGHTBOX_HEADER_BAR")
         row = QHBoxLayout(bar)
         row.setContentsMargins(14, 10, 12, 10)
         row.setSpacing(10)
 
         self._back_btn = QPushButton(f"{_icons.nav_prev_icon} Back")
         self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet(_theme.LIGHTBOX_BACK_BTN)
+        _theme.style(self._back_btn, "LIGHTBOX_BACK_BTN")
         self._back_btn.setToolTip("Back to the previous title (Backspace)")
         self._back_btn.clicked.connect(self.back_clicked)
         self._back_btn.hide()
         row.addWidget(self._back_btn)
 
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet(_theme.LIGHTBOX_TITLE)
+        _theme.style(self._title_lbl, "LIGHTBOX_TITLE")
         self._title_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         row.addWidget(self._title_lbl, 1)
 
         self._counter_lbl = QLabel()
-        self._counter_lbl.setStyleSheet(_theme.LIGHTBOX_COUNTER)
+        _theme.style(self._counter_lbl, "LIGHTBOX_COUNTER")
         row.addWidget(self._counter_lbl)
 
         # Explore — opens the cascading-columns trail-map seeded with this dive path
         # (contextual lateral adjacency; distinct from the global ✨ Discover).
         self._explore_btn = QPushButton(f"{_icons.explore_icon} Explore")
         self._explore_btn.setFlat(True)
-        self._explore_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
+        _theme.style(self._explore_btn, "LIGHTBOX_ACTION_BTN")
         self._explore_btn.setToolTip(
             "Explore — walk the adjacency trail of everything you've dived through"
         )
@@ -286,7 +286,7 @@ class _LightboxCard(QFrame):
         close_btn = QPushButton(_icons.close_icon)
         close_btn.setFlat(True)
         close_btn.setFixedSize(24, 24)
-        close_btn.setStyleSheet(_theme.LIGHTBOX_CLOSE_BTN)
+        _theme.style(close_btn, "LIGHTBOX_CLOSE_BTN")
         close_btn.setToolTip("Close preview (Esc)")
         close_btn.clicked.connect(self.close_clicked)
         row.addWidget(close_btn)
@@ -308,11 +308,11 @@ class _LightboxCard(QFrame):
         # its own, so the card (Fixed/Maximum) expands to show every section. The
         # vertical scrollbar then appears ONLY when content exceeds the height cap.
         scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        scroll.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(scroll, "BG_TRANSPARENT")
         self._body_scroll = scroll
 
         content = QWidget()
-        content.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(content, "BG_TRANSPARENT")
         body = QVBoxLayout(content)
         body.setContentsMargins(24, 14, 24, 14)
         body.setSpacing(2)
@@ -344,7 +344,7 @@ class _LightboxCard(QFrame):
         left.addWidget(self._poster, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self._play_btn = QPushButton(f"{_icons.play_icon} Play")
-        self._play_btn.setStyleSheet(_theme.LIGHTBOX_PLAY_PRIMARY)
+        _theme.style(self._play_btn, "LIGHTBOX_PLAY_PRIMARY")
         self._play_btn.setToolTip("Play this title")
         self._play_btn.clicked.connect(self.play_clicked)
         left.addWidget(self._play_btn)
@@ -364,11 +364,11 @@ class _LightboxCard(QFrame):
         title_row.setSpacing(8)
         title_row.setContentsMargins(0, 0, 0, 0)
         self._heading_lbl = QLabel()
-        self._heading_lbl.setStyleSheet(_theme.LIGHTBOX_HEADING)
+        _theme.style(self._heading_lbl, "LIGHTBOX_HEADING")
         self._heading_lbl.setWordWrap(True)
         title_row.addWidget(self._heading_lbl, 0)
         self._year_lbl = QLabel()
-        self._year_lbl.setStyleSheet(_theme.LIGHTBOX_META)
+        _theme.style(self._year_lbl, "LIGHTBOX_META")
         title_row.addWidget(self._year_lbl, 0, Qt.AlignmentFlag.AlignBottom)
         title_row.addStretch()
         right.addLayout(title_row)
@@ -387,7 +387,7 @@ class _LightboxCard(QFrame):
         self._source_dot = QLabel(_icons.status_dot_icon)
         src_row.addWidget(self._source_dot)
         self._source_lbl = QLabel()
-        self._source_lbl.setStyleSheet(_theme.LIGHTBOX_SOURCE)
+        _theme.style(self._source_lbl, "LIGHTBOX_SOURCE")
         src_row.addWidget(self._source_lbl)
         src_row.addStretch()
         self._source_row_w = QWidget()
@@ -425,17 +425,17 @@ class _LightboxCard(QFrame):
         act_row.setContentsMargins(0, 10, 0, 0)
         act_row.setSpacing(7)
         self._queue_btn = QPushButton()
-        self._queue_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
+        _theme.style(self._queue_btn, "LIGHTBOX_ACTION_BTN")
         self._queue_btn.setToolTip("Add to / remove from Watch Later")
         self._queue_btn.clicked.connect(self.queue_clicked)
         act_row.addWidget(self._queue_btn)
         self._fav_btn = QPushButton()
-        self._fav_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
+        _theme.style(self._fav_btn, "LIGHTBOX_ACTION_BTN")
         self._fav_btn.setToolTip("Add to / remove from Favorites")
         self._fav_btn.clicked.connect(self.favorite_clicked)
         act_row.addWidget(self._fav_btn)
         self._hide_btn = QPushButton(f"{_icons.hide_icon} Hide")
-        self._hide_btn.setStyleSheet(_theme.LIGHTBOX_ACTION_BTN)
+        _theme.style(self._hide_btn, "LIGHTBOX_ACTION_BTN")
         self._hide_btn.setToolTip("Hide this channel from all views")
         self._hide_btn.clicked.connect(self.hide_clicked)
         act_row.addWidget(self._hide_btn)
@@ -457,7 +457,7 @@ class _LightboxCard(QFrame):
         btn.setFixedSize(38, 32)
         btn.setFlat(True)
         btn.setToolTip(tip)
-        btn.setStyleSheet(_theme.RATING_BTN)
+        _theme.style(btn, "RATING_BTN")
         return btn
 
     def _on_poster_clicked(self) -> None:
@@ -476,7 +476,7 @@ class _LightboxCard(QFrame):
         body.addWidget(self._overview_hdr)
         self._plot_lbl = QLabel()
         self._plot_lbl.setWordWrap(True)
-        self._plot_lbl.setStyleSheet(_theme.LIGHTBOX_PLOT)
+        _theme.style(self._plot_lbl, "LIGHTBOX_PLOT")
         body.addWidget(self._plot_lbl)
 
     def _build_cast(self, body: QVBoxLayout) -> None:
@@ -484,7 +484,7 @@ class _LightboxCard(QFrame):
         body.addWidget(self._cast_hdr)
         self._cast_lbl = QLabel()
         self._cast_lbl.setWordWrap(True)
-        self._cast_lbl.setStyleSheet(_theme.LIGHTBOX_CAST)
+        _theme.style(self._cast_lbl, "LIGHTBOX_CAST")
         body.addWidget(self._cast_lbl)
 
     def _build_versions_column(self, hero: QHBoxLayout) -> None:
@@ -544,9 +544,9 @@ class _LightboxCard(QFrame):
         self._strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._strip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._strip_scroll.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(self._strip_scroll, "BG_TRANSPARENT")
         self._strip_w = QWidget()
-        self._strip_w.setStyleSheet(_theme.BG_TRANSPARENT)
+        _theme.style(self._strip_w, "BG_TRANSPARENT")
         self._strip_layout = QHBoxLayout(self._strip_w)
         self._strip_layout.setContentsMargins(0, 6, 0, 6)
         self._strip_layout.setSpacing(12)
@@ -556,7 +556,7 @@ class _LightboxCard(QFrame):
 
     def _build_footer(self, outer: QVBoxLayout) -> None:
         bar = QWidget()
-        bar.setStyleSheet(_theme.LIGHTBOX_FOOTER_BAR)
+        _theme.style(bar, "LIGHTBOX_FOOTER_BAR")
         row = QHBoxLayout(bar)
         row.setContentsMargins(20, 10, 20, 10)
         row.setSpacing(18)
@@ -568,17 +568,17 @@ class _LightboxCard(QFrame):
         ]
         for key, text in hints:
             kbd = QLabel(key)
-            kbd.setStyleSheet(_theme.LIGHTBOX_KBD)
+            _theme.style(kbd, "LIGHTBOX_KBD")
             row.addWidget(kbd)
             lbl = QLabel(text)
-            lbl.setStyleSheet(_theme.LIGHTBOX_FOOTER_HINT)
+            _theme.style(lbl, "LIGHTBOX_FOOTER_HINT")
             row.addWidget(lbl)
         row.addStretch()
         outer.addWidget(bar)
 
     def _section_header(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(_theme.LIGHTBOX_SECTION_HDR)
+        _theme.style(lbl, "LIGHTBOX_SECTION_HDR")
         # Top margin gives each section the mockup's breathing gap (body spacing
         # adds the rest); the small bottom margin keeps the header tight to its
         # own content.
@@ -701,7 +701,7 @@ class _LightboxCard(QFrame):
         rating = data.get("rating")
         if rating:
             star = QLabel(f"{_icons.rating_star_icon} {rating}")
-            star.setStyleSheet(_theme.LIGHTBOX_STAR)
+            _theme.style(star, "LIGHTBOX_STAR")
             parts.append(star)
         runtime = _fmt_runtime(data.get("runtime"))
         if runtime:
@@ -721,14 +721,14 @@ class _LightboxCard(QFrame):
             if not first:
                 self._meta_row.addWidget(self._meta_sep())
             badge = QLabel(f"{_icons.variant_count_icon}{count} versions")
-            badge.setStyleSheet(_theme.LIGHTBOX_VERSION_BADGE)
+            _theme.style(badge, "LIGHTBOX_VERSION_BADGE")
             badge.setToolTip(f"{count} other version(s) — see Other Versions below")
             self._meta_row.addWidget(badge)
         self._meta_row.addStretch()
 
     def _meta_text(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(_theme.LIGHTBOX_META)
+        _theme.style(lbl, "LIGHTBOX_META")
         return lbl
 
     def _meta_sep(self) -> QLabel:
@@ -753,7 +753,7 @@ class _LightboxCard(QFrame):
             if not g:
                 continue
             chip = QLabel(g)
-            chip.setStyleSheet(_theme.LIGHTBOX_GENRE_CHIP)
+            _theme.style(chip, "LIGHTBOX_GENRE_CHIP")
             self._genres_flow.addWidget(chip)
             shown += 1
         self._genres_w.setVisible(shown > 0)
@@ -850,7 +850,7 @@ class _LightboxCard(QFrame):
         poster_wrap = _ClickableFrame()
         poster_wrap.setObjectName("lightbox_sim_poster")
         poster_wrap.setFixedSize(_SIM_W, _SIM_H)
-        poster_wrap.setStyleSheet(_theme.LIGHTBOX_SIM_POSTER)
+        _theme.style(poster_wrap, "LIGHTBOX_SIM_POSTER")
         set_clickable(poster_wrap)
         poster_wrap.setToolTip(f"Preview in lightbox: {name}")
         # The whole poster is the dive-in target — no separate ⤢ button (it was
@@ -867,7 +867,7 @@ class _LightboxCard(QFrame):
         col.addWidget(poster_wrap)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_NAME)
+        _theme.style(name_lbl, "LIGHTBOX_SIM_NAME")
         name_lbl.setWordWrap(True)
         name_lbl.setFixedWidth(_SIM_W)
         col.addWidget(name_lbl)

@@ -235,7 +235,7 @@ class _ContentCard(QWidget):
                 self._poster_frame,
             )
             vc_lbl.setFont(_theme.zoomed_font(_theme.FONT_SM, z))
-            vc_lbl.setStyleSheet(_theme.VARIANT_BADGE)
+            _theme.style(vc_lbl, "VARIANT_BADGE")
             vc_lbl.adjustSize()
             # Position: bottom-left, below the rating badge (if any).
             # If rating is present, move 2 rows up from the bottom; otherwise 1 row.

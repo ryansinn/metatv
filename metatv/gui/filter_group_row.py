@@ -62,11 +62,11 @@ class _TriCheckbox(QCheckBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTristate(True)
-        self.setStyleSheet(_theme.FILTER_CHECKBOX)
+        _theme.style(self, "FILTER_CHECKBOX")
 
     def refresh_theme(self) -> None:
         """Re-apply the current theme's :data:`theme.FILTER_CHECKBOX` role."""
-        self.setStyleSheet(_theme.FILTER_CHECKBOX)
+        _theme.style(self, "FILTER_CHECKBOX")
 
     def mousePressEvent(self, event):
         state = self.checkState()
@@ -95,7 +95,7 @@ class _ItemRow(QWidget):
 
         self._cb = QCheckBox()
         self._cb.setChecked(True)
-        self._cb.setStyleSheet(_theme.FILTER_CHECKBOX)
+        _theme.style(self._cb, "FILTER_CHECKBOX")
         layout.addWidget(self._cb)
 
         self._label = QLabel(label)
@@ -108,14 +108,14 @@ class _ItemRow(QWidget):
         self._count_lbl: QLabel | None = None
         if count > 0:
             self._count_lbl = QLabel(_fmt(count))
-            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+            _theme.style(self._count_lbl, "ITEM_COUNT")
             self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this item across all facet sections
         self._only_btn = QPushButton(_icons.filter_only_icon)
         self._only_btn.setFixedSize(16, 16)
-        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        _theme.style(self._only_btn, "FILTER_ONLY_BTN")
         self._only_btn.setToolTip("Show only this group")
         self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._key))
         layout.addWidget(self._only_btn)
@@ -127,11 +127,11 @@ class _ItemRow(QWidget):
 
     def refresh_theme(self) -> None:
         """Re-apply this row's tokens (checkbox, label, count, "Only" button)."""
-        self._cb.setStyleSheet(_theme.FILTER_CHECKBOX)
+        _theme.style(self._cb, "FILTER_CHECKBOX")
         self._label.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT};")
         if self._count_lbl is not None:
-            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
-        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+            _theme.style(self._count_lbl, "ITEM_COUNT")
+        _theme.style(self._only_btn, "FILTER_ONLY_BTN")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -203,14 +203,14 @@ class _GroupRow(QWidget):
         self._count_lbl: QLabel | None = None
         if total_count > 0:
             self._count_lbl = QLabel(_fmt(total_count))
-            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
+            _theme.style(self._count_lbl, "ITEM_COUNT")
             self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             hl.addWidget(self._count_lbl)
 
         # "Only" link-button — shows only this group's channels across all facet sections
         self._only_btn = QPushButton(_icons.filter_only_icon)
         self._only_btn.setFixedSize(16, 16)
-        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+        _theme.style(self._only_btn, "FILTER_ONLY_BTN")
         self._only_btn.setToolTip("Show only this group")
         self._only_btn.clicked.connect(lambda: self.only_clicked.emit(self._group_name))
         hl.addWidget(self._only_btn)
@@ -290,8 +290,8 @@ class _GroupRow(QWidget):
         self._tri.refresh_theme()
         self._name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; color: {_theme.COLOR_TEXT_LOW};")
         if self._count_lbl is not None:
-            self._count_lbl.setStyleSheet(_theme.ITEM_COUNT)
-        self._only_btn.setStyleSheet(_theme.FILTER_ONLY_BTN)
+            _theme.style(self._count_lbl, "ITEM_COUNT")
+        _theme.style(self._only_btn, "FILTER_ONLY_BTN")
         for row in self._children:
             row.refresh_theme()
 
@@ -445,7 +445,7 @@ class _Section(QWidget):
         self._select_all.refresh_theme()
         self._sep.setStyleSheet(f"color: {_theme.COLOR_LINE_DARK};")
         if self._show_all_btn is not None:
-            self._show_all_btn.setStyleSheet(_theme.FILTER_SHOW_ALL_BTN)
+            _theme.style(self._show_all_btn, "FILTER_SHOW_ALL_BTN")
         for row in self._rows:
             row.refresh_theme()
         for group in self._groups:
@@ -489,7 +489,7 @@ class _Section(QWidget):
             self._show_all_btn = QPushButton(
                 f"{_icons.show_all_icon} Show all ({total})"
             )
-            self._show_all_btn.setStyleSheet(_theme.FILTER_SHOW_ALL_BTN)
+            _theme.style(self._show_all_btn, "FILTER_SHOW_ALL_BTN")
             self._show_all_btn.setToolTip(
                 f"Show all {total} values — {overflow_count} more below the top {_SHOW_ALL_TOP_N}"
             )

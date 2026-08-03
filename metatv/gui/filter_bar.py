@@ -117,11 +117,11 @@ class FilterChip(ToggleChip):
         self.blockSignals(False)
         if has_filters and paused:
             self.setText(f"{self.label} ●")
-            self.setStyleSheet(_theme.EXCL_CHIP_PAUSED)
+            _theme.style(self, "EXCL_CHIP_PAUSED")
             self.setToolTip("Filters paused — click to resume · right-click to edit")
         elif has_filters:
             self.setText(f"{self.label} ●")
-            self.setStyleSheet(_theme.EXCL_CHIP_ACTIVE)
+            _theme.style(self, "EXCL_CHIP_ACTIVE")
             self.setToolTip("Filters active — click to pause · right-click to edit")
         else:
             self.update_appearance()   # standard gray ○

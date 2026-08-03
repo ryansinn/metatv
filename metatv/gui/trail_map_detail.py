@@ -71,7 +71,7 @@ class _DetailPoster(QFrame):
         super().__init__(parent)
         self.setObjectName("trailmap_detail_poster")
         self.setFixedSize(_DPOSTER_W, _DPOSTER_H)
-        self.setStyleSheet(_theme.TRAILMAP_DETAIL_POSTER)
+        _theme.style(self, "TRAILMAP_DETAIL_POSTER")
         set_clickable(self)
         self.setToolTip("Click to enlarge the poster")
 
@@ -132,7 +132,7 @@ class TrailDetailStrip(QWidget):
         super().__init__(parent)
         self.setObjectName("trailmap_detail")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(_theme.TRAILMAP_DETAIL)
+        _theme.style(self, "TRAILMAP_DETAIL")
 
         self._row: TrailRowDTO | None = None
         self._can_resume = False
@@ -162,16 +162,16 @@ class TrailDetailStrip(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
         self._title_lbl = QLabel()
-        self._title_lbl.setStyleSheet(_theme.TRAILMAP_DETAIL_TITLE)
+        _theme.style(self._title_lbl, "TRAILMAP_DETAIL_TITLE")
         title_row.addWidget(self._title_lbl, 0)
         self._year_lbl = QLabel()
-        self._year_lbl.setStyleSheet(_theme.TRAILMAP_DETAIL_YEAR)
+        _theme.style(self._year_lbl, "TRAILMAP_DETAIL_YEAR")
         title_row.addWidget(self._year_lbl, 0, Qt.AlignmentFlag.AlignBottom)
         self._fav_star = QPushButton(_icons.unfavorite_icon)
         self._fav_star.setCheckable(True)
         self._fav_star.setFlat(True)
         self._fav_star.setFixedSize(30, 30)
-        self._fav_star.setStyleSheet(_theme.TRAILMAP_FAV_STAR)
+        _theme.style(self._fav_star, "TRAILMAP_FAV_STAR")
         self._fav_star.clicked.connect(self._on_fav_clicked)
         title_row.addWidget(self._fav_star, 0, Qt.AlignmentFlag.AlignVCenter)
         title_row.addStretch()
@@ -185,12 +185,12 @@ class TrailDetailStrip(QWidget):
 
         self._overview_lbl = QLabel()
         self._overview_lbl.setWordWrap(True)
-        self._overview_lbl.setStyleSheet(_theme.TRAILMAP_OVERVIEW)
+        _theme.style(self._overview_lbl, "TRAILMAP_OVERVIEW")
         body.addWidget(self._overview_lbl)
 
         self._crew_lbl = QLabel()
         self._crew_lbl.setWordWrap(True)
-        self._crew_lbl.setStyleSheet(_theme.TRAILMAP_CREW)
+        _theme.style(self._crew_lbl, "TRAILMAP_CREW")
         body.addWidget(self._crew_lbl)
 
         body.addStretch()
@@ -206,7 +206,7 @@ class TrailDetailStrip(QWidget):
         side.addStretch()
 
         self._play_btn = QPushButton()
-        self._play_btn.setStyleSheet(_theme.TRAILMAP_PLAY_BTN)
+        _theme.style(self._play_btn, "TRAILMAP_PLAY_BTN")
         self._play_btn.clicked.connect(self._on_play_clicked)
         side.addWidget(self._play_btn)
 
@@ -217,13 +217,13 @@ class TrailDetailStrip(QWidget):
         side.addWidget(self._sentiment, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self._open_btn = QPushButton(f"{_icons.see_all_arrow_icon} Open in details")
-        self._open_btn.setStyleSheet(_theme.TRAILMAP_DETAIL_LINK_BTN)
+        _theme.style(self._open_btn, "TRAILMAP_DETAIL_LINK_BTN")
         self._open_btn.setToolTip("Open this title in the main details pane")
         self._open_btn.clicked.connect(self.open_details_clicked)
         side.addWidget(self._open_btn)
 
         self._recipe_btn = QPushButton(f"{_icons.recipe_icon} Make recipe")
-        self._recipe_btn.setStyleSheet(_theme.TRAILMAP_DETAIL_LINK_BTN)
+        _theme.style(self._recipe_btn, "TRAILMAP_DETAIL_LINK_BTN")
         self._recipe_btn.setToolTip("Build a recipe from this title's genre & tags")
         self._recipe_btn.clicked.connect(self.recipe_clicked)
         side.addWidget(self._recipe_btn)
@@ -246,7 +246,7 @@ class TrailDetailStrip(QWidget):
         self._fav_star.setText(_icons.unfavorite_icon)
         self._clear_meta()
         self._overview_lbl.setText("Pick any stop or similar title above to see its details here.")
-        self._overview_lbl.setStyleSheet(_theme.TRAILMAP_EMPTY_HINT)
+        _theme.style(self._overview_lbl, "TRAILMAP_EMPTY_HINT")
         self._crew_lbl.hide()
         self._play_btn.setText(f"{_icons.play_icon} Play")
         self._play_btn.setEnabled(False)
@@ -280,7 +280,7 @@ class TrailDetailStrip(QWidget):
         # Meta + overview/crew render from the row now; set_metadata enriches them.
         self._render_meta(row, detail={})
         self._apply_play_label(row)
-        self._overview_lbl.setStyleSheet(_theme.TRAILMAP_OVERVIEW)
+        _theme.style(self._overview_lbl, "TRAILMAP_OVERVIEW")
         self._overview_lbl.setText("")
         self._overview_lbl.hide()
         self._crew_lbl.hide()
@@ -295,7 +295,7 @@ class TrailDetailStrip(QWidget):
             return
         self._render_meta(self._row, detail)
         plot = (detail.get("plot") or "").strip()
-        self._overview_lbl.setStyleSheet(_theme.TRAILMAP_OVERVIEW)
+        _theme.style(self._overview_lbl, "TRAILMAP_OVERVIEW")
         self._overview_lbl.setText(plot)
         self._overview_lbl.setVisible(bool(plot))
 
@@ -343,7 +343,7 @@ class TrailDetailStrip(QWidget):
             parts.append(self._meta_text(runtime))
         if row.lang:
             chip = QLabel(row.lang)
-            chip.setStyleSheet(_theme.LANG_CHIP)   # shared canonical lang/region chip
+            _theme.style(chip, "LANG_CHIP")   # shared canonical lang/region chip
             chip.setToolTip(f"Language / region: {row.lang}")
             parts.append(chip)
         if row.watch_count:

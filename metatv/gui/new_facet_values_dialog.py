@@ -121,7 +121,7 @@ class NewFacetValuesDialog(QDialog):
             (self._select_all_btn, True),
             (self._unselect_all_btn, False),
         ):
-            btn.setStyleSheet(_theme.RECIPE_CLEAR_BTN)
+            _theme.style(btn, "RECIPE_CLEAR_BTN")
             cursor_affordance.set_clickable(btn)
             # default=checked: bind the loop value now, not at click time.
             btn.clicked.connect(

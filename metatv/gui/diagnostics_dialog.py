@@ -117,7 +117,7 @@ class StreamDiagnosticsDialog(QDialog):
         layout.setSpacing(10)
 
         title = QLabel(f"{_icons.diagnose_icon} {self._channel_name}")
-        title.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(title, "DETAIL_TITLE")
         title.setWordWrap(True)
         layout.addWidget(title)
 
@@ -128,7 +128,7 @@ class StreamDiagnosticsDialog(QDialog):
                 "for an accurate result."
             )
             warn.setWordWrap(True)
-            warn.setStyleSheet(_theme.DIAG_PLAYING_WARNING)
+            _theme.style(warn, "DIAG_PLAYING_WARNING")
             layout.addWidget(warn)
 
         self._run_button = QPushButton("Run diagnostic")
@@ -145,26 +145,26 @@ class StreamDiagnosticsDialog(QDialog):
         # Plain-language summary.
         self._summary = QLabel("Run a diagnostic to see results.")
         self._summary.setWordWrap(True)
-        self._summary.setStyleSheet(_theme.DIAG_SUMMARY)
+        _theme.style(self._summary, "DIAG_SUMMARY")
         layout.addWidget(self._summary)
 
         # Key metrics block.
         self._metrics = QLabel("")
         self._metrics.setWordWrap(True)
-        self._metrics.setStyleSheet(_theme.DIAG_METRICS)
+        _theme.style(self._metrics, "DIAG_METRICS")
         self._metrics.hide()
         layout.addWidget(self._metrics)
 
         # Recommended args / saved confirmation.
         self._recommend = QLabel("")
         self._recommend.setWordWrap(True)
-        self._recommend.setStyleSheet(_theme.DIAG_RECOMMEND)
+        _theme.style(self._recommend, "DIAG_RECOMMEND")
         self._recommend.hide()
         layout.addWidget(self._recommend)
 
         self._saved = QLabel("")
         self._saved.setWordWrap(True)
-        self._saved.setStyleSheet(_theme.DIAG_SAVED)
+        _theme.style(self._saved, "DIAG_SAVED")
         self._saved.hide()
         layout.addWidget(self._saved)
 

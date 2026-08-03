@@ -955,7 +955,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._settings_btn = QPushButton(f"{self.config.settings_icon} Settings")
         self._settings_btn.setFlat(True)
         self._settings_btn.setToolTip("Open application settings (Ctrl+,)")
-        self._settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        _theme.style(self._settings_btn, "FLAT_NAV_BTN")
         self._settings_btn.clicked.connect(self.open_settings)
         outer_layout.addWidget(self._settings_btn)
 
@@ -1500,7 +1500,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             "Diagnose stream quality of the selected channel — "
             "is buffering your source or your connection?"
         )
-        self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+        _theme.style(self._diagnose_btn, "FLAT_NAV_BTN")
         self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)
         layout.addWidget(self._diagnose_btn)
 
@@ -1510,7 +1510,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._split_toggle_btn.setChecked(
             getattr(self.config, "split_streams_by_source", False)
         )
-        self._split_toggle_btn.setStyleSheet(_theme.NAV_TOGGLE_BTN)
+        _theme.style(self._split_toggle_btn, "NAV_TOGGLE_BTN")
         self._split_toggle_btn.setToolTip(
             "Split streams — keep one player window per source.\n"
             "Off: each play replaces the shared window.\n"
@@ -1524,7 +1524,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._playback_health_label.setToolTip(
             "Live playback health (buffer · download speed · dropped frames)"
         )
-        self._playback_health_label.setStyleSheet(_theme.NAV_HEALTH)
+        _theme.style(self._playback_health_label, "NAV_HEALTH")
         self._playback_health_label.hide()
         self._playback_health_label.clicked.connect(self._on_health_readout_clicked)
         layout.addWidget(self._playback_health_label)
@@ -1629,18 +1629,18 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # Context filter chip — hidden until a details-pane genre/person filter is active
         self._context_filter_chip = QWidget()
         self._context_filter_chip.hide()
-        self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
+        _theme.style(self._context_filter_chip, "CONTEXT_FILTER_CHIP")
         _cfc_layout = QHBoxLayout(self._context_filter_chip)
         _cfc_layout.setContentsMargins(6, 2, 6, 2)
         _cfc_layout.setSpacing(4)
         self._context_filter_label = QLabel()
-        self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
+        _theme.style(self._context_filter_label, "CONTEXT_FILTER_CHIP_LABEL")
         _cfc_layout.addWidget(self._context_filter_label)
         self._context_filter_dismiss_btn = QPushButton("✕")
         self._context_filter_dismiss_btn.setFixedSize(16, 16)
         self._context_filter_dismiss_btn.setFlat(True)
         self._context_filter_dismiss_btn.setToolTip("Clear filter")
-        self._context_filter_dismiss_btn.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
+        _theme.style(self._context_filter_dismiss_btn, "CONTEXT_FILTER_CHIP_BTN")
         self._context_filter_dismiss_btn.clicked.connect(self._clear_context_filter)
         _cfc_layout.addWidget(self._context_filter_dismiss_btn)
         controls_layout.addWidget(self._context_filter_chip)
@@ -2053,7 +2053,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # by _hide_all_content_views. epg_view already exists (built above), so the
         # Refresh button wires straight to its force-refresh seam.
         self.epg_status_label = QLabel("")
-        self.epg_status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self.epg_status_label, "CHANNEL_NAME_DIM")
         self.epg_status_label.setVisible(False)
         stats_layout.addWidget(self.epg_status_label)
 
@@ -2426,42 +2426,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if not _theme.apply_theme(self.config.theme_name):
             return
 
-        # Tell the truth about what just happened. The sweep below reaches the
-        # chrome it knows about, but Qt caches the RENDERED stylesheet string,
-        # and there are ~838 setStyleSheet call sites against ~22 refresh_theme
-        # methods — so a live switch leaves much of the app on the OLD palette,
-        # which in a light theme reads as unstyled/broken rather than "not
-        # refreshed". Until the style registry lands (ROADMAP "Next Up"), say so
-        # instead of silently half-applying. Suppressed on the startup call,
-        # where nothing is stale because the theme was applied before any widget
-        # existed (__main__.py:57).
-        if self.__dict__.get("_theme_ever_switched"):
-            notify = self.__dict__.get("notification_manager")
-            if notify is not None:
-                notify.show(
-                    title="Theme changed — restart to apply it everywhere",
-                    message=(
-                        "Some views keep the previous colours until MetaTV is "
-                        "restarted. Known limitation, not a failed switch."
-                    ),
-                    type="info",
-                    auto_dismiss_ms=8000,
-                )
-        self._theme_ever_switched = True
 
         if hasattr(self, "_settings_btn"):
-            self._settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+            _theme.style(self._settings_btn, "FLAT_NAV_BTN")
         if hasattr(self, "_bottom_nav_bar"):
             self._bottom_nav_bar.setStyleSheet(
                 f"#bottomNavBar {{ background: {_theme.COLOR_BG_BAR};"
                 f" border-top: 1px solid {_theme.COLOR_LINE}; }}"
             )
         if hasattr(self, "_diagnose_btn"):
-            self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
+            _theme.style(self._diagnose_btn, "FLAT_NAV_BTN")
         if hasattr(self, "_split_toggle_btn"):
-            self._split_toggle_btn.setStyleSheet(_theme.NAV_TOGGLE_BTN)
+            _theme.style(self._split_toggle_btn, "NAV_TOGGLE_BTN")
         if hasattr(self, "_playback_health_label"):
-            self._playback_health_label.setStyleSheet(_theme.NAV_HEALTH)
+            _theme.style(self._playback_health_label, "NAV_HEALTH")
 
         if hasattr(self, "_tab_all_btn") and hasattr(self, "_tab_hidden_btn"):
             _tab_style = (
@@ -2482,10 +2460,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             )
 
         if hasattr(self, "_context_filter_chip"):
-            self._context_filter_chip.setStyleSheet(_theme.CONTEXT_FILTER_CHIP)
-            self._context_filter_label.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_LABEL)
+            _theme.style(self._context_filter_chip, "CONTEXT_FILTER_CHIP")
+            _theme.style(self._context_filter_label, "CONTEXT_FILTER_CHIP_LABEL")
         if hasattr(self, "_context_filter_dismiss_btn"):
-            self._context_filter_dismiss_btn.setStyleSheet(_theme.CONTEXT_FILTER_CHIP_BTN)
+            _theme.style(self._context_filter_dismiss_btn, "CONTEXT_FILTER_CHIP_BTN")
 
         if hasattr(self, "_manage_cats_btn"):
             self._manage_cats_btn.setStyleSheet(
@@ -2520,7 +2498,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if hasattr(self, "stats_label"):
             self.stats_label.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_LG};")
         if hasattr(self, "epg_status_label"):
-            self.epg_status_label.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+            _theme.style(self.epg_status_label, "CHANNEL_NAME_DIM")
 
         for section in getattr(self, "sidebar_sections", {}).values():
             if hasattr(section, "refresh_theme"):

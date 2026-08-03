@@ -58,7 +58,7 @@ class _RecipeTabBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(_theme.RECIPE_TABBAR_BG)
+        _theme.style(self, "RECIPE_TABBAR_BG")
         self._index = 0
 
         row = QHBoxLayout(self)
@@ -78,7 +78,7 @@ class _RecipeTabBar(QWidget):
         row.addStretch()
 
         self._hint = QLabel("Click a tag to add it · click a facet name to drill in")
-        self._hint.setStyleSheet(_theme.RECIPE_TABBAR_HINT)
+        _theme.style(self._hint, "RECIPE_TABBAR_HINT")
         row.addWidget(self._hint)
 
         self._apply()
@@ -110,8 +110,8 @@ class _RecipeTabBar(QWidget):
         active/inactive styling logic ``set_index`` already drives — so the
         pill-state semantics are never duplicated.
         """
-        self.setStyleSheet(_theme.RECIPE_TABBAR_BG)
-        self._hint.setStyleSheet(_theme.RECIPE_TABBAR_HINT)
+        _theme.style(self, "RECIPE_TABBAR_BG")
+        _theme.style(self._hint, "RECIPE_TABBAR_HINT")
         self._apply()
 
 
@@ -182,7 +182,7 @@ class _RecipeBar(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("recipeBar")
-        self.setStyleSheet(_theme.RECIPE_BAR_BG)
+        _theme.style(self, "RECIPE_BAR_BG")
         self._build_ui()
 
     # ── public ────────────────────────────────────────────────────────────
@@ -235,7 +235,7 @@ class _RecipeBar(QWidget):
         row.setSpacing(12)
 
         self._recipe_label = QLabel("RECIPE")
-        self._recipe_label.setStyleSheet(_theme.RECIPE_BAR_LABEL)
+        _theme.style(self._recipe_label, "RECIPE_BAR_LABEL")
         self._recipe_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self._recipe_label)
 
@@ -244,23 +244,23 @@ class _RecipeBar(QWidget):
         row.addWidget(self._ings, stretch=1)
 
         self._empty_lbl = QLabel("Your recipe is empty — click any tag above to add it")
-        self._empty_lbl.setStyleSheet(_theme.RECIPE_BAR_EMPTY)
+        _theme.style(self._empty_lbl, "RECIPE_BAR_EMPTY")
         row.addWidget(self._empty_lbl, stretch=1)
 
         self._yield_lbl = QLabel("→ 0 titles")
-        self._yield_lbl.setStyleSheet(_theme.RECIPE_BAR_YIELD)
+        _theme.style(self._yield_lbl, "RECIPE_BAR_YIELD")
         self._yield_lbl.setTextFormat(Qt.TextFormat.RichText)
         row.addWidget(self._yield_lbl)
 
         self.save_btn = QPushButton(f"{_icons.recipe_icon} Save")
-        self.save_btn.setStyleSheet(_theme.RECIPE_BAR_SAVE_BTN)
+        _theme.style(self.save_btn, "RECIPE_BAR_SAVE_BTN")
         self.save_btn.setToolTip("Save this recipe to the Saved tab")
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_requested)
         row.addWidget(self.save_btn)
 
         self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setStyleSheet(_theme.RECIPE_BAR_CLEAR_BTN)
+        _theme.style(self.clear_btn, "RECIPE_BAR_CLEAR_BTN")
         self.clear_btn.setToolTip("Remove all ingredients from the recipe")
         self.clear_btn.setEnabled(False)
         self.clear_btn.clicked.connect(self.clear_requested)
@@ -276,12 +276,12 @@ class _RecipeBar(QWidget):
         fresh from current tokens on every ``update_recipe()`` call, so they
         need no sweep entry here.
         """
-        self.setStyleSheet(_theme.RECIPE_BAR_BG)
-        self._recipe_label.setStyleSheet(_theme.RECIPE_BAR_LABEL)
-        self._empty_lbl.setStyleSheet(_theme.RECIPE_BAR_EMPTY)
-        self._yield_lbl.setStyleSheet(_theme.RECIPE_BAR_YIELD)
-        self.save_btn.setStyleSheet(_theme.RECIPE_BAR_SAVE_BTN)
-        self.clear_btn.setStyleSheet(_theme.RECIPE_BAR_CLEAR_BTN)
+        _theme.style(self, "RECIPE_BAR_BG")
+        _theme.style(self._recipe_label, "RECIPE_BAR_LABEL")
+        _theme.style(self._empty_lbl, "RECIPE_BAR_EMPTY")
+        _theme.style(self._yield_lbl, "RECIPE_BAR_YIELD")
+        _theme.style(self.save_btn, "RECIPE_BAR_SAVE_BTN")
+        _theme.style(self.clear_btn, "RECIPE_BAR_CLEAR_BTN")
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +351,7 @@ class _MatchingShelf(QWidget):
 
         if not cards:
             placeholder = QLabel("No titles match this recipe yet")
-            placeholder.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+            _theme.style(placeholder, "RECIPE_EMPTY_HINT")
             self._inner_layout.addWidget(placeholder)
             placeholder.show()
             self._inner_layout.addStretch()
@@ -403,17 +403,17 @@ class _MatchingShelf(QWidget):
         hdr_row.setSpacing(10)
 
         self._hdr_lbl = QLabel("MATCHING CONTENT")
-        self._hdr_lbl.setStyleSheet(_theme.RECIPE_MATCH_HDR)
+        _theme.style(self._hdr_lbl, "RECIPE_MATCH_HDR")
         hdr_row.addWidget(self._hdr_lbl)
 
         self._sub = QLabel("preview · 0 total")
-        self._sub.setStyleSheet(_theme.RECIPE_MATCH_SUB)
+        _theme.style(self._sub, "RECIPE_MATCH_SUB")
         hdr_row.addWidget(self._sub)
         hdr_row.addStretch()
 
         self._show_all_btn = QPushButton(f"Show all {_icons.see_all_arrow_icon}")
         self._show_all_btn.setFlat(True)
-        self._show_all_btn.setStyleSheet(_theme.RECIPE_SHOW_ALL_BTN)
+        _theme.style(self._show_all_btn, "RECIPE_SHOW_ALL_BTN")
         self._show_all_btn.setToolTip("Browse all matching titles in the full grid")
         self._show_all_btn.setVisible(False)
         self._show_all_btn.clicked.connect(self.showAllRequested)
@@ -451,6 +451,6 @@ class _MatchingShelf(QWidget):
         are rebuilt fresh from current tokens on every ``load_results()``
         call, so they need no sweep entry here.
         """
-        self._hdr_lbl.setStyleSheet(_theme.RECIPE_MATCH_HDR)
-        self._sub.setStyleSheet(_theme.RECIPE_MATCH_SUB)
-        self._show_all_btn.setStyleSheet(_theme.RECIPE_SHOW_ALL_BTN)
+        _theme.style(self._hdr_lbl, "RECIPE_MATCH_HDR")
+        _theme.style(self._sub, "RECIPE_MATCH_SUB")
+        _theme.style(self._show_all_btn, "RECIPE_SHOW_ALL_BTN")

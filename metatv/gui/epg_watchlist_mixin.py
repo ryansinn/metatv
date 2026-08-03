@@ -102,7 +102,7 @@ class _EpgWatchlistMixin:
 
         # Add-keyword row
         self._watchlist_hint_lbl = QLabel("Track a show or keyword — press Enter or click Track to add:")
-        self._watchlist_hint_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._watchlist_hint_lbl, "LABEL_MUTED")
         layout.addWidget(self._watchlist_hint_lbl)
 
         add_row = QHBoxLayout()
@@ -161,7 +161,7 @@ class _EpgWatchlistMixin:
             "No channels pinned yet.\nRight-click any channel in On Now → Watch this channel."
         )
         self.ch_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.ch_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
+        _theme.style(self.ch_empty_label, "EMPTY_LABEL")
 
         self.stack.addWidget(page)
 
@@ -173,7 +173,7 @@ class _EpgWatchlistMixin:
 
         rec_header = QHBoxLayout()
         self._rec_title_lbl = QLabel("Channels with content matching your watchlist patterns:")
-        self._rec_title_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self._rec_title_lbl, "CHANNEL_NAME_DIM")
         rec_header.addWidget(self._rec_title_lbl)
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
@@ -198,7 +198,7 @@ class _EpgWatchlistMixin:
             "Add watchlist patterns to get channel recommendations."
         )
         self.rec_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.rec_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
+        _theme.style(self.rec_empty_label, "EMPTY_LABEL")
 
         self.stack.addWidget(page)
 
@@ -225,7 +225,7 @@ class _EpgWatchlistMixin:
         layout.setContentsMargins(12, 20, 12, 12)
         loading = QLabel(f"{_icons.loading_icon} Loading watchlist…")
         loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        loading.setStyleSheet(_theme.LOADING_TEXT)
+        _theme.style(loading, "LOADING_TEXT")
         layout.addWidget(loading)
         layout.addStretch()
         self.watchlist_scroll.setWidget(placeholder)
@@ -392,7 +392,7 @@ class _EpgWatchlistMixin:
 
             def _section_hdr(text: str) -> QLabel:
                 lbl = QLabel(text)
-                lbl.setStyleSheet(_theme.SECTION_HDR)
+                _theme.style(lbl, "SECTION_HDR")
                 return lbl
 
             def _two_col_row(cards: list, h_estimates: list[int]) -> QWidget:
@@ -517,7 +517,7 @@ class _EpgWatchlistMixin:
         w = QWidget()
         w.setMinimumWidth(320)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        w.setStyleSheet(_theme.CARD_BG)
+        _theme.style(w, "CARD_BG")
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
@@ -539,12 +539,12 @@ class _EpgWatchlistMixin:
 
         header = QHBoxLayout()
         pattern_lbl = QLabel(f"{icon}  {pattern}")
-        pattern_lbl.setStyleSheet(_theme.LIST_TITLE)
+        _theme.style(pattern_lbl, "LIST_TITLE")
         header.addWidget(pattern_lbl)
 
         search_btn = QPushButton("Show all in Search")
         search_btn.setFlat(True)
-        search_btn.setStyleSheet(_theme.LINK_BTN_SM)
+        _theme.style(search_btn, "LINK_BTN_SM")
         search_btn.setToolTip(f'Search all channels for "{pattern}"')
         search_btn.clicked.connect(lambda _=False, p=pattern: self.search_requested.emit(p))
         header.addWidget(search_btn)
@@ -560,7 +560,7 @@ class _EpgWatchlistMixin:
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Remove '{pattern}' from watchlist")
-        remove_btn.setStyleSheet(_theme.CLOSE_BTN)
+        _theme.style(remove_btn, "CLOSE_BTN")
         remove_btn.clicked.connect(lambda _=False, p=pattern: self._remove_pattern(p))
         header.addWidget(remove_btn)
         layout.addLayout(header)
@@ -593,7 +593,7 @@ class _EpgWatchlistMixin:
             time_lbl = QLabel(f"{_remaining_str(prog.stop_time)}  ·")
             time_lbl.setFixedWidth(90)
             time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            time_lbl.setStyleSheet(_theme.TIME_LABEL)
+            _theme.style(time_lbl, "TIME_LABEL")
             row.addWidget(time_lbl)
 
             if category:
@@ -602,7 +602,7 @@ class _EpgWatchlistMixin:
                 row.addWidget(make_region_chip(region, row_w))
 
             name_lbl = QLabel(bare_name)
-            name_lbl.setStyleSheet(_theme.CHANNEL_NAME_LIVE)
+            _theme.style(name_lbl, "CHANNEL_NAME_LIVE")
             row.addWidget(name_lbl, 1)
 
             if display_quality:
@@ -614,7 +614,7 @@ class _EpgWatchlistMixin:
             pb.setFixedSize(22, 20)
             pb.setFlat(True)
             pb.setToolTip(f"Play: {bare_name}")
-            pb.setStyleSheet(_theme.PLAY_BTN)
+            _theme.style(pb, "PLAY_BTN")
             cid = prog.channel_db_id
             pb.clicked.connect(lambda _=False, c=cid: self._play_channel(c))
             row.addWidget(pb)
@@ -713,7 +713,7 @@ class _EpgWatchlistMixin:
         if is_live and upcoming:
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.HLine)
-            sep.setStyleSheet(_theme.SEPARATOR_LINE)
+            _theme.style(sep, "SEPARATOR_LINE")
             sep.setMaximumHeight(1)
             layout.addWidget(sep)
 
@@ -770,14 +770,14 @@ class _EpgWatchlistMixin:
             time_lbl = QLabel(f"{time_str}  ·")
             time_lbl.setFixedWidth(90)
             time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            time_lbl.setStyleSheet(_theme.TIME_LABEL_UPCOMING)
+            _theme.style(time_lbl, "TIME_LABEL_UPCOMING")
             row.addWidget(time_lbl)
             if category:
                 row.addWidget(make_region_chip(category, row_w))
             if region:
                 row.addWidget(make_region_chip(region, row_w))
             name_lbl = QLabel(bare_name)
-            name_lbl.setStyleSheet(_theme.CHANNEL_NAME_UPCOMING)
+            _theme.style(name_lbl, "CHANNEL_NAME_UPCOMING")
             row.addWidget(name_lbl, 1)
             if display_quality:
                 row.addWidget(make_quality_chip(display_quality, row_w))
@@ -862,7 +862,7 @@ class _EpgWatchlistMixin:
         w = QWidget()
         w.setMinimumWidth(280)
         w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        w.setStyleSheet(_theme.CARD_BG)
+        _theme.style(w, "CARD_BG")
         layout = QVBoxLayout(w)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
@@ -885,7 +885,7 @@ class _EpgWatchlistMixin:
         if prefix:
             header.addWidget(make_region_chip(prefix, w))
         ch_lbl = QLabel(bare_name)
-        ch_lbl.setStyleSheet(_theme.LIST_TITLE)
+        _theme.style(ch_lbl, "LIST_TITLE")
         header.addWidget(ch_lbl)
         if display_quality:
             header.addWidget(make_quality_chip(display_quality, w))
@@ -905,7 +905,7 @@ class _EpgWatchlistMixin:
         remove_btn = QPushButton(self.config.close_icon)
         remove_btn.setFixedWidth(24)
         remove_btn.setToolTip(f"Stop watching '{channel_name}'")
-        remove_btn.setStyleSheet(_theme.CLOSE_BTN)
+        _theme.style(remove_btn, "CLOSE_BTN")
         remove_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._unwatch_channel(cid))
         header.addWidget(remove_btn)
         layout.addLayout(header)
@@ -956,7 +956,7 @@ class _EpgWatchlistMixin:
         if prefix:
             layout.addWidget(make_region_chip(prefix, header_w))
         name_lbl = QLabel(bare_name)
-        name_lbl.setStyleSheet(_theme.DISCOVER_REC_NAME)
+        _theme.style(name_lbl, "DISCOVER_REC_NAME")
         layout.addWidget(name_lbl)
         if display_quality:
             layout.addWidget(make_quality_chip(display_quality, header_w))
@@ -967,7 +967,7 @@ class _EpgWatchlistMixin:
         _collapsed_state = [True]  # mutable cell to capture toggle state in closures
 
         count_lbl = QLabel(f"{_icons.expand_icon} {count} matches")
-        count_lbl.setStyleSheet(_theme.DISCOVER_REC_COUNT)
+        _theme.style(count_lbl, "DISCOVER_REC_COUNT")
         cursor_affordance.set_clickable(count_lbl)
         layout.addWidget(count_lbl)
         layout.addStretch()
@@ -975,7 +975,7 @@ class _EpgWatchlistMixin:
         # + Channel button (pins to My Channels watch list)
         watch_btn = QPushButton("+ Channel")
         watch_btn.setFixedWidth(75)
-        watch_btn.setStyleSheet(_theme.DISCOVER_REC_PILL_BTN)
+        _theme.style(watch_btn, "DISCOVER_REC_PILL_BTN")
         watch_btn.setToolTip("Add to My Channels")
         watch_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._watch_channel(cid))
         layout.addWidget(watch_btn)
@@ -983,7 +983,7 @@ class _EpgWatchlistMixin:
         # Play button
         play_btn = QPushButton(_icons.play_icon)
         play_btn.setFixedWidth(28)
-        play_btn.setStyleSheet(_theme.DISCOVER_REC_PILL_BTN)
+        _theme.style(play_btn, "DISCOVER_REC_PILL_BTN")
         play_btn.setToolTip("Play this channel")
         play_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._play_channel(cid))
         layout.addWidget(play_btn)
@@ -991,7 +991,7 @@ class _EpgWatchlistMixin:
         # Skip / dismiss button
         skip_btn = QPushButton(f"{_icons.close_icon} skip")
         skip_btn.setFixedWidth(55)
-        skip_btn.setStyleSheet(_theme.DISCOVER_REC_SKIP_BTN)
+        _theme.style(skip_btn, "DISCOVER_REC_SKIP_BTN")
         skip_btn.setToolTip("Dismiss this recommendation for 7 days")
         skip_btn.clicked.connect(lambda _=False, cid=channel_db_id: self._dismiss_channel(cid))
         layout.addWidget(skip_btn)
@@ -1052,7 +1052,7 @@ class _EpgWatchlistMixin:
 
         if not rows:
             lbl = QLabel("No upcoming matches found")
-            lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(lbl, "LABEL_MUTED")
             sub_layout.addWidget(lbl)
             return
 
@@ -1062,7 +1062,7 @@ class _EpgWatchlistMixin:
             # skews the displayed time by the UTC offset for non-UTC users.
             time_str = _format_time(start_time)
             row_lbl = QLabel(f"{time_str}  ·  {title}")
-            row_lbl.setStyleSheet(_theme.DISCOVER_REC_MATCH_ROW)
+            _theme.style(row_lbl, "DISCOVER_REC_MATCH_ROW")
             sub_layout.addWidget(row_lbl)
 
     # ── Pattern add/remove + dismiss ───────────────────────────────────

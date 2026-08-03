@@ -231,7 +231,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         # empty On Now reads as "provider's guide is stale" rather than "EPG is broken".
         self._stale_epg_notice = QLabel("")
         self._stale_epg_notice.setWordWrap(True)
-        self._stale_epg_notice.setStyleSheet(_theme.EPG_STALE_NOTICE)
+        _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
         self._stale_epg_notice.setContentsMargins(12, 6, 12, 6)
         self._stale_epg_notice.hide()
         root.addWidget(self._stale_epg_notice)
@@ -276,7 +276,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
         # ── Section 1: User-hidden show titles ──────────────────────────
         sec1_lbl = QLabel("HIDDEN SHOWS")
-        sec1_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(sec1_lbl, "SECTION_HDR_LG")
         self._hidden_layout.addWidget(sec1_lbl)
 
         hidden_titles = list(self.config.epg_hidden_titles or [])
@@ -288,22 +288,22 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                 ))
         else:
             lbl = QLabel("No shows hidden yet — click 🚫 on any On Now row to hide a show.")
-            lbl.setStyleSheet(_theme.SECTION_ITEM)
+            _theme.style(lbl, "SECTION_ITEM")
             lbl.setWordWrap(True)
             self._hidden_layout.addWidget(lbl)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(_theme.SEPARATOR_H)
+        _theme.style(sep, "SEPARATOR_H")
         self._hidden_layout.addWidget(sep)
 
         # ── Section 2: Filler patterns ──────────────────────────────────
         sec2_lbl = QLabel("FILLER PATTERNS")
-        sec2_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(sec2_lbl, "SECTION_HDR_LG")
         self._hidden_layout.addWidget(sec2_lbl)
 
         hint = QLabel("Substring match — hides any show whose title contains these words.")
-        hint.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(hint, "SECTION_HINT")
         hint.setWordWrap(True)
         self._hidden_layout.addWidget(hint)
 
@@ -329,18 +329,18 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet(_theme.SEPARATOR_H)
+        _theme.style(sep2, "SEPARATOR_H")
         self._hidden_layout.addWidget(sep2)
 
         # ── Section 3: Hidden channels ──────────────────────────────────
         sec3_lbl = QLabel("HIDDEN CHANNELS")
-        sec3_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(sec3_lbl, "SECTION_HDR_LG")
         self._hidden_layout.addWidget(sec3_lbl)
 
         hidden_channels = list(self.config.epg_hidden_channels or [])
         if hidden_channels:
             hint3 = QLabel("Entire channel hidden from On Now.")
-            hint3.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(hint3, "SECTION_HINT")
             self._hidden_layout.addWidget(hint3)
             for ch_id in hidden_channels:
                 ch_name = self._get_channel_name_from_db(ch_id)
@@ -350,24 +350,24 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                 ))
         else:
             lbl3 = QLabel("No channels hidden yet — use the 🚫 button on any On Now row.")
-            lbl3.setStyleSheet(_theme.SECTION_ITEM)
+            _theme.style(lbl3, "SECTION_ITEM")
             lbl3.setWordWrap(True)
             self._hidden_layout.addWidget(lbl3)
 
         sep3 = QFrame()
         sep3.setFrameShape(QFrame.Shape.HLine)
-        sep3.setStyleSheet(_theme.SEPARATOR_H)
+        _theme.style(sep3, "SEPARATOR_H")
         self._hidden_layout.addWidget(sep3)
 
         # ── Section 4: Hidden categories ────────────────────────────────
         sec4_lbl = QLabel("HIDDEN CATEGORIES")
-        sec4_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(sec4_lbl, "SECTION_HDR_LG")
         self._hidden_layout.addWidget(sec4_lbl)
 
         hidden_prefixes = list(self.config.epg_hidden_prefixes or [])
         if hidden_prefixes:
             hint4 = QLabel("All channels with this prefix are hidden from On Now.")
-            hint4.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(hint4, "SECTION_HINT")
             self._hidden_layout.addWidget(hint4)
             for prefix in hidden_prefixes:
                 full = resolve_category_name(prefix, self.config)
@@ -378,24 +378,24 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
                 ))
         else:
             lbl4 = QLabel("No categories hidden yet — use the ⊘ button on any On Now row.")
-            lbl4.setStyleSheet(_theme.SECTION_ITEM)
+            _theme.style(lbl4, "SECTION_ITEM")
             lbl4.setWordWrap(True)
             self._hidden_layout.addWidget(lbl4)
 
         sep5 = QFrame()
         sep5.setFrameShape(QFrame.Shape.HLine)
-        sep5.setStyleSheet(_theme.SEPARATOR_H)
+        _theme.style(sep5, "SEPARATOR_H")
         self._hidden_layout.addWidget(sep5)
 
         # ── Section 5: Category overrides ──────────────────────────────
         sec5_lbl = QLabel("CATEGORY OVERRIDES")
-        sec5_lbl.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(sec5_lbl, "SECTION_HDR_LG")
         self._hidden_layout.addWidget(sec5_lbl)
 
         overrides = dict(self.config.epg_category_overrides or {})
         if overrides:
             hint5 = QLabel("Manually assigned categories — applied before auto-detection.")
-            hint5.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(hint5, "SECTION_HINT")
             self._hidden_layout.addWidget(hint5)
             for ch_id, cat_code in overrides.items():
                 ch_name = self._get_channel_name_from_db(ch_id)
@@ -409,7 +409,7 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
             lbl5 = QLabel(
                 "No overrides yet — right-click On Now rows to assign a category."
             )
-            lbl5.setStyleSheet(_theme.SECTION_ITEM)
+            _theme.style(lbl5, "SECTION_ITEM")
             lbl5.setWordWrap(True)
             self._hidden_layout.addWidget(lbl5)
 
@@ -544,34 +544,34 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         already live — same rationale as the channel-list row delegate.
         """
         self._header_sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
-        self._stale_epg_notice.setStyleSheet(_theme.EPG_STALE_NOTICE)
+        _theme.style(self._stale_epg_notice, "EPG_STALE_NOTICE")
 
         # Watchlist / My Channels / Discover tabs (epg_watchlist_mixin.py)
-        self._watchlist_hint_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._watchlist_hint_lbl, "LABEL_MUTED")
         self._watchlist_ci_note_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
-        self.ch_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
-        self._rec_title_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        _theme.style(self.ch_empty_label, "EMPTY_LABEL")
+        _theme.style(self._rec_title_lbl, "CHANNEL_NAME_DIM")
         self.manage_dismissed_btn.setStyleSheet(
             f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;"
         )
-        self.rec_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
+        _theme.style(self.rec_empty_label, "EMPTY_LABEL")
 
         # On Now tab (epg_on_now_mixin.py)
-        self.on_now_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self.on_now_stats, "LABEL_MUTED")
 
         # Browse tab (epg_browse_mixin.py)
-        self._anchor_label.setStyleSheet(_theme.LABEL_MUTED)
-        self._scrubber_left_label.setStyleSheet(_theme.LABEL_MUTED)
-        self._scrubber_right_label.setStyleSheet(_theme.LABEL_MUTED)
-        self._scrubber_pos_label.setStyleSheet(_theme.EPG_SCRUBBER_POS)
+        _theme.style(self._anchor_label, "LABEL_MUTED")
+        _theme.style(self._scrubber_left_label, "LABEL_MUTED")
+        _theme.style(self._scrubber_right_label, "LABEL_MUTED")
+        _theme.style(self._scrubber_pos_label, "EPG_SCRUBBER_POS")
         self.browse_placeholder.setStyleSheet(
             f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;"
         )
-        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self.browse_stats, "LABEL_MUTED")
 
         # Events tab (epg_events_mixin.py) — reuse the existing active/inactive
         # toggle-style method rather than duplicating its branching here.
-        self._events_stats.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._events_stats, "LABEL_MUTED")
         self._apply_events_toggle_styles()
 
     # ------------------------------------------------------------------

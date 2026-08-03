@@ -273,11 +273,11 @@ class _GroupSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+        _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
+        _theme.style(self._expand_lbl, "EXPAND_HINT")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -287,7 +287,7 @@ class _GroupSection(QWidget):
         hl.addStretch()
 
         self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._count_lbl, "LABEL_MUTED")
         hl.addWidget(self._count_lbl)
 
         layout.addWidget(header)
@@ -335,7 +335,7 @@ class _GroupSection(QWidget):
                 cb.setToolTip("Region token — applies to channels that carry no language prefix")
 
             count_lbl = QLabel(f"({count:,})")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(count_lbl, "LABEL_MUTED")
             rl.addWidget(count_lbl)
             rl.addStretch()
 
@@ -512,11 +512,11 @@ class _ContentTypeSection(QWidget):
 
         self._group_cb = QCheckBox()
         self._group_cb.setTristate(True)
-        self._group_cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+        _theme.style(self._group_cb, "FILTER_ITEM_TEXT")
         hl.addWidget(self._group_cb)
 
         self._expand_lbl = QLabel(config.expand_icon)
-        self._expand_lbl.setStyleSheet(_theme.EXPAND_HINT)
+        _theme.style(self._expand_lbl, "EXPAND_HINT")
         self._expand_lbl.setFixedWidth(12)
         hl.addWidget(self._expand_lbl)
 
@@ -531,7 +531,7 @@ class _ContentTypeSection(QWidget):
         hl.addStretch()
 
         self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._count_lbl, "LABEL_MUTED")
         hl.addWidget(self._count_lbl)
 
         layout.addWidget(header)
@@ -563,7 +563,7 @@ class _ContentTypeSection(QWidget):
             rl.addWidget(cb)
 
             cnt_lbl = QLabel(f"({count:,})")
-            cnt_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(cnt_lbl, "LABEL_MUTED")
             rl.addWidget(cnt_lbl)
             rl.addStretch()
 
@@ -831,7 +831,7 @@ class GlobalFilterDialog(QDialog):
         self._inner_vl.setContentsMargins(4, 4, 4, 4)
 
         self._empty_state_label = QLabel()
-        self._empty_state_label.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(self._empty_state_label, "LABEL_MUTED")
         self._empty_state_label.setWordWrap(True)
         self._empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_state_label.setVisible(False)
@@ -968,10 +968,10 @@ class GlobalFilterDialog(QDialog):
         if named_groups:
             lang_row = QHBoxLayout()
             lang_hdr = QLabel("Languages")
-            lang_hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+            _theme.style(lang_hdr, "SECTION_TITLE_SM")
             lang_row.addWidget(lang_hdr)
             lang_info = QLabel("ⓘ")
-            lang_info.setStyleSheet(_theme.INFO_LABEL)
+            _theme.style(lang_info, "INFO_LABEL")
             lang_info.setToolTip(
                 "Language / region groups detected from channel name prefixes.\n"
                 "Check a group to globally exclude its channels."
@@ -1015,16 +1015,16 @@ class GlobalFilterDialog(QDialog):
         if platform_data:
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.HLine)
-            sep.setStyleSheet(_theme.SEP_DARK)
+            _theme.style(sep, "SEP_DARK")
             self._inner_vl.addWidget(sep)
             self._platform_header_widgets.append(sep)
 
             hdr_row = QHBoxLayout()
             hdr = QLabel("Platforms")
-            hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+            _theme.style(hdr, "SECTION_TITLE_SM")
             hdr_row.addWidget(hdr)
             info = QLabel("ⓘ")
-            info.setStyleSheet(_theme.INFO_LABEL)
+            _theme.style(info, "INFO_LABEL")
             info.setToolTip(
                 "Streaming services and broadcast platforms detected from channel\n"
                 "name prefixes (Netflix, Disney+, Sports, etc.).\n"
@@ -1086,17 +1086,17 @@ class GlobalFilterDialog(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(_theme.SEP_DARK)
+        _theme.style(sep, "SEP_DARK")
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
         self._user_categories_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("User Categories")
-        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
         info = QLabel("ⓘ")
-        info.setStyleSheet(_theme.INFO_LABEL)
+        _theme.style(info, "INFO_LABEL")
         info.setToolTip(
             "Categories you've created via right-click → Assign Category.\n"
             "Check a category to hide its channels everywhere (Global Exclusion)."
@@ -1121,10 +1121,10 @@ class GlobalFilterDialog(QDialog):
             rl.setSpacing(8)
             cb = QCheckBox(name)
             cb.setChecked(name in excluded)
-            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+            _theme.style(cb, "FILTER_ITEM_TEXT")
             rl.addWidget(cb)
             count_lbl = QLabel(f"({count:,} channels)")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(count_lbl, "LABEL_MUTED")
             rl.addWidget(count_lbl)
             rl.addStretch()
             self._inner_vl.addWidget(row)
@@ -1155,18 +1155,18 @@ class GlobalFilterDialog(QDialog):
         # ── Separator ────────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(_theme.SEP_DARK)
+        _theme.style(sep, "SEP_DARK")
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
         self._content_types_only_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         type_hdr = QLabel("Content Types")
-        type_hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        _theme.style(type_hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(type_hdr)
 
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet(_theme.INFO_LABEL)
+        _theme.style(info_lbl, "INFO_LABEL")
         info_lbl.setToolTip(
             "Content types are derived from category headers in the source's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
@@ -1198,11 +1198,11 @@ class GlobalFilterDialog(QDialog):
 
             cb = QCheckBox(group_name)
             cb.setChecked(group_name in excluded_types)
-            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+            _theme.style(cb, "FILTER_ITEM_TEXT")
             rl.addWidget(cb)
 
             count_lbl = QLabel(f"({count:,} channels)")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(count_lbl, "LABEL_MUTED")
             rl.addWidget(count_lbl)
             rl.addStretch()
 
@@ -1252,18 +1252,18 @@ class GlobalFilterDialog(QDialog):
         # ── Separator ──────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(_theme.SEP_DARK)
+        _theme.style(sep, "SEP_DARK")
         self._inner_vl.addWidget(sep)
         self._content_type_header_widgets.append(sep)
         self._content_provenance_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("Content Provenance")
-        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
 
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet(_theme.INFO_LABEL)
+        _theme.style(info_lbl, "INFO_LABEL")
         info_lbl.setToolTip(
             "How the content was produced, detected from a trailing marker on the\n"
             "channel/title name:\n"
@@ -1292,11 +1292,11 @@ class GlobalFilterDialog(QDialog):
 
             cb = QCheckBox(content_type_display(value))
             cb.setChecked(value in excluded)
-            cb.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+            _theme.style(cb, "FILTER_ITEM_TEXT")
             rl.addWidget(cb)
 
             count_lbl = QLabel(f"({count:,} channels)")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(count_lbl, "LABEL_MUTED")
             rl.addWidget(count_lbl)
             rl.addStretch()
 
@@ -1326,16 +1326,16 @@ class GlobalFilterDialog(QDialog):
         """
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(_theme.SEP_DARK)
+        _theme.style(sep, "SEP_DARK")
         self._inner_vl.addWidget(sep)
         self._keyword_header_widgets.append(sep)
 
         hdr_row = QHBoxLayout()
         hdr = QLabel("Keywords")
-        hdr.setStyleSheet(_theme.SECTION_TITLE_SM)
+        _theme.style(hdr, "SECTION_TITLE_SM")
         hdr_row.addWidget(hdr)
         info_lbl = QLabel("ⓘ")
-        info_lbl.setStyleSheet(_theme.INFO_LABEL)
+        _theme.style(info_lbl, "INFO_LABEL")
         info_lbl.setToolTip(
             "Hide any channel whose title contains one of your own words or\n"
             "phrases (e.g. \"wrestling\", \"telenovela\") — matched case-\n"
@@ -1380,11 +1380,11 @@ class GlobalFilterDialog(QDialog):
         rl.setSpacing(8)
 
         kw_lbl = QLabel(keyword)
-        kw_lbl.setStyleSheet(_theme.FILTER_ITEM_TEXT)
+        _theme.style(kw_lbl, "FILTER_ITEM_TEXT")
         rl.addWidget(kw_lbl)
 
         count_lbl = QLabel("counting…")
-        count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        _theme.style(count_lbl, "LABEL_MUTED")
         rl.addWidget(count_lbl)
         rl.addStretch()
 
@@ -1466,7 +1466,7 @@ class GlobalFilterDialog(QDialog):
         """
         if count > 0:
             count_lbl.setText(f"— {count:,} channel{'s' if count != 1 else ''}")
-            count_lbl.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(count_lbl, "LABEL_MUTED")
             count_lbl.setToolTip("")
         else:
             count_lbl.setText("— no matches")

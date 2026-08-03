@@ -210,7 +210,7 @@ class ExploreView(QWidget):
 
         self.setObjectName("exploreView")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(_theme.EXPLORE_VIEW_BG)
+        _theme.style(self, "EXPLORE_VIEW_BG")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -221,7 +221,7 @@ class ExploreView(QWidget):
         self._status = QLabel("", self)
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status.setWordWrap(True)
-        self._status.setStyleSheet(_theme.EXPLORE_STATUS)
+        _theme.style(self._status, "EXPLORE_STATUS")
         lay.addWidget(self._status, 1)
 
         self.trail_map = TrailMapView(

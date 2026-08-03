@@ -48,7 +48,7 @@ class _SavedRecipeCard(QFrame):
         super().__init__(parent)
         self._index = index
         self.setObjectName("savedRecipeCard")
-        self.setStyleSheet(_theme.RECIPE_SAVED_CARD)
+        _theme.style(self, "RECIPE_SAVED_CARD")
         cursor_affordance.set_clickable(self, True)
         self._build_ui(recipe)
 
@@ -70,14 +70,14 @@ class _SavedRecipeCard(QFrame):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
         self._name_edit = QLineEdit(str(recipe.get("name") or "Untitled recipe"))
-        self._name_edit.setStyleSheet(_theme.RECIPE_SAVED_NAME_EDIT)
+        _theme.style(self._name_edit, "RECIPE_SAVED_NAME_EDIT")
         self._name_edit.setToolTip("Rename this recipe")
         self._name_edit.setClearButtonEnabled(True)
         self._name_edit.editingFinished.connect(self._on_rename)
         title_row.addWidget(self._name_edit, stretch=1)
 
         del_btn = QPushButton(_icons.delete_icon)
-        del_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        _theme.style(del_btn, "RECIPE_SAVED_ICON_BTN")
         del_btn.setToolTip("Delete this saved recipe")
         cursor_affordance.set_clickable(del_btn, True)
         del_btn.clicked.connect(lambda: self.deleteRequested.emit(self._index))
@@ -86,7 +86,7 @@ class _SavedRecipeCard(QFrame):
 
         # Live match count.
         self._count_lbl = QLabel("counting…")
-        self._count_lbl.setStyleSheet(_theme.RECIPE_SAVED_COUNT)
+        _theme.style(self._count_lbl, "RECIPE_SAVED_COUNT")
         outer.addWidget(self._count_lbl)
 
         # Ingredient tags (facet-colored), includes then excludes.
@@ -106,7 +106,7 @@ class _SavedRecipeCard(QFrame):
                 added += 1
         if not added:
             empty = QLabel("no ingredients")
-            empty.setStyleSheet(_theme.RECIPE_SAVED_COUNT)
+            _theme.style(empty, "RECIPE_SAVED_COUNT")
             tags_row.addWidget(empty)
         tags_row.addStretch()
         outer.addLayout(tags_row)
@@ -178,18 +178,18 @@ class _SavedRecipesPanel(QWidget):
         outer.setSpacing(4)
 
         self._title_lbl = QLabel("SAVED RECIPES")
-        self._title_lbl.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        _theme.style(self._title_lbl, "RECIPE_BROWSE_HDR")
         outer.addWidget(self._title_lbl)
 
         self._sub_lbl = QLabel(
             "Your personal categories — each keeps filling with new matches as sources refresh."
         )
-        self._sub_lbl.setStyleSheet(_theme.RECIPE_SAVED_SUB)
+        _theme.style(self._sub_lbl, "RECIPE_SAVED_SUB")
         self._sub_lbl.setWordWrap(True)
         outer.addWidget(self._sub_lbl)
 
         self._empty_lbl = QLabel("No saved recipes yet — build a recipe and click ✦ Save.")
-        self._empty_lbl.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+        _theme.style(self._empty_lbl, "RECIPE_EMPTY_HINT")
         outer.addWidget(self._empty_lbl)
 
         self._grid_host = QWidget()
@@ -223,6 +223,6 @@ class _SavedRecipesPanel(QWidget):
         on every ``set_recipes()`` call, so they need no sweep entry here.
         Called from ``RecipeView.refresh_theme()``.
         """
-        self._title_lbl.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
-        self._sub_lbl.setStyleSheet(_theme.RECIPE_SAVED_SUB)
-        self._empty_lbl.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+        _theme.style(self._title_lbl, "RECIPE_BROWSE_HDR")
+        _theme.style(self._sub_lbl, "RECIPE_SAVED_SUB")
+        _theme.style(self._empty_lbl, "RECIPE_EMPTY_HINT")

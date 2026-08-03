@@ -67,7 +67,7 @@ class WhatsNewDialog(QDialog):
 
         # ── Header strip ──────────────────────────────────────────────
         header_widget = QWidget()
-        header_widget.setStyleSheet(_theme.HEADER_TINT)
+        _theme.style(header_widget, "HEADER_TINT")
         header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(20, 16, 20, 14)
         header_layout.setSpacing(2)
@@ -100,17 +100,17 @@ class WhatsNewDialog(QDialog):
         nav_layout.setSpacing(8)
 
         self._btn_newer = QPushButton(_icons.nav_prev_icon)
-        self._btn_newer.setStyleSheet(_theme.WHATS_NEW_NAV_BTN)
+        _theme.style(self._btn_newer, "WHATS_NEW_NAV_BTN")
         self._btn_newer.setToolTip("Newer")
         self._btn_newer.setFixedWidth(44)
         self._btn_newer.clicked.connect(self._go_newer)
 
         self._pos_label = QLabel()
-        self._pos_label.setStyleSheet(_theme.WHATS_NEW_POS_LABEL)
+        _theme.style(self._pos_label, "WHATS_NEW_POS_LABEL")
         self._pos_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._btn_older = QPushButton(_icons.nav_next_icon)
-        self._btn_older.setStyleSheet(_theme.WHATS_NEW_NAV_BTN)
+        _theme.style(self._btn_older, "WHATS_NEW_NAV_BTN")
         self._btn_older.setToolTip("Older")
         self._btn_older.setFixedWidth(44)
         self._btn_older.clicked.connect(self._go_older)
@@ -135,14 +135,14 @@ class WhatsNewDialog(QDialog):
             note = QLabel(self._footnote)
             note.setObjectName("whatsNewFootnote")
             note.setWordWrap(True)
-            note.setStyleSheet(_theme.LABEL_MUTED)
+            _theme.style(note, "LABEL_MUTED")
             footer_layout.addWidget(note)
 
         btn_box = QDialogButtonBox()
         got_it_btn = QPushButton("Got it")
         got_it_btn.setDefault(True)
         got_it_btn.setToolTip("Dismiss this dialog")
-        got_it_btn.setStyleSheet(_theme.SAVE_BTN)
+        _theme.style(got_it_btn, "SAVE_BTN")
         got_it_btn.clicked.connect(self.accept)
         btn_box.addButton(got_it_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         footer_layout.addWidget(btn_box)
@@ -211,7 +211,7 @@ class WhatsNewDialog(QDialog):
     def _render_empty(self) -> None:
         """Show the empty-state label when no entries are passed."""
         empty = QLabel("No new changes to show.")
-        empty.setStyleSheet(_theme.EMPTY_LABEL)
+        _theme.style(empty, "EMPTY_LABEL")
         empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._card_layout.addWidget(empty)
         self._card_layout.addStretch()
@@ -230,7 +230,7 @@ class WhatsNewDialog(QDialog):
         discipline", hitting the height axis here instead of width.
         """
         card = QWidget()
-        card.setStyleSheet(_theme.WHATS_NEW_CARD)
+        _theme.style(card, "WHATS_NEW_CARD")
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
         layout = QVBoxLayout(card)
@@ -239,20 +239,20 @@ class WhatsNewDialog(QDialog):
 
         # Title
         title_label = QLabel(entry.title)
-        title_label.setStyleSheet(_theme.WHATS_NEW_TITLE)
+        _theme.style(title_label, "WHATS_NEW_TITLE")
         title_label.setWordWrap(True)
         _no_width_force(title_label)
         layout.addWidget(title_label)
 
         # Version + date meta line
         meta_label = QLabel(f"v{entry.version}  ·  {entry.date}")
-        meta_label.setStyleSheet(_theme.WHATS_NEW_META)
+        _theme.style(meta_label, "WHATS_NEW_META")
         layout.addWidget(meta_label)
 
         # Bullet items — each fully expands to its wrapped-text height, no cap.
         for item_text in entry.items:
             item_label = QLabel(f"{_icons.bullet_icon}  {item_text}")
-            item_label.setStyleSheet(_theme.WHATS_NEW_ITEM)
+            _theme.style(item_label, "WHATS_NEW_ITEM")
             item_label.setWordWrap(True)
             _no_width_force(item_label)
             layout.addWidget(item_label)

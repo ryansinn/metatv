@@ -61,7 +61,7 @@ class MissingTmdbView(QWidget):
         back_btn.setToolTip("Return to channel list")
         back_btn.clicked.connect(self.done.emit)
         title = QLabel(f"{_icons.missing_data_icon}  Missing TMDb Data")
-        title.setStyleSheet(_theme.DETAIL_TITLE)
+        _theme.style(title, "DETAIL_TITLE")
         top_bar.addWidget(back_btn)
         top_bar.addWidget(title)
         top_bar.addStretch()
@@ -85,7 +85,7 @@ class MissingTmdbView(QWidget):
             f"{_icons.info_icon}  Opening this view asks your providers for the "
             "TMDb ids of the sampled titles — the counts shrink as ids arrive."
         )
-        hint.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(hint, "SECTION_HINT")
         hint.setWordWrap(True)
         content_layout.addWidget(hint)
         content_layout.addWidget(self._sources_panel)
@@ -97,7 +97,7 @@ class MissingTmdbView(QWidget):
 
     def _section_header(self, text: str) -> QLabel:
         label = QLabel(text)
-        label.setStyleSheet(_theme.SECTION_HDR_LG)
+        _theme.style(label, "SECTION_HDR_LG")
         return label
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ class MissingTmdbView(QWidget):
         for lay in (self._funnel_layout, self._sources_layout):
             self._clear_layout(lay)
             loading = QLabel("Loading…")
-            loading.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(loading, "SECTION_HINT")
             lay.addWidget(loading)
         self._load()
 
@@ -161,7 +161,7 @@ class MissingTmdbView(QWidget):
             f"{dto.resolved_pct:.0f}% of {dto.total_vod:,} titles "
             f"({dto.resolved:,} with a TMDb id)."
         )
-        headline.setStyleSheet(_theme.SECTION_HDR)
+        _theme.style(headline, "SECTION_HDR")
         headline.setWordWrap(True)
         self._funnel_layout.addWidget(headline)
 
@@ -180,7 +180,7 @@ class MissingTmdbView(QWidget):
             f"({dto.residual_pct:.0f}%) remain that only the TMDb API could resolve "
             "(provider detail was asked and carried no id)."
         )
-        residual.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(residual, "SECTION_HINT")
         residual.setWordWrap(True)
         self._funnel_layout.addSpacing(6)
         self._funnel_layout.addWidget(residual)
@@ -189,7 +189,7 @@ class MissingTmdbView(QWidget):
         pct = (count / total * 100.0) if total else 0.0
         prefix = f"{glyph}  " if glyph else ""
         row = QLabel(f"{prefix}{label}: {count:,} ({pct:.0f}%)")
-        row.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(row, "SECTION_HINT")
         return row
 
     # ── Render: idless rows by source (Part 5) ──────────────────────────────
@@ -201,7 +201,7 @@ class MissingTmdbView(QWidget):
             done = QLabel(
                 f"{_icons.notification_success_icon}  Every visible title has a TMDb id."
             )
-            done.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(done, "SECTION_HINT")
             self._sources_layout.addWidget(done)
             return
 
@@ -223,7 +223,7 @@ class MissingTmdbView(QWidget):
             f"{group.missing_count:,} without an id"
             + (f"  ({group.residual_count:,} TMDb-API-only)" if group.residual_count else "")
         )
-        header.setStyleSheet(_theme.SECTION_HDR)
+        _theme.style(header, "SECTION_HDR")
         header.setWordWrap(True)
         block_layout.addWidget(header)
 
@@ -236,7 +236,7 @@ class MissingTmdbView(QWidget):
             title = row.detected_title or row.name
             year = f" ({row.detected_year})" if row.detected_year else ""
             line = QLabel(f"    {mtype}  {title}{year}  ·  {flag}")
-            line.setStyleSheet(_theme.SECTION_HINT)
+            _theme.style(line, "SECTION_HINT")
             line.setWordWrap(True)
             block_layout.addWidget(line)
 
@@ -248,7 +248,7 @@ class MissingTmdbView(QWidget):
         logger.error("Missing-TMDb panel load failed: {}", exc)
         self._clear_layout(layout)
         err = QLabel(f"{_icons.notification_warning_icon}  Couldn't load this panel")
-        err.setStyleSheet(_theme.SECTION_HINT)
+        _theme.style(err, "SECTION_HINT")
         layout.addWidget(err)
 
     def _clear_layout(self, layout) -> None:

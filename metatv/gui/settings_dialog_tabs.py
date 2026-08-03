@@ -131,7 +131,7 @@ class SettingsTabsMixin:
         player_form.addRow("Buffering:", self._buffer_combo)
 
         buffer_hint = QLabel("Auto-reconnect is always on — streams resume after brief drops.")
-        buffer_hint.setStyleSheet(_theme.META_HINT)
+        _theme.style(buffer_hint, "META_HINT")
         player_form.addRow("", buffer_hint)
 
         self._prebuffer_check = QCheckBox("Pre-buffer before playing")
@@ -204,7 +204,7 @@ class SettingsTabsMixin:
             "The Diagnose tool's “Apply tuning” writes its recommended cache flags here."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet(_theme.META_HINT)
+        _theme.style(hint, "META_HINT")
         mpv_layout.addWidget(self._mpv_args_input)
         mpv_layout.addWidget(hint)
 
@@ -314,7 +314,7 @@ class SettingsTabsMixin:
         mix_row.addWidget(self._rec_mix_spin)
 
         self._rec_mix_ratio_label = QLabel("")
-        self._rec_mix_ratio_label.setStyleSheet(_theme.META_HINT)
+        _theme.style(self._rec_mix_ratio_label, "META_HINT")
         mix_row.addWidget(self._rec_mix_ratio_label)
         mix_row.addStretch()
         mix_layout.addLayout(mix_row)
@@ -324,7 +324,7 @@ class SettingsTabsMixin:
             "and has the same control as a slider."
         )
         mix_hint.setWordWrap(True)
-        mix_hint.setStyleSheet(_theme.META_HINT)
+        _theme.style(mix_hint, "META_HINT")
         mix_layout.addWidget(mix_hint)
         layout.addWidget(mix_group)
 
@@ -503,7 +503,7 @@ class SettingsTabsMixin:
         tmdb_form.addRow("API key:", tmdb_key_row)
 
         self._tmdb_test_result = QLabel("")
-        self._tmdb_test_result.setStyleSheet(_theme.URL_BADGE)
+        _theme.style(self._tmdb_test_result, "URL_BADGE")
         self._tmdb_test_result.hide()
         tmdb_form.addRow("", self._tmdb_test_result)
 
@@ -547,7 +547,7 @@ class SettingsTabsMixin:
         omdb_form.addRow("API key:", omdb_key_row)
 
         self._omdb_test_result = QLabel("")
-        self._omdb_test_result.setStyleSheet(_theme.URL_BADGE)
+        _theme.style(self._omdb_test_result, "URL_BADGE")
         self._omdb_test_result.hide()
         omdb_form.addRow("", self._omdb_test_result)
 
@@ -654,17 +654,17 @@ class SettingsTabsMixin:
         """
         if self._executor is None:
             label.setText(f"{_icons.notification_error_icon}  Test unavailable — no executor")
-            label.setStyleSheet(_theme.URL_BADGE_ERR)
+            _theme.style(label, "URL_BADGE_ERR")
             label.show()
             return
         if not provider.is_enabled():
             label.setText(f"{_icons.notification_error_icon}  Enter an API key first")
-            label.setStyleSheet(_theme.URL_BADGE_ERR)
+            _theme.style(label, "URL_BADGE_ERR")
             label.show()
             return
         button.setEnabled(False)
         label.setText(f"{_icons.loading_icon} Testing…")
-        label.setStyleSheet(_theme.URL_BADGE_TESTING)
+        _theme.style(label, "URL_BADGE_TESTING")
         label.show()
         self._executor.submit(self._provider_test_worker, provider_name, provider)
 
@@ -704,10 +704,10 @@ class SettingsTabsMixin:
         success, message = result
         if success:
             label.setText(f"{_icons.notification_success_icon}  Connected")
-            label.setStyleSheet(_theme.URL_BADGE_OK)
+            _theme.style(label, "URL_BADGE_OK")
         else:
             label.setText(f"{_icons.notification_error_icon}  {message or 'Test failed'}")
-            label.setStyleSheet(_theme.URL_BADGE_ERR)
+            _theme.style(label, "URL_BADGE_ERR")
         label.show()
 
     def _build_interface_tab(self) -> QWidget:
@@ -734,7 +734,7 @@ class SettingsTabsMixin:
             "and genre/person chips from your last session."
         )
         search_hint.setWordWrap(True)
-        search_hint.setStyleSheet(_theme.META_HINT)
+        _theme.style(search_hint, "META_HINT")
         search_form.addRow("", search_hint)
 
         layout.addWidget(search_group)

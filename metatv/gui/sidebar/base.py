@@ -35,7 +35,7 @@ class _ClickableHeader(QWidget):
         # The objectName lets SECTION_HEADER_TINT's ``#sectionHeader`` selector pin
         # the tint to this widget.
         self.setObjectName("sectionHeader")
-        self.setStyleSheet(_theme.SECTION_HEADER_TINT)
+        _theme.style(self, "SECTION_HEADER_TINT")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         self.clicked.emit()
@@ -216,7 +216,7 @@ class CollapsibleSection(QFrame):
         btn = QPushButton(f"Explore {_icons.see_all_arrow_icon}")
         btn.setFlat(True)
         btn.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)
-        btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
+        _theme.style(btn, "SIDEBAR_SEE_ALL_BTN")
         # Resolve the bound signal at CLICK time, not build time.  create_header runs
         # before Qt's C++ side is guaranteed up in the header unit-tests (sections are
         # built via __new__ there), and `self.exploreClicked` would raise
@@ -492,7 +492,7 @@ class CollapsibleSection(QFrame):
         ``MainWindow.refresh_theme()``'s sidebar sweep.
         """
         if hasattr(self, "_header"):
-            self._header.setStyleSheet(_theme.SECTION_HEADER_TINT)
+            _theme.style(self._header, "SECTION_HEADER_TINT")
         explore_btn = getattr(self, "explore_btn", None)
         if explore_btn is not None:
-            explore_btn.setStyleSheet(_theme.SIDEBAR_SEE_ALL_BTN)
+            _theme.style(explore_btn, "SIDEBAR_SEE_ALL_BTN")

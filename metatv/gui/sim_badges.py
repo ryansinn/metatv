@@ -58,20 +58,20 @@ def make_sim_badges(item: dict, width: int | None = None, show_year: bool = True
         # The ONE canonical bordered language/region chip — shared with the
         # trail-map detail strip (single source of truth), so the lang badge reads
         # identically on the lightbox strip AND the trail-map rows.
-        lang_lbl.setStyleSheet(_theme.LANG_CHIP)
+        _theme.style(lang_lbl, "LANG_CHIP")
         lang_lbl.setToolTip(f"Language / region: {lang}")
         meta.addWidget(lang_lbl)
     rating = item.get("rating")
     if rating:
         star = QLabel(f"{_icons.rating_star_icon}{rating}")
-        star.setStyleSheet(_theme.LIGHTBOX_SIM_RATING)
+        _theme.style(star, "LIGHTBOX_SIM_RATING")
         star.setToolTip(f"Rating: {rating}")
         meta.addWidget(star)
     meta.addStretch()
     year = item.get("year")
     if show_year:
         year_lbl = QLabel(str(year) if year else "")
-        year_lbl.setStyleSheet(_theme.LIGHTBOX_SIM_YEAR)
+        _theme.style(year_lbl, "LIGHTBOX_SIM_YEAR")
         meta.addWidget(year_lbl)
     box.addLayout(meta)
 
