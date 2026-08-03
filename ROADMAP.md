@@ -249,8 +249,51 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
    — it does not change row selection, so it cannot collide with double-click-to-play. Chips that
    can't filter (year, ×N badge) explain themselves but show no clickable cursor.
 
+**v0.26.0 follow-ups — SHIPPED 2026-08-03 (rolling).** Owner UX-testing the rolling builds found
+four defects, three of them shipped by this same session's work. Entries #271-#274.
+
+8. [x] **Chips filtered on the displayed code, not the stored tag value** (#271) — a quality chip
+   filtered `"4K"` while the tag stores `"4K / UHD"`; a language chip filtered `"EN"` while the tag
+   stores `"English"`. Both emptied the list. Region and genre coincide by accident, which is what
+   made the mismatch look like it worked. `channel_name_utils.tag_value_for()` translates via the
+   existing canonical tables; an unmappable token declines to filter rather than returning nothing.
+   Collection additionally filtered on the wrong COLUMN (`detected_collection` vs the curated
+   `ChannelDB.category`). **All context filters are now unified behind one applier**
+   (`_activate_context_filter`) after the owner called out the duplication — the hand-rolled eighth
+   copy was the broken one; a structural test now fails if a handler re-inlines the ritual.
+9. [x] **Sibling region propagation contradicted a row's own locale** (#272) — `|EN| Aladdin` came
+   back as German. `content_key` `"aladdin|movie|"` collapses 15 unrelated releases, and the pass
+   fills an empty region from the most common sibling, so the library's dominant locale (DE) was
+   stamped onto the `|EN|` and `|AR|` rows — an Arabic release reported as German, which then
+   produced a bogus German *language tag*. A row carrying its own recognised locale code no longer
+   inherits a contradicting region; rows with no locale of their own (`MULTI`) still do.
+10. [x] **Person filter missed titles that name the person** (#273) — searching "Nicolas Cage" found
+    a title whose filename carries it; filtering by the same name did not, because the filter checked
+    only metadata/raw_data cast. Most rows have no metadata at all, so the filter was usually empty.
+    Now matches the channel name too — **including live**: the owner correctly pushed back on
+    excluding it, and the corpus proves the point, carrying whole categories of curated actor
+    channels (`24/7 MOVIES/ACTORS VIP`, `AR| ACTORS 4K`). The media-type axis still governs
+    independently, so they stay in Live.
+11. [x] **Single-item action reset the list scroll** (#274) — `_category_assigned` was wired straight
+    to `load_channels`, so every assignment requeried and `beginResetModel` scrolled to row 0. Adding
+    one item to Watch Later from row 400 threw the user back to row 1. Now conditional on an actual
+    membership change (category added to Global Exclusions).
+
 **v0.27.0 — next.**
 
+- [ ] **Scroll reset in the Watch Queue / Recommended sections** — the remaining half of the owner's
+  report. Those sidebar/Explore sections rebuild via `section.refresh()` on actions like
+  mark-watched, resetting their scroll exactly as the results list used to. They need in-place row
+  updates (mirroring `channel_model.update_favorite`/`update_rating`/`update_watch_completed`) or a
+  scroll-preserving refresh. Also unconfirmed whether the TMDb-match / title-update reload the owner
+  reported comes from this path or a third one.
+- [ ] **Capture name-derived person tokens** — the parser strips a trailing actor
+  ("… (2002) NICOLAS CAGE") into `detected_title` and discards it; `parse_channel_name` does not even
+  surface the residual. Capture it as a LOW-confidence cast seed with provenance (tags rule: capture
+  generously, label confidence, never present a guess as authoritative), overridden by real
+  enrichment. NOTE the correctness half already shipped as #273 — this is now a display/ranking
+  enhancement, not a fix. Related: that title has no metadata row at all, which is the standing
+  TMDb/OMDb item below.
 - [ ] **Live theme switching — the style registry.** THE remaining known-broken area, and the only
   v0.26.0 queue item deliberately NOT attempted: it is a ~466-call-site mechanical refactor with a
   regression surface covering every screen, which is the wrong thing to rush into a rolling build
