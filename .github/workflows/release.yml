@@ -105,15 +105,56 @@ jobs:
           cp "$BREW_PREFIX/bin/mpv" "$RES_DIR/mpv"
           # Gather + rewrite mpv's dylib dependencies into Resources/mpv/libs so
           # the bundle is self-contained (no Homebrew needed on the user's Mac).
+          # -p MUST be @executable_path, NOT @loader_path.
+          #
+          # @loader_path resolves relative to whichever binary is doing the
+          # loading, and dylibbundler applies this one prefix to EVERY rewritten
+          # install name — the executable's and the dylibs' alike:
+          #   from  Resources/mpv/mpv          -> Resources/mpv/libs/      correct
+          #   from  Resources/mpv/libs/lib*.dylib -> Resources/mpv/libs/libs/  WRONG
+          # A dylib already sitting in libs/ has libs/ as its own @loader_path,
+          # so the extra libs/ prefix sends it one level too deep. That shipped
+          # in v0.23.0: mpv failed to launch with
+          #   Library not loaded: @loader_path/libs/libsamplerate.0.2.2.dylib
+          #   Referenced from .../Resources/mpv/libs/librubberband.3.dylib
+          # and playback silently did nothing.
+          #
+          # @executable_path is the directory of the running PROCESS executable.
+          # mpv is spawned as its own subprocess over IPC (never dlopen'd into
+          # MetaTV), so it is constantly Resources/mpv/ — correct from the
+          # executable AND from every dylib, which is what makes one prefix valid
+          # for both.
           dylibbundler \
             -of -b \
             -x "$RES_DIR/mpv" \
             -d "$RES_DIR/libs" \
-            -p "@loader_path/libs/" \
+            -p "@executable_path/libs/" \
             -s "$BREW_PREFIX/lib"
           chmod +x "$RES_DIR/mpv"
           echo "Vendored mpv:"
           ls -la "$RES_DIR"
+
+          # ── Verify the vendored mpv actually LOADS ────────────────────────
+          # v0.23.0 shipped a bundle whose dylib install names pointed at
+          # libs/libs/ (see the -p note above). Nothing caught it: the files all
+          # existed, the app launched, and playback just silently did nothing
+          # until a user reported it. These two checks fail the BUILD instead.
+
+          # 1. No rewritten install name may contain a doubled libs/libs — the
+          #    exact signature of the v0.23.0 bug.
+          if otool -L "$RES_DIR/mpv" "$RES_DIR"/libs/*.dylib 2>/dev/null \
+               | grep -F "libs/libs/"; then
+            echo "::error::Vendored mpv has doubled libs/libs/ install names — the v0.23.0 bug. Check dylibbundler's -p prefix."
+            exit 1
+          fi
+
+          # 2. The real proof: run it. A bundle that cannot resolve its own
+          #    dylibs fails here rather than in a user's hands.
+          if ! "$RES_DIR/mpv" --version; then
+            echo "::error::Vendored mpv failed to execute — the bundle cannot resolve its dylibs."
+            exit 1
+          fi
+          echo "Vendored mpv loads and runs."
 
       - name: Ad-hoc re-sign the app bundle
         # dylibbundler rewrites dylibs INSIDE the .app after PyInstaller's ad-hoc
