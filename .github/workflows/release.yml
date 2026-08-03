@@ -270,9 +270,31 @@ jobs:
               --notes "Latest build of \`main\`." \
               --target "${{ github.sha }}"
           fi
-          # --clobber: the asset name is arch-stable, so each push REPLACES the
-          # previous dmg rather than accumulating one per build.
-          gh release upload rolling "${{ steps.dmg.outputs.dmg }}" --clobber
+          # The rolling asset name must NOT contain the version. --clobber only
+          # replaces a file of the SAME name, and the build artifact is called
+          # MetaTV-<version>-<arch>.dmg — so the moment __version__ moved
+          # (0.25.0 -> 0.26.0) the previous dmg stayed attached beside the new
+          # one and the release offered the tester two downloads, one stale.
+          # That is exactly the "which one is current?" ambiguity this release
+          # model exists to remove. Rolling therefore publishes under a stable
+          # filename; the version lives in the release title and the in-app
+          # build id, which are the places it is actually useful.
+          # (Tagged releases below keep the versioned filename on purpose —
+          # they are immutable, so the version in the name is an asset.)
+          ROLLING_DMG="MetaTV-${{ matrix.arch }}.dmg"
+          cp "${{ steps.dmg.outputs.dmg }}" "$ROLLING_DMG"
+          gh release upload rolling "$ROLLING_DMG" --clobber
+          # Prune dmgs left by the old versioned naming. Matched narrowly to
+          # THIS arch's versioned form so a future second arch's stable asset
+          # is never deleted by a parallel matrix job.
+          for asset in $(gh release view rolling --json assets --jq '.assets[].name'); do
+            case "$asset" in
+              MetaTV-*-${{ matrix.arch }}.dmg)
+                echo "Removing stale versioned asset: $asset"
+                gh release delete-asset rolling "$asset" -y || true
+                ;;
+            esac
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
