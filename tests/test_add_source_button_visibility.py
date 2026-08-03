@@ -174,9 +174,12 @@ def test_sources_manager_button_sizes_to_content(qapp, tmp_path):
         "Button should not be fixed to 24px width or less"
     )
 
-    # Check that it has a minimum height instead.
-    assert manager._add_btn.minimumHeight() == 24, (
-        "Button should have minimumHeight() == 24"
+    # Check that it has a minimum height instead. Asserted as a FLOOR, not an
+    # exact px: the specific value is a design detail that has already moved
+    # once (24 -> 28 when the CTA was restyled, #266), and pinning it makes a
+    # deliberate improvement look like a regression.
+    assert manager._add_btn.minimumHeight() >= 24, (
+        "Button should have a minimum height of at least 24px"
     )
 
 
@@ -233,4 +236,53 @@ def test_no_hardcoded_plus_icon_in_gui_widgets():
     assert not violations, (
         f"Found {len(violations)} hardcoded '+' literals in QPushButton (should use icons.add_icon):\n"
         + "\n".join(violations)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rendered appearance — the owner reported the CTA still read as disabled
+# ---------------------------------------------------------------------------
+
+def test_add_source_cta_is_a_filled_accent_button_not_a_ghost(tmp_path):
+    """The button must render as a solid, legible button — not faint text.
+
+    Owner report (2026-08-03, with a screenshot): "+ Add Source is still not
+    very visible". It was styled with ``RECIPE_SAVED_ICON_BTN``, whose role is a
+    de-emphasised icon button — ``background: transparent`` plus ``COLOR_FAINT``
+    text. Correct for a small delete glyph on a card; for the one control a
+    person with zero sources has to find, it rendered as dim grey text with no
+    button shape.
+
+    Asserts the RENDERED style, not merely that some token was referenced: a
+    fill that is present but transparent, or a foreground that is technically a
+    token but still ``COLOR_FAINT``, both pass a token-existence check and still
+    look broken.
+    """
+    from metatv.gui import theme as _theme
+    from tests.test_palette_completeness import _contrast
+
+    manager = _make_sources_manager(tmp_path)
+    qss = manager._add_btn.styleSheet()
+
+    assert "transparent" not in qss, (
+        f"Add Source CTA still has a transparent background — it reads as a "
+        f"label, not a button: {qss!r}"
+    )
+    assert _theme.COLOR_FAINT not in qss, (
+        f"Add Source CTA still uses the faint/de-emphasised text token: {qss!r}"
+    )
+    assert _theme.COLOR_ACCENT in qss, (
+        f"Add Source CTA should be filled with the accent: {qss!r}"
+    )
+
+    # Text on a solid accent fill takes the on-accent token, and must clear the
+    # readability floor — the same rule the selection highlight needed (#265).
+    assert _theme.COLOR_ON_ACCENT in qss, (
+        f"Add Source CTA draws on a solid accent fill, so its foreground must "
+        f"be COLOR_ON_ACCENT rather than the on-background text ramp: {qss!r}"
+    )
+    ratio = _contrast(_theme.COLOR_ON_ACCENT, _theme.COLOR_ACCENT)
+    assert ratio >= 4.5, (
+        f"Add Source CTA label contrast is {ratio:.2f}:1 against its own fill, "
+        f"below the 4.5:1 minimum"
     )

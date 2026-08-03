@@ -1205,14 +1205,22 @@ class Config(BaseModel):
     #    "provider_id": str,         # PRIMARY provider — kept for back-compat +
     #                                # get_monitored_for_provider() filtering
     #    "title": str,
-    #    "baselines": dict[str, int],  # {provider_id: episode_count} — one entry
-    #                                   # per provider currently mirroring this
-    #                                   # series (primary + any content_key
-    #                                   # siblings discovered at check time).  A
-    #                                   # provider absent from this dict has no
-    #                                   # baseline yet (established silently on
-    #                                   # its first check — never alerts on the
-    #                                   # whole back-catalog).
+    #    "baselines": dict[str, int],  # {"provider_id|source_id": episode_count}
+    #                                   # — one entry per MIRROR (listing)
+    #                                   # currently carrying this series: the
+    #                                   # primary plus any content_key siblings
+    #                                   # discovered at check time, INCLUDING
+    #                                   # several on the same provider (that is
+    #                                   # normal — content_key is a generous
+    #                                   # identity).  Keyed by the pair, not by
+    #                                   # provider alone: a provider-only key let
+    #                                   # same-provider listings overwrite one
+    #                                   # slot and manufacture false "+N eps"
+    #                                   # alerts.  A mirror absent from this dict
+    #                                   # has no baseline yet (established
+    #                                   # silently on its first check — never
+    #                                   # alerts on the whole back-catalog).
+    #                                   # Build keys via series_monitor.mirror_key.
     #    "unseen_new": int,          # new episodes since last cleared (summed
     #                                 # across every provider that grew)
     #    "growth_providers": list[str],  # display names credited for the most
@@ -1327,10 +1335,17 @@ class Config(BaseModel):
         ``baselines`` dict — so a call after THAT mirror's refresh also finds
         entries discovered as siblings by a prior full ``check_all()`` pass.
         """
+        from metatv.core.series_monitor import provider_of
+
+        # provider_of, not a bare `in`: baseline keys are "provider|source"
+        # (one slot per mirror), so a plain membership test never matches.
         return [
             e for e in self.get_monitored_series()
             if e.get("provider_id") == provider_id
-            or provider_id in (e.get("baselines") or {})
+            or any(
+                provider_of(k) == provider_id
+                for k in (e.get("baselines") or {})
+            )
         ]
 
     def update_monitored_series(self, series_channel_id: str, **fields) -> None:

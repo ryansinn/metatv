@@ -138,7 +138,7 @@ class TestBaselineNeverLowersUnseenNeverInflates:
         # Check 1: establishes the baseline (prev is None) -- no notify yet.
         _check(FULL)
         entry = cfg.get_monitored_series()[0]
-        assert entry["baselines"]["p1"] == 8
+        assert entry["baselines"]["p1|s1"] == 8
         assert entry["unseen_new"] == 0
 
         max_baseline_seen = 8
@@ -149,11 +149,11 @@ class TestBaselineNeverLowersUnseenNeverInflates:
         for i, empty_payload in enumerate(EMPTY_VARIANTS + EMPTY_VARIANTS[:1]):
             _check(empty_payload)
             entry = cfg.get_monitored_series()[0]
-            assert entry["baselines"]["p1"] >= max_baseline_seen, (
+            assert entry["baselines"]["p1|s1"] >= max_baseline_seen, (
                 f"baseline decreased on empty-payload check #{i} "
                 f"({empty_payload!r}): baselines={entry['baselines']}"
             )
-            max_baseline_seen = max(max_baseline_seen, entry["baselines"]["p1"])
+            max_baseline_seen = max(max_baseline_seen, entry["baselines"]["p1|s1"])
             assert entry["unseen_new"] == 0, (
                 f"unseen_new grew from an empty-payload response on check #{i} "
                 f"({empty_payload!r}): unseen_new={entry['unseen_new']}"
@@ -161,7 +161,7 @@ class TestBaselineNeverLowersUnseenNeverInflates:
 
             _check(FULL)
             entry = cfg.get_monitored_series()[0]
-            assert entry["baselines"]["p1"] == 8, (
+            assert entry["baselines"]["p1|s1"] == 8, (
                 f"baseline drifted away from the real count after cycle #{i}: "
                 f"baselines={entry['baselines']}"
             )
@@ -225,7 +225,7 @@ class TestBaselineNeverLowersUnseenNeverInflates:
                 QCoreApplication.processEvents()
 
         entry = cfg.get_monitored_series()[0]
-        assert entry["baselines"]["p1"] == 23
+        assert entry["baselines"]["p1|s1"] == 23
         assert entry["unseen_new"] == 0, (
             "establishing a first-ever baseline must never fire an alert for "
             f"the whole back-catalog: unseen_new={entry['unseen_new']}"
@@ -308,7 +308,7 @@ class TestUnseenNewZeroOutMigration:
             "source_id": "s1",
             "provider_id": "p1",
             "title": "Healthy Show",
-            "baselines": {"p1": 10},
+            "baselines": {"p1|s1": 10},
             "unseen_new": 3,
             "growth_providers": ["Test Provider"],
             "last_checked": "2026-08-01T00:00:00+00:00",
@@ -319,7 +319,7 @@ class TestUnseenNewZeroOutMigration:
         entry = result[0]
         assert entry["unseen_new"] == 3, \
             "a sane unseen_new (at/below the summed baselines) must not be touched"
-        assert entry["baselines"] == {"p1": 10}
+        assert entry["baselines"] == {"p1|s1": 10}
         assert entry["growth_providers"] == ["Test Provider"]
         assert entry is healthy_entry, \
             "a healthy entry must be returned as the SAME object, not rewritten"
@@ -338,7 +338,7 @@ class TestUnseenNewZeroOutMigration:
                 "source_id": "s1",
                 "provider_id": "p1",
                 "title": "Inflated Show",
-                "baselines": {"p1": 12},
+                "baselines": {"p1|s1": 12},
                 "unseen_new": 999,
                 "growth_providers": ["Flaky Provider"],
                 "last_checked": "2026-08-01T00:00:00+00:00",
@@ -349,7 +349,7 @@ class TestUnseenNewZeroOutMigration:
                 "source_id": "s2",
                 "provider_id": "p2",
                 "title": "Untouched Show",
-                "baselines": {"p2": 4},
+                "baselines": {"p2|s2": 4},
                 "unseen_new": 1,
                 "growth_providers": [],
                 "last_checked": None,
@@ -364,7 +364,7 @@ class TestUnseenNewZeroOutMigration:
 
         assert inflated["unseen_new"] == 0, "reset to 0, not clamped to 12"
         # Everything else on the corrected entry is preserved verbatim.
-        assert inflated["baselines"] == {"p1": 12}
+        assert inflated["baselines"] == {"p1|s1": 12}
         assert inflated["title"] == "Inflated Show"
         assert inflated["growth_providers"] == ["Flaky Provider"]
         assert inflated["last_checked"] == "2026-08-01T00:00:00+00:00"
@@ -376,7 +376,7 @@ class TestUnseenNewZeroOutMigration:
             "source_id": "s2",
             "provider_id": "p2",
             "title": "Untouched Show",
-            "baselines": {"p2": 4},
+            "baselines": {"p2|s2": 4},
             "unseen_new": 1,
             "growth_providers": [],
             "last_checked": None,
@@ -391,7 +391,7 @@ class TestUnseenNewZeroOutMigration:
             "source_id": "s1",
             "provider_id": "p1",
             "title": "Show",
-            "baselines": {"p1": 91, "p2": 41},
+            "baselines": {"p1|s1": 91, "p2|s2": 41},
             "unseen_new": 320,
             "growth_providers": [],
             "last_checked": None,
@@ -466,7 +466,7 @@ class TestOngoingGuardStillClampsNotZeroes:
     def test_pure_function_idempotent_same_object_on_second_call(self):
         from metatv.core.series_monitor import clamp_unseen_new_to_baseline_total
 
-        entry = {"series_channel_id": "ch1", "baselines": {"p1": 23}, "unseen_new": 256}
+        entry = {"series_channel_id": "ch1", "baselines": {"p1|s1": 23}, "unseen_new": 256}
         once = clamp_unseen_new_to_baseline_total(entry)
         assert once["unseen_new"] == 23
         twice = clamp_unseen_new_to_baseline_total(once)
@@ -507,7 +507,7 @@ class TestOngoingGuardStillClampsNotZeroes:
             "source_id": "s1",
             "provider_id": "p1",
             "title": "Show",
-            "baselines": {"p1": 10},
+            "baselines": {"p1|s1": 10},
             "unseen_new": 500,  # already implausible going in
             "growth_providers": [],
             "last_checked": None,
@@ -516,7 +516,7 @@ class TestOngoingGuardStillClampsNotZeroes:
         manager = SeriesMonitorManager(MagicMock(), cfg, notifications=None)
         manager._on_new_episodes(
             "ch1", 2, "Show",
-            {"baselines": {"p1": 12}, "grown_provider_names": ["Provider"]},
+            {"baselines": {"p1|s1": 12}, "grown_provider_names": ["Provider"]},
         )
 
         entry = cfg.get_monitored_series()[0]

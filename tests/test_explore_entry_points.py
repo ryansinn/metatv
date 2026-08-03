@@ -461,6 +461,11 @@ def _nav_host(key: str):
     from metatv.gui.main_window_nav import _NavMixin
 
     host = _NavMixin()
+    # _hide_all_content_views() resets the channel-render banners, which
+    # live outside every view; this skeleton host is not a full MainWindow
+    # so it needs that method wired in (shared factory — see conftest).
+    from tests.conftest import wire_hide_channel_banners
+    wire_hide_channel_banners(host)
     for name in (
         "epg_view", "discover_view", "preferences_view", "channels_list",
         "series_tree", "provider_editor", "search_controls", "_hidden_banner",

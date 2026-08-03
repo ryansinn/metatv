@@ -753,3 +753,35 @@ def wire_channel_banner_widgets(win) -> None:
     win._channel_exclusion_btn = QPushButton()
     win._channel_filter_btn = QPushButton()
     win._no_sources_banner = QWidget()
+
+
+def wire_hide_channel_banners(host) -> None:
+    """Give a skeleton nav host the ``_hide_channel_banners`` method.
+
+    ``_NavMixin._hide_all_content_views()`` resets the channel-render banners
+    (the "N hidden by Global Exclusions" bar and friends) because they live in
+    ``_list_layout`` rather than inside any view, so blanking the views alone
+    used to leave them stranded over an unrelated view. The method itself is
+    defined on ``_ChannelListMixin``; the real ``MainWindow`` inherits both
+    mixins, but the several test modules that exercise navigation build a
+    ``_NavMixin`` (or a hand-rolled ``_FakeHost``) in isolation and therefore
+    do not get it.
+
+    Binds the REAL implementation rather than a ``MagicMock`` so the banners
+    are genuinely hidden and a regression in that method still surfaces through
+    the nav tests. It is safe on a bare skeleton: the method guards each widget
+    with ``self.__dict__.get`` — not ``hasattr``, which does not absorb the
+    ``RuntimeError`` PyQt raises for attribute access on a ``__new__``'d
+    ``MainWindow``.
+
+    Kept here rather than repeated per module for the same reason as
+    ``wire_channel_banner_widgets``: the next widget added to that reset point
+    breaks every one of these hosts at once, and one factory makes that a
+    single edit.
+
+    Args:
+        host: Any object standing in for ``MainWindow`` in a nav test.
+    """
+    from metatv.gui.main_window_channels import _ChannelListMixin
+
+    host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)

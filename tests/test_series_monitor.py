@@ -275,7 +275,7 @@ class TestSeriesMonitorWorker:
         cid, delta, title, payload = notify_args[0]
         assert cid == "ch1"
         assert delta == 5, f"Expected delta=5 (15-10), got {delta}"
-        assert payload["baselines"]["p1"] == 15
+        assert payload["baselines"]["p1|s1"] == 15
         assert payload["grown_provider_names"] == ["Test Provider"]
         assert "My Series" in title
 
@@ -327,7 +327,7 @@ class TestSeriesMonitorWorker:
         assert len(notify_args) == 1
         _, delta, _, payload = notify_args[0]
         assert delta == 0
-        assert payload["baselines"]["p1"] == 10
+        assert payload["baselines"]["p1|s1"] == 10
         assert payload["grown_provider_names"] == []
 
         manager.shutdown()
@@ -382,7 +382,7 @@ class TestSeriesMonitorWorker:
         assert len(notify_args) == 1
         _cid, delta, _title, payload = notify_args[0]
         assert delta == 0, f"None-baseline must establish (delta 0), got {delta}"
-        assert payload["baselines"]["p1"] == 42
+        assert payload["baselines"]["p1|s1"] == 42
 
         manager.shutdown()
 
@@ -717,7 +717,7 @@ class TestBaselineMigration:
             "unseen_new": 0, "last_checked": None,
         }
         migrated = normalize_monitored_entry(entry)
-        assert migrated["baselines"] == {"p1": 7}
+        assert migrated["baselines"] == {"p1|s1": 7}
         assert migrated is not entry, "migration must not mutate the original dict"
         assert entry["baseline_episode_count"] == 7, "old key tolerated, left intact"
 
@@ -737,7 +737,8 @@ class TestBaselineMigration:
         object) — no needless copy on every read."""
         from metatv.core.series_monitor import normalize_monitored_entry
 
-        entry = {"series_channel_id": "ch1", "baselines": {"p1": 3, "p2": 4}}
+        entry = {"series_channel_id": "ch1",
+                 "baselines": {"p1|s1": 3, "p2|s9": 4}}
         migrated = normalize_monitored_entry(entry)
         assert migrated is entry
 
@@ -756,20 +757,24 @@ class TestBaselineMigration:
         }]
 
         result = cfg.get_monitored_series()
-        assert result[0]["baselines"] == {"p1": 9}
+        assert result[0]["baselines"] == {"p1|s1": 9}
         # Written back to the raw stored field, not just the returned copy.
-        assert cfg.monitored_series[0]["baselines"] == {"p1": 9}
+        assert cfg.monitored_series[0]["baselines"] == {"p1|s1": 9}
 
     def test_config_get_monitored_for_provider_matches_baseline_providers(self, tmp_path):
         """get_monitored_for_provider matches both the PRIMARY provider_id and
-        any provider already recorded in the entry's baselines dict (a mirror
-        discovered by a prior check_all pass)."""
+        any provider recorded in the entry's baselines dict (a mirror discovered
+        by a prior check_all pass).
+
+        Baseline keys are now ``provider|source``, so this cannot be a plain
+        membership test — it has to compare the provider HALF of each key.
+        """
         from metatv.core.config import Config
 
         cfg = Config(config_dir=tmp_path / "cfg")
         cfg.monitored_series = [{
             "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
-            "title": "Mirrored", "baselines": {"p1": 10, "p2": 10},
+            "title": "Mirrored", "baselines": {"p1|s1": 10, "p2|s9": 10},
             "unseen_new": 0, "last_checked": None,
         }]
 
@@ -777,6 +782,46 @@ class TestBaselineMigration:
         assert len(cfg.get_monitored_for_provider("p2")) == 1, \
             "a provider known only via baselines (not the primary) must still match"
         assert len(cfg.get_monitored_for_provider("p3")) == 0
+
+    def test_normalize_drops_unattributable_sibling_baselines(self):
+        """Provider-keyed → mirror-keyed: only the PRIMARY provider's baseline
+        survives, because it is the only one whose source_id the entry records.
+
+        A sibling provider's count cannot be tied to a specific listing, and
+        keeping it under a guessed key would preserve exactly the ambiguity the
+        migration exists to remove. It re-establishes silently on the next check
+        (the ``prev is None`` path never alerts), so the cost is one quiet cycle.
+        ``unseen_new`` is zeroed rather than clamped because a count produced by
+        the collision is proven corrupt, not merely implausible.
+        """
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        entry = {
+            "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
+            "title": "Mirrored", "baselines": {"p1": 15, "p2": 8},
+            "unseen_new": 23, "growth_providers": ["Some Source"],
+        }
+        migrated = normalize_monitored_entry(entry)
+
+        assert migrated["baselines"] == {"p1|s1": 15}
+        assert migrated["unseen_new"] == 0
+        assert migrated["growth_providers"] == []
+        assert entry["baselines"] == {"p1": 15, "p2": 8}, "original left intact"
+
+    def test_normalize_is_idempotent_on_migrated_entries(self):
+        """A second pass over an already-migrated entry must not re-zero
+        unseen_new — otherwise every config read would wipe legitimate new-episode
+        counts accumulated since the migration."""
+        from metatv.core.series_monitor import normalize_monitored_entry
+
+        entry = {
+            "series_channel_id": "ch1", "provider_id": "p1", "source_id": "s1",
+            "baselines": {"p1|s1": 15}, "unseen_new": 4,
+        }
+        migrated = normalize_monitored_entry(entry)
+
+        assert migrated is entry, "already-migrated entry returned unchanged"
+        assert migrated["unseen_new"] == 4
 
 
 # ===========================================================================
@@ -787,6 +832,122 @@ class TestPerProviderMirrorDetection:
     """A series monitored via its PRIMARY provider also detects growth landing
     on any OTHER provider mirroring the same content (content_key sibling) —
     the core behavior of the per-provider-baselines upgrade."""
+
+    def test_same_provider_mirrors_do_not_manufacture_growth(self, tmp_path):
+        """Two listings on ONE provider sharing a content_key each keep their
+        own baseline — the owner-reported false-alert bug (2026-08-02).
+
+        ``content_key`` is a generous identity, so one provider routinely
+        carries several listings that collapse to it. Under the old
+        provider-only baseline key, every one of those listings wrote to the
+        same slot AND was compared against the same stale ``prev``: here s2's
+        16 episodes measured against s1's baseline of 8 reported "+8 new
+        episodes" on a series where nothing had changed, and repeated it every
+        launch until the clamp pinned it to the provider's TOTAL episode count
+        ("Rick And Morty +132 eps").
+
+        Pre-fix this fails with delta == 8. Post-fix s1 is unchanged (8 vs 8)
+        and s2 is a brand-new mirror, so it establishes silently — the
+        ``prev is None`` path never alerts on a back-catalogue.
+        """
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1",
+            "source_id": "s1",
+            "provider_id": "p1",
+            "title": "Fallout",
+            "baselines": {"p1|s1": 8},
+            "unseen_new": 0,
+            "last_checked": None,
+        })
+
+        with db.session_scope() as session:
+            _make_provider_db(session, "p1", name="ProSat (Ottcst)")
+            # Both listings live on the SAME provider — the case the old key
+            # could not represent.
+            _make_series_channel(session, "ch1", "p1", "s1", content_key="fallout|series")
+            _make_series_channel(session, "ch2", "p1", "s2", content_key="fallout|series")
+
+        class _FakePlugin:
+            async def fetch_series_info(self, provider, source_id):
+                # A different listing of the same show, with its own catalogue.
+                count = 16 if source_id == "s2" else 8
+                return {"episodes": {"1": [{}] * count}}
+
+        notify_args: list[tuple] = []
+
+        with patch("metatv.providers.factory.get_provider", return_value=_FakePlugin()):
+            manager = SeriesMonitorManager(db, cfg, notifications=None)
+            manager._notify_new.connect(
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
+            )
+            manager._worker_check_entries(cfg.get_monitored_series())
+            if QCoreApplication.instance():
+                QCoreApplication.processEvents()
+            manager.shutdown()
+
+        assert len(notify_args) == 1, f"expected exactly one notify, got {notify_args}"
+        _cid, delta, _title, payload = notify_args[0]
+        assert delta == 0, (
+            f"a second listing on the same provider was counted as {delta} new "
+            f"episodes — this is the fabricated-alert bug; baselines="
+            f"{payload['baselines']}"
+        )
+        assert payload["baselines"] == {"p1|s1": 8, "p1|s2": 16}, (
+            "each listing on the provider must hold its own baseline rather "
+            "than overwriting a single per-provider slot"
+        )
+
+    def test_same_provider_mirror_growth_is_still_detected(self, tmp_path):
+        """Guard against over-correcting: once a same-provider mirror HAS a
+        baseline, real growth on it must still alert."""
+        from PyQt6.QtCore import QCoreApplication
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        db = _make_file_backed_db(tmp_path)
+        cfg = _FakeConfig()
+        cfg.add_monitored_series({
+            "series_channel_id": "ch1",
+            "source_id": "s1",
+            "provider_id": "p1",
+            "title": "Fallout",
+            "baselines": {"p1|s1": 8, "p1|s2": 16},
+            "unseen_new": 0,
+            "last_checked": None,
+        })
+
+        with db.session_scope() as session:
+            _make_provider_db(session, "p1", name="ProSat (Ottcst)")
+            _make_series_channel(session, "ch1", "p1", "s1", content_key="fallout|series")
+            _make_series_channel(session, "ch2", "p1", "s2", content_key="fallout|series")
+
+        class _FakePlugin:
+            async def fetch_series_info(self, provider, source_id):
+                count = 19 if source_id == "s2" else 8   # s2 gained 3
+                return {"episodes": {"1": [{}] * count}}
+
+        notify_args: list[tuple] = []
+
+        with patch("metatv.providers.factory.get_provider", return_value=_FakePlugin()):
+            manager = SeriesMonitorManager(db, cfg, notifications=None)
+            manager._notify_new.connect(
+                lambda cid, delta, title, payload: notify_args.append((cid, delta, title, payload))
+            )
+            manager._worker_check_entries(cfg.get_monitored_series())
+            if QCoreApplication.instance():
+                QCoreApplication.processEvents()
+            manager.shutdown()
+
+        _cid, delta, _title, payload = notify_args[0]
+        assert delta == 3, f"real growth on a same-provider mirror missed, got {delta}"
+        assert payload["baselines"] == {"p1|s1": 8, "p1|s2": 19}
+        # One provider grew, so its name appears ONCE even though the growth
+        # came from a specific listing among several it carries.
+        assert payload["grown_provider_names"] == ["ProSat (Ottcst)"]
 
     def test_growth_on_sibling_provider_triggers_primary_unaffected(self, tmp_path):
         from PyQt6.QtCore import QCoreApplication
@@ -799,7 +960,7 @@ class TestPerProviderMirrorDetection:
             "source_id": "s1",
             "provider_id": "p1",
             "title": "Mirrored Show",
-            "baselines": {"p1": 10, "p2": 10},
+            "baselines": {"p1|s1": 10, "p2|s2": 10},
             "unseen_new": 0,
             "last_checked": None,
         })
@@ -832,7 +993,7 @@ class TestPerProviderMirrorDetection:
         cid, delta, title, payload = notify_args[0]
         assert cid == "ch1"
         assert delta == 2, f"only p2's +2 should count toward the total, got delta={delta}"
-        assert payload["baselines"] == {"p1": 10, "p2": 12}
+        assert payload["baselines"] == {"p1|s1": 10, "p2|s2": 12}
         assert payload["grown_provider_names"] == ["IPTV Ninja"], \
             "the toast/tooltip attribution must name the provider that actually grew"
 
@@ -851,7 +1012,7 @@ class TestPerProviderMirrorDetection:
             "source_id": "s1",
             "provider_id": "p1",
             "title": "Mirrored Show",
-            "baselines": {"p1": 10, "p2": 10},
+            "baselines": {"p1|s1": 10, "p2|s2": 10},
             "unseen_new": 0,
             "last_checked": None,
         })
@@ -889,7 +1050,7 @@ class TestPerProviderMirrorDetection:
         # p2's baseline stays at its pre-existing value (10) — proof it was
         # never fetched/re-baselined while hidden (the fake plugin would have
         # returned 99, which must never make it into the payload).
-        assert payload["baselines"].get("p2") == 10, \
+        assert payload["baselines"].get("p2|s2") == 10, \
             f"a hidden provider must never be (re)checked; got {payload['baselines']}"
 
 

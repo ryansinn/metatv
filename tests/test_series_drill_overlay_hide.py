@@ -86,6 +86,15 @@ def _make_host() -> _NavMixin:
     host.breadcrumb_label = _FakeLabel()
     host._hidden_mode     = False
 
+    # Supplied by _ChannelsMixin on the real MainWindow (which inherits both
+    # mixins); this host is _NavMixin alone, so the cross-mixin call
+    # _hide_all_content_views() makes to reset the channel-render banners has
+    # to be provided here. Bound to the REAL implementation rather than a
+    # MagicMock so the banners are genuinely hidden and a future regression in
+    # that method still surfaces through these tests.
+    from metatv.gui.main_window_channels import _ChannelListMixin
+    host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)
+
     # Optional widgets that _hide_all_content_views checks via hasattr
     host.filter_panel  = _FakeWidget(visible=False)
     host._tab_all_btn  = MagicMock()
