@@ -77,16 +77,34 @@ class _ChannelListMixin:
     """Channel-list load, filter pipeline, and context-menu glue methods mixed into :class:`MainWindow`."""
 
     def toggle_filters(self):
-        """Toggle filter panel visibility via inner splitter collapse."""
+        """Show/hide the filter panel.
+
+        Hides the WIDGET rather than collapsing the splitter. ``filter_panel``
+        sets ``setMinimumWidth(160)``, so ``setSizes([0, …])`` can never reach 0
+        — Qt clamps it to the minimum. That produced the owner-reported
+        behaviour exactly: the panel only got narrower, and because the old code
+        chose its direction from the measured size (``sizes[0] > 0``, still true
+        at 160) every later toggle took the hide branch again, so it could never
+        be turned back on.
+
+        Direction now comes from the persisted flag, which is the actual state,
+        and the panel's width is captured before hiding so restoring returns it
+        to where the user had it rather than a default.
+        """
         if not hasattr(self, '_inner_splitter'):
             return
-        sizes = self._inner_splitter.sizes()
-        if sizes[0] > 0:
-            self._inner_splitter.setSizes([0, sum(sizes)])
+        currently_visible = bool(getattr(self.config, 'filter_section_visible', True))
+        if currently_visible:
+            width = self._inner_splitter.sizes()[0]
+            if width > 0:
+                self.config.filter_panel_width = width
+            self.filter_panel.setVisible(False)
             self.config.filter_section_visible = False
         else:
-            w = getattr(self.config, 'filter_panel_width', 220)
-            self._inner_splitter.setSizes([w, max(200, sum(sizes) - w)])
+            self.filter_panel.setVisible(True)
+            w = getattr(self.config, 'filter_panel_width', 220) or 220
+            total = sum(self._inner_splitter.sizes())
+            self._inner_splitter.setSizes([w, max(200, total - w)])
             self.config.filter_section_visible = True
         self.config.save()
 

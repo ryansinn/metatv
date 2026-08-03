@@ -110,6 +110,8 @@ class TestMenuContents:
         host._set_density_from_menu = MagicMock()
         host._set_thumbnails_from_menu = MagicMock()
         host._set_platform_style_from_menu = MagicMock()
+        host._toggle_filters_from_menu = MagicMock()
+        host._set_buffer_from_menu = MagicMock()
         host._build_style_menu(host.menuBar())
         return host
 
@@ -129,7 +131,7 @@ class TestMenuContents:
         style = self._menu(window, "Style")
         entries = {a.text().replace("&", "") for a in style.actions()}
         assert {"Theme", "Results density", "Poster thumbnails",
-                "Platform names"} <= entries
+                "Platform names", "Filter panel"} <= entries
 
     def test_every_palette_is_listed(self, window):
         from metatv.gui import theme as _theme
@@ -175,3 +177,83 @@ class TestMenuContents:
                 f"{title} actions are not in one exclusive group"
             )
             assert next(iter(groups)).isExclusive()
+
+
+class TestBufferMenu:
+    """Buffer is its own menu, not a Style entry (#280).
+
+    Owner: "I think Buffer, stand-alone as a menu, might be useful." Right call,
+    and the reasoning matters: Style is APPEARANCE. Buffer changes playback with
+    no visual result, so folding it in would blur the line that makes Style
+    predictable. It earns a menu of its own because it is what you reach for
+    while a stream is stuttering — precisely when opening Settings is worst.
+    """
+
+    @pytest.fixture(scope="module")
+    def qapp(self):
+        from PyQt6.QtWidgets import QApplication
+
+        return QApplication.instance() or QApplication([])
+
+    @pytest.fixture()
+    def window(self, qapp):
+        from PyQt6.QtWidgets import QMainWindow
+
+        from metatv.gui.main_window import MainWindow
+
+        host = QMainWindow()
+        host.config = MagicMock()
+        host.config.buffer_profile = "large"
+        host._build_buffer_menu = MainWindow._build_buffer_menu.__get__(host)
+        host._set_buffer_from_menu = MagicMock()
+        host._build_buffer_menu(host.menuBar())
+        return host
+
+    def _buffer_menu(self, window):
+        for action in window.menuBar().actions():
+            if action.text().replace("&", "") == "Buffer":
+                return action.menu()
+        raise AssertionError("no Buffer menu")
+
+    def test_lists_the_same_profiles_as_settings(self, window):
+        """Same options, same words — two entry points to one setting."""
+        import inspect
+
+        from metatv.gui import settings_dialog_tabs
+
+        menu_values = {a.text().replace("&", "") for a in self._buffer_menu(window).actions()}
+        src = inspect.getsource(settings_dialog_tabs)
+        for label in menu_values:
+            assert label in src, (
+                f"menu label {label!r} does not match Settings — the two must "
+                f"read as one setting, not two similar ones"
+            )
+
+    def test_the_active_profile_is_ticked(self, window):
+        checked = [a.text().replace("&", "") for a in self._buffer_menu(window).actions()
+                   if a.isChecked()]
+        assert checked == ["Large (~30s buffer)"], f"got {checked}"
+
+    def test_it_says_the_change_is_not_retroactive(self, window):
+        """mpv flags are composed at launch, so this lands on the NEXT stream.
+
+        Silently doing nothing to the current stream would read as a broken
+        menu, so every entry has to say so.
+        """
+        for action in self._buffer_menu(window).actions():
+            assert "next stream" in action.toolTip().lower(), (
+                f"{action.text()!r} does not say when the change applies"
+            )
+
+    def test_it_does_not_restart_playback(self):
+        """A menu click must never interrupt what is playing."""
+        import inspect
+
+        from metatv.gui.main_window import MainWindow
+
+        src = inspect.getsource(MainWindow._set_buffer_from_menu)
+        for destructive in ("play(", "stop(", "restart", "reload"):
+            assert destructive not in src, (
+                f"_set_buffer_from_menu touches {destructive!r} — changing a "
+                f"buffer preference must not disturb the current stream"
+            )

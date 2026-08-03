@@ -844,6 +844,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # never disagree; this is a shortcut to existing behaviour, not a
         # parallel implementation of it.
         self._build_style_menu(menubar)
+        self._build_buffer_menu(menubar)
         
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
@@ -2593,6 +2594,16 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._thumbs_action.toggled.connect(self._set_thumbnails_from_menu)
         style_menu.addAction(self._thumbs_action)
 
+        # Filter panel — instant, non-destructive, and the panel most worth
+        # reclaiming space from while browsing. Reuses the existing toggle so
+        # the menu and the panel's own control can never disagree.
+        self._filters_visible_action = QAction("&Filter panel", self, checkable=True)
+        self._filters_visible_action.setChecked(
+            bool(getattr(self.config, "filter_section_visible", True))
+        )
+        self._filters_visible_action.triggered.connect(self._toggle_filters_from_menu)
+        style_menu.addAction(self._filters_visible_action)
+
         # Platform names — "Netflix" vs "NF" on the row chip.
         platform_menu = style_menu.addMenu("&Platform names")
         self._platform_action_group = QActionGroup(self)
@@ -2627,6 +2638,78 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.config.theme_name = name
         self.config.save()
         self.refresh_theme()
+
+    def _build_buffer_menu(self, menubar) -> None:
+        """Build the Buffer menu — how much mpv reads ahead while playing.
+
+        Its own top-level menu rather than a Style entry, deliberately: Style is
+        appearance, and this is playback tuning with no visual result. It earns
+        a menu because it is the setting you reach for WHILE a stream is
+        stuttering, which is exactly when opening Settings is most annoying.
+
+        Labels mirror Settings → Playback verbatim so the two read as one
+        setting rather than two similar ones. The "deep" profile is deliberately
+        absent — Settings exposes it through its own control, and a second
+        entry point for it here would be a third way to say the same thing.
+
+        Args:
+            menubar: The window's ``QMenuBar``.
+        """
+        from PyQt6.QtGui import QActionGroup
+
+        buffer_menu = menubar.addMenu("&Buffer")
+        self._buffer_action_group = QActionGroup(self)
+        self._buffer_action_group.setExclusive(True)
+        current = getattr(self.config, "buffer_profile", "modest")
+        for value, label in (
+            ("reconnect_only", "&Reconnect only (no extra buffer)"),
+            ("modest", "&Modest (~10s buffer)"),
+            ("large", "&Large (~30s buffer)"),
+            ("open_ended", "&Open-ended (disk-backed, max buffer)"),
+        ):
+            action = QAction(label, self, checkable=True)
+            action.setChecked(value == current)
+            # Says plainly that it is not retroactive — mpv flags are composed
+            # when a stream launches, so the change lands on the NEXT play.
+            action.setToolTip("Applies to the next stream you start")
+            action.triggered.connect(lambda _c, v=value: self._set_buffer_from_menu(v))
+            self._buffer_action_group.addAction(action)
+            buffer_menu.addAction(action)
+        buffer_menu.setToolTipsVisible(True)
+
+    def _set_buffer_from_menu(self, value: str) -> None:
+        """Persist a buffer profile chosen from the Buffer menu.
+
+        No live re-apply: mpv's buffer flags are composed at launch
+        (``MPVPlayer._compose_extra_args``), so this takes effect on the next
+        stream. Restarting playback to apply it would be a destructive surprise
+        from a menu click.
+
+        Args:
+            value: One of ``"reconnect_only"``/``"modest"``/``"large"``/
+                ``"open_ended"``.
+        """
+        if getattr(self.config, "buffer_profile", None) == value:
+            return
+        self.config.buffer_profile = value
+        self.config.save()
+        self.status_bar.showMessage(
+            "Buffer setting saved — applies to the next stream you start", 4000
+        )
+
+    def _toggle_filters_from_menu(self) -> None:
+        """Show/hide the filter panel from the Style menu.
+
+        Delegates to :meth:`toggle_filters` — the existing splitter-collapse
+        path that also persists ``filter_section_visible`` — rather than setting
+        the flag here, so the menu and the panel's own toggle stay one
+        behaviour. Re-reads the resulting state instead of assuming it, since
+        the toggle is what decides.
+        """
+        self.toggle_filters()
+        self._filters_visible_action.setChecked(
+            bool(getattr(self.config, "filter_section_visible", True))
+        )
 
     def _set_thumbnails_from_menu(self, enabled: bool) -> None:
         """Toggle poster thumbnails from the Style menu.
