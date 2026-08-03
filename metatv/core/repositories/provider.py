@@ -176,6 +176,48 @@ class ProviderRepository:
         )
         return [r.id for r in rows if r.id not in expired]
 
+    def get_epg_readiness(self) -> dict:
+        """Counts that explain WHY the EPG view is empty, not just that it is.
+
+        ``get_epg_active_provider_ids()`` collapses four very different
+        situations into one empty list — no sources at all, sources that carry
+        no guide URL, sources with EPG switched off, and sources that are ready
+        but haven't fetched yet. The view needs to tell them apart to say
+        something actionable (task #17), so this returns the counts rather than
+        a single verdict; the wording decision stays in the UI layer.
+
+        Returns:
+            ``{"total": int, "with_url": int, "enabled": int, "eligible": int}``
+            over ACTIVE, non-expired sources — ``total`` counts every source
+            regardless of state, so "you have no sources" stays distinguishable
+            from "your sources can't do EPG".
+        """
+        from sqlalchemy import or_
+
+        expired = set(self.get_expired_provider_ids())
+
+        def _count(query) -> int:
+            return len([r.id for r in query.all() if r.id not in expired])
+
+        base = self.session.query(ProviderDB.id).filter(
+            ProviderDB.is_active == True  # noqa: E712
+        )
+        with_url = base.filter(
+            ProviderDB.epg_url.isnot(None), ProviderDB.epg_url != ""
+        )
+        enabled = base.filter(
+            or_(
+                ProviderDB.epg_enabled.is_(None),
+                ProviderDB.epg_enabled == True,  # noqa: E712
+            )
+        )
+        return {
+            "total": self.session.query(ProviderDB.id).count(),
+            "with_url": _count(with_url),
+            "enabled": _count(enabled),
+            "eligible": len(self.get_epg_active_provider_ids()),
+        }
+
     def get_stale_epg_providers(self) -> List[tuple]:
         """Return ``(id, name, epg_data_end)`` for active providers whose fetched EPG
         guide has already ended — they have an ``epg_url`` but no current programmes.

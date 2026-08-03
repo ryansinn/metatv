@@ -67,6 +67,62 @@ from metatv.gui.epg_on_now_mixin import _EpgOnNowMixin
 from metatv.gui.epg_watchlist_mixin import _EpgWatchlistMixin
 
 
+def epg_empty_state(readiness: dict, programme_count: int) -> tuple[str, str]:
+    """Explain WHY the guide is empty, and what to do about it.
+
+    ``get_epg_active_provider_ids()`` returning nothing collapsed four very
+    different situations into one flat "No EPG sources" (task #17): a user with
+    no sources at all, one whose sources carry no guide URL, one who switched
+    EPG off, and one who is fully configured but hasn't fetched yet. Only the
+    last is a "press Refresh" situation; the others need different actions, and
+    two of them aren't problems at all.
+
+    Pure so the wording is testable without a database or a Qt view.
+
+    Args:
+        readiness: ``ProviderRepository.get_epg_readiness()`` output.
+        programme_count: Rows currently stored in the EPG table.
+
+    Returns:
+        ``(headline, hint)``. Both are ``""`` when the guide has data and there
+        is nothing to explain. The EPG chip stays enabled in every case (owner
+        call) — this is an explanation, never a reason to disable navigation.
+    """
+    total = readiness.get("total", 0)
+    with_url = readiness.get("with_url", 0)
+    enabled = readiness.get("enabled", 0)
+    eligible = readiness.get("eligible", 0)
+
+    if programme_count > 0:
+        return "", ""
+    if total == 0:
+        return (
+            "No sources yet",
+            "Add a source and the guide will fill in from it.",
+        )
+    if eligible == 0 and enabled == 0:
+        return (
+            "TV guide is turned off",
+            "Turn it on per source in Sources → pick a source → EPG.",
+        )
+    if eligible == 0 and with_url == 0:
+        return (
+            "No guide available from your sources",
+            "None of your sources published a guide URL. You can supply your "
+            "own XMLTV URL in Sources → pick a source → EPG.",
+        )
+    if eligible == 0:
+        return (
+            "TV guide is not set up",
+            "Check Sources → pick a source → EPG — it needs both a guide URL "
+            "and the EPG switch turned on.",
+        )
+    return (
+        "Guide not downloaded yet",
+        "Your sources are ready — use Refresh Guide to fetch the listings.",
+    )
+
+
 class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMixin, ContentView):
     """Watchlist-first EPG view with On Now and Browse tabs."""
 
@@ -528,6 +584,9 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         try:
             repos = RepositoryFactory(session)
             self._provider_ids = repos.providers.get_epg_active_provider_ids()
+            # Kept alongside the ids so the empty state can explain WHY it is
+            # empty rather than only that it is (#17).
+            self._epg_readiness = repos.providers.get_epg_readiness()
         finally:
             session.close()
 
@@ -768,7 +827,12 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         so the host renders it on the "###,### EPG programmes" stats line.
         """
         if not self._provider_ids:
-            self.epg_status_changed.emit("No EPG sources", "")
+            # Say WHICH of the several "no EPG" situations this is, and what to
+            # do — "No EPG sources" was accurate and useless (#17).
+            headline, hint = epg_empty_state(
+                getattr(self, "_epg_readiness", {}) or {}, 0
+            )
+            self.epg_status_changed.emit(headline or "No EPG sources", hint)
             return
 
         info = self._epg_source_info()

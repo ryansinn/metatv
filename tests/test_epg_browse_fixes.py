@@ -399,7 +399,13 @@ def test_status_label_single_source_includes_name(qapp, sources_db):
 
 
 def test_status_label_no_sources(qapp, sources_db):
+    """With no EPG-eligible source the status now EXPLAINS why (#17).
+
+    It used to read a flat "No EPG sources" for four different
+    situations. This host carries no ``_epg_readiness`` (never loaded),
+    which the classifier treats as the empty-install case.
+    """
     host = _make_status_host(sources_db, [])
     host._update_status_label()
-    assert _status_text(host) == "No EPG sources"
-    assert _status_tooltip(host) == ""
+    assert _status_text(host) == "No sources yet"
+    assert "Add a source" in _status_tooltip(host)

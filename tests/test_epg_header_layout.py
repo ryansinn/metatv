@@ -138,14 +138,21 @@ def test_browse_count_lives_on_the_browse_tab_page(epg_view):
 # ---------------------------------------------------------------------------
 
 def test_update_status_label_emits_no_sources_when_empty(epg_view):
-    """With no EPG providers, the view emits a plain "No EPG sources" status."""
+    """With no EPG providers the status EXPLAINS why, and offers a next step.
+
+    Previously a flat "No EPG sources" covered four situations that need four
+    different responses (#17). This fixture has an empty DB, so the honest
+    answer is "you have no sources yet" — not "refresh failed".
+    """
     captured: list[tuple[str, str]] = []
     epg_view.epg_status_changed.connect(lambda text, tip: captured.append((text, tip)))
 
     epg_view._provider_ids = []
     epg_view._update_status_label()
 
-    assert captured[-1] == ("No EPG sources", "")
+    headline, hint = captured[-1]
+    assert headline == "No sources yet"
+    assert "Add a source" in hint, "an empty state must say what to do next"
 
 
 def test_update_status_label_emits_single_source_text(epg_view):
@@ -216,11 +223,11 @@ win.epg_view.epg_manager.relink_all = lambda *a, **k: None
 win.epg_view._reload_all = lambda *a, **k: None
 
 # 3) Entering the EPG view shows both, and the source status flows onto the line
-#    via epg_status_changed (empty DB → "No EPG sources").
+#    via epg_status_changed (empty DB → the honest "No sources yet", #17).
 win.switch_to_epg_view()
 assert win.epg_status_label.isVisibleTo(win), "status hidden while EPG active"
 assert win.epg_refresh_btn.isVisibleTo(win), "Refresh hidden while EPG active"
-assert win.epg_status_label.text() == "No EPG sources", win.epg_status_label.text()
+assert win.epg_status_label.text() == "No sources yet", win.epg_status_label.text()
 
 # 4) The stats-line Refresh drives the EPG view's per-provider force-refresh seam.
 win.epg_view.epg_manager.force_refresh_provider = MagicMock()

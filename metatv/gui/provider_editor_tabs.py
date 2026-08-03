@@ -42,6 +42,7 @@ from loguru import logger
 
 from metatv.core.models import ProviderURL
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.url_row_widget import URLRowWidget
@@ -365,22 +366,36 @@ class _ProviderEditorTabsMixin:
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(6)
 
-        self._url_list = QListWidget()
-        self._url_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self._url_list.setSpacing(2)
-        group_layout.addWidget(self._url_list)
-
+        # Input ABOVE the list it feeds (#16). A tester pasted URLs into the big
+        # list below because that is the obvious target — the list is large and
+        # looks like a text area, while the real input sat underneath it, out of
+        # the reading path. Entry first, then the result of entering.
         add_row = QHBoxLayout()
         self._new_url_input = QLineEdit()
         self._new_url_input.setClearButtonEnabled(True)
-        self._new_url_input.setPlaceholderText("http://newdomain.com:8080")
+        self._new_url_input.setPlaceholderText("Paste a URL here, e.g. http://newdomain.com:8080")
+        self._new_url_input.setToolTip(
+            "Add another address for this source. Extra URLs are used as "
+            "fallbacks when the first one stops responding."
+        )
         self._new_url_input.returnPressed.connect(self._add_url)
         add_row.addWidget(self._new_url_input, 1)
         add_btn = QPushButton("Add URL")
         add_btn.setFixedWidth(80)
+        add_btn.setToolTip("Add this address to the list below")
+        cursor_affordance.set_clickable(add_btn)
         add_btn.clicked.connect(self._add_url)
         add_row.addWidget(add_btn)
         group_layout.addLayout(add_row)
+
+        self._url_list = QListWidget()
+        self._url_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._url_list.setSpacing(2)
+        self._url_list.setToolTip(
+            "Addresses already added for this source, most reliable first. "
+            "Drag or use the arrows to reorder."
+        )
+        group_layout.addWidget(self._url_list)
 
         layout.addWidget(group)
 
@@ -464,9 +479,26 @@ class _ProviderEditorTabsMixin:
         from metatv.core.epg_utils import EPG_INTERVAL_CHOICES
         from metatv.gui.provider_editor import _CopyableLabel
 
-        group = QGroupBox("EPG")
-        form = QFormLayout(group)
+        group = QGroupBox("TV guide (EPG)")
+        outer = QVBoxLayout(group)
+        outer.setSpacing(8)
+
+        explainer = QLabel(
+            "A TV guide lists what is playing on each live channel and when. "
+            "With it you get the EPG view, On Now, and the ability to set "
+            "reminders for upcoming programmes. Most sources publish one "
+            "automatically. Leave this on unless the guide is wrong or you "
+            "want to save the download."
+        )
+        explainer.setWordWrap(True)
+        explainer.setStyleSheet(_theme.SECTION_HINT)
+        outer.addWidget(explainer)
+
+        form_host = QWidget()
+        form = QFormLayout(form_host)
+        form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
+        outer.addWidget(form_host)
 
         # 1. Enable / disable — with a right-aligned auto-detect status badge
         self._epg_enabled_check = QCheckBox("Fetch EPG guide for this source")
