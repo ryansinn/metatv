@@ -33,7 +33,7 @@ class AddProviderDialog(QDialog):
     
     def setup_ui(self):
         """Set up dialog UI"""
-        self.setWindowTitle("Add IPTV Provider")
+        self.setWindowTitle("Add IPTV Source")
         self.setMinimumWidth(500)
         
         layout = QVBoxLayout(self)
@@ -125,7 +125,7 @@ class AddProviderDialog(QDialog):
         self.test_button = button_box.addButton("Test Connection", QDialogButtonBox.ButtonRole.ActionRole)
         self.test_button.clicked.connect(self.test_connection)
         
-        self.add_button = button_box.addButton("Add Provider", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.add_button = button_box.addButton("Add Source", QDialogButtonBox.ButtonRole.AcceptRole)
         self.add_button.clicked.connect(self.add_provider)
         self.add_button.setEnabled(False)
         
@@ -297,7 +297,7 @@ class AddProviderDialog(QDialog):
         from metatv.core.models import ProviderURL
         provider = Provider(
             id=str(uuid.uuid4()),
-            name=self.name_input.text().strip() or "Unnamed Provider",
+            name=self.name_input.text().strip() or "Unnamed Source",
             type=provider_type,
             url=urls[0],  # Primary URL
             username=self.username_input.text().strip(),

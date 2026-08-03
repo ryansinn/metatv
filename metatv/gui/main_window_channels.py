@@ -923,11 +923,25 @@ class _ChannelListMixin:
         if params.get('hidden_only'):
             self.status_bar.showMessage(f"{shown:,} hidden channel{'s' if shown != 1 else ''} — right-click to unhide")
         elif given_provider_id:
-            self.status_bar.showMessage(f"{shown:,} channels from selected provider")
+            self.status_bar.showMessage(f"{shown:,} channels from selected source")
         else:
             self.status_bar.showMessage(f"{shown:,} channels from active providers")
 
         self.filter_channels()
+
+        # First-run hand-off: the user had zero sources, has now imported one,
+        # and real channels just arrived. Take them to Discover — the intended
+        # default view they could never reach on a fresh install. One-shot, and
+        # only when they haven't already chosen a view themselves.
+        #
+        # Deferred to the next event-loop turn so this render pass finishes
+        # first; switching views mid-populate would tear down the list we are
+        # still filling.
+        if self.__dict__.pop('_first_source_pending', False) and shown:
+            logger.info(
+                f"First source imported ({shown:,} channels) — landing on Discover"
+            )
+            QTimer.singleShot(0, self.switch_to_discover_view)
 
         # Surface the per-layer transparency bar even with a non-empty result set
         # (partial exclusion): filter_channels() may have shown a suspend banner and
@@ -1044,6 +1058,14 @@ class _ChannelListMixin:
             self._channel_filter_bar.setVisible(False)
         self.status_bar.showMessage("No sources configured — add a source to start browsing channels")
         self.stats_label.setText("No sources configured")
+        # Arm the one-shot first-run hand-off. Discover is the intended landing
+        # view, but a brand-new user has no content, so nothing ever placed them
+        # there and they were left staring at an empty channel list after their
+        # first source finished importing (task #20). Consumed by
+        # _on_channels_loaded once real channels arrive; cleared if the user
+        # picks a content view themselves in the meantime, so this never
+        # overrides a deliberate choice.
+        self._first_source_pending = True
 
     def _show_channel_banner(self, text: str) -> None:
         """Show the info banner strip above the channel list."""

@@ -816,7 +816,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         
         # File menu
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction("&Add Provider...", self.add_provider)
+        file_menu.addAction("&Add Source...", self.add_provider)
         file_menu.addSeparator()
         settings_action = QAction("&Settings", self)
         settings_action.setShortcut(QKeySequence("Ctrl+,"))
@@ -1490,7 +1490,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._diagnose_btn.setFlat(True)
         self._diagnose_btn.setToolTip(
             "Diagnose stream quality of the selected channel — "
-            "is buffering your provider or your connection?"
+            "is buffering your source or your connection?"
         )
         self._diagnose_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         self._diagnose_btn.clicked.connect(self.on_diagnose_clicked)

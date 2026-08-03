@@ -249,7 +249,7 @@ class _ProviderMixin:
         self._hide_all_content_views()
         self.provider_editor.setVisible(True)
         self.provider_editor.load_provider(provider_id)
-        self.stats_label.setText("Editing provider — click a source to switch")
+        self.stats_label.setText("Editing source — click another to switch")
         self._in_provider_edit_mode = True
         self._deactivate_view_chips()
 
@@ -425,13 +425,13 @@ class _ProviderMixin:
         just the sidebar.
         """
         self._refresh_provider_dependent_views()
-        self.status_bar.showMessage("Provider saved.", 3000)
+        self.status_bar.showMessage("Source saved.", 3000)
 
     def _on_provider_deleted(self, provider_id: str):
         """Clean up after a provider is deleted from the editor."""
         self.exit_provider_edit_mode()
         self._refresh_provider_dependent_views()
-        self.status_bar.showMessage("Provider deleted.", 3000)
+        self.status_bar.showMessage("Source deleted.", 3000)
 
     def _on_provider_delete_requested(self, provider_id: str) -> None:
         """User confirmed a source delete — run the purge OFF the UI thread.

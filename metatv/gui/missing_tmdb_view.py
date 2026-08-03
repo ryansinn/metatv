@@ -157,7 +157,7 @@ class MissingTmdbView(QWidget):
             return
 
         headline = QLabel(
-            f"{_icons.notification_success_icon}  Provider methods identified "
+            f"{_icons.notification_success_icon}  Source methods identified "
             f"{dto.resolved_pct:.0f}% of {dto.total_vod:,} titles "
             f"({dto.resolved:,} with a TMDb id)."
         )
@@ -167,9 +167,9 @@ class MissingTmdbView(QWidget):
 
         # Provenance breakdown — icon + label + count (never colour alone).
         for glyph, label, count in (
-            (_icons.notification_info_icon or _icons.info_icon, "From provider list", dto.from_list),
+            (_icons.notification_info_icon or _icons.info_icon, "From source list", dto.from_list),
             (_icons.recipe_check_icon, "Propagated from a title sibling", dto.propagated),
-            (_icons.search_icon, "Fetched from provider detail", dto.fetched),
+            (_icons.search_icon, "Fetched from source detail", dto.fetched),
             (_icons.playback_neutral_icon, "Not yet attempted", dto.unattempted),
         ):
             self._funnel_layout.addWidget(self._stat_row(glyph, label, count, dto.total_vod))

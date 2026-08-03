@@ -79,7 +79,9 @@ def test_render_provider_limited_headline_and_apply_enabled(qapp):
     )
     dlg._on_result_ready(result)
 
-    assert dlg._headline.text() == "Your provider is the bottleneck"
+    # "Source" is the user-facing term (task #18); "provider" survives only
+    # in code identities. Guarded by tests/test_source_vocabulary.py.
+    assert dlg._headline.text() == "Your source is the bottleneck"
     assert dlg._summary.text() == "Provider can't deliver this bitrate."
     assert dlg._apply_button.isEnabled() is True
     assert dlg._run_button.isEnabled() is True

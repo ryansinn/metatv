@@ -17,6 +17,8 @@ name: Release (macOS)
 #   * arm64  build (macos-14)       → runs on macOS 14+ (Apple Silicon)
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -81,14 +83,40 @@ jobs:
             else
               echo "prerelease=false" >> "$GITHUB_OUTPUT"
             fi
+          elif [ "${GITHUB_REF_NAME:-}" = "main" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
+            # Rolling build. The identifier is derived, never hand-chosen: a
+            # UTC date plus the short SHA, which is what actually answers
+            # "which code is this?" when a tester reports a bug. __version__
+            # stays in the string as the batch label What's New groups by.
+            SHORT_SHA="$(git rev-parse --short HEAD)"
+            BUILD_ID="${VERSION}+$(date -u +%Y%m%d).${SHORT_SHA}"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+            echo "is_rolling=true" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "tag=rolling" >> "$GITHUB_OUTPUT"
+            echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+            echo "Rolling build: $BUILD_ID"
           else
             echo "is_tag=false" >> "$GITHUB_OUTPUT"
+            echo "is_rolling=false" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run tests (green gate)
         run: |
           pytest tests/ -q
+
+      - name: Stamp the build id
+        run: |
+          set -euo pipefail
+          # Written before PyInstaller so it is baked into the bundle. A packaged
+          # app has no git, so without this a rolling build could not say which
+          # commit it is — and under rolling releases the version string alone
+          # no longer distinguishes two builds. Gitignored: generated per build,
+          # never committed.
+          STAMP="${{ steps.meta.outputs.build_id || steps.meta.outputs.version }}"
+          printf 'BUILD_ID = "%s"\n' "$STAMP" > metatv/_build_id.py
+          echo "Stamped build id: $STAMP"
 
       - name: Build MetaTV.app (PyInstaller)
         run: |
@@ -199,6 +227,48 @@ jobs:
           name: MetaTV-${{ steps.meta.outputs.version }}-${{ matrix.arch }}-dmg
           path: ${{ steps.dmg.outputs.dmg }}
           if-no-files-found: error
+
+      - name: Publish rolling build
+        if: steps.meta.outputs.is_rolling == 'true'
+        # ONE release, moved forward on every push to main. The tester bookmarks
+        # a single URL and always gets the newest build; there is no version to
+        # choose and no release chore to perform.
+        #
+        # Old builds are deliberately NOT warehoused. The only reason to want a
+        # previous build is "worked before, broken now", and any commit can be
+        # rebuilt on demand via workflow_dispatch — so keeping stale dmgs around
+        # buys nothing and makes "which one is current?" ambiguous.
+        #
+        # The moving tag is force-updated to this commit first, otherwise the
+        # release keeps pointing at whatever commit first created it and the
+        # generated notes drift from the actual contents.
+        run: |
+          set -euo pipefail
+          git tag -f rolling
+          git push -f origin rolling
+          if gh release view rolling >/dev/null 2>&1; then
+            gh release edit rolling \
+              --title "MetaTV (rolling) — ${{ steps.meta.outputs.build_id }}" \
+              --notes "Latest build of \`main\`.
+
+          **Build:** \`${{ steps.meta.outputs.build_id }}\`
+          **Commit:** ${{ github.sha }}
+
+          This release always points at the newest code. Re-download to update —
+          there is no in-app updater yet. See the in-app What's New for what
+          changed." \
+              --target "${{ github.sha }}"
+          else
+            gh release create rolling \
+              --title "MetaTV (rolling) — ${{ steps.meta.outputs.build_id }}" \
+              --notes "Latest build of \`main\`." \
+              --target "${{ github.sha }}"
+          fi
+          # --clobber: the asset name is arch-stable, so each push REPLACES the
+          # previous dmg rather than accumulating one per build.
+          gh release upload rolling "${{ steps.dmg.outputs.dmg }}" --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to GitHub Release
         if: steps.meta.outputs.is_tag == 'true'

@@ -72,3 +72,6 @@ mpv-shot*.jpg
 # Local scratch / personal notes accidentally committed once in #128
 design/
 open issues notes
+
+# Generated per build by the release workflow (see build_info.build_id)
+metatv/_build_id.py

@@ -143,7 +143,7 @@ class ProviderItemWidget(QWidget):
         # Toggle (enable/disable)
         self._toggle_btn = QPushButton("●" if is_active else "○")
         self._toggle_btn.setFixedSize(22, 20)
-        self._toggle_btn.setToolTip("Enable / Disable this provider")
+        self._toggle_btn.setToolTip("Enable / Disable this source")
         self._toggle_btn.setStyleSheet(_btn_style.format(r=180, g=180, b=180))
         self._toggle_btn.clicked.connect(lambda: self.toggleClicked.emit(self.provider_id))
         layout.addWidget(self._toggle_btn)
@@ -151,7 +151,7 @@ class ProviderItemWidget(QWidget):
         # Edit pencil (teal/cyan for edit action)
         edit_btn = QPushButton("✎")
         edit_btn.setFixedSize(22, 20)
-        edit_btn.setToolTip("Edit provider settings")
+        edit_btn.setToolTip("Edit source settings")
         edit_btn.setStyleSheet(_btn_style.format(r=80, g=200, b=180))
         edit_btn.clicked.connect(lambda: self.editClicked.emit(self.provider_id))
         layout.addWidget(edit_btn)
@@ -167,7 +167,7 @@ class ProviderItemWidget(QWidget):
         # Refresh (blue — action button)
         refresh_btn = QPushButton("↻")
         refresh_btn.setFixedSize(22, 20)
-        refresh_btn.setToolTip("Refresh channels from provider")
+        refresh_btn.setToolTip("Refresh channels from source")
         refresh_btn.setStyleSheet(_btn_style.format(r=68, g=136, b=255))
         refresh_btn.clicked.connect(lambda: self.refreshClicked.emit(self.provider_id))
         layout.addWidget(refresh_btn)
@@ -201,7 +201,7 @@ class ProviderItemWidget(QWidget):
             self._toggle_btn.setToolTip("Updating…")
         else:
             self._toggle_btn.setText("●" if self._is_active else "○")
-            self._toggle_btn.setToolTip("Enable / Disable this provider")
+            self._toggle_btn.setToolTip("Enable / Disable this source")
 
     def set_epg_state(self, state: str, tooltip: str) -> None:
         """Color the EPG indicator by freshness state and set its date-range tooltip.

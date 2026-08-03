@@ -443,7 +443,7 @@ class _ProviderEditorTabsMixin:
 
         self._force_adult_check = QCheckBox("Mark all channels from this source as adult content")
         self._force_adult_check.setToolTip(
-            "Enable when this provider doesn't tag channels with adult flags "
+            "Enable when this source doesn't tag channels with adult flags "
             "but you want the adult content filter to apply to it."
         )
         form.addRow("Adult content:", self._force_adult_check)
@@ -469,10 +469,10 @@ class _ProviderEditorTabsMixin:
         form.setSpacing(8)
 
         # 1. Enable / disable — with a right-aligned auto-detect status badge
-        self._epg_enabled_check = QCheckBox("Fetch EPG guide for this provider")
+        self._epg_enabled_check = QCheckBox("Fetch EPG guide for this source")
         self._epg_enabled_check.setChecked(True)
         self._epg_enabled_check.setToolTip(
-            "When enabled, MetaTV downloads this provider's XMLTV guide data and "
+            "When enabled, MetaTV downloads this source's XMLTV guide data and "
             "shows programme info in the EPG view, On Now, and Watchlist. "
             "Disabling immediately removes the fetched guide data for this source "
             "and skips it on future EPG refreshes. Re-enabling allows the next "
@@ -499,7 +499,7 @@ class _ProviderEditorTabsMixin:
         self._epg_url_override_input.setClearButtonEnabled(True)
         self._epg_url_override_input.setPlaceholderText("(uses auto-detected URL)")
         self._epg_url_override_input.setToolTip(
-            "Optional: supply your own XMLTV URL for this provider. "
+            "Optional: supply your own XMLTV URL for this source. "
             "Leave blank to use the auto-detected feed. "
             "Changing this URL forces the guide to re-fetch on next refresh."
         )
@@ -509,7 +509,7 @@ class _ProviderEditorTabsMixin:
         # (self._acct_epg_lbl); both are kept in sync by _set_epg_status_label.
         self._epg_freshness_lbl = QLabel("—")
         self._epg_freshness_lbl.setToolTip(
-            "Current state of the downloaded EPG guide data for this provider."
+            "Current state of the downloaded EPG guide data for this source."
         )
         form.addRow("Guide freshness:", self._epg_freshness_lbl)
 
@@ -519,7 +519,7 @@ class _ProviderEditorTabsMixin:
         for value, label in EPG_INTERVAL_CHOICES:
             self._epg_interval_combo.addItem(label, value)
         self._epg_interval_combo.setToolTip(
-            "How often to re-fetch this provider's EPG guide. "
+            "How often to re-fetch this source's EPG guide. "
             "'Use default' inherits the global setting from Settings → EPG refresh "
             "(the default is Auto). "
             "'Auto' self-tunes: it refreshes at half the guide's depth, clamped to "
@@ -606,7 +606,7 @@ class _ProviderEditorTabsMixin:
             except Exception:
                 day = str(epg_data_end)
             if epg_is_stale(epg_data_end):
-                text = f"{_icons.notification_warning_icon} Stale — guide ends {day} (provider out of date)"
+                text = f"{_icons.notification_warning_icon} Stale — guide ends {day} (source out of date)"
                 style = f"color: {_theme.COLOR_WARN};"
             else:
                 auto_note = ""

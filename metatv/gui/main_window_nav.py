@@ -162,6 +162,12 @@ class _NavMixin:
 
     def switch_to_list_view(self):
         """Switch content area back to channel list view."""
+        # The user picked a content view themselves, so the first-run
+        # hand-off must not fire later and yank them somewhere else.
+        # Note this is absent from switch_to_sources_manager on purpose:
+        # adding the first source REQUIRES going there, and clearing the
+        # flag on that trip would defeat the hand-off every time.
+        self.__dict__.pop("_first_source_pending", None)
         self.view_mode = "list"
         self._in_provider_edit_mode = False
         self._hide_all_content_views()
@@ -192,6 +198,12 @@ class _NavMixin:
 
     def switch_to_epg_view(self):
         """Switch content area to EPG view."""
+        # The user picked a content view themselves, so the first-run
+        # hand-off must not fire later and yank them somewhere else.
+        # Note this is absent from switch_to_sources_manager on purpose:
+        # adding the first source REQUIRES going there, and clearing the
+        # flag on that trip would defeat the hand-off every time.
+        self.__dict__.pop("_first_source_pending", None)
         self.view_mode = "epg"
         self._hide_all_content_views()
         self.epg_view.setVisible(True)
@@ -238,6 +250,12 @@ class _NavMixin:
 
     def switch_to_preferences_view(self) -> None:
         """Switch content area to the Taste / Preferences dashboard."""
+        # The user picked a content view themselves, so the first-run
+        # hand-off must not fire later and yank them somewhere else.
+        # Note this is absent from switch_to_sources_manager on purpose:
+        # adding the first source REQUIRES going there, and clearing the
+        # flag on that trip would defeat the hand-off every time.
+        self.__dict__.pop("_first_source_pending", None)
         self.view_mode = "preferences"
         self._hide_all_content_views()
         self.preferences_view.setVisible(True)
@@ -254,6 +272,12 @@ class _NavMixin:
 
     def switch_to_recipe_view(self) -> None:
         """Switch content area to the Recipe builder view."""
+        # The user picked a content view themselves, so the first-run
+        # hand-off must not fire later and yank them somewhere else.
+        # Note this is absent from switch_to_sources_manager on purpose:
+        # adding the first source REQUIRES going there, and clearing the
+        # flag on that trip would defeat the hand-off every time.
+        self.__dict__.pop("_first_source_pending", None)
         self.view_mode = "recipe"
         self._hide_all_content_views()
         self.recipe_view.setVisible(True)

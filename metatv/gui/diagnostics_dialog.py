@@ -39,7 +39,7 @@ _PROFILE_LABELS: dict[str, str] = {
 _HEADLINES = {
     _diag.HEALTHY: "Stream looks healthy",
     _diag.JITTER: "Connection is jittery — a bigger buffer will help",
-    _diag.PROVIDER_LIMITED: "Your provider is the bottleneck",
+    _diag.PROVIDER_LIMITED: "Your source is the bottleneck",
     _diag.INTERNET_LIMITED: "Your internet connection is the bottleneck",
     _diag.UNREACHABLE: "Couldn't reach the stream",
 }

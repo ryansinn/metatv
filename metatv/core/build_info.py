@@ -48,6 +48,26 @@ def _pr_number() -> str:
     return match.group(1) if match else ""
 
 
+def build_id() -> str:
+    """Return the stamped build identifier, or "" when this isn't a CI build.
+
+    The release workflow writes ``metatv/_build_id.py`` just before PyInstaller
+    runs, so a packaged app can say exactly which code it is. That matters more
+    under rolling releases than it did under version tags: "0.25.0" no longer
+    distinguishes two builds a week apart, but ``0.25.0+20260803.a3e7a28``
+    does — and a bug report naming it can be checked out directly.
+
+    A development checkout has no such file and falls back to git, which is
+    strictly better information when it's available.
+    """
+    try:
+        from metatv import _build_id  # type: ignore[attr-defined]
+
+        return str(getattr(_build_id, "BUILD_ID", "") or "")
+    except Exception:
+        return ""
+
+
 def compose_title(
     sha: str,
     dirty: bool,
@@ -72,7 +92,12 @@ def compose_title(
         - ``"MetaTV (<sha>[*])"`` when detached with no PR.
     """
     if not sha:
+        # No git — this is a packaged app. Prefer the stamped build id, which
+        # identifies the exact commit; fall back to the bare version only when
+        # nothing stamped it (a local PyInstaller run, say).
         if version is None:
+            version = build_id()
+        if not version:
             import metatv
 
             version = metatv.__version__

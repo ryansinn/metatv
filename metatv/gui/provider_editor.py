@@ -85,13 +85,13 @@ class FetchAccountInfoThread(QThread):
         from metatv.providers.factory import get_provider
         plugin = get_provider(self.provider.type)
         if not plugin or not hasattr(plugin, "fetch_account_info"):
-            self.finished.emit(False, "Provider type does not support account info")
+            self.finished.emit(False, "Source type does not support account info")
             return
         info = await plugin.fetch_account_info(self.provider)
         if info:
             self.finished.emit(True, info)
         else:
-            self.finished.emit(False, "No response from provider")
+            self.finished.emit(False, "No response from source")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -413,7 +413,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
 
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
-        self._name_field_lbl = QLabel("Provider Name")
+        self._name_field_lbl = QLabel("Source Name")
         self._name_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
         name_col.addWidget(self._name_field_lbl)
         name_row = QHBoxLayout()
@@ -424,7 +424,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._name_input = QLineEdit()
         self._name_input.setClearButtonEnabled(True)
         self._name_input.setStyleSheet(f"font-size: {_theme.FONT_HEADING}; font-weight: 600;")
-        self._name_input.setPlaceholderText("My Provider")
+        self._name_input.setPlaceholderText("My Source")
         name_row.addWidget(self._name_input, 1)
         name_col.addLayout(name_row)
         row.addLayout(name_col, 1)
@@ -432,7 +432,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row.addSpacing(16)
 
         self._enabled_check = QCheckBox("Enabled")
-        self._enabled_check.setToolTip("Enable or disable this provider")
+        self._enabled_check.setToolTip("Enable or disable this source")
         self._enabled_check.setChecked(True)
         row.addWidget(self._enabled_check)
 
@@ -465,7 +465,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row.addStretch()
 
         self._action_refresh_btn = QPushButton(f"{_icons.refresh_icon}  Refresh")
-        self._action_refresh_btn.setToolTip("Refresh channels from this provider")
+        self._action_refresh_btn.setToolTip("Refresh channels from this source")
         self._action_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
         self._action_refresh_btn.clicked.connect(self._on_action_refresh_clicked)
         row.addWidget(self._action_refresh_btn)
@@ -481,7 +481,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         # computed by _update_epg_refresh_btn_state() in provider_editor_tabs.py.
         self._epg_refresh_btn = QPushButton(f"{_icons.calendar_icon}  Refresh Guide")
         self._epg_refresh_btn.setToolTip(
-            "Immediately re-fetch this provider's EPG guide, bypassing the throttle. "
+            "Immediately re-fetch this source's EPG guide, bypassing the throttle. "
             "Disabled when EPG is off or no URL is configured."
         )
         self._epg_refresh_btn.setStyleSheet(_theme.PANEL_BTN)
@@ -489,7 +489,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row.addWidget(self._epg_refresh_btn)
 
         self._action_toggle_btn = QPushButton("Disable")
-        self._action_toggle_btn.setToolTip("Enable / Disable this provider")
+        self._action_toggle_btn.setToolTip("Enable / Disable this source")
         self._action_toggle_btn.setStyleSheet(_theme.PANEL_BTN)
         self._action_toggle_btn.clicked.connect(self._on_action_toggle_clicked)
         row.addWidget(self._action_toggle_btn)
@@ -528,7 +528,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             self._action_toggle_btn.setText(f"{_icons.loading_icon}  Updating…")
             self._action_toggle_btn.setToolTip("Updating…")
             return
-        self._action_toggle_btn.setToolTip("Enable / Disable this provider")
+        self._action_toggle_btn.setToolTip("Enable / Disable this source")
         if self._provider_id:
             with self.db.session_scope(commit=False) as session:
                 row = session.query(ProviderDB).filter_by(id=self._provider_id).first()
@@ -563,7 +563,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         row = QHBoxLayout(self._footer)
         row.setContentsMargins(16, 10, 16, 10)
 
-        self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Provider")
+        self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Source")
         self._delete_btn.setStyleSheet(_theme.DELETE_BTN)
         self._delete_btn.clicked.connect(self._delete_provider)
         row.addWidget(self._delete_btn)
@@ -875,12 +875,12 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         session = self.db.get_session()
         try:
             db_prov = session.query(ProviderDB).filter_by(id=self._provider_id).first()
-            name = db_prov.name if db_prov else "this provider"
+            name = db_prov.name if db_prov else "this source"
         finally:
             session.close()
 
         reply = QMessageBox.question(
-            self, "Delete Provider",
+            self, "Delete Source",
             f"Delete '{name}' and all its channels? This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
         )

@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QLabel, QScrollArea,
-    QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
 )
 
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 
@@ -101,6 +102,35 @@ class NewFacetValuesDialog(QDialog):
 
         il.addStretch()
         scroll.setWidget(inner)
+
+        # Bulk toggles. A new source can introduce hundreds of values at once,
+        # and the useful starting point is often "exclude everything, then add
+        # back the few I want" — which was previously N individual clicks with
+        # no way to shortcut it (owner report, task #19). Placed ABOVE the list
+        # so they read as acting on what follows.
+        bulk_row = QHBoxLayout()
+        bulk_row.setContentsMargins(0, 0, 0, 2)
+        bulk_row.setSpacing(6)
+        self._select_all_btn = QPushButton("Select all")
+        self._select_all_btn.setToolTip("Include every new value")
+        self._unselect_all_btn = QPushButton("Unselect all")
+        self._unselect_all_btn.setToolTip(
+            "Exclude every new value — then re-check just the ones you want"
+        )
+        for btn, checked in (
+            (self._select_all_btn, True),
+            (self._unselect_all_btn, False),
+        ):
+            btn.setStyleSheet(_theme.RECIPE_CLEAR_BTN)
+            cursor_affordance.set_clickable(btn)
+            # default=checked: bind the loop value now, not at click time.
+            btn.clicked.connect(
+                lambda _=False, state=checked: self._set_all_checked(state)
+            )
+            bulk_row.addWidget(btn)
+        bulk_row.addStretch()
+        vl.addLayout(bulk_row)
+
         vl.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
@@ -115,6 +145,16 @@ class NewFacetValuesDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         vl.addWidget(buttons)
+
+    def _set_all_checked(self, checked: bool) -> None:
+        """Check or uncheck every value across every facet section.
+
+        Args:
+            checked: True to include everything, False to exclude everything.
+        """
+        for checks in self._checks.values():
+            for cb in checks.values():
+                cb.setChecked(checked)
 
     def excluded(self) -> dict[str, set[str]]:
         """Return ``{section_key: set(unchecked values)}`` — the opt-out selections.

@@ -160,7 +160,7 @@ class _SeriesMixin:
             provider_db = repos.providers.get_by_id(channel.provider_id)
 
             if not provider_db:
-                self.status_bar.showMessage("Error: Provider not found")
+                self.status_bar.showMessage("Error: Source not found")
                 return
 
             provider = repos.providers.to_model(provider_db)

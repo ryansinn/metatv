@@ -269,7 +269,7 @@ class SourceAnalyticsView(QWidget):
         self._clear_layout(self._unique_layout)
 
         if not dtos:
-            self._unique_layout.addWidget(QLabel("No unique titles on this provider"))
+            self._unique_layout.addWidget(QLabel("No unique titles on this source"))
             return
 
         # Summary

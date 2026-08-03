@@ -133,7 +133,7 @@ class ProviderSettingsDialog(QDialog):
     
     def setup_ui(self):
         """Set up dialog UI"""
-        self.setWindowTitle(f"Provider Settings - {self.provider.name}")
+        self.setWindowTitle(f"Source Settings - {self.provider.name}")
         self.setMinimumWidth(700)
         self.setMinimumHeight(500)
         

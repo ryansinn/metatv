@@ -304,7 +304,7 @@ class FilterBar(QWidget):
             "\n"
             "Broad groups (English, Spanish, French…) match all variants of that language.\n"
             "Locale sub-groups (English (North America), French (Europe)…) match only channels\n"
-            "where the provider explicitly labeled them with a country code (US, CA, FR…).\n"
+            "where the source explicitly labeled them with a country code (US, CA, FR…).\n"
             "Channels with a generic code (EN, ES, FR) appear in the broad group only.\n"
             "\n"
             "Language and Region both ADD to your results when combined — selecting either\n"
@@ -319,7 +319,7 @@ class FilterBar(QWidget):
         self.region_dropdown.setToolTip(
             "Filter by geographic origin or audience target.\n"
             "\n"
-            "Region filters use the explicit geographic labels the provider assigned —\n"
+            "Region filters use the explicit geographic labels the source assigned —\n"
             "e.g. MX/MEX channels are Mexican content, not just Spanish content.\n"
             "This lets you find exactly your region's channels without browsing all of\n"
             "a language group.\n"

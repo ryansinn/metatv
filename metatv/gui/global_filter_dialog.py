@@ -523,7 +523,7 @@ class _ContentTypeSection(QWidget):
         name_lbl = QLabel("Other (unmapped types)")
         name_lbl.setStyleSheet(f"font-size: {_theme.FONT_LG}; font-weight: bold; color: {_theme.COLOR_DIM};")
         name_lbl.setToolTip(
-            "Live channels whose source_category header from the provider\n"
+            "Live channels whose source_category header from the source\n"
             "didn't match any configured Content Type group.\n"
             "Expand to see individual category labels and exclude specific ones."
         )
@@ -897,7 +897,7 @@ class GlobalFilterDialog(QDialog):
         reset_btn.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_ERR_MUTED};")
         reset_btn.setToolTip(
             "Clear all your custom category assignments and restore built-in defaults.\n"
-            "Provider-specific overrides are not affected."
+            "Source-specific overrides are not affected."
         )
         reset_btn.clicked.connect(self._reset_user_overrides)
         shortcut_row.addWidget(reset_btn)
@@ -1168,7 +1168,7 @@ class GlobalFilterDialog(QDialog):
         info_lbl = QLabel("ⓘ")
         info_lbl.setStyleSheet(_theme.INFO_LABEL)
         info_lbl.setToolTip(
-            "Content types are derived from category headers in the provider's\n"
+            "Content types are derived from category headers in the source's\n"
             "channel list (e.g. ##### SPORTS NETWORK #####).\n"
             "Check a type to hide all matching live channels from Discovery."
         )
