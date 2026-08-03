@@ -145,9 +145,12 @@ Mockups start from a faithful inventory of the CURRENT app (code transcription w
 
 ## Session Wrap SOP
 
-On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: tests (`pytest tests/ -x -q`) → commit everything → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.
+On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: tests (`pytest tests/ -x -q`) → commit everything → **roadmap reconciliation gate** → **release-claims audit** → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.
 
-Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict, `merge_pr.sh <PR#>` = verify→merge→prune in one command, `prune_merged.sh` = safe merged-worktree/branch cleanup.
+### Shipped means proven, never planned
+A wave/release scope list is intent, not evidence. **A claimed item with no What's New entry did not ship** — record it NOT BUILT (or cite a `file.py:line` anchor for genuinely invisible work), and never promote a plan, a brief, or an agent's self-report into a memory of delivered work. Ten releases drifted and three phantom Wave-7 items entered memory as fact before this was mechanical. Gates: `scripts/roadmap_audit.py` (+ `--version X.Y.Z`); detail: docs/SESSION_WRAP.md steps 3-4.
+
+Dev/manager scripts live in `scripts/` (config via optional repo-root `.devscripts.conf`, docs in `scripts/README.md`): `verify_pr.sh <PR#>` = full-suite gate that tests the merge result with a GREEN/RED verdict, `merge_pr.sh <PR#>` = verify→merge→prune in one command, `prune_merged.sh` = safe merged-worktree/branch cleanup, `roadmap_audit.py` = roadmap reconciliation watermark + per-release claims audit.
 
 ## Migration Status
 
