@@ -845,6 +845,12 @@ class Config(BaseModel):
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.
     channel_list_thumbnails: bool = True
+    # Platform chip name style (Settings → Interface → Channel List →
+    # "Platform names", #257): "auto" (default) resolves per row density —
+    # full brand name (e.g. "Apple+") in comfy/comfy_plus, short code (e.g.
+    # "A+") in compact; "full"/"short" pin one style regardless of density.
+    # See channel_list_delegate.ChannelRowDelegate._effective_platform_style.
+    platform_name_style: str = "auto"
     # Active colour palette (Settings → Interface → Appearance). Must be a key
     # in metatv.gui.theme_palettes.PALETTES ("Midnight"/"Graphite"/"Daylight");
     # an unknown/stale name (e.g. a palette removed in a later release) is
@@ -1199,14 +1205,22 @@ class Config(BaseModel):
     #    "provider_id": str,         # PRIMARY provider — kept for back-compat +
     #                                # get_monitored_for_provider() filtering
     #    "title": str,
-    #    "baselines": dict[str, int],  # {provider_id: episode_count} — one entry
-    #                                   # per provider currently mirroring this
-    #                                   # series (primary + any content_key
-    #                                   # siblings discovered at check time).  A
-    #                                   # provider absent from this dict has no
-    #                                   # baseline yet (established silently on
-    #                                   # its first check — never alerts on the
-    #                                   # whole back-catalog).
+    #    "baselines": dict[str, int],  # {"provider_id|source_id": episode_count}
+    #                                   # — one entry per MIRROR (listing)
+    #                                   # currently carrying this series: the
+    #                                   # primary plus any content_key siblings
+    #                                   # discovered at check time, INCLUDING
+    #                                   # several on the same provider (that is
+    #                                   # normal — content_key is a generous
+    #                                   # identity).  Keyed by the pair, not by
+    #                                   # provider alone: a provider-only key let
+    #                                   # same-provider listings overwrite one
+    #                                   # slot and manufacture false "+N eps"
+    #                                   # alerts.  A mirror absent from this dict
+    #                                   # has no baseline yet (established
+    #                                   # silently on its first check — never
+    #                                   # alerts on the whole back-catalog).
+    #                                   # Build keys via series_monitor.mirror_key.
     #    "unseen_new": int,          # new episodes since last cleared (summed
     #                                 # across every provider that grew)
     #    "growth_providers": list[str],  # display names credited for the most
@@ -1277,20 +1291,37 @@ class Config(BaseModel):
 
         Migrates any legacy entry (scalar ``baseline_episode_count``, from
         before the per-provider baselines upgrade) to the per-provider
-        ``baselines`` shape on first read and writes the
-        migrated list back — a one-time, idempotent upgrade (see
-        ``series_monitor.normalize_monitored_entry``).  Entries already on the
-        new shape pass through unchanged.
+        ``baselines`` shape, AND resets any ``unseen_new`` left inflated by
+        the #259 baseline-accounting bug (a flaky provider fetch recorded a
+        baseline of 0, so the next successful check counted the whole
+        catalogue as "new" every pass) to 0 — a count found exceeding its
+        summed baselines is PROVEN corrupt (no way to tell which, if any, of
+        the recorded episodes were genuine new ones), so 0 is the honest
+        value, not a clamped guess; genuinely new episodes are detected fresh
+        on the very next check regardless.  Both steps run on first read,
+        writing the migrated list back, and are one-time, idempotent upgrades
+        (see ``series_monitor.normalize_monitored_entry`` and
+        ``series_monitor.zero_out_inflated_unseen_new`` — NOT the different,
+        ongoing ``clamp_unseen_new_to_baseline_total`` guard applied to fresh
+        writes in ``SeriesMonitorManager._on_new_episodes``).  Entries
+        already sane pass through unchanged.  This never touches favorites,
+        ratings, history, or watch progress, and never removes an entry — it
+        only ever corrects the derived ``unseen_new``/``baselines`` fields on
+        this list.
         """
-        from metatv.core.series_monitor import normalize_monitored_entry
+        from metatv.core.series_monitor import (
+            normalize_monitored_entry,
+            zero_out_inflated_unseen_new,
+        )
 
         changed = False
         migrated = []
         for e in self.monitored_series:
             m = normalize_monitored_entry(e)
-            if m is not e:
+            c = zero_out_inflated_unseen_new(m)
+            if c is not e:
                 changed = True
-            migrated.append(m)
+            migrated.append(c)
         if changed:
             self.monitored_series = migrated
             self.save()
@@ -1304,10 +1335,17 @@ class Config(BaseModel):
         ``baselines`` dict — so a call after THAT mirror's refresh also finds
         entries discovered as siblings by a prior full ``check_all()`` pass.
         """
+        from metatv.core.series_monitor import provider_of
+
+        # provider_of, not a bare `in`: baseline keys are "provider|source"
+        # (one slot per mirror), so a plain membership test never matches.
         return [
             e for e in self.get_monitored_series()
             if e.get("provider_id") == provider_id
-            or provider_id in (e.get("baselines") or {})
+            or any(
+                provider_of(k) == provider_id
+                for k in (e.get("baselines") or {})
+            )
         ]
 
     def update_monitored_series(self, series_channel_id: str, **fields) -> None:

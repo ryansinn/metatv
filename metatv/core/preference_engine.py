@@ -408,10 +408,14 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
     share. It supersedes the legacy fixed 50/50 ``balance_media_types`` flag,
     which still works when no mix is given.
 
-    Exclusion rules:
+    Exclusion rules (applied via the single ``channel_visibility.apply()``
+    chokepoint — see ``metatv/core/channel_visibility.py``):
     - From an inactive/expired source (excluded_provider_ids) → excluded
-    - Matches a Global Exclusions prefix/category (excluded_prefixes) or
-      keyword (excluded_keywords, case-insensitive substring on the title) → excluded
+    - Matches a Global Exclusions prefix/category (excluded_prefixes) — the
+      canonical, region-aware predicate: a candidate WITH a detected_prefix is
+      judged on the prefix alone, one with NO prefix falls back to its
+      detected_region ("language wins over region") — or keyword
+      (excluded_keywords, case-insensitive substring on the title) → excluded
     - Disliked (rating < 0) → always excluded
     - Hidden (is_hidden) → excluded
     - Rec-suppressed (is_rec_suppressed) → excluded
@@ -481,23 +485,35 @@ def score_candidates(session, weights: AttributeWeights, limit: int = 30,
         (k[0], k[1]) for k in engaged_normalized if k[1] == "series" and k[2] is None
     }
 
-    from metatv.core.discovery_engine import _apply_prefix_filter
+    from metatv.core import channel_visibility
     candidates_q = (
         session.query(ChannelDB)
         .filter(
             ChannelDB.media_type.in_(["movie", "series"]),
-            ChannelDB.is_hidden == False,  # noqa: E712
             ChannelDB.is_rec_suppressed == False,  # noqa: E712
             ChannelDB.metadata_id.isnot(None),
         )
     )
-    candidates_q = _apply_prefix_filter(
-        candidates_q, excluded_prefixes, include_uncategorized,
-        excluded_keywords=excluded_keywords,
+    # Single visibility chokepoint (metatv.core.channel_visibility.apply) —
+    # owns is_hidden, provider scoping, and the prefix/keyword Global-Exclusion
+    # axes in one call.  The prefix axis is now the canonical, region-aware
+    # predicate (filter_utils.channel_exclusion_criterion, "language wins over
+    # region") instead of the old flat detected_prefix NOT IN check that used
+    # to live in discovery_engine._apply_prefix_filter — this is the fix for
+    # "Recommendations ignores global exclusions": a candidate with no
+    # detected_prefix but an excluded detected_region is now ALSO dropped here,
+    # matching the channel list / tag-facet counts / EPG On-Now (see PR
+    # description for the full rationale/impact).
+    candidates_q = channel_visibility.apply(
+        candidates_q,
+        channel_visibility.VisibilityScope(
+            excluded_provider_ids=list(excluded_provider_ids or []),
+            excluded_prefixes=set(excluded_prefixes or []),
+            include_uncategorized=include_uncategorized,
+            excluded_keywords=set(excluded_keywords or []),
+        ),
+        channel_cls=ChannelDB,
     )
-    # Canonical provider scoping: never recommend content from inactive/expired sources.
-    if excluded_provider_ids:
-        candidates_q = candidates_q.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
     candidates = candidates_q.all()
 
     # Batch-fetch all MetadataDB rows needed for the candidates loop in one IN query.

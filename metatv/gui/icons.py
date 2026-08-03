@@ -38,6 +38,7 @@ partial_watched_q1_icon: str = "◔"   # U+25D4 CIRCLE WITH UPPER RIGHT QUADRANT
 partial_watched_q3_icon: str = "◕"   # U+25D5 CIRCLE WITH ALL BUT UPPER LEFT QUADRANT BLACK — ~three-quarter (62–99%)
 
 # Actions
+add_icon: str = "+"  # Add / create new item
 play_icon: str = "▶"
 browse_icon: str = "🗂"  # U+1F5C2 CARD INDEX DIVIDERS — series primary button: open seasons/episodes
 play_all_icon: str = "⏩"  # Play first + queue rest (multi-select "Play All")

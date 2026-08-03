@@ -48,7 +48,13 @@ def _pr_number() -> str:
     return match.group(1) if match else ""
 
 
-def compose_title(sha: str, dirty: bool, pr: str, branch: str) -> str:
+def compose_title(
+    sha: str,
+    dirty: bool,
+    pr: str,
+    branch: str,
+    version: str | None = None,
+) -> str:
     """Build the window title from git facts (pure — the unit-testable core).
 
     Args:
@@ -56,15 +62,21 @@ def compose_title(sha: str, dirty: bool, pr: str, branch: str) -> str:
         dirty: True when the working tree has uncommitted changes.
         pr: PR number as a string, or "" when not running a PR checkout.
         branch: Current branch name; "HEAD" when detached.
+        version: Release version (used as fallback when sha is empty).
+            Defaults to metatv.__version__ if not provided.
 
     Returns:
-        - ``"MetaTV"`` when *sha* is empty (no git).
+        - ``"MetaTV <version>"`` when *sha* is empty (no git).
         - ``"MetaTV (<sha>[*] PR#<pr>)"`` when a PR number is known.
         - ``"MetaTV (<branch> <sha>[*])"`` on a named branch with no PR.
         - ``"MetaTV (<sha>[*])"`` when detached with no PR.
     """
     if not sha:
-        return "MetaTV"
+        if version is None:
+            import metatv
+
+            version = metatv.__version__
+        return f"MetaTV {version}"
     commit = f"{sha}*" if dirty else sha
     if pr:
         return f"MetaTV ({commit} PR#{pr})"

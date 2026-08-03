@@ -1,7 +1,7 @@
 """Discovery view — horizontal shelf browse UI (🧭 Discover chip).
 
 Shelves: Recently Added · Top Rated Movies · Top Rated Series ·
-         Featured Actor · Genre shelves · Decade shelves.
+         Featured Actor · Genre shelves · Decade shelves · Collection shelves.
 
 Data comes entirely from raw_data (no TMDb API key needed). Poster images
 use the TMDb CDN URLs already embedded in stream_icon / cover fields and
@@ -110,10 +110,10 @@ class DiscoverView(QWidget):
         hbl.setSpacing(6)
 
         # Zoom icon label
-        zoom_lbl = QLabel(_icons.zoom_icon)
-        zoom_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
-        zoom_lbl.setToolTip("Resize Discover cards")
-        hbl.addWidget(zoom_lbl)
+        self._zoom_icon_lbl = QLabel(_icons.zoom_icon)
+        self._zoom_icon_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        self._zoom_icon_lbl.setToolTip("Resize Discover cards")
+        hbl.addWidget(self._zoom_icon_lbl)
 
         # Zoom slider — integer range [60, 180], value = round(zoom * 100)
         self._zoom_slider = QSlider(Qt.Orientation.Horizontal)
@@ -133,14 +133,14 @@ class DiscoverView(QWidget):
 
         hbl.addStretch()
 
-        manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
-        manage_btn.setFlat(True)
-        manage_btn.setStyleSheet(
+        self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
+        self._manage_btn.setFlat(True)
+        self._manage_btn.setStyleSheet(
             f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
             f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
         )
-        manage_btn.clicked.connect(self._open_manage_dialog)
-        hbl.addWidget(manage_btn)
+        self._manage_btn.clicked.connect(self._open_manage_dialog)
+        hbl.addWidget(self._manage_btn)
         vl.addWidget(header_bar)
 
         # Stacked: 0 = shelves page, 1 = browse page
@@ -654,6 +654,43 @@ class DiscoverView(QWidget):
         if hasattr(self, "_inflight_expand"):
             self._inflight_expand = None
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome —
+        the zoom icon, Manage button, loading label, and More Categories
+        button, all styled once at construction — and forward to the shared
+        ``_BrowseView`` "See all" drill-down, which has its own
+        ``refresh_theme()``. Called from ``MainWindow.refresh_theme()``.
+
+        Individual shelf/card widgets (``_Shelf``/``_ContentCard``) are
+        rebuilt fresh from current tokens on every ``refresh()`` (i.e. the
+        next time the user activates this view), same rationale as the
+        channel-list row delegate — not swept here; follow-up if a live
+        mid-session restyle of an already-open shelf is wanted.
+        """
+        self._zoom_icon_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD};")
+        self._manage_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_MUTED}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+        )
+        self._loading_lbl.setStyleSheet(f"color: {_theme.COLOR_MUTED_2}; font-size: {_theme.FONT_XL}; padding: 20px;")
+        self._more_btn.setStyleSheet(
+            "QPushButton {"
+            f"  background: {_theme.OVERLAY_08};"
+            "  border: none;"
+            "  border-radius: 4px;"
+            f"  color: {_theme.COLOR_MUTED};"
+            f"  font-size: {_theme.FONT_LG};"
+            "  text-align: left;"
+            "  padding: 0 12px;"
+            "}"
+            "QPushButton:hover {"
+            f"  background: {_theme.OVERLAY_15};"
+            f"  color: {_theme.COLOR_TEXT};"
+            "}"
+        )
+        if hasattr(self._browse_view, "refresh_theme"):
+            self._browse_view.refresh_theme()
+
     @staticmethod
     def _stop_loader(worker, thread) -> None:
         """Cooperatively cancel *worker*, then quit+wait its *thread*."""
@@ -839,6 +876,8 @@ class DiscoverView(QWidget):
             title = f"{shelf_key[7:]}s"
         elif shelf_key.startswith("actor:"):
             title = f"Featuring {shelf_key[6:]}"
+        elif shelf_key.startswith("collection:"):
+            title = shelf_key[11:]
         elif shelf_key == "recently_added":
             title = "Recently Added"
         elif shelf_key == "top_movies":

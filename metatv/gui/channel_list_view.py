@@ -32,6 +32,7 @@ class ChannelListView(QListView):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._thumbnail_hydrator: Optional[ChannelThumbnailHydrator] = None
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.verticalScrollBar().valueChanged.connect(self._request_hydration)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:

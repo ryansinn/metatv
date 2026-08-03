@@ -112,6 +112,13 @@ class _NavMixin:
                 view.setVisible(False)
         self.search_controls.setVisible(False)
         self._hidden_banner.setVisible(False)
+        # The channel-render banners live in _list_layout, not in any view, so
+        # blanking the views never touched them: switching from the channel list
+        # to e.g. Sources left "33 hidden by Global Exclusions" stranded above
+        # the Sources header, reporting a CHANNEL count over an unrelated view.
+        # _hide_channel_banners() is the single reset point for that group, so
+        # call it here rather than re-listing the widgets (#266).
+        self._hide_channel_banners()
         if hasattr(self, "filter_panel"):
             self.filter_panel.setVisible(False)
         self._hidden_mode = False

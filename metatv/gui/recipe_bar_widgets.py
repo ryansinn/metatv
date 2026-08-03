@@ -104,6 +104,16 @@ class _RecipeTabBar(QWidget):
             active = i == self._index
             btn.setStyleSheet(_theme.RECIPE_TAB_ACTIVE if active else _theme.RECIPE_TAB)
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this bar's own chrome (background,
+        hint label) and the pill buttons, reusing :meth:`_apply` — the same
+        active/inactive styling logic ``set_index`` already drives — so the
+        pill-state semantics are never duplicated.
+        """
+        self.setStyleSheet(_theme.RECIPE_TABBAR_BG)
+        self._hint.setStyleSheet(_theme.RECIPE_TABBAR_HINT)
+        self._apply()
+
 
 # ---------------------------------------------------------------------------
 # One-line recipe "sentence" bar
@@ -224,10 +234,10 @@ class _RecipeBar(QWidget):
         row.setContentsMargins(20, 9, 20, 9)
         row.setSpacing(12)
 
-        label = QLabel("RECIPE")
-        label.setStyleSheet(_theme.RECIPE_BAR_LABEL)
-        label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(label)
+        self._recipe_label = QLabel("RECIPE")
+        self._recipe_label.setStyleSheet(_theme.RECIPE_BAR_LABEL)
+        self._recipe_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._recipe_label)
 
         self._ings = _IngredientFlow()
         self._ings.remove_clicked.connect(self.ingredient_remove_requested)
@@ -258,6 +268,20 @@ class _RecipeBar(QWidget):
 
         # Empty by default: hide the ingredient flow, show the empty hint.
         self._ings.setVisible(False)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this bar's own persistent chrome —
+        background, "RECIPE" label, empty hint, yield label, and the Save/Clear
+        buttons — all styled once at construction. Ingredient pills are rebuilt
+        fresh from current tokens on every ``update_recipe()`` call, so they
+        need no sweep entry here.
+        """
+        self.setStyleSheet(_theme.RECIPE_BAR_BG)
+        self._recipe_label.setStyleSheet(_theme.RECIPE_BAR_LABEL)
+        self._empty_lbl.setStyleSheet(_theme.RECIPE_BAR_EMPTY)
+        self._yield_lbl.setStyleSheet(_theme.RECIPE_BAR_YIELD)
+        self.save_btn.setStyleSheet(_theme.RECIPE_BAR_SAVE_BTN)
+        self.clear_btn.setStyleSheet(_theme.RECIPE_BAR_CLEAR_BTN)
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +402,9 @@ class _MatchingShelf(QWidget):
         hdr_row.setContentsMargins(20, 0, 20, 0)
         hdr_row.setSpacing(10)
 
-        hdr = QLabel("MATCHING CONTENT")
-        hdr.setStyleSheet(_theme.RECIPE_MATCH_HDR)
-        hdr_row.addWidget(hdr)
+        self._hdr_lbl = QLabel("MATCHING CONTENT")
+        self._hdr_lbl.setStyleSheet(_theme.RECIPE_MATCH_HDR)
+        hdr_row.addWidget(self._hdr_lbl)
 
         self._sub = QLabel("preview · 0 total")
         self._sub.setStyleSheet(_theme.RECIPE_MATCH_SUB)
@@ -419,3 +443,14 @@ class _MatchingShelf(QWidget):
         scroll.setWidget(inner)
         scroll.horizontalScrollBar().valueChanged.connect(self._load_visible)
         outer.addWidget(scroll)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this shelf's own persistent chrome —
+        the "MATCHING CONTENT" header, the "preview · N total" sub-label, and
+        the "Show all" button — all styled once at construction. Result cards
+        are rebuilt fresh from current tokens on every ``load_results()``
+        call, so they need no sweep entry here.
+        """
+        self._hdr_lbl.setStyleSheet(_theme.RECIPE_MATCH_HDR)
+        self._sub.setStyleSheet(_theme.RECIPE_MATCH_SUB)
+        self._show_all_btn.setStyleSheet(_theme.RECIPE_SHOW_ALL_BTN)

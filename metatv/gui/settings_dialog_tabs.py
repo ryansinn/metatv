@@ -39,6 +39,14 @@ _CHANNEL_DENSITY_CHOICES: tuple[tuple[str, str], ...] = (
     ("Compact (one line)", "compact"),
 )
 
+# Platform chip name style (#257) — single source of truth, re-exported by
+# settings_dialog for the same reason _CHANNEL_DENSITY_CHOICES is.
+_PLATFORM_NAME_STYLE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("Auto (full name in Comfy, short code in Compact)", "auto"),
+    ("Full name", "full"),
+    ("Short code", "short"),
+)
+
 
 class SettingsTabsMixin:
     """The five ``_build_*_tab()`` section builders + their direct UI callbacks."""
@@ -762,6 +770,18 @@ class SettingsTabsMixin:
             "one line. Applies immediately when you click OK or Apply."
         )
         channel_list_form.addRow("Row density:", self._channel_density_combo)
+
+        self._platform_name_style_combo = QComboBox()
+        for label, value in _PLATFORM_NAME_STYLE_CHOICES:
+            self._platform_name_style_combo.addItem(label, value)
+        self._platform_name_style_combo.setToolTip(
+            "How a streaming-platform chip (Netflix, Disney+, Apple+, …) shows\n"
+            "its name. Auto shows the full brand name in Comfy/Comfy+ and the\n"
+            "short code in Compact (where space is tight); Full name and Short\n"
+            "code pin one style in every density. Applies immediately when you\n"
+            "click OK or Apply."
+        )
+        channel_list_form.addRow("Platform names:", self._platform_name_style_combo)
 
         self._channel_thumbnails_check = QCheckBox("Show thumbnails in lists")
         self._channel_thumbnails_check.setToolTip(

@@ -483,7 +483,13 @@ class TestComfyLine1Layout:
 class TestComfyLine2Layout:
 
     def test_badge_line_drops_quality_and_region_collection_flush_right(self, qapp):
-        model = _model([_dto(user_rating=1)])
+        # detected_collection overridden to "APPLE KIDS SERIES" — NOT "4K
+        # SERIES" (the class default) — so the render-time trailing-"SERIES"
+        # strip (#257 Part B, collection_display()) can't coincidentally
+        # produce a string equal to the quality chip's OWN text ("4K"),
+        # which would make the "no quality chip on line 2" assertion below
+        # a false negative.
+        model = _model([_dto(user_rating=1, detected_collection="APPLE KIDS SERIES")])
         idx = model.index(0)
         delegate = ChannelRowDelegate()
 
@@ -501,7 +507,12 @@ class TestComfyLine2Layout:
         assert "US" not in texts                    # region moved to line 1
         assert "DE" not in texts                     # primary language moved to line 1
 
-        collection_rect = next(r for r, c in cell_calls if c.text == "4K SERIES")
+        # The channel-list-only collection_display() transform (#257 Part B)
+        # strips the trailing "SERIES" media-type token at render time (the
+        # row's own media-type icon already conveys it) — the CHIP shows
+        # "APPLE KIDS"; the stored detected_collection value itself is
+        # untouched (Discover still reads "APPLE KIDS SERIES" verbatim).
+        collection_rect = next(r for r, c in cell_calls if c.text == "APPLE KIDS")
         assert collection_rect.right() == line.right()  # flush right
 
 

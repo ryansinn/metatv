@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
 from metatv.gui import cursor_affordance
+from metatv.gui import theme as _theme
 from metatv.gui.main_window import MainWindow
 from metatv.core.config import Config
 
@@ -46,6 +47,14 @@ def main():
     # Pointing-hand cursor on hover for clickable controls (single app-level
     # event filter; kept referenced on the app so it isn't garbage-collected).
     app._cursor_affordance_filter = cursor_affordance.install(app)
+
+    # Apply the user's saved theme BEFORE any widget/window is constructed —
+    # both the design-token layer (every ``theme.COLOR_*``/semantic constant
+    # widgets read while building their stylesheets) and the QPalette floor
+    # (metatv/gui/theme.py's qt_palette(), #253) so a cold launch on a
+    # non-default theme renders correctly end-to-end, not just after a live
+    # Settings round-trip via MainWindow.refresh_theme().
+    _theme.apply_theme(config.theme_name)
 
     # Create and show main window
     window = MainWindow(config, config_recovered=recovered_from_backup)

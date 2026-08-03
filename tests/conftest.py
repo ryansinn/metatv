@@ -626,6 +626,8 @@ def mock_settings_density_widget(dlg) -> None:
 
     dlg._channel_density_combo = MagicMock()
     dlg._channel_density_combo.currentData.return_value = "comfy"
+    dlg._platform_name_style_combo = MagicMock()
+    dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
     dlg._channel_thumbnails_check.isChecked.return_value = True
     dlg._collapse_variants_check = MagicMock()
@@ -654,11 +656,15 @@ def wire_settings_density_widget(dlg) -> None:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
     from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
+    from metatv.gui.settings_dialog_tabs import _PLATFORM_NAME_STYLE_CHOICES
     from PyQt6.QtWidgets import QCheckBox, QComboBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:
         dlg._channel_density_combo.addItem(label, value)
+    dlg._platform_name_style_combo = QComboBox()
+    for label, value in _PLATFORM_NAME_STYLE_CHOICES:
+        dlg._platform_name_style_combo.addItem(label, value)
     dlg._channel_thumbnails_check = QCheckBox()
     dlg._channel_thumbnails_check.setChecked(True)
     # Collapse-variants opt-in (#387) and the theme combo (#389) — same group,
@@ -714,3 +720,68 @@ def wire_settings_playback_widgets(dlg) -> None:
 
     dlg._recheck_failed_on_refresh_check = QCheckBox()
     dlg._recheck_failed_on_refresh_check.setChecked(True)
+
+
+# ---------------------------------------------------------------------------
+# MainWindow channel-render skeleton stubs
+# ---------------------------------------------------------------------------
+
+def wire_channel_banner_widgets(win) -> None:
+    """Attach the banner widgets ``_hide_channel_banners`` resets to a skeleton window.
+
+    Four test modules build ``MainWindow`` via ``__new__`` and hand-wire only the
+    widgets the channel-render path touches. ``_hide_channel_banners()`` is the
+    single reset point every render pass starts from, so **every** banner added
+    there breaks all four at once — and it fails loudly rather than quietly: a
+    skeleton ``MainWindow`` never ran ``QMainWindow.__init__``, so an attribute
+    missing from ``__dict__`` does not raise the ``AttributeError`` that
+    ``hasattr`` would absorb. sip raises ``RuntimeError: super-class __init__()
+    of type MainWindow was never called`` instead, and the guard itself explodes.
+    Keeping the group in one factory (mirrors ``wire_settings_playback_widgets``)
+    makes the next banner a single edit here instead of four near-identical copies.
+
+    Builds **real** Qt widgets, so the caller must already have a QApplication.
+
+    Args:
+        win: A ``MainWindow`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+
+    win._channel_banner = QLabel()
+    # Unparented so isVisible() reflects each widget's own flag in a headless env.
+    win._channel_filter_bar = QWidget()
+    win._channel_exclusion_btn = QPushButton()
+    win._channel_filter_btn = QPushButton()
+    win._no_sources_banner = QWidget()
+
+
+def wire_hide_channel_banners(host) -> None:
+    """Give a skeleton nav host the ``_hide_channel_banners`` method.
+
+    ``_NavMixin._hide_all_content_views()`` resets the channel-render banners
+    (the "N hidden by Global Exclusions" bar and friends) because they live in
+    ``_list_layout`` rather than inside any view, so blanking the views alone
+    used to leave them stranded over an unrelated view. The method itself is
+    defined on ``_ChannelListMixin``; the real ``MainWindow`` inherits both
+    mixins, but the several test modules that exercise navigation build a
+    ``_NavMixin`` (or a hand-rolled ``_FakeHost``) in isolation and therefore
+    do not get it.
+
+    Binds the REAL implementation rather than a ``MagicMock`` so the banners
+    are genuinely hidden and a regression in that method still surfaces through
+    the nav tests. It is safe on a bare skeleton: the method guards each widget
+    with ``self.__dict__.get`` — not ``hasattr``, which does not absorb the
+    ``RuntimeError`` PyQt raises for attribute access on a ``__new__``'d
+    ``MainWindow``.
+
+    Kept here rather than repeated per module for the same reason as
+    ``wire_channel_banner_widgets``: the next widget added to that reset point
+    breaks every one of these hosts at once, and one factory makes that a
+    single edit.
+
+    Args:
+        host: Any object standing in for ``MainWindow`` in a nav test.
+    """
+    from metatv.gui.main_window_channels import _ChannelListMixin
+
+    host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)

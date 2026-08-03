@@ -424,6 +424,11 @@ def test_sources_strip_toggle_closes_and_deactivates_when_already_active():
         pass
 
     me = _FakeHost()
+    # _hide_all_content_views() resets the channel-render banners, which
+    # live outside every view; this skeleton host is not a full MainWindow
+    # so it needs that method wired in (shared factory — see conftest).
+    from tests.conftest import wire_hide_channel_banners
+    wire_hide_channel_banners(me)
     me.view_mode = "sources_manager"
     me._in_provider_edit_mode = True
     me.epg_view = MagicMock()

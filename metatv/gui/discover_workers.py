@@ -112,7 +112,7 @@ def fetch_cards_for_key(
     """
     from metatv.core.discovery_engine import (
         get_recently_added, get_top_rated, get_by_genre,
-        get_by_decade, get_by_actor, get_by_user_category,
+        get_by_decade, get_by_actor, get_by_user_category, get_by_collection,
     )
 
     if shelf_key == "recently_added":
@@ -130,6 +130,8 @@ def fetch_cards_for_key(
     if shelf_key.startswith("user_cat:"):
         cat_name = shelf_key[9:]
         return get_by_user_category(session, cat_name, limit=limit, **sk, **fk, **af, **ek)
+    if shelf_key.startswith("collection:"):
+        return get_by_collection(session, shelf_key[11:], limit=limit, **sk, **fk, **af, **ek)
     return []
 
 
@@ -324,7 +326,8 @@ class _LoaderWorker(QObject):
     def run(self) -> None:
         from metatv.core.discovery_engine import (
             get_featured_actor, get_all_genres, get_all_decades,
-            get_all_user_categories,
+            get_all_user_categories, get_all_collections,
+            MIN_COLLECTION_SHELF_MEMBERS,
             _rank_genres_by_preference, build_status_sets, build_adult_filter,
         )
         from metatv.core.filter_utils import (
@@ -502,6 +505,28 @@ class _LoaderWorker(QObject):
                     emit(_ShelfData(f"{decade}s", key, cards))
                 else:
                     emit(_ShelfData(f"{decade}s", key, [], header_only=True))
+
+            # ── Collection shelves — provider-category "Collections" (#256),
+            # e.g. "Apple+ Kids", "Hindu Subs" — no hard cap beyond the
+            # min-member floor applied inside get_all_collections().
+            collections = get_all_collections(
+                session, min_count=MIN_COLLECTION_SHELF_MEMBERS, **fk, **af, **ek
+            )
+            for collection in collections:
+                if self._cancelled:
+                    return
+                key = f"collection:{collection}"
+                if key in hidden:
+                    continue
+                zone = _zone(key)
+                if zone in (_ZONE_PINNED, _ZONE_EXPANDED):
+                    cards = fetch_cards_for_key(
+                        session, self._config, key, 30,
+                        sk=sk, fk=fk, af=af, ek=ek,
+                    )
+                    emit(_ShelfData(collection, key, cards))
+                else:
+                    emit(_ShelfData(collection, key, [], header_only=True))
 
         except Exception:
             logger.exception("DiscoverView loader error")

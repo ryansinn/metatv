@@ -155,6 +155,11 @@ class TestSwitchToSourcesManager:
 
         manager = MagicMock()
         host = _NavMixin.__new__(_NavMixin)
+        # _hide_all_content_views() resets the channel-render banners, which
+        # live outside every view; this skeleton host is not a full MainWindow
+        # so it needs that method wired in (shared factory — see conftest).
+        from tests.conftest import wire_hide_channel_banners
+        wire_hide_channel_banners(host)
         host.epg_view = MagicMock()
         host.discover_view = MagicMock()
         host.preferences_view = MagicMock()

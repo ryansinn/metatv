@@ -177,16 +177,16 @@ class _SavedRecipesPanel(QWidget):
         outer.setContentsMargins(24, 20, 24, 20)
         outer.setSpacing(4)
 
-        title = QLabel("SAVED RECIPES")
-        title.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
-        outer.addWidget(title)
+        self._title_lbl = QLabel("SAVED RECIPES")
+        self._title_lbl.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        outer.addWidget(self._title_lbl)
 
-        sub = QLabel(
+        self._sub_lbl = QLabel(
             "Your personal categories — each keeps filling with new matches as sources refresh."
         )
-        sub.setStyleSheet(_theme.RECIPE_SAVED_SUB)
-        sub.setWordWrap(True)
-        outer.addWidget(sub)
+        self._sub_lbl.setStyleSheet(_theme.RECIPE_SAVED_SUB)
+        self._sub_lbl.setWordWrap(True)
+        outer.addWidget(self._sub_lbl)
 
         self._empty_lbl = QLabel("No saved recipes yet — build a recipe and click ✦ Save.")
         self._empty_lbl.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
@@ -215,3 +215,14 @@ class _SavedRecipesPanel(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         self._relayout()
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this panel's own persistent chrome
+        (title, subtitle, empty-state hint) — all styled once at construction.
+        ``_SavedRecipeCard`` instances are rebuilt fresh from current tokens
+        on every ``set_recipes()`` call, so they need no sweep entry here.
+        Called from ``RecipeView.refresh_theme()``.
+        """
+        self._title_lbl.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        self._sub_lbl.setStyleSheet(_theme.RECIPE_SAVED_SUB)
+        self._empty_lbl.setStyleSheet(_theme.RECIPE_EMPTY_HINT)

@@ -8,6 +8,14 @@ metatv/
 ├── core/               # Business logic (no UI dependencies)
 │   ├── config.py            # Pydantic config (~/.config/metatv/config.yaml)
 │   ├── database.py          # SQLAlchemy models + connection
+│   ├── channel_visibility.py # THE definition of "which channels are visible" (VisibilityScope + apply)
+│   ├── channel_name_utils.py # Curated lookup tables (regions, quality, audio) + name parsing
+│   ├── content_identity.py  # content_key_for() — tmdb-first cross-source identity, computed at ingestion
+│   ├── epg_utils.py         # All EPG time/timezone helpers (UTC-naive storage, local display)
+│   ├── filter_utils.py      # Exclusion-criterion builders shared by channel_visibility
+│   ├── tag_decomposer.py    # Facet/tag decomposition chokepoint (curated data lives in channel_name_utils)
+│   ├── build_info.py        # Version resolution for the packaged app
+│   ├── series_monitor.py    # Monitored-series episode-count polling + new-episode alerts
 │   ├── preference_engine.py # Attribute-weight + TF-IDF recommendation scoring; RecScoringSettings dials
 │   ├── media_mix.py         # Movie/series mix for rec lists (√-damped automatic share, or explicit)
 │   ├── discovery_engine.py  # SQL queries for Discovery shelves (genre/decade/actor/director)
@@ -27,6 +35,11 @@ metatv/
 │       ├── dtos.py      # Frozen dataclasses for thread-safe sidebar/series data
 │       └── provider.py  # Provider queries
 ├── gui/                # PyQt6 UI components
+│   ├── theme.py              # Design tokens + role-named stylesheet constants + qt_palette() floor
+│   ├── theme_palettes.py     # The three palettes (Midnight/Graphite/Daylight) — only home of hex literals
+│   ├── icons.py              # Every icon/emoji/symbol in the app
+│   ├── cursor_affordance.py  # set_clickable() — the only place PointingHandCursor is set
+│   ├── channel_menu.py       # Channel context-menu registry (ACTIONS + SURFACE_LAYOUTS)
 │   ├── main_window.py        # Three-panel main window + chip nav
 │   ├── details_pane.py       # Right panel — metadata, play, favorite, hide/unhide
 │   ├── discover_view.py      # Discovery view orchestration (glue layer, ~290 lines)

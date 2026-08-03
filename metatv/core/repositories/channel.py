@@ -14,9 +14,9 @@ from metatv.core.database import (
     EpgProgramDB, UserRatingDB, AlertMatchDB, WatchQueueDB, ProviderDB,
     ContentTagDB, StreamRetryDB,
 )
+from metatv.core import channel_visibility
 from metatv.core.filter_utils import (
     extract_prefix, categorize_prefix, normalize_genre, _GENRE_NORM, genres_from_raw,
-    keyword_exclusion_criterion,
 )
 from metatv.core.channel_name_utils import (
     parse_channel_name, normalize_region_code, QUALITY_TOKENS,
@@ -603,19 +603,37 @@ class ChannelRepository(_ChannelStatsMixin):
         elif provider_id:
             query = query.filter_by(provider_id=provider_id)
 
-        if excluded_provider_ids:
-            query = query.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
-
         # Media type filtering
         if media_types:
             query = query.filter(ChannelDB.media_type.in_(media_types))
         elif media_type:
             query = query.filter_by(media_type=media_type)
 
+        # ── Channel visibility (provider / hidden / keyword / adult axes) ──────
+        # Single chokepoint: metatv.core.channel_visibility.apply() — the
+        # extracted, single definition of "which channels are visible" (see that
+        # module's docstring). ``hidden_only`` (show ONLY hidden channels) has no
+        # VisibilityScope field — it is the opposite direction from
+        # ``include_hidden`` (show hidden ones TOO), so it stays a separate
+        # predicate below. When ``hidden_only`` is set the scope's own
+        # ``is_hidden == False`` gate must NOT also apply (it would contradict
+        # ``hidden_only``'s own ``is_hidden == True`` filter below), hence
+        # ``include_hidden=(include_hidden or hidden_only)``.
+        query = channel_visibility.apply(
+            query,
+            channel_visibility.VisibilityScope(
+                excluded_provider_ids=list(excluded_provider_ids or []),
+                excluded_keywords=set(excluded_keywords or []),
+                adult_mode=adult_mode,
+                force_adult_provider_ids=list(force_adult_provider_ids or []),
+                include_hidden=bool(include_hidden or hidden_only),
+            ),
+            channel_cls=ChannelDB,
+        )
+
         if hidden_only:
             query = query.filter(ChannelDB.is_hidden == True)  # noqa: E712
         elif not include_hidden:
-            query = query.filter_by(is_hidden=False)
             # Graduated play-failure ledger (roadmap S3): a channel whose
             # reliability_state has graduated to "dead" (6+ consecutive
             # user-initiated play failures — StreamRetryRepository) is gated
@@ -654,38 +672,6 @@ class ChannelRepository(_ChannelStatsMixin):
         # intentionally excluded from the hidden-by-* accounting/reveal surfaces.
         # The "NO EVENT STREAMING" substring is the universal provider marker.
         query = query.filter(ChannelDB.name.notlike("%NO EVENT STREAMING%"))
-
-        # ── Global Exclusions: keyword axis (fourth axis, P1-6 family) ─────────
-        # User-defined free-text keywords (e.g. "wrestling") matched case-
-        # insensitively as a substring against detected_title (falling back to
-        # name) via the shared SQL twin — see filter_utils.keyword_exclusion_criterion
-        # for the full family docstring. Runs entirely in SQL (ilike chain), so it
-        # composes with every other axis below and stays safe over 240k+ rows.
-        # Empty/None (including "paused") → a tautology, added by the caller
-        # passing an empty list.
-        if excluded_keywords:
-            query = query.filter(keyword_exclusion_criterion(excluded_keywords, ChannelDB))
-
-        if adult_mode != "all":
-            force_ids = force_adult_provider_ids or []
-            # A channel is restricted if is_adult=True (provider-supplied flag) OR
-            # detected_restricted=True (ingestion-computed XXX/ADULT/X-prefix naming
-            # detection — catches the channels the provider flag misses, owner-reported
-            # gap) OR its provider is force_adult.
-            restricted_expr = or_(
-                ChannelDB.is_adult == True,
-                ChannelDB.detected_restricted == True,
-            )
-            if force_ids:
-                restricted_expr = or_(
-                    restricted_expr,
-                    ChannelDB.provider_id.in_(force_ids),
-                )
-
-            if adult_mode == "hide":
-                query = query.filter(~restricted_expr)
-            elif adult_mode == "only":
-                query = query.filter(restricted_expr)
 
         # ── Identity pool: Language OR Region OR Platform (all grow the result set) ──
         # Selecting more always expands results. Quality is the only restrictive axis.

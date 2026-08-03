@@ -190,7 +190,24 @@ Content from inactive (toggled-off) or expired sources must never appear in a fo
 - EPG/watchlist include-list sibling: `get_epg_active_provider_ids()` (= active ∧ not-expired ∧ has `epg_url` ∧ `epg_enabled`), passed as `provider_ids`.
 - **Exception — record/engaged views (History, Favorites, Watch Queue)** show prior engagement regardless of current source state (you watched it; the source going inactive doesn't erase that). Recommendation *weights* still learn from engaged items on inactive sources; only the surfaced candidate *pool* is scoped to active sources.
 
-Engine/control/view split rationale: DESIGN_RATIONALE **DR-0007**. The engine stays scope-agnostic (caller supplies `base_channel_ids`); the control layer scopes with `get_hidden_provider_ids()`. A single shared `visible_channel_filter` predicate is the target — tracked as task #59, not yet built; until it lands, match the file's existing convention and don't widen the inline `is_hidden`/`##` smear. Content-format guesses are ingestion-only — resolve `##`/placeholders at ingest into a stored field; never re-pattern-match in queries.
+Engine/control/view split rationale: DESIGN_RATIONALE **DR-0007**. The engine stays scope-agnostic (caller supplies `base_channel_ids`); the control layer scopes with `get_hidden_provider_ids()`. Content-format guesses are ingestion-only — resolve `##`/placeholders at ingest into a stored field; never re-pattern-match in queries.
+
+**The shared predicate now exists — use it.** `core/channel_visibility.py` (v0.24.0, What's New #260) is the single definition of "which channels are visible", closing what used to be four hand-maintained answers. See "Channel visibility" below.
+
+## Channel visibility
+
+`metatv/core/channel_visibility.py` is the one place the exclusion axes are threaded onto a channel query. Before it, "which channels are visible" was answered independently in four sites — `ChannelRepository._apply_channel_filters`, the `_apply_*_filter`/`_apply_*_exclusion` cluster in `discovery_engine.py`, inline filters in `preference_engine.score_candidates`, and `TagRepository._scope_to_visible_channels` — each threading its own subset of the axes. That divergence *was* the "Recommendations ignores global exclusions" bug class, not a cause of it.
+
+Two pieces, and the split is the DR-0007 layering:
+
+- **`VisibilityScope`** — a frozen bag of *already-resolved* exclusion sets/flags. It holds no `Config` reference and makes no policy decisions. The **control layer** resolves what's excluded (`ProviderRepository.get_hidden_provider_ids()`, `filter_utils.global_exclusion_set(config)`) and hands the scope in.
+- **`apply(query, scope, channel_cls=...)`** — threads every axis onto a `Query(ChannelDB)` or an aliased equivalent.
+
+Rules:
+- A new surface that lists/counts/scores channels builds a `VisibilityScope` and calls `apply()`. Never re-thread an axis by hand, and never add an axis to one caller only — add it to `VisibilityScope` so every surface gets it at once.
+- All four original sites are **migrated**. The module's own docstring carries the authoritative migration table — extend it when a call site moves; don't assume it's stale.
+- One deliberate behavior change came with the migration: `discovery_engine._apply_prefix_filter`'s flat prefix-only `NOT IN` never consulted `detected_region`, so Discover and Recommendations disagreed with the channel list. Both now use the region-aware `filter_utils.channel_exclusion_criterion` ("language wins over region"), so a channel with no `detected_prefix` but an excluded `detected_region` is hidden there too.
+- Reminder that this module does **not** relax: hidden-provider content is an absolute gate (see "Active-source scoping"), never a soft filter.
 
 ## closeEvent cleanup registry
 

@@ -440,6 +440,15 @@ class _ClusterGrid(QWidget):
         """All rendered tiles — for tests/introspection."""
         return list(self._tiles)
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this grid's own persistent chrome —
+        the "Loading facets…"/"No facets to show yet" placeholder, styled once
+        at construction. ``_ClusterTile`` instances are rebuilt fresh from
+        current tokens on every ``set_clusters()`` call, so they need no sweep
+        entry here. Called from ``RecipeView.refresh_theme()``.
+        """
+        self._placeholder.setStyleSheet(_theme.RECIPE_EMPTY_HINT)
+
     # ── private ───────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:

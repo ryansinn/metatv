@@ -94,6 +94,10 @@ PRIMARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 22    # detected_prefix or ""
 SECONDARY_LANGUAGE_ROLE = Qt.ItemDataRole.UserRole + 23  # detected_collection_language or "" — category's disagreeing language marker
 SUBTITLE_MARKER_ROLE = Qt.ItemDataRole.UserRole + 24     # detected_collection_subdub or "" — e.g. "AR-SUB"
 COLLECTION_ROLE = Qt.ItemDataRole.UserRole + 25          # detected_collection or "" — clean category (marker stripped)
+# Genre chip (comfy line 2's taxonomy group, #257 Part C) — ChannelDB.detected_genre,
+# the FIRST canonical genre segment, computed once at ingestion (see database.py);
+# read directly here, never re-derived at render.
+GENRE_ROLE = Qt.ItemDataRole.UserRole + 26                # detected_genre or ""
 
 # Fixed display order + labels for the grouped sections.  Any media_type not in
 # this tuple (defensive — should not occur) is appended after these, alphabetically,
@@ -273,6 +277,8 @@ class ChannelListModel(QAbstractListModel):
             return channel.detected_collection_subdub or ""
         if role == COLLECTION_ROLE:
             return channel.detected_collection or ""
+        if role == GENRE_ROLE:
+            return channel.detected_genre or ""
         return None
 
     def flags(self, index: QModelIndex):  # type: ignore[override]

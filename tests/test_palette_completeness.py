@@ -243,6 +243,56 @@ def test_primary_text_contrast_at_least_4_5(palette_name):
 
 
 # ---------------------------------------------------------------------------
+# 5b. Contrast — selected-row text on the selection fill
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_on_accent_contrast_at_least_4_5(palette_name):
+    """COLOR_ON_ACCENT must stay legible on the COLOR_ACCENT fill it names.
+
+    Daylight shipped the selection highlight reading COLOR_TEXT_HI (#0d0d0d,
+    near-black — correct as the *on-background* text ramp for a light theme)
+    against COLOR_ACCENT (#073256, dark navy) for ~1.2:1: a selected row was
+    unreadable. The two dark palettes hid it because their ramp top and their
+    on-accent colour happen to be the same white.
+    """
+    palette = tp.PALETTES[palette_name]
+    fg, bg = palette["COLOR_ON_ACCENT"], palette["COLOR_ACCENT"]
+    ratio = _contrast(fg, bg)
+    assert ratio >= 4.5, (
+        f"{palette_name}: COLOR_ON_ACCENT={fg} on COLOR_ACCENT={bg} has "
+        f"contrast {ratio:.2f}:1, below the 4.5:1 minimum — a selected row "
+        f"would be unreadable"
+    )
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_qt_palette_selection_is_readable_in_every_theme(qapp, palette_name):
+    """The token being *defined* proves nothing — assert what Qt actually paints.
+
+    Reads Highlight/HighlightedText back off the real ``QPalette`` that
+    ``theme.qt_palette()`` hands to the QApplication, so wiring the roles to
+    the wrong token fails here even though the palette dicts are all correct.
+    """
+    from metatv.gui import theme as _theme
+    from PyQt6.QtGui import QPalette
+
+    original = _theme.current_theme()
+    try:
+        _theme.apply_theme(palette_name)
+        qp = _theme.qt_palette()
+        bg = qp.color(QPalette.ColorRole.Highlight).name()
+        fg = qp.color(QPalette.ColorRole.HighlightedText).name()
+        ratio = _contrast(fg, bg)
+        assert ratio >= 4.5, (
+            f"{palette_name}: QPalette HighlightedText={fg} on Highlight={bg} "
+            f"has contrast {ratio:.2f}:1 — selected rows are unreadable"
+        )
+    finally:
+        _theme.apply_theme(original)
+
+
+# ---------------------------------------------------------------------------
 # 6. Quality-chip family stays mutually distinguishable in every palette
 # ---------------------------------------------------------------------------
 
@@ -293,4 +343,96 @@ def test_quality_chip_family_mutually_distinguishable(palette_name):
     assert not close_pairs, (
         f"{palette_name}: these quality chip pairs are too close in hue/"
         f"lightness to stay mutually distinguishable: {close_pairs}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. Facet-chip family stays mutually distinguishable (#257) — region (green)
+#    vs genre (teal), the one pair of the new comfy-row chip hues that can
+#    legitimately appear on the SAME row (channel_list_delegate.py's line 1
+#    region/platform chip + line 2 genre chip). Modeled on
+#    test_quality_chip_family_mutually_distinguishable above, but with a
+#    DELIBERATELY LOOSER hue-distance floor: region/genre are owner-specified
+#    (filter_group_row._accent_colors()) as adjacent-by-design hues — unlike
+#    the quality family (5 maximally-separated tiers), collapsing them to
+#    identical hues was never the design goal, so this only guards against an
+#    actual COLLISION (identical value, or a near-zero hue gap), not against
+#    them merely being close.
+# ---------------------------------------------------------------------------
+
+_FACET_ADJACENT_PAIR = ("COLOR_ACCENT_GREEN", "COLOR_ACCENT_TEAL")  # region vs genre
+_FACET_HUE_DIST_FLOOR = 0.01  # measured ~0.02 in every palette today — real margin
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_region_genre_chip_hues_mutually_distinguishable(palette_name):
+    """Region (green, line 1) and genre (teal, line 2) can both be visible on
+    the same comfy row — they must never collapse to the identical colour,
+    and must keep a real (if modest) hue gap between them.
+    """
+    palette = tp.PALETTES[palette_name]
+    region_val = palette[_FACET_ADJACENT_PAIR[0]]
+    genre_val = palette[_FACET_ADJACENT_PAIR[1]]
+
+    assert region_val != genre_val, (
+        f"{palette_name}: region chip ({_FACET_ADJACENT_PAIR[0]}={region_val}) and "
+        f"genre chip ({_FACET_ADJACENT_PAIR[1]}={genre_val}) collapsed to the same value"
+    )
+
+    import colorsys
+    r1, g1, b1 = _parse_rgb(region_val)
+    r2, g2, b2 = _parse_rgb(genre_val)
+    h1, _, _ = colorsys.rgb_to_hls(r1 / 255, g1 / 255, b1 / 255)
+    h2, _, _ = colorsys.rgb_to_hls(r2 / 255, g2 / 255, b2 / 255)
+    hue_dist = min(abs(h1 - h2), 1 - abs(h1 - h2))
+    assert hue_dist >= _FACET_HUE_DIST_FLOOR, (
+        f"{palette_name}: region ({region_val}) and genre ({genre_val}) hues "
+        f"are only {hue_dist:.4f} apart (floor {_FACET_HUE_DIST_FLOOR}) — "
+        "too close to read as distinct chips on the same row"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Quality chip's OUTLINE treatment (#257 Part A) vs the 4.5:1 text-contrast
+#    floor, in EVERY palette. The chip's text/border reads from a DEDICATED
+#    COLOR_QUALITY_OUTLINE_* family (channel_list_delegate._quality_cell via
+#    badge_utils._quality_outline_colors) — same hue as the corresponding
+#    solid-fill COLOR_QUALITY_* token, but with lightness tuned PER PALETTE
+#    (brighter in the two dark palettes, darker in Daylight) specifically so
+#    text-on-the-chip's-own-background clears the floor. This measures
+#    against the channel list's own background (COLOR_BG_SECTION, same
+#    reference token as test #5 above), reusing this file's own contrast
+#    helper.
+#
+#    Pre-fix (the original COLOR_QUALITY_* family used directly as outline
+#    text/border), NONE of the 15 tier/palette combinations cleared 4.5:1
+#    (measured 1.57-4.09:1 — see the PR body) — a same/darker-neutral
+#    BACKGROUND tint alone can never fix this when the tier colour is the
+#    darker of the pair (verified by direct computation: darkening the
+#    background only shrinks the gap). The fix instead darkens/lightens the
+#    TEXT/BORDER token itself, hue-preserved, mirroring how COLOR_ACCENT_*
+#    was already palette-tuned for light-background contrast
+#    (theme_palettes.py's module docstring) — COLOR_QUALITY_* itself (the
+#    solid-fill family used unchanged elsewhere, e.g.
+#    badge_utils.make_quality_chip) is untouched.
+# ---------------------------------------------------------------------------
+
+_QUALITY_OUTLINE_TOKENS = (
+    "COLOR_QUALITY_OUTLINE_UHD", "COLOR_QUALITY_OUTLINE_FHD", "COLOR_QUALITY_OUTLINE_HD",
+    "COLOR_QUALITY_OUTLINE_RAW", "COLOR_QUALITY_OUTLINE_LIVE",
+)
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_quality_outline_chip_contrast_at_least_4_5_every_palette(palette_name):
+    palette = tp.PALETTES[palette_name]
+    bg_val = palette[_PRIMARY_BG_TOKEN]  # COLOR_BG_SECTION — the list's own background
+
+    offenders = {
+        name: _contrast(palette[name], bg_val) for name in _QUALITY_OUTLINE_TOKENS
+    }
+    below_floor = {name: ratio for name, ratio in offenders.items() if ratio < 4.5}
+    assert not below_floor, (
+        f"{palette_name}: outline-quality-chip contrast below the 4.5:1 floor: "
+        + ", ".join(f"{n}={r:.2f}:1" for n, r in sorted(below_floor.items()))
     )

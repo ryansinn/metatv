@@ -485,9 +485,15 @@ AUDIO_KEY_ANCHOR_TOKENS: frozenset[str] = frozenset({"multi", "muti"})
 # ── Region/platform lookup tables ────────────────────────────────────────────── #
 
 # Platform codes — displayed with steel blue chip instead of grey
+# "A+" (Apple TV+, distinct from the "APPLE" variant above — both observed in
+# real provider data) was already listed as a "surfaced by Ninja" streaming
+# platform in REGION_FULL_NAMES below but missing from this set, so it fell
+# through to the plain geographic-region chip instead of the platform one
+# (#257 owner report). Adapting the lookup table per CLAUDE.md's "single
+# source of truth" rule rather than special-casing it at a render call site.
 PLATFORM_CODES: frozenset[str] = frozenset({
     "NF", "D+", "HBO", "PRIME", "TUBI", "PARAMOUNT+", "APPLE", "PEACOCK",
-    "ASTRO", "F1TV",
+    "ASTRO", "F1TV", "A+",
 })
 
 # Quality tokens that can appear as a detected_prefix (e.g. "HD - Movie" → prefix "HD").
@@ -1112,7 +1118,7 @@ REGION_FULL_NAMES: dict[str, str] = {
     "SKY": "Sky", "MBC": "MBC",
     # Streaming platforms (surfaced by Ninja, 2026-06)
     "NEXT": "Next TV", "JOYN": "Joyn", "VIX": "Vix", "CITY": "City TV",
-    "PLAY+": "Play+", "A+": "A+", "NOWTV": "Now TV", "STH": "STH",
+    "PLAY+": "Play+", "A+": "Apple+", "NOWTV": "Now TV", "STH": "STH",
     # Additional regions (surfaced by Ninja, 2026-06)
     "MXC": "Mexico",  # surfaced in TREX + IPTV Ninja, measured 2,934 channels
     "ISR": "Israel",  # surfaced in TREX + IPTV Ninja, measured 588 channels
@@ -1120,6 +1126,43 @@ REGION_FULL_NAMES: dict[str, str] = {
     # Content-type prefixes (Trex / provider-specific)
     "MV": "Music Videos", "SPT": "Sports",
 }
+
+
+def platform_display(code: str, style: str) -> str:
+    """Return the viewer-facing label for a stored platform prefix *code*.
+
+    The chokepoint that turns a stored platform code (``detected_region``
+    when it's a :data:`PLATFORM_CODES` member — e.g. ``"A+"``, ``"NF"``)
+    into the string shown in the channel-list platform chip, mirroring
+    :func:`quality_display`'s "single chokepoint" role for the quality chip
+    (#257).
+
+    ``style`` is already resolved to ``"full"``/``"short"`` by the caller —
+    this function has no notion of density. The Settings control
+    ("Platform names: Auto / Full name / Short code") stores ``"auto"`` as
+    its default; resolving "auto" against the CURRENT row's density (full
+    name in Comfy/Comfy+, short code in Compact) is a control-layer decision
+    that belongs to ``ChannelRowDelegate`` (which already tracks density),
+    not this display-only helper — see
+    ``ChannelRowDelegate._effective_platform_style``.
+
+    Args:
+        code: A stored platform prefix code (e.g. ``"A+"``, ``"NF"``).
+        style: ``"short"`` returns *code* unchanged; anything else
+            (``"full"``, or an already-resolved ``"auto"``) returns the
+            friendly brand name from :data:`REGION_FULL_NAMES`, falling back
+            to *code* itself when no friendly name is known.
+
+    Returns:
+        The display label. Never mutates identity — callers keep the
+        original code for queries, filter keys and DB writes.
+    """
+    if not code:
+        return code
+    if style == "short":
+        return code
+    return REGION_FULL_NAMES.get(code.upper(), code)
+
 
 # ── Confidence constants (DR-0006) ───────────────────────────────────────────── #
 # Coarse, documented scale — tunable without changing the test assertions.
@@ -1867,6 +1910,83 @@ def strip_collection_noise_tokens(collection: str | None) -> str | None:
             break
         m = _TRAILING_TOKEN_RE.search(working)
         working = working[: m.start()].rstrip()
+
+    return working
+
+
+def collection_display(collection: str | None, platform_code: str | None = None) -> str | None:
+    """Render-layer transform for the channel-list collection chip (#257).
+
+    CHANNEL LIST ONLY — never touches the stored ``detected_collection``,
+    which :func:`strip_collection_noise_tokens` already cleaned at
+    ingestion and which Discover ALSO reads verbatim (the owner explicitly
+    wants Discover to keep a trailing "SERIES"/"MOVIES" — it's meaningful
+    context there). This is a second, purely cosmetic pass applied only at
+    paint time in the list row, where that same word duplicates the row's
+    own media-type icon.
+
+    Two independent cleanups, applied in order:
+
+    1. **Trailing media-type token** — a single trailing whole-token
+       ``MEDIA_TYPE_TOKENS`` word (``"SERIES"``, ``"MOVIES"``, …) is peeled
+       off, e.g. ``"APPLE+ SERIES"`` -> ``"APPLE+"``. Whole-token only (never
+       a substring), so ``"SERIES MANIA"``'s trailing token is ``"MANIA"``
+       — not a match — and the name survives intact.
+    2. **Leading platform-duplicate token** — when *platform_code* is given
+       (this row's OWN platform chip value, e.g. ``"A+"``), a leading run
+       that spells out the same platform is stripped, matched
+       case-insensitively against either the raw code or its
+       :func:`platform_display` full name: ``"APPLE+ KIDS"`` with
+       ``platform_code="A+"`` -> ``"KIDS"`` (``"APPLE+"`` ==
+       ``platform_display("A+", "full").upper()``). A collection with no
+       leading platform-code match is returned whole — ``"HINDU SUBS"``
+       stays whole when *platform_code* is ``None``/doesn't match.
+
+    Combining both passes can legitimately clear the chip entirely — e.g.
+    ``"APPLE+ SERIES"`` with ``platform_code="A+"`` becomes ``""`` (pass 1
+    strips "SERIES" to "APPLE+", pass 2 strips "APPLE+" to "") because
+    every token was already shown elsewhere on the row (the platform chip
+    + the media-type icon) — the intended "kill the triple redundancy"
+    outcome, not a bug.
+
+    Args:
+        collection: The stored ``detected_collection`` value (already
+            ingestion-cleaned by :func:`strip_collection_noise_tokens`), or
+            ``None``/``""``.
+        platform_code: This row's own platform prefix code (only pass this
+            when it's a recognized :data:`PLATFORM_CODES` member — i.e. the
+            SAME value driving the row's platform chip), or ``None``/``""``
+            to skip the platform-dedup pass entirely.
+
+    Returns:
+        The channel-list-only display string (``""`` when both passes fully
+        consume it — the caller renders no chip). ``None``/``""`` input is
+        returned unchanged. Never mutates the stored value.
+    """
+    if not collection:
+        return collection
+
+    working = collection
+
+    # Pass 1: trailing media-type token, whole-word only.
+    leaves = [t for t in re.split(r"[\s\-/]+", working.strip()) if t]
+    if leaves and leaves[-1].upper() in MEDIA_TYPE_TOKENS:
+        m = _TRAILING_TOKEN_RE.search(working)
+        if m:
+            working = working[: m.start()].rstrip()
+
+    # Pass 2: leading platform-duplicate token run.
+    if platform_code and working:
+        full_name = platform_display(platform_code, "full")
+        candidates = {c.upper() for c in (platform_code, full_name) if c}
+        upper_working = working.upper()
+        for candidate in sorted(candidates, key=len, reverse=True):
+            if upper_working == candidate:
+                working = ""
+                break
+            if upper_working.startswith(candidate + " "):
+                working = working[len(candidate):].strip()
+                break
 
     return working
 

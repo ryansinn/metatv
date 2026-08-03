@@ -417,6 +417,11 @@ class _ChannelListMixin:
             # verbatim for fetchMore()), so every page of a search uses one
             # consistent collapse setting.
             collapse_variants=getattr(self.config, "collapse_variants_in_list", False),
+            # Zero-sources empty state (main thread, already read above — no extra
+            # query): distinguishes "no source configured at all" from "sources
+            # exist but filters/search/exclusions hide everything", which
+            # _on_channels_loaded needs to pick the honest empty-state message.
+            has_any_provider=bool(all_providers),
         )
 
         # Run the heavy query off the UI thread via the async seam; stale results
@@ -820,7 +825,12 @@ class _ChannelListMixin:
 
         if not channels:
             logger.warning("No channels match current filters!")
-            if params.get('hidden_only'):
+            if not params.get('has_any_provider', True):
+                # The real cause is "no source configured yet" — not filters or
+                # search. Take priority over every branch below so the honest
+                # message + Add Source CTA always wins on a fresh install.
+                self._show_no_sources_state()
+            elif params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
             elif params.get('id_filter_active'):
@@ -1015,6 +1025,26 @@ class _ChannelListMixin:
 
     # ---- Banner helpers (main thread only) ------------------------------------
 
+    def _show_no_sources_state(self) -> None:
+        """Zero-sources empty state: honest message + "Add Source" CTA.
+
+        Reached only when ``load_channels``' ``has_any_provider`` param is
+        False (no provider row exists at all) — the one case where the true
+        cause of an empty channel list is "no source yet", not the user's
+        filters or search text. The other zero-results branches in
+        ``_on_channels_loaded`` are left untouched for every case where at
+        least one source is configured; this is a separate branch, not a
+        change to their message.
+        """
+        if hasattr(self, '_no_sources_banner'):
+            self._no_sources_banner.setVisible(True)
+        if hasattr(self, '_channel_banner'):
+            self._channel_banner.setVisible(False)
+        if hasattr(self, '_channel_filter_bar'):
+            self._channel_filter_bar.setVisible(False)
+        self.status_bar.showMessage("No sources configured — add a source to start browsing channels")
+        self.stats_label.setText("No sources configured")
+
     def _show_channel_banner(self, text: str) -> None:
         """Show the info banner strip above the channel list."""
         if not hasattr(self, '_channel_banner'):
@@ -1093,11 +1123,21 @@ class _ChannelListMixin:
         self._channel_filter_bar.setVisible(show_excl or show_search or show_dead or show_kw)
 
     def _hide_channel_banners(self) -> None:
-        """Hide the info banner and the filter-transparency bar."""
-        if hasattr(self, '_channel_banner'):
-            self._channel_banner.setVisible(False)
-        if hasattr(self, '_channel_filter_bar'):
-            self._channel_filter_bar.setVisible(False)
+        """Hide the info banner, the filter-transparency bar, and the
+        zero-sources empty-state banner — the single reset point every render
+        pass starts from, and the one `_hide_all_content_views()` calls when
+        switching away from the channel list, before deciding which (if any)
+        banner applies.
+
+        __dict__.get, not hasattr: PyQt raises RuntimeError (not
+        AttributeError) for attribute access on a __new__'d MainWindow, so
+        hasattr does NOT absorb it — the guard itself would explode. Same trap
+        as #351/#375, and the form already used elsewhere in this file.
+        """
+        for name in ('_channel_banner', '_channel_filter_bar', '_no_sources_banner'):
+            widget = self.__dict__.get(name)
+            if widget is not None:
+                widget.setVisible(False)
 
     def get_enabled_media_types(self) -> list:
         """Get list of enabled media types from the filter panel."""
@@ -1234,17 +1274,32 @@ class _ChannelListMixin:
         The query is a single GROUP BY over content_tags JOIN tags JOIN channels,
         scoped to visible channels on active sources — memory-safe over 1M+ rows.
 
-        Also applies the Global Exclusions keyword axis (paused-aware, resolved
-        here on the main thread per DR-0007) so a facet's advertised count never
-        includes channels the keyword list would hide from the actual list —
-        counts and the list must agree (mirror-not-cage transparency).
+        Also applies ALL FOUR Global Exclusion axes (prefix/region, user
+        category, content-type, keyword — each paused-aware, resolved here on
+        the main thread per DR-0007) so a facet's advertised count never
+        includes channels those exclusions would hide from the actual list —
+        counts and the list must agree (mirror-not-cage transparency). Closes
+        the pre-existing 3-axis gap (prefix/category/content-type) documented
+        on ``TagRepository.get_facet_value_counts`` — What's New #260.
         """
-        from metatv.core.filter_utils import keyword_exclusion_list
+        from metatv.core.filter_utils import (
+            excluded_tag_content_types, global_exclusion_set, keyword_exclusion_list,
+        )
+        _filter_paused = getattr(self.config, "global_filter_paused", False)
+        _excl_prefixes = global_exclusion_set(self.config)
+        _excl_categories = (
+            set() if _filter_paused
+            else set(getattr(self.config, "global_filter_excluded_user_categories", []))
+        )
+        _excl_content_types = excluded_tag_content_types(self.config)
         _excl_keywords = set(keyword_exclusion_list(self.config))
         self._run_query(
             lambda repos: repos.tags.get_facet_value_counts(
                 excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
                 excluded_keywords=_excl_keywords or None,
+                excluded_prefixes=_excl_prefixes or None,
+                excluded_categories=_excl_categories or None,
+                excluded_tag_content_types=_excl_content_types or None,
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,

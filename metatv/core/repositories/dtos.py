@@ -139,6 +139,10 @@ class ChannelListDTO:
     detected_collection: str | None = None
     detected_collection_language: str | None = None
     detected_collection_subdub: str | None = None
+    # Canonical genre (ChannelDB.detected_genre — the first raw_data["genre"]
+    # segment, computed once at ingestion). Powers the comfy-row genre chip
+    # (channel_list_delegate.py, #257 Part C); read directly, never re-derived.
+    detected_genre: str | None = None
 
     @classmethod
     def from_orm(cls, ch, *, user_rating: int = 0, reliability_state: str = "ok") -> "ChannelListDTO":
@@ -178,6 +182,7 @@ class ChannelListDTO:
             detected_collection=ch.detected_collection,
             detected_collection_language=ch.detected_collection_language,
             detected_collection_subdub=ch.detected_collection_subdub,
+            detected_genre=getattr(ch, "detected_genre", None),
         )
 
 

@@ -12,17 +12,18 @@ Two responsibilities:
    Interface → Channel List):
 
    - ``"compact"`` — one line: ``[media icon][fav][glyph][🚨][title][quality chip]``
-     left-aligned, then ``[year][language chip][rating chip]`` right-aligned
+     left-aligned, then ``[year][region/platform chip][rating chip]`` right-aligned
      flush to the row's right edge.
    - ``"comfy"`` (default) — two lines: line 1 is
      ``[media icon][fav][glyph][🚨][title][quality chip]`` (the quality chip hugs
      the title — no stretch between them) left, then right-aligned flush to the
-     row's right edge, in this order: ``[year][region chip][subtitle marker
-     chip][secondary language chip][primary language chip]`` — the channel's
-     OWN (honest) language always sits furthest right. Line 2 is the muted
-     badge row: a rating glyph left, then the clean collection chip
-     (``detected_collection`` — the category with its leading marker stripped)
-     right-aligned.
+     row's right edge, in this order: ``[year][region/platform chip][subtitle
+     marker chip][secondary language chip][primary language chip]`` — the
+     channel's OWN (honest) language always sits furthest right. Line 2 is the
+     badge row: state on the left (a rating glyph, and the ``×N`` variant
+     badge), taxonomy on the right — a genre chip, then the clean collection
+     chip (``detected_collection``, render-time-transformed via
+     :func:`~metatv.core.channel_name_utils.collection_display`) flush right.
    - ``"comfy_plus"`` — comfy's line 1, PLUS a middle line of the channel's plot
      text (elided to one line, muted token) when ``PLOT_ROLE`` is non-empty,
      PLUS comfy's badge-row line. A row with no plot renders IDENTICALLY to
@@ -37,12 +38,23 @@ Two responsibilities:
    ``PLAYBACK_GLYPH_ROLE``/``PLAYBACK_GLYPH_COLOR_ROLE``/``MATCH_MARKER_ROLE``
    roles populated by the model.
 
-   Chips are painted as rounded rects using the same colour logic as
-   ``badge_utils`` (quality via the shared ``_quality_colors()`` map, region via
-   the platform/geographic split) — all colours are theme tokens, never
-   literals. The title is elided (``Qt.TextElideMode.ElideRight``) against a
-   *fixed* box computed from the other cells' measured widths, so a long title
-   can never push a chip out of the row.
+   Chips are painted as rounded rects, one hue per facet (#257 — the ONE chip
+   system, adopting ``theme.LANG_CHIP``'s "hue-tinted background + same-hue
+   bright foreground" idiom instead of a neutral white-alpha background; hues
+   come from ``filter_group_row._accent_colors()``, never invented locally):
+   language (own/secondary language + subtitle marker) = blue, region = green,
+   genre = teal, collection = muted grey (``OVERLAY_08`` + ``COLOR_MUTED``,
+   unchanged). Two facets are deliberately styled DIFFERENTLY from that tinted-
+   fill idiom: platform (Netflix/Disney+/Apple+/…, a ``PLATFORM_CODES`` member
+   sharing the region chip's role/field) is a SOLID purple fill, and quality is
+   OUTLINE ONLY (border + text in the tier's ``_quality_outline_colors()`` hue
+   — a dedicated per-palette family, contrast-tuned so it clears 4.5:1 against
+   the list's own background in every palette — a subtle ``OVERLAY_08`` tint
+   instead of literally transparent; see ``_quality_cell``'s docstring). All
+   colours are theme tokens, never literals. The title is elided
+   (``Qt.TextElideMode.ElideRight``) against a *fixed* box computed from the
+   other cells' measured widths, so a long title can never push a chip out of
+   the row.
 
 Poster thumbnails (comfy/comfy_plus only, opt-out via ``set_thumbnails_enabled``
 — never painted in compact) reserve a FIXED ``_THUMB_W``x``_THUMB_H`` (2:3) rect
@@ -72,7 +84,8 @@ unit-testable without rendering pixels.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple, Optional
+import re
+from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import (
@@ -91,14 +104,20 @@ from PyQt6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from metatv.core.channel_name_utils import PLATFORM_CODES, quality_display
+from metatv.core.channel_name_utils import (
+    PLATFORM_CODES,
+    collection_display,
+    platform_display,
+    quality_display,
+)
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.badge_utils import _quality_colors
+from metatv.gui.badge_utils import _quality_outline_colors
 from metatv.gui.channel_list_model import (
     CHANNEL_HTML_ROLE,
     COLLECTION_ROLE,
     FAV_GLYPH_ROLE,
+    GENRE_ROLE,
     LANGUAGE_ROLE,
     MATCH_MARKER_ROLE,
     MEDIA_ICON_ROLE,
@@ -125,9 +144,22 @@ DENSITY_COMFY = "comfy"
 DENSITY_COMFY_PLUS = "comfy_plus"
 _VALID_DENSITIES = (DENSITY_COMPACT, DENSITY_COMFY, DENSITY_COMFY_PLUS)
 
+# Platform-names style (Settings → Interface → Channel List → "Platform names"):
+# "auto" (default) resolves per-density in _effective_platform_style — full
+# brand name in comfy/comfy_plus, short code in compact; "full"/"short"
+# override the density for every row regardless.
+PLATFORM_STYLE_AUTO = "auto"
+PLATFORM_STYLE_FULL = "full"
+PLATFORM_STYLE_SHORT = "short"
+_VALID_PLATFORM_STYLES = (PLATFORM_STYLE_AUTO, PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT)
+
 # Structural spacing (not a colour/font-size — px literals are fine inline
 # per CLAUDE.md's styles rule).
 _ROW_V_PAD = 4       # vertical padding top+bottom of a single-line/compact row
+_ROW_H_PAD = 10       # breathing room at BOTH row edges; the right side also keeps
+                      # right-aligned cells out from under the vertical scrollbar.
+                      # 10, not 6: a scrollbar is ~12px, so 6 left the chips
+                      # technically clear but visually crowded against it.
 _LINE_GAP = 2         # gap between comfy's two stacked text lines
 _CELL_GAP = 6         # horizontal gap between adjacent cells
 _CHIP_H_PAD = 5       # chip internal horizontal padding (mirrors badge_utils' "1px 5px")
@@ -146,13 +178,82 @@ def _rating_chip_bg() -> dict[int, str]:
     return {1: _theme.COLOR_OK, -1: _theme.COLOR_ERR}
 
 
+# ---------------------------------------------------------------------------
+# Colour conversion — the ONE chokepoint every colour this delegate paints
+# must go through. Never construct a bare QColor(token) at a paint call site.
+# ---------------------------------------------------------------------------
+
+# CSS rgba(r,g,b,a) / rgb(r,g,b) — the format theme_palettes.py's OVERLAY_*
+# tokens use. Whitespace-tolerant; the alpha group is optional (rgb() form).
+_RGBA_RE = re.compile(
+    r'^\s*rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$'
+)
+
+
+def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
+    """Convert a theme token value into a valid, correctly-coloured QColor —
+    the single conversion chokepoint every colour this delegate paints must
+    route through instead of a bare ``QColor(token)`` call.
+
+    ``QColor``'s own string constructor parses ``#RRGGBB``/``#RGB`` hex and
+    Qt/SVG colour NAMES ("gold", "white", ...) — but NOT the CSS
+    CSS functional-notation colour syntax
+    ``theme_palettes.py``'s ``OVERLAY_*`` tokens use. Feeding one of those
+    straight to ``QColor(...)`` silently returns an INVALID colour that
+    paints as OPAQUE BLACK, alpha 255 — a real bug this chokepoint fixes:
+    every chip whose background read an ``OVERLAY_*`` token (language/
+    region/genre/collection, and the outline quality chip's own subtle tint)
+    was painting a solid black box instead of the intended translucent tint.
+    Those ``rgba()`` strings are legitimate CSS for QSS stylesheets; they are
+    simply not valid ``QColor`` constructor input on a raw ``QPainter``
+    surface like this delegate.
+
+    Args:
+        token: A theme token value — ``#RRGGBB``/``#RGB`` hex, an SVG colour
+            name, a CSS functional-notation colour string, an
+            already-constructed ``QColor`` (passed through unchanged — some
+            callers, e.g. ``_resolve_default_color``, already hand this a
+            real ``QColor``), or ``None``/``""``.
+
+    Returns:
+        A ``QColor``. ``rgba()``/``rgb()`` strings are parsed component-wise
+        (alpha via ``setAlphaF``, clamped to ``[0, 1]``); everything else is
+        handed to ``QColor()`` directly (hex/named colours parse correctly
+        there). An empty/unparseable token falls back to ``QColor()`` (Qt's
+        own invalid-black) rather than raising — paint code must never crash
+        the row.
+    """
+    if isinstance(token, QColor):
+        return token
+    if not token:
+        return QColor()
+    match = _RGBA_RE.match(token)
+    if match:
+        r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        color = QColor(r, g, b)
+        if match.group(4) is not None:
+            color.setAlphaF(max(0.0, min(1.0, float(match.group(4)))))
+        return color
+    return QColor(token)
+
+
 class _Cell(NamedTuple):
-    """One paintable unit: either a plain text run or a coloured chip."""
+    """One paintable unit: either a plain text run or a coloured chip.
+
+    A chip (``is_chip=True``) is a SOLID fill by default — ``bg`` painted
+    behind ``fg``-coloured text (the LANG_CHIP idiom: hue-tinted background +
+    same-hue bright foreground, or platform's solid accent fill). Setting
+    ``outline=True`` instead draws ``bg`` (if any — a subtle tint, never
+    literally required) as a BORDER stroke around a chip whose interior is
+    otherwise unfilled, with the text in ``fg`` — the quality chip's own
+    treatment (#257), distinct from every other facet chip.
+    """
 
     text: str
     is_chip: bool
     fg: str        # QColor-constructible token/hex (theme.* or a QColor.name())
-    bg: Optional[str] = None   # chip background token (chip only)
+    bg: Optional[str] = None   # chip background/border token (chip only)
+    outline: bool = False      # True => border-only chip (quality), never filled
 
 
 # ---------------------------------------------------------------------------
@@ -223,24 +324,92 @@ def _year_cell(year) -> Optional[_Cell]:
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:
+    """Quality chip — OUTLINE ONLY (What's New 257, Part A): border + text in the tier's
+    colour from ``_quality_outline_colors()``, not a solid fill — the one
+    facet chip styled differently from the rest of the row's new
+    hue-tinted-fill family.
+
+    Deliberately reads ``_quality_outline_colors()``, NOT ``_quality_colors()``
+    (still used unchanged by ``badge_utils.make_quality_chip``'s solid-fill
+    widget elsewhere): ``COLOR_QUALITY_*`` is a SOLID-FILL palette, held
+    theme-invariant on purpose (theme_palettes.py's module docstring — "the
+    owner explicitly likes this hue system"), so it can't be palette-tuned for
+    contrast the way the LANG_CHIP-idiom facets' ``COLOR_ACCENT_*``
+    foregrounds are — as TEXT/BORDER against the app's OWN background instead,
+    those same values measured 1.57-4.09:1, well under a 4.5:1 floor, on
+    EVERY palette (not just Daylight). ``COLOR_QUALITY_OUTLINE_*`` is a
+    separate, dedicated per-palette family — same hue as the corresponding
+    ``COLOR_QUALITY_*`` token, lightness tuned per palette (brighter in the
+    two dark palettes, darker in Daylight) so text/border clears 4.5:1
+    against ``COLOR_BG_SECTION`` everywhere — see
+    ``tests/test_palette_completeness.py``'s
+    ``test_quality_outline_chip_contrast_at_least_4_5_every_palette``.
+
+    Background stays ``OVERLAY_08`` (a subtle, existing neutral tint) rather
+    than literally transparent, per the original owner instruction — this
+    softens the chip's visual boundary; it isn't what makes the text/border
+    contrast pass (a same/darker-neutral background tint alone cannot raise
+    contrast when the tier text is the darker of the pair — verified by
+    direct computation), the per-palette hue-preserving lightness tuning does.
+    """
     if not token:
         return None
     upper = token.upper()
-    bg = _quality_colors().get(upper, _theme.COLOR_FAINT)
-    return _Cell(quality_display(upper), True, _theme.COLOR_TEXT_HI, bg)
+    color = _quality_outline_colors().get(upper, _theme.COLOR_FAINT)
+    return _Cell(quality_display(upper), True, color, _theme.OVERLAY_08, outline=True)
 
 
-def _language_cell(region: str) -> Optional[_Cell]:
-    if not region:
+def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
+    """Region-or-platform chip for ``LANGUAGE_ROLE`` (``detected_region`` —
+    the field doubles as BOTH a geographic region code and a streaming-
+    platform code, e.g. ``"US"`` vs ``"NF"``/``"A+"``).
+
+    Two distinct hues (#257 Part A): a recognized :data:`PLATFORM_CODES`
+    member renders as a SOLID purple fill (``platform_display`` resolves the
+    brand name per *platform_style*); anything else renders as the
+    LANG_CHIP-idiom green-tinted region chip, unchanged code text.
+    """
+    if not code:
         return None
-    bg = _theme.OVERLAY_PLATFORM_BADGE if region in PLATFORM_CODES else _theme.OVERLAY_15
-    return _Cell(region, True, _theme.COLOR_TEXT_HI, bg)
+    if code in PLATFORM_CODES:
+        return _Cell(
+            platform_display(code, platform_style), True,
+            _theme.COLOR_TEXT_HI, _theme.COLOR_ACCENT_PURPLE,
+        )
+    return _Cell(code, True, _theme.COLOR_ACCENT_GREEN, _theme.OVERLAY_GREEN_15)
 
 
-def _category_cell(category: str) -> Optional[_Cell]:
-    if not category:
+def _language_cell(text: str) -> Optional[_Cell]:
+    """Language-family chip (LANG_CHIP idiom, blue) — the channel's own/
+    secondary language and any sub/dub marker (``PRIMARY_LANGUAGE_ROLE``,
+    ``SECONDARY_LANGUAGE_ROLE``, ``SUBTITLE_MARKER_ROLE``): all
+    language-adjacent facets, sharing one hue."""
+    if not text:
         return None
-    return _Cell(category, True, _theme.COLOR_MUTED, _theme.OVERLAY_08)
+    return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15)
+
+
+def _genre_cell(genre: str) -> Optional[_Cell]:
+    """Genre chip (LANG_CHIP idiom, teal) — comfy line 2's taxonomy group
+    (#257 Part C; state stays left — rating glyph + variant badge — taxonomy
+    right: genre, then the collection chip)."""
+    if not genre:
+        return None
+    return _Cell(genre, True, _theme.COLOR_ACCENT_TEAL, _theme.OVERLAY_TEAL_15)
+
+
+def _category_cell(category: str, platform_code: str = "") -> Optional[_Cell]:
+    """Collection chip — MUTED GREY, unchanged (owner call #257):
+    ``OVERLAY_08`` + ``COLOR_MUTED``. The TEXT is a render-layer transform
+    via :func:`~metatv.core.channel_name_utils.collection_display` (trailing
+    media-type token stripped + a leading platform-duplicate token stripped
+    when *platform_code* is this row's own recognized platform code) — never
+    touches the stored ``detected_collection`` (Discover reads that verbatim
+    and must keep SERIES/MOVIES, #257 owner directive)."""
+    display = collection_display(category, platform_code or None)
+    if not display:
+        return None
+    return _Cell(display, True, _theme.COLOR_MUTED, _theme.OVERLAY_08)
 
 
 def _rating_chip_cell(rating: int) -> Optional[_Cell]:
@@ -279,6 +448,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._density: str = DENSITY_COMFY
         self._image_cache = image_cache
         self._thumbnails_enabled: bool = False
+        self._platform_name_style: str = PLATFORM_STYLE_AUTO
 
     def set_density(self, density: str) -> None:
         """Set the row density ("compact"/"comfy"/"comfy_plus"); unknown values
@@ -297,6 +467,28 @@ class ChannelRowDelegate(QStyledItemDelegate):
     @property
     def thumbnails_enabled(self) -> bool:
         return self._thumbnails_enabled
+
+    def set_platform_name_style(self, style: str) -> None:
+        """Set the platform chip's name style ("auto"/"full"/"short",
+        Settings → Interface → Channel List → "Platform names"); unknown
+        values fall back to "auto"."""
+        self._platform_name_style = style if style in _VALID_PLATFORM_STYLES else PLATFORM_STYLE_AUTO
+
+    @property
+    def platform_name_style(self) -> str:
+        return self._platform_name_style
+
+    def _effective_platform_style(self) -> str:
+        """Resolve the configured Platform-names style against this row's
+        density: "auto" -> full brand name in comfy/comfy_plus, short code
+        in compact (owner spec #257); an explicit "full"/"short" override
+        wins regardless of density. Density-awareness is a control-layer
+        decision that belongs here (the delegate already tracks density),
+        never inside :func:`~metatv.core.channel_name_utils.platform_display`
+        itself."""
+        if self._platform_name_style in (PLATFORM_STYLE_FULL, PLATFORM_STYLE_SHORT):
+            return self._platform_name_style
+        return PLATFORM_STYLE_SHORT if self._density == DENSITY_COMPACT else PLATFORM_STYLE_FULL
 
     def _comfy_plus_line_count(self, index) -> int:
         """comfy_plus is 3 lines when the row has plot text, else 2 (= comfy)."""
@@ -347,6 +539,14 @@ class ChannelRowDelegate(QStyledItemDelegate):
         text_rect = style.subElementRect(
             QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget
         )
+        # Inset both edges equally. The right inset is the functional one —
+        # right-aligned cells anchor to container.right(), so without it they
+        # render flush to the viewport edge and the vertical scrollbar paints
+        # over them. The matching left inset keeps the row balanced rather than
+        # just shifted left. Applied here, before the clip and before
+        # content_rect is derived, so every density and the thumbnail path all
+        # inherit it from one place.
+        text_rect = text_rect.adjusted(_ROW_H_PAD, 0, -_ROW_H_PAD, 0)
 
         painter.save()
         painter.setClipRect(text_rect)
@@ -403,10 +603,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         letter = title.strip()[:1].upper() if title.strip() else "?"
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(_theme.COLOR_FAINT))
+        painter.setBrush(_to_qcolor(_theme.COLOR_FAINT))
         painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QColor(_theme.COLOR_MUTED))
+        painter.setPen(_to_qcolor(_theme.COLOR_MUTED))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
 
     # ── Header-row rendering (unchanged behaviour) ──────────────────────────
@@ -461,7 +661,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
     def _draw_text(self, painter, rect: QRect, text: str, color, font) -> None:
         painter.setFont(font)
-        painter.setPen(QColor(color))
+        painter.setPen(_to_qcolor(color))
         painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
     def _cell_width(self, fm: QFontMetrics, cell: _Cell) -> int:
@@ -470,15 +670,26 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
     def _paint_cell(self, painter, rect: QRect, cell: _Cell, font) -> None:
         painter.setFont(font)
-        if cell.is_chip:
+        if cell.is_chip and cell.outline:
+            # Border-only chip (quality, #257) — never a solid fill. ``bg``
+            # (a subtle tint, e.g. OVERLAY_08) paints as the interior when
+            # present, then the border + text are ``fg`` (the tier colour).
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(cell.bg))
+            painter.setBrush(_to_qcolor(cell.bg) if cell.bg else Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QColor(cell.fg))
+            painter.setPen(_to_qcolor(cell.fg))
+            painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
+        elif cell.is_chip:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_to_qcolor(cell.bg))
+            painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
         else:
-            painter.setPen(QColor(cell.fg))
+            painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, cell.text)
 
     # ── Compact (one line) ───────────────────────────────────────────────────
@@ -496,7 +707,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         right_cells = [c for c in (
             _variant_badge_cell(index.data(VARIANT_COUNT_ROLE) or 1),
             _year_cell(index.data(YEAR_ROLE) or ""),
-            _language_cell(index.data(LANGUAGE_ROLE) or ""),
+            _region_or_platform_cell(index.data(LANGUAGE_ROLE) or "", self._effective_platform_style()),
             _rating_chip_cell(index.data(RATING_ROLE) or 0),
         ) if c is not None]
         right_widths = [self._cell_width(fm, c) for c in right_cells]
@@ -561,11 +772,12 @@ class ChannelRowDelegate(QStyledItemDelegate):
         it sits immediately after the title rather than floating).
 
         Right-aligned flush to ``line``'s right edge, left-to-right:
-        ``[year][region chip][subtitle marker chip][secondary language
-        chip][primary language chip]`` — the channel's OWN (honest) language
-        (``detected_prefix``) always sits furthest right (owner spec); the
-        region chip (``detected_region``) sits leftmost of the group since it
-        answers a different question (where, not what language).
+        ``[year][region/platform chip][subtitle marker chip][secondary
+        language chip][primary language chip]`` — the channel's OWN (honest)
+        language (``detected_prefix``) always sits furthest right (owner
+        spec); the region/platform chip (``detected_region``) sits leftmost
+        of the group since it answers a different question (where/which
+        service, not what language).
         """
         fm = QFontMetrics(font)
         media_icon = index.data(MEDIA_ICON_ROLE) or ""
@@ -576,13 +788,16 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         quality_cell = _quality_cell(index.data(QUALITY_TOKEN_ROLE) or "")
 
-        # _language_cell is a generic "code chip" builder (region, language, or
-        # a compound sub/dub marker like "AR-SUB" are all short code-shaped
-        # tokens) — reused here for every right-group cell but the year so all
-        # four chips share the exact same chip styling.
+        # _language_cell is the language-family chip builder (own/secondary
+        # language or a compound sub/dub marker like "AR-SUB" are all
+        # language-adjacent, short code-shaped tokens — blue). The region/
+        # platform slot uses the DIFFERENT-hue _region_or_platform_cell
+        # builder (green region vs solid-purple platform, #257 Part A).
         right_cells = [c for c in (
             _year_cell(index.data(YEAR_ROLE) or ""),
-            _language_cell(index.data(LANGUAGE_ROLE) or ""),            # region
+            _region_or_platform_cell(
+                index.data(LANGUAGE_ROLE) or "", self._effective_platform_style()
+            ),                                                           # region/platform
             _language_cell(index.data(SUBTITLE_MARKER_ROLE) or ""),     # e.g. "AR-SUB"
             _language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or ""),  # category's disagreeing language
             _language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or ""),    # channel's own — furthest right
@@ -632,17 +847,23 @@ class ChannelRowDelegate(QStyledItemDelegate):
             self._paint_cell(painter, r, cell, font)
 
     def _paint_badge_line(self, painter, line: QRect, index, font) -> None:
-        """Badge row — a rating glyph left, the clean collection chip
-        (``detected_collection`` — the category with its leading marker
-        stripped) right-aligned. Used as comfy's line 2 and comfy_plus's
-        final line. Region/subtitle/language chips and the quality chip now
-        live on line 1 (owner spec) — this line no longer carries them."""
+        """Badge row — grammar is STATE on the left, TAXONOMY on the right
+        (#257 Part C): a rating glyph + the ``×N`` variant badge left, a
+        genre chip (teal) then the clean collection chip (``detected_collection``,
+        render-time-transformed via ``_category_cell``/``collection_display``)
+        right-aligned, genre before collection. Used as comfy's line 2 and
+        comfy_plus's final line. Region/subtitle/language chips and the
+        quality chip live on line 1 (owner spec) — this line never carries
+        them."""
         fm = QFontMetrics(font)
-        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "")
-        collection_w = self._cell_width(fm, collection_cell) if collection_cell else 0
-        collection_rects = (
-            right_aligned_rects(line, [collection_w], _CELL_GAP) if collection_cell else []
-        )
+        region_code = index.data(LANGUAGE_ROLE) or ""
+        platform_code = region_code if region_code in PLATFORM_CODES else ""
+        genre_cell = _genre_cell(index.data(GENRE_ROLE) or "")
+        collection_cell = _category_cell(index.data(COLLECTION_ROLE) or "", platform_code)
+
+        right_cells = [c for c in (genre_cell, collection_cell) if c is not None]
+        right_widths = [self._cell_width(fm, c) for c in right_cells]
+        right_rects = right_aligned_rects(line, right_widths, _CELL_GAP)
 
         left_cells = [c for c in (
             # variant-count badge (#387) keeps its place on the badge row;
@@ -657,8 +878,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
             self._paint_cell(painter, c_rect, cell, font)
             lx += w + _CELL_GAP
 
-        if collection_cell:
-            self._paint_cell(painter, collection_rects[0], collection_cell, font)
+        for cell, r in zip(right_cells, right_rects):
+            self._paint_cell(painter, r, cell, font)
 
     def _paint_plot_line(self, painter, line: QRect, plot: str, font) -> None:
         """comfy_plus's middle line — the plot, elided to fit, muted token."""

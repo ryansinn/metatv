@@ -177,9 +177,9 @@ class ProviderIconPicker(QWidget):
         pal_layout.addLayout(btn_row)
 
         custom_row = QHBoxLayout()
-        lbl = QLabel("Custom:")
-        lbl.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
-        custom_row.addWidget(lbl)
+        self._custom_label = QLabel("Custom:")
+        self._custom_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        custom_row.addWidget(self._custom_label)
         self._custom_input = QLineEdit()
         self._custom_input.setClearButtonEnabled(True)
         self._custom_input.setPlaceholderText("emoji…")
@@ -228,6 +228,19 @@ class ProviderIconPicker(QWidget):
     def setEnabled(self, enabled: bool):
         super().setEnabled(enabled)
         self._btn.setEnabled(enabled)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this picker's own persistent chrome
+        (main button, popup frame, "Custom:" label, and every palette-color
+        swatch button) — all styled once at construction/``_update_selection``
+        and never touched again except on the next colour pick. Called from
+        ``ProviderEditorView.refresh_theme()``.
+        """
+        self._btn.setStyleSheet(_theme.ICON_PICK_MAIN_BTN)
+        self._palette.setStyleSheet(_theme.ICON_PICK_POPUP)
+        self._custom_label.setStyleSheet(f"font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};")
+        self._custom_input.setStyleSheet(f"font-size: {_theme.FONT_INPUT};")
+        self._update_selection(self._icon)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -389,9 +402,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         # Icon picker
         icon_col = QVBoxLayout()
         icon_col.setSpacing(2)
-        lbl_icon = QLabel("Icon")
-        lbl_icon.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        icon_col.addWidget(lbl_icon)
+        self._icon_field_lbl = QLabel("Icon")
+        self._icon_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        icon_col.addWidget(self._icon_field_lbl)
         self._icon_picker = ProviderIconPicker()
         icon_col.addWidget(self._icon_picker)
         icon_col.addStretch()
@@ -400,9 +413,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
 
         name_col = QVBoxLayout()
         name_col.setSpacing(2)
-        lbl = QLabel("Provider Name")
-        lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        name_col.addWidget(lbl)
+        self._name_field_lbl = QLabel("Provider Name")
+        self._name_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        name_col.addWidget(self._name_field_lbl)
         name_row = QHBoxLayout()
         name_row.setSpacing(6)
         self._status_dot_lbl = QLabel("")
@@ -545,9 +558,9 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         QTabWidget, always visible regardless of the selected tab. Delete sits
         far left with a visual divider separating it from the Test/Discard/Save
         group (destructive action must never read as adjacent to Save)."""
-        footer = QWidget()
-        footer.setStyleSheet(_theme.PROVIDER_FOOTER)
-        row = QHBoxLayout(footer)
+        self._footer = QWidget()
+        self._footer.setStyleSheet(_theme.PROVIDER_FOOTER)
+        row = QHBoxLayout(self._footer)
         row.setContentsMargins(16, 10, 16, 10)
 
         self._delete_btn = QPushButton(f"{_icons.delete_icon}  Delete Provider")
@@ -583,7 +596,7 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
         self._save_btn.clicked.connect(self._save)
         row.addWidget(self._save_btn)
 
-        root.addWidget(footer)
+        root.addWidget(self._footer)
 
     def _connect_dirty_signals(self) -> None:
         """Wire all editable-field change signals to ``_mark_dirty``.
@@ -612,6 +625,41 @@ class ProviderEditorView(_ProviderEditorTabsMixin, QWidget):
             return
         self._save_btn.setText("Save Changes")
         self._save_btn.setEnabled(True)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this editor's own persistent chrome
+        styled once at construction (header field labels, the action-bar
+        buttons, the footer + its divider/Delete/Save buttons, and the
+        Connection tab's username/password visibility toggles) and forward to
+        the icon picker, which has its own ``refresh_theme()`` — same
+        recursion pattern as ``MainWindow.refresh_theme()`` forwarding to
+        ``details_pane``/``filter_panel``.
+
+        Data-driven labels (account status/remaining/EPG-freshness colour,
+        the name-row status dot) are recomputed fresh from current tokens on
+        every ``load_provider()``/refresh, same rationale as the channel-list
+        row delegate — left out of this sweep, same as ``_acct_cons_lbl``'s
+        sibling ``_acct_status_lbl`` isn't touched here either.
+        """
+        self._icon_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        self._name_field_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        if hasattr(self._icon_picker, "refresh_theme"):
+            self._icon_picker.refresh_theme()
+
+        for btn in (
+            self._action_refresh_btn, self._action_analyze_btn,
+            self._epg_refresh_btn, self._action_toggle_btn,
+        ):
+            btn.setStyleSheet(_theme.PANEL_BTN)
+
+        self._footer.setStyleSheet(_theme.PROVIDER_FOOTER)
+        self._delete_btn.setStyleSheet(_theme.DELETE_BTN)
+        self._footer_divider.setStyleSheet(_theme.FOOTER_DIVIDER)
+        self._save_btn.setStyleSheet(_theme.SAVE_BTN)
+
+        self._acct_cons_lbl.setStyleSheet(_theme.FIELD_LABEL)
+        self._username_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        self._password_eye_btn.setStyleSheet(_theme.EYE_BTN)
 
     # ── Public API ────────────────────────────────────────────────────────────
 

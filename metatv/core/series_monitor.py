@@ -4,17 +4,25 @@ Workers run in a ``ThreadPoolExecutor(max_workers=1)`` to stay within the
 SQLite-lock limit.  All config writes and ``NotificationManager`` calls happen
 on the Qt main thread via private signals (same pattern as ``EpgManager``).
 
-A monitored series can be mirrored across MULTIPLE providers (the same show
-carried by two+ sources under the same ``content_key``).  Detection is
-per-provider: each entry stores a ``baselines: {provider_id: episode_count}``
-dict instead of one scalar count, and a new episode landing on ANY provider
-that carries the series triggers the alert — not just the source the user
-happened to click "Alert me" from.
+A monitored series can be mirrored across MULTIPLE listings (the same show
+carried by two+ sources — or by two+ listings on ONE source — under the same
+``content_key``).  Detection is per-MIRROR: each entry stores a
+``baselines: {"provider_id|source_id": episode_count}`` dict instead of one
+scalar count, and a new episode landing on ANY mirror triggers the alert — not
+just the listing the user happened to click "Alert me" from.
+
+The key is (provider, source), not provider alone. ``content_key`` is a
+deliberately generous identity, so one provider routinely carries several
+listings that collapse to the same key; under a provider-only key those
+overwrote a single slot and were each compared against the same stale ``prev``,
+manufacturing "+N episodes" alerts that grew every launch until the clamp
+pinned them to the provider's TOTAL episode count. See :func:`mirror_key`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -43,34 +51,247 @@ def _count_episodes(episodes_data) -> int:
     return 0
 
 
-def normalize_monitored_entry(entry: dict) -> dict:
-    """Return *entry* with a per-provider ``baselines`` dict.
+def _has_usable_episodes(episodes_data) -> bool:
+    """Return True if *episodes_data* is a real (possibly-zero-count) payload.
 
-    Migrates the legacy single-provider shape (a scalar
-    ``baseline_episode_count``) into ``baselines: {provider_id: count}``. Pure
-    and side-effect-free — the caller decides whether/how to persist the
-    result.  This is the single chokepoint both ``Config.get_monitored_series``
-    (real config, migrate-on-read + write-back) and the worker below (defensive
-    tolerance for entries handed to it directly, e.g. test doubles that stub
-    ``Config`` without running the config-level migration) call.
+    False for a missing/``None`` field, a non-dict/non-list value, or an empty
+    top-level container — all of which mean the fetch failed or returned a
+    malformed response, NOT that the series legitimately has zero episodes.
+    ``_count_episodes`` can't tell these apart (both resolve to ``0``), so
+    callers that are about to WRITE a baseline from a live fetch must check
+    this first — a bare ``0`` from a flaky provider must never be recorded as
+    the new baseline (root cause of #259: a flaky fetch stored baseline 0,
+    then the next successful check reported the entire catalogue as "new").
+    """
+    if isinstance(episodes_data, dict):
+        return bool(episodes_data)
+    if isinstance(episodes_data, list):
+        return bool(episodes_data)
+    return False
+
+
+#: Separator joining a mirror's provider id and source id into one baseline key.
+#: Provider ids are UUIDs and source ids are numeric, so a pipe can never occur
+#: inside either half — which is what makes :func:`is_mirror_key` reliable.
+_MIRROR_SEP = "|"
+
+
+def mirror_key(provider_id: str, source_id) -> str:
+    """Return the ``baselines`` key identifying ONE mirror of a series.
+
+    Keyed by (provider, source) rather than by provider alone: a single provider
+    can carry several listings that share a ``content_key``, and with a
+    provider-only key each of those overwrote the same slot while every one of
+    them was compared against the same stale ``prev``. That produced fabricated
+    "+N episodes" alerts that grew on every launch (owner report 2026-08-02:
+    "Rick And Morty +132 eps", which was the provider's TOTAL episode count, not
+    new episodes).
+    """
+    return f"{provider_id}{_MIRROR_SEP}{source_id}"
+
+
+def is_mirror_key(key: str) -> bool:
+    """True if *key* is the (provider, source) form rather than a bare provider id."""
+    return _MIRROR_SEP in key
+
+
+def provider_of(key: str) -> str:
+    """Return the provider id half of a baseline key (works on both shapes)."""
+    return key.split(_MIRROR_SEP, 1)[0]
+
+
+def normalize_monitored_entry(entry: dict) -> dict:
+    """Return *entry* with a per-MIRROR ``baselines`` dict.
+
+    Handles both historical shapes. Pure and side-effect-free — the caller
+    decides whether/how to persist the result. This is the single chokepoint
+    both ``Config.get_monitored_series`` (real config, migrate-on-read +
+    write-back) and the worker below (defensive tolerance for entries handed to
+    it directly, e.g. test doubles that stub ``Config`` without running the
+    config-level migration) call.
+
+    Two migrations, oldest first:
+
+    1. Scalar ``baseline_episode_count`` → a dict.
+    2. Provider-keyed ``{provider_id: count}`` → mirror-keyed
+       ``{"provider|source": count}``. Only the PRIMARY provider's baseline
+       survives, because it is the only one whose ``source_id`` the entry
+       records; a non-primary provider's count cannot be attributed to a
+       specific listing, and keeping it under a guessed key would preserve the
+       very confusion this migration exists to remove. Dropped baselines are
+       re-established silently on the next check (the ``prev is None`` path
+       never alerts), so the cost is one quiet cycle, not a false alert.
+
+    ``unseen_new`` is also reset to 0 whenever a provider-keyed baseline is
+    migrated: those counts were produced by the collision and are *proven*
+    corrupt, not merely implausible, so they are discarded rather than clamped
+    (same reasoning as ``zero_out_inflated_unseen_new`` vs.
+    ``clamp_unseen_new_to_baseline_total``).
 
     Args:
         entry: A raw monitored-series config dict.
 
     Returns:
-        ``entry`` unchanged (same object) if it already carries a ``baselines``
-        dict; otherwise a NEW dict with ``baselines`` populated from the legacy
-        field (``{}`` when no legacy baseline was ever established).
+        ``entry`` unchanged (same object) when it already carries mirror-keyed
+        baselines; otherwise a NEW dict.
     """
-    if isinstance(entry.get("baselines"), dict):
-        return entry
-    migrated = dict(entry)
+    baselines = entry.get("baselines")
     provider_id = entry.get("provider_id")
-    legacy = entry.get("baseline_episode_count")
-    if provider_id and legacy is not None:
-        migrated["baselines"] = {provider_id: legacy}
-    else:
-        migrated["baselines"] = {}
+    source_id = entry.get("source_id")
+
+    if not isinstance(baselines, dict):
+        migrated = dict(entry)
+        legacy = entry.get("baseline_episode_count")
+        if provider_id and source_id is not None and legacy is not None:
+            migrated["baselines"] = {mirror_key(provider_id, source_id): legacy}
+        else:
+            migrated["baselines"] = {}
+        return migrated
+
+    if not baselines or all(is_mirror_key(k) for k in baselines):
+        return entry
+
+    # Provider-keyed (or mixed) — rebuild, keeping only what can be attributed.
+    migrated = dict(entry)
+    rebuilt = {k: v for k, v in baselines.items() if is_mirror_key(k)}
+    if provider_id and source_id is not None and provider_id in baselines:
+        rebuilt[mirror_key(provider_id, source_id)] = baselines[provider_id]
+    dropped = [k for k in baselines if not is_mirror_key(k) and k != provider_id]
+    if dropped:
+        logger.info(
+            f"series_monitor: {entry.get('title', 'series')} — dropping "
+            f"{len(dropped)} provider-keyed baseline(s) that cannot be tied to "
+            f"a specific listing; they re-establish silently on the next check"
+        )
+    migrated["baselines"] = rebuilt
+    if entry.get("unseen_new"):
+        logger.info(
+            f"series_monitor: {entry.get('title', 'series')} — resetting "
+            f"unseen_new={entry.get('unseen_new')} (produced by the "
+            f"provider-keyed baseline collision, proven corrupt)"
+        )
+    migrated["unseen_new"] = 0
+    migrated["growth_providers"] = []
+    return migrated
+
+
+def _inflated_unseen(entry: dict) -> tuple[int, int] | None:
+    """Return ``(unseen_new, sane_max)`` if *entry*'s ``unseen_new`` exceeds its
+    summed per-provider baselines, else ``None`` (nothing to correct: no usable
+    baseline data, ``unseen_new`` absent/non-positive, or already sane).
+
+    Shared by ``zero_out_inflated_unseen_new`` and
+    ``clamp_unseen_new_to_baseline_total`` — the single place that decides
+    WHETHER an entry is inflated; the two callers differ only in HOW they
+    correct it (reset to 0 vs. clamp to the sum).
+    """
+    baselines = entry.get("baselines")
+    if not isinstance(baselines, dict) or not baselines:
+        return None
+    unseen = entry.get("unseen_new")
+    if not isinstance(unseen, int) or unseen <= 0:
+        return None
+    sane_max = sum(v for v in baselines.values() if isinstance(v, int))
+    if unseen <= sane_max:
+        return None
+    return unseen, sane_max
+
+
+def zero_out_inflated_unseen_new(entry: dict) -> dict:
+    """One-time repair: reset a PROVEN-CORRUPT ``unseen_new`` to 0.
+
+    Repairs config state left over from the #259 baseline-accounting bug: a
+    flaky provider fetch that returned an empty/malformed ``episodes``
+    payload was stored as a baseline of ``0``, so the next successful check
+    read the delta as the ENTIRE catalogue and ``unseen_new`` accumulated
+    without bound across launches (one observed real-config case reached 320
+    for a 132-episode show). A count found ``unseen_new > sum(baselines)`` is
+    PROVEN corrupt (the owner's confirmation: none of the excess was real new
+    episodes) and carries no recoverable signal — there's no way to tell
+    which, if any, of the recorded "unseen" episodes were genuine, so 0 is
+    the honest value, not a clamped guess. Because the baselines themselves
+    are correct once this bug is fixed, any genuinely new episode is
+    detected fresh on the very next check — nothing is lost going forward.
+
+    This is THE ONE-TIME REPAIR ONLY — called from
+    ``Config.get_monitored_series``, the existing migrate-on-read
+    chokepoint. The ONGOING guard applied to every fresh write is the
+    different, deliberately more conservative
+    ``clamp_unseen_new_to_baseline_total`` (a fresh write isn't proven
+    corrupt, just implausible, so it's clamped rather than discarded).
+
+    Pure and side-effect-free — the caller decides whether/how to persist
+    the result. Idempotent: once ``unseen_new`` is 0 (or otherwise within
+    the sane range, or there's no baseline data to check it against), a
+    second call is a no-op and returns ``entry`` UNCHANGED (same object).
+
+    Args:
+        entry: A monitored-series config dict. Expected to already carry a
+            ``baselines`` dict — call ``normalize_monitored_entry`` first for
+            legacy entries.
+
+    Returns:
+        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
+        absent, or there's no usable baseline data to validate against;
+        otherwise a NEW dict with ``unseen_new`` reset to ``0``.
+    """
+    check = _inflated_unseen(entry)
+    if check is None:
+        return entry
+    unseen, sane_max = check
+    title = entry.get("display_title") or entry.get("title", "Unknown series")
+    logger.warning(
+        f"series_monitor: resetting corrupt unseen_new for {title} from "
+        f"{unseen} to 0 (exceeded summed baselines, sum={sane_max})"
+    )
+    migrated = dict(entry)
+    migrated["unseen_new"] = 0
+    return migrated
+
+
+def clamp_unseen_new_to_baseline_total(entry: dict) -> dict:
+    """Ongoing guard: clamp (never zero) an implausible ``unseen_new`` on a
+    FRESH write down to the summed per-provider baselines.
+
+    Applied to every write in ``SeriesMonitorManager._on_new_episodes`` as a
+    belt-and-braces bound — the value here is not proven corrupt (unlike the
+    one-time repair's starting state), just implausible, so the conservative
+    move is to cap it at the total episode count currently believed across
+    every provider baseline rather than discard it outright. This is what
+    stops a FUTURE accounting bug from reproducing an absurd number.
+
+    This is THE ONGOING GUARD ONLY. The different, one-time repair for
+    entries already PROVEN corrupt by the #259 bug is
+    ``zero_out_inflated_unseen_new`` (resets to 0, not the sum) — see its
+    docstring for why the two calls make different corrections.
+
+    Pure and side-effect-free — the caller decides whether/how to persist
+    the result. Idempotent: once ``unseen_new`` is within the sane range (or
+    there's no baseline data to check it against), a second call is a no-op
+    and returns ``entry`` UNCHANGED (same object).
+
+    Args:
+        entry: A monitored-series config dict. Expected to already carry a
+            ``baselines`` dict — call ``normalize_monitored_entry`` first for
+            legacy entries.
+
+    Returns:
+        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
+        absent, or there's no usable baseline data to validate against;
+        otherwise a NEW dict with ``unseen_new`` clamped to
+        ``sum(baselines.values())``.
+    """
+    check = _inflated_unseen(entry)
+    if check is None:
+        return entry
+    unseen, sane_max = check
+    title = entry.get("display_title") or entry.get("title", "Unknown series")
+    logger.warning(
+        f"series_monitor: clamping unseen_new for {title} from {unseen} to "
+        f"{sane_max} (exceeds summed baselines {entry.get('baselines')})"
+    )
+    migrated = dict(entry)
+    migrated["unseen_new"] = sane_max
     return migrated
 
 
@@ -125,6 +346,13 @@ class SeriesMonitorManager(QObject):
             max_workers=1, thread_name_prefix="series_monitor"
         )
         self._pending_batches = 0
+        # Set by shutdown(). ThreadPoolExecutor.shutdown(wait=False) stops NEW
+        # work but cannot interrupt the batch already running, so without this
+        # the in-flight worker kept issuing live HTTP fetches for every
+        # remaining series after Database.close() had run — ending in
+        # "cannot schedule new futures after interpreter shutdown" and a
+        # WARNING per series on every app exit.
+        self._stopping = threading.Event()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.check_all)
         # Wire private signals to main-thread slots
@@ -189,7 +417,14 @@ class SeriesMonitorManager(QObject):
         self._timer.stop()
 
     def shutdown(self) -> None:
-        """Shut down the timer and executor without blocking the main thread."""
+        """Shut down the timer and executor without blocking the main thread.
+
+        Sets the stop flag FIRST: ``shutdown(wait=False)`` prevents new
+        submissions but leaves the running batch untouched, and that batch
+        outlives ``Database.close()``. The worker polls the flag between
+        entries so it unwinds instead of fetching on into teardown.
+        """
+        self._stopping.set()
         self._timer.stop()
         self._executor.shutdown(wait=False)
 
@@ -237,16 +472,28 @@ class SeriesMonitorManager(QObject):
         if not primary_channel or not primary_channel.content_key:
             return mirrors
         hidden = repos.providers.get_hidden_provider_ids()
+        # Dedupe on the full (provider, source) pair. content_key is a
+        # deliberately generous identity, so a single provider can contribute
+        # several distinct listings here — that is legitimate (each is a real
+        # separate listing with its own episode count) and each now gets its own
+        # baseline slot. What must not happen is the SAME pair being checked
+        # twice in one pass, which would fetch twice and compare the second
+        # result against a baseline the first just wrote.
+        seen = {(primary_provider_id, str(primary_source_id))}
         for sib in repos.channels.get_content_key_siblings(
             primary_channel.content_key, cid, excluded_provider_ids=hidden,
         ):
-            if (
+            if not (
                 sib.get("media_type") == "series"
                 and sib.get("source_id")
                 and sib.get("provider_id")
-                and sib.get("provider_id") != primary_provider_id
             ):
-                mirrors.append((sib["provider_id"], sib["source_id"]))
+                continue
+            pair = (sib["provider_id"], str(sib["source_id"]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            mirrors.append((sib["provider_id"], sib["source_id"]))
         return mirrors
 
     def _worker_check_entries(self, entries: list[dict]) -> None:
@@ -261,6 +508,12 @@ class SeriesMonitorManager(QObject):
         from metatv.providers.factory import get_provider
 
         for raw_entry in entries:
+            if self._stopping.is_set():
+                logger.debug(
+                    "series_monitor: stop requested — abandoning the rest of "
+                    "this batch"
+                )
+                return
             entry = normalize_monitored_entry(raw_entry)
             cid = entry.get("series_channel_id")
             primary_provider_id = entry.get("provider_id")
@@ -284,10 +537,16 @@ class SeriesMonitorManager(QObject):
                 mirrors = [(primary_provider_id, primary_source_id)]
 
             new_baselines = dict(baselines)
-            grown: dict[str, int] = {}        # provider_id -> delta
-            grown_names: dict[str, str] = {}  # provider_id -> display name
+            grown: dict[str, int] = {}        # mirror key -> delta
+            grown_names: dict[str, str] = {}  # mirror key -> provider display name
 
             for provider_id, source_id in mirrors:
+                mkey = mirror_key(provider_id, source_id)
+                # Each mirror is a separate live fetch, so a multi-mirror entry
+                # can span the whole teardown window on its own — poll here too,
+                # not just per entry.
+                if self._stopping.is_set():
+                    return
                 try:
                     with self.db.session_scope(commit=False) as session:
                         repos = RepositoryFactory(session)
@@ -316,8 +575,24 @@ class SeriesMonitorManager(QObject):
                         )
                         continue
 
-                    current_count = _count_episodes(data.get("episodes", {}))
-                    prev = baselines.get(provider_id)
+                    episodes_field = data.get("episodes")
+                    if not _has_usable_episodes(episodes_field):
+                        # Missing/malformed/empty episodes payload — a provider
+                        # hiccup, not proof the series lost every episode. Skip
+                        # the baseline write for THIS provider entirely (new_
+                        # baselines already carries whatever value it had before
+                        # this pass, since it started as a copy of `baselines`)
+                        # rather than silently recording a 0 that the next
+                        # successful check would read as "everything is new".
+                        logger.warning(
+                            f"series_monitor: no usable episodes payload for "
+                            f"{title} on {provider.name} — skipping baseline "
+                            f"update this pass"
+                        )
+                        continue
+
+                    current_count = _count_episodes(episodes_field)
+                    prev = baselines.get(mkey)
 
                     if prev is None:
                         # Baseline not yet established for THIS provider — establish
@@ -327,19 +602,32 @@ class SeriesMonitorManager(QObject):
                             f"series_monitor: establishing baseline for {title} on "
                             f"{provider.name} = {current_count}"
                         )
-                        new_baselines[provider_id] = current_count
+                        new_baselines[mkey] = current_count
+                        continue
+
+                    if current_count < prev:
+                        # A drop means a provider hiccup, not deleted episodes —
+                        # never lower a stored baseline. new_baselines already
+                        # holds `prev` (it started as a copy of `baselines`), so
+                        # just leave it alone and treat this pass as unchanged.
+                        logger.warning(
+                            f"series_monitor: {title} on {provider.name} reported "
+                            f"fewer episodes than the stored baseline "
+                            f"({current_count} < {prev}) — keeping the higher "
+                            f"baseline"
+                        )
                         continue
 
                     delta = current_count - prev
-                    new_baselines[provider_id] = current_count
+                    new_baselines[mkey] = current_count
 
                     if delta > 0:
                         logger.info(
                             f"series_monitor: {title} grew by {delta} episode(s) on "
                             f"{provider.name} ({prev} → {current_count})"
                         )
-                        grown[provider_id] = delta
-                        grown_names[provider_id] = provider.name
+                        grown[mkey] = delta
+                        grown_names[mkey] = provider.name
                     else:
                         logger.debug(
                             f"series_monitor: {title} unchanged on {provider.name} "
@@ -355,7 +643,13 @@ class SeriesMonitorManager(QObject):
             total_delta = sum(grown.values())
             payload = {
                 "baselines": new_baselines,
-                "grown_provider_names": [grown_names[pid] for pid in grown],
+                # dict.fromkeys: several mirrors on ONE provider can grow in the
+                # same pass now that each has its own baseline, and the display
+                # list must not repeat that provider's name once per listing.
+                # Preserves first-seen order.
+                "grown_provider_names": list(dict.fromkeys(
+                    grown_names[k] for k in grown
+                )),
             }
             self._notify_new.emit(cid, total_delta, title, payload)
 
@@ -438,7 +732,15 @@ class SeriesMonitorManager(QObject):
                 )
                 return
 
-            episode_count = _count_episodes(data.get("episodes", {}))
+            episodes_field = data.get("episodes")
+            if not _has_usable_episodes(episodes_field):
+                logger.warning(
+                    f"series_monitor: no usable episodes payload for baseline "
+                    f"of {title} — not establishing a baseline from this fetch"
+                )
+                return
+
+            episode_count = _count_episodes(episodes_field)
             logger.info(
                 f"series_monitor: baseline for {title} = {episode_count} (from API)"
             )
@@ -479,10 +781,23 @@ class SeriesMonitorManager(QObject):
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
+            # Ongoing belt-and-braces guard: unseen_new can never legitimately
+            # exceed the total episode count currently believed across every
+            # provider baseline. This value is NOT proven corrupt (unlike the
+            # one-time config migration's starting state) -- just implausible
+            # -- so it's CLAMPED to the sum, never zeroed. See
+            # clamp_unseen_new_to_baseline_total's docstring for the
+            # distinction from zero_out_inflated_unseen_new (the migration).
+            clamped = clamp_unseen_new_to_baseline_total({
+                "baselines": merged_baselines,
+                "unseen_new": existing_unseen + delta,
+            })
+            total_unseen = clamped["unseen_new"]
+
             self.config.update_monitored_series(
                 series_channel_id,
                 baselines=merged_baselines,
-                unseen_new=existing_unseen + delta,
+                unseen_new=total_unseen,
                 growth_providers=grown_names,
                 last_checked=now_iso,
             )
@@ -497,7 +812,6 @@ class SeriesMonitorManager(QObject):
                     auto_dismiss_ms=6000,
                 )
 
-            total_unseen = existing_unseen + delta
             self.new_episodes_found.emit(series_channel_id, total_unseen)
         else:
             # delta == 0: just update baselines and last_checked (baselines may

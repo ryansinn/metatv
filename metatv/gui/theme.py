@@ -28,11 +28,24 @@ the active palette by rebinding every token global AND recomposing every semanti
 constant below it (:func:`_build_semantic_constants`) — see both docstrings for why
 the semantic-constant rebuild step exists. Switching the palette does not, by
 itself, repaint anything already on screen; see ``MainWindow.refresh_theme()``.
+
+QPalette floor (#253): ``MainWindow.refresh_theme()``'s sweep only reaches
+widgets it (or a widget-owned ``refresh_theme()``) explicitly re-styles — a
+widget built with NO stylesheet at all (e.g. a bare ``QLabel``/``QStatusBar``)
+instead falls back to Qt's built-in default palette, which is light regardless
+of the active app theme. :func:`qt_palette` builds a ``QPalette`` from the
+CURRENTLY ACTIVE tokens; :func:`apply_theme` pushes it onto the whole
+``QApplication`` so every unstyled widget inherits correct theme colors
+automatically, live, with no enumeration required. This is a FLOOR beneath the
+semantic-constant sweep, not a replacement for it — an explicitly styled
+widget still needs its cached stylesheet re-applied to pick up new token
+values (``setStyleSheet()`` bakes a string, it doesn't track the token live).
 """
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtWidgets import QApplication
 
 from metatv.gui import theme_palettes
 
@@ -557,6 +570,21 @@ def _build_semantic_constants() -> dict[str, object]:
     # destructive Delete action (far left) from the Test Connection / Discard /
     # Save Changes group (right) so Delete never reads as adjacent to Save.
     FOOTER_DIVIDER = "background: " + COLOR_LINE + ";"
+
+    # Sources-manager header "+ Add Source" — the PRIMARY call to action of that
+    # view, and the one control a user with zero sources must find. It previously
+    # borrowed RECIPE_SAVED_ICON_BTN, whose role is a de-emphasised icon button
+    # (transparent background, COLOR_FAINT text): correct there, but it rendered
+    # this CTA as dim grey text with no affordance, indistinguishable from a
+    # disabled label (#266). A solid accent fill instead — and therefore
+    # COLOR_ON_ACCENT for the foreground, since the rule for text on a solid
+    # COLOR_ACCENT fill is the on-accent token, never the on-background ramp.
+    SOURCES_ADD_BTN = (
+        "QPushButton { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + ";"
+        " border: none; border-radius: 4px; padding: 5px 14px; font-weight: 600;"
+        " font-size: " + FONT_MD + "; }"
+        "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
+    )
 
     # Category / prefix chips (version chips, similar-title chips, title-area prefix badge)
     CATEGORY_CHIP = (
@@ -1469,17 +1497,97 @@ def _build_semantic_constants() -> dict[str, object]:
 globals().update(_build_semantic_constants())
 
 
+def qt_palette() -> QPalette:
+    """Build a ``QPalette`` from the CURRENTLY ACTIVE design tokens (#253).
+
+    This is the QPalette chokepoint: applied to the whole ``QApplication`` by
+    :func:`apply_theme`, it gives every widget a correctly themed floor color
+    EVEN IF that widget never calls ``setStyleSheet()`` at all — which is
+    exactly why the details-pane "Overview"/"Technical Details" ``QLabel``s
+    and the bottom ``QStatusBar`` used to render near-black-on-near-black /
+    pure white regardless of the active app theme: with no stylesheet, Qt
+    fell back to its own built-in (light) default palette instead of this
+    one. ``MainWindow.refresh_theme()``'s hand-maintained sweep still handles
+    every EXPLICITLY styled widget (a cached ``setStyleSheet()`` string
+    doesn't track a token live) — this is the floor beneath that sweep, not a
+    replacement for it.
+
+    Every role below is sourced from an existing ``COLOR_*`` token (the
+    current module globals, already rebound to the active palette by
+    :func:`_apply_palette_tokens`) — no new hex literal lives here.
+
+    Returns:
+        A ``QPalette`` reflecting :func:`current_theme`'s active tokens.
+    """
+    palette = QPalette()
+
+    # Core surfaces + text — the two pairs verified at >= 4.5:1 contrast by
+    # tests/test_palette_completeness.py's primary-text check (COLOR_TEXT on
+    # COLOR_BG_SECTION) and this slice's own qt_palette floor tests.
+    palette.setColor(QPalette.ColorRole.Window, QColor(COLOR_BG_SECTION))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(COLOR_TEXT))
+    palette.setColor(QPalette.ColorRole.Base, QColor(COLOR_LINE))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(COLOR_BG_BAR))
+    palette.setColor(QPalette.ColorRole.Text, QColor(COLOR_TEXT))
+    palette.setColor(QPalette.ColorRole.Button, QColor(COLOR_LINE))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(COLOR_TEXT))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(COLOR_BG_CARD))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(COLOR_TEXT_HI))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(COLOR_DISABLED))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(COLOR_ACCENT))
+    # COLOR_ON_ACCENT, not the COLOR_TEXT_HI ramp: Highlight is a solid accent
+    # FILL, so its foreground is the on-accent token. The two coincide in the
+    # dark palettes, which is why the original COLOR_TEXT_HI reading looked
+    # right — in Daylight it put near-black text on a navy fill (~1.2:1).
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_ON_ACCENT))
+
+    # Disabled-state variants — a visibly dimmer read than the active-state
+    # roles above, reusing the token already named for exactly this purpose
+    # ("disabled / clear buttons").
+    disabled_color = QColor(COLOR_DISABLED)
+    for role in (
+        QPalette.ColorRole.WindowText,
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText,
+    ):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, disabled_color)
+
+    return palette
+
+
+def _sync_qt_application_palette() -> None:
+    """Push :func:`qt_palette` onto the running ``QApplication``, if one
+    exists yet.
+
+    Guarded because ``theme.py`` (and :func:`apply_theme`) is imported/called
+    in plenty of contexts with no ``QApplication`` around — every test file
+    that imports ``theme`` without also standing up a ``qapp`` fixture, plus
+    ``theme.py``'s own module-import-time palette seed, which runs before
+    ``metatv.__main__.main()`` has constructed the app.
+    """
+    app = QApplication.instance()
+    if app is not None:
+        app.setPalette(qt_palette())
+
+
 def apply_theme(name: str) -> bool:
     """Switch the active palette, rebinding every token AND semantic-constant
     module-level global in place so already-imported consumers
     (``from metatv.gui import theme as _theme`` / ``import theme``) see the
-    new values on their next attribute read.
+    new values on their next attribute read. Also pushes the rebuilt
+    :func:`qt_palette` onto the running ``QApplication`` (if one exists) —
+    every call, including a same-name/no-op one, so a cold launch that never
+    actually "switches" (the saved theme already matches the module's resting
+    default) still gets the QPalette floor applied at least once. See
+    ``metatv.__main__.main()`` for the startup call.
 
-    This does NOT repaint anything already on screen — a widget that cached a
-    stylesheet string in ``setStyleSheet()`` keeps showing the OLD rendered
-    style until something re-invokes ``setStyleSheet()`` with the (now
-    updated) constant. See ``MainWindow.refresh_theme()`` for the sweep that
-    does that for the app's persistent chrome.
+    This does NOT repaint anything already on screen that caches a
+    stylesheet string — a widget that called ``setStyleSheet()`` keeps
+    showing the OLD rendered style until something re-invokes
+    ``setStyleSheet()`` with the (now updated) constant. See
+    ``MainWindow.refresh_theme()`` for the sweep that does that for the app's
+    persistent, explicitly-styled chrome; :func:`qt_palette` above is the
+    floor for everything that sweep doesn't (or can't yet) reach.
 
     Args:
         name: One of :data:`theme_palettes.PALETTES`'s keys (e.g. "Midnight").
@@ -1491,12 +1599,15 @@ def apply_theme(name: str) -> bool:
         unnecessary repaint sweep.
     """
     global _current_theme
-    if name not in theme_palettes.PALETTES or name == _current_theme:
+    if name not in theme_palettes.PALETTES:
         return False
-    _current_theme = name
-    _apply_palette_tokens(theme_palettes.PALETTES[name])
-    globals().update(_build_semantic_constants())
-    return True
+    changed = name != _current_theme
+    if changed:
+        _current_theme = name
+        _apply_palette_tokens(theme_palettes.PALETTES[name])
+        globals().update(_build_semantic_constants())
+    _sync_qt_application_palette()
+    return changed
 
 
 def current_theme() -> str:

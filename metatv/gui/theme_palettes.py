@@ -98,6 +98,16 @@ Design notes on what varies vs. what's held fixed across all three palettes:
   invisible, and hover feedback there gets subtler rather than vanishing.
   Giving that family a fully independent fixed sub-palette is a reasonable
   follow-up if it reads as a real UX papercut in practice.
+* **COLOR_ON_ACCENT** is the foreground for anything drawn ON a solid
+  COLOR_ACCENT fill — the QPalette selection highlight above all. It is a
+  SEPARATE token from COLOR_TEXT_HI because the two answer different
+  questions: COLOR_TEXT_HI is "brightest text on the app background",
+  COLOR_ON_ACCENT is "legible text on the accent". In the dark palettes they
+  coincide, which is exactly what hid the bug — Daylight is a light theme
+  whose text ramp runs to near-black (#0d0d0d) while its accent stays a dark
+  navy (#073256), so reusing the ramp gave selected rows ~1.2:1 and made the
+  selection unreadable. Anywhere COLOR_ACCENT is a background, the foreground
+  is COLOR_ON_ACCENT, never the text ramp.
 * **COLOR_SURFACE_LIGHT/_2/_3** are the inverse case of the lightbox family
   above: a fixed-LIGHT "highlight chip" surface used by filter_bar.py /
   sports_filter_bar.py regardless of app theme, always light in every
@@ -134,6 +144,11 @@ MIDNIGHT: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#1a1a1a',
     'COLOR_ACCENT': '#2288dd',
     'COLOR_ACCENT_HOVER': '#55aaff',
+    # Dark, not white: #2288dd is a LIGHT blue, so white on it is 2.09:1 —
+    # the conventional dark-theme look, but genuinely hard to read. Near-black
+    # gets 4.97:1 on the same fill without touching the accent itself (which
+    # doubles as a foreground/border token and must stay light here).
+    'COLOR_ON_ACCENT': '#0d0d0d',
     'COLOR_OK': '#4CAF50',
     'COLOR_WARN': '#FFC107',
     'COLOR_ERR': '#F44336',
@@ -182,6 +197,17 @@ MIDNIGHT: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — same hue as the COLOR_QUALITY_* solid-fill
+    # family above, lightness tuned so text/border on the channel-list's own
+    # OUTLINE quality chip clears a 4.5:1 contrast floor against
+    # COLOR_BG_SECTION (verified >=5.0:1 here) — see badge_utils.
+    # _quality_outline_colors and test_palette_completeness.py's
+    # test_quality_outline_chip_contrast_at_least_4_5_every_palette.
+    'COLOR_QUALITY_OUTLINE_UHD': '#baa9e5',
+    'COLOR_QUALITY_OUTLINE_FHD': '#8fbeec',
+    'COLOR_QUALITY_OUTLINE_HD': '#65ddbb',
+    'COLOR_QUALITY_OUTLINE_RAW': '#e4ae5d',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#e8be00',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',
@@ -240,6 +266,7 @@ MIDNIGHT: dict[str, TokenValue] = {
     'OVERLAY_BROWN_08': 'rgba(204,136,0,0.08)',
     'OVERLAY_GREEN_15': 'rgba(80,160,80,0.15)',
     'OVERLAY_GREEN_40': 'rgba(80,160,80,0.4)',
+    'OVERLAY_TEAL_15': 'rgba(51,187,136,0.15)',
     'OVERLAY_ERR2_15': 'rgba(204,68,68,0.15)',
     'OVERLAY_WARN_06': 'rgba(255,200,0,0.06)',
     'OVERLAY_BLACK_30': 'rgba(0,0,0,0.3)',
@@ -290,6 +317,7 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#1f1f1f',
     'COLOR_ACCENT': '#3c8fd5',
     'COLOR_ACCENT_HOVER': '#70b3f6',
+    'COLOR_ON_ACCENT': '#0f0f0f',   # 5.01:1 on #3c8fd5; white would be 1.93:1
     'COLOR_OK': '#5db060',
     'COLOR_WARN': '#f1bf27',
     'COLOR_ERR': '#ea5c51',
@@ -338,6 +366,13 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — see the Midnight block above for the
+    # full rationale comment (identical across all three palettes).
+    'COLOR_QUALITY_OUTLINE_UHD': '#d1c6ee',
+    'COLOR_QUALITY_OUTLINE_FHD': '#b5d4f3',
+    'COLOR_QUALITY_OUTLINE_HD': '#99e8d2',
+    'COLOR_QUALITY_OUTLINE_RAW': '#edc994',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#ffd721',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',
@@ -396,6 +431,7 @@ GRAPHITE: dict[str, TokenValue] = {
     'OVERLAY_BROWN_08': 'rgba(209,143,13,0.1)',
     'OVERLAY_GREEN_15': 'rgba(92,166,92,0.17)',
     'OVERLAY_GREEN_40': 'rgba(92,166,92,0.42)',
+    'OVERLAY_TEAL_15': 'rgba(64,192,144,0.17)',
     'OVERLAY_ERR2_15': 'rgba(200,90,90,0.17)',
     'OVERLAY_WARN_06': 'rgba(241,196,32,0.08)',
     'OVERLAY_BLACK_30': 'rgba(9,9,9,0.32)',
@@ -446,6 +482,11 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#ececef',
     'COLOR_ACCENT': '#073256',
     'COLOR_ACCENT_HOVER': '#0a4a82',
+    # NOT the text ramp: Daylight's COLOR_TEXT_HI is near-black, which on this
+    # navy accent reads at ~1.2:1. See the COLOR_ON_ACCENT note in the module
+    # docstring — the accent is a FILL in every palette, so its foreground is
+    # a separate token from the on-background text ramp.
+    'COLOR_ON_ACCENT': '#ffffff',
     'COLOR_OK': '#2e7d32',
     'COLOR_WARN': '#96690a',
     'COLOR_ERR': '#c62828',
@@ -494,6 +535,18 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — same hue, DARKENED (not brightened —
+    # Daylight's background is light) so text/border clears 4.5:1 against
+    # COLOR_BG_SECTION. RAW/LIVE are inherently close hues (0.036 apart in
+    # HSL — true of the base COLOR_QUALITY_RAW/LIVE pair too, which relies
+    # entirely on a lightness gap to stay distinguishable) and the required
+    # darkening compresses that gap; flagged in the PR body rather than
+    # silently over-darkening LIVE to force more separation.
+    'COLOR_QUALITY_OUTLINE_UHD': '#2a1954',
+    'COLOR_QUALITY_OUTLINE_FHD': '#0c2b49',
+    'COLOR_QUALITY_OUTLINE_HD': '#0b3227',
+    'COLOR_QUALITY_OUTLINE_RAW': '#342309',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#302700',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',
@@ -552,6 +605,7 @@ DAYLIGHT: dict[str, TokenValue] = {
     'OVERLAY_BROWN_08': 'rgba(204,136,0,0.09)',
     'OVERLAY_GREEN_15': 'rgba(80,160,80,0.16)',
     'OVERLAY_GREEN_40': 'rgba(80,160,80,0.41)',
+    'OVERLAY_TEAL_15': 'rgba(51,187,136,0.16)',
     'OVERLAY_ERR2_15': 'rgba(204,68,68,0.16)',
     'OVERLAY_WARN_06': 'rgba(255,200,0,0.07)',
     'OVERLAY_BLACK_30': 'rgba(0,0,0,0.31)',
