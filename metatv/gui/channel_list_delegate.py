@@ -47,10 +47,11 @@ Two responsibilities:
    unchanged). Two facets are deliberately styled DIFFERENTLY from that tinted-
    fill idiom: platform (Netflix/Disney+/Apple+/…, a ``PLATFORM_CODES`` member
    sharing the region chip's role/field) is a SOLID purple fill, and quality is
-   OUTLINE ONLY (border + text in the tier's ``_quality_colors()`` hue, a subtle
-   ``OVERLAY_08`` tint instead of literally transparent — see
-   ``_quality_cell``'s docstring for the Daylight-contrast trade-off this
-   implies). All colours are theme tokens, never literals. The title is elided
+   OUTLINE ONLY (border + text in the tier's ``_quality_outline_colors()`` hue
+   — a dedicated per-palette family, contrast-tuned so it clears 4.5:1 against
+   the list's own background in every palette — a subtle ``OVERLAY_08`` tint
+   instead of literally transparent; see ``_quality_cell``'s docstring). All
+   colours are theme tokens, never literals. The title is elided
    (``Qt.TextElideMode.ElideRight``) against a *fixed* box computed from the
    other cells' measured widths, so a long title can never push a chip out of
    the row.
@@ -110,7 +111,7 @@ from metatv.core.channel_name_utils import (
 )
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
-from metatv.gui.badge_utils import _quality_colors
+from metatv.gui.badge_utils import _quality_outline_colors
 from metatv.gui.channel_list_model import (
     CHANNEL_HTML_ROLE,
     COLLECTION_ROLE,
@@ -260,30 +261,37 @@ def _year_cell(year) -> Optional[_Cell]:
 
 def _quality_cell(token: str) -> Optional[_Cell]:
     """Quality chip — OUTLINE ONLY (#257 Part A): border + text in the tier's
-    colour from ``_quality_colors()``, not a solid fill — the one facet chip
-    styled differently from the rest of the row's new hue-tinted-fill family.
-    ``COLOR_QUALITY_*`` is a fixed, theme-invariant hue family (by design —
-    see theme_palettes.py's module docstring: "the owner explicitly likes
-    this hue system" and it stays byte-identical across all three palettes),
-    so it can't be palette-tuned for contrast the way the LANG_CHIP-idiom
-    facets' ``COLOR_ACCENT_*`` foregrounds are.
+    colour from ``_quality_outline_colors()``, not a solid fill — the one
+    facet chip styled differently from the rest of the row's new
+    hue-tinted-fill family.
 
-    Background is ``OVERLAY_08`` (a subtle, existing neutral tint) rather
-    than literally transparent, on owner instruction — this softens the
-    chip's visual boundary but is NOT a contrast fix: on the Daylight
-    palette's near-white background, several tiers still fall short of a
-    4.5:1 text-contrast floor even with the tint (measured in
-    ``tests/test_palette_completeness.py`` — a same/darker-neutral
-    background tint mathematically cannot raise contrast when the tier text
-    is already the darker of the pair; only a hue-preserving DARKENING of
-    the tier colours themselves would, which would break "keep every tier's
-    current hue" AND the family's cross-palette invariance). Documented,
-    known, accepted compromise — see the PR body for the measured numbers.
+    Deliberately reads ``_quality_outline_colors()``, NOT ``_quality_colors()``
+    (still used unchanged by ``badge_utils.make_quality_chip``'s solid-fill
+    widget elsewhere): ``COLOR_QUALITY_*`` is a SOLID-FILL palette, held
+    theme-invariant on purpose (theme_palettes.py's module docstring — "the
+    owner explicitly likes this hue system"), so it can't be palette-tuned for
+    contrast the way the LANG_CHIP-idiom facets' ``COLOR_ACCENT_*``
+    foregrounds are — as TEXT/BORDER against the app's OWN background instead,
+    those same values measured 1.57-4.09:1, well under a 4.5:1 floor, on
+    EVERY palette (not just Daylight). ``COLOR_QUALITY_OUTLINE_*`` is a
+    separate, dedicated per-palette family — same hue as the corresponding
+    ``COLOR_QUALITY_*`` token, lightness tuned per palette (brighter in the
+    two dark palettes, darker in Daylight) so text/border clears 4.5:1
+    against ``COLOR_BG_SECTION`` everywhere — see
+    ``tests/test_palette_completeness.py``'s
+    ``test_quality_outline_chip_contrast_at_least_4_5_every_palette``.
+
+    Background stays ``OVERLAY_08`` (a subtle, existing neutral tint) rather
+    than literally transparent, per the original owner instruction — this
+    softens the chip's visual boundary; it isn't what makes the text/border
+    contrast pass (a same/darker-neutral background tint alone cannot raise
+    contrast when the tier text is the darker of the pair — verified by
+    direct computation), the per-palette hue-preserving lightness tuning does.
     """
     if not token:
         return None
     upper = token.upper()
-    color = _quality_colors().get(upper, _theme.COLOR_FAINT)
+    color = _quality_outline_colors().get(upper, _theme.COLOR_FAINT)
     return _Cell(quality_display(upper), True, color, _theme.OVERLAY_08, outline=True)
 
 

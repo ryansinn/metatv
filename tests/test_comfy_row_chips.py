@@ -48,7 +48,7 @@ from metatv.core.channel_name_utils import (
 from metatv.core.config import Config
 from metatv.core.repositories.dtos import ChannelListDTO
 from metatv.gui import theme as _theme
-from metatv.gui.badge_utils import _quality_colors
+from metatv.gui.badge_utils import _quality_colors, _quality_outline_colors
 from metatv.gui.channel_list_delegate import (
     ChannelRowDelegate,
     _category_cell,
@@ -181,10 +181,11 @@ def _brush_color_names(painter: _RecordingPainter) -> list[str]:
 class TestChipPaintBehavior:
 
     def test_quality_chip_never_paints_a_solid_tier_colour_fill(self, qapp):
-        """The pre-#257 quality chip painted _quality_colors()'s tier colour
-        as a SOLID BRUSH FILL. The outline-only rewrite must never do that —
-        the tier colour may only appear as the PEN (border/text), never as a
-        filled brush."""
+        """The pre-#257 quality chip painted a tier colour as a SOLID BRUSH
+        FILL. The outline-only rewrite must never do that — the OLD solid-fill
+        tier colour (``_quality_colors()``, still used unchanged by
+        ``badge_utils.make_quality_chip`` elsewhere) may not appear as a
+        filled brush on this chip at all."""
         delegate = ChannelRowDelegate()
         painter = _RecordingPainter()
         cell = _quality_cell("4K")
@@ -193,26 +194,30 @@ class TestChipPaintBehavior:
 
         delegate._paint_cell(painter, QRect(0, 0, 40, 20), cell, QFont())
 
-        tier_color = QColor(_quality_colors()["4K"]).name()
+        solid_fill_tier_color = QColor(_quality_colors()["4K"]).name()
         filled_colors = _brush_color_names(painter)
-        assert tier_color not in filled_colors, (
-            f"quality chip painted the tier colour {tier_color!r} as a SOLID "
-            f"brush fill {filled_colors!r} — it must be outline-only (#257)"
+        assert solid_fill_tier_color not in filled_colors, (
+            f"quality chip painted the solid-fill tier colour "
+            f"{solid_fill_tier_color!r} as a brush fill {filled_colors!r} — "
+            "it must be outline-only (#257)"
         )
 
-    def test_quality_chip_border_and_text_use_the_tier_colour(self, qapp):
+    def test_quality_chip_border_and_text_use_the_outline_tier_colour(self, qapp):
+        """The outline chip's pen (border + text) uses the DEDICATED
+        ``_quality_outline_colors()`` family (contrast-tuned per palette),
+        never the solid-fill ``_quality_colors()`` family."""
         delegate = ChannelRowDelegate()
         painter = _RecordingPainter()
         cell = _quality_cell("HD")
         delegate._paint_cell(painter, QRect(0, 0, 40, 20), cell, QFont())
 
-        tier_color = QColor(_quality_colors()["HD"]).name()
+        outline_tier_color = QColor(_quality_outline_colors()["HD"]).name()
         pen_colors = [
             args[0].name() for op, *args in painter.calls
             if op == "setPen" and isinstance(args[0], QColor)
         ]
-        assert tier_color in pen_colors, (
-            "quality chip's border/text pen must use the tier colour"
+        assert outline_tier_color in pen_colors, (
+            "quality chip's border/text pen must use the outline tier colour"
         )
 
     def test_platform_chip_paints_a_solid_purple_fill(self, qapp):

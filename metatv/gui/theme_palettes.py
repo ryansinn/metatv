@@ -182,6 +182,17 @@ MIDNIGHT: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — same hue as the COLOR_QUALITY_* solid-fill
+    # family above, lightness tuned so text/border on the channel-list's own
+    # OUTLINE quality chip clears a 4.5:1 contrast floor against
+    # COLOR_BG_SECTION (verified >=5.0:1 here) — see badge_utils.
+    # _quality_outline_colors and test_palette_completeness.py's
+    # test_quality_outline_chip_contrast_at_least_4_5_every_palette.
+    'COLOR_QUALITY_OUTLINE_UHD': '#baa9e5',
+    'COLOR_QUALITY_OUTLINE_FHD': '#8fbeec',
+    'COLOR_QUALITY_OUTLINE_HD': '#65ddbb',
+    'COLOR_QUALITY_OUTLINE_RAW': '#e4ae5d',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#e8be00',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',
@@ -339,6 +350,13 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — see the Midnight block above for the
+    # full rationale comment (identical across all three palettes).
+    'COLOR_QUALITY_OUTLINE_UHD': '#d1c6ee',
+    'COLOR_QUALITY_OUTLINE_FHD': '#b5d4f3',
+    'COLOR_QUALITY_OUTLINE_HD': '#99e8d2',
+    'COLOR_QUALITY_OUTLINE_RAW': '#edc994',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#ffd721',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',
@@ -496,6 +514,18 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_QUALITY_HD': '#229977',
     'COLOR_QUALITY_RAW': '#cc8822',
     'COLOR_QUALITY_LIVE': '#bb9900',
+    # Outline-chip variants (#257) — same hue, DARKENED (not brightened —
+    # Daylight's background is light) so text/border clears 4.5:1 against
+    # COLOR_BG_SECTION. RAW/LIVE are inherently close hues (0.036 apart in
+    # HSL — true of the base COLOR_QUALITY_RAW/LIVE pair too, which relies
+    # entirely on a lightness gap to stay distinguishable) and the required
+    # darkening compresses that gap; flagged in the PR body rather than
+    # silently over-darkening LIVE to force more separation.
+    'COLOR_QUALITY_OUTLINE_UHD': '#2a1954',
+    'COLOR_QUALITY_OUTLINE_FHD': '#0c2b49',
+    'COLOR_QUALITY_OUTLINE_HD': '#0b3227',
+    'COLOR_QUALITY_OUTLINE_RAW': '#342309',
+    'COLOR_QUALITY_OUTLINE_LIVE': '#302700',
     'COLOR_AUDIO_BADGE': '#556633',
     'COLOR_MOOD_LIKE_BG': '#2ecc71',
     'COLOR_MOOD_LIKE_FG': '#1a7a43',

@@ -343,42 +343,46 @@ def test_region_genre_chip_hues_mutually_distinguishable(palette_name):
 
 
 # ---------------------------------------------------------------------------
-# 8. Quality chip's new OUTLINE treatment (#257 Part A) vs Daylight's 4.5:1
-#    text-contrast floor. The chip's background changed from a solid
-#    _quality_colors() fill to a transparent-ish OVERLAY_08 tint (see
-#    channel_list_delegate._quality_cell) — this measures the RESULTING text/
-#    border contrast against the channel-list's own background
-#    (COLOR_BG_SECTION, same reference token as test #5 above) using this
-#    file's own contrast helper (per the #257 brief: "test_palette_
-#    completeness.py has a contrast helper — REUSE it").
+# 8. Quality chip's OUTLINE treatment (#257 Part A) vs the 4.5:1 text-contrast
+#    floor, in EVERY palette. The chip's text/border reads from a DEDICATED
+#    COLOR_QUALITY_OUTLINE_* family (channel_list_delegate._quality_cell via
+#    badge_utils._quality_outline_colors) — same hue as the corresponding
+#    solid-fill COLOR_QUALITY_* token, but with lightness tuned PER PALETTE
+#    (brighter in the two dark palettes, darker in Daylight) specifically so
+#    text-on-the-chip's-own-background clears the floor. This measures
+#    against the channel list's own background (COLOR_BG_SECTION, same
+#    reference token as test #5 above), reusing this file's own contrast
+#    helper.
 #
-#    KNOWN, DOCUMENTED COMPROMISE (see channel_list_delegate._quality_cell's
-#    docstring and the PR body for the full reasoning): all five tiers
-#    currently fall short of 4.5:1 in Daylight. COLOR_QUALITY_* is an
-#    intentionally fixed, theme-invariant hue family (this file's own module
-#    docstring: "the owner explicitly likes this hue system" — held constant
-#    across all three palettes), so — unlike COLOR_ACCENT_* — it was never
-#    palette-darkened for light-background text contrast; a same/darker
-#    NEUTRAL background tint mathematically cannot raise contrast further
-#    when the tier colour is already the darker of the pair (verified by
-#    direct computation — darkening the background only shrinks the gap).
-#    This test locks in the MEASURED reality (a regression test in the sense
-#    that a future change making it WORSE, or silently "fixing" it by
-#    breaking the tier-hue/cross-palette-invariance constraints, gets caught)
-#    rather than asserting an unreachable floor.
+#    Pre-fix (the original COLOR_QUALITY_* family used directly as outline
+#    text/border), NONE of the 15 tier/palette combinations cleared 4.5:1
+#    (measured 1.57-4.09:1 — see the PR body) — a same/darker-neutral
+#    BACKGROUND tint alone can never fix this when the tier colour is the
+#    darker of the pair (verified by direct computation: darkening the
+#    background only shrinks the gap). The fix instead darkens/lightens the
+#    TEXT/BORDER token itself, hue-preserved, mirroring how COLOR_ACCENT_*
+#    was already palette-tuned for light-background contrast
+#    (theme_palettes.py's module docstring) — COLOR_QUALITY_* itself (the
+#    solid-fill family used unchanged elsewhere, e.g.
+#    badge_utils.make_quality_chip) is untouched.
 # ---------------------------------------------------------------------------
 
-def test_quality_outline_chip_daylight_contrast_is_measured_and_below_floor():
-    palette = tp.PALETTES["Daylight"]
-    bg_val = palette[_PRIMARY_BG_TOKEN]  # COLOR_BG_SECTION — the list's own background
-    measured = {name: _contrast(palette[name], bg_val) for name in _QUALITY_TOKENS}
+_QUALITY_OUTLINE_TOKENS = (
+    "COLOR_QUALITY_OUTLINE_UHD", "COLOR_QUALITY_OUTLINE_FHD", "COLOR_QUALITY_OUTLINE_HD",
+    "COLOR_QUALITY_OUTLINE_RAW", "COLOR_QUALITY_OUTLINE_LIVE",
+)
 
-    below_floor = {name for name, ratio in measured.items() if ratio < 4.5}
-    assert below_floor == set(_QUALITY_TOKENS), (
-        "Daylight outline-quality-chip contrast changed from the known/"
-        f"accepted baseline (measured ratios: "
-        + ", ".join(f"{n}={r:.2f}:1" for n, r in sorted(measured.items()))
-        + ") — if this now clears 4.5:1 for some tiers, that's real progress:"
-        " update this test's expected set. If MORE tiers are below floor than"
-        " before, that's a regression — investigate before updating."
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_quality_outline_chip_contrast_at_least_4_5_every_palette(palette_name):
+    palette = tp.PALETTES[palette_name]
+    bg_val = palette[_PRIMARY_BG_TOKEN]  # COLOR_BG_SECTION — the list's own background
+
+    offenders = {
+        name: _contrast(palette[name], bg_val) for name in _QUALITY_OUTLINE_TOKENS
+    }
+    below_floor = {name: ratio for name, ratio in offenders.items() if ratio < 4.5}
+    assert not below_floor, (
+        f"{palette_name}: outline-quality-chip contrast below the 4.5:1 floor: "
+        + ", ".join(f"{n}={r:.2f}:1" for n, r in sorted(below_floor.items()))
     )
