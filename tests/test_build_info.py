@@ -30,9 +30,9 @@ class TestComposeTitle:
     def test_detached_no_pr_shows_commit_only(self):
         assert compose_title("b3760bd", False, "", "HEAD") == "MetaTV (b3760bd)"
 
-    def test_no_git_falls_back_to_plain(self):
-        # Empty sha (git unavailable / not a repo) → no suffix at all.
-        assert compose_title("", False, "298", "main") == "MetaTV"
+    def test_no_git_falls_back_to_version(self):
+        # Empty sha (git unavailable / not a repo) → fall back to version string.
+        assert compose_title("", False, "298", "main", version="0.24.0") == "MetaTV 0.24.0"
 
 
 class TestPrNumber:
