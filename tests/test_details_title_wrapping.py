@@ -29,19 +29,32 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _title_section(qapp):
+LONG = "Monty Python's The Meaning of Life"
+SHORT = "Fury"
+
+
+def _title_section(qapp, text: str = LONG, lines: int = 3):
+    """Build the section sized so *text* wraps to about *lines* lines.
+
+    The width is derived from the FONT's own measurement of *text* rather than
+    hardcoded. A fixed 320px assumed the platform font this was written on:
+    the same string rendered narrower on the macOS CI runner, fitted on one
+    line, and the wrap assertions failed there while passing locally — which
+    blocked two rolling releases from ever reaching the tester. Anything
+    font-metric-dependent has to be expressed relative to the metrics.
+    """
     from metatv.core.config import Config
     from metatv.gui.details_sections import _MetadataSection
 
     section = _MetadataSection(Config())
-    section.resize(320, 400)          # narrow enough to force wrapping
     section.show()
     QApplication.processEvents()
+
+    advance = section.title_label.fontMetrics().horizontalAdvance(text)
+    section.resize(max(80, advance // lines), 400)
+    section.title_label.setText(text)
+    QApplication.processEvents()
     return section
-
-
-LONG = "Monty Python's The Meaning of Life"
-SHORT = "Fury"
 
 
 def test_height_for_width_is_enabled(qapp):
@@ -80,22 +93,35 @@ def test_it_actually_wraps_to_more_than_one_line(qapp):
     label.setText(LONG)
     QApplication.processEvents()
 
-    one_line = label.fontMetrics().height()
-    assert label.heightForWidth(label.width()) > one_line * 1.5, (
-        "the fixture is not narrow enough to force wrapping, so the clipping "
-        "test cannot fail"
+    # Font-independent: the SAME label, measured at a width a third of the
+    # text's own single-line advance, must need more height than at a width
+    # comfortably wider than it. No ratio against a line height, which varies
+    # by platform font.
+    advance = label.fontMetrics().horizontalAdvance(LONG)
+    wrapped = label.heightForWidth(max(80, advance // 3))
+    unwrapped = label.heightForWidth(advance + 40)
+
+    assert wrapped > unwrapped, (
+        f"the label reports the same height ({wrapped}px) whether or not it "
+        f"has room for one line — it is not wrapping, so the clipping test "
+        f"above cannot fail"
     )
 
 
 def test_a_short_title_is_not_given_extra_height(qapp):
-    """No over-correction — a one-line title must stay one line tall."""
-    section = _title_section(qapp)
-    label = section.title_label
-    label.setText(SHORT)
-    QApplication.processEvents()
+    """No over-correction — a one-line title must stay one line tall.
 
+    Measured at a width that comfortably fits the text (derived from the font,
+    not assumed), so this asserts "does not wrap when it has room" rather than
+    "is under N pixels".
+    """
+    section = _title_section(qapp, SHORT, lines=1)
+    label = section.title_label
+
+    roomy = label.fontMetrics().horizontalAdvance(SHORT) + 40
     one_line = label.fontMetrics().height()
-    assert label.heightForWidth(label.width()) <= one_line * 1.6
+
+    assert label.heightForWidth(roomy) <= one_line * 1.6
 
 
 def test_the_column_is_not_widened_by_a_long_title(qapp):
