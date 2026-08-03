@@ -125,6 +125,23 @@ After ingestion, `MetadataDB.year` (and therefore `MetadataResult.year`) is alwa
 
 ### Merge Logic
 
+> **⚠️ CORRECTION (2026-08-02, verified against `metadata_providers/base.py:53-96`).**
+> The pseudocode and worked example in this section describe **overwrite-on-higher-confidence**.
+> **That is NOT what the shipped code does.** The real `merge()` is **fill-gaps**: it only writes a
+> field that is currently `None`/empty on the target. A higher-confidence provider updates the
+> bookkeeping (`self.confidence`, `self.provider_name`) but **never replaces a field the previous
+> provider already populated**. So in the worked example below, `result.plot` keeps the *provider's*
+> plot — it does not become TMDb's.
+>
+> This is deliberate and owner-affirmed (2026-08-02): raw provider data stays primary, and TMDb/OMDb
+> fill holes rather than overriding your source. Flipping it would silently rewrite what the whole
+> library displays, so it is an owner decision, not an implementation detail.
+>
+> Also stale in this doc: the plugin interface is `async search(title, year, media_type)` /
+> `async get_details(external_id, media_type)` — not the synchronous `get_details(channel, session)`
+> shape shown earlier — and the "Future Providers / Planned for Phase 2" framing predates v0.23.0,
+> which shipped real TMDb and OMDb providers (#395).
+
 The `merge()` method intelligently combines metadata from multiple providers:
 
 ```python
