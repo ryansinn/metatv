@@ -124,7 +124,7 @@ What's left to build. Completed features live in git history.
 - [ ] **Faceted/typed-tag model for channel metadata — FUTURE ARCHITECTURE (the data-organization rethink).** The prefix/code taxonomy currently forces each code into **one** bucket across three filter axes (locale / platform / quality), but real codes are **multi-type facets**: a single channel legitimately carries several typed tags at once. The cracks are already visible — `SC` is *Subtitles: Scandinavian* on foreign original-audio content (parked in **Platform**), `EAR` is *Subtitles: Arabic* (Platform), `Adult` is a *Genre/content-category* (parked in the **Language/locale** tier, with a "not a locale" comment admitting it). The user's articulated model (2026-06-19): category **types** are like **Language, Platform, Genre, Region, Quality, (Subtitles)**, and a source item can hold **multiple** tags across those types. Direction: rethink whether these are single-assignment "categories" or multi-assignment **tags/facets** — a channel → a *set of typed tags*; filtering becomes facet selection within and across types (the union/restrict semantics of the current six axes become per-type tag selectors). Generalizes the existing **"Channel sub-attributes / session type tags"** item (the `channel_tags` JSON column) and the six-axis model in `docs/FILTERING_DESIGN.md`. Touches ingestion (tag extraction at parse time), schema (`channel_tags`), and the filter UI. **Not now** — the `SC`/`Adult` mis-bucketing is the early symptom; until the model is reworked, leave `Adult` parked and `SC` in the platform/library tier (its `config.py` comment is stale: it's a Scandinavian-subtitle library, twin of `EAR`, not "origin TBD / English-Turkish-Indian"). Reconcile the `channel_name_utils.py` "Scandinavian" label vs the `config.py` platform framing as part of this.
 - [ ] **Grid view** for channel list — **NOT BUILT** (verified 2026-08-02: `ChannelListView` is a plain `QListView`, never set to `IconMode`; only Discover has a card grid). Named in the Wave 6 plan; never written.
 - [ ] **Keyboard shortcuts** — **NOT BUILT** (verified 2026-08-02: the ONLY shortcut in the app is `Ctrl+,` for Settings at `main_window.py:822`; no `QShortcut` is registered anywhere in `gui/`). Named in the Wave 6 plan; never written. Ctrl+F focus search, arrow key nav, Esc clear search
-- [~] **Dark mode / theme selection** — palette LAYER shipped v0.21.0 (#239: Midnight/Graphite/Daylight) and #251 claimed completion, but the owner's 2026-08-02 UX pass proves the APPLICATION layer is very incomplete: bottom nav bar and status bar render white in a dark theme, details-pane section headers render near-black on near-black, poster placeholder is a light-theme box. Root cause is not stray literals (`test_no_stray_color_literals.py` is correctly green) — it is widgets built with NO stylesheet inheriting Qt's default light palette (`details_sections.py:1250`/`:1322`, `main_window.py:809`), because `MainWindow.refresh_theme()` is a hand-maintained enumeration sweep that cannot see an absence. **Application-layer floor SHIPPED v0.24.0 (#253/PR #401):** `theme.qt_palette()` builds a `QPalette` from the active tokens and `apply_theme()` pushes it onto the whole `QApplication`, so a widget with no stylesheet inherits themed colours instead of Qt's built-in light default — no enumeration required. It also fixed a latent bug: a non-default saved theme was never applied at cold launch at all, only after a Settings round-trip. Remaining: six views (Discover, Recipe, EPG, Preferences/Recommended, Provider editor, Sources manager) still need a restart to re-theme — re-verify which survive the QPalette floor before scoping.
+- [~] **Dark mode / theme selection** — palette LAYER shipped v0.21.0 (#239: Midnight/Graphite/Daylight) and #251 claimed completion, but the owner's 2026-08-02 UX pass proves the APPLICATION layer is very incomplete: bottom nav bar and status bar render white in a dark theme, details-pane section headers render near-black on near-black, poster placeholder is a light-theme box. Root cause is not stray literals (`test_no_stray_color_literals.py` is correctly green) — it is widgets built with NO stylesheet inheriting Qt's default light palette (`details_sections.py:1250`/`:1322`, `main_window.py:809`), because `MainWindow.refresh_theme()` is a hand-maintained enumeration sweep that cannot see an absence. **Application-layer floor SHIPPED v0.24.0 (#253/PR #401):** `theme.qt_palette()` builds a `QPalette` from the active tokens and `apply_theme()` pushes it onto the whole `QApplication`, so a widget with no stylesheet inherits themed colours instead of Qt's built-in light default — no enumeration required. It also fixed a latent bug: a non-default saved theme was never applied at cold launch at all, only after a Settings round-trip. **Six restart-only views SHIPPED v0.24.0 (#261):** Discover, Recipe, EPG, Preferences/Recommended, Provider editor and Sources manager each gained their own `refresh_theme()`, swept by name from `MainWindow.refresh_theme()`. **Selection contrast SHIPPED v0.24.0 (#265):** the QPalette highlight took its foreground from the on-background text ramp, which put near-black on Daylight's navy accent (~1.2:1) and white on the dark palettes' light-blue accent (~2:1); a dedicated per-palette `COLOR_ON_ACCENT` token now clears 4.5:1 in all three, guarded by a contrast test that reads the roles back off the real `QPalette`. **Remaining (owner re-test owed):** the owner reports list backgrounds and some chrome still need a full restart to pick up a switch — NOT diagnosed; one confirmed contributor is `theme.apply_list_selection()`, which bakes `LIST_SELECTION_QSS` into each view's stylesheet once at construction and is never re-applied by the sweep.
 - [ ] **Channel sub-attributes / session type tags** — bracket suffixes like `[FP1]`, `[RACE]`, `[SPRINT]`, `[Prelims]`, `[Main Card]`, `[EVENT ONLY]` encode valuable sub-category data (Formula 1 session type; UFC/combat sports segment). No DB field exists today to store these — they're left in the bare channel title for now. Needs a `channel_tags` or `session_type` JSON column so sessions can be filtered ("show me only F1 Race rounds, not practice"). Related: `[WEST]`/`[EAST]` US regional variants would also benefit from a sub-region field.
 - [ ] **Episode history tracking fix** — debug logging to trace why parent channel lookup sometimes fails for history updates
 - [x] **Restore ratings display in details pane** — SHIPPED v0.16.0 (#199).
@@ -168,18 +168,58 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
 
 ## Next Up
 
-**v0.24.0 — refinement + cleanup (in progress).**
+**v0.24.0 — refinement + cleanup (SHIPPED 2026-08-02).** Eleven What's New entries; verify with
+`scripts/roadmap_audit.py --version 0.24.0`.
 
-1. **Theme application layer** (#253) — `QApplication` QPalette floor so unstyled widgets stop
-   inheriting Qt's default light palette, plus a guard test that catches *absent* styling (the
-   existing token/literal tests structurally cannot).
-2. **Six restart-only theme views** (#254) — Discover, Recipe, EPG, Preferences/Recommended,
-   Provider editor, Sources manager. Re-scope after item 1; scope PER VIEW.
-3. **Filter-path unification** (#255) — extract `core/channel_visibility.py`, then migrate
+1. [x] **Theme application layer** (#253) — `QApplication` QPalette floor so unstyled widgets stop
+   inheriting Qt's default light palette.
+2. [x] **Six restart-only theme views** (#261) — Discover, Recipe, EPG, Preferences/Recommended,
+   Provider editor, Sources manager, each with its own `refresh_theme()`.
+3. [x] **Filter-path unification** (#260) — extracted `core/channel_visibility.py` and migrated
    `discovery_engine`, `preference_engine` and `tag.py` onto it. Closes tag.py's self-documented
    3-axis gap and the "Recommendations ignores global exclusions" bug class.
-4. **Collections as Discover shelves** (#256) — owner request; reads the stored
+4. [x] **Collections as Discover shelves** (#256) — owner request; reads the stored
    `detected_collection`.
+5. [x] **Comfy row chip system** (#257) — one chip system across surfaces, triple redundancy
+   removed; plus the `QColor` fix (#257) for `rgba()` tokens that painted every overlay chip solid
+   black, and the channel-list horizontal-scrollbar fix (#258).
+6. [x] **Onboarding floor** (#262/#263/#264) — packaged app shows its version, a fresh install
+   states plainly that it needs a source, and the Add Source control is actually visible.
+7. [x] **Selection contrast** (#265) — `COLOR_ON_ACCENT` per palette; selected rows clear 4.5:1
+   in all three themes.
+8. [x] **macOS playback fix** (build-only, no What's New entry — `.github/workflows/release.yml:131`)
+   — v0.23.0 shipped a bundle whose vendored mpv could not load its own dylibs (`dylibbundler -p
+   @loader_path/libs/` produced doubled `libs/libs/` install names when the loader was itself a
+   dylib in `libs/`), so playback silently did nothing on every macOS install. Prefix is now
+   `@executable_path/libs/`, and the build fails if any install name contains `libs/libs/` or if
+   the vendored `mpv --version` will not run.
+
+**v0.25.0 — next (owner UX pass, 2026-08-02).** Each item below is a reported defect, not a plan.
+
+- [ ] **Live theme switch doesn't reach list backgrounds** — owner-reported, NOT diagnosed; needs
+  an owner re-test against v0.24.0 first (the QPalette floor and the six-view sweep both landed
+  after the report). One confirmed contributor: `theme.apply_list_selection()` bakes its QSS once
+  at construction and the sweep never re-applies it.
+- [ ] **Series monitor fetches during interpreter shutdown** — `shutdown()` uses `wait=False` with
+  no cancellation flag, so queued work runs into a dead interpreter ("cannot schedule new futures
+  after interpreter shutdown").
+- [ ] **Add-provider dialog: URL field sits below the list it feeds** — a tester pasted URLs into
+  the big box. Move the URL input above the list; add an explainer for what EPG is and why to
+  enable it.
+- [ ] **EPG view empty state** — distinguish "EPG is off" from "EPG on, not yet fetched"; the chip
+  stays enabled either way (owner call).
+- [ ] **"Provider" vs "Source"** — Source is the user-facing term everywhere; Provider stays in
+  code. The File menu still says "&Add Provider..." (`main_window.py:819`).
+- [ ] **New Filter Values dialog: no way to exclude everything** — add Unselect All / Select All so
+  a new source can start fully excluded and the user adds a few back.
+- [ ] **First run never lands on Discover** — Discover is the default view but a new user has no
+  source, so they never get placed there. Navigate after the first source finishes loading (guards:
+  first source only, ≥1 channel, no manual navigation in the meantime).
+- [ ] **Details pane shows a source glyph on version chips with one source** — pure noise when
+  there is nothing to disambiguate.
+- [ ] **Discover collection shelves need organising** — ~800 shelves is unscrollable.
+  `MIN_COLLECTION_SHELF_MEMBERS` is 2; raise it, add shelf search, and drop any collection whose
+  members are all globally excluded. Platform rollup needs its own Q-tag review.
 
 **Owner-owed, not buildable by the coding agent:** TMDb/OMDb have never made a real network call
 (#395 was mocked-aiohttp only). The Settings **Test** button already exists at

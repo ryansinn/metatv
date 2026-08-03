@@ -104,7 +104,11 @@ _ROLE_TOKEN: dict[QPalette.ColorRole, str] = {
     QPalette.ColorRole.ToolTipText: "COLOR_TEXT_HI",
     QPalette.ColorRole.PlaceholderText: "COLOR_DISABLED",
     QPalette.ColorRole.Highlight: "COLOR_ACCENT",
-    QPalette.ColorRole.HighlightedText: "COLOR_TEXT_HI",
+    # COLOR_ON_ACCENT, not COLOR_TEXT_HI: Highlight is a solid COLOR_ACCENT
+    # fill, so its foreground is the on-accent token rather than the
+    # on-background text ramp (#265). Contrast itself is asserted in
+    # test_palette_completeness.py.
+    QPalette.ColorRole.HighlightedText: "COLOR_ON_ACCENT",
 }
 _DISABLED_ROLE_TOKEN: dict[QPalette.ColorRole, str] = {
     QPalette.ColorRole.WindowText: "COLOR_DISABLED",

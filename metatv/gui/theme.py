@@ -1520,7 +1520,11 @@ def qt_palette() -> QPalette:
     palette.setColor(QPalette.ColorRole.ToolTipText, QColor(COLOR_TEXT_HI))
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(COLOR_DISABLED))
     palette.setColor(QPalette.ColorRole.Highlight, QColor(COLOR_ACCENT))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_TEXT_HI))
+    # COLOR_ON_ACCENT, not the COLOR_TEXT_HI ramp: Highlight is a solid accent
+    # FILL, so its foreground is the on-accent token. The two coincide in the
+    # dark palettes, which is why the original COLOR_TEXT_HI reading looked
+    # right — in Daylight it put near-black text on a navy fill (~1.2:1).
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(COLOR_ON_ACCENT))
 
     # Disabled-state variants — a visibly dimmer read than the active-state
     # roles above, reusing the token already named for exactly this purpose

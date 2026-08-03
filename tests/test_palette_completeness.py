@@ -243,6 +243,56 @@ def test_primary_text_contrast_at_least_4_5(palette_name):
 
 
 # ---------------------------------------------------------------------------
+# 5b. Contrast — selected-row text on the selection fill
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_on_accent_contrast_at_least_4_5(palette_name):
+    """COLOR_ON_ACCENT must stay legible on the COLOR_ACCENT fill it names.
+
+    Daylight shipped the selection highlight reading COLOR_TEXT_HI (#0d0d0d,
+    near-black — correct as the *on-background* text ramp for a light theme)
+    against COLOR_ACCENT (#073256, dark navy) for ~1.2:1: a selected row was
+    unreadable. The two dark palettes hid it because their ramp top and their
+    on-accent colour happen to be the same white.
+    """
+    palette = tp.PALETTES[palette_name]
+    fg, bg = palette["COLOR_ON_ACCENT"], palette["COLOR_ACCENT"]
+    ratio = _contrast(fg, bg)
+    assert ratio >= 4.5, (
+        f"{palette_name}: COLOR_ON_ACCENT={fg} on COLOR_ACCENT={bg} has "
+        f"contrast {ratio:.2f}:1, below the 4.5:1 minimum — a selected row "
+        f"would be unreadable"
+    )
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_qt_palette_selection_is_readable_in_every_theme(qapp, palette_name):
+    """The token being *defined* proves nothing — assert what Qt actually paints.
+
+    Reads Highlight/HighlightedText back off the real ``QPalette`` that
+    ``theme.qt_palette()`` hands to the QApplication, so wiring the roles to
+    the wrong token fails here even though the palette dicts are all correct.
+    """
+    from metatv.gui import theme as _theme
+    from PyQt6.QtGui import QPalette
+
+    original = _theme.current_theme()
+    try:
+        _theme.apply_theme(palette_name)
+        qp = _theme.qt_palette()
+        bg = qp.color(QPalette.ColorRole.Highlight).name()
+        fg = qp.color(QPalette.ColorRole.HighlightedText).name()
+        ratio = _contrast(fg, bg)
+        assert ratio >= 4.5, (
+            f"{palette_name}: QPalette HighlightedText={fg} on Highlight={bg} "
+            f"has contrast {ratio:.2f}:1 — selected rows are unreadable"
+        )
+    finally:
+        _theme.apply_theme(original)
+
+
+# ---------------------------------------------------------------------------
 # 6. Quality-chip family stays mutually distinguishable in every palette
 # ---------------------------------------------------------------------------
 

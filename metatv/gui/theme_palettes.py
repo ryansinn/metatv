@@ -98,6 +98,16 @@ Design notes on what varies vs. what's held fixed across all three palettes:
   invisible, and hover feedback there gets subtler rather than vanishing.
   Giving that family a fully independent fixed sub-palette is a reasonable
   follow-up if it reads as a real UX papercut in practice.
+* **COLOR_ON_ACCENT** is the foreground for anything drawn ON a solid
+  COLOR_ACCENT fill — the QPalette selection highlight above all. It is a
+  SEPARATE token from COLOR_TEXT_HI because the two answer different
+  questions: COLOR_TEXT_HI is "brightest text on the app background",
+  COLOR_ON_ACCENT is "legible text on the accent". In the dark palettes they
+  coincide, which is exactly what hid the bug — Daylight is a light theme
+  whose text ramp runs to near-black (#0d0d0d) while its accent stays a dark
+  navy (#073256), so reusing the ramp gave selected rows ~1.2:1 and made the
+  selection unreadable. Anywhere COLOR_ACCENT is a background, the foreground
+  is COLOR_ON_ACCENT, never the text ramp.
 * **COLOR_SURFACE_LIGHT/_2/_3** are the inverse case of the lightbox family
   above: a fixed-LIGHT "highlight chip" surface used by filter_bar.py /
   sports_filter_bar.py regardless of app theme, always light in every
@@ -134,6 +144,11 @@ MIDNIGHT: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#1a1a1a',
     'COLOR_ACCENT': '#2288dd',
     'COLOR_ACCENT_HOVER': '#55aaff',
+    # Dark, not white: #2288dd is a LIGHT blue, so white on it is 2.09:1 —
+    # the conventional dark-theme look, but genuinely hard to read. Near-black
+    # gets 4.97:1 on the same fill without touching the accent itself (which
+    # doubles as a foreground/border token and must stay light here).
+    'COLOR_ON_ACCENT': '#0d0d0d',
     'COLOR_OK': '#4CAF50',
     'COLOR_WARN': '#FFC107',
     'COLOR_ERR': '#F44336',
@@ -302,6 +317,7 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#1f1f1f',
     'COLOR_ACCENT': '#3c8fd5',
     'COLOR_ACCENT_HOVER': '#70b3f6',
+    'COLOR_ON_ACCENT': '#0f0f0f',   # 5.01:1 on #3c8fd5; white would be 1.93:1
     'COLOR_OK': '#5db060',
     'COLOR_WARN': '#f1bf27',
     'COLOR_ERR': '#ea5c51',
@@ -466,6 +482,11 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_BG_SECTION': '#ececef',
     'COLOR_ACCENT': '#073256',
     'COLOR_ACCENT_HOVER': '#0a4a82',
+    # NOT the text ramp: Daylight's COLOR_TEXT_HI is near-black, which on this
+    # navy accent reads at ~1.2:1. See the COLOR_ON_ACCENT note in the module
+    # docstring — the accent is a FILL in every palette, so its foreground is
+    # a separate token from the on-background text ramp.
+    'COLOR_ON_ACCENT': '#ffffff',
     'COLOR_OK': '#2e7d32',
     'COLOR_WARN': '#96690a',
     'COLOR_ERR': '#c62828',
