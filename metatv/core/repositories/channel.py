@@ -2176,8 +2176,10 @@ class ChannelRepository(_ChannelStatsMixin):
 
         Free (no-network) Phase-2 pass.  For each idless VOD row
         (``detected_tmdb_id IS NULL``), if a sibling shares the **same normalized
-        ``detected_title``** (via :func:`content_dedup.normalize_title`) **and the
-        same ``media_type``** and is **year-compatible**, adopt that sibling's id:
+        ``detected_title``** (via :func:`content_identity.normalize_title_for_key`
+        — the SAME normaliser that computes ``content_key``, never a look-alike)
+        **and the same ``media_type``** and is **year-compatible**, adopt that
+        sibling's id:
         store ``detected_tmdb_id``, recompute ``content_key`` through the
         :func:`~metatv.core.content_identity.content_key_for` chokepoint (tmdb-first
         → ``"tmdb:{id}|{media_type}"``), and mark ``tmdb_enrich_state='propagated'``.
@@ -2187,6 +2189,16 @@ class ChannelRepository(_ChannelStatsMixin):
         year-compatible id-bearing siblings a row adopts an id **only when exactly
         one distinct id remains** — multiple distinct ids (a genuine remake split)
         are ambiguous and skipped (never guess between remakes).
+
+        **The bucket normaliser is load-bearing for that guard (#284).**  This pass
+        used ``content_dedup.normalize_title`` — a *raw channel name* cleaner — on
+        ``detected_title``, which ingestion has already prefix/year/quality-stripped.
+        Double-stripping merged unrelated productions into one bucket
+        ("Blade Runner 2049" → ``blade runner``, joining the 1982 film; "WWE: Unreal"
+        → ``unreal``, its show name eaten as a provider prefix).  The bucket then held
+        several ids, and the guard above refused to guess — so the pass skipped rows
+        whose evidence was actually unambiguous.  Measured on the owner's library,
+        grouping by the key's own normaliser unlocked 498 adoptions and lost zero.
 
         Sibling ids are read across **all** providers (content identity is
         source-independent); when *provider_id* is given only that provider's idless
@@ -2210,7 +2222,7 @@ class ChannelRepository(_ChannelStatsMixin):
         Returns:
             Number of idless rows that adopted a sibling id.
         """
-        from metatv.core.content_dedup import normalize_title
+        from metatv.core.content_identity import normalize_title_for_key
 
         _BATCH = 2000
         _VOD = ("movie", "series")
@@ -2234,7 +2246,7 @@ class ChannelRepository(_ChannelStatsMixin):
             tmdb = valid_tmdb_id(det_tmdb)
             if not tmdb:
                 continue
-            norm = normalize_title(det_title or "")
+            norm = normalize_title_for_key(det_title or "")
             if not norm:
                 continue
             year = _start_year_int(det_year)
@@ -2264,7 +2276,7 @@ class ChannelRepository(_ChannelStatsMixin):
         adopted = 0
         pending = 0
         for cid, det_title, mt, det_year in idless_q.yield_per(_BATCH):
-            norm = normalize_title(det_title or "")
+            norm = normalize_title_for_key(det_title or "")
             if not norm:
                 continue
             bucket = groups.get((norm, mt or ""))

@@ -292,8 +292,8 @@ MIDNIGHT: dict[str, TokenValue] = {
     'FONT_CLOUD_4': '18px',
     'FONT_CLOUD_5': '22px',
     'FONT_CLOUD_6': '27px',
-    'COLOR_LIGHTBOX_TEXT_HI': '#fff',
-    'COLOR_LIGHTBOX_TEXT': '#ccc',
+    'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
+    'COLOR_LIGHTBOX_TEXT': '#cccccc',
 }
 
 
@@ -457,8 +457,8 @@ GRAPHITE: dict[str, TokenValue] = {
     'FONT_CLOUD_4': '18px',
     'FONT_CLOUD_5': '22px',
     'FONT_CLOUD_6': '27px',
-    'COLOR_LIGHTBOX_TEXT_HI': '#fff',
-    'COLOR_LIGHTBOX_TEXT': '#ccc',
+    'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
+    'COLOR_LIGHTBOX_TEXT': '#cccccc',
 }
 
 
@@ -631,8 +631,8 @@ DAYLIGHT: dict[str, TokenValue] = {
     'FONT_CLOUD_4': '18px',
     'FONT_CLOUD_5': '22px',
     'FONT_CLOUD_6': '27px',
-    'COLOR_LIGHTBOX_TEXT_HI': '#fff',
-    'COLOR_LIGHTBOX_TEXT': '#ccc',
+    'COLOR_LIGHTBOX_TEXT_HI': '#ffffff',
+    'COLOR_LIGHTBOX_TEXT': '#cccccc',
 }
 
 

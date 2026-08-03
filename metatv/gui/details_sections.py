@@ -1568,6 +1568,11 @@ _FACET_LABELS: dict[str, str] = {
     "decade":      "Decade",
     "collection":  "Collection",
     "content_type": "Content Type",
+    # Named in the provider's filename, NOT verified credits — the label says so
+    # because this facet sits a few inches from the authoritative Cast & Crew
+    # section and the two must never read as the same claim. A provider typo
+    # ("Denzel Washigton") lands here honestly; it must not look like a credit.
+    "person":      "Named in Title",
 }
 
 # Confidence threshold below which a chip is styled as low-confidence.

@@ -910,3 +910,119 @@ def test_get_vod_info_hits_vod_endpoint(monkeypatch):
     assert "action=get_vod_info" in seen["url"]
     assert "vod_id=1471095" in seen["url"]
     assert _extract_tmdb_id(data) == "1181863"
+
+
+# ---------------------------------------------------------------------------
+# 7. Post-drain sibling propagation — an id learned by a FETCH must reach its
+#    siblings (#284)
+# ---------------------------------------------------------------------------
+#
+# Propagation ran at ingestion and after a refresh queue drained, but never after
+# enrichment.  So an id discovered by browsing identified exactly one row and
+# stopped there: the owner's "The Lobster" sat as a 'fetched' tmdb:254320 row
+# beside two idless copies of itself, reading as if versions were missing.
+
+
+def test_drain_that_writes_ids_propagates_them_to_siblings(db, config_obj, monkeypatch, qapp):
+    """The reported shape end to end: a fetch identifies one row, siblings follow."""
+    with db.session_scope() as session:
+        _provider(session)
+        target = _channel(session, media_type="movie", detected_title="The Lobster",
+                          source_id="10", content_key="the lobster|movie|")
+        sib_a = _channel(session, media_type="movie", detected_title="The Lobster",
+                         detected_year="2015", source_id="11",
+                         content_key="the lobster|movie|2015")
+        sib_b = _channel(session, media_type="movie", detected_title="The Lobster",
+                         source_id="12", content_key="the lobster|movie|")
+
+    calls: list = []
+    monkeypatch.setattr("metatv.providers.xtream.XtreamAPI",
+                        _make_fake_api(vod={"10": {"info": {"tmdb_id": "254320"}}},
+                                       calls=calls))
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        mgr.enqueue([target])          # only the browsed row is enqueued
+        _drain(mgr, qapp)
+    finally:
+        mgr.shutdown()
+
+    with db.session_scope(commit=False) as session:
+        keys = {
+            r.content_key
+            for r in session.query(ChannelDB.content_key)
+            .filter(ChannelDB.id.in_([target, sib_a, sib_b])).all()
+        }
+    assert keys == {"tmdb:254320|movie"}, (
+        f"the fetched id never reached the siblings — still {sorted(keys)}; "
+        f"'Other versions' cannot group them"
+    )
+
+
+def test_a_drain_that_learns_nothing_runs_no_sweep(db, config_obj, monkeypatch, qapp):
+    """Browsing that resolves nothing must not pay for a whole-library scan."""
+    with db.session_scope() as session:
+        _provider(session)
+        cid = _channel(session, media_type="movie", detected_title="Nothing Here",
+                       source_id="20")
+
+    calls: list = []
+    monkeypatch.setattr("metatv.providers.xtream.XtreamAPI",
+                        _make_fake_api(vod={"20": {"info": {}}}, calls=calls))
+
+    swept: list = []
+    from metatv.core.repositories.channel import ChannelRepository
+    real = ChannelRepository.propagate_tmdb_from_title_siblings
+    monkeypatch.setattr(
+        ChannelRepository, "propagate_tmdb_from_title_siblings",
+        lambda self, *a, **k: (swept.append(1), real(self, *a, **k))[1],
+    )
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        mgr.enqueue([cid])
+        _drain(mgr, qapp)
+    finally:
+        mgr.shutdown()
+
+    assert calls, "the fetch never ran — the test would pass vacuously"
+    assert swept == [], "swept the whole library after a drain that wrote no ids"
+
+
+def test_the_sweep_runs_once_per_drain_not_once_per_batch(db, config_obj, monkeypatch, qapp):
+    """It is a whole-library scan; per-batch would make browsing quadratic."""
+    with db.session_scope() as session:
+        _provider(session)
+        ids = [
+            _channel(session, media_type="movie", detected_title=f"Film {i}",
+                     source_id=str(300 + i))
+            for i in range(6)                                # 3 batches of 2
+        ]
+
+    calls: list = []
+    monkeypatch.setattr(
+        "metatv.providers.xtream.XtreamAPI",
+        _make_fake_api(
+            vod={str(300 + i): {"info": {"tmdb_id": str(600 + i)}} for i in range(6)},
+            calls=calls,
+        ),
+    )
+    monkeypatch.setattr("metatv.core.tmdb_enrichment_manager._DRAIN_BATCH", 2)
+
+    sweeps: list = []
+    from metatv.core.repositories.channel import ChannelRepository
+    real = ChannelRepository.propagate_tmdb_from_title_siblings
+    monkeypatch.setattr(
+        ChannelRepository, "propagate_tmdb_from_title_siblings",
+        lambda self, *a, **k: (sweeps.append(1), real(self, *a, **k))[1],
+    )
+
+    mgr = TmdbEnrichmentManager(db, config_obj)
+    try:
+        mgr.enqueue(ids)
+        _drain(mgr, qapp)
+    finally:
+        mgr.shutdown()
+
+    assert len(calls) == 6, f"expected 6 fetches across 3 batches, got {len(calls)}"
+    assert len(sweeps) == 1, f"swept {len(sweeps)}x for one drain of 3 batches"

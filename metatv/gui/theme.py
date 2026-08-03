@@ -44,6 +44,7 @@ values (``setStyleSheet()`` bakes a string, it doesn't track the token live).
 
 from __future__ import annotations
 
+import re
 import weakref
 
 from PyQt6.QtGui import QColor, QFont, QPalette
@@ -1696,6 +1697,124 @@ def registered_style_count() -> int:
     return sum(1 for ref, _ in _style_registry if ref() is not None)
 
 
+# --------------------------------------------------------------------------- #
+#  Palette-difference rewrite — the floor under COMPOSED stylesheets           #
+# --------------------------------------------------------------------------- #
+#
+# style()/style_fn() cover widgets that opted in. ~370 call sites still build a
+# stylesheet by f-string and hand it straight to setStyleSheet(), and Qt caches
+# the RENDERED string, so those keep painting the previous palette after a
+# switch. Converting them one by one is ~300 edits across every screen, each an
+# opportunity for a late-binding closure bug — and it would fix only the sites
+# that existed the day it was done.
+#
+# Instead: after the tokens rebind, compute what each *colour value* became, and
+# rewrite those substrings wherever they still appear. A stylesheet built from
+# COLOR_BG literally contains COLOR_BG's old value, whatever expression produced
+# it — so this reaches every composed sheet, including ones not yet written.
+#
+# Two guards keep it from rewriting something it shouldn't:
+#
+#   * **Ambiguity** — if one old value maps to two different new values, there is
+#     no single right answer, so it is skipped rather than guessed at.
+#   * **Invariance** — some tokens are deliberately theme-INVARIANT (the mood
+#     chips, COLOR_QUALITY_*, the lightbox family, which sit over photographic
+#     posters). If an invariant token holds the same value some variable token
+#     used to hold, rewriting that value would silently re-theme the thing that
+#     was pinned on purpose. Those values are excluded outright.
+
+_COLOR_TOKEN_PREFIXES: tuple[str, ...] = ("COLOR_", "OVERLAY_")
+
+# A hex colour must not be rewritten when it is the prefix of a longer one
+# (#fff inside #ffffff), and rgba(...) values are matched whole.
+_HEX_TAIL_RE = re.compile(r"[0-9A-Fa-f]")
+
+
+def _color_token_snapshot() -> dict[str, str]:
+    """Current value of every string-valued colour token, by token name."""
+    return {
+        name: value
+        for name, value in globals().items()
+        if name.startswith(_COLOR_TOKEN_PREFIXES) and isinstance(value, str) and value
+    }
+
+
+def _build_palette_rewrite_map(
+    before: dict[str, str], after: dict[str, str]
+) -> dict[str, str]:
+    """Return ``{old_value: new_value}`` for colour values that can be rewritten safely.
+
+    Args:
+        before: Token name → value snapshot taken BEFORE the palette switch.
+        after:  The same snapshot taken after.
+
+    Returns:
+        A substitution map with ambiguous and theme-invariant values removed.
+    """
+    # Values held by a token that did NOT change are pinned on purpose.
+    invariant: set[str] = {
+        old for name, old in before.items() if after.get(name) == old
+    }
+
+    candidates: dict[str, set[str]] = {}
+    for name, old in before.items():
+        new = after.get(name)
+        if new is None or new == old:
+            continue
+        candidates.setdefault(old, set()).add(new)
+
+    return {
+        old: next(iter(news))
+        for old, news in candidates.items()
+        if len(news) == 1 and old not in invariant
+    }
+
+
+def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
+    """Swap old palette colours for new ones in every live widget's stylesheet.
+
+    Registered widgets have already been re-rendered exactly by
+    :func:`_reapply_registered_styles`; this is the fallback for everything else.
+
+    Args:
+        mapping: ``{old_value: new_value}`` from :func:`_build_palette_rewrite_map`.
+
+    Returns:
+        Number of widgets whose stylesheet actually changed.
+    """
+    app = QApplication.instance()
+    if app is None or not mapping:
+        return 0
+
+    # Longest first: a token whose value contains another's must win.
+    ordered = sorted(mapping.items(), key=lambda kv: len(kv[0]), reverse=True)
+    changed = 0
+    for widget in app.allWidgets():
+        try:
+            sheet = widget.styleSheet()
+        except RuntimeError:
+            continue                      # C++ object already deleted
+        if not sheet:
+            continue
+        updated = sheet
+        for old, new in ordered:
+            if old not in updated:
+                continue
+            # Don't rewrite #fff when the sheet actually says #ffffff.
+            pattern = re.escape(old) + (
+                r"(?![0-9A-Fa-f])" if old.startswith("#") else ""
+            )
+            updated = re.sub(pattern, new.replace("\\", "\\\\"), updated)
+        if updated == sheet:
+            continue
+        try:
+            widget.setStyleSheet(updated)
+        except RuntimeError:
+            continue
+        changed += 1
+    return changed
+
+
 def apply_theme(name: str) -> bool:
     """Switch the active palette, rebinding every token AND semantic-constant
     module-level global in place so already-imported consumers
@@ -1707,13 +1826,22 @@ def apply_theme(name: str) -> bool:
     default) still gets the QPalette floor applied at least once. See
     ``metatv.__main__.main()`` for the startup call.
 
-    This does NOT repaint anything already on screen that caches a
-    stylesheet string — a widget that called ``setStyleSheet()`` keeps
-    showing the OLD rendered style until something re-invokes
-    ``setStyleSheet()`` with the (now updated) constant. See
-    ``MainWindow.refresh_theme()`` for the sweep that does that for the app's
-    persistent, explicitly-styled chrome; :func:`qt_palette` above is the
-    floor for everything that sweep doesn't (or can't yet) reach.
+    Widgets already on screen ARE brought along, by three mechanisms in order
+    of precision:
+
+    1. :func:`_reapply_registered_styles` re-renders every widget styled via
+       :func:`style` / :func:`style_fn` from the updated constant — exact.
+    2. :func:`_rewrite_stale_palette_values` swaps old palette colour values
+       for new ones in any other live stylesheet, so the ~370 sites that build
+       a sheet with an f-string and call ``setStyleSheet`` directly switch too,
+       without each having to be converted.
+    3. :func:`_repolish_all_widgets` tells everything to re-read the QPalette,
+       which is what themes widgets carrying no stylesheet at all.
+
+    (This used to say the opposite — that a cached stylesheet keeps the old
+    style until something re-invokes ``setStyleSheet`` — and that was accurate
+    when only the hand-maintained ``refresh_theme()`` sweep existed. It is the
+    behaviour the owner reported repeatedly as "themes are still fucked up".)
 
     Args:
         name: One of :data:`theme_palettes.PALETTES`'s keys (e.g. "Midnight").
@@ -1728,16 +1856,24 @@ def apply_theme(name: str) -> bool:
     if name not in theme_palettes.PALETTES:
         return False
     changed = name != _current_theme
+    rewrite_map: dict[str, str] = {}
     if changed:
+        before = _color_token_snapshot()
         _current_theme = name
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
+        rewrite_map = _build_palette_rewrite_map(before, _color_token_snapshot())
     _sync_qt_application_palette()
     # Restyle every widget registered through style()/style_fn(). Unconditional,
     # like the palette push above: a cold launch whose saved theme already
     # matches the resting default still needs one pass so nothing is left on a
     # stale string. Cheap when the registry is empty (startup, tests).
     _reapply_registered_styles()
+    # Everything that built its stylesheet by hand still holds the OLD palette's
+    # colour values verbatim. Swap them for the new ones (guarded — see
+    # _build_palette_rewrite_map) so a composed f-string sheet switches too,
+    # without needing ~370 call sites converted one at a time.
+    _rewrite_stale_palette_values(rewrite_map)
     # Registered widgets got a fresh stylesheet above; everything else needs to
     # be told to re-read the palette, or it keeps painting the old one.
     _repolish_all_widgets()

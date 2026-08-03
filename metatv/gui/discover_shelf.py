@@ -43,6 +43,9 @@ class _Shelf(QWidget):
                  parent=None) -> None:
         super().__init__(parent)
         self._shelf_key = shelf_key
+        # Kept so DiscoverView's shelf filter can match on what the user SEES,
+        # not on the internal key ("collection:Apple+ Kids" vs "Apple+ Kids").
+        self._title = title
         self._config = config
         self._image_cache = image_cache
         self._cards_widgets: list[_ContentCard] = []

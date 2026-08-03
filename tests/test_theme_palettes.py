@@ -221,8 +221,21 @@ def test_fixed_dark_lightbox_family_is_theme_invariant():
     midnight_title = theme.LIGHTBOX_TITLE
     theme.apply_theme("Daylight")
     assert theme.LIGHTBOX_TITLE == midnight_title
-    assert theme.COLOR_LIGHTBOX_TEXT_HI == "#fff"
-    assert theme.COLOR_LIGHTBOX_BG == theme_palettes.MIDNIGHT["COLOR_LIGHTBOX_BG"]
+    # Compare against the palette, not a hardcoded literal: the property under
+    # test is INVARIANCE, and pinning the spelling turned a deliberate change
+    # into a false failure. COLOR_LIGHTBOX_TEXT_HI/_TEXT were respelled from the
+    # #fff/#ccc shorthand to full hex so they stop colliding byte-for-byte with
+    # Midnight's themed COLOR_TEXT_HI/COLOR_TEXT — the collision blocked the
+    # palette-difference rewrite from ever updating the app's two commonest text
+    # colours (#284). Same colours, different spelling; the invariance this test
+    # exists to guard is untouched, and is now checked against the source of truth.
+    for token in (
+        "COLOR_LIGHTBOX_TEXT_HI", "COLOR_LIGHTBOX_TEXT", "COLOR_LIGHTBOX_BG",
+    ):
+        assert getattr(theme, token) == theme_palettes.MIDNIGHT[token], (
+            f"{token} changed under Daylight — the lightbox family is a fixed "
+            f"dark cinema surface in every palette"
+        )
 
 
 # ---------------------------------------------------------------------------

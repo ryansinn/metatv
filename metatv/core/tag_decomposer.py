@@ -83,6 +83,7 @@ from metatv.core.channel_name_utils import (
     CONF_DENOTED,
     CONF_STRONG_PRIOR,
     CONF_WEAK_PRIOR,
+    NON_PERSON_RESIDUAL_WORDS,
     CONTENT_DESCRIPTOR_GROUPS,
     PLATFORM_CODES,
     QUALITY_TOKENS,
@@ -347,6 +348,74 @@ def decompose_ai_provenance(name: str) -> list[tuple[str, str, float]]:
     if prov is None:
         return []
     return [("content_type", prov.value, prov.confidence)]
+
+
+_PARENTHETICAL_RE = re.compile(r"\s*[\(\[][^)\]]*[\)\]]\s*$")
+_PERSON_SPLIT_RE = re.compile(r"\s*[,/;]\s*|\s+\+\s+")
+_PERSON_WORD_RE = re.compile(r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’.\-]*$")
+_PERSON_CONNECTORS = frozenset({"&", "AND", "ET", "Y", "E", "UND"})
+
+
+def decompose_name_cast(detected_name_cast: str | None) -> list[tuple[str, str, float]]:
+    """Return LOW-confidence ``person`` tags from a name-derived credits residual.
+
+    ``ChannelDB.detected_name_cast`` holds whatever a provider appended after the
+    year — ``"NICOLAS CAGE"`` from ``"EN - Adaptation. 4K (2002) NICOLAS CAGE"``.
+    It is an **inference, never authoritative cast**, so it lands in the ``person``
+    tag facet at :data:`CONF_WEAK_PRIOR` and is deliberately NOT merged into
+    ``MetadataDB.cast``: real credits and a filename guess must stay
+    distinguishable, and a provider's typo ("Denzel Washigton") must never
+    masquerade as a verified credit.
+
+    Only person-*shaped* candidates are emitted.  About half of the real residuals
+    are not people at all (see
+    :data:`~metatv.core.channel_name_utils.NON_PERSON_RESIDUAL_WORDS` for the
+    measured distribution), and a wrong facet is not a low-confidence guess — it
+    is a false statement that pollutes filters.  A candidate must:
+
+    * survive stripping a leading dash and one trailing parenthetical
+      (``"JACKIE CHAN (ENG-SUB)"`` → ``"Jackie Chan"``),
+    * be 2-4 words, each alphabetic (so ``POLSKI``, ``4K``, ``BG-AUDIO`` are out),
+    * contain no word in ``NON_PERSON_RESIDUAL_WORDS``.
+
+    Multi-credit residuals split on commas and slashes
+    (``"DUSTIN HOFFMAN, ROBERT REDFORD"`` → two tags); ``&``/``and`` are treated
+    as connectors *within* one name so billed duos ("Abbott & Costello") survive
+    as the unit the provider meant.
+
+    Args:
+        detected_name_cast: The stored residual, or ``None``.
+
+    Returns:
+        ``(type, value, confidence)`` triples, Title-Cased, deduplicated in order.
+        Empty when nothing is person-shaped.  Pure — no DB, no Qt, no config.
+    """
+    if not detected_name_cast:
+        return []
+
+    base = detected_name_cast.strip().lstrip("-–—").strip()
+    out: list[tuple[str, str, float]] = []
+    seen: set[str] = set()
+
+    for part in _PERSON_SPLIT_RE.split(base):
+        candidate = _PARENTHETICAL_RE.sub("", part).strip()
+        words = candidate.split()
+        if not 2 <= len(words) <= 4:
+            continue
+        if any(w.upper() in NON_PERSON_RESIDUAL_WORDS for w in words):
+            continue
+        if not all(
+            w.upper() in _PERSON_CONNECTORS or _PERSON_WORD_RE.match(w)
+            for w in words
+        ):
+            continue
+        value = " ".join(words).title()
+        if value.upper() in seen:
+            continue
+        seen.add(value.upper())
+        out.append(("person", value, CONF_WEAK_PRIOR))
+
+    return out
 
 
 def remap_content_descriptor_facets(

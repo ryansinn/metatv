@@ -141,7 +141,17 @@ def _set_backfill_active(active: bool) -> None:
 #       becomes "Soap Opera" and a "Dram" tag becomes "Drama".  Deletes only
 #       source="generated" tags per channel — user-curated tags are untouched.
 #       Auditable mapping: docs/GENRE_MAPPING.md.
-CURRENT_TAG_BACKFILL_VERSION = 9
+#  10 — name_cast feeder (#284): the credits residual a provider appends after
+#       the year ("EN - Adaptation. 4K (2002) NICOLAS CAGE") is stored in
+#       detected_name_cast at ingestion but had ZERO consumers — captured and
+#       then dropped on the floor. It now emits LOW-confidence person: tags via
+#       decompose_name_cast, so an actor a provider named in the filename is
+#       searchable and filterable. Only person-SHAPED residuals qualify: about
+#       half the real values are language/format/studio words (POLSKI 918, 4K
+#       652, DOKUMENT 531), and a wrong facet is a false statement, not a
+#       low-confidence guess. Full re-tag so existing rows gain the facet; runs
+#       AFTER prefix_rescan v4, which populates the column.
+CURRENT_TAG_BACKFILL_VERSION = 10
 
 # Number of channel rows to stream per SQLAlchemy yield_per chunk.
 # Small enough to stay memory-safe on 1 M+ row tables; large enough for
@@ -330,6 +340,7 @@ class TagBackfillTask:
                     ChannelDB.raw_data,
                     ChannelDB.media_type,
                     ChannelDB.detected_audio,
+                    ChannelDB.detected_name_cast,
                 )
                 .filter(ChannelDB.id.in_(channel_ids))
                 .yield_per(_YIELD_SIZE)
@@ -352,6 +363,7 @@ class TagBackfillTask:
                     raw_data,
                     media_type,
                     detected_audio,
+                    detected_name_cast,
                 ) = row
 
                 all_tags = _collect_tags(
@@ -366,6 +378,7 @@ class TagBackfillTask:
                     raw_data=raw_data,
                     media_type=media_type,
                     detected_audio=detected_audio,
+                    detected_name_cast=detected_name_cast,
                 )
                 # Include every channel (even empty) so channels with no tags
                 # still get their generated rows cleared.
@@ -429,6 +442,7 @@ def _collect_tags(
     media_type: str | None = None,
     detected_audio: dict | None = None,
     name: str | None = None,
+    detected_name_cast: str | None = None,
 ) -> list[tuple[str, str, str]]:
     """Run all feeders and return a merged ``(type, value, feeder)`` list.
 
@@ -455,6 +469,9 @@ def _collect_tags(
         media_type:       ``ChannelDB.media_type`` — used to route content-
                           descriptor groups to the correct facet.  ``None`` /
                           ``"unknown"`` maps to ``genre:``.
+        detected_name_cast: ``ChannelDB.detected_name_cast`` (name_cast feeder) —
+                          the credits residual lifted from the channel name at
+                          ingestion.  Emits LOW-confidence ``person:`` tags.
         detected_audio:   ``ChannelDB.detected_audio`` dict (audio_annotation feeder).
                           When present, adds ``language:``, ``subtitle:``, ``dub:``,
                           and ``format:`` tags (tasks #82/#24).
@@ -470,6 +487,7 @@ def _collect_tags(
         decompose,
         decompose_ai_provenance,
         decompose_audio,
+        decompose_name_cast,
         decompose_name_parse,
         remap_content_descriptor_facets,
     )
@@ -540,6 +558,16 @@ def _collect_tags(
     if name:
         for tag_type, tag_value, _conf in decompose_ai_provenance(name):
             feeder_map[(tag_type, tag_value)].add("name_ai_marker")
+
+    # Feeder 7: name_cast (detected_name_cast — the credits residual the provider
+    # appended after the year, e.g. "NICOLAS CAGE").  Emits LOW-confidence
+    # person: tags.  Kept out of MetadataDB.cast on purpose: this is a filename
+    # guess, and real credits must stay distinguishable from one.  Because it is
+    # a single feeder, set_content_tags scores it 1/3 — visibly weaker than a
+    # fact several feeders agree on, which is exactly what it is.
+    if detected_name_cast:
+        for tag_type, tag_value, _conf in decompose_name_cast(detected_name_cast):
+            feeder_map[(tag_type, tag_value)].add("name_cast")
 
     # Re-facet content-descriptor groups by media_type.
     # Groups like "Sports", "Adult", "Kids" are placed in language/platform config

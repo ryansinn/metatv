@@ -719,6 +719,7 @@ class TagRepository:
         "decade",
         "quality",
         "collection",
+        "person",
     )
 
     def get_facet_summary(

@@ -34,7 +34,8 @@ from typing import TYPE_CHECKING
 from loguru import logger
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QStackedWidget,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider,
+    QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -132,6 +133,25 @@ class DiscoverView(QWidget):
         hbl.addWidget(self._zoom_slider)
 
         hbl.addStretch()
+
+        # Shelf filter — the owner's library produces 1,882 collection shelves,
+        # and raising the minimum-members floor barely dents that (still 1,440
+        # at >= 20 members). The tail is not the problem: there are genuinely
+        # that many collections, so a cutoff only hides things arbitrarily.
+        # Being able to type a name is what makes them navigable.
+        # Deliberately NOT persisted, unlike the other Discover state: a filter
+        # restored at launch would present an almost-empty Discover with no
+        # obvious cause, which reads as a broken app rather than a saved
+        # preference.
+        self._shelf_filter = QLineEdit()
+        self._shelf_filter.setPlaceholderText("Filter shelves…")
+        self._shelf_filter.setClearButtonEnabled(True)
+        self._shelf_filter.setFixedWidth(180)
+        self._shelf_filter.setToolTip(
+            "Show only shelves whose name matches. Clear to show all again."
+        )
+        self._shelf_filter.textChanged.connect(self._on_shelf_filter_changed)
+        hbl.addWidget(self._shelf_filter)
 
         self._manage_btn = QPushButton(f"{_icons.manage_icon} Manage")
         self._manage_btn.setFlat(True)
@@ -308,6 +328,51 @@ class DiscoverView(QWidget):
             default_expanded=_DEFAULT_EXPANDED,
             first_launch=self._is_first_launch(),
         )
+
+    def _on_shelf_filter_changed(self, text: str) -> None:
+        """Show only shelves whose title matches *text* (case-insensitive substring).
+
+        Purely a visibility pass over already-built shelf widgets — no re-query,
+        no zone changes, nothing persisted. Clearing the box restores every
+        shelf to whatever zone it was already in, so filtering can never lose a
+        pin or an expansion.
+
+        Args:
+            text: The raw filter text; empty/whitespace means "show everything".
+        """
+        needle = text.strip().casefold()
+
+        # Decide first, apply second. A widget whose parent container is hidden
+        # reports isVisible() False no matter what you set on it, so deriving
+        # container visibility from its children's isVisible() would latch:
+        # once a zone hid, nothing inside it could ever bring it back.
+        wanted = {
+            shelf: (not needle or needle in getattr(shelf, "_title", "").casefold())
+            for shelf in self._shelf_widgets.values()
+        }
+
+        for zone_widget, layout in (
+            (self._pinned_zone, self._pinned_layout),
+            (self._expanded_zone, self._expanded_layout),
+            (self._collapsed_zone, self._collapsed_layout),
+        ):
+            members = [
+                layout.itemAt(i).widget()
+                for i in range(layout.count())
+                if layout.itemAt(i).widget() is not None
+            ]
+            if needle:
+                zone_widget.setVisible(any(wanted.get(w, False) for w in members))
+            else:
+                # Cleared — restore the app's own invariant: a zone is on screen
+                # exactly when it holds something.
+                zone_widget.setVisible(bool(members))
+
+        for shelf, visible in wanted.items():
+            shelf.setVisible(visible)
+
+        if needle and not any(wanted.values()):
+            logger.debug("Discover shelf filter {!r} matched nothing", text)
 
     def _zone_layout(self, zone: str):
         return {

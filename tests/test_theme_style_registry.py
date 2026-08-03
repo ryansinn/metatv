@@ -58,11 +58,15 @@ class TestLiveRestyle:
         assert _theme.COLOR_TEXT_HI not in midnight or True  # sanity: no crash
         assert daylight == _theme.SECTION_HINT
 
-    def test_an_unregistered_widget_does_NOT_restyle(self, qapp):
-        """Contrast case, so the previous test can't pass for a spurious reason.
+    def test_an_unregistered_widget_now_follows_the_palette_too(self, qapp):
+        """This contract INVERTED in #284, and the old assertion was the bug.
 
-        A plain setStyleSheet still goes stale — that is Qt's behaviour, not
-        something the registry changes. It is why the raw form is now banned.
+        It used to assert that a plain ``setStyleSheet`` stays stale, which was
+        true of Qt and true of this app — and was exactly the defect the owner
+        kept reporting. ``apply_theme`` now also rewrites old palette *values*
+        wherever they survive in a live stylesheet, so a sheet nobody registered
+        still switches. The registry is now an optimisation (exact re-render)
+        rather than the only path.
         """
         _theme.apply_theme("Midnight")
         widget = QLabel()
@@ -71,7 +75,26 @@ class TestLiveRestyle:
 
         _theme.apply_theme("Daylight")
 
-        assert widget.styleSheet() == before
+        assert widget.styleSheet() != before, (
+            "an unregistered widget kept the Midnight palette — the value "
+            "rewrite is the floor under every hand-composed stylesheet"
+        )
+
+    def test_the_registry_still_renders_the_role_exactly(self, qapp):
+        """The value rewrite is a floor, not a replacement.
+
+        It can only substitute colours it recognises; a role whose QSS changed
+        *structurally* between palettes needs the real constant re-rendered, and
+        only a registered widget gets that. Keeps the two mechanisms honest
+        about which one is doing the work.
+        """
+        _theme.apply_theme("Midnight")
+        widget = QLabel()
+        _theme.style(widget, "SECTION_HINT")
+
+        _theme.apply_theme("Daylight")
+
+        assert widget.styleSheet() == _theme.SECTION_HINT
 
     def test_style_fn_reevaluates_composed_stylesheets(self, qapp):
         """The f-string sites need the builder re-invoked, not a stored string."""

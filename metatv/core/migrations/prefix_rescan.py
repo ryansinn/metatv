@@ -30,7 +30,14 @@ if TYPE_CHECKING:
 #       Punjabi channels with detected_prefix "PA"; re-run update_detected_prefixes
 #       so they become "PB".  Runs BEFORE TagBackfill (registration order) so the
 #       re-tag reads the corrected detected_prefix.
-CURRENT_PREFIX_SCAN_VERSION = 3
+#   4 — (#284) populate detected_name_cast for existing rows. The column was
+#       added with the name-parse change that captures a provider's trailing
+#       credits residual ("… (2002) NICOLAS CAGE"), but update_detected_prefixes
+#       only writes rows whose parsed fields CHANGED, so libraries ingested
+#       before it existed have it empty on every row — measured 0 populated of
+#       414,800 VOD rows on the owner's library. Runs BEFORE TagBackfill
+#       (registration order) so the name_cast feeder has something to read.
+CURRENT_PREFIX_SCAN_VERSION = 4
 
 # The compound-prefix parse version that the old nav-mixin tracked separately.
 # We persist this into config.prefix_parse_version on completion so existing

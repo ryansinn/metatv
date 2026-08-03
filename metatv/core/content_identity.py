@@ -145,14 +145,35 @@ def _strip_trailing_audio_noise(norm: str) -> str:
     return norm
 
 
-def _normalize_for_key(title: str) -> str:
+def normalize_title_for_key(title: str) -> str:
     """Lowercase, strip non-word characters, collapse whitespace, drop audio noise.
 
-    Mirrors the final three steps of ``content_dedup.normalize_title()`` so
-    two ``detected_title`` values that differ only in punctuation or spacing
-    collapse to the same key component, then strips a trailing MULTI-anchored
-    audio-annotation run (``_strip_trailing_audio_noise``) so a bare ``MULTI``
-    token left in the title doesn't split same-production variants.
+    **This is THE definition of "same title" for content identity** — the single
+    source of truth (CLAUDE.md: single chokepoint).  Anything that decides
+    whether two rows describe the same production must call this, not a
+    look-alike normaliser, or it will disagree with the key it is reasoning
+    about.
+
+    Do NOT substitute ``content_dedup.normalize_title()`` here.  That function
+    cleans a **raw provider channel name** (``ChannelDB.name``) — it strips
+    provider prefixes, trailing years and quality tokens.  ``detected_title`` has
+    already had all of that removed at ingestion, so running it a second time
+    double-strips real title words and merges unrelated productions:
+
+    ==========================  ====================  =========================
+    detected_title              normalize_title()     normalize_title_for_key()
+    ==========================  ====================  =========================
+    ``"Blade Runner 2049"``     ``"blade runner"``    ``"blade runner 2049"``
+    ``"WWE: Unreal"``           ``"unreal"``          ``"wwe unreal"``
+    ``"#Alive"``                ``"alive"``           ``"alive"``
+    ==========================  ====================  =========================
+
+    The first two collapse a 2017 sequel into its 1982 original and eat a show
+    name mistaken for a provider prefix.  Using them as propagation buckets
+    manufactured ambiguity that the remake guard then (correctly) refused to
+    resolve — measured against the owner's library, switching the propagation
+    pass to this function unlocked 498 previously-blocked adoptions and lost
+    none (#284).
 
     Args:
         title: Raw (but already-stripped) title string, e.g. from
@@ -296,7 +317,7 @@ class _XtreamContentKeyStrategy(_ContentKeyStrategy):
             return f"tmdb:{tmdb}|{media_type}"
 
         if raw_title:
-            norm = _normalize_for_key(raw_title)
+            norm = normalize_title_for_key(raw_title)
         else:
             norm = ""
 

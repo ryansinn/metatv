@@ -1239,6 +1239,37 @@ CONF_DENOTED: float = 0.9
 CONF_STRONG_PRIOR: float = 0.3
 CONF_WEAK_PRIOR: float = 0.15
 
+# ── Name-derived cast: words that prove a trailing residual is NOT a person ──── #
+# ``parse_channel_name().trailing`` captures whatever a provider appended after the
+# year — "EN - Adaptation. 4K (2002) NICOLAS CAGE".  Measured over the owner's
+# 414,800 VOD rows, 8,257 names carry such a residual across 917 distinct values,
+# and only about half are people.  The rest are language words, formats and studio
+# or collection labels: POLSKI (918), 4K (652), DOKUMENT (531), DUBBING (221),
+# NAPISY (122), BG-AUDIO (54), PIXAR (52).
+#
+# Emitting those as ``person`` tags would not be "capture generously with low
+# confidence" (DR-0006) — it would be recording something the vocabulary already
+# knows to be false.  Confidence ranks a real guess; it does not launder a wrong
+# one.  So a residual containing any of these is never read as a person, and the
+# genuinely unclassifiable remainder becomes a LOW-confidence person tag.
+NON_PERSON_RESIDUAL_WORDS: frozenset[str] = frozenset({
+    # Collection / edition labels
+    "COLLECTION", "COLECCION", "COLECCIÓN", "COLLECTIE", "SAGA", "TRILOGY",
+    "TRILOGIA", "SERIES", "SERIE", "EDITION", "REMASTERED", "EXTENDED",
+    "UNCUT", "SPECIAL", "COMPLETE", "ANTHOLOGY", "BOXSET",
+    # Audio / subtitle / format words (several languages)
+    "AUDIO", "DUBBING", "DUBBED", "DUB", "SUB", "SUBS", "SUBTITLED", "NAPISY",
+    "LEKTOR", "MULTI", "VOSTFR", "VOSE", "LEGENDADO", "DUBLADO",
+    # Genre / kind words that appear bare in this position
+    "DOKUMENT", "DOKUMENTAL", "DOCUMENTARY", "ANIMACJA", "ANIMATION",
+    "CARTOON", "MUSICAL", "TEATR", "THEATRE", "THEATER", "CLASSIC",
+    "CLASSICS", "MOVIES", "MOVIE", "FILM", "FILMY", "KIDS", "SPORT",
+    # Language words (bare, not codes — codes are caught by the classifiers)
+    "POLSKI", "POLSKIE", "ENGLISH", "ESPANOL", "ESPAÑOL", "FRANCAIS",
+    "FRANÇAIS", "DEUTSCH", "ITALIANO", "PORTUGUES", "PORTUGUÊS", "TURKCE",
+    "TÜRKÇE", "ARABIC", "LATINO",
+})
+
 # ── AI-provenance markers (single source of truth) ───────────────────────────── #
 # Some providers stamp a trailing parenthetical marker onto a channel name to flag
 # how it was produced.  Two DISTINCT user-facing concepts (a user may tolerate an

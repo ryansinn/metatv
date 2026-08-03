@@ -187,17 +187,48 @@ class CollapsibleSplitter(QSplitter):
                 self.setChildrenCollapsible(was_collapsible)
     
     def expand_panel(self, index: int):
-        """Expand a collapsed panel to its previous size"""
+        """Expand a collapsed panel back to the width it was collapsed from.
+
+        The space has to be TAKEN BACK from the panels that absorbed it when
+        this one collapsed. Writing the remembered width in and leaving the
+        others alone asks the splitter for more room than it has, so Qt scales
+        every panel down to fit and the restored panel comes back narrower than
+        it went — visibly shrinking a little more on each collapse/expand cycle
+        (a 416px sidebar returned as 327px). Same family as the #280 filter
+        panel bug: a size request the splitter is free to ignore.
+
+        Args:
+            index: Panel index to restore.
+        """
         if index < 0 or index >= self.count():
             return
-        
+
         # Get previous size or use default
         previous_size = self.collapsed_panels.get(index, 300)
-        
+
         sizes = self.sizes()
+        deficit = previous_size - sizes[index]
+        if deficit > 0:
+            # Reclaim from the WIDEST panel first, not proportionally from all
+            # of them. The slack went to whichever panel grew when this one
+            # collapsed — normally the centre content pane — so that is who
+            # should give it back. Splitting the cost across every panel takes
+            # width from the other flank too, which matters when both flanks
+            # are restored in turn (leaving an Explore view does exactly that):
+            # restoring the first would quietly shrink the second.
+            for i in sorted(
+                (i for i in range(len(sizes)) if i != index),
+                key=lambda i: sizes[i],
+                reverse=True,
+            ):
+                if deficit <= 0:
+                    break
+                take = min(deficit, sizes[i])
+                sizes[i] -= take
+                deficit -= take
         sizes[index] = previous_size
         self.setSizes(sizes)
-        
+
         # Clear remembered size
         if index in self.collapsed_panels:
             del self.collapsed_panels[index]

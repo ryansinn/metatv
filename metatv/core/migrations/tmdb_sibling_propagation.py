@@ -48,7 +48,15 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial pass: idless VOD rows adopt a confident same-normalized-title +
 #       same-media_type + year-compatible sibling's detected_tmdb_id.
-CURRENT_VERSION: int = 1
+#   2 — (#284) the pass now buckets siblings with the SAME normaliser that computes
+#       content_key (content_identity.normalize_title_for_key) instead of the
+#       raw-name cleaner content_dedup.normalize_title, which double-stripped
+#       already-cleaned detected_title values and merged unrelated productions
+#       ("Blade Runner 2049" → "blade runner"). Those fake multi-id buckets tripped
+#       the remake guard, so rows with unambiguous evidence were skipped. Re-run
+#       required: v1 recorded those skips permanently. Measured +498 adoptions,
+#       0 lost, on the owner's library.
+CURRENT_VERSION: int = 2
 
 
 class TmdbSiblingPropagationTask:

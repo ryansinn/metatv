@@ -844,6 +844,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # never disagree; this is a shortcut to existing behaviour, not a
         # parallel implementation of it.
         self._build_style_menu(menubar)
+        self._build_layout_menu(menubar)
         self._build_buffer_menu(menubar)
         
         # Tools menu
@@ -2594,16 +2595,6 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._thumbs_action.toggled.connect(self._set_thumbnails_from_menu)
         style_menu.addAction(self._thumbs_action)
 
-        # Filter panel — instant, non-destructive, and the panel most worth
-        # reclaiming space from while browsing. Reuses the existing toggle so
-        # the menu and the panel's own control can never disagree.
-        self._filters_visible_action = QAction("&Filter panel", self, checkable=True)
-        self._filters_visible_action.setChecked(
-            bool(getattr(self.config, "filter_section_visible", True))
-        )
-        self._filters_visible_action.triggered.connect(self._toggle_filters_from_menu)
-        style_menu.addAction(self._filters_visible_action)
-
         # Platform names — "Netflix" vs "NF" on the row chip.
         platform_menu = style_menu.addMenu("&Platform names")
         self._platform_action_group = QActionGroup(self)
@@ -2621,6 +2612,97 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             )
             self._platform_action_group.addAction(action)
             platform_menu.addAction(action)
+
+    # Panel index in ``main_splitter``: [sidebar | content | details].
+    _SIDEBAR_PANEL = 0
+    _DETAILS_PANEL = 2
+
+    def _build_layout_menu(self, menubar) -> None:
+        """Build the Layout menu — which panels are on screen.
+
+        Separate from Style because they answer different questions. Style is
+        what things LOOK like (theme, density, posters); Layout is what is
+        *present*. Keeping them apart is what makes either menu predictable —
+        a user reaching for "hide the sidebar" should not have to consider
+        whether that counts as styling.
+
+        The filter-panel toggle moved here from Style for that reason: it is
+        the third of the three panels, and grouping it with the other two beats
+        having one panel toggle live somewhere else.
+
+        Every entry drives the SAME path the panel's own control uses
+        (``CollapsibleSplitter.collapse_panel``/``expand_panel``, and
+        ``toggle_filters``), so a menu tick can never disagree with the screen.
+        """
+        layout_menu = menubar.addMenu("&Layout")
+        layout_menu.aboutToShow.connect(self._sync_layout_menu)
+
+        self._sidebar_visible_action = QAction("&Sidebar", self, checkable=True)
+        self._sidebar_visible_action.setToolTip(
+            "Show or hide the left sidebar. Its width is remembered."
+        )
+        self._sidebar_visible_action.triggered.connect(self._toggle_sidebar_from_menu)
+        layout_menu.addAction(self._sidebar_visible_action)
+
+        self._details_visible_action = QAction("&Details pane", self, checkable=True)
+        self._details_visible_action.setToolTip(
+            "Show or hide the details pane on the right. Its width is remembered."
+        )
+        self._details_visible_action.triggered.connect(self._toggle_details_from_menu)
+        layout_menu.addAction(self._details_visible_action)
+
+        self._filters_visible_action = QAction("&Filter panel", self, checkable=True)
+        self._filters_visible_action.setToolTip(
+            "Show or hide the filter panel beside the results list."
+        )
+        self._filters_visible_action.triggered.connect(self._toggle_filters_from_menu)
+        layout_menu.addAction(self._filters_visible_action)
+
+        self._sync_layout_menu()
+
+    def _sync_layout_menu(self) -> None:
+        """Tick each entry from the LIVE panel state, not a remembered flag.
+
+        A panel can also be collapsed by dragging its splitter handle or by an
+        Explore view auto-collapsing it, neither of which goes through this
+        menu. Reading the splitter on open is what keeps the ticks honest;
+        caching a flag here is how a menu starts lying about the screen.
+        """
+        splitter = self.__dict__.get("main_splitter")
+        if splitter is not None:
+            for action, index in (
+                (self._sidebar_visible_action, self._SIDEBAR_PANEL),
+                (self._details_visible_action, self._DETAILS_PANEL),
+            ):
+                action.setChecked(not splitter.is_panel_collapsed(index))
+        self._filters_visible_action.setChecked(
+            bool(getattr(self.config, "filter_section_visible", True))
+        )
+
+    def _toggle_sidebar_from_menu(self) -> None:
+        """Collapse or restore the sidebar from the Layout menu."""
+        self._toggle_main_panel(self._SIDEBAR_PANEL, self._sidebar_visible_action)
+
+    def _toggle_details_from_menu(self) -> None:
+        """Collapse or restore the details pane from the Layout menu."""
+        self._toggle_main_panel(self._DETAILS_PANEL, self._details_visible_action)
+
+    def _toggle_main_panel(self, index: int, action) -> None:
+        """Toggle one ``main_splitter`` panel and re-sync *action* from reality.
+
+        Args:
+            index: Panel index in ``main_splitter``.
+            action: The menu entry whose tick mirrors that panel.
+        """
+        splitter = self.__dict__.get("main_splitter")
+        if splitter is None:
+            return
+        splitter.toggle_panel(index)
+        # Re-read rather than assume: expand_panel restores a remembered size
+        # and a minimum width can clamp the result, so the splitter is the only
+        # authority on what actually happened.
+        action.setChecked(not splitter.is_panel_collapsed(index))
+        self.save_splitter_sizes()
 
     def _set_theme_from_menu(self, name: str) -> None:
         """Apply and persist a theme chosen from the Style menu.

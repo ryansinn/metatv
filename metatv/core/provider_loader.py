@@ -665,6 +665,7 @@ class ProviderLoadThread(QThread):
                             ChannelDB.tag_fingerprint,
                             ChannelDB.media_type,
                             ChannelDB.detected_audio,
+                            ChannelDB.detected_name_cast,
                         )
                         .filter(ChannelDB.id.in_(chunk))
                         .yield_per(_YIELD_SIZE)
@@ -688,6 +689,7 @@ class ProviderLoadThread(QThread):
                             stored_fingerprint,
                             media_type,
                             detected_audio,
+                            detected_name_cast,
                         ) = row
 
                         genre = (raw_data or {}).get("genre") if raw_data else None
@@ -722,6 +724,7 @@ class ProviderLoadThread(QThread):
                             raw_data=raw_data,
                             media_type=media_type,
                             detected_audio=detected_audio,
+                            detected_name_cast=detected_name_cast,
                         )
 
                         if all_tags:

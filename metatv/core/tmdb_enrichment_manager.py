@@ -169,6 +169,10 @@ class TmdbEnrichmentManager(QObject):
         self._provider_names: dict[str, str] = {}
         self._busy = False
         self._shutdown = False
+        # Ids written by the drain currently in flight. Non-zero means the drain
+        # learned something new, so its end-of-drain sibling propagation is worth
+        # running; reset as it is consumed (#284).
+        self._ids_written_this_drain = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -252,6 +256,10 @@ class TmdbEnrichmentManager(QObject):
         touched by two drains at once.  ``_busy`` is cleared atomically with the
         empty-queue check (same lock acquisition) so an ``enqueue`` racing the end
         of a drain always re-kicks — no lost wakeup.
+
+        When the drain actually wrote ids, it finishes with ONE title-sibling
+        propagation sweep (:meth:`_propagate_after_drain`) so the freshly learned
+        ids reach their idless siblings.
         """
         try:
             while True:
@@ -269,6 +277,50 @@ class TmdbEnrichmentManager(QObject):
         finally:
             # Clear every source's toast now the drain is done (queue drained).
             self._clear_all_inflight()
+            self._propagate_after_drain()
+
+    def _propagate_after_drain(self) -> None:
+        """Push ids this drain learned out to their idless same-title siblings (#284).
+
+        Without this, an id discovered by a *fetch* never reached the rows it could
+        identify.  Propagation only ran at ingestion and after a refresh queue
+        drained, so a title enriched by browsing stayed split until the next source
+        refresh — the owner's "The Lobster" was three ``content_key``s (one
+        ``tmdb:254320|movie`` row whose ``tmdb_enrich_state`` was ``'fetched'``, and
+        two idless siblings) for exactly that reason, reading as if versions were
+        missing.
+
+        Runs once per drain and only when the drain wrote at least one id
+        (``_ids_written_this_drain``), so browsing that resolves nothing costs
+        nothing.  Already on the worker thread — this is the same off-UI-thread
+        executor the fetches use — and reuses the one shared propagation helper
+        rather than a second definition of "same title".
+        """
+        with self._lock:
+            wrote = self._ids_written_this_drain
+            self._ids_written_this_drain = 0
+        if not wrote or self._shutdown:
+            return
+
+        from metatv.core.repositories import RepositoryFactory
+
+        try:
+            self._defer_for_migration()
+            with self.db.session_scope() as session:
+                adopted = RepositoryFactory(session).channels.\
+                    propagate_tmdb_from_title_siblings()
+        except Exception:
+            logger.exception("tmdb_enrich: post-drain sibling propagation failed")
+            return
+
+        if adopted > 0:
+            logger.info(
+                "tmdb_enrich: {} id(s) learned this drain propagated onto {} "
+                "idless sibling row(s)", wrote, adopted,
+            )
+            # Same settle path the batch collapses use — the host refreshes the
+            # corpus-derived views so "Other versions" regroups without a restart.
+            self.collapses_found.emit(adopted)
 
     def _defer_for_migration(self) -> None:
         """Best-effort: pause before a bulk write while a MigrationManager pass runs.
@@ -354,6 +406,11 @@ class TmdbEnrichmentManager(QObject):
             with self.db.session_scope() as session:
                 repos = RepositoryFactory(session)
                 total_collapses += repos.channels.apply_tmdb_enrichment(hits, misses)
+                if hits:
+                    # Arms the end-of-drain sibling propagation (#284): these ids
+                    # are new to the library and may identify idless siblings.
+                    with self._lock:
+                        self._ids_written_this_drain += len(hits)
                 # Same detail blob carried the movie's genre/plot/cast — fill empty
                 # metadata so an idless movie also becomes recommendable, not just
                 # collapsible (fill-only-empty; never overwrites richer data).

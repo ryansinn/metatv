@@ -229,6 +229,7 @@ class CategoryFacetRefacetTask:
             rows = (
                 session.query(
                     ChannelDB.id,
+                    ChannelDB.name,
                     ChannelDB.category,
                     ChannelDB.source_category,
                     ChannelDB.detected_prefix,
@@ -237,6 +238,8 @@ class CategoryFacetRefacetTask:
                     ChannelDB.detected_year,
                     ChannelDB.raw_data,
                     ChannelDB.media_type,
+                    ChannelDB.detected_audio,
+                    ChannelDB.detected_name_cast,
                 )
                 .filter(ChannelDB.id.in_(channel_ids))
                 .yield_per(_YIELD_SIZE)
@@ -246,6 +249,7 @@ class CategoryFacetRefacetTask:
             for row in rows:
                 (
                     channel_id,
+                    name,
                     category,
                     source_category,
                     detected_prefix,
@@ -254,13 +258,21 @@ class CategoryFacetRefacetTask:
                     detected_year,
                     raw_data,
                     media_type,
+                    detected_audio,
+                    detected_name_cast,
                 ) = row
 
                 # Scrub only generated tags — user tags survive.
                 repos.tags.delete_generated_for_channel(channel_id)
 
+                # Every feeder must be passed. This call site previously omitted
+                # name / detected_audio, so a re-facet silently DELETED the
+                # ai_provenance and audio tags of the rows it touched — it scrubs
+                # generated tags and re-derives, and a feeder it cannot see is a
+                # feeder whose tags do not come back (#284).
                 all_tags = _collect_tags(
                     config=config,
+                    name=name,
                     category=category,
                     source_category=source_category,
                     detected_prefix=detected_prefix,
@@ -269,6 +281,8 @@ class CategoryFacetRefacetTask:
                     detected_year=detected_year,
                     raw_data=raw_data,
                     media_type=media_type,
+                    detected_audio=detected_audio,
+                    detected_name_cast=detected_name_cast,
                 )
 
                 if all_tags:

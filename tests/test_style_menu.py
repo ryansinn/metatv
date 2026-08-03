@@ -131,7 +131,12 @@ class TestMenuContents:
         style = self._menu(window, "Style")
         entries = {a.text().replace("&", "") for a in style.actions()}
         assert {"Theme", "Results density", "Poster thumbnails",
-                "Platform names", "Filter panel"} <= entries
+                "Platform names"} <= entries
+        # "Filter panel" moved to the Layout menu in #284: Style is what things
+        # LOOK like, Layout is what is on screen, and the filter panel is one of
+        # the three panels. Asserted as an absence so the two menus cannot drift
+        # back into both offering it.
+        assert "Filter panel" not in entries
 
     def test_every_palette_is_listed(self, window):
         from metatv.gui import theme as _theme
