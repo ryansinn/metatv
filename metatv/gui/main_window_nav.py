@@ -651,6 +651,37 @@ class _NavMixin:
         self.switch_to_list_view()
         self.load_channels()
 
+    def _on_row_chip_clicked(self, facet: str, value: str) -> None:
+        """A chip in a channel-list row was clicked → strict context filter.
+
+        Routes into the SAME handlers a details-pane metadata click uses rather
+        than opening a third filtering path (docs/CONTEXT_FILTER_CHIPS.md, and
+        CLAUDE.md's single-chokepoint rule): genre has its own dedicated strict
+        filter, and the remaining facets are exactly the tag-facet vocabulary
+        ``tag_decomposer`` emits, so they go through the tag handler unchanged.
+
+        The delegate only attaches a facet to chips that can actually filter —
+        the year and ``×N`` variant chips carry a tooltip but no facet — so an
+        unknown facet here means the two have drifted, and it is logged rather
+        than silently ignored.
+
+        Args:
+            facet: Tag facet type, e.g. ``"quality"``/``"region"``/``"language"``.
+            value: The chip's stored value (a code, not its display label).
+        """
+        if not facet or not value:
+            return
+        if facet == "genre":
+            self._on_genre_filter_requested(value)
+            return
+        if facet in ("quality", "region", "language", "collection", "audio"):
+            self._on_tag_filter_requested(facet, value)
+            return
+        logger.warning(
+            f"row chip emitted an unroutable facet {facet!r} — the delegate's "
+            f"facet vocabulary has drifted from tag_decomposer's"
+        )
+
     def _on_tag_discover_requested(self, facet_type: str, value: str) -> None:
         """Right-click a tag chip → open the Recipe view seeded with this one tag.
 

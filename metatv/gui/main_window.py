@@ -1846,6 +1846,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self.channels_list.clicked.connect(self._on_channel_list_clicked)
         # Middle-click plays the OPPOSITE of the bare double-click default.
         self.channels_list.middle_clicked.connect(self._on_channel_middle_clicked)
+        self.channels_list.chip_clicked.connect(self._on_row_chip_clicked)
         self.channels_list.selectionModel().currentChanged.connect(
             self.on_channel_selection_changed
         )

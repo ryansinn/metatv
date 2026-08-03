@@ -17,10 +17,11 @@ without a real, shown, resized widget.
 """
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QModelIndex, QPoint, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QModelIndex, QPoint, pyqtSignal
 from PyQt6.QtGui import QMouseEvent, QResizeEvent
-from PyQt6.QtWidgets import QListView
+from PyQt6.QtWidgets import QListView, QToolTip
 
+from metatv.gui import cursor_affordance
 from metatv.gui.channel_list_thumbnails import ChannelThumbnailHydrator
 
 
@@ -28,18 +29,83 @@ class ChannelListView(QListView):
     """``QListView`` that emits ``middle_clicked(index)`` on a middle-button press."""
 
     middle_clicked = pyqtSignal(QModelIndex)
+    #: A row chip was clicked: ``(facet, value)`` — e.g. ``("quality", "4K")``.
+    #: MainWindow turns this into the same strict context filter a details-pane
+    #: metadata click produces (docs/CONTEXT_FILTER_CHIPS.md).
+    chip_clicked = pyqtSignal(str, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._thumbnail_hydrator: Optional[ChannelThumbnailHydrator] = None
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.verticalScrollBar().valueChanged.connect(self._request_hydration)
+        # Chips are painted by the delegate, not child widgets, so hover has to
+        # be tracked manually — without this, mouseMoveEvent only fires while a
+        # button is held and the cursor never changes (#24).
+        self.setMouseTracking(True)
+
+    # ── Delegate-painted chip interaction (#24) ──────────────────────────────
+
+    def _cell_at(self, pos: QPoint):
+        """Return the ``_Cell`` painted under *pos*, or None.
+
+        Asks the delegate for the rectangles it actually drew for that row, so
+        the clickable area can never drift from the visible chip.
+        """
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return None
+        delegate = self.itemDelegate()
+        hit_cells = getattr(delegate, "hit_cells", None)
+        if hit_cells is None:
+            return None
+        for rect, cell in hit_cells(index.row()):
+            if rect.contains(pos):
+                return cell
+        return None
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        cell = self._cell_at(event.position().toPoint())
+        # Pointing hand ONLY over a chip that actually filters. A chip that just
+        # explains itself (the ×N variant badge) keeps the default cursor —
+        # promising a click that does nothing is worse than no affordance.
+        if cell is not None and cell.facet:
+            cursor_affordance.set_clickable(self)
+        else:
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def viewportEvent(self, event) -> bool:
+        """Render per-chip tooltips.
+
+        A delegate-painted chip is not a widget, so ``setToolTip`` cannot reach
+        it — the tooltip has to be produced on demand for whatever is under the
+        cursor.
+        """
+        if event.type() == QEvent.Type.ToolTip:
+            cell = self._cell_at(event.pos())
+            if cell is not None and cell.tip:
+                QToolTip.showText(event.globalPos(), cell.tip, self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().viewportEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
             index = self.indexAt(event.position().toPoint())
             if index.isValid():
                 self.middle_clicked.emit(index)
+                event.accept()
+                return
+        if event.button() == Qt.MouseButton.LeftButton:
+            cell = self._cell_at(event.position().toPoint())
+            if cell is not None and cell.facet:
+                # Filter ONLY — deliberately does not fall through to the base
+                # implementation, so a chip click never also changes the row
+                # selection and can never collide with double-click-to-play
+                # (owner decision, 2026-08-03).
+                self.chip_clicked.emit(cell.facet, cell.value)
                 event.accept()
                 return
         super().mousePressEvent(event)

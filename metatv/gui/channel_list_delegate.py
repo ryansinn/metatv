@@ -254,6 +254,13 @@ class _Cell(NamedTuple):
     fg: str        # QColor-constructible token/hex (theme.* or a QColor.name())
     bg: Optional[str] = None   # chip background/border token (chip only)
     outline: bool = False      # True => border-only chip (quality), never filled
+    # Facet identity + hover copy (#24). A delegate-painted chip has no widget,
+    # so it cannot carry setToolTip() — the view hit-tests the painted rect and
+    # renders `tip` itself. `facet`/`value` are what a click filters on; both
+    # empty means the cell is decorative and neither hovers nor clicks.
+    facet: str = ""
+    value: str = ""
+    tip: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +317,21 @@ def stacked_line_rects(container: QRect, line_height: int, gap: int) -> tuple[QR
     return line1, line2
 
 
+def _region_label(code: str) -> str:
+    """Human-readable name for a region/language code, for hover copy only.
+
+    Reads the curated ``REGION_FULL_NAMES`` table (CLAUDE.md's lookup-table
+    rule — never a parallel dict here) and falls back to the raw code, which is
+    what an unmapped or provider-invented token should show.
+    """
+    from metatv.core.channel_name_utils import REGION_FULL_NAMES, normalize_region_code
+
+    if not code:
+        return ""
+    full = REGION_FULL_NAMES.get(normalize_region_code(code))
+    return f"{full} ({code})" if full else code
+
+
 # ---------------------------------------------------------------------------
 # Cell builders — map a raw role value to a paintable _Cell (or None to omit).
 # ---------------------------------------------------------------------------
@@ -320,7 +342,11 @@ def _year_cell(year) -> Optional[_Cell]:
     # .horizontalAdvance() and raises.
     if not year:
         return None
-    return _Cell(str(year), False, _theme.COLOR_MUTED)
+    # No facet: "year" is not a tag facet (tag_decomposer emits audio /
+    # collection / genre / language / quality / region), so there is nothing
+    # to filter on. Tooltip only — a chip that looks clickable and does
+    # nothing is worse than one that plainly just labels itself.
+    return _Cell(str(year), False, _theme.COLOR_MUTED, tip=f"Released {year}")
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:
@@ -356,7 +382,10 @@ def _quality_cell(token: str) -> Optional[_Cell]:
         return None
     upper = token.upper()
     color = _quality_outline_colors().get(upper, _theme.COLOR_FAINT)
-    return _Cell(quality_display(upper), True, color, _theme.OVERLAY_08, outline=True)
+    return _Cell(quality_display(upper), True, color, _theme.OVERLAY_08, outline=True,
+                 facet="quality", value=upper,
+                 tip=f"Picture quality: {quality_display(upper)} — click to show "
+                     f"only {quality_display(upper)} versions")
 
 
 def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
@@ -372,11 +401,16 @@ def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
     if not code:
         return None
     if code in PLATFORM_CODES:
+        brand = platform_display(code, platform_style)
         return _Cell(
-            platform_display(code, platform_style), True,
+            brand, True,
             _theme.COLOR_TEXT_HI, _theme.COLOR_ACCENT_PURPLE,
+            facet="region", value=code,
+            tip=f"Streaming platform: {brand} — click to show only {brand}",
         )
-    return _Cell(code, True, _theme.COLOR_ACCENT_GREEN, _theme.OVERLAY_GREEN_15)
+    return _Cell(code, True, _theme.COLOR_ACCENT_GREEN, _theme.OVERLAY_GREEN_15,
+                 facet="region", value=code,
+                 tip=f"Region: {_region_label(code)} — click to show only this region")
 
 
 def _language_cell(text: str) -> Optional[_Cell]:
@@ -386,7 +420,9 @@ def _language_cell(text: str) -> Optional[_Cell]:
     language-adjacent facets, sharing one hue."""
     if not text:
         return None
-    return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15)
+    return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15,
+                 facet="language", value=text,
+                 tip=f"Language: {_region_label(text)} — click to show only this language")
 
 
 def _genre_cell(genre: str) -> Optional[_Cell]:
@@ -395,7 +431,9 @@ def _genre_cell(genre: str) -> Optional[_Cell]:
     right: genre, then the collection chip)."""
     if not genre:
         return None
-    return _Cell(genre, True, _theme.COLOR_ACCENT_TEAL, _theme.OVERLAY_TEAL_15)
+    return _Cell(genre, True, _theme.COLOR_ACCENT_TEAL, _theme.OVERLAY_TEAL_15,
+                 facet="genre", value=genre,
+                 tip=f"Genre: {genre} — click to show only {genre}")
 
 
 def _category_cell(category: str, platform_code: str = "") -> Optional[_Cell]:
@@ -409,7 +447,9 @@ def _category_cell(category: str, platform_code: str = "") -> Optional[_Cell]:
     display = collection_display(category, platform_code or None)
     if not display:
         return None
-    return _Cell(display, True, _theme.COLOR_MUTED, _theme.OVERLAY_08)
+    return _Cell(display, True, _theme.COLOR_MUTED, _theme.OVERLAY_08,
+                 facet="collection", value=category,
+                 tip=f"Collection: {display} — click to show only this collection")
 
 
 def _rating_chip_cell(rating: int) -> Optional[_Cell]:
@@ -437,7 +477,9 @@ def _variant_badge_cell(count: int) -> Optional[_Cell]:
     styling as :func:`_category_cell` — muted, not a strong categorical color)."""
     if not count or count <= 1:
         return None
-    return _Cell(f"×{count}", True, _theme.COLOR_MUTED, _theme.OVERLAY_08)
+    return _Cell(f"×{count}", True, _theme.COLOR_MUTED, _theme.OVERLAY_08,
+                 tip=f"{count} versions of this title were collapsed into one row "
+                     f"(Settings → Interface → Collapse quality/language versions)")
 
 
 class ChannelRowDelegate(QStyledItemDelegate):
@@ -449,6 +491,14 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._image_cache = image_cache
         self._thumbnails_enabled: bool = False
         self._platform_name_style: str = PLATFORM_STYLE_AUTO
+        # Hit regions for delegate-painted chips (#24), keyed by model row and
+        # rebuilt on each row's paint. Bounded by what is on screen: a row that
+        # scrolls away is re-recorded the next time it paints, and its stale
+        # entry is harmless because the view only ever queries the row under the
+        # cursor. _painting_row scopes the recording in _paint_cell, which does
+        # not otherwise know which row it belongs to.
+        self._hit_regions: dict[int, list[tuple[QRect, _Cell]]] = {}
+        self._painting_row: Optional[int] = None
 
     def set_density(self, density: str) -> None:
         """Set the row density ("compact"/"comfy"/"comfy_plus"); unknown values
@@ -548,6 +598,11 @@ class ChannelRowDelegate(QStyledItemDelegate):
         # inherit it from one place.
         text_rect = text_rect.adjusted(_ROW_H_PAD, 0, -_ROW_H_PAD, 0)
 
+        # Scope hit-region recording to this row, and clear any previous pass so
+        # rects never accumulate across repaints.
+        self._painting_row = index.row()
+        self._hit_regions[index.row()] = []
+
         painter.save()
         painter.setClipRect(text_rect)
         content_rect = text_rect
@@ -567,6 +622,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         else:
             self._paint_comfy(painter, content_rect, index, default_color, opt.font)
         painter.restore()
+        self._painting_row = None
 
     # ── Poster thumbnail (comfy/comfy_plus only) ─────────────────────────────
 
@@ -668,7 +724,27 @@ class ChannelRowDelegate(QStyledItemDelegate):
         w = fm.horizontalAdvance(cell.text)
         return w + 2 * _CHIP_H_PAD if cell.is_chip else w
 
+    def hit_cells(self, row: int) -> list[tuple[QRect, _Cell]]:
+        """Painted (rect, cell) pairs for *row* that carry hover/click meaning.
+
+        Delegate-painted chips are not widgets, so they have no ``setToolTip``
+        and no ``mousePressEvent`` of their own — the view has to hit-test the
+        rectangles this delegate actually drew (#24). Recorded during ``paint``
+        rather than recomputed, so a hit region can never disagree with what the
+        user sees.
+
+        Only rows currently on screen have entries; scrolling repaints and
+        refreshes them. Returns ``[]`` for a row that has not been painted.
+        """
+        return list(self._hit_regions.get(row, ()))
+
     def _paint_cell(self, painter, rect: QRect, cell: _Cell, font) -> None:
+        # Record before painting so every drawn cell is hit-testable, including
+        # ones that return early below.
+        if cell.tip or cell.facet:
+            row = self._painting_row
+            if row is not None:
+                self._hit_regions.setdefault(row, []).append((QRect(rect), cell))
         painter.setFont(font)
         if cell.is_chip and cell.outline:
             # Border-only chip (quality, #257) — never a solid fill. ``bg``
