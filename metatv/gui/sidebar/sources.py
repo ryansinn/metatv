@@ -282,12 +282,15 @@ class SourcesSection(CollapsibleSection):
         refresh_all_btn.clicked.connect(self.refreshAllClicked.emit)
         header_layout.addWidget(refresh_all_btn)
 
-        add_btn = QPushButton("+")
-        add_btn.setFixedSize(22, 20)
+        add_btn = QPushButton(_icons.add_icon)
+        add_btn.setFixedSize(28, 24)
         add_btn.setToolTip("Add Source…")
+        # Routed through the SHARED _btn_style template above (same one the
+        # Refresh-All button uses) — not a hand-rolled stylesheet, so the pair
+        # cannot drift and no font-size literal is inlined.
         add_btn.setStyleSheet(_btn_style.format(
-            fs=13, c=_theme.COLOR_DIM,
-            bg=_theme.OVERLAY_05, hbg=_theme.OVERLAY_15,
+            fs=13, c=_theme.COLOR_TEXT,
+            bg=_theme.OVERLAY_15, hbg=_theme.OVERLAY_18,
         ))
         add_btn.clicked.connect(self.addProviderClicked.emit)
         header_layout.addWidget(add_btn)

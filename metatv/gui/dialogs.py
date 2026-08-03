@@ -16,6 +16,7 @@ from metatv.core.models import Provider
 from metatv.core.notifications import NotificationManager
 from metatv.core.provider_loader import ProviderTestThread
 from metatv.core.repositories import RepositoryFactory
+from metatv.gui import icons as _icons
 
 
 class AddProviderDialog(QDialog):
@@ -66,7 +67,7 @@ class AddProviderDialog(QDialog):
         self.url_input.setPlaceholderText("http://example.com:8000")
         url_input_layout.addWidget(self.url_input)
         
-        add_url_btn = QPushButton("+")
+        add_url_btn = QPushButton(_icons.add_icon)
         add_url_btn.setFixedWidth(30)
         add_url_btn.setToolTip("Add URL")
         add_url_btn.clicked.connect(self.add_url)
