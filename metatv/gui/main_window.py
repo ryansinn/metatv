@@ -1810,6 +1810,9 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._channel_row_delegate.set_thumbnails_enabled(
             getattr(self.config, "channel_list_thumbnails", True)
         )
+        self._channel_row_delegate.set_platform_name_style(
+            getattr(self.config, "platform_name_style", "auto")
+        )
         self.channels_list.setItemDelegate(self._channel_row_delegate)
         # Viewport-only thumbnail hydration: requests a poster download ONLY
         # for rows currently on screen (never the whole virtualized list) —
@@ -2511,19 +2514,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
             self.channels_list.viewport().update()
 
     def _apply_channel_list_density(self) -> None:
-        """Re-apply the channel-list row density AND thumbnail toggle
-        (Settings → Interface → Channel List) live.
+        """Re-apply the channel-list row density, thumbnail toggle, AND
+        platform-name style (Settings → Interface → Channel List) live.
 
         Wired to ``SettingsDialog.settings_applied`` so a change takes effect
         immediately, no restart needed. ``sizeHint()`` changes per row (density
         and/or the thumbnail's reserved height), so ``viewport().update()``
         alone isn't enough — ``layoutChanged`` tells the view to re-query row
-        heights, not just repaint the same geometry.
+        heights, not just repaint the same geometry. The platform-name style
+        never changes row height, but it rides the same live-apply seam since
+        it's in the same Settings group.
         """
         density = getattr(self.config, "channel_list_density", "comfy")
         self._channel_row_delegate.set_density(density)
         thumbnails_enabled = getattr(self.config, "channel_list_thumbnails", True)
         self._channel_row_delegate.set_thumbnails_enabled(thumbnails_enabled)
+        self._channel_row_delegate.set_platform_name_style(
+            getattr(self.config, "platform_name_style", "auto")
+        )
         hydrator = getattr(self, "_channel_thumbnail_hydrator", None)
         if hydrator is not None:
             hydrator.set_enabled(thumbnails_enabled)
