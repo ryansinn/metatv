@@ -222,12 +222,18 @@ _PAREN_PREFIX_RE = re.compile(
 #   lang_c    lang    from LANG QUALITY form (e.g. "PL" in "PL 4K")
 #   qual_c    quality from LANG QUALITY form (e.g. "4K" in "PL 4K")
 #   title     remainder after the compound prefix + separator
+# The optional \[ \] around each quality token sit OUTSIDE the capture group, so
+# "IT-[4K] - Title" yields qual="4K" rather than "[4K]" and callers keep getting a
+# clean token to normalise. Without it that shape matched nothing at all and the
+# whole prefix survived into the title — the owner saw
+# "IT-[4K] - Monty Python e il Sacro Graal" rendered verbatim instead of a title
+# with IT and 4K lifted into chips.
 _COMPOUND_PREFIX_RE = re.compile(
     r'^(?:\[(?P<bracket>[A-Z][A-Z0-9]{0,7})\]\s*)?'
     r'(?:'
-    r'(?P<qual_a>4K|8K|UHD|HD|FHD)-(?P<lang_a>[A-Z]{2,4})'
-    r'|(?P<lang_b>[A-Z]{2,4})-(?P<qual_b>4K|8K|UHD|HD|FHD)'
-    r'|(?P<lang_c>[A-Z]{2,4})\s+(?P<qual_c>4K|8K|UHD|HD|FHD)'
+    r'\[?(?P<qual_a>4K|8K|UHD|HD|FHD)\]?-(?P<lang_a>[A-Z]{2,4})'
+    r'|(?P<lang_b>[A-Z]{2,4})-\[?(?P<qual_b>4K|8K|UHD|HD|FHD)\]?'
+    r'|(?P<lang_c>[A-Z]{2,4})\s+\[?(?P<qual_c>4K|8K|UHD|HD|FHD)\]?'
     r')\s*(?:[★|]|-\s+)\s*(?P<title>.+)$',
     re.IGNORECASE,
 )
