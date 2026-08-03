@@ -77,3 +77,19 @@ class TestGitAvailableCasesUnchanged:
     def test_detached_dirty(self):
         """Detached HEAD with dirty tree appends asterisk to commit hash."""
         assert compose_title("b3760bd", True, "", "HEAD") == "MetaTV (b3760bd*)"
+
+
+def test_no_git_uses_real_package_version_by_default():
+    """The SHIPPED path: no git, no injected version — must resolve
+    ``metatv.__version__`` itself.
+
+    Every other no-git test passes ``version=`` explicitly, so none of them
+    exercise the default-argument resolution the packaged app actually relies
+    on.  If the lazy import broke or the default were empty, this is the only
+    test that would notice.
+    """
+    import metatv
+
+    title = compose_title("", False, None, "")
+    assert title == f"MetaTV {metatv.__version__}"
+    assert title != "MetaTV"
