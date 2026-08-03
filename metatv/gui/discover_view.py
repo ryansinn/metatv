@@ -1,7 +1,7 @@
 """Discovery view — horizontal shelf browse UI (🧭 Discover chip).
 
 Shelves: Recently Added · Top Rated Movies · Top Rated Series ·
-         Featured Actor · Genre shelves · Decade shelves.
+         Featured Actor · Genre shelves · Decade shelves · Collection shelves.
 
 Data comes entirely from raw_data (no TMDb API key needed). Poster images
 use the TMDb CDN URLs already embedded in stream_icon / cover fields and
@@ -839,6 +839,8 @@ class DiscoverView(QWidget):
             title = f"{shelf_key[7:]}s"
         elif shelf_key.startswith("actor:"):
             title = f"Featuring {shelf_key[6:]}"
+        elif shelf_key.startswith("collection:"):
+            title = shelf_key[11:]
         elif shelf_key == "recently_added":
             title = "Recently Added"
         elif shelf_key == "top_movies":
