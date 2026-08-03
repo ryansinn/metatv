@@ -279,7 +279,59 @@ four defects, three of them shipped by this same session's work. Entries #271-#2
     one item to Watch Later from row 400 threw the user back to row 1. Now conditional on an actual
     membership change (category added to Global Exclusions).
 
+**v0.26.0 second wave — SHIPPED 2026-08-03 (rolling).** Owner UX-testing the rolling
+builds found nine more. Entries #275-#283.
+
+12. [x] **Bad-region sweep** (#275/#276) — 78,327 rows carrying a region nothing on the row
+    supported, then 4,752 more once the platform pass was widened. v1 consulted
+    `channel_name_utils.PLATFORM_CODES` (11 streaming brands, no `SC`); the tag system
+    classifies platforms from `config.BASE_PLATFORM_GROUPS` VALUES (85 tokens). Three
+    vocabularies, and picking wrong failed silently. Only ever CLEARS — an empty region is
+    honest, a guessed one is how the mislabels started. Derived language tags go with it.
+13. [x] **Scroll reset** (#274/#275) — results list (`_category_assigned` → `load_channels`
+    on every assignment) and every sidebar section (`BackgroundRefreshMixin` clearing the
+    list twice per refresh). Both fixed; scroll offset captured before the clear.
+14. [x] **Live theme switching** (#277/#278) — THE long-standing one. `theme.style()`
+    registry replaces the unclosable 838-vs-22 sweep, plus a `_repolish_all_widgets()` pass
+    because a palette push alone does not make an existing item view repaint. 465 call sites
+    migrated; drift guard bans the raw form.
+15. [x] **Style + Buffer menus** (#279/#280) — look-and-feel without opening Settings, and
+    buffer reachable while a stream is stuttering. Both drive the SAME live-apply seams
+    Settings uses. Filter-panel toggle fixed: it measured a width that could never reach 0
+    (min-width 160), so it was one-way.
+16. [x] **Person filter matches a title's own name** (#273) — including live, after the owner
+    correctly pushed back: the corpus carries whole categories of curated actor channels.
+17. [x] **Bracketed compound prefix** (#281) — `IT-[4K] - Title` matched nothing, so the whole
+    prefix survived into the title. ~101 rows.
+18. [x] **X-SUB means subtitles** (#282/#283) — `|AR|` under `|AR-SUB|` was tagged as Arabic
+    AUDIO on an English film. Owner-confirmed. Re-filed under the subtitle facet.
+19. [x] **Wrapping title clipped** (#283) — `Ignored` width (deliberate, the column-widening
+    trap) left Qt no width to compute wrapped height against. `setHeightForWidth(True)`.
+
 **v0.27.0 — next.**
+
+- [ ] **content_key fragments a single title into several identities.** The owner's "The
+  Lobster" exists as THREE keys — `tmdb:254320|movie` (the one row with a tmdb id),
+  `the lobster|movie|` (no id, no year) and `the lobster|movie|2015` (no id, year parsed).
+  Same film, so "Other versions" can never group them and it reads as if versions are
+  missing. This is the OPPOSITE failure from `aladdin|movie|` collapsing 15 unrelated films
+  (#272): the key over-collapses when data is thin and under-collapses when it is uneven.
+  Candidate fixes: propagate a known tmdb id to same-title siblings (partly exists —
+  `propagate_tmdb_from_title_siblings`), and stop an absent year from minting a separate key.
+  **Design this before coding — both directions of the failure have to be weighed together.**
+- [ ] **Name-derived cast — the last third.** `parse_channel_name().trailing` captures the
+  actor and `ChannelDB.detected_name_cast` stores it at ingestion, but **nothing reads it**
+  (0 consumers). Remaining: emit a LOW-confidence `person` tag with provenance, and surface it
+  under Tags — NOT Cast & Crew, which stays authoritative metadata rather than mixing in a
+  filename guess. A backfill is also needed for rows ingested before the column existed.
+- [ ] **"Reconnect content seems to mangle a bunch of the content"** — owner-reported,
+  UNEXAMINED. No detail captured yet; ask what looked wrong before digging.
+- [ ] **~370 composed/f-string `setStyleSheet` sites** still go stale on a live theme switch.
+  Each is a one-line change to `theme.style_fn`; do them opportunistically.
+- [ ] **Discover collection shelves** — ~800 is unscrollable. Raise
+  `MIN_COLLECTION_SHELF_MEMBERS`, add shelf search, drop fully-excluded collections.
+- [ ] **Layout menu (offered, not built)** — sidebar/details-pane visibility alongside Style.
+  Owner has not asked for it yet.
 
 - [ ] **Scroll reset in the Watch Queue / Recommended sections** — the remaining half of the owner's
   report. Those sidebar/Explore sections rebuild via `section.refresh()` on actions like

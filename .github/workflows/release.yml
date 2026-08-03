@@ -252,7 +252,13 @@ jobs:
               --notes "Latest build of \`main\`.
 
           **Build:** \`${{ steps.meta.outputs.build_id }}\`
+          **Built:** $(date -u '+%Y-%m-%d %H:%M UTC')
           **Commit:** ${{ github.sha }}
+
+          > GitHub shows this release's ORIGINAL publish date, not the last
+          > update — a rolling release is edited in place rather than
+          > recreated, so that date keeps reporting something old. The
+          > **Built** stamp above and the asset's own timestamp are current.
 
           This release always points at the newest code. Re-download to update —
           there is no in-app updater yet. See the in-app What's New for what
