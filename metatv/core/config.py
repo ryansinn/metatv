@@ -845,6 +845,12 @@ class Config(BaseModel):
     # (never compact). Lazy, viewport-only: only rows currently on screen ever
     # request a download (see channel_list_thumbnails.py). Default on.
     channel_list_thumbnails: bool = True
+    # Platform chip name style (Settings → Interface → Channel List →
+    # "Platform names", #257): "auto" (default) resolves per row density —
+    # full brand name (e.g. "Apple+") in comfy/comfy_plus, short code (e.g.
+    # "A+") in compact; "full"/"short" pin one style regardless of density.
+    # See channel_list_delegate.ChannelRowDelegate._effective_platform_style.
+    platform_name_style: str = "auto"
     # Active colour palette (Settings → Interface → Appearance). Must be a key
     # in metatv.gui.theme_palettes.PALETTES ("Midnight"/"Graphite"/"Daylight");
     # an unknown/stale name (e.g. a palette removed in a later release) is

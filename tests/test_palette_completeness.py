@@ -294,3 +294,91 @@ def test_quality_chip_family_mutually_distinguishable(palette_name):
         f"{palette_name}: these quality chip pairs are too close in hue/"
         f"lightness to stay mutually distinguishable: {close_pairs}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. Facet-chip family stays mutually distinguishable (#257) — region (green)
+#    vs genre (teal), the one pair of the new comfy-row chip hues that can
+#    legitimately appear on the SAME row (channel_list_delegate.py's line 1
+#    region/platform chip + line 2 genre chip). Modeled on
+#    test_quality_chip_family_mutually_distinguishable above, but with a
+#    DELIBERATELY LOOSER hue-distance floor: region/genre are owner-specified
+#    (filter_group_row._accent_colors()) as adjacent-by-design hues — unlike
+#    the quality family (5 maximally-separated tiers), collapsing them to
+#    identical hues was never the design goal, so this only guards against an
+#    actual COLLISION (identical value, or a near-zero hue gap), not against
+#    them merely being close.
+# ---------------------------------------------------------------------------
+
+_FACET_ADJACENT_PAIR = ("COLOR_ACCENT_GREEN", "COLOR_ACCENT_TEAL")  # region vs genre
+_FACET_HUE_DIST_FLOOR = 0.01  # measured ~0.02 in every palette today — real margin
+
+
+@pytest.mark.parametrize("palette_name", list(tp.PALETTES.keys()))
+def test_region_genre_chip_hues_mutually_distinguishable(palette_name):
+    """Region (green, line 1) and genre (teal, line 2) can both be visible on
+    the same comfy row — they must never collapse to the identical colour,
+    and must keep a real (if modest) hue gap between them.
+    """
+    palette = tp.PALETTES[palette_name]
+    region_val = palette[_FACET_ADJACENT_PAIR[0]]
+    genre_val = palette[_FACET_ADJACENT_PAIR[1]]
+
+    assert region_val != genre_val, (
+        f"{palette_name}: region chip ({_FACET_ADJACENT_PAIR[0]}={region_val}) and "
+        f"genre chip ({_FACET_ADJACENT_PAIR[1]}={genre_val}) collapsed to the same value"
+    )
+
+    import colorsys
+    r1, g1, b1 = _parse_rgb(region_val)
+    r2, g2, b2 = _parse_rgb(genre_val)
+    h1, _, _ = colorsys.rgb_to_hls(r1 / 255, g1 / 255, b1 / 255)
+    h2, _, _ = colorsys.rgb_to_hls(r2 / 255, g2 / 255, b2 / 255)
+    hue_dist = min(abs(h1 - h2), 1 - abs(h1 - h2))
+    assert hue_dist >= _FACET_HUE_DIST_FLOOR, (
+        f"{palette_name}: region ({region_val}) and genre ({genre_val}) hues "
+        f"are only {hue_dist:.4f} apart (floor {_FACET_HUE_DIST_FLOOR}) — "
+        "too close to read as distinct chips on the same row"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Quality chip's new OUTLINE treatment (#257 Part A) vs Daylight's 4.5:1
+#    text-contrast floor. The chip's background changed from a solid
+#    _quality_colors() fill to a transparent-ish OVERLAY_08 tint (see
+#    channel_list_delegate._quality_cell) — this measures the RESULTING text/
+#    border contrast against the channel-list's own background
+#    (COLOR_BG_SECTION, same reference token as test #5 above) using this
+#    file's own contrast helper (per the #257 brief: "test_palette_
+#    completeness.py has a contrast helper — REUSE it").
+#
+#    KNOWN, DOCUMENTED COMPROMISE (see channel_list_delegate._quality_cell's
+#    docstring and the PR body for the full reasoning): all five tiers
+#    currently fall short of 4.5:1 in Daylight. COLOR_QUALITY_* is an
+#    intentionally fixed, theme-invariant hue family (this file's own module
+#    docstring: "the owner explicitly likes this hue system" — held constant
+#    across all three palettes), so — unlike COLOR_ACCENT_* — it was never
+#    palette-darkened for light-background text contrast; a same/darker
+#    NEUTRAL background tint mathematically cannot raise contrast further
+#    when the tier colour is already the darker of the pair (verified by
+#    direct computation — darkening the background only shrinks the gap).
+#    This test locks in the MEASURED reality (a regression test in the sense
+#    that a future change making it WORSE, or silently "fixing" it by
+#    breaking the tier-hue/cross-palette-invariance constraints, gets caught)
+#    rather than asserting an unreachable floor.
+# ---------------------------------------------------------------------------
+
+def test_quality_outline_chip_daylight_contrast_is_measured_and_below_floor():
+    palette = tp.PALETTES["Daylight"]
+    bg_val = palette[_PRIMARY_BG_TOKEN]  # COLOR_BG_SECTION — the list's own background
+    measured = {name: _contrast(palette[name], bg_val) for name in _QUALITY_TOKENS}
+
+    below_floor = {name for name, ratio in measured.items() if ratio < 4.5}
+    assert below_floor == set(_QUALITY_TOKENS), (
+        "Daylight outline-quality-chip contrast changed from the known/"
+        f"accepted baseline (measured ratios: "
+        + ", ".join(f"{n}={r:.2f}:1" for n, r in sorted(measured.items()))
+        + ") — if this now clears 4.5:1 for some tiers, that's real progress:"
+        " update this test's expected set. If MORE tiers are below floor than"
+        " before, that's a regression — investigate before updating."
+    )
