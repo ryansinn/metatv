@@ -2418,6 +2418,29 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         if not _theme.apply_theme(self.config.theme_name):
             return
 
+        # Tell the truth about what just happened. The sweep below reaches the
+        # chrome it knows about, but Qt caches the RENDERED stylesheet string,
+        # and there are ~838 setStyleSheet call sites against ~22 refresh_theme
+        # methods — so a live switch leaves much of the app on the OLD palette,
+        # which in a light theme reads as unstyled/broken rather than "not
+        # refreshed". Until the style registry lands (ROADMAP "Next Up"), say so
+        # instead of silently half-applying. Suppressed on the startup call,
+        # where nothing is stale because the theme was applied before any widget
+        # existed (__main__.py:57).
+        if self.__dict__.get("_theme_ever_switched"):
+            notify = self.__dict__.get("notification_manager")
+            if notify is not None:
+                notify.show(
+                    title="Theme changed — restart to apply it everywhere",
+                    message=(
+                        "Some views keep the previous colours until MetaTV is "
+                        "restarted. Known limitation, not a failed switch."
+                    ),
+                    type="info",
+                    auto_dismiss_ms=8000,
+                )
+        self._theme_ever_switched = True
+
         if hasattr(self, "_settings_btn"):
             self._settings_btn.setStyleSheet(_theme.FLAT_NAV_BTN)
         if hasattr(self, "_bottom_nav_bar"):

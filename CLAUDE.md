@@ -157,6 +157,12 @@ Never pipe a test run through `tail`/`head`/`grep` in the same command that deci
 ### Design work
 Mockups start from a faithful inventory of the CURRENT app (code transcription with file:line anchors); proposals render side-by-side vs current with **every delta a numbered question** (Q-tags). Roadmap concepts are never pre-applied as settled layout.
 
+## Releases — rolling by default
+
+**Every push to `main` builds and publishes to one moving release tagged `rolling`** (`.github/workflows/release.yml`). There is no per-release chore and no version to choose: the tester bookmarks one URL and always gets the newest build. A `v*` tag still cuts an immutable release when a milestone genuinely warrants one — the two paths coexist.
+
+The identifier is derived, never hand-chosen: `<version>+<UTC date>.<short sha>`, stamped into `metatv/_build_id.py` (gitignored) before PyInstaller so a packaged app's title bar names the exact commit. `metatv/__init__.py`'s `__version__` survives only as the What's New batch label. **Because a push ships to the tester, `main` must always be green** — run the full suite before pushing, not after.
+
 ## Session Wrap SOP
 
 On "let's wrap up" / "wrap this session", follow docs/SESSION_WRAP.md in order: tests (`pytest tests/ -x -q`) → commit everything → **roadmap reconciliation gate** → **release-claims audit** → update stale docs → update CLAUDE.md → refresh memory (`project_session_handoff.md`) → `git push origin main` → confirm what landed.

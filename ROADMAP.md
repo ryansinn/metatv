@@ -220,37 +220,48 @@ P2: file splits, the `font-size`→`FONT_*` rule/cleanup):
    `container.right()`, so the vertical scrollbar painted over them. `_ROW_H_PAD` inset applied at
    the paint chokepoint, so every density and the thumbnail path inherit it.
 
-**v0.26.0 — next.** Carried forward from the same UX pass, plus what v0.25.0 surfaced.
+**v0.26.0 — SHIPPED 2026-08-03 (rolling).** Three What's New entries (#268–#270); verify with
+`scripts/roadmap_audit.py --version 0.26.0`.
 
-- [ ] **Live theme switching is architecturally broken** — CONFIRMED by owner re-test against
-  v0.24.0: switching in Settings leaves the previous palette's text on the new chrome (light-grey on
-  light-grey), app-wide. Not a missing view — Qt caches the RENDERED stylesheet string, and there are
-  **838 `setStyleSheet` call sites across 68 files against 22 `refresh_theme()` methods across 16**.
-  The #253 QPalette floor amplified it: unstyled widgets adopt the new palette instantly while 800+
-  baked stylesheets do not. Cold launch is unaffected (`__main__.py:57` applies the theme before any
-  widget exists). Fix is a style registry — `theme.style(w, "ROLE")` recording weakref + role so
-  `apply_theme()` re-applies every live entry, plus a drift-guard test banning the raw form. Detail:
+1. [x] **Rolling releases** (build-only, no What's New entry — `.github/workflows/release.yml:20`)
+   — every push to `main` publishes to ONE moving release tagged `rolling`, so the tester bookmarks
+   a single URL and always gets the newest build. Version tags still cut an immutable release, so
+   nothing is lost. The identifier is kept but derived, never hand-chosen:
+   `<version>+<UTC date>.<short sha>`, stamped into `metatv/_build_id.py` before PyInstaller so the
+   packaged title bar names the exact commit. Old dmgs are deliberately not warehoused — any commit
+   can be rebuilt via `workflow_dispatch`.
+2. [x] **"Provider" vs "Source"** (#268) — Source in all 44 user-facing strings; Provider stays the
+   code term. Guarded by `tests/test_source_vocabulary.py`, which walks the GUI AST, exempts logger
+   text, and tests ITSELF against a planted violation. It found 11 tooltips the manual pass missed.
+3. [x] **New Filter Values: Select all / Unselect all** (#268) — a new source can introduce hundreds
+   of values; "exclude everything, then add back a few" was N clicks.
+4. [x] **First run lands on Discover** (#268) — one-shot armed by the honest zero-sources branch,
+   consumed when real channels arrive. Deliberately NOT disarmed by the Sources manager, since
+   adding the first source requires going there.
+5. [x] **EPG empty state** (#269) — `get_epg_readiness()` + a pure `epg_empty_state()` classifier
+   tell apart no-sources / no-guide-URL / EPG-off / not-yet-fetched. Only the last suggests Refresh.
+   Chip stays enabled throughout (owner call).
+6. [x] **Add-source URL field above the list it feeds** (#269) — plus a plain-language TV-guide
+   explainer, since the old tooltip presumed you knew what EPG and XMLTV are.
+7. [x] **Row chips hover + click** (#270) — the delegate records the rects it painted and the view
+   hit-tests them, so a hit region can never drift from the visible chip. Click routes into the
+   EXISTING context-filter handlers, never a third path. A chip click filters ONLY (owner decision)
+   — it does not change row selection, so it cannot collide with double-click-to-play. Chips that
+   can't filter (year, ×N badge) explain themselves but show no clickable cursor.
+
+**v0.27.0 — next.**
+
+- [ ] **Live theme switching — the style registry.** THE remaining known-broken area, and the only
+  v0.26.0 queue item deliberately NOT attempted: it is a ~466-call-site mechanical refactor with a
+  regression surface covering every screen, which is the wrong thing to rush into a rolling build
+  that auto-ships. Confirmed by owner re-test: switching in Settings leaves the previous palette's
+  text on the new chrome, app-wide. Qt caches the RENDERED stylesheet string, and there are **838
+  `setStyleSheet` sites across 68 files against 22 `refresh_theme()` methods across 16** — a gap
+  that cannot be closed by adding sweep entries (#253/#261 tried). Cold launch is unaffected.
+  Fix: `theme.style(w, "ROLE")` recording weakref + role so `apply_theme()` re-applies every live
+  entry, plus a drift-guard test banning the raw form. **Interim (shipped):** a theme switch now
+  says a restart is needed rather than silently half-applying. Detail:
   docs/UI_UX_GUIDELINES.md → "Known-broken: live theme switching".
-- [ ] **Row chips: clickable filters + explanatory hover** — owner decision 2026-08-03. Chips in the
-  results list are delegate-painted with no hit-testing, so they neither filter nor explain
-  themselves. Clicking one filters via the same strict context-chip path as the search-area filters
-  (docs/CONTEXT_FILTER_CHIPS.md); hover names the facet. Needs per-chip `QRect` hit-testing recorded
-  at paint, `setMouseTracking` + cursor routed through `cursor_affordance.py`, and tooltips via
-  `viewportEvent`/`helpEvent` (delegate sub-regions cannot use `setToolTip`). Settled in the brief:
-  a chip click filters ONLY — it does not also select the row, so it cannot collide with
-  double-click-to-play.
-- [ ] **Add-provider dialog: URL field sits below the list it feeds** — a tester pasted URLs into
-  the big box. Move the URL input above the list; add an explainer for what EPG is and why to
-  enable it.
-- [ ] **EPG view empty state** — distinguish "EPG is off" from "EPG on, not yet fetched"; the chip
-  stays enabled either way (owner call).
-- [ ] **"Provider" vs "Source"** — Source is the user-facing term everywhere; Provider stays in
-  code. The File menu still says "&Add Provider..." (`main_window.py:819`).
-- [ ] **New Filter Values dialog: no way to exclude everything** — add Unselect All / Select All so
-  a new source can start fully excluded and the user adds a few back.
-- [ ] **First run never lands on Discover** — Discover is the default view but a new user has no
-  source, so they never get placed there. Navigate after the first source finishes loading (guards:
-  first source only, ≥1 channel, no manual navigation in the meantime).
 - [ ] **Discover collection shelves need organising** — ~800 shelves is unscrollable.
   `MIN_COLLECTION_SHELF_MEMBERS` is 2; raise it, add shelf search, and drop any collection whose
   members are all globally excluded. Platform rollup needs its own Q-tag review.
