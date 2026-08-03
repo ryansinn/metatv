@@ -217,6 +217,17 @@ class ChannelDB(Base):
     detected_collection          = Column(String, index=True, nullable=True)
     detected_collection_language = Column(String, nullable=True)
     detected_collection_subdub   = Column(String, nullable=True)
+    # Provider-appended trailing credits lifted from the channel name at
+    # ingestion, e.g. "NICOLAS CAGE" from
+    # "EN - Adaptation. 4K (2002) NICOLAS CAGE". parse_channel_name's step 1b
+    # already identifies this span as extra credits (it distinguishes it from a
+    # real subtitle and from a qualifier) and used to discard it.
+    #
+    # An INFERENCE, never authoritative cast: it is whatever the provider typed
+    # after the year. Surfaced as a low-confidence "person" tag with provenance,
+    # deliberately NOT merged into MetadataDB.cast — real credits and a filename
+    # guess must stay distinguishable.
+    detected_name_cast           = Column(String, nullable=True)
 
     # Provider-ordering and header-derived category (live channels only)
     # source_num: the `num` field from the Xtream API — provider's canonical display order
@@ -725,6 +736,9 @@ class Database:
             ("channels",     "detected_collection",          "TEXT"),
             ("channels",     "detected_collection_language", "TEXT"),
             ("channels",     "detected_collection_subdub",   "TEXT"),
+            # Trailing credits lifted from the name at ingestion (#278) — an
+            # inference, see ChannelDB.detected_name_cast above.
+            ("channels",     "detected_name_cast",           "TEXT"),
             # Wave 4 — episode-grain metadata lifted from raw_data at ingestion
             # (#247); computed at ingestion, see EpisodeDB.plot/air_date/rating/
             # still_url above. Pre-existing rows backfilled by

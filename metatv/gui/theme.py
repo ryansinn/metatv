@@ -1636,6 +1636,40 @@ def _role_qss(role) -> str:
     return value
 
 
+def _repolish_all_widgets() -> int:
+    """Force every existing widget to re-read the palette. Returns the count.
+
+    The palette push in :func:`_sync_qt_application_palette` updates what
+    widgets *resolve*, but Qt does not automatically re-render item-view
+    backgrounds and other style-computed surfaces for widgets that already
+    exist. Cold launch looked correct only because ``apply_theme`` runs before
+    any widget is constructed (``__main__.py``) — a LIVE switch left the channel
+    list and sidebar lists painted in the previous palette, which in Daylight
+    read as dark panels under light chrome (owner report, confirmed by "when I
+    restart the app in daylight theme, the backgrounds are correct").
+
+    ``unpolish``/``polish`` is Qt's supported way to make a widget recompute
+    style-derived values. Uses ``QApplication.allWidgets()`` rather than a
+    maintained list — the enumeration problem the style registry exists to
+    avoid applies here too, and a theme switch is a rare, user-initiated action
+    where walking every widget once is cheap.
+    """
+    app = QApplication.instance()
+    if app is None:
+        return 0
+    count = 0
+    for widget in app.allWidgets():
+        try:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+        except RuntimeError:
+            # The C++ object is gone while the Python wrapper lingers.
+            continue
+        count += 1
+    return count
+
+
 def _reapply_registered_styles() -> int:
     """Re-apply every live registration; reap dead ones. Returns the count."""
     survivors: list = []
@@ -1704,6 +1738,9 @@ def apply_theme(name: str) -> bool:
     # matches the resting default still needs one pass so nothing is left on a
     # stale string. Cheap when the registry is empty (startup, tests).
     _reapply_registered_styles()
+    # Registered widgets got a fresh stylesheet above; everything else needs to
+    # be told to re-read the palette, or it keeps painting the old one.
+    _repolish_all_widgets()
     return changed
 
 

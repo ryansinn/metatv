@@ -172,3 +172,60 @@ class TestDriftGuard:
             for path in pathlib.Path("metatv/gui").rglob("*.py")
         )
         assert total > 400, f"only {total} style() call sites — migration incomplete"
+
+
+class TestRepolishOnSwitch:
+    """Existing widgets must be told to re-read the palette (#278).
+
+    Owner, on a live switch: list backgrounds stayed in the previous palette —
+    dark panels under light chrome in Daylight, and symmetrically light panels
+    under dark chrome going back to Midnight. Restarting in either theme was
+    always correct, which is the whole diagnosis: ``apply_theme`` runs before any
+    widget exists at cold launch (``__main__.py``), so widgets are BORN right.
+
+    The palette push updates what widgets resolve; it does not make an
+    already-constructed item view repaint its background. ``unpolish``/
+    ``polish`` is Qt's supported way to force that recompute.
+
+    NOTE: this cannot be proven by pixel assertion here. The offscreen Qt
+    platform repaints on a palette change on its own, so the bug does not
+    reproduce in tests — it needs the native macOS style. These tests therefore
+    pin the MECHANISM (every widget is visited on a switch) rather than claiming
+    a rendered outcome the harness cannot actually demonstrate.
+    """
+
+    def test_apply_theme_visits_every_widget(self, qapp):
+        from PyQt6.QtWidgets import QLabel, QListWidget
+
+        widgets = [QLabel(), QListWidget(), QLabel()]
+        _theme.apply_theme("Midnight")
+
+        visited = _theme._repolish_all_widgets()
+
+        assert visited >= len(widgets), (
+            f"only {visited} widgets repolished — every existing widget must be "
+            f"visited, since the ones that go stale are exactly the ones nobody "
+            f"remembered to enumerate"
+        )
+
+    def test_a_dead_widget_does_not_break_the_pass(self, qapp):
+        from PyQt6 import sip
+        from PyQt6.QtWidgets import QLabel
+
+        doomed = QLabel()
+        sip.delete(doomed)
+
+        # Must not raise: one corpse cannot be allowed to stop the sweep before
+        # it reaches the widgets that still need repainting.
+        assert _theme._repolish_all_widgets() >= 0
+
+    def test_switching_theme_runs_the_repolish(self, qapp, monkeypatch):
+        """Wiring check — the helper is useless if apply_theme doesn't call it."""
+        calls = []
+        monkeypatch.setattr(
+            _theme, "_repolish_all_widgets", lambda: calls.append(1) or 0
+        )
+        _theme.apply_theme("Midnight")
+        _theme.apply_theme("Daylight")
+
+        assert calls, "apply_theme did not repolish — a live switch stays stale"

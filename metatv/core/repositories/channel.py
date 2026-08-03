@@ -1981,6 +1981,13 @@ class ChannelRepository(_ChannelStatsMixin):
                 )
             )
 
+            # Trailing credits the parser identified and used to discard —
+            # "NICOLAS CAGE" from "… (2002) NICOLAS CAGE". An inference, stored
+            # so render/query code reads a field instead of re-parsing (CLAUDE.md
+            # rule); None rather than "" so "no credits" and "not yet parsed"
+            # stay distinguishable.
+            new_name_cast = (parsed.trailing or "").strip() or None
+
             changed = (
                 prefix != channel.detected_prefix
                 or quality != channel.detected_quality
@@ -1995,6 +2002,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 or new_collection != channel.detected_collection
                 or new_collection_language != channel.detected_collection_language
                 or new_collection_subdub != channel.detected_collection_subdub
+                or new_name_cast != channel.detected_name_cast
             )
             if changed:
                 channel.detected_prefix = prefix
@@ -2010,6 +2018,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 channel.detected_collection = new_collection
                 channel.detected_collection_language = new_collection_language
                 channel.detected_collection_subdub = new_collection_subdub
+                channel.detected_name_cast = new_name_cast
                 channel.updated_at = datetime.now()
                 batch_updated += 1
 
