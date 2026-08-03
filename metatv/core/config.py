@@ -1277,27 +1277,34 @@ class Config(BaseModel):
 
         Migrates any legacy entry (scalar ``baseline_episode_count``, from
         before the per-provider baselines upgrade) to the per-provider
-        ``baselines`` shape, AND clamps any ``unseen_new`` left inflated by
+        ``baselines`` shape, AND resets any ``unseen_new`` left inflated by
         the #259 baseline-accounting bug (a flaky provider fetch recorded a
         baseline of 0, so the next successful check counted the whole
-        catalogue as "new" every pass) down to the summed baselines — both on
-        first read, writing the migrated list back.  Both steps are one-time,
-        idempotent upgrades (see ``series_monitor.normalize_monitored_entry``
-        and ``series_monitor.clamp_inflated_unseen_new``).  Entries already
-        sane pass through unchanged.  This never touches favorites, ratings,
-        history, or watch progress, and never removes an entry — it only ever
-        corrects the derived ``unseen_new``/``baselines`` fields on this list.
+        catalogue as "new" every pass) to 0 — a count found exceeding its
+        summed baselines is PROVEN corrupt (no way to tell which, if any, of
+        the recorded episodes were genuine new ones), so 0 is the honest
+        value, not a clamped guess; genuinely new episodes are detected fresh
+        on the very next check regardless.  Both steps run on first read,
+        writing the migrated list back, and are one-time, idempotent upgrades
+        (see ``series_monitor.normalize_monitored_entry`` and
+        ``series_monitor.zero_out_inflated_unseen_new`` — NOT the different,
+        ongoing ``clamp_unseen_new_to_baseline_total`` guard applied to fresh
+        writes in ``SeriesMonitorManager._on_new_episodes``).  Entries
+        already sane pass through unchanged.  This never touches favorites,
+        ratings, history, or watch progress, and never removes an entry — it
+        only ever corrects the derived ``unseen_new``/``baselines`` fields on
+        this list.
         """
         from metatv.core.series_monitor import (
-            clamp_inflated_unseen_new,
             normalize_monitored_entry,
+            zero_out_inflated_unseen_new,
         )
 
         changed = False
         migrated = []
         for e in self.monitored_series:
             m = normalize_monitored_entry(e)
-            c = clamp_inflated_unseen_new(m)
+            c = zero_out_inflated_unseen_new(m)
             if c is not e:
                 changed = True
             migrated.append(c)

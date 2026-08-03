@@ -93,22 +93,95 @@ def normalize_monitored_entry(entry: dict) -> dict:
     return migrated
 
 
-def clamp_inflated_unseen_new(entry: dict) -> dict:
-    """Return *entry* with ``unseen_new`` clamped to the summed per-provider baselines.
+def _inflated_unseen(entry: dict) -> tuple[int, int] | None:
+    """Return ``(unseen_new, sane_max)`` if *entry*'s ``unseen_new`` exceeds its
+    summed per-provider baselines, else ``None`` (nothing to correct: no usable
+    baseline data, ``unseen_new`` absent/non-positive, or already sane).
+
+    Shared by ``zero_out_inflated_unseen_new`` and
+    ``clamp_unseen_new_to_baseline_total`` — the single place that decides
+    WHETHER an entry is inflated; the two callers differ only in HOW they
+    correct it (reset to 0 vs. clamp to the sum).
+    """
+    baselines = entry.get("baselines")
+    if not isinstance(baselines, dict) or not baselines:
+        return None
+    unseen = entry.get("unseen_new")
+    if not isinstance(unseen, int) or unseen <= 0:
+        return None
+    sane_max = sum(v for v in baselines.values() if isinstance(v, int))
+    if unseen <= sane_max:
+        return None
+    return unseen, sane_max
+
+
+def zero_out_inflated_unseen_new(entry: dict) -> dict:
+    """One-time repair: reset a PROVEN-CORRUPT ``unseen_new`` to 0.
 
     Repairs config state left over from the #259 baseline-accounting bug: a
     flaky provider fetch that returned an empty/malformed ``episodes``
     payload was stored as a baseline of ``0``, so the next successful check
     read the delta as the ENTIRE catalogue and ``unseen_new`` accumulated
-    without bound across launches (one observed real-config case reached
-    320 for a 132-episode show). ``unseen_new`` can never legitimately
-    exceed the total episode count currently believed across every provider
-    baseline, so any value above that sum is clamped down to the sum itself
-    — this is both the one-time repair for already-inflated entries (called
-    from ``Config.get_monitored_series``, the existing migrate-on-read
-    chokepoint) AND the ongoing belt-and-braces guard applied to every fresh
-    write (called from ``SeriesMonitorManager._on_new_episodes``), so a
-    future accounting bug can't reproduce an absurd number either.
+    without bound across launches (one observed real-config case reached 320
+    for a 132-episode show). A count found ``unseen_new > sum(baselines)`` is
+    PROVEN corrupt (the owner's confirmation: none of the excess was real new
+    episodes) and carries no recoverable signal — there's no way to tell
+    which, if any, of the recorded "unseen" episodes were genuine, so 0 is
+    the honest value, not a clamped guess. Because the baselines themselves
+    are correct once this bug is fixed, any genuinely new episode is
+    detected fresh on the very next check — nothing is lost going forward.
+
+    This is THE ONE-TIME REPAIR ONLY — called from
+    ``Config.get_monitored_series``, the existing migrate-on-read
+    chokepoint. The ONGOING guard applied to every fresh write is the
+    different, deliberately more conservative
+    ``clamp_unseen_new_to_baseline_total`` (a fresh write isn't proven
+    corrupt, just implausible, so it's clamped rather than discarded).
+
+    Pure and side-effect-free — the caller decides whether/how to persist
+    the result. Idempotent: once ``unseen_new`` is 0 (or otherwise within
+    the sane range, or there's no baseline data to check it against), a
+    second call is a no-op and returns ``entry`` UNCHANGED (same object).
+
+    Args:
+        entry: A monitored-series config dict. Expected to already carry a
+            ``baselines`` dict — call ``normalize_monitored_entry`` first for
+            legacy entries.
+
+    Returns:
+        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
+        absent, or there's no usable baseline data to validate against;
+        otherwise a NEW dict with ``unseen_new`` reset to ``0``.
+    """
+    check = _inflated_unseen(entry)
+    if check is None:
+        return entry
+    unseen, sane_max = check
+    title = entry.get("display_title") or entry.get("title", "Unknown series")
+    logger.warning(
+        f"series_monitor: resetting corrupt unseen_new for {title} from "
+        f"{unseen} to 0 (exceeded summed baselines, sum={sane_max})"
+    )
+    migrated = dict(entry)
+    migrated["unseen_new"] = 0
+    return migrated
+
+
+def clamp_unseen_new_to_baseline_total(entry: dict) -> dict:
+    """Ongoing guard: clamp (never zero) an implausible ``unseen_new`` on a
+    FRESH write down to the summed per-provider baselines.
+
+    Applied to every write in ``SeriesMonitorManager._on_new_episodes`` as a
+    belt-and-braces bound — the value here is not proven corrupt (unlike the
+    one-time repair's starting state), just implausible, so the conservative
+    move is to cap it at the total episode count currently believed across
+    every provider baseline rather than discard it outright. This is what
+    stops a FUTURE accounting bug from reproducing an absurd number.
+
+    This is THE ONGOING GUARD ONLY. The different, one-time repair for
+    entries already PROVEN corrupt by the #259 bug is
+    ``zero_out_inflated_unseen_new`` (resets to 0, not the sum) — see its
+    docstring for why the two calls make different corrections.
 
     Pure and side-effect-free — the caller decides whether/how to persist
     the result. Idempotent: once ``unseen_new`` is within the sane range (or
@@ -126,19 +199,14 @@ def clamp_inflated_unseen_new(entry: dict) -> dict:
         otherwise a NEW dict with ``unseen_new`` clamped to
         ``sum(baselines.values())``.
     """
-    baselines = entry.get("baselines")
-    if not isinstance(baselines, dict) or not baselines:
+    check = _inflated_unseen(entry)
+    if check is None:
         return entry
-    unseen = entry.get("unseen_new")
-    if not isinstance(unseen, int) or unseen <= 0:
-        return entry
-    sane_max = sum(v for v in baselines.values() if isinstance(v, int))
-    if unseen <= sane_max:
-        return entry
+    unseen, sane_max = check
+    title = entry.get("display_title") or entry.get("title", "Unknown series")
     logger.warning(
-        f"series_monitor: clamping inflated unseen_new for "
-        f"{entry.get('display_title') or entry.get('title', 'Unknown series')} "
-        f"from {unseen} to {sane_max} (exceeds summed baselines {baselines})"
+        f"series_monitor: clamping unseen_new for {title} from {unseen} to "
+        f"{sane_max} (exceeds summed baselines {entry.get('baselines')})"
     )
     migrated = dict(entry)
     migrated["unseen_new"] = sane_max
@@ -587,12 +655,14 @@ class SeriesMonitorManager(QObject):
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
-            # Belt-and-braces guard: unseen_new can never legitimately exceed
-            # the total episode count currently believed across every
-            # provider baseline. Reuses the same clamp the one-time config
-            # migration applies (clamp_inflated_unseen_new), so a future
-            # accounting bug can't reproduce an absurd number either.
-            clamped = clamp_inflated_unseen_new({
+            # Ongoing belt-and-braces guard: unseen_new can never legitimately
+            # exceed the total episode count currently believed across every
+            # provider baseline. This value is NOT proven corrupt (unlike the
+            # one-time config migration's starting state) -- just implausible
+            # -- so it's CLAMPED to the sum, never zeroed. See
+            # clamp_unseen_new_to_baseline_total's docstring for the
+            # distinction from zero_out_inflated_unseen_new (the migration).
+            clamped = clamp_unseen_new_to_baseline_total({
                 "baselines": merged_baselines,
                 "unseen_new": existing_unseen + delta,
             })

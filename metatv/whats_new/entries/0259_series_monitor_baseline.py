@@ -16,17 +16,20 @@ ENTRY = WhatsNewEntry(
         "flaky source's episode count is never trusted below what was seen "
         "before, and a response with no usable episode data is now skipped "
         "and logged instead of overwriting your count. Any counts already "
-        "inflated by this bug are corrected automatically the next time the "
-        "app loads your monitored-series list — no other data (favorites, "
-        "ratings, history, watch progress) is touched.",
+        "inflated by this bug are reset to zero automatically the next time "
+        "the app loads your monitored-series list — a count that far off the "
+        "real total can't be trusted at all, so it's cleared rather than "
+        "guessed at; genuinely new episodes still show up normally on your "
+        "very next check. No other data (favorites, ratings, history, watch "
+        "progress) is touched.",
     ),
     version="0.24.0",
     date="2026-08-02",
     test_steps=(
         "Open Watch Queue → 'Alerts Matched' for a series that was previously "
-        "showing an inflated/ever-growing 'new episodes' count → the count now "
-        "reflects a sane, stable number (no more than the show's real episode "
-        "total) after the app has loaded once.",
+        "showing an inflated/ever-growing 'new episodes' count → the count is "
+        "reset to zero after the app has loaded once (rather than showing a "
+        "leftover large number).",
         "Restart the app a few times with a monitored series present → its "
         "'new episodes' count does not keep climbing between launches unless "
         "episodes genuinely aired.",

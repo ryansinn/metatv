@@ -19,11 +19,18 @@ Covers:
   full -> empty -> full -> empty -> full check sequence, the baseline never
   decreases and unseen_new never grows. THIS TEST MUST FAIL on the pre-fix
   tree (see PR body for the captured failure).
-- Config.get_monitored_series() one-time migration: an entry with an
-  already-inflated unseen_new is clamped down to the summed baselines; a
-  healthy entry is left untouched; running the migration twice changes
-  nothing further; no other field (favorites/ratings/history/watch
-  progress, or the presence of other monitored-series entries) is touched.
+- Config.get_monitored_series() one-time migration RESETS (not clamps) an
+  already-inflated unseen_new to 0 -- a count proven corrupt by exceeding
+  its summed baselines carries no recoverable signal, so 0 is the honest
+  value. A healthy entry is left completely untouched (same object, no
+  rewrite); running the migration twice changes nothing further; no other
+  field (favorites/ratings/history/watch progress, or the presence of
+  other monitored-series entries) is touched.
+- The DIFFERENT, ongoing guard in SeriesMonitorManager._on_new_episodes
+  still CLAMPS a fresh write to the summed baselines (never zeroes it) --
+  that value isn't proven corrupt, just implausible, so it's conservatively
+  capped rather than discarded. This distinction (reset-on-migration vs.
+  clamp-on-fresh-write) must not regress either direction.
 
 Uses a real, file-backed Database (NOT :memory: -- project rule for
 DB-session work: each connection on :memory: gets a separate empty DB,
@@ -228,16 +235,24 @@ class TestBaselineNeverLowersUnseenNeverInflates:
 
 
 # ===========================================================================
-# Part 2: one-time migration clamps already-inflated unseen_new counters
+# Part 2: one-time migration RESETS (zeroes) already-inflated unseen_new
 # ===========================================================================
 
-class TestUnseenNewClampMigration:
-    """Config.get_monitored_series() clamps any unseen_new left inflated by
-    the #259 bug down to the summed baselines -- on first read, idempotent,
-    and touching nothing else on the entry or the list."""
+class TestUnseenNewZeroOutMigration:
+    """Config.get_monitored_series() resets any unseen_new left inflated by
+    the #259 bug to 0 -- NOT clamped to the summed baselines -- on first
+    read, idempotent, and touching nothing else on the entry or the list.
 
-    def test_absurd_unseen_new_is_clamped_to_owner_reported_values(self, tmp_path):
-        """Exact real-config repro: both examples from the bug report."""
+    A count proven corrupt (unseen_new > summed baselines) carries no
+    recoverable signal: there is no way to tell which, if any, of the
+    recorded episodes were genuine, and the owner's own report is that NONE
+    of the excess was real. 0 is the honest value here, not a guess."""
+
+    def test_absurd_unseen_new_is_reset_to_zero_for_owner_reported_values(
+        self, tmp_path
+    ):
+        """Exact real-config repro: both examples from the bug report reset
+        to 0, not to their summed baselines (132 / 23)."""
         from metatv.core.config import Config
 
         cfg = Config(config_dir=tmp_path / "cfg")
@@ -268,23 +283,27 @@ class TestUnseenNewClampMigration:
 
         rick = next(e for e in result if e["series_channel_id"] == "rick_and_morty")
         fallout = next(e for e in result if e["series_channel_id"] == "fallout")
-        assert rick["unseen_new"] == 132, \
-            f"expected owner's reported real total 132, got {rick['unseen_new']}"
-        assert fallout["unseen_new"] == 23, \
-            f"expected owner's reported real total 23, got {fallout['unseen_new']}"
+        assert rick["unseen_new"] == 0, \
+            f"a proven-corrupt count must be RESET to 0, not clamped to the " \
+            f"summed baseline (132); got {rick['unseen_new']}"
+        assert fallout["unseen_new"] == 0, \
+            f"a proven-corrupt count must be RESET to 0, not clamped to the " \
+            f"summed baseline (23); got {fallout['unseen_new']}"
 
         # Written back to the raw stored field, not just the returned copy.
         stored_rick = next(
             e for e in cfg.monitored_series
             if e["series_channel_id"] == "rick_and_morty"
         )
-        assert stored_rick["unseen_new"] == 132
+        assert stored_rick["unseen_new"] == 0
 
-    def test_healthy_entry_is_left_untouched(self, tmp_path):
+    def test_healthy_entry_is_left_untouched_same_object(self, tmp_path):
+        """An entry at or below its summed baseline must not be rewritten at
+        all -- same object, no needless copy."""
         from metatv.core.config import Config
 
         cfg = Config(config_dir=tmp_path / "cfg")
-        cfg.monitored_series = [{
+        healthy_entry = {
             "series_channel_id": "ch1",
             "source_id": "s1",
             "provider_id": "p1",
@@ -293,14 +312,17 @@ class TestUnseenNewClampMigration:
             "unseen_new": 3,
             "growth_providers": ["Test Provider"],
             "last_checked": "2026-08-01T00:00:00+00:00",
-        }]
+        }
+        cfg.monitored_series = [healthy_entry]
 
         result = cfg.get_monitored_series()
         entry = result[0]
         assert entry["unseen_new"] == 3, \
-            "a sane unseen_new (below the summed baselines) must not be touched"
+            "a sane unseen_new (at/below the summed baselines) must not be touched"
         assert entry["baselines"] == {"p1": 10}
         assert entry["growth_providers"] == ["Test Provider"]
+        assert entry is healthy_entry, \
+            "a healthy entry must be returned as the SAME object, not rewritten"
 
     def test_migration_never_touches_other_fields_or_drops_entries(self, tmp_path):
         """Only unseen_new may change -- everything else on the entry, and every
@@ -340,8 +362,8 @@ class TestUnseenNewClampMigration:
         inflated = next(e for e in result if e["series_channel_id"] == "inflated")
         untouched = next(e for e in result if e["series_channel_id"] == "untouched")
 
-        assert inflated["unseen_new"] == 12, "clamped to the summed baseline (12)"
-        # Everything else on the clamped entry is preserved verbatim.
+        assert inflated["unseen_new"] == 0, "reset to 0, not clamped to 12"
+        # Everything else on the corrected entry is preserved verbatim.
         assert inflated["baselines"] == {"p1": 12}
         assert inflated["title"] == "Inflated Show"
         assert inflated["growth_providers"] == ["Flaky Provider"]
@@ -376,38 +398,130 @@ class TestUnseenNewClampMigration:
         }]
 
         first = cfg.get_monitored_series()
-        assert first[0]["unseen_new"] == 132
+        assert first[0]["unseen_new"] == 0
 
         second = cfg.get_monitored_series()
-        assert second[0]["unseen_new"] == 132, "second read must not re-clamp"
+        assert second[0]["unseen_new"] == 0, "second read must not re-touch it"
         assert second == first, "a second migration pass must be a pure no-op"
 
     def test_pure_function_idempotent_same_object_on_second_call(self):
-        """clamp_inflated_unseen_new itself: calling it again on its own output
-        returns the exact same object (no needless copy once sane)."""
-        from metatv.core.series_monitor import clamp_inflated_unseen_new
+        """zero_out_inflated_unseen_new itself: calling it again on its own
+        output returns the exact same object (no needless copy once sane)."""
+        from metatv.core.series_monitor import zero_out_inflated_unseen_new
 
         entry = {
             "series_channel_id": "ch1",
             "baselines": {"providerA": 91, "providerB": 41},
             "unseen_new": 320,
         }
-        once = clamp_inflated_unseen_new(entry)
+        once = zero_out_inflated_unseen_new(entry)
         assert once is not entry
-        assert once["unseen_new"] == 132
+        assert once["unseen_new"] == 0
 
-        twice = clamp_inflated_unseen_new(once)
+        twice = zero_out_inflated_unseen_new(once)
         assert twice is once, \
-            "a second clamp pass on an already-sane entry must be a no-op " \
+            "a second reset pass on an already-sane entry must be a no-op " \
             "(same object), not a fresh copy"
 
     def test_pure_function_leaves_entry_without_baselines_untouched(self):
-        """No baseline data to validate against -- can't confidently clamp, so
-        the entry (and any absurd unseen_new it carries) is left alone rather
-        than guessed at."""
-        from metatv.core.series_monitor import clamp_inflated_unseen_new
+        """No baseline data to validate against -- can't confidently prove
+        corruption, so the entry (and any absurd unseen_new it carries) is
+        left alone rather than guessed at."""
+        from metatv.core.series_monitor import zero_out_inflated_unseen_new
 
         entry = {"series_channel_id": "ch1", "baselines": {}, "unseen_new": 999}
-        result = clamp_inflated_unseen_new(entry)
+        result = zero_out_inflated_unseen_new(entry)
         assert result is entry
         assert result["unseen_new"] == 999
+
+
+# ===========================================================================
+# Part 3: the ONGOING guard (fresh writes) still CLAMPS -- must not regress
+# into also zeroing. This is the sharp distinction the coordinator called
+# out: one-time repair on PROVEN-corrupt data resets to 0; the ongoing
+# belt-and-braces guard on a fresh, merely-implausible write clamps to the
+# summed baselines instead.
+# ===========================================================================
+
+class TestOngoingGuardStillClampsNotZeroes:
+    """clamp_unseen_new_to_baseline_total (the pure function) and
+    SeriesMonitorManager._on_new_episodes (the call site) must clamp an
+    implausible fresh write to the summed baselines -- never reset it to 0.
+    """
+
+    def test_pure_function_clamps_to_sum_not_zero(self):
+        from metatv.core.series_monitor import clamp_unseen_new_to_baseline_total
+
+        entry = {
+            "series_channel_id": "ch1",
+            "baselines": {"providerA": 91, "providerB": 41},
+            "unseen_new": 320,
+        }
+        result = clamp_unseen_new_to_baseline_total(entry)
+        assert result is not entry
+        assert result["unseen_new"] == 132, \
+            f"the ongoing guard must clamp to the summed baseline (132), " \
+            f"not zero it: got {result['unseen_new']}"
+
+    def test_pure_function_idempotent_same_object_on_second_call(self):
+        from metatv.core.series_monitor import clamp_unseen_new_to_baseline_total
+
+        entry = {"series_channel_id": "ch1", "baselines": {"p1": 23}, "unseen_new": 256}
+        once = clamp_unseen_new_to_baseline_total(entry)
+        assert once["unseen_new"] == 23
+        twice = clamp_unseen_new_to_baseline_total(once)
+        assert twice is once
+
+    def test_on_new_episodes_ongoing_guard_clamps_not_zeroes(self, qapp):
+        """Exercises the real call site inside _on_new_episodes. Uses a bare
+        config stub (not the real Config) so Config.get_monitored_series'
+        migrate-on-read RESET step never runs first and masks what
+        _on_new_episodes' OWN clamp step does -- this isolates the ongoing
+        guard's behavior specifically."""
+        from metatv.core.series_monitor import SeriesMonitorManager
+
+        class _MinimalConfigStub:
+            """No migrate-on-read step -- deliberately bypasses Config's own
+            zero_out_inflated_unseen_new so this test isolates
+            _on_new_episodes' clamp_unseen_new_to_baseline_total call."""
+
+            def __init__(self, entries):
+                self.monitored_series = list(entries)
+
+            def get_monitored_series(self):
+                return list(self.monitored_series)
+
+            def update_monitored_series(self, series_channel_id, **fields):
+                updated = []
+                for e in self.monitored_series:
+                    if e.get("series_channel_id") == series_channel_id:
+                        merged = dict(e)
+                        merged.update(fields)
+                        updated.append(merged)
+                    else:
+                        updated.append(e)
+                self.monitored_series = updated
+
+        cfg = _MinimalConfigStub([{
+            "series_channel_id": "ch1",
+            "source_id": "s1",
+            "provider_id": "p1",
+            "title": "Show",
+            "baselines": {"p1": 10},
+            "unseen_new": 500,  # already implausible going in
+            "growth_providers": [],
+            "last_checked": None,
+        }])
+
+        manager = SeriesMonitorManager(MagicMock(), cfg, notifications=None)
+        manager._on_new_episodes(
+            "ch1", 2, "Show",
+            {"baselines": {"p1": 12}, "grown_provider_names": ["Provider"]},
+        )
+
+        entry = cfg.get_monitored_series()[0]
+        assert entry["unseen_new"] == 12, (
+            "the ONGOING guard must CLAMP to the summed baseline (12), "
+            f"never zero it: got {entry['unseen_new']}"
+        )
+        manager.shutdown()
