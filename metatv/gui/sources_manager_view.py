@@ -80,13 +80,13 @@ class SourcesManagerView(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        add_btn = QPushButton("+")
-        add_btn.setFixedSize(24, 22)
-        add_btn.setToolTip("Add Source…")
-        add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
-        cursor_affordance.set_clickable(add_btn)
-        add_btn.clicked.connect(self.addProviderClicked.emit)
-        header_layout.addWidget(add_btn)
+        self._add_btn = QPushButton("+")
+        self._add_btn.setFixedSize(24, 22)
+        self._add_btn.setToolTip("Add Source…")
+        self._add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        cursor_affordance.set_clickable(self._add_btn)
+        self._add_btn.clicked.connect(self.addProviderClicked.emit)
+        header_layout.addWidget(self._add_btn)
         outer.addWidget(header)
 
         body = QWidget()
@@ -125,6 +125,22 @@ class SourcesManagerView(QWidget):
 
         body_layout.addWidget(center, 1)
         outer.addWidget(body, 1)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome
+        (the "+" add button and the "select a source" empty-state label,
+        both styled once at construction) and forward to the embedded
+        ``ProviderEditorView``, which has its own ``refresh_theme()`` — same
+        recursion pattern as ``MainWindow.refresh_theme()`` forwarding to
+        ``details_pane``/``filter_panel``. The per-provider tree rows
+        (``ProviderItemWidget``) are rebuilt fresh from current tokens on
+        every ``refresh()`` (on_activate/select), so they need no sweep entry
+        here — same rationale as the channel-list row delegate.
+        """
+        self._add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        self._empty_label.setStyleSheet(_theme.EXPLORE_STATUS)
+        if hasattr(self._provider_editor, "refresh_theme"):
+            self._provider_editor.refresh_theme()
 
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #

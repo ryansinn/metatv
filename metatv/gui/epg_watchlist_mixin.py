@@ -101,9 +101,9 @@ class _EpgWatchlistMixin:
         layout.setSpacing(6)
 
         # Add-keyword row
-        hint = QLabel("Track a show or keyword — press Enter or click Track to add:")
-        hint.setStyleSheet(_theme.LABEL_MUTED)
-        layout.addWidget(hint)
+        self._watchlist_hint_lbl = QLabel("Track a show or keyword — press Enter or click Track to add:")
+        self._watchlist_hint_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        layout.addWidget(self._watchlist_hint_lbl)
 
         add_row = QHBoxLayout()
         self.add_pattern_input = QLineEdit()
@@ -118,9 +118,9 @@ class _EpgWatchlistMixin:
         add_row.addWidget(self.add_btn)
         layout.addLayout(add_row)
 
-        ci_note = QLabel("Patterns are not case-sensitive")
-        ci_note.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
-        layout.addWidget(ci_note)
+        self._watchlist_ci_note_lbl = QLabel("Patterns are not case-sensitive")
+        self._watchlist_ci_note_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
+        layout.addWidget(self._watchlist_ci_note_lbl)
 
         # Pattern cards — responsive FlowLayout
         self.watchlist_scroll = QScrollArea()
@@ -172,9 +172,9 @@ class _EpgWatchlistMixin:
         layout.setSpacing(6)
 
         rec_header = QHBoxLayout()
-        rec_title = QLabel("Channels with content matching your watchlist patterns:")
-        rec_title.setStyleSheet(_theme.CHANNEL_NAME_DIM)
-        rec_header.addWidget(rec_title)
+        self._rec_title_lbl = QLabel("Channels with content matching your watchlist patterns:")
+        self._rec_title_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        rec_header.addWidget(self._rec_title_lbl)
         rec_header.addStretch()
         self.manage_dismissed_btn = QPushButton("Manage dismissed")
         self.manage_dismissed_btn.setStyleSheet(

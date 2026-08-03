@@ -390,6 +390,23 @@ class WeightedTagCloud(QWidget):
         """
         self._filter_edit.setText("")
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this cloud's own persistent chrome —
+        the header label, sort toggle, filter box, and "+N more" cap button —
+        all styled once at construction. Individual ``_TagButton`` instances
+        are rebuilt fresh from current tokens on every ``set_tags()``/
+        ``set_multi_facet_tags()`` call, so they need no sweep entry here.
+        Called from ``RecipeView.refresh_theme()``.
+        """
+        self._header_lbl.setStyleSheet(_theme.CLOUD_HEADER_LABEL)
+        self._sort_btn.setStyleSheet(_theme.CLOUD_CTRL_BTN)
+        self._filter_edit.setStyleSheet(
+            f"QLineEdit {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_TEXT};"
+            f" background: {_theme.OVERLAY_05}; border: 1px solid {_theme.COLOR_BORDER};"
+            f" border-radius: 3px; padding: 1px 6px; }}"
+        )
+        self._more_btn.setStyleSheet(_theme.CLOUD_MORE_BTN)
+
     # ── private: UI construction ──────────────────────────────────────────────
 
     def _build_ui(self) -> None:

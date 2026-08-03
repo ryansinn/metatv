@@ -336,9 +336,9 @@ class PreferencesView(QWidget):
         ``rec_media_mix`` config key immediately (UI state persistence) and are
         restored from it here, with signals blocked during the restore.
         """
-        mix_caption = QLabel("Mix")
-        mix_caption.setStyleSheet(_theme.META_HINT)
-        row.addWidget(mix_caption)
+        self._mix_caption_lbl = QLabel("Mix")
+        self._mix_caption_lbl.setStyleSheet(_theme.META_HINT)
+        row.addWidget(self._mix_caption_lbl)
 
         self._mix_slider = QSlider(Qt.Orientation.Horizontal)
         self._mix_slider.setRange(0, 100)  # value = % of slots given to movies
@@ -612,6 +612,28 @@ class PreferencesView(QWidget):
 
     def on_deactivate(self) -> None:
         self._active = False
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome
+        styled once at construction — the "Mix" caption + mix label + the
+        Automatic button, and the Excluded/Version Preferences collapsible
+        toggles. Called from ``MainWindow.refresh_theme()``.
+
+        Everything else (attribute columns, recommendation rows, the
+        exclusions panel) is torn down and rebuilt from current tokens on
+        every ``refresh()``/``_render()`` call, so it's already live — same
+        rationale as the channel-list row delegate.
+        """
+        self._mix_caption_lbl.setStyleSheet(_theme.META_HINT)
+        self._mix_label.setStyleSheet(f"color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD};")
+        self._mix_auto_btn.setStyleSheet(_theme.INLINE_ACTION_BTN)
+
+        _toggle_style = (
+            f"QPushButton {{ text-align: left; color: {_theme.COLOR_DIM}; font-size: {_theme.FONT_MD}; border: none; padding: 2px 0; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT}; }}"
+        )
+        self._excl_toggle_btn.setStyleSheet(_toggle_style)
+        self._ver_prefs_toggle_btn.setStyleSheet(_toggle_style)
 
     def refresh(self) -> None:
         # Show a loading header so the stale "No ratings yet" never displays during

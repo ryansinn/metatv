@@ -322,16 +322,18 @@ class _ProviderEditorTabsMixin:
         self._username_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._username_input.setPlaceholderText("username")
         un_row.addWidget(self._username_input, 1)
-        un_eye = QPushButton(self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon)
-        un_eye.setFixedWidth(28)
-        un_eye.setCheckable(True)
-        un_eye.setStyleSheet(_theme.EYE_BTN)
-        un_eye.toggled.connect(
+        self._username_eye_btn = QPushButton(
+            self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon
+        )
+        self._username_eye_btn.setFixedWidth(28)
+        self._username_eye_btn.setCheckable(True)
+        self._username_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        self._username_eye_btn.toggled.connect(
             lambda checked: self._username_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
             )
         )
-        un_row.addWidget(un_eye)
+        un_row.addWidget(self._username_eye_btn)
         form.addRow("Username:", un_row)
 
         pw_row = QHBoxLayout()
@@ -340,16 +342,18 @@ class _ProviderEditorTabsMixin:
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._password_input.setPlaceholderText("password")
         pw_row.addWidget(self._password_input, 1)
-        pw_eye = QPushButton(self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon)
-        pw_eye.setFixedWidth(28)
-        pw_eye.setCheckable(True)
-        pw_eye.setStyleSheet(_theme.EYE_BTN)
-        pw_eye.toggled.connect(
+        self._password_eye_btn = QPushButton(
+            self.config.visibility_toggle_icon if self.config else _icons.visibility_toggle_icon
+        )
+        self._password_eye_btn.setFixedWidth(28)
+        self._password_eye_btn.setCheckable(True)
+        self._password_eye_btn.setStyleSheet(_theme.EYE_BTN)
+        self._password_eye_btn.toggled.connect(
             lambda checked: self._password_input.setEchoMode(
                 QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
             )
         )
-        pw_row.addWidget(pw_eye)
+        pw_row.addWidget(self._password_eye_btn)
         form.addRow("Password:", pw_row)
 
         layout.addWidget(group)

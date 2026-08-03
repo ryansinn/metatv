@@ -215,6 +215,23 @@ class RecipeView(_RecipeClusterMixin, _RecipeBrowseMixin, _RecipeSavedMixin, QWi
         self._see_all_token[0] += 1
         logger.debug("RecipeView: deactivated")
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome
+        (the "All facets" back button + "Browse by facet" stage header, both
+        styled once at construction) and forward to every child widget that
+        has its own ``refresh_theme()`` — same recursion pattern as
+        ``MainWindow.refresh_theme()`` forwarding to ``details_pane``/
+        ``filter_panel``. Called from ``MainWindow.refresh_theme()``.
+        """
+        self._back_to_clusters_btn.setStyleSheet(_theme.RECIPE_BACK_TO_GRID_BTN)
+        self._stage_hdr.setStyleSheet(_theme.RECIPE_BROWSE_HDR)
+        for child in (
+            self._tab_bar, self._cluster_grid, self._cloud,
+            self._recipe_bar, self._matching, self._browse, self._saved_panel,
+        ):
+            if hasattr(child, "refresh_theme"):
+                child.refresh_theme()
+
     def reload(self) -> None:
         """Re-issue all data loads against the *current* config.
 
