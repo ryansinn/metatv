@@ -84,7 +84,8 @@ unit-testable without rendering pixels.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple, Optional
+import re
+from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import (
@@ -171,6 +172,65 @@ def _rating_chip_bg() -> dict[int, str]:
     lookup table, so it doesn't belong in channel_name_utils.py); values are
     theme tokens, re-read fresh so a live theme switch applies."""
     return {1: _theme.COLOR_OK, -1: _theme.COLOR_ERR}
+
+
+# ---------------------------------------------------------------------------
+# Colour conversion — the ONE chokepoint every colour this delegate paints
+# must go through. Never construct a bare QColor(token) at a paint call site.
+# ---------------------------------------------------------------------------
+
+# CSS rgba(r,g,b,a) / rgb(r,g,b) — the format theme_palettes.py's OVERLAY_*
+# tokens use. Whitespace-tolerant; the alpha group is optional (rgb() form).
+_RGBA_RE = re.compile(
+    r'^\s*rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)\s*$'
+)
+
+
+def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
+    """Convert a theme token value into a valid, correctly-coloured QColor —
+    the single conversion chokepoint every colour this delegate paints must
+    route through instead of a bare ``QColor(token)`` call.
+
+    ``QColor``'s own string constructor parses ``#RRGGBB``/``#RGB`` hex and
+    Qt/SVG colour NAMES ("gold", "white", ...) — but NOT the CSS
+    ``rgba(r,g,b,a)``/``rgb(r,g,b)`` function syntax
+    ``theme_palettes.py``'s ``OVERLAY_*`` tokens use. Feeding one of those
+    straight to ``QColor(...)`` silently returns an INVALID colour that
+    paints as OPAQUE BLACK, alpha 255 — a real bug this chokepoint fixes:
+    every chip whose background read an ``OVERLAY_*`` token (language/
+    region/genre/collection, and the outline quality chip's own subtle tint)
+    was painting a solid black box instead of the intended translucent tint.
+    Those ``rgba()`` strings are legitimate CSS for QSS stylesheets; they are
+    simply not valid ``QColor`` constructor input on a raw ``QPainter``
+    surface like this delegate.
+
+    Args:
+        token: A theme token value — ``#RRGGBB``/``#RGB`` hex, an SVG colour
+            name, a CSS ``rgba(r,g,b,a)``/``rgb(r,g,b)`` string, an
+            already-constructed ``QColor`` (passed through unchanged — some
+            callers, e.g. ``_resolve_default_color``, already hand this a
+            real ``QColor``), or ``None``/``""``.
+
+    Returns:
+        A ``QColor``. ``rgba()``/``rgb()`` strings are parsed component-wise
+        (alpha via ``setAlphaF``, clamped to ``[0, 1]``); everything else is
+        handed to ``QColor()`` directly (hex/named colours parse correctly
+        there). An empty/unparseable token falls back to ``QColor()`` (Qt's
+        own invalid-black) rather than raising — paint code must never crash
+        the row.
+    """
+    if isinstance(token, QColor):
+        return token
+    if not token:
+        return QColor()
+    match = _RGBA_RE.match(token)
+    if match:
+        r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        color = QColor(r, g, b)
+        if match.group(4) is not None:
+            color.setAlphaF(max(0.0, min(1.0, float(match.group(4)))))
+        return color
+    return QColor(token)
 
 
 class _Cell(NamedTuple):
@@ -531,10 +591,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         letter = title.strip()[:1].upper() if title.strip() else "?"
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(_theme.COLOR_FAINT))
+        painter.setBrush(_to_qcolor(_theme.COLOR_FAINT))
         painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QColor(_theme.COLOR_MUTED))
+        painter.setPen(_to_qcolor(_theme.COLOR_MUTED))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
 
     # ── Header-row rendering (unchanged behaviour) ──────────────────────────
@@ -589,7 +649,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
 
     def _draw_text(self, painter, rect: QRect, text: str, color, font) -> None:
         painter.setFont(font)
-        painter.setPen(QColor(color))
+        painter.setPen(_to_qcolor(color))
         painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
     def _cell_width(self, fm: QFontMetrics, cell: _Cell) -> int:
@@ -603,21 +663,21 @@ class ChannelRowDelegate(QStyledItemDelegate):
             # (a subtle tint, e.g. OVERLAY_08) paints as the interior when
             # present, then the border + text are ``fg`` (the tier colour).
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(cell.bg) if cell.bg else Qt.BrushStyle.NoBrush)
+            painter.setBrush(_to_qcolor(cell.bg) if cell.bg else Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QColor(cell.fg))
+            painter.setPen(_to_qcolor(cell.fg))
             painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
         elif cell.is_chip:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(cell.bg))
+            painter.setBrush(_to_qcolor(cell.bg))
             painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QColor(cell.fg))
+            painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
         else:
-            painter.setPen(QColor(cell.fg))
+            painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, cell.text)
 
     # ── Compact (one line) ───────────────────────────────────────────────────

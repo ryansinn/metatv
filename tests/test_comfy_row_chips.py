@@ -23,6 +23,13 @@ Covers:
 5. Settings round-trip for ``platform_name_style`` ("auto"/"full"/"short")
    through ``Config`` and the settings-dialog load/save helpers, mirroring
    ``test_channel_row_density.py``'s density round-trip tests.
+6. The ``_to_qcolor`` colour-conversion chokepoint (review follow-up): a bare
+   ``QColor(token)`` cannot parse the CSS ``rgba(...)`` strings
+   ``theme_palettes.py``'s ``OVERLAY_*`` tokens use — it silently returns an
+   INVALID colour that paints as opaque black. Proves the exact bug, proves
+   the fix parses every token this delegate can paint into a VALID colour in
+   all three palettes, and proves an actual ``_paint_cell`` call never hands
+   the painter an invalid brush/pen.
 
 Every test executes the changed path and asserts an outcome that would break
 if the #257 chip-system logic regressed — no shape/substring-only coverage.
@@ -55,7 +62,12 @@ from metatv.gui.channel_list_delegate import (
     _genre_cell,
     _language_cell,
     _quality_cell,
+    _rating_chip_cell,
+    _rating_glyph_cell,
     _region_or_platform_cell,
+    _to_qcolor,
+    _variant_badge_cell,
+    _year_cell,
 )
 from metatv.gui.channel_list_model import GENRE_ROLE, ChannelListModel
 from metatv.gui.settings_dialog import (
@@ -487,3 +499,134 @@ class TestPlatformNameStyleConfigAndSettings:
 
         _load_platform_name_style(combo, cfg)
         assert combo.currentData() == "auto"
+
+
+# ---------------------------------------------------------------------------
+# 6. _to_qcolor colour-conversion chokepoint (review follow-up)
+#
+# QColor(token) cannot parse the CSS rgba(r,g,b,a) strings theme_palettes.py's
+# OVERLAY_* tokens use — it silently returns an INVALID colour that paints as
+# opaque black, alpha 255. Every chip whose background read an OVERLAY_*
+# token (language/region/genre/collection, and the outline quality chip's
+# own subtle tint) was painting a solid black box instead of the intended
+# translucent tint. _to_qcolor is the single chokepoint every colour this
+# delegate paints must route through instead.
+# ---------------------------------------------------------------------------
+
+class TestColorConversionChokepoint:
+
+    def test_bare_qcolor_of_an_overlay_token_is_the_bug(self, qapp):
+        """Documents the underlying platform behaviour _to_qcolor exists to
+        work around: a bare QColor(rgba_token) is INVALID and paints black."""
+        for token in ("rgba(255,255,255,0.15)", "rgba(60,120,180,0.5)", "rgba(0,0,0,0.08)"):
+            bare = QColor(token)
+            assert not bare.isValid(), (
+                f"expected a bare QColor({token!r}) to be invalid (the bug this "
+                "chokepoint fixes) — if this now passes, PyQt6 added rgba() "
+                "parsing and _to_qcolor's manual parse may be redundant"
+            )
+            assert bare.name() == "#000000"
+
+    def test_to_qcolor_parses_rgba_tokens_into_the_correct_valid_colour(self, qapp):
+        cases = [
+            ("rgba(255,255,255,0.15)", (255, 255, 255)),
+            ("rgba(60,120,180,0.5)", (60, 120, 180)),
+            ("rgba(68,136,255,0.15)", (68, 136, 255)),
+            ("rgba(0,0,0,0.08)", (0, 0, 0)),  # legitimately black hue, but low alpha
+        ]
+        for token, expected_rgb in cases:
+            color = _to_qcolor(token)
+            assert color.isValid(), f"{token!r} produced an INVALID QColor"
+            assert (color.red(), color.green(), color.blue()) == expected_rgb, (
+                f"{token!r} resolved to "
+                f"{(color.red(), color.green(), color.blue())}, expected "
+                f"{expected_rgb}"
+            )
+
+    def test_to_qcolor_preserves_alpha_from_rgba(self, qapp):
+        color = _to_qcolor("rgba(60,120,180,0.5)")
+        assert color.alpha() == pytest.approx(round(0.5 * 255), abs=1)
+
+    def test_to_qcolor_handles_hex_and_named_colours(self, qapp):
+        assert _to_qcolor("#7755cc").isValid()
+        assert _to_qcolor("#7755cc").name() == "#7755cc"
+        assert _to_qcolor("gold").isValid()
+
+    def test_to_qcolor_passes_through_an_existing_qcolor(self, qapp):
+        original = QColor("#123456")
+        assert _to_qcolor(original) is original
+
+    def test_to_qcolor_empty_input_is_invalid_not_a_crash(self, qapp):
+        assert _to_qcolor(None).isValid() is False
+        assert _to_qcolor("").isValid() is False
+
+    @pytest.mark.parametrize("palette_name", ["Midnight", "Graphite", "Daylight"])
+    def test_every_delegate_paintable_token_is_valid_every_palette(self, qapp, palette_name):
+        """The regression test that would have caught the rgba()-parsing bug
+        before it shipped: every colour value the delegate's cell builders
+        can hand to _paint_cell/_draw_text must resolve to a VALID QColor,
+        in every palette — not just measured/equal, but genuinely paintable."""
+        from metatv.gui import theme
+
+        theme.apply_theme(palette_name)
+        try:
+            cells = [
+                _year_cell("2024"),
+                _quality_cell("4K"), _quality_cell("HD"), _quality_cell("RAW"),
+                _quality_cell("LIVE"), _quality_cell("SD"), _quality_cell("LQ"),
+                _region_or_platform_cell("US", "full"),
+                _region_or_platform_cell("A+", "full"),
+                _language_cell("DE"),
+                _genre_cell("Action"),
+                _category_cell("Some Collection"),
+                _rating_chip_cell(1), _rating_chip_cell(-1),
+                _rating_glyph_cell(1),
+                _variant_badge_cell(3),
+            ]
+            tokens: dict[str, object] = {}
+            for cell in cells:
+                assert cell is not None
+                tokens[cell.fg] = cell
+                if cell.bg:
+                    tokens[cell.bg] = cell
+            # Thumbnail placeholder + playback-glyph tokens — painted
+            # directly from theme.* constants, not carried by a _Cell.
+            for extra in (
+                _theme.COLOR_FAINT, _theme.COLOR_MUTED,
+                _theme.COLOR_PLAYBACK_IN_PROGRESS, _theme.COLOR_PLAYBACK_WATCHED,
+            ):
+                tokens[extra] = "thumbnail/playback"
+
+            invalid = {tok: _to_qcolor(tok) for tok in tokens if not _to_qcolor(tok).isValid()}
+            assert not invalid, (
+                f"{palette_name}: these delegate-paintable tokens produced an "
+                f"INVALID QColor (paints as opaque black): {list(invalid)}"
+            )
+        finally:
+            theme.apply_theme("Midnight")
+
+    def test_paint_cell_never_hands_the_painter_an_invalid_colour(self, qapp):
+        """Ties the token-level check to the REAL paint path: run actual
+        _paint_cell calls through a recording painter and assert every
+        QColor it received (brush or pen) is valid."""
+        delegate = ChannelRowDelegate()
+        painter = _RecordingPainter()
+
+        for cell in (
+            _quality_cell("4K"),
+            _region_or_platform_cell("A+", "full"),
+            _region_or_platform_cell("US", "full"),
+            _language_cell("DE"),
+            _genre_cell("Action"),
+            _category_cell("Some Collection"),
+        ):
+            delegate._paint_cell(painter, QRect(0, 0, 60, 20), cell, QFont())
+
+        invalid_calls = [
+            (op, args[0]) for op, *args in painter.calls
+            if op in ("setBrush", "setPen") and isinstance(args[0], QColor)
+            and not args[0].isValid()
+        ]
+        assert not invalid_calls, (
+            f"_paint_cell handed the painter an INVALID colour: {invalid_calls}"
+        )
