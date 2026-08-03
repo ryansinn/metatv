@@ -1234,17 +1234,32 @@ class _ChannelListMixin:
         The query is a single GROUP BY over content_tags JOIN tags JOIN channels,
         scoped to visible channels on active sources — memory-safe over 1M+ rows.
 
-        Also applies the Global Exclusions keyword axis (paused-aware, resolved
-        here on the main thread per DR-0007) so a facet's advertised count never
-        includes channels the keyword list would hide from the actual list —
-        counts and the list must agree (mirror-not-cage transparency).
+        Also applies ALL FOUR Global Exclusion axes (prefix/region, user
+        category, content-type, keyword — each paused-aware, resolved here on
+        the main thread per DR-0007) so a facet's advertised count never
+        includes channels those exclusions would hide from the actual list —
+        counts and the list must agree (mirror-not-cage transparency). Closes
+        the pre-existing 3-axis gap (prefix/category/content-type) documented
+        on ``TagRepository.get_facet_value_counts`` — What's New #260.
         """
-        from metatv.core.filter_utils import keyword_exclusion_list
+        from metatv.core.filter_utils import (
+            excluded_tag_content_types, global_exclusion_set, keyword_exclusion_list,
+        )
+        _filter_paused = getattr(self.config, "global_filter_paused", False)
+        _excl_prefixes = global_exclusion_set(self.config)
+        _excl_categories = (
+            set() if _filter_paused
+            else set(getattr(self.config, "global_filter_excluded_user_categories", []))
+        )
+        _excl_content_types = excluded_tag_content_types(self.config)
         _excl_keywords = set(keyword_exclusion_list(self.config))
         self._run_query(
             lambda repos: repos.tags.get_facet_value_counts(
                 excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
                 excluded_keywords=_excl_keywords or None,
+                excluded_prefixes=_excl_prefixes or None,
+                excluded_categories=_excl_categories or None,
+                excluded_tag_content_types=_excl_content_types or None,
             ),
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,

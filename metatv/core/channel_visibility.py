@@ -31,17 +31,22 @@ call sites move):
   exclusion`` / ``_apply_content_type_exclusion`` / ``_apply_keyword_
   exclusion`` / ``_apply_user_category_exclusion`` / ``_apply_adult_filter``),
   ``preference_engine.score_candidates``, and ``TagRepository.
-  _scope_to_visible_channels`` are **NOT YET migrated** — a separate briefed
-  slice. Do not assume this module's ``excluded_prefixes``/
-  ``excluded_categories``/``excluded_content_types`` handling is already
-  byte-for-byte identical to what those call sites do TODAY: it deliberately
-  reuses the already-canonical ``filter_utils`` builders (see field docs on
-  :class:`VisibilityScope`) rather than either site's local variant, and one
-  known divergence — ``discovery_engine._apply_prefix_filter``'s flat
-  prefix-only ``NOT IN`` vs. this module's region-aware
-  ``filter_utils.channel_exclusion_criterion`` — is exactly the kind of
-  cross-site inconsistency the follow-up migration slice needs to reconcile
-  when it adopts those callers onto this module.
+  _scope_to_visible_channels`` — MIGRATED. The one known divergence flagged
+  below was reconciled onto this module's region-aware
+  ``filter_utils.channel_exclusion_criterion``: ``discovery_engine.
+  _apply_prefix_filter``'s old flat prefix-only ``NOT IN`` (which never
+  consulted ``detected_region`` for prefix-less channels) is gone — Discover
+  shelves and Recommendations (``preference_engine.score_candidates``, which
+  used to call ``discovery_engine._apply_prefix_filter`` directly) now apply
+  the SAME "language wins over region" predicate as the channel list /
+  tag-facet counts / EPG On-Now. This was a deliberate, documented behavior
+  change (see the PR that closed this migration for the full before/after) —
+  a channel with no ``detected_prefix`` but an excluded ``detected_region`` is
+  now ALSO hidden on those two surfaces, where it previously was not.
+  ``TagRepository.get_facet_value_counts`` additionally gained the
+  ``excluded_prefixes``/``excluded_categories``/``excluded_tag_content_types``
+  parameters it was missing (What's New #260), closing the gap where the
+  filter panel's counts disagreed with its list on those three axes.
 """
 
 from __future__ import annotations

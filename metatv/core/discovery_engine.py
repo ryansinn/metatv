@@ -15,9 +15,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from sqlalchemy import literal_column, or_, text
+from sqlalchemy import literal_column, text
 from loguru import logger
 
+from metatv.core import channel_visibility
 from metatv.core.content_dedup import _PREFIX_NOISE_RE, _YEAR_EXTRACT_RE
 from metatv.core.filter_utils import genres_from_raw, normalize_genre
 
@@ -221,91 +222,99 @@ def _apply_prefix_filter(query, excluded_prefixes, include_uncategorized,
                          excluded_content_types=None, excluded_keywords=None):
     """Apply global category exclusion filter to a SQLAlchemy query on ChannelDB.
 
-    Blacklist model: excluded_prefixes = prefixes to HIDE. Empty = hide nothing.
-    NULL (no detected_prefix) is always shown unless include_uncategorized=False.
+    Routes through the single visibility chokepoint,
+    :func:`~metatv.core.channel_visibility.apply` — the prefix axis is now the
+    **canonical, region-aware** predicate (``filter_utils.channel_exclusion_
+    criterion``, "language wins over region"), matching the channel list /
+    tag-facet counts / EPG On-Now.  This is a deliberate behavior change from
+    the pre-migration flat ``detected_prefix NOT IN (...)`` check: a channel
+    with NO ``detected_prefix`` but a ``detected_region`` in *excluded_prefixes*
+    is now ALSO excluded here (previously it was always shown — see PR
+    description for the full rationale/impact).  Blacklist model: empty =
+    hide nothing.  Untagged (no prefix, no region) channels are always shown
+    unless *include_uncategorized* is False.
 
     Also applies the content-provenance layer (``excluded_content_types`` —
-    ``content_type`` tag values to hide) via :func:`_apply_content_type_exclusion`
-    and the keyword layer (``excluded_keywords`` — user free-text terms matched
-    against the title) via :func:`_apply_keyword_exclusion`, so every shelf that
-    scopes prefixes also drops globally-excluded AI content / keyword matches in
-    one call.  All axes are paused-aware at the control layer (the caller passes
-    empty sets/lists when Global Exclusions are paused).
+    ``content_type`` tag values to hide) and the keyword layer
+    (``excluded_keywords`` — user free-text terms matched against the title) in
+    the SAME chokepoint call (see :func:`_apply_content_type_exclusion` /
+    :func:`_apply_keyword_exclusion` for their standalone, single-axis forms —
+    ``channel_visibility.apply()``'s axes are order-independent, so combining
+    them here produces the identical result set as applying each separately),
+    so every shelf that scopes prefixes also drops globally-excluded AI content
+    / keyword matches in one call.  All axes are paused-aware at the control
+    layer (the caller passes empty sets/lists when Global Exclusions are paused).
     """
     from metatv.core.database import ChannelDB
-    from sqlalchemy import or_
-    query = _apply_content_type_exclusion(query, excluded_content_types)
-    query = _apply_keyword_exclusion(query, excluded_keywords)
-    if excluded_prefixes:
-        if include_uncategorized:
-            # Exclude listed prefixes; NULL (untagged) is always visible
-            query = query.filter(
-                or_(
-                    ChannelDB.detected_prefix.notin_(excluded_prefixes),
-                    ChannelDB.detected_prefix.is_(None),
-                )
-            )
-        else:
-            # Exclude listed prefixes AND untagged channels (notin_ drops NULL too)
-            query = query.filter(ChannelDB.detected_prefix.notin_(excluded_prefixes))
-    elif not include_uncategorized:
-        query = query.filter(ChannelDB.detected_prefix.isnot(None))
-    return query
+    scope = channel_visibility.VisibilityScope(
+        excluded_prefixes=set(excluded_prefixes or []),
+        include_uncategorized=include_uncategorized,
+        excluded_content_types=set(excluded_content_types or []),
+        excluded_keywords=set(excluded_keywords or []),
+        # The base query already applies its own is_hidden gate directly
+        # (every shelf query filters ChannelDB.is_hidden == False) — this
+        # helper only owns the prefix/content-type/keyword axes, so it must
+        # not re-derive (or accidentally narrow) the hidden gate itself.
+        include_hidden=True,
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def _apply_provider_exclusion(query, excluded_provider_ids: list[str] | None):
     """Exclude channels whose provider_id is in the expired/excluded list."""
     from metatv.core.database import ChannelDB
-    if excluded_provider_ids:
-        query = query.filter(~ChannelDB.provider_id.in_(excluded_provider_ids))
-    return query
+    scope = channel_visibility.VisibilityScope(
+        excluded_provider_ids=list(excluded_provider_ids or []),
+        include_hidden=True,  # owned by the base query, see _apply_prefix_filter
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def _apply_content_type_exclusion(query, excluded_content_types):
     """Exclude channels carrying a globally-excluded ``content_type`` tag.
 
-    Discover surface of the content-provenance Global Exclusion: applies the shared
-    ``filter_utils.tag_content_type_exclusion_criterion`` (NOT EXISTS) so a shelf
-    never surfaces content whose ``content_type`` value (e.g. ``ai_generated``) the
-    user has globally hidden.  No-op when *excluded_content_types* is empty.
+    Discover surface of the content-provenance Global Exclusion: routes through
+    the shared :func:`~metatv.core.channel_visibility.apply` chokepoint (which
+    in turn applies ``filter_utils.tag_content_type_exclusion_criterion`` — a
+    NOT EXISTS clause) so a shelf never surfaces content whose ``content_type``
+    value (e.g. ``ai_generated``) the user has globally hidden.  No-op when
+    *excluded_content_types* is empty.
     """
     from metatv.core.database import ChannelDB
-    from metatv.core.filter_utils import tag_content_type_exclusion_criterion
-    if excluded_content_types:
-        query = query.filter(
-            tag_content_type_exclusion_criterion(set(excluded_content_types), ChannelDB.id)
-        )
-    return query
+    scope = channel_visibility.VisibilityScope(
+        excluded_content_types=set(excluded_content_types or []),
+        include_hidden=True,  # owned by the base query, see _apply_prefix_filter
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def _apply_keyword_exclusion(query, excluded_keywords):
     """Exclude channels whose title matches a globally-excluded keyword.
 
     Discover surface of the keyword Global Exclusion axis (fourth axis, P1-6
-    family): applies the shared ``filter_utils.keyword_exclusion_criterion``
-    (case-insensitive ``ilike`` chain against ``detected_title``/``name``) so a
-    shelf never surfaces content the user has told the app to hide by keyword
+    family): routes through the shared
+    :func:`~metatv.core.channel_visibility.apply` chokepoint (which in turn
+    applies ``filter_utils.keyword_exclusion_criterion`` — a case-insensitive
+    ``ilike`` chain against ``detected_title``/``name``) so a shelf never
+    surfaces content the user has told the app to hide by keyword
     ("wrestling", "telenovela", …). No-op when *excluded_keywords* is empty.
     """
     from metatv.core.database import ChannelDB
-    from metatv.core.filter_utils import keyword_exclusion_criterion
-    if excluded_keywords:
-        query = query.filter(keyword_exclusion_criterion(excluded_keywords, ChannelDB))
-    return query
+    scope = channel_visibility.VisibilityScope(
+        excluded_keywords=set(excluded_keywords or []),
+        include_hidden=True,  # owned by the base query, see _apply_prefix_filter
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def _apply_user_category_exclusion(query, excluded_user_categories: list[str] | None):
     """Exclude channels whose user_category is in the global exclusion list."""
     from metatv.core.database import ChannelDB
-    from sqlalchemy import or_
-    if excluded_user_categories:
-        query = query.filter(
-            or_(
-                ChannelDB.user_category.notin_(excluded_user_categories),
-                ChannelDB.user_category.is_(None),
-            )
-        )
-    return query
+    scope = channel_visibility.VisibilityScope(
+        excluded_categories=set(excluded_user_categories or []),
+        include_hidden=True,  # owned by the base query, see _apply_prefix_filter
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[str] | None):
@@ -316,19 +325,13 @@ def _apply_adult_filter(query, adult_mode: str, force_adult_provider_ids: list[s
     detection — catches channels the provider flag misses, owner-reported gap;
     see ``channel_name_utils.is_restricted_name``) OR its provider is force_adult.
     """
-    if adult_mode == "all":
-        return query
     from metatv.core.database import ChannelDB
-    from sqlalchemy import or_
-    force_ids = force_adult_provider_ids or []
-    restricted_expr = or_(ChannelDB.is_adult == True, ChannelDB.detected_restricted == True)  # noqa: E712
-    if force_ids:
-        restricted_expr = or_(restricted_expr, ChannelDB.provider_id.in_(force_ids))
-    if adult_mode == "hide":
-        return query.filter(~restricted_expr)
-    if adult_mode == "only":
-        return query.filter(restricted_expr)
-    return query
+    scope = channel_visibility.VisibilityScope(
+        adult_mode=adult_mode,
+        force_adult_provider_ids=list(force_adult_provider_ids or []),
+        include_hidden=True,  # owned by the base query, see _apply_prefix_filter
+    )
+    return channel_visibility.apply(query, scope, channel_cls=ChannelDB)
 
 
 def build_adult_filter(session, config) -> tuple[str, list[str]]:
