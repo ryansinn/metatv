@@ -205,6 +205,45 @@ def _metadata_person_exists(pattern: str):
     )
 
 
+def _contradicts_own_locale(own_prefix: str | None, candidate_region: str) -> bool:
+    """True when *candidate_region* would contradict the row's own locale prefix.
+
+    A row prefixed ``|EN|`` or ``|AR|`` already states its locale. Its
+    ``detected_region`` is empty for a specific reason — ``EN`` is a
+    language-only code (:data:`CODE_FACETS` documents that there is no place
+    called "EN"), not because the row lacks evidence. Treating that emptiness as
+    a gap and filling it from the sibling majority actively mislabels the row.
+
+    This matters because ``content_key`` is deliberately generous: the key
+    ``"aladdin|movie|"`` (no year, no TMDb id) collapses 15 unrelated releases,
+    so the "most common sibling region" is whichever locale happens to dominate
+    the user's library — which stamped ``DE`` onto the ``|EN|`` and ``|AR|``
+    Aladdin rows, reporting an Arabic release as German.
+
+    Returns False when the prefix is absent or is not a recognised locale code
+    (e.g. ``MULTI``, ``4K``), where the row genuinely has no locale of its own
+    and inheriting a sibling's region is the intended behaviour.
+
+    Args:
+        own_prefix: The row's ``detected_prefix``.
+        candidate_region: The region the sibling majority would write.
+
+    Returns:
+        True if the fill should be skipped.
+    """
+    from metatv.core.channel_name_utils import CODE_FACETS, normalize_region_code
+
+    code = normalize_region_code((own_prefix or "").strip())
+    if not code or code not in CODE_FACETS:
+        return False
+    # The prefix IS a known locale code. Allow only the case where the sibling
+    # agrees with a region this very code implies (e.g. "IT" → region IT).
+    implied = {
+        value for facet, value, _conf in CODE_FACETS[code] if facet == "region"
+    }
+    return normalize_region_code(candidate_region) not in implied
+
+
 class ChannelRepository(_ChannelStatsMixin):
     """Repository for channel data access"""
     
@@ -2042,7 +2081,9 @@ class ChannelRepository(_ChannelStatsMixin):
 
         # 2. Fill empty rows whose content_key has a winner (scoped if asked).
         empty_q = (
-            self.session.query(ChannelDB.id, ChannelDB.content_key)
+            self.session.query(
+                ChannelDB.id, ChannelDB.content_key, ChannelDB.detected_prefix
+            )
             .filter(ChannelDB.content_key.isnot(None))
             .filter(
                 or_(
@@ -2056,9 +2097,19 @@ class ChannelRepository(_ChannelStatsMixin):
         empty_rows = empty_q.all()
 
         filled = 0
-        for ch_id, key in empty_rows:
+        for ch_id, key, own_prefix in empty_rows:
             region = winner.get(key)
             if not region:
+                continue
+            if _contradicts_own_locale(own_prefix, region):
+                # The row carries its OWN locale code, so an empty region is a
+                # fact about that code (there is no place called "EN"), not a
+                # gap to fill from someone else. Inheriting the sibling majority
+                # here mislabels the row: a generic content_key like
+                # "aladdin|movie|" collapses 15 unrelated releases, and the
+                # majority region (DE in the owner's library) was being stamped
+                # onto the |EN| and |AR| rows — an Arabic release reported as
+                # German. Leave it empty; empty is honest.
                 continue
             self.session.execute(
                 update(ChannelDB)
