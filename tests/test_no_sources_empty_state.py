@@ -94,11 +94,11 @@ def _make_channel_load_host(qapp, db: Database):
     container = QWidget()
     win._test_list_container = container
     win._list_layout = QVBoxLayout(container)
-    from PyQt6.QtWidgets import QLabel, QPushButton
-    win._channel_banner = QLabel()
-    win._channel_filter_bar = QWidget()
-    win._channel_filter_btn = QPushButton()
+    from PyQt6.QtWidgets import QLabel
+    from tests.conftest import wire_channel_banner_widgets
+    wire_channel_banner_widgets(win)
     win.add_provider = MagicMock()  # the handler under test — real button must call THIS
+    # Replaces the factory's placeholder with the REAL production banner.
     win._build_no_sources_banner()
     container.show()
 

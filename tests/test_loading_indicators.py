@@ -252,9 +252,8 @@ def _make_load_channels_host(qapp):
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
     # Banner widgets (created in setup_ui; stub them for the test)
-    win._channel_banner = QLabel()
-    win._channel_filter_bar = QWidget()
-    win._channel_filter_btn = QPushButton()
+    from tests.conftest import wire_channel_banner_widgets
+    wire_channel_banner_widgets(win)
     win._bypass_global_exclusions = False
     win.all_channels = ["stale"]
     win.stats_label = MagicMock()
@@ -327,9 +326,8 @@ def test_channels_load_error_clears_loading_placeholder(qapp):
     win.channel_model = ChannelListModel()
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
-    win._channel_banner = QLabel()
-    win._channel_filter_bar = QWidget()
-    win._channel_filter_btn = QPushButton()
+    from tests.conftest import wire_channel_banner_widgets
+    wire_channel_banner_widgets(win)
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
     win._clear_provider_busy = MagicMock()

@@ -720,3 +720,36 @@ def wire_settings_playback_widgets(dlg) -> None:
 
     dlg._recheck_failed_on_refresh_check = QCheckBox()
     dlg._recheck_failed_on_refresh_check.setChecked(True)
+
+
+# ---------------------------------------------------------------------------
+# MainWindow channel-render skeleton stubs
+# ---------------------------------------------------------------------------
+
+def wire_channel_banner_widgets(win) -> None:
+    """Attach the banner widgets ``_hide_channel_banners`` resets to a skeleton window.
+
+    Four test modules build ``MainWindow`` via ``__new__`` and hand-wire only the
+    widgets the channel-render path touches. ``_hide_channel_banners()`` is the
+    single reset point every render pass starts from, so **every** banner added
+    there breaks all four at once — and it fails loudly rather than quietly: a
+    skeleton ``MainWindow`` never ran ``QMainWindow.__init__``, so an attribute
+    missing from ``__dict__`` does not raise the ``AttributeError`` that
+    ``hasattr`` would absorb. sip raises ``RuntimeError: super-class __init__()
+    of type MainWindow was never called`` instead, and the guard itself explodes.
+    Keeping the group in one factory (mirrors ``wire_settings_playback_widgets``)
+    makes the next banner a single edit here instead of four near-identical copies.
+
+    Builds **real** Qt widgets, so the caller must already have a QApplication.
+
+    Args:
+        win: A ``MainWindow`` built via ``__new__`` (no ``__init__`` run).
+    """
+    from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+
+    win._channel_banner = QLabel()
+    # Unparented so isVisible() reflects each widget's own flag in a headless env.
+    win._channel_filter_bar = QWidget()
+    win._channel_exclusion_btn = QPushButton()
+    win._channel_filter_btn = QPushButton()
+    win._no_sources_banner = QWidget()

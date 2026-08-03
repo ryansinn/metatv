@@ -490,20 +490,19 @@ def test_multi_select_context_menu_routes_to_show_multi_select(qapp):
 
 def _make_banner_host(qapp):
     """Stub host for the per-layer filter-transparency bar in _on_channels_loaded."""
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
+    from PyQt6.QtWidgets import QListView
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
+
+    from tests.conftest import wire_channel_banner_widgets
 
     win = mw_module.MainWindow.__new__(mw_module.MainWindow)
     win.channel_model = ChannelListModel()
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
-    win._channel_banner = QLabel()
-    # Filter-transparency bar: two independent (unparented) segment buttons so
-    # isVisible() reflects each segment's own flag in the headless env.
-    win._channel_filter_bar = QWidget()
-    win._channel_exclusion_btn = QPushButton()
-    win._channel_filter_btn = QPushButton()
+    # Filter-transparency bar + its two independent (unparented) segment
+    # buttons, so isVisible() reflects each segment's own flag headlessly.
+    wire_channel_banner_widgets(win)
     win.all_channels = []
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()

@@ -124,20 +124,19 @@ def test_channel_list_dto_is_frozen():
 
 def _make_render_host(qapp):
     """Real MainWindow via __new__ with the minimal widgets the render loop touches."""
-    from PyQt6.QtWidgets import QListView, QLabel, QPushButton, QWidget
+    from PyQt6.QtWidgets import QListView
     from metatv.gui import main_window as mw_module
     from metatv.gui.channel_list_model import ChannelListModel
+
+    from tests.conftest import wire_channel_banner_widgets
 
     win = mw_module.MainWindow.__new__(mw_module.MainWindow)
     win.all_channels = []
     win.channel_model = ChannelListModel()
     win.channels_list = QListView()
     win.channels_list.setModel(win.channel_model)
-    # Banner widgets (stubbed)
-    win._channel_banner = QLabel()
-    win._channel_filter_bar = QWidget()
-    win._channel_exclusion_btn = QPushButton()
-    win._channel_filter_btn = QPushButton()
+    # Banner widgets the render path resets (stubbed, shared factory)
+    wire_channel_banner_widgets(win)
     win.stats_label = MagicMock()
     win.status_bar = MagicMock()
     win._search_page_size = 1000
