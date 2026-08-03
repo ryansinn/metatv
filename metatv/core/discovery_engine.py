@@ -832,3 +832,102 @@ def get_by_user_category(session, category: str, limit: int = 30,
         _to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
         for ch, meta in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Collection shelves — provider-category "Collections" (What's New #256)
+# ---------------------------------------------------------------------------
+
+# A collection with only one member is noise, not a shelf — floor below which
+# get_all_collections() drops it. Named constant per CLAUDE.md ("no magic
+# numbers"), not inlined at each call site.
+MIN_COLLECTION_SHELF_MEMBERS = 2
+
+
+def get_all_collections(session, min_count: int = MIN_COLLECTION_SHELF_MEMBERS,
+                        excluded_prefixes=None, include_uncategorized: bool = True,
+                        excluded_content_types=None,
+                        excluded_keywords=None,
+                        adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
+                        excluded_provider_ids: list[str] | None = None,
+                        ) -> list[str]:
+    """Return ``detected_collection`` names with >= min_count member channels.
+
+    Mirrors ``get_all_genres``'s shape and scoping parameters, but reads the
+    ingestion-computed ``ChannelDB.detected_collection`` column — a single
+    clean category label (e.g. "Apple+ Kids", "Hindu Subs") with its leading
+    bracket marker and any redundant quality/media-type/multi-sub tokens
+    already stripped by ``update_detected_prefixes()``
+    (``core/repositories/channel.py``, #252). Never re-parses ``channel.name``
+    or ``channel.category`` at query time (CLAUDE.md "compute once at
+    ingestion, read everywhere else").
+
+    Applies the same global-exclusion / adult / provider-scoping chokepoints
+    as every other shelf query — a hidden-provider channel must never be
+    counted toward a collection's member total (CLAUDE.md "disabled/expired
+    sources are an absolute gate").
+
+    Ordered deterministically — member count descending, then name ascending
+    — so repeated Discover loads never reshuffle equal-count shelves (unlike
+    ``Counter.most_common()``'s unspecified tie order).
+    """
+    from metatv.core.database import ChannelDB
+    q = (
+        session.query(ChannelDB.detected_collection)
+        .filter(
+            ChannelDB.is_hidden == False,  # noqa: E712
+            ChannelDB.detected_collection.isnot(None),
+        )
+    )
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    counter: Counter = Counter()
+    for (collection,) in q.yield_per(5000):
+        counter[collection] += 1
+    eligible = [(name, cnt) for name, cnt in counter.items() if cnt >= min_count]
+    eligible.sort(key=lambda t: (-t[1], t[0]))
+    return [name for name, _cnt in eligible]
+
+
+def get_by_collection(session, collection: str, limit: int = 30, fav_ids=None,
+                      queue_ids=None, watched_ids=None, liked_ids=None, progress_map=None,
+                      excluded_prefixes=None, include_uncategorized: bool = True,
+                      excluded_content_types=None,
+                      excluded_keywords=None,
+                      adult_mode: str = "all", force_adult_provider_ids: list[str] | None = None,
+                      excluded_provider_ids: list[str] | None = None,
+                      ) -> list[ContentCard]:
+    """Content whose ingestion-computed collection label matches *collection*.
+
+    *collection* is the exact string returned by ``get_all_collections`` — the
+    stored ``ChannelDB.detected_collection`` value. Matched by plain equality
+    against that stored column, never a re-parse of ``channel.category`` or
+    ``channel.name`` (CLAUDE.md "compute once at ingestion, read everywhere
+    else"; contrast with ``get_by_genre``'s ``json_each`` membership match,
+    which exists only because ``detected_genres`` is a multi-value list —
+    ``detected_collection`` is a single string, so equality is the correct
+    match, not a different shape).
+
+    Same scoping chokepoints as every other shelf query (prefix/content-type/
+    keyword exclusion, adult filter, hidden-provider exclusion) and the same
+    cross-source ``content_key`` dedup as the genre/decade/actor shelves.
+    """
+    from metatv.core.database import ChannelDB, MetadataDB
+    q = (
+        session.query(ChannelDB, MetadataDB)
+        .outerjoin(MetadataDB, ChannelDB.metadata_id == MetadataDB.id)
+        .filter(
+            ChannelDB.detected_collection == collection,
+            ChannelDB.is_hidden == False,  # noqa: E712
+        )
+    )
+    q = _apply_prefix_filter(q, excluded_prefixes, include_uncategorized, excluded_content_types, excluded_keywords)
+    q = _apply_adult_filter(q, adult_mode, force_adult_provider_ids)
+    q = _apply_provider_exclusion(q, excluded_provider_ids)
+    rows = q.order_by(
+        text("CAST(json_extract(channels.raw_data, '$.rating') AS REAL) DESC")
+    ).limit(limit * 5).all()
+    cards = [_to_card(ch, meta, fav_ids, queue_ids, watched_ids, liked_ids, progress_map)
+             for ch, meta in rows]
+    return _dedup_cards(cards)[:limit]
