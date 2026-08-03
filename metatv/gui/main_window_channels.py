@@ -1125,13 +1125,19 @@ class _ChannelListMixin:
     def _hide_channel_banners(self) -> None:
         """Hide the info banner, the filter-transparency bar, and the
         zero-sources empty-state banner — the single reset point every render
-        pass starts from before deciding which (if any) banner applies."""
-        if hasattr(self, '_channel_banner'):
-            self._channel_banner.setVisible(False)
-        if hasattr(self, '_channel_filter_bar'):
-            self._channel_filter_bar.setVisible(False)
-        if hasattr(self, '_no_sources_banner'):
-            self._no_sources_banner.setVisible(False)
+        pass starts from, and the one `_hide_all_content_views()` calls when
+        switching away from the channel list, before deciding which (if any)
+        banner applies.
+
+        __dict__.get, not hasattr: PyQt raises RuntimeError (not
+        AttributeError) for attribute access on a __new__'d MainWindow, so
+        hasattr does NOT absorb it — the guard itself would explode. Same trap
+        as #351/#375, and the form already used elsewhere in this file.
+        """
+        for name in ('_channel_banner', '_channel_filter_bar', '_no_sources_banner'):
+            widget = self.__dict__.get(name)
+            if widget is not None:
+                widget.setVisible(False)
 
     def get_enabled_media_types(self) -> list:
         """Get list of enabled media types from the filter panel."""

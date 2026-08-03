@@ -81,9 +81,9 @@ class SourcesManagerView(QWidget):
         header_layout.addStretch()
 
         self._add_btn = QPushButton(_icons.add_icon + " Add Source")
-        self._add_btn.setMinimumHeight(24)
+        self._add_btn.setMinimumHeight(28)
         self._add_btn.setToolTip("Add Source…")
-        self._add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        self._add_btn.setStyleSheet(_theme.SOURCES_ADD_BTN)
         cursor_affordance.set_clickable(self._add_btn)
         self._add_btn.clicked.connect(self.addProviderClicked.emit)
         header_layout.addWidget(self._add_btn)
@@ -137,7 +137,7 @@ class SourcesManagerView(QWidget):
         every ``refresh()`` (on_activate/select), so they need no sweep entry
         here — same rationale as the channel-list row delegate.
         """
-        self._add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
+        self._add_btn.setStyleSheet(_theme.SOURCES_ADD_BTN)
         self._empty_label.setStyleSheet(_theme.EXPLORE_STATUS)
         if hasattr(self._provider_editor, "refresh_theme"):
             self._provider_editor.refresh_theme()

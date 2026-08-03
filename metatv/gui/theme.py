@@ -571,6 +571,21 @@ def _build_semantic_constants() -> dict[str, object]:
     # Save Changes group (right) so Delete never reads as adjacent to Save.
     FOOTER_DIVIDER = "background: " + COLOR_LINE + ";"
 
+    # Sources-manager header "+ Add Source" — the PRIMARY call to action of that
+    # view, and the one control a user with zero sources must find. It previously
+    # borrowed RECIPE_SAVED_ICON_BTN, whose role is a de-emphasised icon button
+    # (transparent background, COLOR_FAINT text): correct there, but it rendered
+    # this CTA as dim grey text with no affordance, indistinguishable from a
+    # disabled label (#266). A solid accent fill instead — and therefore
+    # COLOR_ON_ACCENT for the foreground, since the rule for text on a solid
+    # COLOR_ACCENT fill is the on-accent token, never the on-background ramp.
+    SOURCES_ADD_BTN = (
+        "QPushButton { background: " + COLOR_ACCENT + "; color: " + COLOR_ON_ACCENT + ";"
+        " border: none; border-radius: 4px; padding: 5px 14px; font-weight: 600;"
+        " font-size: " + FONT_MD + "; }"
+        "QPushButton:hover { background: " + COLOR_ACCENT_HOVER + "; }"
+    )
+
     # Category / prefix chips (version chips, similar-title chips, title-area prefix badge)
     CATEGORY_CHIP = (
         "QPushButton { font-size: " + FONT_MD + "; color: " + COLOR_TEXT + ";"

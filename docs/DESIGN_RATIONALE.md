@@ -542,6 +542,14 @@ spent untangling hardcoded styles); the rule exists to stop that smear from rest
 Tracked: task #59 (extract `visible_channel_filter`; move `##`/placeholder detection to an ingestion flag) +
 audit redundancy lens #4 (cluster by repeated SQL predicate fragment, not just method name).
 
+**Status — RESOLVED in v0.24.0 (What's New #260).** The predicate landed as
+`metatv/core/channel_visibility.py`, not under the placeholder name `visible_channel_filter` used above:
+`VisibilityScope` (a frozen bag of already-resolved exclusion sets — no `Config`, no policy) plus
+`apply(query, scope)`. All four sites named in the decision are migrated. This entry stays as written
+(append-only ADR); read the module docstring for the authoritative migration table, and
+CRITICAL_RULES.md → "Channel visibility" for the working rules. The ingestion-flag half of task #59
+(`##`/placeholder detection) is separate and still stands as stated.
+
 ---
 
 ### DR-0008 — Recipe AND/OR within a facet: the "required + optional pool" model (not a whole-group flip)

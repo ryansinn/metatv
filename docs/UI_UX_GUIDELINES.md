@@ -263,6 +263,52 @@ concatenation, which keeps literal `{...}` Qt selectors readable), named by the 
   comparison script) — the test suite does **not** cover stylesheet values, so this is the only
   safety net against a silent visual regression.
 
+**Tokens on a fill need their own on-fill token.** `COLOR_TEXT_HI` answers "brightest text on the app
+*background*". It does **not** answer "legible text on a solid accent *fill*" — that is
+`COLOR_ON_ACCENT`, added in v0.24.0 (#265) after the QPalette selection highlight used the former and
+produced ~1.2:1 in Daylight. The two coincide in the dark palettes, which is exactly what hid it. Any
+new "text drawn on a colored fill" role needs the same treatment; contrast is asserted per palette in
+`tests/test_palette_completeness.py`.
+
+### Layer 0 — the QPalette floor (v0.24.0, #253)
+
+A widget constructed with **no** stylesheet cannot be found by an enumeration sweep, so it used to
+inherit Qt's compiled-in *light* palette regardless of theme (the white status bar, the near-black-on-
+near-black section headers). `theme.qt_palette()` builds a `QPalette` from the active tokens and
+`apply_theme()` pushes it onto the whole `QApplication`; `__main__.py:57` applies it before
+`MainWindow` is constructed. This is a floor *underneath* the explicit-stylesheet layer, not a
+replacement for it.
+
+### Known-broken: live theme switching (do not claim this works)
+
+**Qt caches the rendered stylesheet string, not a live reference to the Python constant.** A widget
+that called `setStyleSheet(theme.SOME_CONSTANT)` at construction keeps rendering the OLD colors after
+`apply_theme()` rebinds the module globals. Only widgets explicitly re-styled by a `refresh_theme()`
+update.
+
+Current coverage, measured 2026-08-02:
+
+| | count |
+|---|---|
+| `setStyleSheet` call sites (`gui/`, `gui/sidebar/`) | **838** across 68 files |
+| …of which pass a theme constant | 466 |
+| `refresh_theme()` methods | **22** across 16 files |
+
+The sweep is a hand-maintained enumeration and **cannot be completed by adding more entries** — that
+is what #253/#261 attempted. Worse, the Layer-0 floor amplified the symptom: on a live switch the
+unstyled widgets adopt the new palette *instantly* while 800+ baked stylesheets keep the old one, so
+switching to Daylight yields the previous dark theme's light-grey text on the new light chrome —
+illegible, app-wide. **Cold launch is unaffected** (the theme is applied before any widget is built),
+so the current honest statement is: *themes are correct at startup; live switching is not supported.*
+
+Two candidate fixes, neither yet built:
+1. **Style registry** — replace `w.setStyleSheet(_theme.ROLE)` with `_theme.style(w, "ROLE")`, which
+   records a weakref + role name; `apply_theme()` re-applies every live entry. Mechanical across the
+   466 token-referencing sites, plus a drift-guard test banning the raw form.
+2. **One application-level stylesheet** — build a single QSS document from tokens using type /
+   `objectName` / dynamic-property selectors and call `QApplication.setStyleSheet()` once. The
+   idiomatic Qt answer and the right end state; effectively part of the UI overhaul.
+
 ## Visual language — what the colors and glyphs *mean*
 
 The theme tokens (`metatv/gui/theme.py`) and the glyph table (`metatv/gui/icons.py`) are the

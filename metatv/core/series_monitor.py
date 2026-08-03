@@ -15,6 +15,7 @@ happened to click "Alert me" from.
 from __future__ import annotations
 
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -264,6 +265,13 @@ class SeriesMonitorManager(QObject):
             max_workers=1, thread_name_prefix="series_monitor"
         )
         self._pending_batches = 0
+        # Set by shutdown(). ThreadPoolExecutor.shutdown(wait=False) stops NEW
+        # work but cannot interrupt the batch already running, so without this
+        # the in-flight worker kept issuing live HTTP fetches for every
+        # remaining series after Database.close() had run — ending in
+        # "cannot schedule new futures after interpreter shutdown" and a
+        # WARNING per series on every app exit.
+        self._stopping = threading.Event()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.check_all)
         # Wire private signals to main-thread slots
@@ -328,7 +336,14 @@ class SeriesMonitorManager(QObject):
         self._timer.stop()
 
     def shutdown(self) -> None:
-        """Shut down the timer and executor without blocking the main thread."""
+        """Shut down the timer and executor without blocking the main thread.
+
+        Sets the stop flag FIRST: ``shutdown(wait=False)`` prevents new
+        submissions but leaves the running batch untouched, and that batch
+        outlives ``Database.close()``. The worker polls the flag between
+        entries so it unwinds instead of fetching on into teardown.
+        """
+        self._stopping.set()
         self._timer.stop()
         self._executor.shutdown(wait=False)
 
@@ -400,6 +415,12 @@ class SeriesMonitorManager(QObject):
         from metatv.providers.factory import get_provider
 
         for raw_entry in entries:
+            if self._stopping.is_set():
+                logger.debug(
+                    "series_monitor: stop requested — abandoning the rest of "
+                    "this batch"
+                )
+                return
             entry = normalize_monitored_entry(raw_entry)
             cid = entry.get("series_channel_id")
             primary_provider_id = entry.get("provider_id")
@@ -427,6 +448,11 @@ class SeriesMonitorManager(QObject):
             grown_names: dict[str, str] = {}  # provider_id -> display name
 
             for provider_id, source_id in mirrors:
+                # Each mirror is a separate live fetch, so a multi-mirror entry
+                # can span the whole teardown window on its own — poll here too,
+                # not just per entry.
+                if self._stopping.is_set():
+                    return
                 try:
                     with self.db.session_scope(commit=False) as session:
                         repos = RepositoryFactory(session)
