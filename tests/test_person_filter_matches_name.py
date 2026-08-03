@@ -116,39 +116,29 @@ def test_search_and_filter_now_agree(repo):
     assert target in filtered, "filter still misses what search finds"
 
 
-def test_live_channel_named_after_a_person_is_still_excluded(repo):
-    """The original guard, preserved deliberately.
+def test_live_actor_channel_is_included(repo):
+    """Curated 24/7 actor channels are the point, not noise.
 
-    A live channel called "Tom Hanks Channel" is a naming coincidence, not a
-    credit — putting a 24/7 channel in a filmography is exactly what the
-    pre-existing rule prevented, and widening the filter must not undo it. The
-    difference is that a MOVIE file named after its lead is the provider telling
-    you who is in it.
+    Verified against the real corpus, which carries provider categories named
+    "24/7 MOVIES/ACTORS VIP" and "AR| ACTORS 4K" holding entries like
+    "24/7 TOM HANKS" and "BS| NICOLAS CAGE COLLECTION". Someone filtering for
+    Tom Hanks wants those. An earlier version of this filter excluded live rows
+    on the assumption that such names were coincidences; they are not.
     """
     from metatv.core.database import ChannelDB
 
     channels, session = repo
     cid = str(uuid.uuid4())
     session.add(ChannelDB(
-        id=cid, provider_id="p1", name="EN - Tom Hanks Channel",
-        source_id=cid, media_type="live", detected_title="Tom Hanks Channel",
+        id=cid, provider_id="p1", name="24/7 TOM HANKS",
+        source_id=cid, media_type="live", detected_title="24/7 TOM HANKS",
+        category="24/7 MOVIES/ACTORS VIP",
     ))
     session.commit()
 
     results = channels.get_all(person_filter="Tom Hanks", limit=50)
 
-    assert cid not in {c.id for c in results}, (
-        "a LIVE channel matching only by name must not appear in a person filter"
-    )
-
-
-def test_a_vod_title_named_after_the_person_IS_included(repo):
-    """The contrast case, asserted alongside so the distinction is explicit."""
-    channels, session = repo
-    target = _add(session, name="EN - Forrest Gump (1994) TOM HANKS")
-
-    results = channels.get_all(person_filter="Tom Hanks", limit=50)
-
-    assert target in {c.id for c in results}, (
-        "a VOD title whose filename carries the lead actor must be found"
+    assert cid in {c.id for c in results}, (
+        "a 24/7 channel devoted to this actor must appear — hiding it is "
+        "censorial, not precise"
     )

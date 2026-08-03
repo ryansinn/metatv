@@ -138,7 +138,11 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
     
     # Signal for thread-safe metadata updates (channel_id, metadata)
     metadata_loaded = pyqtSignal(object, object)
-    _category_assigned = pyqtSignal()               # emitted from worker after category DB write commits
+    # bool: True when the assignment changed which rows BELONG in the list (the
+    # category was added to Global Exclusions). False for a plain assignment,
+    # which changes only user_category/category_mood — neither of which
+    # ChannelListDTO carries, so nothing the row renders changes.
+    _category_assigned = pyqtSignal(bool)
     _versions_loaded = pyqtSignal(str, list)         # (channel_id, list[ChannelVersion]) — versions worker → main thread
     _similar_titles_loaded = pyqtSignal(str, list)   # (channel_id, list[ChannelVersion]) — similar titles worker → main thread
     _action_state_loaded = pyqtSignal(object)        # ChannelActionState — action state worker → main thread
@@ -507,7 +511,7 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         self._hidden_mode: bool = False
         self._last_shown_channel_id: str | None = None
         self.metadata_loaded.connect(self._update_details_with_metadata)
-        self._category_assigned.connect(self.load_channels)
+        self._category_assigned.connect(self._on_category_assigned)
         self._episode_ready.connect(self._do_launch_episode)
         self._episode_failed.connect(self._on_episode_stream_unavailable)
         self._ctx_data_ready.connect(self._on_ctx_data_ready)

@@ -1200,7 +1200,7 @@ class _ChannelListMixin:
                 )  # noqa
             finally:
                 session.close()
-            self._category_assigned.emit()
+            self._category_assigned.emit(bool(exclude))
 
         self.executor.submit(_do_assign)
 

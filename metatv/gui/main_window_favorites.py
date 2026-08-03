@@ -665,7 +665,7 @@ class _FavoritesMixin:
         def _do_assign():
             with self.db.session_scope() as session:
                 RepositoryFactory(session).channels.assign_user_category(channel_ids, category, mood)
-            self._category_assigned.emit()
+            self._category_assigned.emit(bool(exclude))
 
         self.executor.submit(_do_assign)
 
@@ -677,6 +677,29 @@ class _FavoritesMixin:
 
         if hasattr(self, "discover_view"):
             QTimer.singleShot(500, self.discover_view.reload)
+
+    def _on_category_assigned(self, membership_changed: bool) -> None:
+        """React to a completed user-category assignment.
+
+        Previously this was wired straight to ``load_channels``, so EVERY
+        assignment re-ran the query and reset the model — which scrolls the list
+        back to the top. Adding one item to "Watch Later" from row 400 threw the
+        user back to row 1, as punishment for a single action (owner report).
+
+        A plain assignment writes ``user_category``/``category_mood`` and nothing
+        else. ``ChannelListDTO`` carries neither, so no row renders differently
+        and there is nothing to redraw, let alone requery.
+
+        The one case that genuinely needs a reload is an assignment that also
+        added the category to Global Exclusions: those rows must LEAVE the list,
+        and that is a membership change the model cannot infer.
+
+        Args:
+            membership_changed: True when the category was added to Global
+                Exclusions, so the visible set actually changed.
+        """
+        if membership_changed:
+            self.load_channels()
 
     def _show_multi_select_context_menu(self, channel_ids: list[str], gp) -> None:
         """Thin wrapper → unified channel menu (multi-select on channel surface)."""

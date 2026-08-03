@@ -433,18 +433,25 @@ def test_person_filter_no_results_for_missing_cast(repo, person_channels):
     assert "EN - Mystery Film" not in names(result), "Channel with empty raw_data excluded"
 
 
-def test_person_filter_excludes_channels_by_name_match_only(repo, person_channels):
-    """A LIVE channel named after a person is a coincidence, not a credit.
+def test_person_filter_includes_a_live_channel_named_for_the_person(repo, person_channels):
+    """A 24/7 channel devoted to an actor BELONGS in that actor's listing.
 
-    Narrowed rather than dropped (#272): the person filter now DOES match a VOD
-    title's name, because providers append the lead actor to movie filenames and
-    that row often has no metadata at all — see
-    tests/test_person_filter_matches_name.py. Live is still excluded, which was
-    this test's real point: a 24/7 "Tom Hanks Channel" must not turn up in a
-    filmography.
+    This assertion is inverted from its original form, on evidence. It used to
+    require that a channel-name match never count, on the theory that a live
+    channel named after a person is a naming coincidence. The real corpus
+    disproves that: providers ship whole categories of curated actor channels —
+    "24/7 TOM HANKS" under "24/7 MOVIES/ACTORS VIP", "AR| TOM HANKS MOVIES"
+    under "AR| ACTORS 4K", "BS| NICOLAS CAGE COLLECTION".
+
+    Hiding those from a Tom Hanks filter is censorial, not precise — the same
+    logic that would keep an ANIME collection out of the Anime genre. MetaTV
+    mirrors the library rather than caging it (see docs/PRODUCT_VISION.md), so
+    the filter surfaces them.
     """
     result = repo.get_all(person_filter="Tom Hanks")
-    assert "EN - Tom Hanks Channel" not in names(result), "Live channel name match must not count"
+    assert "EN - Tom Hanks Channel" in names(result), (
+        "a channel devoted to this person is what the filter is FOR"
+    )
 
 
 def test_person_filter_combined_with_search_query(repo, person_channels):
