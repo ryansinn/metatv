@@ -434,7 +434,15 @@ def test_person_filter_no_results_for_missing_cast(repo, person_channels):
 
 
 def test_person_filter_excludes_channels_by_name_match_only(repo, person_channels):
-    """Channel name containing person's name should NOT match — only raw_data.cast/director."""
+    """A LIVE channel named after a person is a coincidence, not a credit.
+
+    Narrowed rather than dropped (#272): the person filter now DOES match a VOD
+    title's name, because providers append the lead actor to movie filenames and
+    that row often has no metadata at all — see
+    tests/test_person_filter_matches_name.py. Live is still excluded, which was
+    this test's real point: a 24/7 "Tom Hanks Channel" must not turn up in a
+    filmography.
+    """
     result = repo.get_all(person_filter="Tom Hanks")
     assert "EN - Tom Hanks Channel" not in names(result), "Live channel name match must not count"
 

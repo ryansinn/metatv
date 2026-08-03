@@ -854,6 +854,25 @@ class ChannelRepository(_ChannelStatsMixin):
             query = query.filter(
                 or_(
                     _metadata_person_exists(_person_pattern),
+                    # The NAME itself, but VOD ONLY. Providers routinely append
+                    # the lead actor ("EN - Adaptation. 4K (2002) NICOLAS CAGE")
+                    # and the parser strips it into detected_title, so the person
+                    # is visibly on the row yet invisible to a person filter:
+                    # searching that name FOUND the title while filtering by it
+                    # MISSED it. On a library where most rows have no metadata,
+                    # that is the difference between a working filter and an
+                    # empty one.
+                    #
+                    # Excluding live is the original guard, kept deliberately: a
+                    # LIVE channel called "Tom Hanks Channel" is a naming
+                    # coincidence, not a credit, and matching it would put a
+                    # 24/7 channel in a filmography. A movie FILE named after
+                    # its lead is the opposite — the provider put it there to
+                    # say who is in it.
+                    and_(
+                        ChannelDB.media_type != "live",
+                        ChannelDB.name.ilike(_person_pattern),
+                    ),
                     _text3(
                         "json_extract(raw_data, '$.cast') LIKE :_person_cast"
                     ).bindparams(_person_cast=_person_pattern),
