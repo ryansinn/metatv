@@ -384,6 +384,38 @@ class TagBackfillTask:
 # Feeder wiring (module-level helper — pure, no DB)
 # ---------------------------------------------------------------------------
 
+def _subtitle_language_from_marker(category, detected_prefix, config) -> str | None:
+    """Language name the prefix denotes as SUBTITLES rather than audio.
+
+    Returns a value only when the provider category carries an explicit
+    ``<CODE>-SUB`` marker AND that code matches the row's own name prefix — the
+    one situation where the two feeders are talking about the same code and the
+    category is the more specific statement.
+
+    Args:
+        category: ``ChannelDB.category``.
+        detected_prefix: ``ChannelDB.detected_prefix``.
+        config: Live Config (for the prefix classification vocabulary).
+
+    Returns:
+        The language NAME (e.g. ``"Arabic"``), or None when no override applies.
+    """
+    from metatv.core.channel_name_utils import normalize_region_code, parse_category_marker
+    from metatv.core.tag_decomposer import _classify_prefix_token
+
+    if not category or not detected_prefix:
+        return None
+    _clean, marker = parse_category_marker(category)
+    if marker is None or marker.kind != "sub":
+        return None
+    if normalize_region_code(marker.code) != normalize_region_code(detected_prefix):
+        return None
+    for tag_type, value, _conf in _classify_prefix_token(detected_prefix, config):
+        if tag_type == "language":
+            return value
+    return None
+
+
 def _collect_tags(
     *,
     config,
@@ -467,7 +499,23 @@ def _collect_tags(
         detected_year=detected_year,
         config=config,
     )
+    # An explicit "<CODE>-SUB" category marker OVERRIDES the name prefix's
+    # language reading for that same code. "|AR| The Lobster" under
+    # "|AR-SUB| AMAZON PRIME" is an ENGLISH film with Arabic subtitles — the
+    # prefix names the subtitle track, not the audio, and tagging it
+    # language:Arabic put an English film under Arabic in filters and fed it to
+    # recommendations that way (owner-confirmed: "AR is in English, the
+    # subtitles are in Arabic").
+    #
+    # Narrow on purpose: only the language whose code MATCHES the marker is
+    # remapped. A row carrying a genuine second language keeps it, and a bare
+    # "|AR|" with no SUB marker still means Arabic audio — the marker is the
+    # only thing that licenses the reinterpretation.
+    _sub_language = _subtitle_language_from_marker(category, detected_prefix, config)
     for tag_type, tag_value, _conf in name_tags:
+        if tag_type == "language" and tag_value == _sub_language:
+            feeder_map[("subtitle", tag_value)].add("name_parse")
+            continue
         feeder_map[(tag_type, tag_value)].add("name_parse")
 
     # Feeder 4: genre (raw_data["genre"])
