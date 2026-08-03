@@ -156,8 +156,10 @@ _VALID_PLATFORM_STYLES = (PLATFORM_STYLE_AUTO, PLATFORM_STYLE_FULL, PLATFORM_STY
 # Structural spacing (not a colour/font-size — px literals are fine inline
 # per CLAUDE.md's styles rule).
 _ROW_V_PAD = 4       # vertical padding top+bottom of a single-line/compact row
-_ROW_H_PAD = 6        # breathing room at BOTH row edges; the right side also keeps
-                      # right-aligned cells out from under the vertical scrollbar
+_ROW_H_PAD = 10       # breathing room at BOTH row edges; the right side also keeps
+                      # right-aligned cells out from under the vertical scrollbar.
+                      # 10, not 6: a scrollbar is ~12px, so 6 left the chips
+                      # technically clear but visually crowded against it.
 _LINE_GAP = 2         # gap between comfy's two stacked text lines
 _CELL_GAP = 6         # horizontal gap between adjacent cells
 _CHIP_H_PAD = 5       # chip internal horizontal padding (mirrors badge_utils' "1px 5px")
