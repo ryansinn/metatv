@@ -308,58 +308,85 @@ builds found nine more. Entries #275-#283.
 19. [x] **Wrapping title clipped** (#283) — `Ignored` width (deliberate, the column-widening
     trap) left Qt no width to compute wrapped height against. `setHeightForWidth(True)`.
 
+**v0.26.0 third wave — SHIPPED 2026-08-03 (rolling).** The queued v0.27.0 list, taken in one
+pass. Entries #284-#289. Two items changed shape once measured against the real library
+rather than the roadmap's own description of them — recorded here because the roadmap was
+wrong, not the code.
+
+20. [x] **content_key fragmentation** (#284) — NOT a key-format problem. "Same title" had two
+    definitions: the key used `content_identity._normalize_for_key` while the propagation pass
+    that picks siblings used `content_dedup.normalize_title`, a RAW-name cleaner. Run against
+    the already-cleaned `detected_title` it double-strips ("Blade Runner 2049" → `blade
+    runner`, merging the 2017 sequel with the 1982 film; "WWE: Unreal" → `unreal`). The bucket
+    then held several tmdb ids and the remake guard correctly refused to guess — the ambiguity
+    was MANUFACTURED. One normaliser: **+498 adoptions, 0 lost, 0 disagreements**. Second half:
+    an id learned by a *fetch* never reached its siblings (propagation ran at ingestion and
+    after refresh, never after enrichment) — exactly why "The Lobster" sat as a `'fetched'`
+    tmdb row beside two idless copies of itself. **Rejected after measuring:** lifting a
+    trailing year out of the title — 1,754 rows re-keyed, ZERO fragmented titles fixed
+    (3931 → 3931).
+21. [x] **Name-derived cast** (#285) — `detected_name_cast` was stored and read by NOTHING.
+    Now a LOW-confidence `person` tag under "Named in Title", never merged into
+    `MetadataDB.cast`. Only person-SHAPED residuals: of 917 distinct real values about half are
+    language/format/studio words (POLSKI 918, 4K 652, DOKUMENT 531), and a wrong facet is a
+    false statement, not a low-confidence guess. Also fixed a latent bug in
+    `category_facet_refacet`, which re-derived tags without the name/audio feeders and so
+    silently DELETED those tags from every row it touched.
+22. [x] **Live theme for composed stylesheets** (#286) — the ~370 f-string `setStyleSheet`
+    sites, solved at the chokepoint instead of ~300 hand edits: `apply_theme` computes what
+    each colour VALUE became and rewrites it wherever it survives, guarded against ambiguous
+    and theme-invariant values. Needed `COLOR_LIGHTBOX_TEXT/_HI` respelled to full hex —
+    identical colours, but the `#fff`/`#ccc` shorthand collided with the themed text ramp and
+    blocked the app's two commonest text colours from ever updating.
+23. [x] **Discover shelf filter** (#287) — **the roadmap's own remedy does not work.** Raising
+    `MIN_COLLECTION_SHELF_MEMBERS` was the plan; measured, the floor is already 2 and the count
+    barely moves (1,882 shelves at ≥2, still 1,440 at ≥20). No tail to trim, so a cutoff hides
+    real collections for nothing. Filter box instead; not persisted (a filter restored at
+    launch reads as an empty Discover).
+24. [x] **Layout menu** (#288) — sidebar/details/filter panels, ticked from the live splitter
+    rather than a cached flag. Filter panel moved out of Style. Uncovered and fixed a real
+    bug: `expand_panel` never reclaimed the space its neighbours absorbed, so a restored panel
+    came back narrower every cycle (416px → 327px) — affecting splitter handle clicks too, so
+    it predated the menu.
+25. [x] **Watch Queue ordering** (#289) — owner reported queue items they had never queued.
+    Investigated against the real library: NOTHING fabricated them (611 rows, all live
+    channels, 610 of 611 holding their recorded name, no two rows sharing an insertion second
+    so no bulk add ever ran, no auto-enqueue path, no `content_key` involvement). Real cause:
+    "Never Watched" rendered in raw append-only `position` order, so the top was permanently
+    the OLDEST items and anything queued today landed ~600 rows down. Now newest-first,
+    unavailable entries grouped, both headers carry a count.
+26. [x] **CI-only test failure blocked two releases** — the #283 wrap test hardcoded 320px and
+    assumed a string wraps there. It does locally; on the macOS runner it fits one line. The
+    release workflow gates the build on the suite, so `5f49062` and `2906755` never published
+    and the tester sat on `6211f87` for three hours while `main` moved twice. Widths now derive
+    from the font's own `horizontalAdvance`. Same family as the px-pinning rule: an assertion
+    that hardcodes a value the ENVIRONMENT owns passes where written and fails where it runs.
+
 **v0.27.0 — next.**
 
-- [ ] **content_key fragments a single title into several identities.** The owner's "The
-  Lobster" exists as THREE keys — `tmdb:254320|movie` (the one row with a tmdb id),
-  `the lobster|movie|` (no id, no year) and `the lobster|movie|2015` (no id, year parsed).
-  Same film, so "Other versions" can never group them and it reads as if versions are
-  missing. This is the OPPOSITE failure from `aladdin|movie|` collapsing 15 unrelated films
-  (#272): the key over-collapses when data is thin and under-collapses when it is uneven.
-  Candidate fixes: propagate a known tmdb id to same-title siblings (partly exists —
-  `propagate_tmdb_from_title_siblings`), and stop an absent year from minting a separate key.
-  **Design this before coding — both directions of the failure have to be weighed together.**
-- [ ] **Name-derived cast — the last third.** `parse_channel_name().trailing` captures the
-  actor and `ChannelDB.detected_name_cast` stores it at ingestion, but **nothing reads it**
-  (0 consumers). Remaining: emit a LOW-confidence `person` tag with provenance, and surface it
-  under Tags — NOT Cast & Crew, which stays authoritative metadata rather than mixing in a
-  filename guess. A backfill is also needed for rows ingested before the column existed.
-- [ ] **"Reconnect content seems to mangle a bunch of the content"** — owner-reported,
-  UNEXAMINED. No detail captured yet; ask what looked wrong before digging.
-- [ ] **~370 composed/f-string `setStyleSheet` sites** still go stale on a live theme switch.
-  Each is a one-line change to `theme.style_fn`; do them opportunistically.
-- [ ] **Discover collection shelves** — ~800 is unscrollable. Raise
-  `MIN_COLLECTION_SHELF_MEMBERS`, add shelf search, drop fully-excluded collections.
-- [ ] **Layout menu (offered, not built)** — sidebar/details-pane visibility alongside Style.
-  Owner has not asked for it yet.
+Everything the previous v0.27.0 queue listed shipped in the third wave above (#284-#289),
+including three items whose stale entries claimed work already done in v0.26.0 (the style
+registry, the person-token capture, the duplicate shelf entry). What genuinely remains:
 
-- [ ] **Scroll reset in the Watch Queue / Recommended sections** — the remaining half of the owner's
-  report. Those sidebar/Explore sections rebuild via `section.refresh()` on actions like
-  mark-watched, resetting their scroll exactly as the results list used to. They need in-place row
-  updates (mirroring `channel_model.update_favorite`/`update_rating`/`update_watch_completed`) or a
-  scroll-preserving refresh. Also unconfirmed whether the TMDb-match / title-update reload the owner
-  reported comes from this path or a third one.
-- [ ] **Capture name-derived person tokens** — the parser strips a trailing actor
-  ("… (2002) NICOLAS CAGE") into `detected_title` and discards it; `parse_channel_name` does not even
-  surface the residual. Capture it as a LOW-confidence cast seed with provenance (tags rule: capture
-  generously, label confidence, never present a guess as authoritative), overridden by real
-  enrichment. NOTE the correctness half already shipped as #273 — this is now a display/ranking
-  enhancement, not a fix. Related: that title has no metadata row at all, which is the standing
-  TMDb/OMDb item below.
-- [ ] **Live theme switching — the style registry.** THE remaining known-broken area, and the only
-  v0.26.0 queue item deliberately NOT attempted: it is a ~466-call-site mechanical refactor with a
-  regression surface covering every screen, which is the wrong thing to rush into a rolling build
-  that auto-ships. Confirmed by owner re-test: switching in Settings leaves the previous palette's
-  text on the new chrome, app-wide. Qt caches the RENDERED stylesheet string, and there are **838
-  `setStyleSheet` sites across 68 files against 22 `refresh_theme()` methods across 16** — a gap
-  that cannot be closed by adding sweep entries (#253/#261 tried). Cold launch is unaffected.
-  Fix: `theme.style(w, "ROLE")` recording weakref + role so `apply_theme()` re-applies every live
-  entry, plus a drift-guard test banning the raw form. **Interim (shipped):** a theme switch now
-  says a restart is needed rather than silently half-applying. Detail:
-  docs/UI_UX_GUIDELINES.md → "Known-broken: live theme switching".
-- [ ] **Discover collection shelves need organising** — ~800 shelves is unscrollable.
-  `MIN_COLLECTION_SHELF_MEMBERS` is 2; raise it, add shelf search, and drop any collection whose
-  members are all globally excluded. Platform rollup needs its own Q-tag review.
+- [ ] **"Reconnect content seems to mangle a bunch of the content"** — owner-reported,
+  UNEXAMINED. No detail captured yet; ask what looked wrong before digging. Blocked on the
+  owner, not on the code.
+- [ ] **Scroll reset in the Watch Queue / Recommended sections** — the remaining half of the
+  owner's report. Those sidebar/Explore sections rebuild via `section.refresh()` on actions like
+  mark-watched, resetting their scroll exactly as the results list used to. They need in-place
+  row updates (mirroring `channel_model.update_favorite`/`update_rating`/
+  `update_watch_completed`) or a scroll-preserving refresh. Also unconfirmed whether the
+  TMDb-match / title-update reload the owner reported comes from this path or a third one.
+- [ ] **Two Watch Queue read paths disagree on scoping.** `sidebar/queue.py` and
+  `main_window_favorites.py` pass `get_hidden_provider_ids()` to `queue.get_all()`;
+  `trail_map_data.py:330` calls it with no argument. `get_all` only ANNOTATES rather than
+  drops, so the sets match today — but the intent differs between call sites, which is how
+  they drift apart later. One decision, applied at the chokepoint.
+- [ ] **The queue has no ceiling.** 611 entries accumulated on the owner's install with the
+  size shown nowhere until #289 added counts. Worth deciding whether a queue that large wants
+  archiving/ageing, or whether the counts are enough.
+- [ ] **Platform rollup for Discover shelves** needs its own Q-tag review (carried over; never
+  had a design pass).
 
 **Owner-owed, not buildable by the coding agent:** TMDb/OMDb have never made a real network call
 (#395 was mocked-aiohttp only). The Settings **Test** button already exists at
