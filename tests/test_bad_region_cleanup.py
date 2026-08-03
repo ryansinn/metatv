@@ -182,3 +182,44 @@ class TestIdempotency:
         assert task.needs_run(cfg) is True
         cfg.bad_region_cleanup_version = CURRENT_VERSION
         assert task.needs_run(cfg) is False
+
+
+class TestPlatformVocabularyGap:
+    """v1 used the wrong platform vocabulary and missed a whole class (#276).
+
+    ``channel_name_utils.PLATFORM_CODES`` holds 11 streaming brands;
+    ``config.BASE_PLATFORM_GROUPS`` is what the tag decomposer actually
+    classifies platforms from, and it includes ``SC``. So the owner's
+    "4K-SC - Ballerina (2025)" — category "|SCA| NORDIC FILMS 4K", a
+    Scandinavian listing — kept region ES and a "Spanish" language tag, on a
+    PRECISE tmdb content_key. Precision of the key is irrelevant: content_key
+    identifies the WORK, and its siblings are the same film in other locales, so
+    a sibling's region says nothing about this release.
+    """
+
+    def test_clears_a_platform_group_prefix_the_small_vocabulary_missed(self, db):
+        cid = _add(db, prefix="SC", region="ES", category="|SCA| NORDIC FILMS 4K")
+        _run(db)
+        assert _region_of(db, cid) in (None, ""), (
+            "SC is in BASE_PLATFORM_GROUPS; a Scandinavian listing must not keep "
+            "an inherited Spanish region"
+        )
+
+    def test_keeps_a_region_the_NAME_states(self, db):
+        """"SC - Monk (US)" says US in its own name — 385 such rows.
+
+        ParsedChannel.lang carries that parenthetical; .region carries the
+        PREFIX. Reading the wrong field here would compare a platform code to a
+        country and wrongly clear every one of them.
+        """
+        from metatv.core.database import ChannelDB
+
+        cid = _add(db, prefix="SC", region="US", category="|SCA| MULTISUB SERIES")
+        with db.session_scope() as s:
+            s.query(ChannelDB).filter(ChannelDB.id == cid).update(
+                {"name": "SC - Monk (US)"}
+            )
+        _run(db)
+        assert _region_of(db, cid) == "US", (
+            "the row's own name states (US) — clearing it destroys real data"
+        )

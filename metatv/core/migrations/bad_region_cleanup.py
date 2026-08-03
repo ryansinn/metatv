@@ -51,7 +51,13 @@ if TYPE_CHECKING:
 # History:
 #   1 — initial sweep: clear detected_region wherever it contradicts the row's
 #       own detected_prefix, and drop the region tag that was derived from it.
-CURRENT_VERSION: int = 1
+#   2 — widen the platform pass to the FULL prefix-group vocabulary and add the
+#       name-token arbiter. v1 used channel_name_utils.PLATFORM_CODES (11
+#       streaming brands), but the tag system classifies platforms from
+#       config.BASE_PLATFORM_GROUPS — which is far larger and includes "SC".
+#       That gap left "4K-SC - Ballerina (2025)" (category "|SCA| NORDIC FILMS
+#       4K") carrying region ES, tagged Spanish, on a precise tmdb content_key.
+CURRENT_VERSION: int = 2
 
 _BATCH = 2000
 
@@ -111,7 +117,8 @@ class BadRegionCleanupTask:
         with self._db.session_scope() as session:
             candidates = (
                 session.query(ChannelDB.id, ChannelDB.detected_prefix,
-                              ChannelDB.detected_region, ChannelDB.category)
+                              ChannelDB.detected_region, ChannelDB.category,
+                              ChannelDB.name)
                 .filter(ChannelDB.detected_region.isnot(None))
                 .filter(ChannelDB.detected_region != "")
                 .filter(ChannelDB.detected_prefix.isnot(None))
@@ -124,7 +131,7 @@ class BadRegionCleanupTask:
         # which is expressible as a join.
         doomed = [
             (cid, region)
-            for cid, prefix, region, _cat in candidates
+            for cid, prefix, region, _cat, _name in candidates
             if _contradicts_own_locale(prefix, region)
         ]
         doomed += self._unsupported_platform_regions(candidates, config)
@@ -182,19 +189,46 @@ class BadRegionCleanupTask:
         Returns:
             ``(channel_id, region)`` pairs to clear.
         """
-        from metatv.core.channel_name_utils import PLATFORM_CODES, normalize_region_code
+        from metatv.core.channel_name_utils import (
+            normalize_region_code, parse_channel_name,
+        )
         from metatv.core.tag_decomposer import region_code_from_category
 
         if config is None:
             from metatv.core.config import Config
             config = Config()
 
+        from metatv.core.config import BASE_PLATFORM_GROUPS
+
+        # BASE_PLATFORM_GROUPS' VALUES, not channel_name_utils.PLATFORM_CODES
+        # and not the group KEYS. Three distinct things, and picking wrong is
+        # silent: PLATFORM_CODES holds 11 streaming brands and missed "SC"
+        # entirely (which is what let the Scandinavian Ballerina keep region ES);
+        # the keys are human group NAMES ("Apple TV+", "Netflix"), so matching
+        # them drops "A+"/"PRIME". The values are the 85 actual prefix tokens,
+        # and they are what the tag decomposer classifies platforms from — so
+        # the sweep and the tags agree by construction.
+        platform_codes = {
+            normalize_region_code(token)
+            for tokens in BASE_PLATFORM_GROUPS.values()
+            for token in tokens
+        }
+
+        name_of = {c[0]: c[4] for c in candidates}
         out: list[tuple[str, str]] = []
-        for cid, prefix, region, category in candidates:
-            if normalize_region_code((prefix or "").strip()) not in PLATFORM_CODES:
+        for cid, prefix, region, category, _name in candidates:
+            if normalize_region_code((prefix or "").strip()) not in platform_codes:
+                continue
+            wanted = normalize_region_code(region)
+            # The NAME's parenthetical suffix, e.g. "SC - Monk (US)". Note
+            # ParsedChannel.lang holds that suffix — .region holds the PREFIX —
+            # so reading .region here would compare a platform code against a
+            # country and wrongly clear 385 rows that state their own country.
+            parsed = parse_channel_name(name_of.get(cid, "") or "")
+            if normalize_region_code(parsed.lang or "") == wanted:
                 continue
             own = region_code_from_category(category, config=config)
-            if own and normalize_region_code(own) == normalize_region_code(region):
+            if own and normalize_region_code(own) == wanted:
                 continue     # the row's own category says so — keep it
             out.append((cid, region))
         return out
