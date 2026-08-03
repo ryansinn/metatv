@@ -837,6 +837,13 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         view_menu = menubar.addMenu("&View")
         view_menu.addAction("&Refresh", self.refresh_channels)
         view_menu.addAction("&Operations", self.show_operations)
+
+        # Style menu — look-and-feel without digging through Settings (owner
+        # request). Both groups drive the SAME live-apply seams Settings uses
+        # (apply_theme / _apply_channel_list_density), so the two surfaces can
+        # never disagree; this is a shortcut to existing behaviour, not a
+        # parallel implementation of it.
+        self._build_style_menu(menubar)
         
         # Tools menu
         tools_menu = menubar.addMenu("&Tools")
@@ -2530,6 +2537,132 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # layoutChanged — no row geometry changed here, just colours).
         if hasattr(self, "channels_list"):
             self.channels_list.viewport().update()
+
+    def _build_style_menu(self, menubar) -> None:
+        """Build the Style menu: theme and results density, both live.
+
+        Every entry is checkable and exclusive within its group, and reflects
+        the CURRENT config on open — a menu that doesn't show what is active is
+        a menu you have to guess at.
+
+        Args:
+            menubar: The window's ``QMenuBar``.
+        """
+        from PyQt6.QtGui import QActionGroup
+
+        from metatv.gui import theme as _t
+
+        style_menu = menubar.addMenu("&Style")
+
+        theme_menu = style_menu.addMenu("&Theme")
+        self._theme_action_group = QActionGroup(self)
+        self._theme_action_group.setExclusive(True)
+        current_theme = getattr(self.config, "theme_name", _t.current_theme())
+        for name in _t.available_themes():
+            action = QAction(name, self, checkable=True)
+            action.setChecked(name == current_theme)
+            action.triggered.connect(lambda _c, n=name: self._set_theme_from_menu(n))
+            self._theme_action_group.addAction(action)
+            theme_menu.addAction(action)
+
+        density_menu = style_menu.addMenu("&Results density")
+        self._density_action_group = QActionGroup(self)
+        self._density_action_group.setExclusive(True)
+        current_density = getattr(self.config, "channel_list_density", "comfy")
+        # (config value, label) — labels match Settings → Interface so the two
+        # surfaces read the same.
+        for value, label in (
+            ("compact", "&Compact"),
+            ("comfy", "Com&fy"),
+            ("comfy_plus", "Comfy &+"),
+        ):
+            action = QAction(label, self, checkable=True)
+            action.setChecked(value == current_density)
+            action.triggered.connect(lambda _c, v=value: self._set_density_from_menu(v))
+            self._density_action_group.addAction(action)
+            density_menu.addAction(action)
+
+        style_menu.addSeparator()
+
+        # Poster thumbnails — a pure appearance toggle, and the one most worth
+        # reaching quickly (posters are the biggest visual change in the list).
+        self._thumbs_action = QAction("Poster &thumbnails", self, checkable=True)
+        self._thumbs_action.setChecked(
+            bool(getattr(self.config, "channel_list_thumbnails", True))
+        )
+        self._thumbs_action.toggled.connect(self._set_thumbnails_from_menu)
+        style_menu.addAction(self._thumbs_action)
+
+        # Platform names — "Netflix" vs "NF" on the row chip.
+        platform_menu = style_menu.addMenu("&Platform names")
+        self._platform_action_group = QActionGroup(self)
+        self._platform_action_group.setExclusive(True)
+        current_platform = getattr(self.config, "platform_name_style", "auto")
+        for value, label in (
+            ("auto", "&Auto"),
+            ("full", "&Full name"),
+            ("short", "&Short code"),
+        ):
+            action = QAction(label, self, checkable=True)
+            action.setChecked(value == current_platform)
+            action.triggered.connect(
+                lambda _c, v=value: self._set_platform_style_from_menu(v)
+            )
+            self._platform_action_group.addAction(action)
+            platform_menu.addAction(action)
+
+    def _set_theme_from_menu(self, name: str) -> None:
+        """Apply and persist a theme chosen from the Style menu.
+
+        Routes through the same ``refresh_theme()`` the Settings dialog uses
+        rather than calling ``apply_theme`` directly — that is where the
+        registered-style re-apply and widget repolish happen (#277/#278), and
+        skipping it would reproduce the half-switched rendering those fixed.
+
+        Args:
+            name: A palette name from ``theme.available_themes()``.
+        """
+        if getattr(self.config, "theme_name", None) == name:
+            return
+        self.config.theme_name = name
+        self.config.save()
+        self.refresh_theme()
+
+    def _set_thumbnails_from_menu(self, enabled: bool) -> None:
+        """Toggle poster thumbnails from the Style menu.
+
+        Args:
+            enabled: True to show posters in the results list.
+        """
+        if bool(getattr(self.config, "channel_list_thumbnails", True)) == enabled:
+            return
+        self.config.channel_list_thumbnails = enabled
+        self.config.save()
+        self._apply_channel_list_density()
+
+    def _set_platform_style_from_menu(self, value: str) -> None:
+        """Set how platform chips are labelled, from the Style menu.
+
+        Args:
+            value: One of ``"auto"``/``"full"``/``"short"``.
+        """
+        if getattr(self.config, "platform_name_style", None) == value:
+            return
+        self.config.platform_name_style = value
+        self.config.save()
+        self._apply_channel_list_density()
+
+    def _set_density_from_menu(self, value: str) -> None:
+        """Apply and persist a row density chosen from the Style menu.
+
+        Args:
+            value: One of ``"compact"``/``"comfy"``/``"comfy_plus"``.
+        """
+        if getattr(self.config, "channel_list_density", None) == value:
+            return
+        self.config.channel_list_density = value
+        self.config.save()
+        self._apply_channel_list_density()
 
     def _apply_channel_list_density(self) -> None:
         """Re-apply the channel-list row density, thumbnail toggle, AND
