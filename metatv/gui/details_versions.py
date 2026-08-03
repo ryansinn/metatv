@@ -362,6 +362,16 @@ class _VersionSection(QWidget):
         active   = [v for v in versions if not v.is_filtered and not v.is_hidden]
         filtered = [v for v in versions if v.is_filtered and not v.is_hidden]
 
+        # A source glyph on every chip is only information when the chips span
+        # more than one source; with a single source it repeats the same symbol
+        # down the whole list and crowds out the label that actually varies
+        # (region/quality). Counted across active AND filtered so expanding
+        # "Filtered variants" can't change the rule mid-render. The source is
+        # still named in each chip's tooltip either way.
+        self._show_source_icons = len({
+            v.provider_id for v in (active + filtered) if v.provider_id
+        }) > 1
+
         if not active and not filtered:
             return
 
@@ -425,9 +435,12 @@ class _VersionSection(QWidget):
 
         Source icon comes from provider_map (set at load() time).  Falls back to
         no icon when provider_map is absent or the provider has no configured icon.
+
+        Suppressed entirely when every chip resolves to the same source (see
+        ``_show_source_icons``) — it distinguishes nothing there.
         """
         parts = []
-        if v.provider_id:
+        if v.provider_id and getattr(self, "_show_source_icons", True):
             pm = getattr(self, "_provider_map", {})
             src_icon = pm.get(v.provider_id, {}).get("icon", "")
             if src_icon:

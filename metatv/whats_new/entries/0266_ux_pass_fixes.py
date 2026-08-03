@@ -23,6 +23,15 @@ ENTRY = WhatsNewEntry(
         "already closed its database, logging an error per monitored series on "
         "every exit. Shutdown now signals the in-flight check to stop instead "
         "of only refusing new ones.",
+        "\"Other versions\" chips in the details pane put a source symbol on "
+        "every chip even when there was only one source to distinguish — the "
+        "same symbol repeated down the whole list, crowding out the region and "
+        "quality labels that actually differ. The symbol now appears only when "
+        "the versions genuinely span more than one source; the source is still "
+        "named in each chip's tooltip either way.",
+        "Rows in the results list ran flush to both edges, so text on the right "
+        "sat under the vertical scrollbar. Rows now have matching breathing "
+        "room on both sides.",
     ),
     version="0.25.0",
     date="2026-08-02",
@@ -41,5 +50,16 @@ ENTRY = WhatsNewEntry(
         "With at least one monitored series, quit the app and check "
         "~/.config/metatv/logs/ — no \"cannot schedule new futures after "
         "interpreter shutdown\" errors after \"Database connection closed\".",
+        "With ONE source configured, open a title that has several versions — "
+        "the \"Also available as\" chips show region/quality only, with no "
+        "repeated source symbol. Hovering a chip still names the source in the "
+        "tooltip.",
+        "With TWO or more sources configured, open a title whose versions come "
+        "from both — the source symbol reappears on the chips, because it now "
+        "distinguishes something.",
+        "Scroll the results list with the vertical scrollbar visible — "
+        "right-aligned text (year, language, quality) sits clear of the "
+        "scrollbar instead of underneath it, and the left edge has matching "
+        "space.",
     ),
 )

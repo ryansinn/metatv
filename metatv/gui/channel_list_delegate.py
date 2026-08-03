@@ -156,6 +156,8 @@ _VALID_PLATFORM_STYLES = (PLATFORM_STYLE_AUTO, PLATFORM_STYLE_FULL, PLATFORM_STY
 # Structural spacing (not a colour/font-size — px literals are fine inline
 # per CLAUDE.md's styles rule).
 _ROW_V_PAD = 4       # vertical padding top+bottom of a single-line/compact row
+_ROW_H_PAD = 6        # breathing room at BOTH row edges; the right side also keeps
+                      # right-aligned cells out from under the vertical scrollbar
 _LINE_GAP = 2         # gap between comfy's two stacked text lines
 _CELL_GAP = 6         # horizontal gap between adjacent cells
 _CHIP_H_PAD = 5       # chip internal horizontal padding (mirrors badge_utils' "1px 5px")
@@ -535,6 +537,14 @@ class ChannelRowDelegate(QStyledItemDelegate):
         text_rect = style.subElementRect(
             QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget
         )
+        # Inset both edges equally. The right inset is the functional one —
+        # right-aligned cells anchor to container.right(), so without it they
+        # render flush to the viewport edge and the vertical scrollbar paints
+        # over them. The matching left inset keeps the row balanced rather than
+        # just shifted left. Applied here, before the clip and before
+        # content_rect is derived, so every density and the thumbnail path all
+        # inherit it from one place.
+        text_rect = text_rect.adjusted(_ROW_H_PAD, 0, -_ROW_H_PAD, 0)
 
         painter.save()
         painter.setClipRect(text_rect)
