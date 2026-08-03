@@ -43,6 +43,25 @@ def _count_episodes(episodes_data) -> int:
     return 0
 
 
+def _has_usable_episodes(episodes_data) -> bool:
+    """Return True if *episodes_data* is a real (possibly-zero-count) payload.
+
+    False for a missing/``None`` field, a non-dict/non-list value, or an empty
+    top-level container — all of which mean the fetch failed or returned a
+    malformed response, NOT that the series legitimately has zero episodes.
+    ``_count_episodes`` can't tell these apart (both resolve to ``0``), so
+    callers that are about to WRITE a baseline from a live fetch must check
+    this first — a bare ``0`` from a flaky provider must never be recorded as
+    the new baseline (root cause of #259: a flaky fetch stored baseline 0,
+    then the next successful check reported the entire catalogue as "new").
+    """
+    if isinstance(episodes_data, dict):
+        return bool(episodes_data)
+    if isinstance(episodes_data, list):
+        return bool(episodes_data)
+    return False
+
+
 def normalize_monitored_entry(entry: dict) -> dict:
     """Return *entry* with a per-provider ``baselines`` dict.
 
@@ -71,6 +90,58 @@ def normalize_monitored_entry(entry: dict) -> dict:
         migrated["baselines"] = {provider_id: legacy}
     else:
         migrated["baselines"] = {}
+    return migrated
+
+
+def clamp_inflated_unseen_new(entry: dict) -> dict:
+    """Return *entry* with ``unseen_new`` clamped to the summed per-provider baselines.
+
+    Repairs config state left over from the #259 baseline-accounting bug: a
+    flaky provider fetch that returned an empty/malformed ``episodes``
+    payload was stored as a baseline of ``0``, so the next successful check
+    read the delta as the ENTIRE catalogue and ``unseen_new`` accumulated
+    without bound across launches (one observed real-config case reached
+    320 for a 132-episode show). ``unseen_new`` can never legitimately
+    exceed the total episode count currently believed across every provider
+    baseline, so any value above that sum is clamped down to the sum itself
+    — this is both the one-time repair for already-inflated entries (called
+    from ``Config.get_monitored_series``, the existing migrate-on-read
+    chokepoint) AND the ongoing belt-and-braces guard applied to every fresh
+    write (called from ``SeriesMonitorManager._on_new_episodes``), so a
+    future accounting bug can't reproduce an absurd number either.
+
+    Pure and side-effect-free — the caller decides whether/how to persist
+    the result. Idempotent: once ``unseen_new`` is within the sane range (or
+    there's no baseline data to check it against), a second call is a no-op
+    and returns ``entry`` UNCHANGED (same object).
+
+    Args:
+        entry: A monitored-series config dict. Expected to already carry a
+            ``baselines`` dict — call ``normalize_monitored_entry`` first for
+            legacy entries.
+
+    Returns:
+        ``entry`` unchanged (same object) if ``unseen_new`` is already sane,
+        absent, or there's no usable baseline data to validate against;
+        otherwise a NEW dict with ``unseen_new`` clamped to
+        ``sum(baselines.values())``.
+    """
+    baselines = entry.get("baselines")
+    if not isinstance(baselines, dict) or not baselines:
+        return entry
+    unseen = entry.get("unseen_new")
+    if not isinstance(unseen, int) or unseen <= 0:
+        return entry
+    sane_max = sum(v for v in baselines.values() if isinstance(v, int))
+    if unseen <= sane_max:
+        return entry
+    logger.warning(
+        f"series_monitor: clamping inflated unseen_new for "
+        f"{entry.get('display_title') or entry.get('title', 'Unknown series')} "
+        f"from {unseen} to {sane_max} (exceeds summed baselines {baselines})"
+    )
+    migrated = dict(entry)
+    migrated["unseen_new"] = sane_max
     return migrated
 
 
@@ -316,7 +387,23 @@ class SeriesMonitorManager(QObject):
                         )
                         continue
 
-                    current_count = _count_episodes(data.get("episodes", {}))
+                    episodes_field = data.get("episodes")
+                    if not _has_usable_episodes(episodes_field):
+                        # Missing/malformed/empty episodes payload — a provider
+                        # hiccup, not proof the series lost every episode. Skip
+                        # the baseline write for THIS provider entirely (new_
+                        # baselines already carries whatever value it had before
+                        # this pass, since it started as a copy of `baselines`)
+                        # rather than silently recording a 0 that the next
+                        # successful check would read as "everything is new".
+                        logger.warning(
+                            f"series_monitor: no usable episodes payload for "
+                            f"{title} on {provider.name} — skipping baseline "
+                            f"update this pass"
+                        )
+                        continue
+
+                    current_count = _count_episodes(episodes_field)
                     prev = baselines.get(provider_id)
 
                     if prev is None:
@@ -328,6 +415,19 @@ class SeriesMonitorManager(QObject):
                             f"{provider.name} = {current_count}"
                         )
                         new_baselines[provider_id] = current_count
+                        continue
+
+                    if current_count < prev:
+                        # A drop means a provider hiccup, not deleted episodes —
+                        # never lower a stored baseline. new_baselines already
+                        # holds `prev` (it started as a copy of `baselines`), so
+                        # just leave it alone and treat this pass as unchanged.
+                        logger.warning(
+                            f"series_monitor: {title} on {provider.name} reported "
+                            f"fewer episodes than the stored baseline "
+                            f"({current_count} < {prev}) — keeping the higher "
+                            f"baseline"
+                        )
                         continue
 
                     delta = current_count - prev
@@ -438,7 +538,15 @@ class SeriesMonitorManager(QObject):
                 )
                 return
 
-            episode_count = _count_episodes(data.get("episodes", {}))
+            episodes_field = data.get("episodes")
+            if not _has_usable_episodes(episodes_field):
+                logger.warning(
+                    f"series_monitor: no usable episodes payload for baseline "
+                    f"of {title} — not establishing a baseline from this fetch"
+                )
+                return
+
+            episode_count = _count_episodes(episodes_field)
             logger.info(
                 f"series_monitor: baseline for {title} = {episode_count} (from API)"
             )
@@ -479,10 +587,21 @@ class SeriesMonitorManager(QObject):
         merged_baselines = {**existing_baselines, **checked_baselines}
 
         if delta > 0:
+            # Belt-and-braces guard: unseen_new can never legitimately exceed
+            # the total episode count currently believed across every
+            # provider baseline. Reuses the same clamp the one-time config
+            # migration applies (clamp_inflated_unseen_new), so a future
+            # accounting bug can't reproduce an absurd number either.
+            clamped = clamp_inflated_unseen_new({
+                "baselines": merged_baselines,
+                "unseen_new": existing_unseen + delta,
+            })
+            total_unseen = clamped["unseen_new"]
+
             self.config.update_monitored_series(
                 series_channel_id,
                 baselines=merged_baselines,
-                unseen_new=existing_unseen + delta,
+                unseen_new=total_unseen,
                 growth_providers=grown_names,
                 last_checked=now_iso,
             )
@@ -497,7 +616,6 @@ class SeriesMonitorManager(QObject):
                     auto_dismiss_ms=6000,
                 )
 
-            total_unseen = existing_unseen + delta
             self.new_episodes_found.emit(series_channel_id, total_unseen)
         else:
             # delta == 0: just update baselines and last_checked (baselines may

@@ -1277,20 +1277,30 @@ class Config(BaseModel):
 
         Migrates any legacy entry (scalar ``baseline_episode_count``, from
         before the per-provider baselines upgrade) to the per-provider
-        ``baselines`` shape on first read and writes the
-        migrated list back — a one-time, idempotent upgrade (see
-        ``series_monitor.normalize_monitored_entry``).  Entries already on the
-        new shape pass through unchanged.
+        ``baselines`` shape, AND clamps any ``unseen_new`` left inflated by
+        the #259 baseline-accounting bug (a flaky provider fetch recorded a
+        baseline of 0, so the next successful check counted the whole
+        catalogue as "new" every pass) down to the summed baselines — both on
+        first read, writing the migrated list back.  Both steps are one-time,
+        idempotent upgrades (see ``series_monitor.normalize_monitored_entry``
+        and ``series_monitor.clamp_inflated_unseen_new``).  Entries already
+        sane pass through unchanged.  This never touches favorites, ratings,
+        history, or watch progress, and never removes an entry — it only ever
+        corrects the derived ``unseen_new``/``baselines`` fields on this list.
         """
-        from metatv.core.series_monitor import normalize_monitored_entry
+        from metatv.core.series_monitor import (
+            clamp_inflated_unseen_new,
+            normalize_monitored_entry,
+        )
 
         changed = False
         migrated = []
         for e in self.monitored_series:
             m = normalize_monitored_entry(e)
-            if m is not e:
+            c = clamp_inflated_unseen_new(m)
+            if c is not e:
                 changed = True
-            migrated.append(m)
+            migrated.append(c)
         if changed:
             self.monitored_series = migrated
             self.save()
