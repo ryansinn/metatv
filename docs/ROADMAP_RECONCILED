@@ -1,0 +1,9 @@
+# Last What's New id reconciled against ROADMAP.md.
+# Bumped by scripts/roadmap_audit.py --accept, only in the same commit
+# as the ROADMAP.md edit it certifies. See docs/SESSION_WRAP.md step 3.
+#
+# Seeded at 193 (end of v0.15.0) when the guard was introduced in v0.24.0.
+# Entries 1-193 predate it and were never reconciled under any mechanism;
+# the v0.24.0 truth-pass swept the whole file, but only 194+ carries the
+# guarantee this watermark certifies.
+193
