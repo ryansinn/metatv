@@ -193,7 +193,7 @@ def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
 
     ``QColor``'s own string constructor parses ``#RRGGBB``/``#RGB`` hex and
     Qt/SVG colour NAMES ("gold", "white", ...) — but NOT the CSS
-    ``rgba(r,g,b,a)``/``rgb(r,g,b)`` function syntax
+    CSS functional-notation colour syntax
     ``theme_palettes.py``'s ``OVERLAY_*`` tokens use. Feeding one of those
     straight to ``QColor(...)`` silently returns an INVALID colour that
     paints as OPAQUE BLACK, alpha 255 — a real bug this chokepoint fixes:
@@ -206,7 +206,7 @@ def _to_qcolor(token: Union[str, QColor, None]) -> QColor:
 
     Args:
         token: A theme token value — ``#RRGGBB``/``#RGB`` hex, an SVG colour
-            name, a CSS ``rgba(r,g,b,a)``/``rgb(r,g,b)`` string, an
+            name, a CSS functional-notation colour string, an
             already-constructed ``QColor`` (passed through unchanged — some
             callers, e.g. ``_resolve_default_color``, already hand this a
             real ``QColor``), or ``None``/``""``.
@@ -320,7 +320,7 @@ def _year_cell(year) -> Optional[_Cell]:
 
 
 def _quality_cell(token: str) -> Optional[_Cell]:
-    """Quality chip — OUTLINE ONLY (#257 Part A): border + text in the tier's
+    """Quality chip — OUTLINE ONLY (What's New 257, Part A): border + text in the tier's
     colour from ``_quality_outline_colors()``, not a solid fill — the one
     facet chip styled differently from the rest of the row's new
     hue-tinted-fill family.

@@ -5,6 +5,7 @@ from metatv.whats_new import WhatsNewEntry
 ENTRY = WhatsNewEntry(
     id=258,
     version="0.24.0",
+    date="2026-08-02",
     title="Channel list layout fix",
     items=(
         "Fixed a layout issue where the channel list incorrectly showed a horizontal scrollbar on first launch, clipping the right-hand language chips and details pane.",

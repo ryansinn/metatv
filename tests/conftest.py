@@ -626,6 +626,8 @@ def mock_settings_density_widget(dlg) -> None:
 
     dlg._channel_density_combo = MagicMock()
     dlg._channel_density_combo.currentData.return_value = "comfy"
+    dlg._platform_name_style_combo = MagicMock()
+    dlg._platform_name_style_combo.currentData.return_value = "auto"
     dlg._channel_thumbnails_check = MagicMock()
     dlg._channel_thumbnails_check.isChecked.return_value = True
     dlg._collapse_variants_check = MagicMock()
@@ -654,11 +656,15 @@ def wire_settings_density_widget(dlg) -> None:
         dlg: A ``SettingsDialog`` built via ``__new__`` (no ``__init__`` run).
     """
     from metatv.gui.settings_dialog import _CHANNEL_DENSITY_CHOICES
+    from metatv.gui.settings_dialog_tabs import _PLATFORM_NAME_STYLE_CHOICES
     from PyQt6.QtWidgets import QCheckBox, QComboBox
 
     dlg._channel_density_combo = QComboBox()
     for label, value in _CHANNEL_DENSITY_CHOICES:
         dlg._channel_density_combo.addItem(label, value)
+    dlg._platform_name_style_combo = QComboBox()
+    for label, value in _PLATFORM_NAME_STYLE_CHOICES:
+        dlg._platform_name_style_combo.addItem(label, value)
     dlg._channel_thumbnails_check = QCheckBox()
     dlg._channel_thumbnails_check.setChecked(True)
     # Collapse-variants opt-in (#387) and the theme combo (#389) — same group,
