@@ -417,6 +417,11 @@ class _ChannelListMixin:
             # verbatim for fetchMore()), so every page of a search uses one
             # consistent collapse setting.
             collapse_variants=getattr(self.config, "collapse_variants_in_list", False),
+            # Zero-sources empty state (main thread, already read above — no extra
+            # query): distinguishes "no source configured at all" from "sources
+            # exist but filters/search/exclusions hide everything", which
+            # _on_channels_loaded needs to pick the honest empty-state message.
+            has_any_provider=bool(all_providers),
         )
 
         # Run the heavy query off the UI thread via the async seam; stale results
@@ -820,7 +825,12 @@ class _ChannelListMixin:
 
         if not channels:
             logger.warning("No channels match current filters!")
-            if params.get('hidden_only'):
+            if not params.get('has_any_provider', True):
+                # The real cause is "no source configured yet" — not filters or
+                # search. Take priority over every branch below so the honest
+                # message + Add Source CTA always wins on a fresh install.
+                self._show_no_sources_state()
+            elif params.get('hidden_only'):
                 self.status_bar.showMessage("No hidden channels found")
                 self.stats_label.setText("No hidden channels")
             elif params.get('id_filter_active'):
@@ -1015,6 +1025,26 @@ class _ChannelListMixin:
 
     # ---- Banner helpers (main thread only) ------------------------------------
 
+    def _show_no_sources_state(self) -> None:
+        """Zero-sources empty state: honest message + "Add Source" CTA.
+
+        Reached only when ``load_channels``' ``has_any_provider`` param is
+        False (no provider row exists at all) — the one case where the true
+        cause of an empty channel list is "no source yet", not the user's
+        filters or search text. The other zero-results branches in
+        ``_on_channels_loaded`` are left untouched for every case where at
+        least one source is configured; this is a separate branch, not a
+        change to their message.
+        """
+        if hasattr(self, '_no_sources_banner'):
+            self._no_sources_banner.setVisible(True)
+        if hasattr(self, '_channel_banner'):
+            self._channel_banner.setVisible(False)
+        if hasattr(self, '_channel_filter_bar'):
+            self._channel_filter_bar.setVisible(False)
+        self.status_bar.showMessage("No sources configured — add a source to start browsing channels")
+        self.stats_label.setText("No sources configured")
+
     def _show_channel_banner(self, text: str) -> None:
         """Show the info banner strip above the channel list."""
         if not hasattr(self, '_channel_banner'):
@@ -1093,11 +1123,15 @@ class _ChannelListMixin:
         self._channel_filter_bar.setVisible(show_excl or show_search or show_dead or show_kw)
 
     def _hide_channel_banners(self) -> None:
-        """Hide the info banner and the filter-transparency bar."""
+        """Hide the info banner, the filter-transparency bar, and the
+        zero-sources empty-state banner — the single reset point every render
+        pass starts from before deciding which (if any) banner applies."""
         if hasattr(self, '_channel_banner'):
             self._channel_banner.setVisible(False)
         if hasattr(self, '_channel_filter_bar'):
             self._channel_filter_bar.setVisible(False)
+        if hasattr(self, '_no_sources_banner'):
+            self._no_sources_banner.setVisible(False)
 
     def get_enabled_media_types(self) -> list:
         """Get list of enabled media types from the filter panel."""
