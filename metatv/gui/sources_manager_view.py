@@ -80,8 +80,8 @@ class SourcesManagerView(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        self._add_btn = QPushButton("+")
-        self._add_btn.setFixedSize(24, 22)
+        self._add_btn = QPushButton(_icons.add_icon + " Add Source")
+        self._add_btn.setMinimumHeight(24)
         self._add_btn.setToolTip("Add Source…")
         self._add_btn.setStyleSheet(_theme.RECIPE_SAVED_ICON_BTN)
         cursor_affordance.set_clickable(self._add_btn)
