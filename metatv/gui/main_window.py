@@ -435,6 +435,10 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         # just re-runs the same update_detected_prefixes() pass.
         from metatv.core.migrations.detected_genre_backfill import DetectedGenreBackfillTask
         self.migration_manager.register(DetectedGenreBackfillTask(self.db))
+        # One-time sweep for regions inherited from an unrelated same-title
+        # sibling (#272 fixed it forward; this clears what already shipped).
+        from metatv.core.migrations.bad_region_cleanup import BadRegionCleanupTask
+        self.migration_manager.register(BadRegionCleanupTask(self.db))
         # Owner-reported gap: restricted-content (XXX/ADULT/X-prefix naming
         # convention) name/prefix detection the provider's is_adult flag misses —
         # one-time backfill of stored detected_restricted for pre-existing rows

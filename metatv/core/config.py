@@ -1101,6 +1101,11 @@ class Config(BaseModel):
     # (stored canonical genre(s), computed at ingestion) for pre-existing rows —
     # what lets Discover's genre shelves read a small indexed/stored field instead
     # of alias-matching against raw_data on every shelf expand.
+    # One-time cleanup of detected_region values inherited from an unrelated
+    # content_key sibling (see migrations/bad_region_cleanup.py). Only ever
+    # CLEARS a contradicting region — an empty region is honest, a guessed one
+    # is how the mislabels happened.
+    bad_region_cleanup_version: int = 0
     genre_backfill_version: int = 0
 
     # Internal migration version for the detected_restricted backfill (owner-reported

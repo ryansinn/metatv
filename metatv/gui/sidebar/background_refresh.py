@@ -46,11 +46,41 @@ class BackgroundRefreshMixin:
         The placeholder occupies the load window so the section never shows its
         stale empty/zero state while the background read runs. ``_on_data_ready``
         clears the list before rendering, which replaces the placeholder.
+
+        The scroll offset is captured here, BEFORE the clear that destroys it,
+        and restored once the new rows are in. A section refresh is usually the
+        side effect of a single action — marking one item watched, queueing one
+        title — and losing your place in a long list every time you act on one
+        row makes the list unusable for exactly the bulk triage it exists for
+        (owner report, repeatedly).
         """
         lst = self._refresh_list()
+        self._pending_scroll = self._scroll_offset(lst)
         lst.clear()
         self.show_loading(lst, self._loading_message())
         self._executor.submit(self._bg_refresh)
+
+    @staticmethod
+    def _scroll_offset(lst) -> int:
+        """Current vertical scroll offset, or 0 when the widget has no bar yet."""
+        bar = lst.verticalScrollBar() if hasattr(lst, "verticalScrollBar") else None
+        return bar.value() if bar is not None else 0
+
+    def _restore_scroll(self, lst) -> None:
+        """Put the list back where the user had it, clamped to the new content.
+
+        Clamping matters: the refresh may have returned FEWER rows (the item was
+        removed from the queue), so the old offset can exceed the new maximum.
+        Qt clamps on assignment, but doing it explicitly keeps the intent
+        obvious and the value inspectable in tests.
+        """
+        offset = self.__dict__.pop("_pending_scroll", 0)
+        if not offset:
+            return
+        bar = lst.verticalScrollBar() if hasattr(lst, "verticalScrollBar") else None
+        if bar is None:
+            return
+        bar.setValue(min(offset, bar.maximum()))
 
     def _bg_refresh(self) -> None:
         """Worker thread — NO widget access. Loads rows, emits them (or None on failure)."""
@@ -68,5 +98,9 @@ class BackgroundRefreshMixin:
         lst.clear()
         if rows is None:
             self.show_load_error(lst, self._load_error_message())
+            # Drop the saved offset: an error row is a different, much shorter
+            # list, and scrolling it to a stale position would hide the message.
+            self.__dict__.pop("_pending_scroll", None)
             return
         self._populate_rows(rows)
+        self._restore_scroll(lst)
