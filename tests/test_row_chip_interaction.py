@@ -209,11 +209,44 @@ class TestRouting:
         host._on_genre_filter_requested.assert_called_once_with("Drama")
         host._on_tag_filter_requested.assert_not_called()
 
-    @pytest.mark.parametrize("facet", ["quality", "region", "language", "collection"])
-    def test_other_facets_use_the_tag_filter(self, facet):
+    @pytest.mark.parametrize("facet,chip_value,tag_value", [
+        ("quality", "4K", "4K / UHD"),   # chip shows the token, tag stores the group
+        ("language", "EN", "English"),   # chip shows the code, tag stores the name
+        ("region", "FR", "FR"),          # these two happen to coincide
+    ])
+    def test_facets_are_translated_to_tag_vocabulary(self, facet, chip_value, tag_value):
+        """The chip's displayed value is NOT always the tag's stored value."""
         host = self._host()
-        host._on_row_chip_clicked(facet, "X")
-        host._on_tag_filter_requested.assert_called_once_with(facet, "X")
+        host._on_row_chip_clicked(facet, chip_value)
+        host._on_tag_filter_requested.assert_called_once_with(facet, tag_value)
+
+    def test_untranslatable_value_does_not_filter(self):
+        """Better to do nothing than to filter on a value no tag has — that
+        empties the list and reads as a broken filter."""
+        host = self._host()
+        host._on_row_chip_clicked("quality", "NONSENSE")
+        host._on_tag_filter_requested.assert_not_called()
+
+    def test_collection_filters_by_the_CLICKED_chip_not_the_selection(self):
+        """_on_tag_filter_requested's collection branch resolves the SELECTED
+        channel's category and ignores the value handed to it. That is right for
+        a details-pane click but wrong for a row chip, which deliberately does
+        not change the selection — it would filter by whatever was selected
+        before. So collection takes its own path.
+        """
+        host = self._host()
+        host._reset_context_filters = MagicMock()
+        host._context_filter_label = MagicMock()
+        host._context_filter_chip = MagicMock()
+        host._save_search_state = MagicMock()
+        host.switch_to_list_view = MagicMock()
+        host.load_channels = MagicMock()
+
+        host._on_row_chip_clicked("collection", "AMAZON PRIME")
+
+        assert host._details_category_filter == "AMAZON PRIME"
+        host._on_tag_filter_requested.assert_not_called()
+        host.load_channels.assert_called_once()
 
     def test_blank_input_is_ignored(self):
         host = self._host()
@@ -227,3 +260,66 @@ class TestRouting:
         host._on_row_chip_clicked("nonsense", "X")
         host._on_genre_filter_requested.assert_not_called()
         host._on_tag_filter_requested.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Display vocabulary vs TAG vocabulary — the bug that shipped in #270
+# ---------------------------------------------------------------------------
+
+class TestTagValueTranslation:
+    """A chip displays a CODE; the tag table stores a resolved NAME or GROUP.
+
+    Shipped broken: clicking a 4K chip filtered on ``"4K"`` while the tag stores
+    ``"4K / UHD"``, and a language chip filtered on ``"EN"`` while the tag stores
+    ``"English"`` — both emptied the list. Region and genre coincide by accident,
+    which is what made the mismatch look like it worked (the owner's "FR filters
+    seem to work" was a REGION chip, not a language one).
+    """
+
+    def test_quality_token_resolves_to_its_group(self):
+        from metatv.core.channel_name_utils import tag_value_for
+
+        assert tag_value_for("quality", "4K") == "4K / UHD"
+        assert tag_value_for("quality", "UHD") == "4K / UHD"
+        assert tag_value_for("quality", "HD") == "HD"
+
+    def test_quality_group_name_passes_through(self):
+        """Idempotent — a value already in tag vocabulary must not be re-mapped."""
+        from metatv.core.channel_name_utils import tag_value_for
+
+        assert tag_value_for("quality", "4K / UHD") == "4K / UHD"
+
+    def test_language_code_resolves_to_its_name(self):
+        from metatv.core.channel_name_utils import tag_value_for
+
+        assert tag_value_for("language", "EN") == "English"
+        assert tag_value_for("language", "FR") == "French"
+
+    def test_region_codes_are_already_tag_values(self):
+        from metatv.core.channel_name_utils import tag_value_for
+
+        assert tag_value_for("region", "FR") == "FR"
+        assert tag_value_for("region", "US") == "US"
+
+    def test_unmappable_token_returns_none_rather_than_the_raw_value(self):
+        """Returning the raw token is what produced the empty list.
+
+        None means "don't filter"; the caller must not substitute the input.
+        """
+        from metatv.core.channel_name_utils import tag_value_for
+
+        assert tag_value_for("quality", "NOPE") is None
+        assert tag_value_for("language", "ZZ") is None
+
+    def test_resolved_values_actually_exist_in_the_tag_vocabulary(self):
+        """End-to-end: every quality group this resolves to must be a real
+        group name, not something invented here."""
+        from metatv.core.channel_name_utils import tag_value_for
+        from metatv.core.config import BASE_QUALITY_GROUPS
+
+        for members in BASE_QUALITY_GROUPS.values():
+            for token in members:
+                resolved = tag_value_for("quality", token)
+                assert resolved in BASE_QUALITY_GROUPS, (
+                    f"{token!r} resolved to {resolved!r}, which is not a group"
+                )

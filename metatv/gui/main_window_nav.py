@@ -669,14 +669,46 @@ class _NavMixin:
             facet: Tag facet type, e.g. ``"quality"``/``"region"``/``"language"``.
             value: The chip's stored value (a code, not its display label).
         """
+        from metatv.core.channel_name_utils import tag_value_for
+
         if not facet or not value:
             return
+
         if facet == "genre":
             self._on_genre_filter_requested(value)
             return
-        if facet in ("quality", "region", "language", "collection", "audio"):
-            self._on_tag_filter_requested(facet, value)
+
+        if facet == "collection":
+            # NOT via _on_tag_filter_requested: its collection branch resolves
+            # the CURRENTLY SELECTED channel's category and ignores the value
+            # passed in. That is right for a details-pane click (the pane always
+            # describes the selected row) but wrong here — a chip click
+            # deliberately does not change the selection, so it would filter by
+            # whatever happened to be selected before. Set the category filter
+            # from the CHIP's own value instead.
+            self._reset_context_filters()
+            self._details_category_filter = value
+            self._context_filter_label.setText(f"Collection: {value}")
+            self._context_filter_chip.show()
+            self._save_search_state()
+            self.switch_to_list_view()
+            self.load_channels()
             return
+
+        if facet in ("quality", "region", "language", "audio"):
+            # The chip DISPLAYS a code/token; the tag table stores a resolved
+            # name or group ("EN" → "English", "4K" → "4K / UHD"). Filtering on
+            # the displayed string matched nothing and emptied the list.
+            tag_value = tag_value_for(facet, value)
+            if not tag_value:
+                logger.warning(
+                    f"row chip {facet}={value!r} has no tag-table equivalent — "
+                    f"not filtering (an empty list would look like a broken filter)"
+                )
+                return
+            self._on_tag_filter_requested(facet, tag_value)
+            return
+
         logger.warning(
             f"row chip emitted an unroutable facet {facet!r} — the delegate's "
             f"facet vocabulary has drifted from tag_decomposer's"

@@ -162,8 +162,16 @@ _ROW_H_PAD = 10       # breathing room at BOTH row edges; the right side also ke
                       # technically clear but visually crowded against it.
 _LINE_GAP = 2         # gap between comfy's two stacked text lines
 _CELL_GAP = 6         # horizontal gap between adjacent cells
-_CHIP_H_PAD = 5       # chip internal horizontal padding (mirrors badge_utils' "1px 5px")
-_CHIP_RADIUS = 3      # chip corner radius (mirrors badge_utils' "border-radius: 3px")
+_CHIP_H_PAD = 7       # chip internal horizontal padding — matches theme.LANG_CHIP
+                      # ("padding: 1px 7px"), the sidebar pill these should look like
+_THUMB_RADIUS = 4     # poster-placeholder tile corner radius. Its own constant:
+                      # it borrowed _CHIP_RADIUS, so rounding the chips into pills
+                      # would otherwise have rounded a 90px-tall poster tile too.
+_CHIP_RADIUS = 8      # chip corner radius — matches LANG_CHIP's "border-radius: 8px".
+                      # Was 3, which read as a squared-off box next to the sidebar's
+                      # rounded pills. Clamped to half the chip height at paint time
+                      # (_chip_radius) so a short chip becomes a true pill rather
+                      # than an over-rounded lozenge.
 
 # Poster-thumbnail geometry (comfy/comfy_plus only — never compact). Fixed 2:3
 # aspect ratio, independent of font size, so the reserved rect never wobbles.
@@ -660,7 +668,7 @@ class ChannelRowDelegate(QStyledItemDelegate):
         letter = title.strip()[:1].upper() if title.strip() else "?"
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(_to_qcolor(_theme.COLOR_FAINT))
-        painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+        painter.drawRoundedRect(rect, _THUMB_RADIUS, _THUMB_RADIUS)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(_to_qcolor(_theme.COLOR_MUTED))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
@@ -738,6 +746,16 @@ class ChannelRowDelegate(QStyledItemDelegate):
         """
         return list(self._hit_regions.get(row, ()))
 
+    @staticmethod
+    def _chip_radius(rect: QRect) -> float:
+        """Corner radius for a chip of *rect*'s height.
+
+        ``_CHIP_RADIUS`` is the target (matching the sidebar pill), but a chip
+        shorter than twice that would render as an over-rounded lozenge, so it
+        is capped at half the height — which is exactly a pill.
+        """
+        return min(_CHIP_RADIUS, rect.height() / 2)
+
     def _paint_cell(self, painter, rect: QRect, cell: _Cell, font) -> None:
         # Record before painting so every drawn cell is hit-testable, including
         # ones that return early below.
@@ -752,15 +770,18 @@ class ChannelRowDelegate(QStyledItemDelegate):
             # present, then the border + text are ``fg`` (the tier colour).
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(_to_qcolor(cell.bg) if cell.bg else Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+            _r = self._chip_radius(rect)
+            painter.drawRoundedRect(rect, _r, _r)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(_to_qcolor(cell.fg))
-            painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+            _r = self._chip_radius(rect)
+            painter.drawRoundedRect(rect, _r, _r)
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)
         elif cell.is_chip:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(_to_qcolor(cell.bg))
-            painter.drawRoundedRect(rect, _CHIP_RADIUS, _CHIP_RADIUS)
+            _r = self._chip_radius(rect)
+            painter.drawRoundedRect(rect, _r, _r)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(_to_qcolor(cell.fg))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, cell.text)

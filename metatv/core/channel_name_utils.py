@@ -605,6 +605,59 @@ def quality_display(token: str) -> str:
     return known if known is not None else raw
 
 
+def tag_value_for(facet: str, token: str) -> str | None:
+    """Translate a *display-side* token into the value the TAG table stores.
+
+    The two vocabularies genuinely differ, and assuming otherwise shipped a
+    real bug: a row's language chip shows the CODE ``"EN"`` while the tag stores
+    the resolved name ``"English"``; a quality chip shows the token ``"4K"``
+    while the tag stores the GROUP ``"4K / UHD"``. Filtering on the displayed
+    string therefore matched nothing and emptied the list. Region and genre
+    happen to coincide, which is exactly what made the mismatch look like it
+    worked.
+
+    Reads the existing canonical tables rather than restating them —
+    :data:`CODE_FACETS` (code → facet/value, the same map the decomposer tags
+    from) and ``config.BASE_QUALITY_GROUPS`` (group → member tokens). The config
+    import is function-local: ``config`` is imported by callers of this module,
+    so a module-level import would be circular (same pattern as
+    ``BASE_PREFIX_GROUPS`` above).
+
+    Args:
+        facet: Tag facet type — ``"language"``/``"quality"``/``"region"``/….
+        token: The token the UI is displaying (a code, tier token, or name).
+
+    Returns:
+        The tag value to filter on, or ``None`` when *token* maps to nothing in
+        that facet — callers must treat ``None`` as "don't filter" rather than
+        substituting the raw token, which is what produced the empty list.
+    """
+    raw = (token or "").strip()
+    if not raw:
+        return None
+
+    if facet == "quality":
+        from metatv.core.config import BASE_QUALITY_GROUPS
+
+        upper = raw.upper()
+        if upper in BASE_QUALITY_GROUPS:
+            return upper  # already a group name
+        for group, members in BASE_QUALITY_GROUPS.items():
+            if upper in members:
+                return group
+        return None
+
+    if facet in ("language", "region", "audio"):
+        for entry_facet, value, _conf in CODE_FACETS.get(raw.upper(), ()):
+            if entry_facet == facet:
+                return value
+        # Already a resolved name (the chip showed "English", not "EN"), or a
+        # code this facet does not claim.
+        return raw if facet != "language" or raw.istitle() else None
+
+    return raw
+
+
 def quality_tooltip(token: str) -> str:
     """Return the hover explanation for a stored quality *token*.
 
