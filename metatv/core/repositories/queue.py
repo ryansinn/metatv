@@ -44,6 +44,11 @@ class QueueEntry:
     season_num:    int | None = None
     episode_num:   int | None = None
     episode_title: str | None = None
+    # When the row was queued. Carried so the sidebar can show the newest
+    # additions first: `position` is append-only insertion order, so rendering
+    # in that order buries everything you queue today under months of older
+    # entries (measured: 611 queued, oldest dating to May).
+    added_at:      datetime | None = None
 
     @property
     def is_episode(self) -> bool:
@@ -135,6 +140,7 @@ class WatchQueueRepository:
                 season_num=row.season_num,
                 episode_num=row.episode_num,
                 episode_title=row.episode_title,
+                added_at=row.added_at,
             ))
         return entries
 

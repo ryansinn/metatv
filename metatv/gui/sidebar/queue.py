@@ -231,12 +231,28 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 self._list.addItem(item)
             return
 
+        # Entries whose source is gone are grouped at the BOTTOM rather than
+        # interleaved. They are dimmed either way, but scattered through the
+        # list they read as breakage in the queue itself — the owner deleted a
+        # source, met 37 unplayable months-old entries mixed into everything
+        # else, and reasonably concluded the queue had invented them.
+        available = [e for e in entries if e.available]
+        unavailable = [e for e in entries if not e.available]
+
         continue_watching = sorted(
-            [e for e in entries if e.last_played],
+            [e for e in available if e.last_played],
             key=lambda e: e.last_played,
             reverse=True,
         )
-        never_watched = [e for e in entries if not e.last_played]
+        # Newest first, matching Continue Watching above. Queue `position` is
+        # append-only, so rendering in that order pinned the oldest additions to
+        # the top forever and buried anything queued today ~600 rows down — the
+        # queue showed the user exactly the items they no longer remembered.
+        never_watched = sorted(
+            [e for e in available if not e.last_played],
+            key=lambda e: (e.added_at is not None, e.added_at),
+            reverse=True,
+        )
 
         if continue_watching:
             self._add_header("Continue Watching")
@@ -244,8 +260,15 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 self._add_entry_item(e)
 
         if never_watched:
-            self._add_header("Never Watched")
+            self._add_header(f"Never Watched ({len(never_watched)})")
             for e in never_watched:
+                self._add_entry_item(e)
+
+        if unavailable:
+            # Count in the header because the queue never showed its size
+            # anywhere — 611 entries had accumulated with no indication.
+            self._add_header(f"Unavailable ({len(unavailable)})")
+            for e in unavailable:
                 self._add_entry_item(e)
 
     def _add_entry_item(self, e) -> None:

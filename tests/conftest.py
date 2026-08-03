@@ -785,3 +785,40 @@ def wire_hide_channel_banners(host) -> None:
     from metatv.gui.main_window_channels import _ChannelListMixin
 
     host._hide_channel_banners = _ChannelListMixin._hide_channel_banners.__get__(host)
+
+
+def wire_watch_queue_section(sec, rendered: list) -> None:
+    """Attach what ``WatchQueueSection._populate_rows`` touches to a skeleton section.
+
+    ``_populate_rows`` is the queue's single render path, so a test that wants to
+    assert ordering has to reach it — but the section is normally built by the
+    sidebar and a ``__new__`` shell never ran ``QWidget.__init__``. Missing
+    attributes then raise ``RuntimeError: super-class __init__() ... was never
+    called`` rather than the ``AttributeError`` a ``hasattr`` guard absorbs, so
+    the failure lands inside the method under test rather than in setup.
+
+    Kept here rather than in the test module because every future assertion about
+    queue rendering needs the same shell, and CLAUDE.md's rule is that skeleton
+    hosts are repaired at the shared factory — never with defensive getattr in
+    production code, which would mask real bugs.
+
+    Args:
+        sec: A ``WatchQueueSection`` built via ``__new__`` (no ``__init__`` run).
+        rendered: List the stubs append to — ``("HEADER", text)`` / ``("ROW", name)``
+            tuples in render order, which is what the caller asserts on.
+    """
+    class _List:
+        def clear(self):
+            rendered.clear()
+
+        def addItem(self, item):
+            rendered.append(item)
+
+        def count(self):
+            return len(rendered)
+
+    sec._list = _List()
+    sec._add_header = lambda text: rendered.append(("HEADER", text))
+    sec._add_entry_item = lambda e: rendered.append(("ROW", e.channel_name))
+    sec.update_new_match_count = lambda *a, **k: None
+    sec.set_empty = lambda *a, **k: None
