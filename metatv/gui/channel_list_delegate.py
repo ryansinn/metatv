@@ -422,13 +422,21 @@ def _region_or_platform_cell(code: str, platform_style: str) -> Optional[_Cell]:
                  tip=f"Region: {_region_label(code)} — click to show only this region")
 
 
-def _language_cell(text: str) -> Optional[_Cell]:
+def _language_cell(text: str, *, filterable: bool = True) -> Optional[_Cell]:
     """Language-family chip (LANG_CHIP idiom, blue) — the channel's own/
     secondary language and any sub/dub marker (``PRIMARY_LANGUAGE_ROLE``,
     ``SECONDARY_LANGUAGE_ROLE``, ``SUBTITLE_MARKER_ROLE``): all
     language-adjacent facets, sharing one hue."""
     if not text:
         return None
+    if not filterable:
+        # Sub/dub markers ("AR-SUB") are NOT language tags — there is no facet
+        # that can filter them (the audio facet is empty in practice), so the
+        # chip explains itself and stops there. Giving it facet="language"
+        # rendered a pointing-hand cursor over a click that silently did
+        # nothing, which is worse than no affordance.
+        return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15,
+                     tip=f"Subtitles/dub: {text}")
     return _Cell(text, True, _theme.COLOR_ACCENT_BLUE, _theme.OVERLAY_BLUE_15,
                  facet="language", value=text,
                  tip=f"Language: {_region_label(text)} — click to show only this language")
@@ -902,7 +910,8 @@ class ChannelRowDelegate(QStyledItemDelegate):
             _region_or_platform_cell(
                 index.data(LANGUAGE_ROLE) or "", self._effective_platform_style()
             ),                                                           # region/platform
-            _language_cell(index.data(SUBTITLE_MARKER_ROLE) or ""),     # e.g. "AR-SUB"
+            _language_cell(index.data(SUBTITLE_MARKER_ROLE) or "",
+                           filterable=False),                               # e.g. "AR-SUB"
             _language_cell(index.data(SECONDARY_LANGUAGE_ROLE) or ""),  # category's disagreeing language
             _language_cell(index.data(PRIMARY_LANGUAGE_ROLE) or ""),    # channel's own — furthest right
         ) if c is not None]

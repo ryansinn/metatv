@@ -424,3 +424,55 @@ class TestContextFilterUnification:
             f"the curated category, not the displayed collection"
         )
         assert "Clean Collection" in collection[0].text
+
+
+class TestNoDeadAffordances:
+    """A chip that shows a pointing-hand cursor must actually filter.
+
+    Two shipped this way already: the quality/language chips filtered on a value
+    the tag table doesn't store (empty list), and the sub/dub marker claimed the
+    language facet even though "AR-SUB" resolves to nothing and the audio facet
+    is empty in practice. Both rendered a clickable cursor over a click that did
+    nothing useful — the exact failure the year chip was deliberately spared.
+    """
+
+    def test_every_filterable_chip_resolves_to_a_tag_value(self, qapp):
+        from metatv.core.channel_name_utils import tag_value_for
+
+        dto = _dto(
+            detected_prefix="EN", detected_region="US", detected_quality="4K",
+            detected_collection="Some Collection", category="SOME CATEGORY",
+            detected_collection_subdub="AR-SUB", detected_collection_language="FR",
+        )
+        delegate = _painted_delegate(qapp, dto)
+
+        offenders = []
+        for _rect, cell in delegate.hit_cells(0):
+            if not cell.facet:
+                continue
+            if cell.facet in ("genre", "collection"):
+                # These filter on a stored column directly, not via the code
+                # translation, so a non-empty value is the whole requirement.
+                if not cell.value:
+                    offenders.append(f"{cell.facet}:{cell.text!r} has no value")
+                continue
+            if tag_value_for(cell.facet, cell.value) is None:
+                offenders.append(
+                    f"{cell.facet}:{cell.text!r} (value={cell.value!r}) claims to "
+                    f"be clickable but resolves to no tag value"
+                )
+        assert not offenders, (
+            "chips promise a filter they cannot deliver:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_subdub_marker_explains_itself_without_claiming_a_filter(self, qapp):
+        dto = _dto(detected_collection_subdub="AR-SUB")
+        delegate = _painted_delegate(qapp, dto)
+
+        subdub = [c for _r, c in delegate.hit_cells(0) if c.text == "AR-SUB"]
+        assert subdub, "sub/dub marker chip was not painted"
+        assert subdub[0].tip, "it should still explain itself on hover"
+        assert not subdub[0].facet, (
+            "AR-SUB is not a language tag and the audio facet is empty — it must "
+            "not render a clickable cursor"
+        )
