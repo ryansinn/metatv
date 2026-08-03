@@ -569,11 +569,13 @@ class TagRepository:
         channel is dropped when its ``detected_prefix`` is in *excluded_prefixes*,
         or — only when it has NO prefix — when its ``detected_region`` is; an
         un-excluded language prefix keeps the row despite an excluded region tag.
-        The keep-condition is produced by ``filter_utils.channel_exclusion_criterion``
-        so this surface never forks a parallel prefix/region rule (single
-        chokepoint).  ``user_category`` in *excluded_categories* is a separate
-        drop.  This is a pure caller-supplied scope: the engine never reads
-        ``Config`` (DR-0007 — the control layer resolves the sets and passes them in).
+        Every axis here (provider/hidden/prefix/content-type/category/keyword)
+        is applied via the single visibility chokepoint,
+        ``metatv.core.channel_visibility.apply()`` — see that module's docstring
+        for the full predicate — so this surface never forks a parallel
+        prefix/region rule.  This is a pure caller-supplied scope: the engine
+        never reads ``Config`` (DR-0007 — the control layer resolves the sets
+        and passes them in).
 
         **NULL trap:** ``col NOT IN (...)`` evaluates to NULL (false) when
         ``col IS NULL``, which would wrongly drop untagged channels.  The
@@ -615,50 +617,39 @@ class TagRepository:
         Returns:
             The query with the visibility join + filters applied.
         """
+        from metatv.core import channel_visibility
         from metatv.core.database import ChannelDB
-        from metatv.core.filter_utils import (
-            channel_exclusion_criterion,
-            tag_content_type_exclusion_criterion,
-            keyword_exclusion_criterion,
-        )
-        from sqlalchemy import or_
 
         query = query.join(ChannelDB, ChannelDB.id == channel_id_col).filter(
-            ChannelDB.is_hidden == False,       # noqa: E712
             ChannelDB.name.notlike("##%"),      # exclude provider category headers
         )
-        if excluded_provider_ids:
-            query = query.filter(ChannelDB.provider_id.notin_(excluded_provider_ids))
-        if excluded_prefixes:
-            # SQL twin of is_channel_excluded — keeps rows the canonical predicate
-            # would NOT exclude (language wins over region).
-            query = query.filter(channel_exclusion_criterion(set(excluded_prefixes), ChannelDB))
-        if excluded_tag_content_types:
-            # SQL twin of the content-provenance rule — drop channels carrying an
-            # excluded content_type tag (NOT EXISTS; P1-6 family, single chokepoint).
-            query = query.filter(
-                tag_content_type_exclusion_criterion(
-                    set(excluded_tag_content_types), ChannelDB.id
-                )
-            )
-        if excluded_categories:
-            _cats = list(excluded_categories)
-            query = query.filter(
-                or_(ChannelDB.user_category.is_(None),
-                    ChannelDB.user_category.notin_(_cats)),
-            )
-        if excluded_keywords:
-            # SQL twin of the keyword axis — reuses the exact same criterion the
-            # channel-list/Discover/Recommendations chokepoints already apply, so
-            # a facet/tag count never advertises a value the corresponding list
-            # can't actually show (mirror-not-cage: counts and lists must agree).
-            query = query.filter(keyword_exclusion_criterion(excluded_keywords, ChannelDB))
+        # Single visibility chokepoint — owns is_hidden, provider scoping, and
+        # the prefix/category/content-type/keyword Global-Exclusion axes (the
+        # same predicates ``filter_utils.channel_exclusion_criterion`` /
+        # ``tag_content_type_exclusion_criterion`` / ``keyword_exclusion_
+        # criterion`` implement) in one call, so a facet/tag count never
+        # advertises a value the corresponding list can't actually show
+        # (mirror-not-cage: counts and lists must agree).
+        query = channel_visibility.apply(
+            query,
+            channel_visibility.VisibilityScope(
+                excluded_provider_ids=list(excluded_provider_ids or []),
+                excluded_prefixes=set(excluded_prefixes or []),
+                excluded_categories=set(excluded_categories or []),
+                excluded_content_types=set(excluded_tag_content_types or []),
+                excluded_keywords=set(excluded_keywords or []),
+            ),
+            channel_cls=ChannelDB,
+        )
         return query
 
     def get_facet_value_counts(
         self,
         excluded_provider_ids: Optional[List[str]] = None,
         excluded_keywords: Optional[Set[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        excluded_tag_content_types: Optional[Set[str]] = None,
     ) -> dict[str, dict[str, int]]:
         """Return per-facet value counts for the filter panel.
 
@@ -671,11 +662,17 @@ class TagRepository:
                 sources).  Pass ``ProviderRepository.get_hidden_provider_ids()``.
             excluded_keywords: Global-exclusion keyword axis (see
                 :meth:`_scope_to_visible_channels`).  ``None``/empty → no
-                keyword scope. NOTE: unlike the keyword axis, this method does
-                NOT yet accept the prefix/user-category/content-type Global
-                Exclusion sets (a pre-existing gap, not introduced here) — the
-                filter panel's counts still disagree with its list for those
-                three axes; only the keyword axis is closed by this parameter.
+                keyword scope.
+            excluded_prefixes: Global-exclusion prefix/region codes (see
+                :meth:`_scope_to_visible_channels`).  ``None``/empty → no
+                prefix scope.  Closes the gap where the filter panel's counts
+                used to disagree with its list on this axis (What's New #260).
+            excluded_categories: Global-exclusion ``user_category`` labels (see
+                :meth:`_scope_to_visible_channels`).  ``None``/empty → no
+                category scope.  Same gap-close as *excluded_prefixes*.
+            excluded_tag_content_types: Global-exclusion ``content_type`` tag
+                values (see :meth:`_scope_to_visible_channels`).  ``None``/empty
+                → no content-type scope.  Same gap-close as *excluded_prefixes*.
 
         Returns:
             Nested dict ``{facet_type: {value: channel_count}}`` where
@@ -695,6 +692,9 @@ class TagRepository:
         )
         q = self._scope_to_visible_channels(
             q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+            excluded_tag_content_types=excluded_tag_content_types,
             excluded_keywords=excluded_keywords,
         ).group_by(TagDB.type, TagDB.value)
 
