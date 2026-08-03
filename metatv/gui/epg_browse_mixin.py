@@ -158,9 +158,9 @@ class _EpgBrowseMixin:
         # forward list begins; it then runs chronologically until data runs out.
         filter_row = QHBoxLayout()
 
-        anchor_label = QLabel("Starting:")
-        anchor_label.setStyleSheet(_theme.LABEL_MUTED)
-        filter_row.addWidget(anchor_label)
+        self._anchor_label = QLabel("Starting:")
+        self._anchor_label.setStyleSheet(_theme.LABEL_MUTED)
+        filter_row.addWidget(self._anchor_label)
 
         self.anchor_combo = QComboBox()
         self.anchor_combo.setMinimumWidth(180)

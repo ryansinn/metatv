@@ -2381,19 +2381,24 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
         own ``refresh_theme()`` that recurses through every facet section and
         row it built at construction.
 
-        Still NOT reached, and still needing a restart to pick up a new
-        palette (each is a large, independently-constructed view/dialog with
-        its own tree of cached stylesheets — wiring a full ``refresh_theme()``
-        through all of them is a bigger job than this sweep, not attempted
-        here): the embedded EPG view, Preferences/Recommended view, Discover
-        view, Recipe view, Provider editor, and Sources manager view (all
-        persistent, ``setVisible()``-toggled widgets built once in
-        ``create_content_area()``), plus the Similar-titles lightbox, poster
-        lightbox, and Explore trail-map (their dark "cinema" backdrop is
-        deliberately theme-invariant by design — see theme_palettes.py — but
-        the handful of tokens they DO read from the general ramp would still
-        need a sweep to update live). Actual ``QDialog`` popups (Categories,
-        Global Exclusions, category picker, new-facet-values, etc.) are each
+        The six other persistent, ``setVisible()``-toggled views built once in
+        ``create_content_area()`` — the embedded EPG view, Preferences/
+        Recommended view, Discover view, Recipe view, Provider editor, and
+        Sources manager view — each gained their own ``refresh_theme()``
+        (#261) covering the chrome each styles once at construction; swept
+        below by name, same recursion pattern as ``filter_panel``/
+        ``details_pane`` above. Per-row/per-card content within them (tree
+        rows, shelf/cluster/card widgets, watchlist entries) is rebuilt from
+        current tokens on its next natural reload, so it needs no sweep entry
+        of its own — same rationale as the channel-list row delegate below.
+
+        Still NOT reached, and still needing a restart (or a reopen) to pick
+        up a new palette: the Similar-titles lightbox, poster lightbox, and
+        Explore trail-map (their dark "cinema" backdrop is deliberately
+        theme-invariant by design — see theme_palettes.py — but the handful
+        of tokens they DO read from the general ramp would still need a sweep
+        to update live). Actual ``QDialog`` popups (Categories, Global
+        Exclusions, category picker, new-facet-values, etc.) are each
         constructed fresh on open and read theme tokens at build time, so
         those already open correctly themed without needing to be in this
         sweep at all.
@@ -2483,6 +2488,20 @@ class MainWindow(_ProviderMixin, _SeriesMixin, _ChannelListMixin, _StreamingMixi
 
         if hasattr(self, "filter_panel"):
             self.filter_panel.refresh_theme()
+
+        # Persistent, setVisible()-toggled content views built once in
+        # create_content_area() (#261) — each has its own refresh_theme()
+        # covering the chrome it styles once at construction; per-row/per-card
+        # content is rebuilt from current tokens on its next natural reload
+        # (same rationale as the channel-list row delegate below), so it
+        # needs no sweep entry here.
+        for view_name in (
+            "epg_view", "preferences_view", "discover_view",
+            "recipe_view", "provider_editor", "sources_manager_view",
+        ):
+            view = getattr(self, view_name, None)
+            if view is not None and hasattr(view, "refresh_theme"):
+                view.refresh_theme()
 
         # The row delegate already reads theme.COLOR_* fresh inside paint(),
         # so a repaint is all the channel list needs (same trigger as

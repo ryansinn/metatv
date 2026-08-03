@@ -161,6 +161,23 @@ class _BrowseView(QWidget):
         if tooltip is not None:
             self._back_btn.setToolTip(tooltip)
 
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome
+        (Back link, title, and the grid/list toggle button) — all styled once
+        at construction and never touched again. Shared by ``DiscoverView``
+        and ``RecipeView``'s "Show all" drill-down, each of which forwards to
+        this from their own ``refresh_theme()``.
+        """
+        self._back_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_ACCENT_BLUE}; border: none; font-size: {_theme.FONT_LG}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_ACCENT_HOVER}; }}"
+        )
+        self._title_lbl.setStyleSheet(f"font-size: {_theme.FONT_2XL}; font-weight: bold;")
+        self._toggle_btn.setStyleSheet(
+            f"QPushButton {{ color: {_theme.COLOR_DIM}; border: none; font-size: {_theme.FONT_MD}; }}"
+            f"QPushButton:hover {{ color: {_theme.COLOR_TEXT_2}; }}"
+        )
+
     def load(self, title: str, cards: list[ContentCard], *, preserve_filter: bool = False) -> None:
         """Replace the browse contents with *cards* (the fresh page-1 / replace path).
 

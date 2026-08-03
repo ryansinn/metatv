@@ -165,10 +165,10 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
         root.addWidget(header_widget)
 
         # Thin separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
-        root.addWidget(sep)
+        self._header_sep = QFrame()
+        self._header_sep.setFrameShape(QFrame.Shape.HLine)
+        self._header_sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
+        root.addWidget(self._header_sep)
 
         # ── Stale-EPG notice ────────────────────────────────────────────
         # Surfaces sources whose provider feed serves out-of-date guide data, so an
@@ -470,6 +470,53 @@ class EpgView(_EpgWatchlistMixin, _EpgOnNowMixin, _EpgBrowseMixin, _EpgEventsMix
 
     def on_deactivate(self) -> None:
         self._live_refresh_timer.stop()
+
+    def refresh_theme(self) -> None:
+        """Re-apply the active palette to this view's own persistent chrome —
+        every label/notice/stats-footer styled once at construction across the
+        header + all six tabs (Watchlist/My Channels/Discover/On Now/Browse/
+        Events), spread across ``epg_view.py`` and its four mixin files
+        (``epg_watchlist_mixin.py``/``epg_on_now_mixin.py``/
+        ``epg_browse_mixin.py``/``epg_events_mixin.py`` — split out only to
+        stay under the project's 1000-line file limit; every ``self.*`` here
+        is this SAME ``EpgView`` instance). Called from
+        ``MainWindow.refresh_theme()``.
+
+        Per-row/per-card content (On Now/Browse tree rows, watchlist/channel/
+        recommendation cards, event rows, the Manage tab's hidden-items list)
+        is torn down and rebuilt from current tokens on every reload, so it's
+        already live — same rationale as the channel-list row delegate.
+        """
+        self._header_sep.setStyleSheet(f"border: none; border-top: 1px solid {_theme.COLOR_LINE};")
+        self._stale_epg_notice.setStyleSheet(_theme.EPG_STALE_NOTICE)
+
+        # Watchlist / My Channels / Discover tabs (epg_watchlist_mixin.py)
+        self._watchlist_hint_lbl.setStyleSheet(_theme.LABEL_MUTED)
+        self._watchlist_ci_note_lbl.setStyleSheet(f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_SM};")
+        self.ch_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
+        self._rec_title_lbl.setStyleSheet(_theme.CHANNEL_NAME_DIM)
+        self.manage_dismissed_btn.setStyleSheet(
+            f"color: {_theme.COLOR_MUTED}; font-size: {_theme.FONT_MD}; border: none; background: transparent;"
+        )
+        self.rec_empty_label.setStyleSheet(_theme.EMPTY_LABEL)
+
+        # On Now tab (epg_on_now_mixin.py)
+        self.on_now_stats.setStyleSheet(_theme.LABEL_MUTED)
+
+        # Browse tab (epg_browse_mixin.py)
+        self._anchor_label.setStyleSheet(_theme.LABEL_MUTED)
+        self._scrubber_left_label.setStyleSheet(_theme.LABEL_MUTED)
+        self._scrubber_right_label.setStyleSheet(_theme.LABEL_MUTED)
+        self._scrubber_pos_label.setStyleSheet(_theme.EPG_SCRUBBER_POS)
+        self.browse_placeholder.setStyleSheet(
+            f"color: {_theme.COLOR_FAINT}; font-size: {_theme.FONT_XL}; padding: 40px;"
+        )
+        self.browse_stats.setStyleSheet(_theme.LABEL_MUTED)
+
+        # Events tab (epg_events_mixin.py) — reuse the existing active/inactive
+        # toggle-style method rather than duplicating its branching here.
+        self._events_stats.setStyleSheet(_theme.LABEL_MUTED)
+        self._apply_events_toggle_styles()
 
     # ------------------------------------------------------------------
     # Data loading
