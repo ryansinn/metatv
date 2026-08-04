@@ -166,7 +166,83 @@ class ScrollPreservingMixin:
         bar.setValue(min(offset, bar.maximum()))
 
 
-class CollapsibleSection(ScrollPreservingMixin, QFrame):
+class InPlaceRowMixin:
+    """Take ONE row out of a rendered list instead of rebuilding the section.
+
+    Owner: "the entire watch queue still refreshes when a single line is
+    removed." Every sidebar mutation funnelled into ``section.refresh()``, which
+    re-reads the whole table off-thread and rebuilds every row's widget — on a
+    612-entry queue that is 600 chip rows destroyed and rebuilt to delete one.
+    Preserving the scroll position (#290) hid the jump, not the work.
+
+    So single-row removals now take the row out directly. This is a strict
+    subset of refresh's job and deliberately narrow: it removes rows the caller
+    has ALREADY deleted from the DB, and returns False when it cannot find them,
+    so the caller can fall back to a full refresh rather than leave the sidebar
+    disagreeing with the database. Anything that changes ordering, grouping or
+    membership beyond the removed row still refreshes.
+
+    A section opts in by implementing :meth:`_removal_list` (usually its
+    ``_refresh_list``) and, when its rows do not key on a plain ``UserRole``
+    string, :meth:`_row_matches`.
+    """
+
+    def _removal_list(self):
+        """The QListWidget rows are removed from. Defaults to the refresh list."""
+        return self._refresh_list()
+
+    def _row_matches(self, item, key) -> bool:
+        """True when *item* is the row identified by *key* (default: UserRole)."""
+        return item.data(Qt.ItemDataRole.UserRole) == key
+
+    def _after_rows_removed(self, list_widget) -> None:
+        """Hook for post-removal bookkeeping (headers, counts, empty state)."""
+        return None
+
+    def remove_row(self, key) -> bool:
+        """Remove the row(s) matching *key*. True if anything was removed.
+
+        False means "not rendered here" — the caller must then do a full
+        refresh, because a silent no-op would leave a deleted item on screen.
+        """
+        lst = self._removal_list()
+        removed = False
+        for index in reversed(range(lst.count())):
+            item = lst.item(index)
+            if not self._row_matches(item, key):
+                continue
+            # setItemWidget'd widgets are not owned by the item — drop the widget
+            # explicitly or every removal leaks one (the suite's Qt leak guard
+            # would report them, and 600 leaked chip rows is real memory).
+            widget = lst.itemWidget(item)
+            if widget is not None:
+                lst.removeItemWidget(item)
+                widget.deleteLater()
+            lst.takeItem(index)
+            removed = True
+        if removed:
+            self._after_rows_removed(lst)
+        return removed
+
+    @staticmethod
+    def _prune_empty_headers(list_widget) -> None:
+        """Drop any group header with no rows left under it.
+
+        Headers are the non-selectable (``NoItemFlags``) rows every section
+        renders above a group; one left standing over nothing misdescribes the
+        list. Walks backwards so indices stay valid as items are taken.
+        """
+        count = list_widget.count()
+        for index in reversed(range(count)):
+            item = list_widget.item(index)
+            if item.flags() != Qt.ItemFlag.NoItemFlags:
+                continue
+            following = list_widget.item(index + 1) if index + 1 < list_widget.count() else None
+            if following is None or following.flags() == Qt.ItemFlag.NoItemFlags:
+                list_widget.takeItem(index)
+
+
+class CollapsibleSection(ScrollPreservingMixin, InPlaceRowMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
     # Signal when section wants to update its size
@@ -251,14 +327,27 @@ class CollapsibleSection(ScrollPreservingMixin, QFrame):
         return header
 
     def _add_explore_link(self, header_layout: QHBoxLayout) -> QPushButton | None:
-        """Append the shared "Explore →" header link, when this section has one.
+        """Append the shared Explore (→) header button, when this section has one.
 
-        The ONE definition of the affordance (label, glyph, style, tooltip, signal):
+        The ONE definition of the affordance (glyph, style, tooltip, signal):
         History, Favorites, Watch Queue and Recommended all get their link from here
         rather than each building its own.  Sections opt in by setting
         :attr:`EXPLORE_KEY` to their :data:`~metatv.gui.explore_view.EXPLORE_SOURCES`
         key — the tooltip comes from that source, so the rail and the view it opens
         can never describe themselves differently.
+
+        Icon-only (owner: "maybe there are too many 'Explore' words on the side
+        panel now").  Four sections stacked vertically repeated the same word four
+        times, which stops being read and is pure crowding — more so now the Watch
+        Queue header also carries a 🔍.  The tooltip ("Explore your Watch Queue…")
+        carries the name.
+
+        The glyph is ``explore_columns_icon`` (⤢) — the affordance that opened the
+        cascading columns from a Similar row before click-to-preview replaced it
+        there, so it is already learned for exactly this action.  NOT
+        ``expand_icon``: the collapse toggle in this very header renders that pair
+        (``>``/``⌄``), and two identical glyphs in one header meaning different
+        things is worse than the crowding this removes.
 
         A ``QPushButton`` consumes its own click, so the link never toggles the
         collapsible header underneath it.
@@ -277,8 +366,9 @@ class CollapsibleSection(ScrollPreservingMixin, QFrame):
         from metatv.gui import icons as _icons
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
-        btn = QPushButton(f"Explore {_icons.see_all_arrow_icon}")
+        btn = QPushButton(_icons.explore_columns_icon)
         btn.setFlat(True)
+        btn.setFixedSize(22, 20)  # structural — aligns with the other header buttons
         btn.setToolTip(EXPLORE_SOURCES[self.EXPLORE_KEY].link_tooltip)
         _theme.style(btn, "SIDEBAR_SEE_ALL_BTN")
         # Resolve the bound signal at CLICK time, not build time.  create_header runs
@@ -300,9 +390,19 @@ class CollapsibleSection(ScrollPreservingMixin, QFrame):
         self.title_label = QLabel(f"{self.icon} <b>{self.title}</b>")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
+        self._add_header_actions(header_layout)
         self._add_explore_link(header_layout)
 
         self.main_layout.addWidget(header)
+
+    def _add_header_actions(self, header_layout: QHBoxLayout) -> None:
+        """Hook: append section-specific buttons left of the "Explore →" link.
+
+        Exists so a section that needs one extra header control does not have to
+        re-implement ``create_header`` and carry a divergent copy of the title /
+        stretch / explore wiring (the shared-core rule). Default: nothing.
+        """
+        return None
 
     def create_content(self):
         """Override in subclasses to add section-specific content"""

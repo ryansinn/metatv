@@ -202,6 +202,17 @@ class RecommendedSection(CollapsibleSection):
         self.set_empty(False)
         self._restore_scroll(self._list)
 
+    def _removal_list(self) -> QListWidget:
+        """This section is the BackgroundRefreshMixin exception, so it has no
+        ``_refresh_list`` for the in-place mixin to default to."""
+        return self._list
+
+    def _after_rows_removed(self, list_widget) -> None:
+        """"Not interested" takes exactly one recommendation off the rail; the
+        remaining scores are unchanged, so nothing else needs rebuilding."""
+        if list_widget.count() == 0:
+            self.set_empty(True)
+
     def _build_rec_row(self, sc, year: str) -> QWidget:
         """Recommendation row: ``[icon] Title [4K] … [Year] [Lang]``.
 

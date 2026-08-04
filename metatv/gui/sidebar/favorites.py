@@ -129,6 +129,14 @@ class FavoritesSection(BackgroundRefreshMixin, CollapsibleSection):
             for dto in episode_dtos:
                 self._add_episode_item(dto)
 
+    def _after_rows_removed(self, list_widget) -> None:
+        """In-place removal upkeep: drop an emptied group's header, then the
+        section's own empty state (rows are keyed on a plain UserRole id, so the
+        mixin's default matcher already finds them)."""
+        self._prune_empty_headers(list_widget)
+        if list_widget.count() == 0:
+            self.set_empty(True)
+
     def _add_header(self, text: str) -> None:
         item = QListWidgetItem(text)
         item.setFlags(Qt.ItemFlag.NoItemFlags)

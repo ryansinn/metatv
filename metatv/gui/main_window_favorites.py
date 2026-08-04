@@ -50,7 +50,12 @@ class _FavoritesMixin:
             if not channel:
                 return
             channel.is_favorite = make_favorite
-        self.load_favorites()
+        # Un-favoriting removes exactly one row; favoriting has to place it in
+        # the right group, which is the full render's job.
+        if make_favorite:
+            self.load_favorites()
+        else:
+            self._remove_sidebar_row("favorites", channel_id)
 
     def _hide_channel_from_alerts(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
@@ -75,7 +80,13 @@ class _FavoritesMixin:
         if suppressed and hasattr(self, "channel_model"):
             self.channel_model.update_rating(channel_id, 0)
         self.preferences_view.refresh()
-        self._refresh_recommended_section()
+        if suppressed:
+            # "Not interested" takes this one title off the rail. The other 19
+            # recommendations' scores are unchanged, so re-running the engine to
+            # drop one row is work with nothing to show for it.
+            self._remove_sidebar_row("recommended", channel_id)
+        else:
+            self._refresh_recommended_section()
 
     def _on_suppression_requested(self, channel_id: str, suppressed: bool) -> None:
         self._not_interested(channel_id, suppressed)
@@ -232,12 +243,32 @@ class _FavoritesMixin:
     def _remove_from_queue(self, channel_id: str) -> None:
         with self.db.session_scope() as session:
             RepositoryFactory(session).queue.remove(channel_id)
-        self._refresh_queue_section()
+        # One row left the queue — take that row out, don't rebuild 600.
+        self._remove_sidebar_row("queue", channel_id)
         self._refresh_recommended_section()
 
     def _refresh_queue_section(self) -> None:
         section = self.sidebar_sections.get("queue")
         if section:
+            section.refresh()
+
+    def _remove_sidebar_row(self, section_key: str, key: str) -> None:
+        """Take ONE row out of a sidebar section instead of rebuilding it.
+
+        Owner: "the entire watch queue still refreshes when a single line is
+        removed." Every mutation funnelled into ``section.refresh()``, which
+        re-reads the table off-thread and rebuilds every row widget — 600 chip
+        rows destroyed and rebuilt to delete one.
+
+        The one seam for it, so no caller hand-rolls a second: when the row is
+        not rendered here (``remove_row`` returns False — section never loaded,
+        or the row is not in view) it falls back to the full refresh rather than
+        leaving the sidebar disagreeing with the database.
+        """
+        section = self.sidebar_sections.get(section_key)
+        if section is None:
+            return
+        if not section.remove_row(key):
             section.refresh()
 
     def _refresh_alerts_retry_section(self) -> None:
@@ -412,10 +443,12 @@ class _FavoritesMixin:
     def _on_details_queue_toggle(self, channel_id: str) -> None:
         """Handle queue toggle from the details pane button."""
         from metatv.core.database import ChannelDB
+        removed = False
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             if repos.queue.is_queued(channel_id):
                 repos.queue.remove(channel_id)
+                removed = True
             else:
                 ch = session.get(ChannelDB, channel_id)
                 repos.queue.add(
@@ -424,7 +457,12 @@ class _FavoritesMixin:
                     media_type=ch.media_type if ch else "",
                     source_id=ch.source_id if ch else "",
                 )
-        self._refresh_queue_section()
+        # Removing is one row leaving; ADDING has to place the row in the right
+        # group in the right order, which is the full render's job.
+        if removed:
+            self._remove_sidebar_row("queue", channel_id)
+        else:
+            self._refresh_queue_section()
 
     def _on_details_episode_queue_toggle(self, episode_id: str) -> None:
         """Handle queue toggle from the details pane button in EPISODE mode (Slice 2B).
@@ -436,10 +474,12 @@ class _FavoritesMixin:
         channel-grain rows — see WatchQueueDB's docstring).
         """
         from metatv.core.database import EpisodeDB
+        removed = False
         with self.db.session_scope() as session:
             repos = RepositoryFactory(session)
             if repos.queue.is_episode_queued(episode_id):
                 repos.queue.remove_episode(episode_id)
+                removed = True
             else:
                 ep = session.get(EpisodeDB, episode_id)
                 if ep is not None:
@@ -455,7 +495,12 @@ class _FavoritesMixin:
                         episode_title=ep.title or "",
                         source_id=series.source_id if series else "",
                     )
-        self._refresh_queue_section()
+        # Episode-grain rows key on episode_id (see WatchQueueSection._row_matches),
+        # so unqueuing an episode never disturbs its parent series' own row.
+        if removed:
+            self._remove_sidebar_row("queue", episode_id)
+        else:
+            self._refresh_queue_section()
 
     def _on_details_episode_favorite_toggle(self, episode_id: str) -> None:
         """Toggle favorite for the single EPISODE shown in the details pane (episode mode).

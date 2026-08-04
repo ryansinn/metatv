@@ -99,6 +99,12 @@ class HistorySection(BackgroundRefreshMixin, CollapsibleSection):
             item.setSizeHint(QSize(0, row.sizeHint().height()))
             self.history_list.setItemWidget(item, row)
 
+    def _after_rows_removed(self, list_widget) -> None:
+        """In-place removal upkeep. History renders no group headers, so this is
+        only the section's own empty state (rows key on a plain UserRole id)."""
+        if list_widget.count() == 0:
+            self.set_empty(True)
+
     def _build_play_next_button(self, dto) -> QPushButton:
         """Build the row's ">>" "Play Next Episode" button (Wave 5).
 
