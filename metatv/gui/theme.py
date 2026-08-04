@@ -332,13 +332,26 @@ def _build_semantic_constants() -> dict[str, object]:
     # reuse OVERLAY_55, which EQUALS :hover, so a selected rating/like/queue looked all
     # but identical to an unselected one.  The explicit :checked:hover keeps the accent
     # when a selected button is hovered (a bare :hover would otherwise win and revert it).
+    # Rail buttons: a real SURFACE at rest, accent fill only when active.
+    #
+    # Owner: "those button backgrounds are shitty" — measured, and they were:
+    # a 40% white wash composited to a flat mid-grey (#767676) carrying COLOR_DIM
+    # text at 1.97:1, about half the 3:1 floor for UI chrome. The palette
+    # restructure did NOT fix this and briefly made it worse (1.13:1), because
+    # the defect was never in the token values — it was here, in the role: an
+    # overlay wash is a HOVER effect being used as a resting fill, so the button
+    # had no real surface of its own and every state looked filled.
+    #
+    # Now: surface.container at rest with body text on it, and the accent fill
+    # reserved for :checked. That is what makes "is this favourited?" legible at
+    # a glance — when every state is filled, a fill says nothing.
     DETAIL_RAIL_BTN = (
         "QPushButton { border: 1px solid " + COLOR_BORDER + "; border-radius: 4px;"
-        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + OVERLAY_40 + ";"
-        " color: " + COLOR_DIM + "; }"
+        " padding: 4px 2px; font-size: " + FONT_2XL + "; background: " + COLOR_BG_CARD + ";"
+        " color: " + COLOR_TEXT + "; }"
         "QPushButton:checked { background: " + OVERLAY_ACCENT_35 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ACCENT + "; }"
-        "QPushButton:hover { background: " + OVERLAY_55 + "; color: " + COLOR_TEXT + ";"
+        "QPushButton:hover { background: " + COLOR_SURFACE_LIGHT_2 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_DIM + "; }"
         "QPushButton:checked:hover { background: " + OVERLAY_ACCENT_50 + "; color: " + COLOR_TEXT_HI + ";"
         " border-color: " + COLOR_ACCENT_HOVER + "; }"

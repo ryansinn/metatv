@@ -682,10 +682,15 @@ class ChannelRowDelegate(QStyledItemDelegate):
         title = index.data(TITLE_ROLE) or ""
         letter = title.strip()[:1].upper() if title.strip() else "?"
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_to_qcolor(_theme.COLOR_FAINT))
+        # A SUNK surface, not a light slab. COLOR_FAINT made the placeholder the LOUDEST object in a row with no poster —
+        # a missing image shouting over the title that is actually there — and
+        # its letter sat on it at 2.10:1, half the floor for UI chrome.
+        # Absence should read as absence: a recessed tile, with the letter in
+        # body text so it stays legible on it.
+        painter.setBrush(_to_qcolor(_theme.COLOR_BG_CARD))
         painter.drawRoundedRect(rect, _THUMB_RADIUS, _THUMB_RADIUS)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(_to_qcolor(_theme.COLOR_MUTED))
+        painter.setPen(_to_qcolor(_theme.COLOR_TEXT))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, letter)
 
     # ── Header-row rendering (unchanged behaviour) ──────────────────────────

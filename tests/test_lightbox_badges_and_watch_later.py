@@ -288,7 +288,10 @@ class TestRailSelectedState:
         assert _theme.COLOR_ACCENT in checked, ":checked must carry the accent border"
         assert f"background: {_theme.OVERLAY_ACCENT_35}" in checked
         # :hover keeps the frosted-white fill — genuinely different from :checked.
-        assert f"background: {_theme.OVERLAY_55}" in hover
+        # The hover fill must simply DIFFER from the checked one; pinning
+        # OVERLAY_55 pinned the wash that was the defect (an overlay used as
+        # a resting surface), not the requirement.
+        assert _theme.OVERLAY_ACCENT_35 not in hover
         assert _theme.OVERLAY_ACCENT_35 != _theme.OVERLAY_55
         assert _theme.OVERLAY_ACCENT_35 not in hover, "checked fill must differ from hover fill"
 

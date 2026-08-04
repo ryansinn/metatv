@@ -489,6 +489,11 @@ def _derive(name: str, legacy: dict[str, TokenValue]) -> dict[str, TokenValue]:
     return {
         **{k: v for k, v in legacy.items()
            if k.startswith("FONT_") or k.startswith("COLOR_LIGHTBOX_")
+           # Image scrims: black in EVERY theme. They darken a poster so text
+           # can sit on it, so they are a property of the image, not the
+           # palette — and Radix's dark alpha scales are white-based, so
+           # deriving them inverted every one into a pale wash.
+           or k.startswith("OVERLAY_BLACK_")
            or not isinstance(v, str)},
         **_build(_TOKENS_DIR / f"{name}.tokens.json"),
     }
