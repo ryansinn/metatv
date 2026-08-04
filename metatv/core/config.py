@@ -602,6 +602,13 @@ class Config(BaseModel):
     discover_collapse_to_top: bool = True  # re-collapsed shelves jump to top of collapsed zone
     discover_zoom: float = 1.0             # content card zoom factor (0.6–1.8); persisted
 
+    # Watch Queue view state — is the find-in-queue box revealed? Off by default:
+    # a permanently-visible filter costs a row of the sidebar's scarcest resource
+    # for a control most sessions never touch, so the 🔍 header button reveals it.
+    # The TEXT is deliberately not persisted (see WatchQueueSection) — only whether
+    # the box is on screen.
+    queue_filter_visible: bool = False
+
     # Recommended view state
     preferences_attributes_expanded: bool = False  # collapsed by default
     muted_attributes: dict = Field(default_factory=lambda: {

@@ -110,6 +110,104 @@ def test_the_box_exists_and_is_clearable(section):
     assert section._filter.placeholderText()
 
 
+class TestTheHeaderToggle:
+    """The box is revealed by a 🔍 in the section's title bar, not always present.
+
+    Owner: "shouldn't the search field be exposed or hidden with a search button
+    so that it's not just wasted real estate if the user never needs it" — right
+    call. The sidebar's scarcest resource is vertical space, and a permanent
+    line edit charges every session for a control most of them never touch.
+    """
+
+    def test_it_is_put_away_by_default(self, section):
+        assert not section._filter.isVisible()
+        assert section._filter_btn.toolTip()
+        assert not section._filter_btn.isChecked()
+
+    def test_putting_it_away_gives_the_space_to_the_list(self, section):
+        """The point of the toggle, measured in pixels of list.
+
+        A hidden widget still in the layout would keep its row and prove
+        nothing — so this asserts the LIST actually got taller.
+        """
+        section._set_filter_visible(True, save=False)
+        QApplication.processEvents()
+        with_box = section._list.height()
+
+        section._set_filter_visible(False, save=False)
+        QApplication.processEvents()
+        without_box = section._list.height()
+
+        assert without_box > with_box, (
+            f"hiding the filter freed no space: list is {without_box}px either "
+            f"way, so the box is still occupying its row"
+        )
+
+    def test_revealing_it_focuses_it_so_you_can_just_type(self, section):
+        section._filter_btn.click()
+        QApplication.processEvents()
+
+        assert section._filter.isVisible()
+        assert section._filter_btn.isChecked()
+        assert section._filter.hasFocus(), "revealed the box but you have to click it"
+
+    def test_hiding_it_never_leaves_an_invisible_filter(self, section):
+        """The trap this control could create, closed.
+
+        A filter still applied behind a hidden box means the queue shows 12 of
+        612 rows with nothing on screen explaining why — which reads as the
+        queue having lost things, the exact misreading #289 fixed.
+        """
+        section._set_filter_visible(True, save=False)
+        _type_filter(section, "blade")
+        assert len(_painted_titles(section)) < len(ENTRIES)
+
+        section._filter_btn.click()          # put it away
+        QApplication.processEvents()
+
+        assert not section._filter.isVisible()
+        assert section._filter.text() == ""
+        painted = _painted_titles(section)
+        assert any("Lobster" in p for p in painted), (
+            f"rows are still filtered out with no filter box on screen: {painted}"
+        )
+
+    def test_escape_puts_it_away_too(self, section):
+        section._set_filter_visible(True, save=False)
+        _type_filter(section, "blade")
+
+        section._hide_filter_box()
+        QApplication.processEvents()
+
+        assert not section._filter.isVisible()
+        assert any("Lobster" in p for p in _painted_titles(section))
+
+    def test_the_choice_is_remembered(self, section):
+        """UI-state rule: sections save on change and restore on startup."""
+        section._filter_btn.click()
+        assert section.config.queue_filter_visible is True
+
+        section._filter_btn.click()
+        assert section.config.queue_filter_visible is False
+
+    def test_a_remembered_open_box_comes_back_empty(self, qapp):
+        """Restoring the BOX is right; restoring a filter is not.
+
+        A queue that opens showing 12 of 612 rows because of text typed days ago
+        is indistinguishable from a broken queue.
+        """
+        config = Config()
+        config.queue_filter_visible = True
+        sec = WatchQueueSection(config, db=None)
+        sec.resize(260, 320)
+        sec.show()
+        QApplication.processEvents()
+
+        assert sec._filter.isVisible()
+        assert sec._filter.text() == ""
+        sec.hide()
+
+
 def test_filtering_paints_only_the_matches(section):
     """The point of the feature, measured on what is on screen."""
     _type_filter(section, "blade")

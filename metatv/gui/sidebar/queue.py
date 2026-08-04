@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from loguru import logger
 
 from metatv.core.repositories import RepositoryFactory
@@ -39,13 +39,23 @@ class _FilterGroup:
     keeps this testable against the shared skeleton section in conftest.
     """
 
-    __slots__ = ("header", "bare_label", "header_text", "rows")
+    __slots__ = ("header", "bare_label", "show_count", "rows")
 
-    def __init__(self, header, bare_label: str, header_text: str):
+    def __init__(self, header, bare_label: str, show_count: bool):
         self.header = header
         self.bare_label = bare_label      # "Never Watched"
-        self.header_text = header_text    # "Never Watched (597)" — unfiltered text
+        self.show_count = show_count      # does the unfiltered header carry (N)?
         self.rows: list[tuple[object, str]] = []   # (item, lowercased haystack)
+
+    def unfiltered_text(self) -> str:
+        """Header text with no filter applied.
+
+        Derived from the CURRENT row count rather than frozen at render time, so
+        an in-place removal leaves the header honest without a full repopulate.
+        """
+        if not self.show_count:
+            return self.bare_label
+        return f"{self.bare_label} ({len(self.rows)})"
 
 
 def _haystack(*parts: str | None) -> str:
@@ -98,6 +108,22 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
     def get_section_id(self):
         return "queue"
 
+    def _add_header_actions(self, header_layout) -> None:
+        """Add the 🔍 toggle that reveals the find-in-queue box.
+
+        The box is not permanently on screen: it would cost a row of the
+        sidebar's scarcest resource in every session, including the many that
+        never filter anything. A checkable header button — same size and slot as
+        Recommended's refresh button — makes it available without charging rent
+        for it.
+        """
+        self._filter_btn = QPushButton(_icons.search_icon)
+        self._filter_btn.setCheckable(True)
+        self._filter_btn.setFixedSize(22, 20)  # structural — matches the refresh btn
+        self._filter_btn.setToolTip("Find in queue")
+        self._filter_btn.clicked.connect(self._toggle_filter_box)
+        header_layout.addWidget(self._filter_btn)
+
     def create_content(self):
         # Pinned GREEN "new matches from your alerts" line — a single clickable row
         # at the very top of the queue.  Hidden until there are unviewed matches;
@@ -120,7 +146,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._filter.setToolTip("Show only queued titles matching this text")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._on_filter_changed)
+        # Escape puts the sidebar back the way it was — the same one action as
+        # clicking the header button off, so it also clears (never leaves an
+        # invisible filter behind).
+        escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self._filter)
+        escape.setContext(Qt.ShortcutContext.WidgetShortcut)
+        escape.activated.connect(self._hide_filter_box)
         self.content_layout.addWidget(self._filter)
+        self._set_filter_visible(bool(self.config.queue_filter_visible), save=False)
 
         self._list = QListWidget()
         # Chip rows fit the sidebar width and elide — never scroll sideways (which
@@ -305,19 +338,15 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         )
 
         if continue_watching:
-            self._add_group("Continue Watching", "Continue Watching", continue_watching)
+            self._add_group("Continue Watching", False, continue_watching)
 
         if never_watched:
-            self._add_group(
-                "Never Watched", f"Never Watched ({len(never_watched)})", never_watched
-            )
+            self._add_group("Never Watched", True, never_watched)
 
         if unavailable:
             # Count in the header because the queue never showed its size
             # anywhere — 611 entries had accumulated with no indication.
-            self._add_group(
-                "Unavailable", f"Unavailable ({len(unavailable)})", unavailable
-            )
+            self._add_group("Unavailable", True, unavailable)
 
         # Re-apply whatever the user is filtering by: a refresh is usually the
         # side effect of acting on ONE row, and silently dropping the filter
@@ -326,9 +355,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     # --- Grouping + find-in-queue ---------------------------------------------
 
-    def _add_group(self, bare_label: str, header_text: str, entries: list) -> None:
+    def _add_group(self, bare_label: str, show_count: bool, entries: list) -> None:
         """Render one header + its rows, recording both for the filter."""
-        group = _FilterGroup(self._add_header(header_text), bare_label, header_text)
+        header_text = f"{bare_label} ({len(entries)})" if show_count else bare_label
+        group = _FilterGroup(self._add_header(header_text), bare_label, show_count)
         for e in entries:
             group.rows.append((
                 self._add_entry_item(e),
@@ -340,6 +370,37 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
 
     def _on_filter_changed(self, text: str) -> None:
         self._apply_filter(text)
+
+    def _toggle_filter_box(self) -> None:
+        """Header 🔍 clicked — reveal or put away the find-in-queue box."""
+        self._set_filter_visible(not self._filter.isVisible())
+
+    def _hide_filter_box(self) -> None:
+        """Escape in the box — same action as toggling the button off."""
+        self._set_filter_visible(False)
+
+    def _set_filter_visible(self, visible: bool, *, save: bool = True) -> None:
+        """Show/hide the box, and CLEAR it on the way out.
+
+        Clearing when hiding is the whole safety of this control: a filter left
+        applied behind a hidden box means the queue shows 12 of 612 rows with
+        nothing on screen to say why, which reads as the queue having lost
+        things — the exact misreading #289 was fixed to stop. Hidden box, whole
+        queue. Always.
+        """
+        if not visible:
+            self._filter.clear()          # → _apply_filter("") restores every row
+        self._filter.setVisible(visible)
+        self._filter_btn.setChecked(visible)
+        self._filter_btn.setToolTip("Hide the queue filter" if visible else "Find in queue")
+        if visible:
+            self._filter.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        if save:
+            self.config.queue_filter_visible = visible
+            try:
+                self.config.save()
+            except Exception as exc:  # noqa: BLE001 — never break the toggle on a save fault
+                logger.warning(f"Could not save queue filter visibility: {exc}")
 
     def _apply_filter(self, text: str) -> None:
         """Hide non-matching rows; retitle each header with what it is showing.
@@ -366,8 +427,53 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
                 group.header.setText(f"{group.bare_label} ({shown} of {len(group.rows)})")
             else:
                 group.header.setHidden(False)
-                group.header.setText(group.header_text)
+                group.header.setText(group.unfiltered_text())
         self._update_no_match_row(needle, visible)
+
+    # --- In-place removal (InPlaceRowMixin) -----------------------------------
+
+    def _row_matches(self, item, key) -> bool:
+        """Match a queue row by the id of its OWN grain.
+
+        Channel-grain and episode-grain rows are independent entries (queuing
+        episodes never makes the series root read as queued), so unqueuing a
+        series must not take its queued episodes with it — and vice versa.
+        Alerts-Matched rows are config-derived, never queue rows, so they never
+        match.
+        """
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, dict):
+            return False
+        grain = payload.get("grain")
+        if grain == "episode":
+            return payload.get("episode_id") == key
+        if grain == "channel":
+            return payload.get("channel_id") == key
+        return False
+
+    def _after_rows_removed(self, list_widget) -> None:
+        """Keep the groups, headers and counts honest after a row is taken out."""
+        # ``row()`` returns -1 for an item no longer in the list — Qt's own
+        # membership test, and the only one available here: QListWidgetItem is
+        # unhashable under PyQt6, so a set of live items is not an option.
+        for group in list(self._groups):
+            group.rows = [
+                (item, hay) for item, hay in group.rows if list_widget.row(item) >= 0
+            ]
+            if group.rows:
+                group.header.setText(group.unfiltered_text())
+                continue
+            # Group emptied — its header would otherwise stand over nothing.
+            index = list_widget.row(group.header)
+            if index >= 0:
+                list_widget.takeItem(index)
+            self._groups.remove(group)
+        self._has_unavailable = any(g.bare_label == "Unavailable" for g in self._groups)
+        if not self._groups:
+            self.set_empty(True)
+        # A filter may be active: re-apply so the "(N of M)" totals and the
+        # no-match row reflect the row that just left.
+        self._apply_filter(self._filter.text())
 
     def _update_no_match_row(self, needle: str, visible: int) -> None:
         """Say so when a filter matches nothing — an all-hidden list reads as broken."""
@@ -456,7 +562,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         if not matched and not series_new:
             return
         label = f"{_icons.alert_icon} Alerts Matched"
-        group = _FilterGroup(self._add_header(label), label, label)
+        group = _FilterGroup(self._add_header(label), label, False)
         for m in matched:
             group.rows.append((
                 self._add_matched_channel_item(m), _haystack(m.title, m.detected_year)
