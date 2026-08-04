@@ -132,3 +132,43 @@ def load_tokens(path: str | Path) -> dict[str, str]:
 def palette_mode(path: str | Path) -> str:
     """The palette's ``$mode`` — 'dark' or 'light'."""
     return json.loads(Path(path).read_text(encoding="utf-8")).get("$mode", "dark")
+
+
+def build_legacy_palette(path: str | Path) -> dict[str, str]:
+    """Resolve a DTCG palette into the legacy ``COLOR_*``/``OVERLAY_*`` dict.
+
+    This is the bridge that lets ~1800 lines of role constants and every widget
+    keep working untouched while their values come from the scale. Entries
+    resolve either through a semantic role (``"on-surface.default"``) or a raw
+    scale coordinate (``"{neutral.7}"``) — see ``legacy_map``.
+
+    Raises:
+        TokenResolutionError: if any legacy name fails to resolve. Loud on
+            purpose: a missing key here is an ``AttributeError`` at import time
+            in a widget far away, and a *silently wrong* one is worse — it
+            paints, just incorrectly.
+    """
+    from metatv.gui.tokens.legacy_map import LEGACY_TOKEN_MAP
+
+    doc: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    scales: dict[str, str] = doc.get("$scales", {})
+    mode: str = doc.get("$mode", "dark")
+    roles = load_tokens(path)
+
+    out: dict[str, str] = {}
+    unresolved: list[str] = []
+    for legacy, ref in LEGACY_TOKEN_MAP.items():
+        if ref.startswith("{"):
+            try:
+                out[legacy] = _resolve_value(ref, scales, mode)
+            except TokenResolutionError:
+                unresolved.append(f"{legacy} -> {ref}")
+        elif ref in roles:
+            out[legacy] = roles[ref]
+        else:
+            unresolved.append(f"{legacy} -> role {ref!r} not in palette")
+    if unresolved:
+        raise TokenResolutionError(
+            f"{len(unresolved)} legacy token(s) did not resolve: {unresolved[:5]}"
+        )
+    return out

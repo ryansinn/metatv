@@ -121,10 +121,12 @@ Design notes on what varies vs. what's held fixed across all three palettes:
 
 from __future__ import annotations
 
+from pathlib import Path as _Path
+
 TokenValue = str | list[str]
 
 
-MIDNIGHT: dict[str, TokenValue] = {
+_MIDNIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#fff',
     'COLOR_TEXT': '#ccc',
     'COLOR_TEXT_2': '#ddd',
@@ -461,6 +463,28 @@ GRAPHITE: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
 }
 
+
+# ---------------------------------------------------------------------------
+# Midnight is DERIVED (#296)
+# ---------------------------------------------------------------------------
+# The dict above is kept as ``_MIDNIGHT_LEGACY`` — the hand-authored values, no
+# longer used for rendering — because it is the record of what the palette was
+# before the Radix/DTCG restructure, and the conformance test diffs against it.
+#
+# ``MIDNIGHT`` now resolves from ``tokens/midnight.tokens.json``: six scale
+# choices, 44 semantic roles, and the ~140 legacy names bridged onto them. The
+# non-colour entries (FONT_* type scale, BACKDROP_TINTS) are not part of the
+# colour system and pass through unchanged.
+from metatv.gui.tokens.loader import build_legacy_palette as _build
+
+_TOKENS_DIR = _Path(__file__).parent / "tokens"
+
+MIDNIGHT: dict[str, TokenValue] = {
+    **{k: v for k, v in _MIDNIGHT_LEGACY.items()
+       if k.startswith("FONT_") or k.startswith("COLOR_LIGHTBOX_")
+       or not isinstance(v, str)},
+    **_build(_TOKENS_DIR / "midnight.tokens.json"),
+}
 
 DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#0d0d0d',

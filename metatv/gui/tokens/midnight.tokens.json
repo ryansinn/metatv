@@ -46,7 +46,7 @@
 
   "primary": {
     "$type": "color",
-    "default":   { "$value": "{primary.9}",  "$description": "accent fill — SELECTION AND STATE ONLY" },
+    "default":   { "$value": "{primary.10}", "$description": "accent fill — SELECTION AND STATE ONLY. Step 10, not 9: blue.9 clears neither a light nor a dark foreground at 4.5:1 (2.81 with white, 4.21 with near-black), which the QPalette Highlight guard catches as unreadable selected rows." },
     "hover":     { "$value": "{primary.10}" },
     "text":      { "$value": "{primary.11}", "$description": "accent as text/link" },
     "container": { "$value": "{primary.4}",  "$description": "tinted accent background" },
@@ -85,13 +85,13 @@
 
   "quality": {
     "$type": "color",
-    "$description": "Quality tiers ramp within one hue family so they read as a scale rather than as unrelated categories. Outline treatment only — quality is a claim about this copy, so it sits by the title, not in the right rail.",
-    "uhd":  { "$value": "{amber.11}" },
-    "4k":   { "$value": "{amber.11}" },
-    "fhd":  { "$value": "{yellow.11}" },
-    "hd":   { "$value": "{yellow.10}" },
-    "sd":   { "$value": "{neutral.10}" },
-    "raw":  { "$value": "{neutral.9}" },
+    "$description": "One DISTINCT hue per tier, which is what the hand-tuned palette already did (purple UHD / blue FHD / teal HD / yellow LIVE). A first draft here ramped them within one hue instead — and the palette conformance suite immediately failed it, because tiers a user must tell apart at a glance cannot differ only in lightness. Step 11 keeps every one of them >=4.5:1 as outline text. Quality is a claim about THIS copy, so it renders by the title, not in the right rail.",
+    "uhd":  { "$value": "{purple.11}" },
+    "4k":   { "$value": "{purple.11}" },
+    "fhd":  { "$value": "{blue.11}" },
+    "hd":   { "$value": "{cyan.11}" },
+    "sd":   { "$value": "{neutral.11}" },
+    "raw":  { "$value": "{amber.11}" },
     "live": { "$value": "{orange.11}" }
   }
 }
