@@ -48,7 +48,7 @@ import re
 import weakref
 
 from PyQt6.QtGui import QColor, QFont, QPalette
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from metatv.gui import theme_palettes
 
@@ -91,14 +91,117 @@ def zoomed_font(token: str, zoom: float, *, bold: bool = False) -> QFont:
 _current_theme: str = theme_palettes.DEFAULT_PALETTE
 
 
+class _TokenStr(str):
+    """A token value that remembers which token it came from.
+
+    Behaves as an ordinary ``str`` everywhere — it IS a str, so every existing
+    f-string, concatenation and comparison is unaffected — but reading it into a
+    stylesheet records the token's NAME in :data:`_READ_LOG`. That is what makes
+    live re-theming token-aware instead of colour-aware.
+
+    Why this exists
+    ---------------
+    The first live-theme pass (#286) diffed old→new VALUES and substring-replaced
+    them in live stylesheets, because ~310 call sites across 44 files compose
+    sheets with raw ``setStyleSheet(f"…{_theme.COLOR_X}…")`` and never register a
+    builder. Diffing values worked only while every value was unique — which was
+    true purely by accident, because all 140 were independently hand-picked
+    (Graphite: 140 tokens, 140 distinct values).
+
+    Deriving the palette from a scale broke that assumption on purpose: roles
+    legitimately share steps (``COLOR_ACCENT`` and ``COLOR_ACCENT_HOVER`` may be
+    one blue), so Midnight resolves 140 tokens to 84 distinct values. A global
+    value-diff then cannot tell which token produced a given colour, and the
+    ambiguity guard correctly refused 56 of them.
+
+    Recording the read makes the question answerable per widget: we know the
+    exact tokens THIS widget's sheet was built from, so a colour shared by two
+    tokens is only ambiguous if this widget used both AND they diverge in the new
+    palette — which is rare, and detectable rather than guessed.
+    """
+
+    __slots__ = ("token_name",)
+
+    def __new__(cls, value: str, token_name: str):
+        obj = super().__new__(cls, value)
+        obj.token_name = token_name
+        return obj
+
+    def _record(self) -> None:
+        if _RECORDING_SUSPENDED:
+            return
+        _READ_LOG.append(self.token_name)
+        if len(_READ_LOG) > _READ_LOG_MAX:
+            del _READ_LOG[:-_READ_LOG_MAX]
+
+    def __str__(self) -> str:            # f"{TOKEN}" and str(TOKEN)
+        self._record()
+        return str.__str__(self)
+
+    def __format__(self, spec: str) -> str:
+        self._record()
+        return str.__format__(self, spec)
+
+    def __add__(self, other):            # "…" + TOKEN + "…"
+        self._record()
+        return str.__add__(self, other)
+
+    def __radd__(self, other):
+        self._record()
+        return str.__add__(str(other), str.__str__(self))
+
+
+# Token names read since the last stylesheet was applied. Bounded: tokens are
+# also read for non-stylesheet purposes (QColor, comparisons), and an unbounded
+# list would grow for the life of the process.
+_READ_LOG: list[str] = []
+_READ_LOG_MAX = 96
+
+# Recording is suspended while theme.py reads its own tokens. Without this, the
+# token reads inside apply_theme (rebuilding every semantic constant, restyling
+# every registered widget) pile up in the log and are attributed to whichever
+# widget is styled NEXT — measured: 27 tokens credited to a label that used 2,
+# which reintroduced exactly the ambiguity this mechanism removes.
+_RECORDING_SUSPENDED = False
+
+
+class _suspend_recording:
+    """Context manager: token reads inside are not attributed to any widget."""
+
+    def __enter__(self):
+        global _RECORDING_SUSPENDED
+        _RECORDING_SUSPENDED = True
+        return self
+
+    def __exit__(self, *exc):
+        global _RECORDING_SUSPENDED
+        _RECORDING_SUSPENDED = False
+        _READ_LOG.clear()
+        return False
+
+
+def _drain_read_log() -> tuple[str, ...]:
+    """Take the tokens read since the last drain, and clear it."""
+    tokens = tuple(dict.fromkeys(_READ_LOG))   # de-duped, order preserved
+    _READ_LOG.clear()
+    return tokens
+
+
 def _apply_palette_tokens(palette: dict[str, object]) -> None:
     """Rebind every raw design-token global from *palette*, then recompute the
     handful of tokens that are themselves DERIVED from another token (kept as
     plain token-to-token references, not independent per-palette literals, so
     they automatically track whichever palette is active).
+
+    Colour values are wrapped in :class:`_TokenStr` so that composing a
+    stylesheet records which tokens went into it (see that class). Non-colour
+    entries (the ``FONT_*`` type scale, ``BACKDROP_TINTS``) are left alone —
+    they are not re-themed and do not need provenance.
     """
     g = globals()
     for name, value in palette.items():
+        if isinstance(value, str) and name.startswith(("COLOR_", "OVERLAY_")):
+            value = _TokenStr(value, name)
         g[name] = value
     # Derived tokens — composed from another token, not an independent
     # literal, so they aren't stored in theme_palettes.py's palette dicts.
@@ -108,6 +211,47 @@ def _apply_palette_tokens(palette: dict[str, object]) -> None:
 
 
 _apply_palette_tokens(theme_palettes.PALETTES[_current_theme])
+
+
+# --- per-widget token provenance -------------------------------------------
+# Which tokens each widget's stylesheet was composed from. Populated by wrapping
+# QWidget.setStyleSheet ONCE, here, rather than by editing 310 call sites across
+# 44 files — that migration would be a single unreviewable diff, and it would
+# still not cover a site nobody has written yet.
+#
+# The capture is sound because of evaluation order: an f-string is fully
+# evaluated (reading its tokens) BEFORE setStyleSheet is called with the
+# finished string, so draining the read log inside the wrapper yields exactly
+# the tokens that composed the sheet being applied.
+_STYLE_TOKENS: "weakref.WeakKeyDictionary[QWidget, tuple[str, ...]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _install_style_provenance() -> None:
+    """Wrap ``QWidget.setStyleSheet`` so every applied sheet records its tokens.
+
+    Idempotent — re-importing the module (or a test reloading it) must not stack
+    wrappers, which would drain the read log twice and lose the provenance.
+    """
+    if getattr(QWidget.setStyleSheet, "_metatv_provenance", False):
+        return
+    original = QWidget.setStyleSheet
+
+    def setStyleSheet(self, sheet):  # noqa: N802 — matching Qt's name
+        tokens = _drain_read_log()
+        if tokens:
+            try:
+                _STYLE_TOKENS[self] = tokens
+            except TypeError:
+                pass          # not weak-referenceable; falls back to value-diff
+        return original(self, sheet)
+
+    setStyleSheet._metatv_provenance = True
+    QWidget.setStyleSheet = setStyleSheet
+
+
+_install_style_provenance()
 
 
 def _build_semantic_constants() -> dict[str, object]:
@@ -1770,6 +1914,41 @@ def _build_palette_rewrite_map(
     }
 
 
+def _widget_rewrite_map(widget) -> dict[str, str] | None:
+    """Old→new substitutions for *widget*, from the tokens its sheet used.
+
+    Returns ``None`` when this widget has no recorded provenance (its sheet was
+    set before the wrapper was installed, or built without reading a token), so
+    the caller falls back to the global value-diff. That fallback is why this is
+    never a regression: token-aware where we know, value-diff where we do not.
+
+    Skips a token whose OLD value is shared with another token this widget used
+    that maps somewhere ELSE — the one genuinely undecidable case, and now
+    scoped to a handful of tokens instead of all 140.
+    """
+    tokens = _STYLE_TOKENS.get(widget)
+    if not tokens:
+        return None
+    before = _PREVIOUS_TOKEN_VALUES
+    if not before:
+        return None
+    g = globals()
+    proposals: dict[str, set[str]] = {}
+    for name in tokens:
+        old, new = before.get(name), g.get(name)
+        if not isinstance(old, str) or not isinstance(new, str) or old == new:
+            continue
+        proposals.setdefault(old, set()).add(str(new))
+    return {
+        old: next(iter(news)) for old, news in proposals.items() if len(news) == 1
+    }
+
+
+# Snapshot of token values from BEFORE the palette switch, so a per-widget map
+# can be built from token identity rather than by matching colours globally.
+_PREVIOUS_TOKEN_VALUES: dict[str, str] = {}
+
+
 def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
     """Swap old palette colours for new ones in every live widget's stylesheet.
 
@@ -1783,7 +1962,7 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
         Number of widgets whose stylesheet actually changed.
     """
     app = QApplication.instance()
-    if app is None or not mapping:
+    if app is None:
         return 0
 
     # Longest first: a token whose value contains another's must win.
@@ -1796,8 +1975,19 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
             continue                      # C++ object already deleted
         if not sheet:
             continue
+        # Token-aware when we know what this widget's sheet was composed from:
+        # build the substitution from ONLY those tokens. A colour shared by two
+        # tokens is then ambiguous only if this widget used both AND they
+        # diverge in the new palette — checkable, rather than guessed globally.
+        per_widget = _widget_rewrite_map(widget)
+        ordered_here = (
+            sorted(per_widget.items(), key=lambda kv: len(kv[0]), reverse=True)
+            if per_widget is not None else ordered
+        )
+        if not ordered_here:
+            continue
         updated = sheet
-        for old, new in ordered:
+        for old, new in ordered_here:
             if old not in updated:
                 continue
             # Don't rewrite #fff when the sheet actually says #ffffff.
@@ -1855,10 +2045,26 @@ def apply_theme(name: str) -> bool:
     global _current_theme
     if name not in theme_palettes.PALETTES:
         return False
+    # Everything below reads tokens heavily (rebuilding semantic constants,
+    # restyling the registry). Those reads are theme.py's own, not a widget
+    # composing its sheet, so they must not be attributed to whatever widget is
+    # styled next — see _suspend_recording.
+    with _suspend_recording():
+        return _apply_theme_locked(name)
+
+
+def _apply_theme_locked(name: str) -> bool:
+    """The body of :func:`apply_theme`, with token-read recording suspended."""
+    global _current_theme
     changed = name != _current_theme
     rewrite_map: dict[str, str] = {}
     if changed:
         before = _color_token_snapshot()
+        # Kept for the per-widget, token-aware map (_widget_rewrite_map). The
+        # global value-diff below stays as the fallback for widgets with no
+        # recorded provenance.
+        global _PREVIOUS_TOKEN_VALUES
+        _PREVIOUS_TOKEN_VALUES = dict(before)
         _current_theme = name
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
