@@ -72,6 +72,22 @@ class WatchQueueRepository:
         Orphaned entries (channel deleted or ID changed) are kept and logged so
         the user never loses visibility into what they queued.
 
+        **This method NEVER drops a row.** ``hidden_provider_ids`` ANNOTATES —
+        the returned rows, and their order, are identical with or without it;
+        only the ``available`` flag differs.  The queue is a record view
+        (DR-0007 exemption): disabling a source must never silently delete the
+        user's queue out from under them, it marks those entries recoverable.
+
+        That is why the call sites legitimately differ, and the difference is
+        NOT drift: ``sidebar/queue.py`` and ``main_window_favorites.py`` pass the
+        set because they RENDER availability (dimming, the "Unavailable" group,
+        the recovery search); ``gui/trail_map_data.load_queue_ids`` consumes ids
+        only and so passes nothing.  ``tests/test_queue_scoping_contract.py``
+        pins the invariant, so a future change that made this argument filter
+        would fail there rather than silently emptying one surface.
+
+        Contrast :meth:`clear_unavailable`, which takes the same set and DELETES.
+
         Args:
             hidden_provider_ids: If supplied, entries whose channel belongs to one
                 of these providers are annotated with ``available=False``.  Orphaned

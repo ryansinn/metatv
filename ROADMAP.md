@@ -362,29 +362,43 @@ wrong, not the code.
     from the font's own `horizontalAdvance`. Same family as the px-pinning rule: an assertion
     that hardcodes a value the ENVIRONMENT owns passes where written and fails where it runs.
 
-**v0.27.0 — next.**
+**v0.26.0 fourth wave — SHIPPED 2026-08-03 (rolling).** The three buildable v0.27.0 items,
+taken in one pass. Entries #290-#291 (the third is a contract + test, no user-visible
+behaviour). Two of the three were again not what their roadmap entry described — see below.
 
-Everything the previous v0.27.0 queue listed shipped in the third wave above (#284-#289),
-including three items whose stale entries claimed work already done in v0.26.0 (the style
-registry, the person-token capture, the duplicate shelf entry). What genuinely remains:
+27. [x] **Scroll reset — the section that was missed** (#290) — the entry claimed the Watch
+    Queue AND Recommended both reset. Measured: the queue has preserved scroll since #275.
+    What #275 called "one shared chokepoint" was `BackgroundRefreshMixin`, and
+    `RecommendedSection` is that mixin's DOCUMENTED exception (its `None` is a valid empty
+    state, not a load failure), so it inherited none of the fix — including for the refresh
+    its own "Show N versions separately" action fires. Moved capture/restore down to
+    `ScrollPreservingMixin` on `CollapsibleSection`, which every section inherits, so an
+    exception to the refresh skeleton can't opt out of scroll behaviour again. The existing
+    test's own docstring named Recommended as covered; it wasn't.
+28. [x] **Watch Queue find-in-queue** (#291) — **the roadmap's remedy measured wrong again.**
+    "The queue has no ceiling; decide on archiving/ageing." Against the real 612-entry queue:
+    74 rows in the last 7d, 102 at 7-30d, 436 at 1-3mo, and **0 older than 3 months**. A
+    3-month cutoff archives nothing; a 1-month cutoff hides 436 of 612. It is not a stale
+    tail — it is a queue filled faster than it is drained, every row added deliberately, so
+    ageing it out would be censorial (mirror-not-cage). Filter box instead: hides nothing,
+    headers retitle to `(N of M)` while active, survives a refresh, not persisted.
+29. [x] **Two queue read paths disagree on scoping** — reviewed and found CORRECT, so the
+    invariant was pinned rather than the call sites made cosmetically identical.
+    `get_all(hidden_provider_ids=…)` ANNOTATES and never drops (record view, DR-0007); the
+    sidebar/favorites pass it because they RENDER availability, `load_queue_ids` consumes ids
+    only. The real risk was a future "tidy-up" turning the argument into a filter, which would
+    silently empty the Unavailable group — `tests/test_queue_scoping_contract.py` now fails if
+    anyone does, and it also pins `clear_unavailable` (the one path that deletes) to exactly
+    the rows `get_all` marks unavailable.
+
+**v0.27.0 — next.**
 
 - [ ] **"Reconnect content seems to mangle a bunch of the content"** — owner-reported,
   UNEXAMINED. No detail captured yet; ask what looked wrong before digging. Blocked on the
   owner, not on the code.
-- [ ] **Scroll reset in the Watch Queue / Recommended sections** — the remaining half of the
-  owner's report. Those sidebar/Explore sections rebuild via `section.refresh()` on actions like
-  mark-watched, resetting their scroll exactly as the results list used to. They need in-place
-  row updates (mirroring `channel_model.update_favorite`/`update_rating`/
-  `update_watch_completed`) or a scroll-preserving refresh. Also unconfirmed whether the
-  TMDb-match / title-update reload the owner reported comes from this path or a third one.
-- [ ] **Two Watch Queue read paths disagree on scoping.** `sidebar/queue.py` and
-  `main_window_favorites.py` pass `get_hidden_provider_ids()` to `queue.get_all()`;
-  `trail_map_data.py:330` calls it with no argument. `get_all` only ANNOTATES rather than
-  drops, so the sets match today — but the intent differs between call sites, which is how
-  they drift apart later. One decision, applied at the chokepoint.
-- [ ] **The queue has no ceiling.** 611 entries accumulated on the owner's install with the
-  size shown nowhere until #289 added counts. Worth deciding whether a queue that large wants
-  archiving/ageing, or whether the counts are enough.
+- [ ] **Which reload changes a title under you?** Unconfirmed leftover from the scroll report:
+  whether the TMDb-match / title-update refresh the owner saw comes from a third path (not the
+  sidebar sections, which are now covered). Needs a reproduction before it is worth chasing.
 - [ ] **Platform rollup for Discover shelves** needs its own Q-tag review (carried over; never
   had a design pass).
 

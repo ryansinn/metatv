@@ -323,6 +323,13 @@ def load_queue_ids(session, limit: int = EXPLORE_SEED_LIMIT) -> list[str]:
 
     The Watch Queue is a RECORD view (DR-0007 exemption): entries on inactive/expired
     sources stay in the seed.
+
+    Passes no ``hidden_provider_ids`` deliberately — that argument only sets the
+    ``available`` flag the sidebar renders, and ``get_all`` never drops a row, so
+    resolving the hidden set here would cost a query to annotate a field this
+    function does not read.  The id set is identical either way; the invariant
+    that makes the two call sites equivalent is pinned by
+    ``tests/test_queue_scoping_contract.py``.
     """
     from metatv.core.repositories import RepositoryFactory
 
