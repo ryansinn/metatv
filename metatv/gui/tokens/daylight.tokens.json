@@ -183,7 +183,8 @@
       "$value": "{neutral.12}"
     },
     "raw": {
-      "$value": "{amber.12}"
+      "$value": "{neutral.11}",
+      "$description": "Neutral on a light ground: amber.12 and orange.12 are both dark browns and the tiers stopped being tellable apart. RAW is the absence of a quality claim, so neutral states that rather than implying another tier."
     },
     "live": {
       "$value": "{orange.12}"

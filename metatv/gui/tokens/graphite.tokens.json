@@ -1,5 +1,5 @@
 {
-  "$description": "MetaTV 'Graphite' palette \u2014 the NEUTRAL dark theme. Identical role structure to Midnight; it differs only in its scale choices, which is the entire point of the restructure: a theme is a handful of hue picks, not 140 hand-authored values.",
+  "$description": "MetaTV 'Graphite' palette \u2014 the NEUTRAL dark theme. Identical role structure to Midnight; it differs only in its scale choices, which is the entire point of the restructure: a theme is a handful of hue picks, not 140 hand-authored values. Its decorative hues are a PAIRWISE SWAP of Midnight's, declared in $scales \u2014 which doubles as a hue substitution table, so re-hueing a whole theme is eight lines rather than 40 edited values.",
   "$extends": "radix",
   "$mode": "dark",
   "$scales": {
@@ -8,7 +8,15 @@
     "ok": "green",
     "warn": "amber",
     "err": "red",
-    "info": "cyan"
+    "info": "cyan",
+    "blue": "cyan",
+    "cyan": "blue",
+    "purple": "plum",
+    "plum": "purple",
+    "amber": "yellow",
+    "yellow": "amber",
+    "green": "teal",
+    "teal": "green"
   },
   "surface": {
     "$type": "color",

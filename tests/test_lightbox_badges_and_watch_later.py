@@ -296,8 +296,26 @@ class TestRailSelectedState:
         """The new selected-fill overlays are tokens built from COLOR_ACCENT (#2288dd
         → rgb 34,136,221), not ad-hoc literals in the stylesheet."""
         from metatv.gui import theme as _theme
-        assert _theme.OVERLAY_ACCENT_35.startswith("rgba(34,136,221,")
-        assert _theme.OVERLAY_ACCENT_50.startswith("rgba(34,136,221,")
+        # Derived from whatever the accent currently IS, not from a frozen copy
+        # of what it used to be — the point of the assertion is the RELATIONSHIP.
+        # Same HUE as the accent, not the same RGB. A Radix alpha step is not
+        # "the accent at N% opacity" — it is a colour computed so that
+        # compositing it yields the intended result, so its channels differ
+        # slightly by design. Exact equality would pin the old hand-mixed
+        # rgba() construction; hue proximity pins the RELATIONSHIP, which is
+        # what this test is actually about.
+        import re as _re
+        h = _theme.COLOR_ACCENT.lstrip("#")
+        accent = tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        for token in (_theme.OVERLAY_ACCENT_35, _theme.OVERLAY_ACCENT_50):
+            m = _re.match(r"rgba\((\d+),\s*(\d+),\s*(\d+)", str(token))
+            assert m, f"accent overlay is not an rgba(): {token}"
+            rgb = tuple(int(x) for x in m.groups())
+            drift = max(abs(a - b) for a, b in zip(rgb, accent))
+            assert drift <= 40, (
+                f"{token} is not built from the accent {_theme.COLOR_ACCENT} "
+                f"(channel drift {drift})"
+            )
 
 
 # ---------------------------------------------------------------------------

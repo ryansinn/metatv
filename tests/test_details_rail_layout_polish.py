@@ -51,7 +51,12 @@ def test_favorite_button_is_gold_when_favorited(qapp):
     bar.update_favorite(True)
     on = bar.favorite_button.styleSheet()
     assert on == _theme.DETAIL_RAIL_BTN_FAV, "favorited → gold rail style"
-    assert "gold" in on.lower(), "favorited style must use the gold colour"
+    # The gold TOKEN, not the CSS keyword. COLOR_GOLD was literally the string
+    # "gold" until the palette became derived; asserting the keyword pinned an
+    # implementation detail, not the requirement (that favorited reads as gold).
+    assert _theme.COLOR_GOLD.lower() in on.lower(), (
+        "favorited style must use the gold colour token"
+    )
     assert on != _theme.DETAIL_RAIL_BTN, "favorited must look different from unfavorited"
 
     bar.update_favorite(False)

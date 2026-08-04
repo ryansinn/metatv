@@ -69,8 +69,28 @@ def _parse_rgb(value: str) -> tuple[int, int, int]:
 
 
 def _luminance(value: str) -> float:
+    """WCAG 2.1 relative luminance.
+
+    This was previously the NTSC/YIQ perceived-brightness formula
+    (0.299R+0.587G+0.114B) applied to GAMMA-ENCODED channel values. That is a
+    different quantity: WCAG linearises each sRGB channel first, and the two
+    disagree by more than 2x on saturated colours — #eeeeee on #435db1 is
+    5.26:1 by WCAG and 2.33:1 by the old formula.
+
+    It mattered because this file is the gate the whole palette is tuned
+    against. Colours were being rejected that are genuinely accessible and, more
+    dangerously, the reverse: the old formula over-weights green, so a mid-green
+    on dark could clear a "4.5:1" that WCAG puts near 3:1. Tuning against a
+    house approximation also meant the numbers here could not be compared with
+    any external tool, which is how an entire evening went into solving for the
+    wrong target.
+    """
+    def _channel(c: float) -> float:
+        c /= 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
     r, g, b = _parse_rgb(value)
-    return 0.299 * (r / 255) + 0.587 * (g / 255) + 0.114 * (b / 255)
+    return 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
 
 
 def _contrast(value_a: str, value_b: str) -> float:
