@@ -12,6 +12,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QListWidget
 
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
+from metatv.gui.sidebar.base import ScrollPreservingMixin
 
 
 @pytest.fixture(scope="module")
@@ -21,8 +22,13 @@ def qapp():
     yield app
 
 
-class _FakeSection(BackgroundRefreshMixin, QObject):
-    """Minimal section: real signal + list, scripted load, records populate/error calls."""
+class _FakeSection(BackgroundRefreshMixin, ScrollPreservingMixin, QObject):
+    """Minimal section: real signal + list, scripted load, records populate/error calls.
+
+    Composes ``ScrollPreservingMixin`` exactly as the real ``CollapsibleSection``
+    does — the refresh mixin calls into it to keep the user's place across the
+    clear-and-repopulate, so a host without it is not the real MRO.
+    """
     _data_ready = pyqtSignal(object)
 
     def __init__(self, load_result=None, raise_exc=False):

@@ -81,11 +81,17 @@ class RecommendedSection(CollapsibleSection):
         self.set_empty(True)
 
     def refresh(self):
+        # Capture the scroll offset BEFORE the clear that zeroes it. This section
+        # is the documented BackgroundRefreshMixin exception, so it repeats the
+        # mixin's three beats itself — over the shared ScrollPreservingMixin
+        # helpers, not a private copy of them. Without this, every refresh bounced
+        # the list to the top, including the one "show N versions separately"
+        # fires: you acted on row 18 and were returned to row 1.
+        self._capture_scroll(self._list)
         self._list.clear()
         # Show a loading row so the section never displays its stale empty/"rate to
         # get recommendations" state during the load window. _on_rec_data_ready clears
-        # the list first, which replaces this placeholder. (RecommendedSection is the
-        # documented BackgroundRefreshMixin exception, so it sets this up itself.)
+        # the list first, which replaces this placeholder.
         self.show_loading(self._list, "Loading recommendations…")
         self._executor.submit(self._bg_refresh)
 
@@ -151,8 +157,12 @@ class RecommendedSection(CollapsibleSection):
         self._list.clear()
         # A transient background failure must be visible, not look like an empty
         # result — render a distinct error row (keeps the section expanded).
+        # Every branch below that renders a one-line placeholder instead of rows
+        # drops the captured offset: scrolling a single-row list to where a
+        # 20-row list used to be would put the message off-screen.
         if data is _REC_LOAD_ERROR:
             self.show_load_error(self._list, "Couldn't load recommendations")
+            self._drop_captured_scroll()
             return
         # data is (recs, year_by_id) tuple from _bg_refresh, or None for "no weights"
         if data is None:
@@ -160,6 +170,7 @@ class RecommendedSection(CollapsibleSection):
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(item)
             self.set_empty(True)
+            self._drop_captured_scroll()
             return
         recs, year_by_id = data if isinstance(data, tuple) else (data, {})
         if not recs:
@@ -167,6 +178,7 @@ class RecommendedSection(CollapsibleSection):
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(item)
             self.set_empty(True)
+            self._drop_captured_scroll()
             return
         for sc in recs:
             year = year_by_id.get(sc.channel_id, "")
@@ -188,6 +200,7 @@ class RecommendedSection(CollapsibleSection):
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
         self.set_empty(False)
+        self._restore_scroll(self._list)
 
     def _build_rec_row(self, sc, year: str) -> QWidget:
         """Recommendation row: ``[icon] Title [4K] … [Year] [Lang]``.

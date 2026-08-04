@@ -102,7 +102,71 @@ def _fmt_channel_name(
     return " ".join(parts)
 
 
-class CollapsibleSection(QFrame):
+class ScrollPreservingMixin:
+    """Keeps a list's scroll position across the clear-and-repopulate cycle.
+
+    Clearing a ``QListWidget`` resets its scroll to 0, so a section that
+    rebuilds its list as the side effect of one action throws the user back to
+    row 1 — punishing them for acting on any row but the first, in exactly the
+    long lists that exist for bulk triage (owner report, repeatedly).
+
+    #275 solved this inside ``BackgroundRefreshMixin``. It lives here instead
+    because that mixin is not universal: ``RecommendedSection`` deliberately
+    does not compose it (its ``None`` means a valid empty state, not a load
+    failure), and so kept resetting to the top on every refresh — including the
+    one its own "show versions separately" action triggers. One definition,
+    inherited by every section through ``CollapsibleSection``, rather than a
+    second copy for the exception.
+
+    Usage is always the same three beats: ``_capture_scroll(lst)`` BEFORE the
+    clear, ``_restore_scroll(lst)`` after the new rows are in, and
+    ``_drop_captured_scroll()`` on any branch that renders a short placeholder
+    instead of the rows.
+    """
+
+    @staticmethod
+    def _scroll_offset(list_widget) -> int:
+        """Current vertical scroll offset, or 0 when the widget has no bar yet."""
+        bar = (
+            list_widget.verticalScrollBar()
+            if hasattr(list_widget, "verticalScrollBar") else None
+        )
+        return bar.value() if bar is not None else 0
+
+    def _capture_scroll(self, list_widget) -> None:
+        """Stash the current offset ahead of the clear that destroys it."""
+        self._pending_scroll = self._scroll_offset(list_widget)
+
+    def _drop_captured_scroll(self) -> None:
+        """Forget a stashed offset.
+
+        For renders that replace the rows with a short placeholder (a load
+        error, "rate more content"): restoring a deep offset there would scroll
+        the message itself out of view.
+        """
+        self.__dict__.pop("_pending_scroll", None)
+
+    def _restore_scroll(self, list_widget) -> None:
+        """Put the list back where the user had it, clamped to the new content.
+
+        Clamping matters: the refresh may have returned FEWER rows (the item was
+        removed from the queue), so the old offset can exceed the new maximum.
+        Qt clamps on assignment, but doing it explicitly keeps the intent
+        obvious and the value inspectable in tests.
+        """
+        offset = self.__dict__.pop("_pending_scroll", 0)
+        if not offset:
+            return
+        bar = (
+            list_widget.verticalScrollBar()
+            if hasattr(list_widget, "verticalScrollBar") else None
+        )
+        if bar is None:
+            return
+        bar.setValue(min(offset, bar.maximum()))
+
+
+class CollapsibleSection(ScrollPreservingMixin, QFrame):
     """Base class for collapsible sidebar sections with resize support"""
 
     # Signal when section wants to update its size

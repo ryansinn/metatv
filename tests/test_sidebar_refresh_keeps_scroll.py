@@ -4,10 +4,17 @@ Owner, after being told twice that only half the problem was fixed: "so fix the
 scroll reset, it seems like I've had to ask you to do this 5 times now."
 
 The results-list half was ``_category_assigned`` wired straight to
-``load_channels`` (#274). This is the other half, and it is one shared
-chokepoint: ``BackgroundRefreshMixin`` — composed by the queue, recommended,
-favorites and history sections — calls ``lst.clear()`` in BOTH ``refresh()`` and
-``_on_data_ready()``, and clearing a ``QListWidget`` resets its scroll to 0.
+``load_channels`` (#274). This is the other half: ``BackgroundRefreshMixin`` —
+composed by the queue, favorites and history sections — calls ``lst.clear()`` in
+BOTH ``refresh()`` and ``_on_data_ready()``, and clearing a ``QListWidget``
+resets its scroll to 0.
+
+That "one shared chokepoint" was one section short of shared: ``Recommended``
+does not compose this mixin (documented exception — its ``None`` is a valid
+empty state, not a failure) and so never got the fix. The helpers now live on
+``ScrollPreservingMixin``, inherited by every section through
+``CollapsibleSection``; ``tests/test_recommended_scroll_preserve.py`` covers the
+section that was missed.
 
 So marking one item watched deep in the Watch Queue rebuilt the section and
 bounced the user to row 1, punishing them for every single action in exactly the
@@ -23,6 +30,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QListWidget, QListWidgetItem
 
 from metatv.gui.sidebar.background_refresh import BackgroundRefreshMixin
+from metatv.gui.sidebar.base import ScrollPreservingMixin
 
 
 @pytest.fixture(scope="module")
@@ -30,8 +38,12 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-class _Section(BackgroundRefreshMixin):
-    """Minimal host exercising the REAL mixin methods."""
+class _Section(BackgroundRefreshMixin, ScrollPreservingMixin):
+    """Minimal host exercising the REAL mixin methods.
+
+    Composes ``ScrollPreservingMixin`` exactly as ``CollapsibleSection`` does,
+    so this exercises the shipped capture/restore code rather than a stand-in.
+    """
 
     def __init__(self, list_widget, row_count=200):
         self._list = list_widget
