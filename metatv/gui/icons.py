@@ -144,6 +144,13 @@ lightbox_icon: str = "⤢"
 # Compass = "lateral exploration / walk the adjacency trail" — DELIBERATELY DISTINCT
 # from ``discover_icon`` (✨ = the global browse) and ``lightbox_icon`` (⤢ = preview).
 explore_icon: str = "🧭"   # U+1F9ED COMPASS
+# The sidebar section header's Explore affordance. Same U+2922 glyph family as
+# ``zoom_poster_icon``/``lightbox_icon`` — all three mean "open this out into a
+# bigger surface" — and specifically the glyph that opened the cascading columns
+# from a Similar row before click-to-preview replaced it there, so it is already
+# the learned affordance for exactly this action. NOT ``expand_icon`` (">"): the
+# section's own collapse toggle sits in the same header and renders that pair.
+explore_columns_icon: str = "⤢"   # U+2922 — "open the cascading columns"
 # Trail-map row chevron — "expand this stop into the next column". Reuses the single
 # right-angle-quote family (nav_next), NOT the collapsible ">" caret (expand_icon).
 trail_expand_icon: str = "›"   # U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK

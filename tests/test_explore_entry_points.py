@@ -618,15 +618,27 @@ class TestSidebarExploreLinks:
         self, qapp, tmp_path, module, cls_name, key
     ):
         import importlib
+        from metatv.gui import icons as _icons
         from metatv.gui.explore_view import EXPLORE_SOURCES
 
         cls = getattr(importlib.import_module(f"metatv.gui.sidebar.{module}"), cls_name)
         section, db = _section(cls, tmp_path, f"{key}_link")
         assert section.EXPLORE_KEY == key
         btn = section.explore_btn
-        assert "Explore" in btn.text(), "one shared label across every entry point"
+        # Icon-only since #293 — four sections stacked vertically repeated the
+        # word "Explore" four times, which stops being read and just crowds the
+        # header. The tooltip is now the ONLY place the name appears, so it is
+        # load-bearing rather than decorative.
+        assert btn.text() == _icons.explore_columns_icon, \
+            "one shared glyph across every entry point"
+        assert btn.text() != section.config.expand_icon, (
+            "the collapse toggle in this same header renders expand_icon — two "
+            "identical glyphs meaning different things"
+        )
         assert btn.toolTip() == EXPLORE_SOURCES[key].link_tooltip, \
             "the rail and the view it opens describe themselves identically"
+        assert "Explore" in btn.toolTip(), \
+            "with the label gone the tooltip is the only thing naming this"
 
         seen: list = []
         section.exploreClicked.connect(lambda: seen.append(key))
