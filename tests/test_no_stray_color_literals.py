@@ -144,6 +144,14 @@ _EXCLUDED_FILES: set[str] = {
     # FROM (Midnight/Graphite/Daylight) — raw literals are the whole point of
     # that file, exactly as they are in theme.py.
     "theme_palettes.py",
+    # tokens/radix.py is VENDORED upstream data — the Radix Colors scales (MIT,
+    # github.com/radix-ui/colors), generated from their src/*.ts. It is nothing
+    # but colour literals by definition; that is what a colour scale is. It sits
+    # one level BELOW theme_palettes.py in the same chain: radix.py holds the
+    # raw scales, the DTCG palette files reference steps within them, and the
+    # theme layer exposes the resulting roles. Hand-editing it is what the
+    # module docstring forbids — regenerate from upstream instead.
+    "radix.py",
     # badge_utils.py was previously excluded because _QUALITY_COLORS held raw literals.
     # Those are now migrated to tokens (B2), so badge_utils is no longer excluded.
 }
@@ -286,6 +294,12 @@ _BROAD_ALLOWLIST: list[tuple[str, str]] = [
     # {r}, {g}, {b} are Python format-string placeholders, NOT literal values.
     ("metatv/gui/sidebar/sources.py", "rgba({r},{g},{b},"),
     ("metatv/gui/sidebar/sources.py", "rgb({r},{g},{b})"),
+    # tokens/loader.py: the Radix→Qt alpha conversion. {r},{g},{b} are format
+    # placeholders (same shape as the sources.py entries above), and the
+    # docstring line explains the #RRGGBBAA vs #AARRGGBB trap that makes the
+    # conversion necessary — neither is a chosen colour.
+    ("metatv/gui/tokens/loader.py", "rgba({r},{g},{b},"),
+    ("metatv/gui/tokens/loader.py", "``#RRGGBBAA`` alpha step into"),
 ]
 
 # Regex: matches a hex color (#RGB, #RRGGBB, #RRGGBBAA) or rgba()/rgb() in a
