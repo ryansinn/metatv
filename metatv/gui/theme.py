@@ -1948,6 +1948,10 @@ def _widget_rewrite_map(widget) -> dict[str, str] | None:
 # can be built from token identity rather than by matching colours globally.
 _PREVIOUS_TOKEN_VALUES: dict[str, str] = {}
 
+# {old rendered constant: new rendered constant} for the active switch.
+_CONSTANT_REWRITE: dict[str, str] = {}
+_SEMANTIC_CONSTANT_NAMES: tuple[str, ...] = tuple(_build_semantic_constants())
+
 
 def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
     """Swap old palette colours for new ones in every live widget's stylesheet.
@@ -1974,6 +1978,13 @@ def _rewrite_stale_palette_values(mapping: dict[str, str]) -> int:
         except RuntimeError:
             continue                      # C++ object already deleted
         if not sheet:
+            continue
+        # Exact case first: the whole sheet IS a semantic role constant, so it
+        # can be replaced wholesale with that role's new rendering.
+        exact = _CONSTANT_REWRITE.get(sheet)
+        if exact is not None:
+            widget.setStyleSheet(exact)
+            changed += 1
             continue
         # Token-aware when we know what this widget's sheet was composed from:
         # build the substitution from ONLY those tokens. A colour shared by two
@@ -2058,7 +2069,17 @@ def _apply_theme_locked(name: str) -> bool:
     global _current_theme
     changed = name != _current_theme
     rewrite_map: dict[str, str] = {}
+    global _CONSTANT_REWRITE
+    _CONSTANT_REWRITE = {}
     if changed:
+        # Semantic role constants are whole, pre-rendered strings, so an
+        # unregistered widget styled with one can be switched EXACTLY by
+        # swapping the whole sheet — no colour matching, no ambiguity. This is
+        # what keeps the "any hand-set sheet follows the palette" guarantee
+        # intact for role constants now that per-value diffing cannot.
+        _before_constants = {
+            n: globals().get(n) for n in _SEMANTIC_CONSTANT_NAMES
+        }
         before = _color_token_snapshot()
         # Kept for the per-widget, token-aware map (_widget_rewrite_map). The
         # global value-diff below stays as the fallback for widgets with no
@@ -2069,6 +2090,12 @@ def _apply_theme_locked(name: str) -> bool:
         _apply_palette_tokens(theme_palettes.PALETTES[name])
         globals().update(_build_semantic_constants())
         rewrite_map = _build_palette_rewrite_map(before, _color_token_snapshot())
+        _CONSTANT_REWRITE = {
+            was: globals()[n]
+            for n, was in _before_constants.items()
+            if isinstance(was, str) and isinstance(globals().get(n), str)
+            and was != globals()[n]
+        }
     _sync_qt_application_palette()
     # Restyle every widget registered through style()/style_fn(). Unconditional,
     # like the palette push above: a cold launch whose saved theme already

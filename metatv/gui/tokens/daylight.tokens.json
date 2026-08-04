@@ -1,0 +1,192 @@
+{
+  "$description": "MetaTV 'Daylight' palette \u2014 the LIGHT theme. Note that not one role reference below is inverted: Radix's step semantics are the same on both sides (1-2 background \u2026 11-12 text), so flipping $mode is the whole change. The old light palette had to re-pick all 140 values by hand and was the easiest place to ship a contrast bug.",
+  "$extends": "radix",
+  "$mode": "light",
+  "$scales": {
+    "neutral": "slate",
+    "primary": "blue",
+    "ok": "green",
+    "warn": "amber",
+    "err": "red",
+    "info": "cyan"
+  },
+  "surface": {
+    "$type": "color",
+    "dim": {
+      "$value": "{neutral.1}",
+      "$description": "app ground, behind everything"
+    },
+    "base": {
+      "$value": "{neutral.2}",
+      "$description": "panels, lists, the details pane"
+    },
+    "container": {
+      "$value": "{neutral.3}",
+      "$description": "controls at rest, chips with a fill"
+    },
+    "container-high": {
+      "$value": "{neutral.4}",
+      "$description": "hover over a container"
+    },
+    "container-max": {
+      "$value": "{neutral.5}",
+      "$description": "pressed / active container"
+    },
+    "sunk": {
+      "$value": "{neutral.2}",
+      "$description": "placeholder tiles \u2014 absence, not content"
+    }
+  },
+  "on-surface": {
+    "$type": "color",
+    "$description": "TWO text roles, not five. The old palette had 15 neutrals named dim/muted/faint/disabled/low \u2014 named by APPEARANCE, which gives no rule for which to use, so every new widget picked a new one. Radix publishes exactly two text steps (11 low-contrast, 12 high-contrast) and Material 3 names exactly two roles, because that is how many text roles actually exist. The rest below are non-text states and are exempt from the 4.5:1 floor by definition, not by exception.",
+    "strong": {
+      "$value": "{neutral.12}",
+      "$description": "titles \u2014 the loudest text in a row"
+    },
+    "default": {
+      "$value": "{neutral.11}",
+      "$description": "body and metadata text"
+    },
+    "disabled": {
+      "$value": "{neutral.10}",
+      "$description": "NOT text \u2014 a disabled control (WCAG exempts these)"
+    },
+    "placeholder": {
+      "$value": "{neutral.9}",
+      "$description": "NOT text \u2014 empty-field hint / absent-image glyph"
+    }
+  },
+  "meta": {
+    "$type": "color",
+    "$description": "Neutral row metadata. Deliberately NOT under facet.*: these carry no hue encoding, and putting them there made two of them share a colour, which for a hue-encoded facet would be a false statement about the data.",
+    "year": {
+      "$value": "{neutral.11}"
+    },
+    "collection": {
+      "$value": "{neutral.11}"
+    }
+  },
+  "outline": {
+    "$type": "color",
+    "default": {
+      "$value": "{neutral.7}",
+      "$description": "interactive component border"
+    },
+    "strong": {
+      "$value": "{neutral.8}",
+      "$description": "focus ring / emphasised border"
+    },
+    "subtle": {
+      "$value": "{neutral.6}",
+      "$description": "separators, hairlines"
+    }
+  },
+  "primary": {
+    "$type": "color",
+    "default": {
+      "$value": "{primary.11}",
+      "$description": "Light-theme selection fill: a DEEP blue carrying white (4.65:1), the inverse of Midnight's bright blue carrying ink. Radix step 9 is tuned for white on DARK grounds; on a light ground it clears neither foreground."
+    },
+    "hover": {
+      "$value": "{primary.10}"
+    },
+    "text": {
+      "$value": "{primary.12}",
+      "$description": "accent as text/link"
+    },
+    "container": {
+      "$value": "{primary.4}",
+      "$description": "tinted accent background"
+    },
+    "on": {
+      "$value": "{neutral.1}",
+      "$description": "foreground ON a solid primary fill. NEAR-BLACK, not white: blue.9 is a light blue, so white on it measures 2.81:1 \u2014 the conventional dark-theme look and genuinely hard to read. This repeats a lesson already learned once at COLOR_ON_ACCENT, and the conformance test is what caught me repeating it."
+    }
+  },
+  "state": {
+    "$type": "color",
+    "ok": {
+      "$value": "{ok.12}"
+    },
+    "ok-fill": {
+      "$value": "{ok.4}"
+    },
+    "warn": {
+      "$value": "{warn.12}"
+    },
+    "warn-fill": {
+      "$value": "{warn.4}"
+    },
+    "err": {
+      "$value": "{err.12}"
+    },
+    "err-fill": {
+      "$value": "{err.4}"
+    },
+    "info": {
+      "$value": "{info.11}"
+    }
+  },
+  "scrim": {
+    "$type": "color",
+    "$description": "Alpha overlays. These are Radix ALPHA steps, not hand-mixed rgba() \u2014 the old OVERLAY_* family was 39 tokens over 16 base colours with hand-picked alphas.",
+    "subtle": {
+      "$value": "{neutralA.3}"
+    },
+    "soft": {
+      "$value": "{neutralA.4}"
+    },
+    "medium": {
+      "$value": "{neutralA.6}"
+    },
+    "strong": {
+      "$value": "{neutralA.8}"
+    }
+  },
+  "facet": {
+    "$type": "color",
+    "$description": "Data-category hues. One hue per facet, and NO TWO FACETS SHARE A HUE \u2014 the mockup review caught language and platform reading as the same thing. Step 11 keeps every one of them >=4.5:1 as text on surface.base.",
+    "language": {
+      "$value": "{blue.12}"
+    },
+    "region": {
+      "$value": "{green.12}"
+    },
+    "genre": {
+      "$value": "{teal.12}"
+    },
+    "platform": {
+      "$value": "{purple.12}"
+    },
+    "language-fill": {
+      "$value": "{blue.4}",
+      "$description": "language keeps a FILL \u2014 owner's call: it is the highest-value facet after the title"
+    }
+  },
+  "quality": {
+    "$type": "color",
+    "$description": "One DISTINCT hue per tier, which is what the hand-tuned palette already did (purple UHD / blue FHD / teal HD / yellow LIVE). A first draft here ramped them within one hue instead \u2014 and the palette conformance suite immediately failed it, because tiers a user must tell apart at a glance cannot differ only in lightness. Step 11 keeps every one of them >=4.5:1 as outline text. Quality is a claim about THIS copy, so it renders by the title, not in the right rail.",
+    "uhd": {
+      "$value": "{purple.12}"
+    },
+    "4k": {
+      "$value": "{purple.12}"
+    },
+    "fhd": {
+      "$value": "{blue.12}"
+    },
+    "hd": {
+      "$value": "{cyan.12}"
+    },
+    "sd": {
+      "$value": "{neutral.12}"
+    },
+    "raw": {
+      "$value": "{amber.12}"
+    },
+    "live": {
+      "$value": "{orange.12}"
+    }
+  }
+}

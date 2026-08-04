@@ -111,17 +111,65 @@ _MIDNIGHT_PIN: dict[str, object] = {
 }
 
 
-class TestMidnightIsThePreChangeConstants:
-    """Both the raw palette dict AND theme.py's resting module globals (with
-    Midnight active, the default) must equal the old hardcoded values."""
+class TestMidnightIsDerivedFromTheTokenLayer:
+    """Midnight's VALUES moved when the palette became derived (#296) — this
+    class no longer pins them.
 
-    @pytest.mark.parametrize("name,expected", sorted(_MIDNIGHT_PIN.items(), key=str))
-    def test_midnight_palette_dict_value(self, name, expected):
-        assert theme_palettes.MIDNIGHT[name] == expected
+    It was written to prove the palette EXTRACTION (moving literals out of
+    theme.py into theme_palettes.py) changed nothing, and for that job pinning
+    every literal was exactly right. Adopting Radix scales is the opposite kind
+    of change: moving the values IS the point. Left as-is, a test named for the
+    old constants would have failed 52 times and the only way to "fix" it would
+    have been to paste in whatever the new code produced — a test rewritten to
+    match its subject, which proves nothing.
 
-    @pytest.mark.parametrize("name,expected", sorted(_MIDNIGHT_PIN.items(), key=str))
-    def test_midnight_is_the_resting_module_global(self, name, expected):
-        assert getattr(theme, name) == expected
+    So it now asserts the PROPERTIES that must hold whatever the values are:
+    the structure is intact, the type scale never varies, and the invariant
+    tokens really are invariant. What the colours themselves must satisfy
+    (contrast floors, distinguishable facets, a legible selection) is
+    tests/test_palette_completeness.py's job, and it is stricter than any list
+    of literals could be.
+    """
+
+    def test_every_pinned_token_still_exists(self):
+        """The names are still the contract — only the values are derived."""
+        missing = [n for n in _MIDNIGHT_PIN if n not in theme_palettes.MIDNIGHT]
+        assert missing == [], f"tokens vanished from the palette: {missing}"
+
+    def test_the_type_scale_is_untouched(self):
+        """FONT_* is a type scale, not a colour, and does not vary by palette."""
+        for name, expected in _MIDNIGHT_PIN.items():
+            if name.startswith("FONT_"):
+                assert theme_palettes.MIDNIGHT[name] == expected
+                assert getattr(theme, name) == expected
+
+    def test_non_colour_entries_are_untouched(self):
+        assert theme_palettes.MIDNIGHT["BACKDROP_TINTS"] == _MIDNIGHT_PIN["BACKDROP_TINTS"]
+
+    def test_the_fixed_dark_lightbox_family_kept_its_exact_values(self):
+        """Deliberately NOT derived: the lightbox renders on its own dark scrim
+        in every theme, so these must survive the restructure byte-for-byte."""
+        assert theme_palettes.MIDNIGHT["COLOR_LIGHTBOX_BG"] == _MIDNIGHT_PIN["COLOR_LIGHTBOX_BG"]
+
+    def test_the_module_globals_track_the_palette(self):
+        """theme.py's resting globals must equal whatever the palette says —
+        the guarantee the old pinning gave, minus the frozen values."""
+        for name in _MIDNIGHT_PIN:
+            if name in theme_palettes.MIDNIGHT:
+                assert getattr(theme, name) == theme_palettes.MIDNIGHT[name], name
+
+    def test_colours_now_come_from_the_scale_not_a_literal(self):
+        """The restructure actually happened: Midnight's colours are Radix
+        steps, so they must NOT still be the old hand-picked literals."""
+        moved = [
+            n for n, v in _MIDNIGHT_PIN.items()
+            if n.startswith("COLOR_") and not n.startswith("COLOR_LIGHTBOX_")
+            and theme_palettes.MIDNIGHT.get(n) != v
+        ]
+        assert len(moved) > 20, (
+            "Midnight still holds the pre-restructure literals — it is not "
+            "deriving from the token layer"
+        )
 
     def test_midnight_is_the_default_palette(self):
         assert theme_palettes.DEFAULT_PALETTE == "Midnight"

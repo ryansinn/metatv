@@ -299,7 +299,7 @@ _MIDNIGHT_LEGACY: dict[str, TokenValue] = {
 }
 
 
-GRAPHITE: dict[str, TokenValue] = {
+_GRAPHITE_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#f2f2f2',
     'COLOR_TEXT': '#c9c9c9',
     'COLOR_TEXT_2': '#dcdcdc',
@@ -479,14 +479,24 @@ from metatv.gui.tokens.loader import build_legacy_palette as _build
 
 _TOKENS_DIR = _Path(__file__).parent / "tokens"
 
-MIDNIGHT: dict[str, TokenValue] = {
-    **{k: v for k, v in _MIDNIGHT_LEGACY.items()
-       if k.startswith("FONT_") or k.startswith("COLOR_LIGHTBOX_")
-       or not isinstance(v, str)},
-    **_build(_TOKENS_DIR / "midnight.tokens.json"),
-}
+def _derive(name: str, legacy: dict[str, TokenValue]) -> dict[str, TokenValue]:
+    """Resolve a DTCG palette, carrying over the non-colour entries.
 
-DAYLIGHT: dict[str, TokenValue] = {
+    ``FONT_*`` (a type SCALE, not colours) and the fixed-dark ``COLOR_LIGHTBOX_*``
+    family are theme-invariant by design, so they come from the legacy dict
+    untouched. Everything else is derived from the token file.
+    """
+    return {
+        **{k: v for k, v in legacy.items()
+           if k.startswith("FONT_") or k.startswith("COLOR_LIGHTBOX_")
+           or not isinstance(v, str)},
+        **_build(_TOKENS_DIR / f"{name}.tokens.json"),
+    }
+
+
+MIDNIGHT: dict[str, TokenValue] = _derive("midnight", _MIDNIGHT_LEGACY)
+
+_DAYLIGHT_LEGACY: dict[str, TokenValue] = {
     'COLOR_TEXT_HI': '#0d0d0d',
     'COLOR_TEXT': '#242424',
     'COLOR_TEXT_2': '#1a1a1a',
@@ -659,6 +669,10 @@ DAYLIGHT: dict[str, TokenValue] = {
     'COLOR_LIGHTBOX_TEXT': '#cccccc',
 }
 
+
+
+GRAPHITE: dict[str, TokenValue] = _derive("graphite", _GRAPHITE_LEGACY)
+DAYLIGHT: dict[str, TokenValue] = _derive("daylight", _DAYLIGHT_LEGACY)
 
 PALETTES: dict[str, dict[str, TokenValue]] = {
     "Midnight": MIDNIGHT,
