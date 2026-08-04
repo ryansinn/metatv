@@ -13,6 +13,7 @@ from loguru import logger
 from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, AUDIO_LANG_WORD_MAP, quality_display,
 )
+from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
 from metatv.gui.flow_layout import enable_height_for_width
@@ -518,17 +519,44 @@ class _VersionSection(QWidget):
         return chip
 
     def _make_greyed_chip(self, v: ChannelVersion) -> QPushButton:
+        """A filtered variant: quieter than an active chip, but just as clickable.
+
+        These are DE-EMPHASIZED, not disabled. Owner: "they're just hidden to
+        reduce clutter or distraction, but they still should be clickable when
+        Filtered Variants is expanded" — you deliberately expanded the section to
+        reach them, so refusing the click is the wrong answer.
+
+        Left-click switches to the variant through the SAME ``version_selected``
+        signal an active chip emits, so there is one switch path for both.
+
+        Styling had made the promise the wiring broke: ``COLOR_BORDER`` text is
+        ~1.4:1 against the pane, which reads as a disabled control, and there was
+        no hover state at all — the two things that tell a user not to bother
+        clicking. Now it sits at the readable end of dim with a hover lift, so it
+        looks like what it is: available, just not shouting.
+        """
         prefix = v.detected_prefix or "?"
         is_hidden_cat = v.is_hidden_category
         extra = "text-decoration: line-through;" if is_hidden_cat else ""
         chip = QPushButton(escape_mnemonic(self._chip_label(v)))
-        chip.setStyleSheet(
-            f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_BORDER}; border: 1px solid {_theme.COLOR_LINE};"
-            f" border-radius: 4px; padding: 2px 8px; {extra} }}"
+        _theme.style_fn(
+            chip,
+            lambda _extra=extra: (
+                f"QPushButton {{ font-size: {_theme.FONT_MD}; color: {_theme.COLOR_MUTED};"
+                f" border: 1px solid {_theme.COLOR_FAINT}; background: transparent;"
+                f" border-radius: 4px; padding: 2px 8px; {_extra} }}"
+                f"QPushButton:hover {{ color: {_theme.COLOR_TEXT};"
+                f" border-color: {_theme.COLOR_DIM}; }}"
+            ),
         )
+        cursor_affordance.set_clickable(chip)
         full = resolve_category_name(prefix, self.config)
         reason = "hidden" if is_hidden_cat else "filtered"
-        chip.setToolTip(f"{full or prefix} ({prefix}) — {reason}. Right-click to manage.")
+        chip.setToolTip(
+            f"{full or prefix} ({prefix}) — {reason}. Click to switch to this "
+            f"version; right-click to manage."
+        )
+        chip.clicked.connect(lambda _, cid=v.channel_id: self.version_selected.emit(cid))
         chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         chip.customContextMenuRequested.connect(
             lambda pos, p=prefix, hid=is_hidden_cat, _c=chip:

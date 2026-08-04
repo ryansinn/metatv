@@ -15,6 +15,7 @@ from metatv.core.channel_name_utils import (
     normalize_region_code, REGION_FULL_NAMES, QUALITY_TOKENS,
     quality_display, quality_tooltip,
 )
+from metatv.core.filter_utils import normalize_genre
 from metatv.gui import cursor_affordance
 from metatv.gui import icons as _icons
 from metatv.gui import theme as _theme
@@ -1169,6 +1170,25 @@ class _MetadataSection(QWidget):
             # ',' and '/'; never '&' — "Sci-Fi & Fantasy" / "Action & Adventure"
             # are single TMDB genres.  De-dupe (case-insensitive) so merged
             # multi-provider metadata doesn't yield duplicate chips.
+            # Each leaf is then folded to its CANONICAL KEY via ``normalize_genre``
+            # — the same table ingestion and stat aggregation use. Without it this
+            # pane was the one surface rendering the raw provider payload, so an
+            # Italian source showed "Dramma" and a French one "Drame / Mystère /
+            # Science-Fiction & Fantastique" while the very same channel's list row
+            # (reading the ingestion-computed ``detected_genre``) showed "Drama" —
+            # one fact, two answers, both on screen at once. Nothing had regressed:
+            # normalize_genre had zero GUI callers despite its own docstring naming
+            # this pane as the reason it exists.
+            #
+            # This canonicalizes PRESENTATION ONLY. The provider's own wording is
+            # untouched in ``metadata.genres`` — nothing is destroyed, and every
+            # language variant a source gave us is still there to read. The key
+            # happens to BE its English display string today because the UI is
+            # English-only; when the UI speaks other languages, the display layer
+            # belongs here (key → localized label), and the key stays the one
+            # thing "all Drama" groups, filters and dedups on. Do NOT push the
+            # localized string back into storage — that is what made this pane
+            # disagree with the list in the first place.
             genres: list[str] = []
             seen: set[str] = set()
             for g in metadata.genres:
@@ -1177,6 +1197,8 @@ class _MetadataSection(QWidget):
                     name = p.strip() if isinstance(p, str) else p
                     if not name:
                         continue
+                    if isinstance(name, str):
+                        name = normalize_genre(name)
                     key = name.casefold() if isinstance(name, str) else name
                     if key in seen:
                         continue
