@@ -312,12 +312,14 @@ def test_queue_populate_rows_dims_unavailable_items(qapp):
     from PyQt6.QtCore import Qt
     from metatv.gui import theme as _theme
     from metatv.gui.sidebar.queue import WatchQueueSection, _ROLE_AVAILABLE, _ROLE_SEARCH_TITLE
+    from tests.conftest import wire_watch_queue_filter
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
     obj.config = _icon_config()
     obj.set_empty = lambda *_: None
     obj._has_unavailable = False
+    wire_watch_queue_filter(obj)
 
     entries = [
         QueueEntry(queue_id=1, channel_id="c1", channel_name="Available",
@@ -382,12 +384,14 @@ def test_queue_populate_rows_has_unavailable_false_when_all_available(qapp):
     """_has_unavailable is False when all entries are available."""
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.queue import WatchQueueSection
+    from tests.conftest import wire_watch_queue_filter
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
     obj.config = _icon_config()
     obj.set_empty = lambda *_: None
     obj._has_unavailable = False
+    wire_watch_queue_filter(obj)
 
     entries = [
         QueueEntry(queue_id=1, channel_id="c1", channel_name="Chan",

@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QSizePolicy, QListWidget, QListWidgetItem,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -29,6 +29,35 @@ _ROLE_SEARCH_TITLE = Qt.ItemDataRole.UserRole + 2
 # _ROLE_ROW_KIND role, a known trap flagged in review).
 
 _UNAVAILABLE_TOOLTIP = "Source unavailable — double-click to find this on another source."
+
+
+class _FilterGroup:
+    """One rendered header plus its rows, so the filter can hide/count them.
+
+    Holds the row's searchable text next to the item rather than stashing it in
+    an item role: the filter then needs nothing from Qt but ``setHidden``, which
+    keeps this testable against the shared skeleton section in conftest.
+    """
+
+    __slots__ = ("header", "bare_label", "header_text", "rows")
+
+    def __init__(self, header, bare_label: str, header_text: str):
+        self.header = header
+        self.bare_label = bare_label      # "Never Watched"
+        self.header_text = header_text    # "Never Watched (597)" — unfiltered text
+        self.rows: list[tuple[object, str]] = []   # (item, lowercased haystack)
+
+
+def _haystack(*parts: str | None) -> str:
+    """Lowercased text a row is matched against, from explicitly-passed fields.
+
+    Callers pass both names for a queue entry because they can differ:
+    ``search_title`` is the ingestion-cleaned ``detected_title`` while
+    ``channel_name`` is what the provider called it when queued, and the user
+    may remember either. The year goes in so "1999" finds what you queued from
+    that year.
+    """
+    return " ".join(p for p in parts if p).lower()
 
 
 class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
@@ -79,6 +108,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._new_matches_btn.hide()
         self.content_layout.addWidget(self._new_matches_btn)
 
+        # Find-in-queue box. Measured on the owner's install: 612 entries, 597 of
+        # them never watched, and NOTHING older than three months — so this is not
+        # a stale tail an ageing rule could trim (a 3-month cutoff would archive
+        # zero rows; a 1-month cutoff would archive 436 of 612). It is a queue
+        # filled faster than it is drained, where every entry was added
+        # deliberately. Hiding 71% of it to make it navigable would be censorial;
+        # letting the user find one title in it is not.
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Find in queue…")
+        self._filter.setToolTip("Show only queued titles matching this text")
+        self._filter.setClearButtonEnabled(True)
+        self._filter.textChanged.connect(self._on_filter_changed)
+        self.content_layout.addWidget(self._filter)
+
         self._list = QListWidget()
         # Chip rows fit the sidebar width and elide — never scroll sideways (which
         # would push the right-aligned year/language chips off behind the scrollbar).
@@ -117,6 +160,10 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         self._overflow_btn.clicked.connect(self._show_overflow_menu)
         btn_row.addWidget(self._overflow_btn)
         self.content_layout.addLayout(btn_row)
+
+        # Filter bookkeeping — rebuilt by every _populate_rows.
+        self._groups: list[_FilterGroup] = []
+        self._no_match_item = None
 
         self.set_empty(True)
 
@@ -209,6 +256,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         except (AttributeError, RuntimeError):
             pass
         self._has_unavailable = any(not e.available for e in entries) if entries else False
+        # The list was cleared before this call, so every recorded item is gone.
+        self._groups = []
+        self._no_match_item = None
 
         # Alerts Matched (topmost group) — set by _load_rows (worker thread) as a
         # side-channel attribute; a direct/legacy caller of _populate_rows that never
@@ -255,23 +305,86 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         )
 
         if continue_watching:
-            self._add_header("Continue Watching")
-            for e in continue_watching:
-                self._add_entry_item(e)
+            self._add_group("Continue Watching", "Continue Watching", continue_watching)
 
         if never_watched:
-            self._add_header(f"Never Watched ({len(never_watched)})")
-            for e in never_watched:
-                self._add_entry_item(e)
+            self._add_group(
+                "Never Watched", f"Never Watched ({len(never_watched)})", never_watched
+            )
 
         if unavailable:
             # Count in the header because the queue never showed its size
             # anywhere — 611 entries had accumulated with no indication.
-            self._add_header(f"Unavailable ({len(unavailable)})")
-            for e in unavailable:
-                self._add_entry_item(e)
+            self._add_group(
+                "Unavailable", f"Unavailable ({len(unavailable)})", unavailable
+            )
 
-    def _add_entry_item(self, e) -> None:
+        # Re-apply whatever the user is filtering by: a refresh is usually the
+        # side effect of acting on ONE row, and silently dropping the filter
+        # would dump all 600 entries back on them mid-triage.
+        self._apply_filter(self._filter.text())
+
+    # --- Grouping + find-in-queue ---------------------------------------------
+
+    def _add_group(self, bare_label: str, header_text: str, entries: list) -> None:
+        """Render one header + its rows, recording both for the filter."""
+        group = _FilterGroup(self._add_header(header_text), bare_label, header_text)
+        for e in entries:
+            group.rows.append((
+                self._add_entry_item(e),
+                _haystack(
+                    e.search_title, e.channel_name, e.episode_title, e.detected_year
+                ),
+            ))
+        self._groups.append(group)
+
+    def _on_filter_changed(self, text: str) -> None:
+        self._apply_filter(text)
+
+    def _apply_filter(self, text: str) -> None:
+        """Hide non-matching rows; retitle each header with what it is showing.
+
+        Hides rather than re-renders: a keystroke that rebuilt 600 chip-row
+        widgets would stutter, and hiding keeps every row's widget, tooltip and
+        selection intact so clearing the box is instant.
+
+        Headers become "Never Watched (12 of 597)" while filtering and revert to
+        their exact unfiltered text when the box is cleared — a header still
+        claiming 597 above 12 visible rows is a lie about what is on screen.
+        """
+        needle = (text or "").strip().lower()
+        visible = 0
+        for group in self._groups:
+            shown = 0
+            for item, haystack in group.rows:
+                match = not needle or needle in haystack
+                item.setHidden(not match)
+                shown += int(match)
+            visible += shown
+            if needle:
+                group.header.setHidden(shown == 0)
+                group.header.setText(f"{group.bare_label} ({shown} of {len(group.rows)})")
+            else:
+                group.header.setHidden(False)
+                group.header.setText(group.header_text)
+        self._update_no_match_row(needle, visible)
+
+    def _update_no_match_row(self, needle: str, visible: int) -> None:
+        """Say so when a filter matches nothing — an all-hidden list reads as broken."""
+        if needle and visible == 0:
+            text = f"No queued titles match “{needle}”"
+            if self._no_match_item is None:
+                item = QListWidgetItem(text)
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self._list.addItem(item)
+                self._no_match_item = item
+            else:
+                self._no_match_item.setText(text)
+                self._no_match_item.setHidden(False)
+        elif self._no_match_item is not None:
+            self._no_match_item.setHidden(True)
+
+    def _add_entry_item(self, e) -> QListWidgetItem:
         """Add a single queue entry as the shared chip row, dimming unavailable ones.
 
         UserRole carries a dict tagging the entry's grain (Wave 2 Slice 2B) so
@@ -330,6 +443,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setSizeHint(QSize(0, row.sizeHint().height()))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
+        return item
 
     # --- Alerts Matched (topmost group) ---------------------------------------
     # A third, TOPMOST group ahead of "Continue Watching"/"Never Watched": one row
@@ -341,13 +455,20 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         """Render the Alerts Matched header + rows (no-op when both are empty)."""
         if not matched and not series_new:
             return
-        self._add_header(f"{_icons.alert_icon} Alerts Matched")
+        label = f"{_icons.alert_icon} Alerts Matched"
+        group = _FilterGroup(self._add_header(label), label, label)
         for m in matched:
-            self._add_matched_channel_item(m)
+            group.rows.append((
+                self._add_matched_channel_item(m), _haystack(m.title, m.detected_year)
+            ))
         for s in series_new:
-            self._add_matched_series_item(s)
+            group.rows.append((
+                self._add_matched_series_item(s),
+                _haystack(s.get("display_title"), s.get("title")),
+            ))
+        self._groups.append(group)
 
-    def _add_matched_channel_item(self, m) -> None:
+    def _add_matched_channel_item(self, m) -> QListWidgetItem:
         """One unviewed keyword-match row — a chip row with the green NEW pill."""
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, {
@@ -374,8 +495,9 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setSizeHint(QSize(0, row.sizeHint().height()))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
+        return item
 
-    def _add_matched_series_item(self, entry: dict) -> None:
+    def _add_matched_series_item(self, entry: dict) -> QListWidgetItem:
         """One monitored-series-with-new-episodes row (distinct 🆕 icon + count)."""
         from metatv.gui.sidebar.alerts import _VodAlertRow  # local: avoid a top-level cycle
 
@@ -399,6 +521,7 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
         item.setSizeHint(row.sizeHint())
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
+        return item
 
     def _route_matched_click(self, item: QListWidgetItem) -> bool:
         """Route a SINGLE click on an Alerts Matched row; True if handled.
@@ -438,13 +561,14 @@ class WatchQueueSection(BackgroundRefreshMixin, CollapsibleSection):
             return self.config.live_icon
         return self.config.unknown_icon
 
-    def _add_header(self, text: str) -> None:
+    def _add_header(self, text: str) -> QListWidgetItem:
         item = QListWidgetItem(text)
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         font = QFont()
         font.setBold(True)
         item.setFont(font)
         self._list.addItem(item)
+        return item
 
     def _on_double_click(self, item: QListWidgetItem) -> None:
         """Route a DOUBLE click. Series (layered) items navigate; leaf items play.

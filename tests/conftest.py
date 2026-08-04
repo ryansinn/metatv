@@ -14,6 +14,7 @@ import uuid
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -817,8 +818,60 @@ def wire_watch_queue_section(sec, rendered: list) -> None:
         def count(self):
             return len(rendered)
 
+    class _Item:
+        """Stand-in for the QListWidgetItem the real builders return.
+
+        ``_populate_rows`` now hands every header and row it creates to the
+        find-in-queue filter, which calls ``setHidden``/``setText`` on them. The
+        stubs therefore have to RETURN something item-shaped: returning None
+        made the filter pass fail inside the method under test.
+        """
+
+        def __init__(self, text=""):
+            self._text = text
+            self._hidden = False
+
+        def setHidden(self, hidden):
+            self._hidden = hidden
+
+        def isHidden(self):
+            return self._hidden
+
+        def setText(self, text):
+            self._text = text
+
+        def text(self):
+            return self._text
+
+    def _header(text):
+        rendered.append(("HEADER", text))
+        return _Item(text)
+
+    def _row(e):
+        rendered.append(("ROW", e.channel_name))
+        return _Item(e.channel_name)
+
     sec._list = _List()
-    sec._add_header = lambda text: rendered.append(("HEADER", text))
-    sec._add_entry_item = lambda e: rendered.append(("ROW", e.channel_name))
+    wire_watch_queue_filter(sec)
+    sec._add_header = _header
+    sec._add_entry_item = _row
     sec.update_new_match_count = lambda *a, **k: None
     sec.set_empty = lambda *a, **k: None
+
+
+def wire_watch_queue_filter(sec) -> None:
+    """Attach the find-in-queue state ``WatchQueueSection._populate_rows`` needs.
+
+    Every render ends by re-applying the live filter text, so ANY skeleton
+    section that reaches ``_populate_rows`` needs an unfiltered box and the
+    group bookkeeping — including the several test modules that build their own
+    ``__new__`` shell around a REAL ``QListWidget`` to assert on rendered rows.
+
+    Split out from :func:`wire_watch_queue_section` (which supplies a fake list)
+    so those real-widget hosts can call just this part. CLAUDE.md's rule holds
+    either way: skeleton hosts are repaired at the shared factory, never with
+    defensive ``getattr`` in production code.
+    """
+    sec._filter = SimpleNamespace(text=lambda: "")
+    sec._groups = []
+    sec._no_match_item = None

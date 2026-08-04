@@ -345,11 +345,13 @@ def test_queue_on_data_ready_splits_and_maps_icons(qapp):
     from PyQt6.QtWidgets import QListWidget
     from metatv.gui.sidebar.queue import WatchQueueSection
     from metatv.core.repositories.queue import QueueEntry
+    from tests.conftest import wire_watch_queue_filter
 
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
     obj.config = _icon_config()
     obj.set_empty = lambda *_: None
+    wire_watch_queue_filter(obj)
 
     entries = [
         QueueEntry(queue_id=1, channel_id="q1", channel_name="Film A",

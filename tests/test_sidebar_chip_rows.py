@@ -122,11 +122,14 @@ def test_queue_row_is_honest_chip_row(qapp, tmp_path):
         entries = RepositoryFactory(session).queue.get_all()
     assert entries and entries[0].detected_prefix == "EN", "entry must carry the stored prefix"
 
+    from tests.conftest import wire_watch_queue_filter
+
     obj = WatchQueueSection.__new__(WatchQueueSection)
     obj._list = QListWidget()
     obj.config = _config()
     obj.set_empty = lambda *_: None
     obj._has_unavailable = False
+    wire_watch_queue_filter(obj)
     obj._populate_rows(entries)
 
     _assert_honest_chip_row(_first_chip_row(obj._list))
