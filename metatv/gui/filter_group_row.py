@@ -79,6 +79,12 @@ class _TriCheckbox(QCheckBox):
 
 # ── Single item row ────────────────────────────────────────────────────────────
 
+#: Key of the per-section "Untagged" footer toggle. Not a facet VALUE — it is
+#: the switch for "and everything this facet cannot describe", so it is kept
+#: out of every value-set API on _Section (see set_untagged_row).
+UNTAGGED_KEY = "__untagged__"
+
+
 class _ItemRow(QWidget):
     toggled = pyqtSignal(str, bool)
     right_clicked = pyqtSignal(str, QPoint)   # key, global position
@@ -326,6 +332,11 @@ class _Section(QWidget):
         self._show_all_btn: QPushButton | None = None
         self._show_all_expanded: bool = False
 
+        # "Untagged" footer — created lazily by set_untagged_row(); see there
+        # for why it is kept out of _rows.
+        self._untagged_row: _ItemRow | None = None
+        self._untagged_sep: QFrame | None = None
+
         self._and_axis = and_axis
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -450,6 +461,9 @@ class _Section(QWidget):
             row.refresh_theme()
         for group in self._groups:
             group.refresh_theme()
+        if self._untagged_row is not None:
+            self._untagged_row.refresh_theme()
+            self._refresh_untagged_theme()
 
     def set_flat_items(self, items: list[tuple[str, str, int]]):
         """Populate the section with a sorted flat list of (key, label, count) tuples.
@@ -515,6 +529,78 @@ class _Section(QWidget):
             self._groups.append(g)
         self._update_ui()
 
+    # ── "Untagged" footer row ────────────────────────────────────────────────
+    #
+    # Deliberately NOT a member of ``_rows``. It is not a VALUE of the facet —
+    # it is the answer to "and what about everything this facet can't describe?"
+    # Keeping it out of _rows means it is never capped by the Show-all limit,
+    # never reordered by count, and never counted by ``is_all_selected`` /
+    # ``get_selected_keys`` / ``get_all_keys``, so ticking every value still
+    # reads as "no constraint" exactly as before.
+
+    def set_untagged_row(self, count: int, checked: bool = True) -> None:
+        """Show "Untagged — N" beneath the values, always visible.
+
+        *count* is how many channels carry NO tag of this facet at all, within
+        the same visibility scope as the value counts. It is a property of the
+        DATA, not of the current selection, so it does not move as boxes are
+        ticked — that is the whole point: it is the number that explains why
+        unticking a value did not change the result count as much as expected.
+        """
+        if self._untagged_row is not None:
+            self._untagged_row.deleteLater()
+            self._untagged_sep.deleteLater()
+
+        # A plain 1px filled rect, NOT setFrameShape(HLine): a framed QFrame
+        # draws its line from the PALETTE, so a stylesheet "color:" on it paints
+        # nothing at all — which is exactly what the first version did.
+        self._untagged_sep = QFrame()
+        self._untagged_sep.setFixedHeight(1)
+
+        self._untagged_row = _ItemRow(UNTAGGED_KEY, "Untagged", count)
+        self._untagged_row.setToolTip(
+            "Titles with no value on this facet at all.\n\n"
+            "Checked (default): they are shown — a filter for a fact the app "
+            "never learned about a title should not hide it.\n"
+            "Unchecked: only titles that carry one of the values above."
+        )
+        self._untagged_row.set_checked(checked)
+        self._untagged_row.toggled.connect(lambda _k, _v: self.changed.emit())
+        # No "Only" button: it means "show only this VALUE across every section",
+        # and there is no such value here. Leaving it would put a pointing-hand
+        # cursor over a click that silently does nothing — the same dead
+        # affordance the sub/dub chips were fixed for.
+        self._untagged_row._only_btn.hide()
+
+        # Appended AFTER the value rows every time. ``set_flat_items`` clears and
+        # rebuilds the body, so the footer has to be (re)attached last or it ends
+        # up above the values it is a footer for.
+        self._content_layout.addWidget(self._untagged_sep)
+        self._content_layout.addWidget(self._untagged_row)
+
+        visible = count > 0
+        self._untagged_row.setVisible(visible)
+        self._untagged_sep.setVisible(visible)
+        self._refresh_untagged_theme()
+
+    def untagged_included(self) -> bool:
+        """True when untagged content passes this facet (the default)."""
+        return self._untagged_row is None or self._untagged_row.is_checked()
+
+    def has_untagged_row(self) -> bool:
+        return self._untagged_row is not None
+
+    def _refresh_untagged_theme(self) -> None:
+        if self._untagged_sep is not None:
+            # COLOR_BORDER, not COLOR_LINE_DARK: this hairline is doing real
+            # work — it is the boundary between "values of this facet" and "and
+            # everything it can't describe". At the darker token it rendered
+            # invisibly and the row read as one more value.
+            _theme.style_fn(
+                self._untagged_sep,
+                lambda: f"QFrame {{ background-color: {_theme.COLOR_BORDER}; }}",
+            )
+
     def get_selected_keys(self) -> list[str]:
         keys = [r.key() for r in self._rows if r.is_checked()]
         for grp in self._groups:
@@ -541,6 +627,8 @@ class _Section(QWidget):
             r.set_checked(True)
         for g in self._groups:
             g.set_all_checked(True)
+        if self._untagged_row is not None:
+            self._untagged_row.set_checked(True)   # "show everything" includes the undescribed
         self._update_summary()
 
     def select_none(self):
@@ -551,6 +639,8 @@ class _Section(QWidget):
             r.set_checked(False)
         for g in self._groups:
             g.set_all_checked(False)
+        if self._untagged_row is not None:
+            self._untagged_row.set_checked(False)  # "start from nothing" means nothing
         self._update_summary()
 
     def restore_selection(self, selected_keys: set[str]):

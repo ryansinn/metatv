@@ -353,6 +353,7 @@ class ChannelRepository(_ChannelStatsMixin):
                 person_filter: Optional[str] = None,
                 excluded_provider_ids: Optional[List[str]] = None,
                 tag_includes: Optional[Dict[str, Set[str]]] = None,
+                facets_hiding_untagged: Optional[Set[str]] = None,
                 tag_excludes: Optional[Dict[str, Set[str]]] = None,
                 context_tag_filter: Optional[Tuple[str, str]] = None,
                 context_category_filter: Optional[str] = None,
@@ -385,6 +386,11 @@ class ChannelRepository(_ChannelStatsMixin):
                 facets, OR within).  An empty or None set for a facet key is ignored.
                 Implemented as per-facet correlated EXISTS subqueries so pagination
                 and row counts stay entirely in SQL (no id-set materialisation).
+            facets_hiding_untagged: Facet types whose per-section "Untagged"
+                footer toggle the user has UNCHECKED. For those, the include
+                criterion reverts to its strict form (must carry a ticked
+                value); every other facet lets untagged content through. See
+                filter_utils.facet_include_criterion.
             tag_excludes: Faceted tag exclusion — same shape as tag_includes.  A channel
                 is rejected if it carries *any* matching tag.  Currently unused (reserved
                 for the tri-state slice).
@@ -465,6 +471,7 @@ class ChannelRepository(_ChannelStatsMixin):
             person_filter=person_filter,
             excluded_provider_ids=excluded_provider_ids,
             tag_includes=tag_includes,
+            facets_hiding_untagged=facets_hiding_untagged,
             context_tag_filter=context_tag_filter,
             context_category_filter=context_category_filter,
             channel_ids=channel_ids,
@@ -621,6 +628,7 @@ class ChannelRepository(_ChannelStatsMixin):
         person_filter: Optional[str] = None,
         excluded_provider_ids: Optional[List[str]] = None,
         tag_includes: Optional[Dict[str, Set[str]]] = None,
+        facets_hiding_untagged: Optional[Set[str]] = None,
         context_tag_filter: Optional[Tuple[str, str]] = None,
         context_category_filter: Optional[str] = None,
         channel_ids: Optional[Set[str]] = None,
@@ -887,26 +895,22 @@ class ChannelRepository(_ChannelStatsMixin):
         # No id-set materialisation — the subqueries are ANDed into the outer WHERE so
         # pagination (LIMIT/OFFSET) and row counts remain in SQL.
         if tag_includes:
-            from sqlalchemy import exists as _exists, select as _sa_select
-            from sqlalchemy.orm import aliased as _aliased
-            from metatv.core.database import ContentTagDB as _ContentTagDB, TagDB as _TagDB
+            # One criterion per facet, from the shared chokepoint: "a value I
+            # ticked, OR nothing on this facet at all". This was a bare
+            # EXISTS(matching tag), which made ABSENCE indistinguishable from a
+            # wrong value — and since the tag corpus is deliberately sparse,
+            # that made one unticked box cull the library (see
+            # filter_utils.facet_include_criterion for the measured numbers).
+            # Unticking a VALUE still excludes it exactly as strictly as before.
+            from metatv.core.filter_utils import facet_include_criterion
 
+            _strict = facets_hiding_untagged or set()
             for _ftype, _allowed in tag_includes.items():
                 if not _allowed:
                     continue   # empty set = no constraint for this facet
-                _ct = _aliased(_ContentTagDB, flat=True)
-                _t  = _aliased(_TagDB, flat=True)
-                _subq = (
-                    _sa_select(_ct.channel_id)
-                    .join(_t, _t.id == _ct.tag_id)
-                    .where(
-                        _ct.channel_id == ChannelDB.id,
-                        _t.type == _ftype,
-                        _t.value.in_(list(_allowed)),
-                    )
-                    .correlate(ChannelDB)
-                )
-                query = query.filter(_exists(_subq))
+                query = query.filter(facet_include_criterion(
+                    _ftype, _allowed, allow_untagged=_ftype not in _strict,
+                ))
 
         # ── Context filter chip (details-pane tag click): strict, exact, one tag ──
         # Separate from tag_includes (filter panel) so the chip is mutually exclusive
@@ -1405,6 +1409,7 @@ class ChannelRepository(_ChannelStatsMixin):
         adult_mode: str = "all",
         force_adult_provider_ids: Optional[List[str]] = None,
         tag_includes: Optional[Dict[str, Set[str]]] = None,
+        facets_hiding_untagged: Optional[Set[str]] = None,
         # DB-3 — the remaining get_all() filter axes.  These default to inactive so
         # existing callers keep compiling; when the caller forwards the same filters
         # it passed to get_all(), the count matches the visible set (no over-count).
@@ -1476,6 +1481,7 @@ class ChannelRepository(_ChannelStatsMixin):
             person_filter=person_filter,
             excluded_provider_ids=excluded_provider_ids,
             tag_includes=tag_includes,
+            facets_hiding_untagged=facets_hiding_untagged,
             context_tag_filter=context_tag_filter,
             context_category_filter=context_category_filter,
         )

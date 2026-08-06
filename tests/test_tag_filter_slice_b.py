@@ -94,26 +94,42 @@ def _tag(repos, channel_id: str, *pairs: tuple[str, str]) -> None:
 class TestHeadlineIntersection:
     """Platform=Disney+ filter with all-languages returns only Disney+ channels."""
 
-    def test_platform_only_filter_returns_only_disney(self, session):
-        """Headline end-to-end: Language unconstrained + Platform={Disney+} → Disney+ only.
+    def test_platform_filter_excludes_other_platforms_but_not_untagged(self, session):
+        """Headline: a facet filter rejects the values you unticked — and passes
+        content the facet cannot describe at all.
 
         Seeds:
           A — Disney+ English movie  (language=English, platform=Disney+)
-          B — plain English movie    (language=English, no platform tag)
+          B — plain English movie    (language=English, NO platform tag)
           C — Spanish Disney+ movie  (language=Spanish, platform=Disney+)
+          D — Netflix English movie  (language=English, platform=Netflix)
 
-        Filter: tag_includes = {"platform": {"Disney+"}}  (language unconstrained)
-        Expected: {A, C}  (both carry platform=Disney+; B has no platform tag)
+        Filter: tag_includes = {"platform": {"Disney+"}}
+        Expected: {A, C, D-excluded, B-included}
+
+        This test previously asserted the OPPOSITE for B — that a channel with
+        no platform tag must be excluded — because the filter was a bare
+        ``EXISTS(matching tag)``, which cannot tell "wrong value" from "no value".
+        Against a real 489,954-channel library that made one unticked box a
+        library-wide cull: filtering on dub left 12 channels, on subtitle 1,834.
+        Owner's call (#298): "if EVERY filter is selected then EVERYTHING should
+        be included; having results excluded because the available filters are
+        insufficient to represent them is the issue."
+
+        D is the half that keeps this honest — a DIFFERENT platform is still
+        excluded, and exactly as strictly as before.
         """
         repos = RepositoryFactory(session)
 
         id_a = _ch(session, "EN Disney+ Movie A")
         id_b = _ch(session, "EN Plain Movie B")
         id_c = _ch(session, "ES Disney+ Movie C")
+        id_d = _ch(session, "EN Netflix Movie D")
 
         _tag(repos, id_a, ("language", "English"), ("platform", "Disney+"))
         _tag(repos, id_b, ("language", "English"))
         _tag(repos, id_c, ("language", "Spanish"), ("platform", "Disney+"))
+        _tag(repos, id_d, ("language", "English"), ("platform", "Netflix"))
         session.commit()
 
         rows = repos.channels.get_all(
@@ -123,23 +139,37 @@ class TestHeadlineIntersection:
 
         assert id_a in result_ids, "Disney+ English movie must be in result"
         assert id_c in result_ids, "Disney+ Spanish movie must be in result"
-        assert id_b not in result_ids, "Plain English movie (no platform tag) must be excluded"
+        assert id_b in result_ids, (
+            "a channel with NO platform tag made no claim on this facet, so the "
+            "platform filter has nothing to reject it for"
+        )
+        assert id_d not in result_ids, (
+            "a channel on a DIFFERENT platform must still be excluded — this is "
+            "the half that keeps the filter a filter"
+        )
 
-    def test_language_and_platform_intersection(self, session):
-        """Language=English AND Platform=Disney+ → only the English Disney+ channel.
+    def test_two_facets_intersect_and_each_rejects_only_its_own_values(self, session):
+        """Two facets still INTERSECT (AND, never OR) — each one independently
+        rejects the values it was told to reject, and neither rejects content it
+        has nothing to say about.
 
-        Intersection (not union): selecting both Language=English and Platform=Disney+
-        must return only channels that carry BOTH tags.
+        Seeds:
+          A — English + Disney+      → passes both
+          B — English, no platform   → passes language; platform has no claim to judge
+          C — Spanish + Disney+      → REJECTED by language (Spanish was unticked)
+          D — English + Netflix      → REJECTED by platform (Netflix was unticked)
         """
         repos = RepositoryFactory(session)
 
-        id_a = _ch(session, "EN Disney+ Movie A")   # English + Disney+
-        id_b = _ch(session, "EN Plain Movie B")      # English only
-        id_c = _ch(session, "ES Disney+ Movie C")    # Disney+ only (Spanish)
+        id_a = _ch(session, "EN Disney+ Movie A")
+        id_b = _ch(session, "EN Plain Movie B")
+        id_c = _ch(session, "ES Disney+ Movie C")
+        id_d = _ch(session, "EN Netflix Movie D")
 
         _tag(repos, id_a, ("language", "English"), ("platform", "Disney+"))
         _tag(repos, id_b, ("language", "English"))
         _tag(repos, id_c, ("language", "Spanish"), ("platform", "Disney+"))
+        _tag(repos, id_d, ("language", "English"), ("platform", "Netflix"))
         session.commit()
 
         rows = repos.channels.get_all(
@@ -147,9 +177,12 @@ class TestHeadlineIntersection:
         )
         result_ids = {r.id for r in rows}
 
-        assert result_ids == {id_a}, (
-            "Language=English AND Platform=Disney+ must return only the English Disney+ channel"
+        assert result_ids == {id_a, id_b}, (
+            "expected the two English channels the filters have no grounds to "
+            f"reject; got {result_ids}"
         )
+        assert id_c not in result_ids, "Spanish was unticked — language must reject C"
+        assert id_d not in result_ids, "Netflix was unticked — platform must reject D"
 
     def test_no_tag_includes_returns_all(self, session):
         """tag_includes=None means no facet filter — all visible channels pass."""

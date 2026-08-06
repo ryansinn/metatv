@@ -133,44 +133,63 @@ def test_get_filter_state_returns_expected_keys(qapp):
 # 3. Unknown catch-all (_untagged_sec) is still functional
 # ---------------------------------------------------------------------------
 
-def test_untagged_sec_still_exists(qapp):
-    """The Unknown catch-all section (_untagged_sec) must still be present."""
+def test_every_facet_section_has_an_untagged_row(qapp):
+    """The retired "Unknown" section is replaced by a per-facet footer row.
+
+    That section offered two toggles (``no_prefix``/``no_quality``), covered 2
+    of 9 facets — both LEGACY COLUMN axes, neither of them a tag facet — and
+    displayed a hardcoded count of 0 for both. Coverage and freshness had each
+    drifted, which is the failure mode a separate section invites: it has to be
+    hand-extended per facet. The rows are now generated from the same
+    ``_facet_sections()`` map the filter itself reads, so they cannot cover a
+    different set than the thing they describe (#299).
+    """
     panel = _build_panel(qapp)
-    assert hasattr(panel, "_untagged_sec"), "_untagged_sec must exist"
+    panel.update_data(_make_stats(), {"language": 5, "region": 7, "genre": 11})
+
+    for facet, section in panel._facet_sections().items():
+        assert section.has_untagged_row(), f"{facet} section has no untagged row"
 
 
-def test_untagged_sec_has_both_items(qapp):
-    """_untagged_sec must have 'no_prefix' and 'no_quality' items."""
+def test_untagged_row_is_not_a_facet_value(qapp):
+    """It must stay out of every value-set API.
+
+    If it counted as a value, ticking all values would no longer read as "no
+    constraint" — the section would look partially-selected and silently
+    activate a filter.
+    """
     panel = _build_panel(qapp)
-    panel.update_data(_make_stats())
+    panel.update_data(_make_stats(), {"language": 5})
 
-    keys = set(panel._untagged_sec.get_all_keys())
-    assert "no_prefix" in keys, "untagged section must contain 'no_prefix'"
-    assert "no_quality" in keys, "untagged section must contain 'no_quality'"
+    from metatv.gui.filter_group_row import UNTAGGED_KEY
+    sec = panel._lang_sec
+    assert UNTAGGED_KEY not in sec.get_all_keys()
+    assert UNTAGGED_KEY not in sec.get_selected_keys()
+    assert sec.is_all_selected(), "all values ticked must still read as unconstrained"
 
 
-def test_untagged_sec_appears_in_all_sections(qapp):
-    """_untagged_sec must appear in _all_sections()."""
+def test_unticking_untagged_row_reaches_the_filter_state(qapp):
+    """Switching the row off names that facet in ``facets_hiding_untagged`` —
+    the strict opt-in that replaces the old ``include_untagged=False``."""
     panel = _build_panel(qapp)
-    keys = [s.section_key() for s in panel._all_sections()]
-    assert "untagged" in keys, f"'untagged' key must appear in _all_sections(); got {keys}"
+    panel.update_data(_make_stats(), {"language": 5})
 
-
-def test_untagged_deselect_no_prefix_affects_filter_state(qapp):
-    """Deselecting 'no_prefix' in Unknown section sets include_untagged=False."""
-    panel = _build_panel(qapp)
-    panel.update_data(_make_stats())
-
-    # Deselect no_prefix
-    panel._untagged_sec.restore_selection({"no_quality"})
+    panel._lang_sec._untagged_row.set_checked(False)
 
     state = panel.get_filter_state()
-    assert state["include_untagged"] is False, (
-        "deselecting 'no_prefix' must set include_untagged=False"
-    )
-    assert state["include_untagged_quality"] is True, (
-        "'no_quality' still selected must keep include_untagged_quality=True"
-    )
+    assert state["facets_hiding_untagged"] == {"language"}
+
+
+def test_untagged_rows_default_to_included(qapp):
+    """Default is inclusive, and a facet the user has never touched stays that
+    way — the config stores the EXCEPTIONS, so a facet added later starts
+    included rather than silently hidden."""
+    panel = _build_panel(qapp)
+    panel.update_data(_make_stats(), {"language": 5, "genre": 3})
+
+    state = panel.get_filter_state()
+    assert state["facets_hiding_untagged"] is None
+    assert panel._lang_sec.untagged_included() is True
 
 
 # ---------------------------------------------------------------------------

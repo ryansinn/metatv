@@ -43,7 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import exists
 
-from metatv.core.database import ContentTagDB, TagDB
+from metatv.core.database import ChannelDB, ContentTagDB, TagDB
 
 # Confidence denominator — three independent feeders → full confidence.
 _FEEDER_DENOMINATOR: int = 3
@@ -547,7 +547,8 @@ class TagRepository:
                                    excluded_prefixes: Optional[Set[str]] = None,
                                    excluded_categories: Optional[Set[str]] = None,
                                    excluded_tag_content_types: Optional[Set[str]] = None,
-                                   excluded_keywords: Optional[Set[str]] = None):
+                                   excluded_keywords: Optional[Set[str]] = None,
+                                   *, join_channel: bool = True):
         """Join ``ChannelDB`` and restrict a tag query to *visible* channels.
 
         The single definition of "visible channel" for the tag repository's
@@ -587,7 +588,11 @@ class TagRepository:
             query: The SQLAlchemy query to scope.
             channel_id_col: The column expression carrying the channel id to
                 join ``ChannelDB.id`` against (e.g. ``ContentTagDB.channel_id``
-                or an aliased equivalent).
+                or an aliased equivalent). Ignored when *join_channel* is False.
+            join_channel: Whether to JOIN ``ChannelDB``. Pass ``False`` when the
+                query already selects from it — every filter below still
+                applies, so both kinds of caller share one definition of
+                "visible channel" rather than forking the predicate.
             excluded_provider_ids: Provider IDs to additionally exclude.  An
                 empty list still applies the is_hidden / ``##`` scope; ``None``
                 also applies it — callers that want *no* scoping simply don't
@@ -620,7 +625,14 @@ class TagRepository:
         from metatv.core import channel_visibility
         from metatv.core.database import ChannelDB
 
-        query = query.join(ChannelDB, ChannelDB.id == channel_id_col).filter(
+        # join_channel=False for a caller whose query ALREADY selects from
+        # ChannelDB (the untagged totals). Joining ChannelDB to itself raises
+        # "Don't know how to join to ChannelDB" — and because the only caller
+        # that needed it ran inside a background worker, the exception surfaced
+        # as an empty filter panel rather than a traceback.
+        if join_channel:
+            query = query.join(ChannelDB, ChannelDB.id == channel_id_col)
+        query = query.filter(
             ChannelDB.name.notlike("##%"),      # exclude provider category headers
         )
         # Single visibility chokepoint — owns is_hidden, provider scoping, and
@@ -703,6 +715,81 @@ class TagRepository:
             if cnt > 0:
                 result.setdefault(tag_type, {})[value] = int(cnt)
         return result
+
+    def get_facet_untagged_counts(
+        self,
+        excluded_provider_ids: Optional[List[str]] = None,
+        excluded_keywords: Optional[Set[str]] = None,
+        excluded_prefixes: Optional[Set[str]] = None,
+        excluded_categories: Optional[Set[str]] = None,
+        excluded_tag_content_types: Optional[Set[str]] = None,
+    ) -> dict[str, int]:
+        """How many visible channels carry NO tag at all, per facet.
+
+        The number behind each section's "Untagged" footer row. It answers the
+        question a value list cannot: *how much of the library does this facet
+        simply not describe?* — which is what makes an unchanged result count
+        explicable after unticking a value.
+
+        Computed as ``visible_total - COUNT(DISTINCT channel_id) per type`` from
+        ONE aggregate pass, not one ``NOT EXISTS`` per facet. Nine correlated
+        anti-joins over a 490k-row table on every filter repaint is exactly the
+        kind of query CLAUDE.md's background-reads rule exists to keep off the
+        UI thread; this is a single GROUP BY the DB already does for the value
+        counts.
+
+        Scoped identically to :meth:`get_facet_value_counts`, so the untagged
+        figure and the value figures are drawn from the same population and sum
+        to the visible total.
+
+        Args:
+            excluded_provider_ids: Provider IDs to exclude (inactive u expired).
+            excluded_keywords: Global-exclusion keyword axis.
+            excluded_prefixes: Global-exclusion prefix/region codes.
+            excluded_categories: Global-exclusion user categories.
+            excluded_tag_content_types: Global-exclusion content-type slugs.
+
+        Returns:
+            ``{facet_type: untagged_channel_count}``, omitting facets where
+            every visible channel is tagged (nothing to show a row for).
+        """
+        from sqlalchemy import func as _func
+
+        total_q = self._scope_to_visible_channels(
+            self.session.query(_func.count(_func.distinct(ChannelDB.id)))
+                .select_from(ChannelDB),
+            ChannelDB.id, excluded_provider_ids,
+            join_channel=False,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+            excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
+        )
+        visible_total = int(total_q.scalar() or 0)
+        if not visible_total:
+            return {}
+
+        tagged_q = (
+            self.session.query(
+                TagDB.type,
+                _func.count(_func.distinct(ContentTagDB.channel_id)).label("cnt"),
+            )
+            .join(ContentTagDB, ContentTagDB.tag_id == TagDB.id)
+        )
+        tagged_q = self._scope_to_visible_channels(
+            tagged_q, ContentTagDB.channel_id, excluded_provider_ids,
+            excluded_prefixes=excluded_prefixes,
+            excluded_categories=excluded_categories,
+            excluded_tag_content_types=excluded_tag_content_types,
+            excluded_keywords=excluded_keywords,
+        ).group_by(TagDB.type)
+
+        out: dict[str, int] = {}
+        for tag_type, cnt in tagged_q.all():
+            untagged = visible_total - int(cnt or 0)
+            if untagged > 0:
+                out[tag_type] = untagged
+        return out
 
     # ---------------------------------------------------------------------------
     # Canonical facet display order for the Recipe builder pantry sidebar

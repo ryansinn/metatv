@@ -222,14 +222,21 @@ class TestHiddenByExclusions:
 
 class TestHiddenBySearch:
     def test_counts_results_dropped_by_tag_filter(self, session):
-        """2 Disney+ + 3 plain matches, tag_includes=Disney+ → 2 visible, hidden_by_search == 3."""
+        """2 Disney+ + 3 Netflix matches, tag_includes=Disney+ → 2 visible, hidden_by_search == 3.
+
+        The rejected rows carry a DIFFERENT platform. They used to carry no
+        platform tag at all, which stopped being a rejection in #298 — a facet
+        can only reject a value the channel actually claims. An untagged channel
+        is covered by :meth:`test_untagged_is_not_counted_as_search_filtered`
+        below.
+        """
         repos = RepositoryFactory(session)
         disney = [_ch(session, f"Widget Disney {i}") for i in range(2)]
-        plain = [_ch(session, f"Widget Plain {i}") for i in range(3)]
+        netflix = [_ch(session, f"Widget Netflix {i}") for i in range(3)]
         for cid in disney:
             _tag(repos, cid, ("platform", "Disney+"))
-        for cid in plain:
-            _tag(repos, cid, ("language", "English"))
+        for cid in netflix:
+            _tag(repos, cid, ("platform", "Netflix"))
         session.commit()
 
         params = _params(
@@ -239,8 +246,33 @@ class TestHiddenBySearch:
         dtos, out = _ChannelListMixin._query_channels(repos, params)
 
         assert len(dtos) == 2, "only the Disney+ matches survive the Tier-1 filter"
-        assert out["hidden_by_search"] == 3, "the 3 plain matches are counted as search-filtered"
+        assert out["hidden_by_search"] == 3, "the 3 Netflix matches are counted as search-filtered"
         assert out["hidden_by_exclusions"] == 0
+
+    def test_untagged_is_not_counted_as_search_filtered(self, session):
+        """A channel the facet cannot describe is neither hidden NOR counted.
+
+        The count and the list have to agree: if an untagged channel is visible,
+        reporting it as "hidden by search filters" would send the user to a
+        reveal button for content already on screen.
+        """
+        repos = RepositoryFactory(session)
+        disney = [_ch(session, f"Widget Disney {i}") for i in range(2)]
+        untagged = [_ch(session, f"Widget Untagged {i}") for i in range(3)]
+        for cid in disney:
+            _tag(repos, cid, ("platform", "Disney+"))
+        for cid in untagged:
+            _tag(repos, cid, ("language", "English"))   # no PLATFORM tag
+        session.commit()
+
+        params = _params(
+            search_query="Widget",
+            tag_includes={"platform": {"Disney+"}},
+        )
+        dtos, out = _ChannelListMixin._query_channels(repos, params)
+
+        assert len(dtos) == 5, "the 3 platform-less matches are visible alongside the 2 Disney+"
+        assert out["hidden_by_search"] == 0, "nothing was filtered, so nothing may be reported as filtered"
 
     def test_bypass_tier1_shows_all_and_zeroes_count(self, session):
         """The Tier-1 reveal sets tag_includes=None (bypassing) → all matches, hidden_by_search == 0."""
@@ -263,9 +295,13 @@ class TestHiddenBySearch:
         """A search hit by BOTH layers reports each layer's own count.
 
         Widget matches: 2 Disney+/EN (visible), 3 Disney+/AR (region-excluded),
-        4 plain/EN (Tier-1-filtered).  hidden_by_exclusions counts the 3 AR;
+        4 Netflix/EN (Tier-1-filtered).  hidden_by_exclusions counts the 3 AR;
         hidden_by_search counts only what the tag filter removes on top of the
-        exclusion layer (the 4 plain/EN), never double-counting the AR rows.
+        exclusion layer (the 4 Netflix/EN), never double-counting the AR rows.
+
+        The Tier-1-filtered rows carry a rival platform rather than no platform
+        tag (#298: absence is no longer a rejection) — what this test pins is
+        the ACCOUNTING between the two layers, which is unchanged.
         """
         repos = RepositoryFactory(session)
         vis = [_ch(session, f"Widget Vis {i}", detected_region="EN") for i in range(2)]
@@ -274,7 +310,7 @@ class TestHiddenBySearch:
         for cid in vis + excl:
             _tag(repos, cid, ("platform", "Disney+"))
         for cid in plain:
-            _tag(repos, cid, ("language", "English"))
+            _tag(repos, cid, ("platform", "Netflix"))
         session.commit()
 
         params = _params(

@@ -833,7 +833,12 @@ class Config(BaseModel):
     filter_panel_width: int = 220                                   # Persisted splitter width
     filter_include_untagged: bool = True   # Show channels with no detected_prefix
     filter_untagged_selected: list = Field(
-        default_factory=lambda: ["no_prefix", "no_quality"])        # Untagged/Unknown section state
+        default_factory=lambda: ["no_prefix", "no_quality"])        # legacy "Unknown" section (retired #299)
+    # Facets whose per-section "Untagged" footer row the user has switched OFF.
+    # Stores the EXCEPTIONS, not the inclusions: absent means "shown", so the
+    # default is inclusive and any facet added later starts inclusive too
+    # (#299 — a filter must not hide what its facet cannot describe).
+    filter_facets_hiding_untagged: list = Field(default_factory=list)
     filter_adult_mode: str = "hide"        # "all", "hide", or "only"
     filter_hide_watched: bool = False      # When True, exclude watch_completed channels
     show_excluded_count: bool = True

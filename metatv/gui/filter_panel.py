@@ -41,7 +41,7 @@ class FilterPanel(QWidget):
     # subtitle/dub/format sit after genre — audio presentation axis.
     _SECTION_KEYS = ["media", "language", "region", "platform",
                      "quality", "category", "genre", "subtitle", "dub",
-                     "format", "untagged"]
+                     "format"]
 
     # Human-facing facet titles for the new-values opt-out popup.  Iteration order
     # also drives the popup's section order.
@@ -275,24 +275,11 @@ class FilterPanel(QWidget):
         self._sl.addWidget(self._format_sec)
         self._add_divider()
 
-        self._untagged_sec = _Section(
-            "untagged", "Unknown",
-            initially_expanded=_expanded("untagged", True),
-            info_text=(
-                "Channels where no identifying information could be detected at all "
-                "(not even an unrecognised prefix).\n\n"
-                "Region / Language: channels with no language or region prefix.\n"
-                "Playback Quality: channels with no quality marker.\n\n"
-                "Uncheck either to hide that group from results."
-            ),
-            info_icon=_ii, config=self.config)
-        self._untagged_sec.set_flat_items([
-            ("no_prefix",  "Region / Language",  0),
-            ("no_quality", "Playback Quality",   0),
-        ])
-        self._untagged_sec.changed.connect(self._on_changed)
-        self._sl.addWidget(self._untagged_sec)
-
+        # NOTE: the old "Unknown" section lived here. It offered two toggles
+        # (no_prefix / no_quality), covered 2 of 9 facets, and displayed a
+        # hardcoded count of 0 for both. Every facet section now carries its own
+        # "Untagged — N" footer row with a live count, generated from
+        # _facet_sections() so coverage cannot drift again (#299).
         self._sl.addStretch()
         self._scroll.setWidget(self._section_container)
         outer.addWidget(self._scroll, 1)
@@ -341,7 +328,8 @@ class FilterPanel(QWidget):
         for sec in self._all_sections():
             sec.refresh_theme()
 
-    def update_data(self, tag_counts: dict[str, dict[str, int]]):
+    def update_data(self, tag_counts: dict[str, dict[str, int]],
+                    untagged_counts: dict[str, int] | None = None):
         """Populate dynamic sections from ``TagRepository.get_facet_value_counts()``.
 
         ``tag_counts`` is a nested dict ``{facet_type: {value: channel_count}}``
@@ -514,24 +502,6 @@ class FilterPanel(QWidget):
         self._format_sec.set_flat_items(format_items)
         _restore(self._format_sec, prev_format)
 
-        # ── Untagged — static items (no count source in tag model; counts stay at 0).
-        # This section controls whether channels with NO prefix/quality tag pass through
-        # the filter. It remains functional even without accurate counts.
-        prev_untagged = set(self._untagged_sec.get_selected_keys())
-        self._untagged_sec.set_flat_items([
-            ("no_prefix",  "Region / Language", 0),
-            ("no_quality", "Playback Quality",  0),
-        ])
-        if prev_untagged:
-            self._untagged_sec.restore_selection(prev_untagged)
-        else:
-            # Startup: restore persisted untagged selection (default both on)
-            saved_untagged = set(
-                getattr(self.config, 'filter_untagged_selected',
-                        ['no_prefix', 'no_quality']) or ['no_prefix', 'no_quality']
-            )
-            self._untagged_sec.restore_selection(saved_untagged)
-
         # Dynamic sections are now populated — safe for save_state() to persist them.
         self._stats_loaded = True
 
@@ -561,6 +531,42 @@ class FilterPanel(QWidget):
         elif new_by_facet:
             self._show_new_values_popup(new_by_facet)
 
+    #: facet type -> the section that shows it. One place, so the untagged
+    #: footer rows and the tag_includes builder can never cover different sets.
+
+        self._apply_untagged_rows(untagged_counts)
+
+    def _facet_sections(self) -> dict[str, object]:
+        return {
+            "language": self._lang_sec,
+            "region":   self._region_sec,
+            "platform": self._platform_sec,
+            "quality":  self._quality_sec,
+            "category": self._category_sec,
+            "genre":    self._genre_sec,
+            "subtitle": self._subtitle_sec,
+            "dub":      self._dub_sec,
+            "format":   self._format_sec,
+        }
+
+    def _apply_untagged_rows(self, untagged_counts: dict[str, int] | None) -> None:
+        """Give every facet section its "Untagged — N" footer row.
+
+        Replaces the old single "Unknown" section, which covered 2 of 9 facets
+        (both of them legacy column axes, neither a tag facet) and displayed a
+        hardcoded count of 0 for both. A separate section has to be extended by
+        hand for every facet; a footer row is generated from the same map the
+        filter itself uses, so the two cannot drift apart.
+
+        Checked state is restored from ``filter_facets_hiding_untagged`` — the
+        set of facets the user has explicitly switched OFF. Absent = checked,
+        so the default is inclusive and a facet added later starts inclusive too.
+        """
+        hidden = set(getattr(self.config, "filter_facets_hiding_untagged", None) or [])
+        counts = untagged_counts or {}
+        for facet, section in self._facet_sections().items():
+            section.set_untagged_row(int(counts.get(facet, 0)), checked=facet not in hidden)
+
     def get_filter_state(self) -> dict:
         """Return resolved filter state for main_window.load_channels().
 
@@ -584,9 +590,16 @@ class FilterPanel(QWidget):
         media_all = {"live", "movie", "series"}
         media_types = list(media_sel) if media_sel != media_all else list(media_all)
 
-        untagged_selected = set(self._untagged_sec.get_selected_keys())
-        include_untagged         = "no_prefix"  in untagged_selected
-        include_untagged_quality = "no_quality" in untagged_selected
+        # Facets whose "Untagged" footer the user switched OFF.
+        facets_hiding_untagged = {
+            facet for facet, section in self._facet_sections().items()
+            if section.has_untagged_row() and not section.untagged_included()
+        }
+        # The legacy column axes the retired "Unknown" section used to drive.
+        # Nothing sets them False any more: the language/region and quality
+        # facets now own that question through their own footer rows.
+        include_untagged = True
+        include_untagged_quality = True
 
         # ── Build tag_includes: {facet_type: set(selected_values)} ──────────────
         # Facet is constrained only when NOT all items are selected AND the section
@@ -649,6 +662,17 @@ class FilterPanel(QWidget):
             if selected:
                 tag_includes["format"] = selected
 
+        # A facet whose untagged row is OFF must become an ACTIVE constraint even
+        # when every VALUE is ticked — otherwise "hide untagged" would silently
+        # do nothing, because tag_includes is only populated for partially-
+        # selected sections.
+        for facet in facets_hiding_untagged:
+            if facet not in tag_includes:
+                section = self._facet_sections()[facet]
+                selected = set(section.get_selected_keys())
+                if selected:
+                    tag_includes[facet] = selected
+
         return {
             'media_types':        media_types,
             'language_groups':    self._lang_sec.get_selected_keys(),
@@ -668,6 +692,8 @@ class FilterPanel(QWidget):
             # Tag-facet includes — used by _query_channels → get_all(tag_includes=…).
             # None means no tag filter active (all channels pass on this axis).
             'tag_includes': tag_includes or None,
+            # Facets where untagged content must NOT pass (footer row unticked).
+            'facets_hiding_untagged': facets_hiding_untagged or None,
             # Legacy prefix fields — kept so the old fallback path in load_channels
             # (no filter_panel) still has these keys; they are now always None when
             # routing through the tag model.
@@ -757,7 +783,18 @@ class FilterPanel(QWidget):
             }
             # Save media selection and untagged toggles
             self.config.filter_enabled_media_types = state['media_types']
-            self.config.filter_untagged_selected = self._untagged_sec.get_selected_keys()
+            # Only once the footer rows EXIST. save_state() can fire from
+            # _on_changed before update_data() has built them (MainWindow's
+            # restore_search_state does exactly that), and computing the
+            # exception set from zero rows writes [] over the user's saved
+            # choices — the same clobber the dynamic sections are guarded
+            # against just above, and the one this file's own regression tests
+            # were written for.
+            if any(sec.has_untagged_row() for sec in self._facet_sections().values()):
+                self.config.filter_facets_hiding_untagged = sorted(
+                    facet for facet, sec in self._facet_sections().items()
+                    if sec.has_untagged_row() and not sec.untagged_included()
+                )
             self.config.save()
         except Exception as e:
             logger.warning(f"Could not save filter panel state: {e}")
@@ -777,12 +814,6 @@ class FilterPanel(QWidget):
                               ['live', 'movie', 'series']) or ['live', 'movie', 'series']
             self._media_sec.restore_selection(set(enabled))
 
-            # Restore untagged catchall toggles (default both checked)
-            saved_untagged = getattr(self.config, 'filter_untagged_selected',
-                                     ['no_prefix', 'no_quality'])
-            if saved_untagged is not None:
-                self._untagged_sec.restore_selection(set(saved_untagged))
-
         except Exception as e:
             logger.warning(f"Could not restore filter panel state: {e}")
         finally:
@@ -794,7 +825,7 @@ class FilterPanel(QWidget):
         return [self._media_sec, self._lang_sec, self._region_sec,
                 self._platform_sec, self._quality_sec, self._category_sec,
                 self._genre_sec, self._subtitle_sec, self._dub_sec,
-                self._format_sec, self._untagged_sec]
+                self._format_sec]
 
     def _known_section_attrs(self) -> list[tuple[str, str, object]]:
         """Return (included_attr, known_attr, section) triples for the 9 dynamic facets.

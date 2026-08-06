@@ -534,6 +534,7 @@ class _ChannelListMixin:
                 channel_ids=params.get('context_id_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
+                facets_hiding_untagged=params.get('facets_hiding_untagged'),
                 exclude_watched=params.get('hide_watched', False),
                 collapse_variants=params.get('collapse_variants', False),
                 excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
@@ -661,6 +662,7 @@ class _ChannelListMixin:
                 channel_ids=params.get('context_id_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
+                facets_hiding_untagged=params.get('facets_hiding_untagged'),
                 exclude_watched=params.get('hide_watched', False),
                 collapse_variants=params.get('collapse_variants', False),
                 excluded_keywords=None if bypass_keywords else (_excl_keywords or None),
@@ -714,6 +716,7 @@ class _ChannelListMixin:
                 channel_ids=params.get('context_id_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
+                facets_hiding_untagged=params.get('facets_hiding_untagged'),
                 exclude_watched=params.get('hide_watched', False),
                 collapse_variants=params.get('collapse_variants', False),
                 excluded_keywords=None,  # the axis being measured
@@ -756,6 +759,7 @@ class _ChannelListMixin:
                 context_category_filter=params.get('context_category_filter'),
                 excluded_provider_ids=providers_to_exclude or None,
                 tag_includes=params.get('tag_includes'),
+                facets_hiding_untagged=params.get('facets_hiding_untagged'),
             )
 
         # ── Alert "show matches" id-filter: constrain to a stored id-set and report
@@ -1333,25 +1337,38 @@ class _ChannelListMixin:
         )
         _excl_content_types = excluded_tag_content_types(self.config)
         _excl_keywords = set(keyword_exclusion_list(self.config))
-        self._run_query(
-            lambda repos: repos.tags.get_facet_value_counts(
+        def _facet_stats(repos):
+            """Value counts AND per-facet untagged counts, in ONE worker trip.
+
+            The untagged figure is what each section's "Untagged - N" footer row
+            shows. Both are drawn from the same scope so they describe one
+            population and sum to the visible total; fetching them in separate
+            queries would let them disagree after a refresh.
+            """
+            scope = dict(
                 excluded_provider_ids=list(repos.providers.get_hidden_provider_ids()),
                 excluded_keywords=_excl_keywords or None,
                 excluded_prefixes=_excl_prefixes or None,
                 excluded_categories=_excl_categories or None,
                 excluded_tag_content_types=_excl_content_types or None,
-            ),
+            )
+            return (repos.tags.get_facet_value_counts(**scope),
+                    repos.tags.get_facet_untagged_counts(**scope))
+
+        self._run_query(
+            _facet_stats,
             self._on_filter_stats_loaded,
             token_ref=self._filter_stats_token,
             on_error=lambda e: logger.error(f"Failed to load filter stats: {e}"),
         )
 
-    def _on_filter_stats_loaded(self, tag_counts: dict) -> None:
+    def _on_filter_stats_loaded(self, result) -> None:
         """Main-thread handler: apply tag-facet counts to the filter panel."""
+        tag_counts, untagged_counts = result
         # Legacy prefix field — now always empty since we use the tag model.
         self._filter_unmapped_prefixes = []
         if hasattr(self, 'filter_panel'):
-            self.filter_panel.update_data(tag_counts)
+            self.filter_panel.update_data(tag_counts, untagged_counts)
         total = sum(sum(v.values()) for v in tag_counts.values())
         logger.info(f"Initialized filter stats (tag model): {total:,} total tag-value occurrences")
 

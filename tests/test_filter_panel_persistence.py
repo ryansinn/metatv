@@ -17,8 +17,8 @@ Tests:
      (the refresh / source-added case) — saved config must NOT override it.
   3. Genre fresh-install: when no genre selection is persisted, update_data selects
      all genres (previous behaviour).
-  4. Startup Untagged: persisted filter_untagged_selected is applied on first
-     update_data (was also empty-prev).
+  4. Startup Untagged: the persisted per-facet "Untagged" exceptions
+     (filter_facets_hiding_untagged) are applied on first update_data.
 
 All tests build a real FilterPanel via __init__ + QApplication so the Qt widget
 machinery (set_flat_items, restore_selection, get_selected_keys) executes for real —
@@ -54,6 +54,7 @@ def _make_config(
     filter_included_platforms: list[str] | None = None,
     filter_included_genres: list[str] | None = None,
     filter_untagged_selected: list[str] | None = None,
+    filter_facets_hiding_untagged: list[str] | None = None,
     baseline_established: bool = True,
 ) -> SimpleNamespace:
     """Minimal config for FilterPanel — no save(), no filesystem.
@@ -103,6 +104,9 @@ def _make_config(
             if filter_untagged_selected is not None
             else ["no_prefix", "no_quality"]
         ),
+        # Facets whose per-section "Untagged" row is switched OFF (#299).
+        # Stores EXCEPTIONS: absent == included.
+        filter_facets_hiding_untagged=list(filter_facets_hiding_untagged or []),
         filter_adult_mode="hide",
         global_filter_excluded_prefixes=[],
         global_filter_excluded_user_categories=[],
@@ -291,19 +295,38 @@ def test_genre_fresh_install_selects_all(qapp):
 # 4. Startup Untagged: persisted filter_untagged_selected applied by update_data
 # ---------------------------------------------------------------------------
 
-def test_startup_untagged_selection_applied(qapp):
-    """On first update_data, saved untagged selection is restored from config."""
-    # Save only "no_prefix" (hide unknowns for quality)
-    cfg = _make_config(filter_untagged_selected=["no_prefix"])
+def test_startup_untagged_exceptions_restored(qapp):
+    """A facet the user switched OFF stays off across restarts; every other
+    facet comes back INCLUDED.
+
+    Persisted as the exception set (``filter_facets_hiding_untagged``) rather
+    than the inclusion set, so a facet that did not exist when the config was
+    written defaults to shown instead of silently hidden — the same "absent
+    means included" rule that keeps a new VALUE visible under the opt-out model.
+    """
+    cfg = _make_config(filter_facets_hiding_untagged=["subtitle"])
     panel = _build_panel(qapp, cfg)
 
-    panel.update_data(_make_stats())
+    panel.update_data(_make_stats(), {"subtitle": 400, "language": 5, "genre": 3})
 
-    selected = set(panel._untagged_sec.get_selected_keys())
-    assert selected == {"no_prefix"}, (
-        "startup: only the saved untagged key 'no_prefix' should be selected; "
-        f"got {selected!r}"
+    assert panel._subtitle_sec.untagged_included() is False, (
+        "the facet saved as an exception must come back switched OFF"
     )
+    assert panel._lang_sec.untagged_included() is True
+    assert panel._genre_sec.untagged_included() is True
+    assert panel.get_filter_state()["facets_hiding_untagged"] == {"subtitle"}
+
+
+def test_untagged_exception_round_trips_through_save(qapp):
+    """Switching a row off and saving records exactly that facet."""
+    cfg = _make_config()
+    panel = _build_panel(qapp, cfg)
+    panel.update_data(_make_stats(), {"genre": 12})
+
+    panel._genre_sec._untagged_row.set_checked(False)
+    panel.save_state()
+
+    assert cfg.filter_facets_hiding_untagged == ["genre"]
 
 
 # ---------------------------------------------------------------------------

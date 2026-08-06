@@ -1250,3 +1250,87 @@ def recognized_genre(s: str) -> str | None:
     if result in KNOWN_GENRES:
         return result
     return None
+
+
+# ---------------------------------------------------------------------------
+# Facet INCLUDE criterion — the filter panel's "which values do I want?" axis
+# ---------------------------------------------------------------------------
+
+def facet_include_criterion(facet: str, allowed, channel_id_col=None, *,
+                            allow_untagged: bool = True):
+    """"Show values I ticked, AND anything this facet cannot describe."
+
+    A facet filter answers *which values of this facet do I want to see?* A
+    channel carrying no tag of that type has not made a claim on that facet at
+    all, so excluding it answers a question it never asked. This criterion is
+    therefore::
+
+        (has a tag of this type whose value is allowed)
+        OR
+        (has no tag of this type at all)
+
+    Why this is not merely a preference
+    -----------------------------------
+    It used to be the first half alone — a bare ``EXISTS(matching tag)`` — which
+    made absence indistinguishable from a wrong value. Because the tag corpus is
+    SPARSE by design (the decomposer captures what a feeder actually denotes and
+    guesses nothing), that turned every partially-ticked section into a
+    library-wide cull. Measured against a real 489,954-channel library, switching
+    ONE facet on left:
+
+        dub 12 · subtitle 1,834 · format 2,952 · category 5,488 ·
+        quality 31,378 · platform 38,347 · genre 129,995
+
+    So unticking a single subtitle language did not remove that language — it
+    removed the 99.6% of the library that was never tagged for subtitles at all.
+    That directly contradicts the tags rule ("confidence is ranking/prune-
+    priority, NEVER a suppression gate") and the mirror-not-cage tenet: a missing
+    guess was acting as a hard exclusion. Owner's call, #298: "being more
+    inclusive is the correct behavior — if EVERY filter is selected then
+    EVERYTHING should be included, and having results excluded because the
+    available filters are insufficient to represent them is the issue."
+
+    A ticked-off VALUE is still excluded, and exactly as strictly as before —
+    this only changes what happens to content the vocabulary cannot describe.
+    The details-pane context chip stays strict on purpose (it means "show me
+    only this"), and so does ``tag_excludes``.
+
+    Args:
+        facet: The ``TagDB.type`` to constrain (``"subtitle"``, ``"genre"``, …).
+        allowed: The values the user ticked. Empty/None => no constraint at all.
+        channel_id_col: Column to correlate against; defaults to ``ChannelDB.id``.
+        allow_untagged: The section's "Untagged" footer toggle. ``True``
+            (default, and what the checkbox ships checked as) is the rule
+            described above. ``False`` restores the strict form — the user has
+            explicitly asked to see only titles this facet can describe, which
+            is a deliberate choice rather than a side effect of narrowing.
+
+    Returns:
+        A SQLAlchemy criterion, or ``true()`` when *allowed* is empty.
+    """
+    from sqlalchemy import exists, or_, select, true
+    from sqlalchemy.orm import aliased
+    from metatv.core.database import ChannelDB, ContentTagDB, TagDB
+
+    if not allowed:
+        return true()
+    if channel_id_col is None:
+        channel_id_col = ChannelDB.id
+
+    def _subq(with_values: bool):
+        ct = aliased(ContentTagDB, flat=True)
+        t = aliased(TagDB, flat=True)
+        where = [ct.channel_id == channel_id_col, t.type == facet]
+        if with_values:
+            where.append(t.value.in_(list(allowed)))
+        return (
+            select(ct.channel_id)
+            .join(t, t.id == ct.tag_id)
+            .where(*where)
+            .correlate_except(ct, t)
+        )
+
+    if not allow_untagged:
+        return exists(_subq(True))
+    # "matches something I ticked" OR "this facet says nothing about it"
+    return or_(exists(_subq(True)), ~exists(_subq(False)))

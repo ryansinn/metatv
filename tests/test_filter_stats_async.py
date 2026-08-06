@@ -40,9 +40,11 @@ class _FakeFilterPanel:
 
     def __init__(self):
         self.update_data_calls: list[dict] = []
+        self.untagged_calls: list[dict] = []
 
-    def update_data(self, stats: dict) -> None:
+    def update_data(self, stats: dict, untagged_counts: dict | None = None) -> None:
         self.update_data_calls.append(stats)
+        self.untagged_calls.append(untagged_counts)
 
 
 def _make_host() -> MainWindow:
@@ -164,6 +166,12 @@ def test_initialize_filter_stats_query_fn_calls_get_facet_value_counts():
             received_kwargs.append(kwargs)
             return {"language": {"EN": 100}, "quality": {"HD": 50}}
 
+        def get_facet_untagged_counts(self, **kwargs) -> dict:
+            # Same scope kwargs — the two must describe one population, or the
+            # footer count and the value counts disagree (#299).
+            received_kwargs.append(kwargs)
+            return {"language": 7, "quality": 12}
+
     class _FakeProviderRepo:
         def get_hidden_provider_ids(self) -> list[str]:
             return ["hidden-p1", "hidden-p2"]
@@ -174,15 +182,23 @@ def test_initialize_filter_stats_query_fn_calls_get_facet_value_counts():
 
     result = query_fn(_FakeRepos())
 
-    assert len(received_kwargs) == 1
+    assert len(received_kwargs) == 2, (
+        "both the value counts and the untagged counts must be fetched"
+    )
+    assert received_kwargs[0] == received_kwargs[1], (
+        "both queries must run under the SAME visibility scope"
+    )
     kw = received_kwargs[0]
     # Active-source scoping: hidden provider IDs must be forwarded
     assert "excluded_provider_ids" in kw, (
         "excluded_provider_ids must be passed so stats agree with the channel list"
     )
     assert set(kw["excluded_provider_ids"]) == {"hidden-p1", "hidden-p2"}
-    # Return value is the tag_counts dict
-    assert result == {"language": {"EN": 100}, "quality": {"HD": 50}}
+    # Return value is (tag_counts, untagged_counts)
+    assert result == (
+        {"language": {"EN": 100}, "quality": {"HD": 50}},
+        {"language": 7, "quality": 12},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +217,7 @@ _SAMPLE_TAG_COUNTS = {
 def test_on_filter_stats_loaded_sets_unmapped_prefixes_empty():
     """_on_filter_stats_loaded must set _filter_unmapped_prefixes to [] (tag model has none)."""
     host = _make_host()
-    host._on_filter_stats_loaded(_SAMPLE_TAG_COUNTS)
+    host._on_filter_stats_loaded((_SAMPLE_TAG_COUNTS, {'language': 3}))
     # Tag model never produces unmapped prefixes; the field is always reset to []
     assert host._filter_unmapped_prefixes == []
 
@@ -209,14 +225,14 @@ def test_on_filter_stats_loaded_sets_unmapped_prefixes_empty():
 def test_on_filter_stats_loaded_unmapped_prefixes_empty_for_empty_dict():
     """Empty tag_counts dict → _filter_unmapped_prefixes is []."""
     host = _make_host()
-    host._on_filter_stats_loaded({})
+    host._on_filter_stats_loaded(({}, {}))
     assert host._filter_unmapped_prefixes == []
 
 
 def test_on_filter_stats_loaded_calls_filter_panel_update_data():
     """_on_filter_stats_loaded must call filter_panel.update_data with the tag_counts dict."""
     host = _make_host()
-    host._on_filter_stats_loaded(_SAMPLE_TAG_COUNTS)
+    host._on_filter_stats_loaded((_SAMPLE_TAG_COUNTS, {'language': 3}))
     assert host.filter_panel.update_data_calls == [_SAMPLE_TAG_COUNTS]
 
 
@@ -227,6 +243,6 @@ def test_on_filter_stats_loaded_calls_update_data_even_for_empty_counts():
     object — see module docstring.  This test covers the empty-dict edge case.)
     """
     host = _make_host()
-    host._on_filter_stats_loaded({})
+    host._on_filter_stats_loaded(({}, {}))
     assert host._filter_unmapped_prefixes == []
     assert host.filter_panel.update_data_calls == [{}]
